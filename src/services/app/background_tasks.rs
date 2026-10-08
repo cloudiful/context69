@@ -47,6 +47,39 @@ pub async fn start(
             });
         }
     })));
+    // A runtime settings save can change the S3 configuration, so refresh the
+    // gates and re-probe the S3 backend through the same observer/probe path as
+    // the periodic recovery loop. The probe never mutates stored objects.
+    settings.set_runtime_settings_observer(Some(Arc::new({
+        let library = startup.library.clone();
+        move || {
+            let library = library.clone();
+            tokio::spawn(async move {
+                if let Err(error) = library.refresh_dependency_configuration().await {
+                    warn!(
+                        %error,
+                        "failed to refresh dependency gates after runtime settings change"
+                    );
+                }
+                if let Err(error) = library.probe_s3_gate().await {
+                    warn!(
+                        %error,
+                        "failed to probe the s3 dependency gate after runtime settings change"
+                    );
+                }
+            });
+        }
+    })));
+    // Bounded S3 gate recovery (issue 702 P2): reserve the half-open probe lease,
+    // run one read-only backend check, and record the outcome. A no-op when S3
+    // is not the active backend.
+    {
+        let library = startup.library.clone();
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        tokio::spawn(async move {
+            library.run_s3_gate_recovery(shutdown).await;
+        });
+    }
     let document_store =
         DocumentStoreService::new(db.clone(), vector.index.clone(), startup.library.clone());
     document_store.resume_pending();

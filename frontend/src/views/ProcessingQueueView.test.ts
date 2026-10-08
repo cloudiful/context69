@@ -128,6 +128,41 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
+  it("shows per-status parent progress counts and the failure stage beside the error", async () => {
+    listTasks.mockReset().mockResolvedValue(response([failedRow]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const progress = wrapper.find('[data-testid="queue-progress"]');
+    expect(progress.exists()).toBe(true);
+    expect(progress.text()).toContain("0/1");
+    expect(progress.text()).toContain("Failed 1");
+
+    const error = wrapper.find('[data-testid="queue-error"]');
+    expect(error.exists()).toBe(true);
+    expect(error.text()).toContain("Processing");
+    expect(error.text()).toContain("Qdrant unavailable");
+    wrapper.unmount();
+  });
+
+  it("shows running, waiting, and queued parent progress counts", async () => {
+    const mixed: TaskResponse = {
+      ...row,
+      progress: { total: 10, queued: 4, running: 2, waiting: 1, succeeded: 1, failed: 2, cancelled: 0 },
+    };
+    listTasks.mockReset().mockResolvedValue(response([mixed]) as never);
+    const wrapper = await mountQueue();
+    await flushPromises();
+
+    const progress = wrapper.find('[data-testid="queue-progress"]');
+    expect(progress.text()).toContain("1/10");
+    expect(progress.text()).toContain("Running 2");
+    expect(progress.text()).toContain("Waiting 1");
+    expect(progress.text()).toContain("Queued 4");
+    expect(progress.text()).toContain("Failed 2");
+    wrapper.unmount();
+  });
+
   it("renders the Docling waiting reason with the dependency suffix instead of a raw key", async () => {
     listTasks.mockReset().mockResolvedValue(response([waitingDoclingRow]) as never);
     const wrapper = await mountQueue();

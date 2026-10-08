@@ -5,10 +5,7 @@ use crate::db::Database;
 use crate::db::task_file_dedup::{FileDedupDecision, declared_file_id, resolve_file_dedup};
 
 use super::INITIAL_ITEM_STAGE;
-use super::types::{
-    CreateTaskSubmissionRequest, InsertTaskItemRequest, StoredIdempotencyKey,
-    StoredInputStorageObject,
-};
+use super::types::{CreateTaskSubmissionRequest, StoredIdempotencyKey, StoredInputStorageObject};
 
 impl Database {
     pub async fn create_task_submission_with_input_objects(
@@ -193,22 +190,6 @@ impl Database {
         }
         tx.commit().await?;
         Ok((task_id, false, item_ids))
-    }
-
-    pub async fn insert_task_item(&self, request: InsertTaskItemRequest<'_>) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/tasks/insert_item.sql",
-            request.item_id,
-            request.task_id,
-            request.ordinal,
-            request.payload,
-            request.stage,
-            request.file_id,
-            request.input_storage_object_id
-        )
-        .execute(self.pool())
-        .await?;
-        Ok(())
     }
 
     pub async fn get_task_idempotency_key(

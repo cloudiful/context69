@@ -478,4 +478,3 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
-

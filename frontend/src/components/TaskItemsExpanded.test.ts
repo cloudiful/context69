@@ -2,11 +2,17 @@ import { flushPromises, mount } from "@vue/test-utils";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import TaskItemsExpanded from "./TaskItemsExpanded.vue";
-import { apiClient, type TaskItemResponse, type TaskResponse } from "../services/api";
+import {
+  apiClient,
+  type TaskDiagnoseResponse,
+  type TaskItemResponse,
+  type TaskResponse,
+} from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
 
 const getTaskItems = vi.spyOn(apiClient, "getTaskItems");
+const getTaskDiagnose = vi.spyOn(apiClient, "getTaskDiagnose");
 
 function task(total = 2781): TaskResponse {
   return {
@@ -44,16 +50,50 @@ function item(itemId: string, status: TaskItemResponse["status"] = "running"): T
   } as TaskItemResponse;
 }
 
-function mountExpanded(entry: TaskResponse = task()) {
+function mountExpanded(entry: TaskResponse = task(), locale: "en" | "zh-CN" = "en") {
   return mount(TaskItemsExpanded, {
     props: { task: entry, isActing: false },
-    global: { plugins: [testNuxtUiPlugin, createTestI18n("en")] },
+    global: { plugins: [testNuxtUiPlugin, createTestI18n(locale)] },
   });
+}
+
+function diagnoseFor(taskId: string): TaskDiagnoseResponse {
+  return {
+    task: {
+      task_id: taskId,
+      kind: "file_batch",
+      status: "waiting",
+      progress: { total: 0, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 0, cancelled: 0 },
+      stage: "processing",
+      waiting_reason: null,
+      dependency_key: null,
+      next_attempt_at: null,
+      failure_stage: null,
+      error_summary: null,
+      lease_expires_at: null,
+      created_at: "2026-07-20T00:01:00Z",
+      started_at: null,
+      finished_at: null,
+      updated_at: "2026-07-20T00:02:00Z",
+    },
+    items: [],
+    items_truncated: false,
+    dependency_gates: [],
+    consistency: {
+      consistent: true,
+      current_item_id: null,
+      mismatches: [],
+      open_attempt_count: 0,
+      near_exhaustion_item_count: 0,
+    },
+    observed_at: "2026-07-20T00:02:00Z",
+  };
 }
 
 describe("TaskItemsExpanded", () => {
   beforeEach(() => {
     getTaskItems.mockReset();
+    getTaskDiagnose.mockReset();
   });
 
   it("loads the first page and shows the shown/total count", async () => {
@@ -230,6 +270,95 @@ describe("TaskItemsExpanded", () => {
     expect(wrapper.text()).toContain("Unknown");
     expect(wrapper.text()).not.toContain("future_stage");
     expect(wrapper.text()).not.toContain("processingQueue.stages.");
+    wrapper.unmount();
+  });
+
+  it("renders the expanded row status badge through locale keys, not raw identifiers", async () => {
+    getTaskItems.mockResolvedValue({
+      items: [item("row-1", "failed"), item("row-2", "waiting")],
+      next_cursor: null,
+    } as never);
+    const wrapper = mountExpanded(task(), "zh-CN");
+    await flushPromises();
+
+    const badges = wrapper.findAll('[data-testid="task-item-status"]').map((node) => node.text());
+    expect(badges).toEqual(["失败", "等待中"]);
+    wrapper.unmount();
+  });
+
+  it("mounts the diagnose panel that fetches only after an explicit toggle with the rendered task id", async () => {
+    getTaskItems.mockResolvedValue({ items: [], next_cursor: null } as never);
+    getTaskDiagnose.mockResolvedValue({
+      task: {
+        task_id: "rendered-task-id",
+        kind: "file_batch",
+        status: "waiting",
+        progress: { total: 0, queued: 0, running: 0, waiting: 0, succeeded: 0, failed: 0, cancelled: 0 },
+        stage: "processing",
+        waiting_reason: null,
+        dependency_key: null,
+        next_attempt_at: null,
+        failure_stage: null,
+        error_summary: null,
+        lease_expires_at: null,
+        created_at: "2026-07-20T00:01:00Z",
+        started_at: null,
+        finished_at: null,
+        updated_at: "2026-07-20T00:02:00Z",
+      },
+      items: [],
+      items_truncated: false,
+      dependency_gates: [],
+      consistency: {
+        consistent: true,
+        current_item_id: null,
+        mismatches: [],
+        open_attempt_count: 0,
+        near_exhaustion_item_count: 0,
+      },
+      observed_at: "2026-07-20T00:02:00Z",
+    } as never);
+    const wrapper = mountExpanded({ ...task(), task_id: "rendered-task-id" });
+    await flushPromises();
+
+    const toggle = wrapper.find('[data-testid="task-diagnose-toggle"]');
+    expect(toggle.exists()).toBe(true);
+    expect(getTaskDiagnose).not.toHaveBeenCalled();
+
+    await toggle.trigger("click");
+    await flushPromises();
+
+    expect(getTaskDiagnose).toHaveBeenCalledTimes(1);
+    expect(getTaskDiagnose).toHaveBeenCalledWith("rendered-task-id");
+    expect(wrapper.find('[data-testid="task-diagnose-panel"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("rebinds the diagnose panel to a new task id and discards the previous task response", async () => {
+    getTaskItems.mockResolvedValue({ items: [], next_cursor: null } as never);
+    let resolveFirst: ((value: TaskDiagnoseResponse) => void) | null = null;
+    getTaskDiagnose
+      .mockImplementationOnce(
+        () => new Promise<TaskDiagnoseResponse>((resolve) => { resolveFirst = resolve; }),
+      )
+      .mockResolvedValueOnce(diagnoseFor("task-b") as never);
+
+    const wrapper = mountExpanded({ ...task(), task_id: "task-a" });
+    await flushPromises();
+
+    await wrapper.find('[data-testid="task-diagnose-toggle"]').trigger("click");
+    await flushPromises();
+    expect(getTaskDiagnose).toHaveBeenLastCalledWith("task-a");
+
+    await wrapper.setProps({ task: { ...task(), task_id: "task-b" } });
+    await flushPromises();
+
+    resolveFirst!(diagnoseFor("task-a") as never);
+    await flushPromises();
+    expect(wrapper.find('[data-testid="task-diagnose-panel"]').exists()).toBe(false);
+    expect(wrapper.find('[data-testid="task-diagnose-error"]').exists()).toBe(false);
+    expect(getTaskDiagnose).toHaveBeenCalledTimes(1);
+    expect(getTaskDiagnose).not.toHaveBeenCalledWith("task-b");
     wrapper.unmount();
   });
 });

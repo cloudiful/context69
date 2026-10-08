@@ -50,6 +50,7 @@ mod files;
 mod folders;
 mod ingest_batches;
 mod ingest_checkpoint;
+mod processing_health;
 pub use ingest_checkpoint::{
     IndexingCheckpoint, indexing_checkpoint_to_value, parse_indexing_checkpoint,
     payload_with_checkpoint,
@@ -78,6 +79,7 @@ pub(crate) mod remote_download;
 pub(crate) mod remote_proxy;
 mod resources;
 mod s3_gate_cache;
+mod s3_gate_probe;
 mod source_cleanup_dispatcher;
 pub use source_cleanup_dispatcher::{SOURCE_CLEANUP_FALLBACK_INTERVAL, SourceCleanupDispatcher};
 mod source_object_cleanup;

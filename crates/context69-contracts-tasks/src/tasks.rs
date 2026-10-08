@@ -13,6 +13,11 @@ use context69_contracts_namespace::GroupResponse;
 
 pub use context69_contracts_core::TaskRef;
 
+pub use crate::diagnose::{
+    TaskAttemptView, TaskConsistencyReport, TaskDiagnoseItem, TaskDiagnoseParent,
+    TaskDiagnoseResponse,
+};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskKind {

@@ -1,252 +1,26 @@
+//! The lease heartbeat that keeps one claimed item alive.
+//!
+//! `runtime_driver.rs` owns what the worker does with a claim; this module owns
+//! the periodic renewal that stops an abandoned item's lease from expiring, and
+//! the guard that stops the heartbeat outliving the claim that started it.
+
 use std::time::Duration;
 
-use crate::domain_errors::DomainError;
-
-use anyhow::{Context, Result};
-use chrono::Utc;
-use tracing::{info, warn};
+use anyhow::Result;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use super::TaskService;
-use super::inline_waits::{backoff_until, drive_with_inline_waits};
-use super::item_processors::ProcessResult;
-use super::responses::parse_kind;
-
-pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
-    let task = service.task(item.task_id).await?;
-    if task.status == "cancelled" {
-        // Cancelled while this worker was queued: the item lease was cleared
-        // by the cancel and the item is already terminal.
-        return Ok(());
-    }
-    let group = match item.group_id {
-        Some(group_id) => Some(
-            service
-                .db()
-                .get_group_by_id(group_id)
-                .await?
-                .context(DomainError::not_found("task group is no longer accessible"))?,
-        ),
-        None => None,
-    };
-    let kind = parse_kind(&item.kind)?;
-    let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item.lease_token);
-    // Retryable waits stay inline (issue 650 P3): the driver sleeps keeping
-    // the admitted parent/item lease and re-drives, so only a terminal
-    // outcome or an over-budget wait reaches the commit path below.
-    let result = drive_with_inline_waits(service, kind, group.as_ref(), &task, &item).await;
-    item_heartbeat.abort();
-
-    match result {
-        Ok(ProcessResult::Succeeded(resource_id)) => {
-            if !service
-                .db()
-                .finish_task_item(crate::db::FinishTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    status: "succeeded",
-                    resource_id: resource_id.as_deref(),
-                    failure_stage: None,
-                    error_message: None,
-                    retryable: true,
-                    lease_token: item.lease_token,
-                    attempt_id: item.attempt_id,
-                })
-                .await?
-            {
-                return Ok(());
-            }
-            // Upload-time opt-in auto-release (issue 389). Best-effort and
-            // after the success commit: `try_auto_release_source_for_file`
-            // commits `source_released_at` plus the cleanup intent, then
-            // wakes the dispatcher without waiting for S3 only when an
-            // intent was recorded. A failure only leaves the file for the
-            // retry sweep and never changes the processing result.
-            // `cleanup_woken` is logged once at the release site only when
-            // a wake is actually sent, so this call site stays silent to
-            // avoid duplicate/false-positive counts.
-            if let Some(file_id) = resource_id
-                .as_deref()
-                .and_then(|value| value.parse::<Uuid>().ok())
-            {
-                match service
-                    .library()
-                    .try_auto_release_source_for_file(file_id)
-                    .await
-                {
-                    Ok(_) => {}
-                    Err(error) => {
-                        warn!(
-                            %file_id,
-                            %error,
-                            "auto source release failed; retry sweep will handle it"
-                        );
-                    }
-                }
-            }
-        }
-        // Defensive only: the blocking driver consumes every stage advance
-        // inside one claim, so an escaped `Progressed` means the item still has
-        // work and is requeued (the stage itself is never persisted).
-        Ok(ProcessResult::Progressed { .. }) => {
-            if !service
-                .db()
-                .progress_task_item(item.task_id, item.id, item.lease_token, item.attempt_id)
-                .await?
-            {
-                return Ok(());
-            }
-        }
-        Ok(ProcessResult::Waiting {
-            reason,
-            dependency_key,
-            next_attempt_at,
-            message,
-        }) => {
-            info!(
-                task_id = %item.task_id,
-                item_id = %item.id,
-                stage = item.stage.as_deref().unwrap_or("unknown"),
-                reason = %reason,
-                dependency_key = ?dependency_key,
-                next_attempt_at = %next_attempt_at,
-                message = ?message,
-                "task item waiting"
-            );
-            if !service
-                .db()
-                .wait_task_item(crate::db::WaitTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    lease_token: item.lease_token,
-                    waiting_reason: &reason,
-                    dependency_key: dependency_key.as_deref(),
-                    next_attempt_at,
-                    error_message: message.as_deref(),
-                })
-                .await?
-            {
-                return Ok(());
-            }
-        }
-        Ok(ProcessResult::Failed {
-            stage,
-            message,
-            retryable,
-        }) => {
-            warn!(
-                task_id = %item.task_id,
-                item_id = %item.id,
-                stage = %stage,
-                retryable,
-                attempt = item.attempt_count,
-                error = %message,
-                "task item processing failed"
-            );
-            if retryable {
-                if !service
-                    .db()
-                    .wait_task_item(crate::db::WaitTaskItemRequest {
-                        task_id: item.task_id,
-                        item_id: item.id,
-                        lease_token: item.lease_token,
-                        waiting_reason: "backoff",
-                        dependency_key: None,
-                        next_attempt_at: backoff_until(item.attempt_count),
-                        error_message: Some(&format!("{stage}: {message}")),
-                    })
-                    .await?
-                {
-                    return Ok(());
-                }
-            } else if !service
-                .db()
-                .finish_task_item(crate::db::FinishTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    status: "failed",
-                    resource_id: None,
-                    failure_stage: Some(&stage),
-                    error_message: Some(&message),
-                    retryable: false,
-                    lease_token: item.lease_token,
-                    attempt_id: item.attempt_id,
-                })
-                .await?
-            {
-                return Ok(());
-            }
-        }
-        Err(error) => {
-            let message = error.to_string();
-            warn!(
-                task_id = %item.task_id,
-                item_id = %item.id,
-                stage = item.stage.as_deref().unwrap_or("worker"),
-                attempt = item.attempt_count,
-                error = %message,
-                "task item worker error"
-            );
-            if is_retryable_error(&error) {
-                if !service
-                    .db()
-                    .wait_task_item(crate::db::WaitTaskItemRequest {
-                        task_id: item.task_id,
-                        item_id: item.id,
-                        lease_token: item.lease_token,
-                        waiting_reason: "backoff",
-                        dependency_key: None,
-                        next_attempt_at: backoff_until(item.attempt_count),
-                        error_message: Some(&message),
-                    })
-                    .await?
-                {
-                    return Ok(());
-                }
-            } else if !service
-                .db()
-                .finish_task_item(crate::db::FinishTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    status: "failed",
-                    resource_id: None,
-                    failure_stage: item.stage.as_deref().or(Some("worker")),
-                    error_message: Some(&message),
-                    retryable: false,
-                    lease_token: item.lease_token,
-                    attempt_id: item.attempt_id,
-                })
-                .await?
-            {
-                return Ok(());
-            }
-        }
-    }
-
-    // Recompute the parent task and wake the dispatcher when it still has due
-    // work. Parallel workers recompute independently; the aggregation is
-    // atomic, so transiently stale counters are corrected by the next update.
-    service.db().recompute_task(item.task_id).await?;
-    let task = service.task(item.task_id).await?;
-    let due = task
-        .next_attempt_at
-        .map(|next_attempt_at| next_attempt_at <= Utc::now())
-        .unwrap_or(true);
-    if (task.status == "queued" || task.status == "waiting") && due {
-        service.notify_dispatch();
-    }
-    Ok(())
-}
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(60);
 const HEARTBEAT_MAX_CONSECUTIVE_ERRORS: u32 = 3;
 
 /// Aborts the wrapped heartbeat task when dropped so that early `?` returns
 /// from `run_item` cannot leave an orphaned heartbeat renewing a lease forever.
-struct HeartbeatGuard(tokio::task::JoinHandle<()>);
+pub(super) struct HeartbeatGuard(JoinHandle<()>);
 
 impl HeartbeatGuard {
-    fn abort(&self) {
+    pub(super) fn abort(&self) {
         self.0.abort();
     }
 }
@@ -285,7 +59,11 @@ where
     }
 }
 
-fn spawn_item_heartbeat(service: TaskService, item_id: Uuid, lease_token: Uuid) -> HeartbeatGuard {
+pub(super) fn spawn_item_heartbeat(
+    service: TaskService,
+    item_id: Uuid,
+    lease_token: Uuid,
+) -> HeartbeatGuard {
     HeartbeatGuard(tokio::spawn(heartbeat_loop(
         move || {
             let service = service.clone();
@@ -295,16 +73,6 @@ fn spawn_item_heartbeat(service: TaskService, item_id: Uuid, lease_token: Uuid) 
     )))
 }
 
-fn is_retryable_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    !message.contains("invalid")
-        && !message.contains("missing")
-        && !message.contains("requires")
-        && !message.contains("unsupported")
-        && !message.contains("unknown file")
-        && !message.contains("not found")
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::{
@@ -312,21 +80,7 @@ mod tests {
         atomic::{AtomicU32, Ordering},
     };
 
-    use super::{HEARTBEAT_MAX_CONSECUTIVE_ERRORS, heartbeat_loop, parse_kind};
-
-    #[test]
-    fn unknown_task_kind_is_typed_invalid_argument() {
-        use crate::domain_errors::{DomainError, find_domain_error};
-
-        let Err(error) = parse_kind("bogus") else {
-            panic!("expected unknown task kind to fail");
-        };
-        assert!(matches!(
-            find_domain_error(&error),
-            Some(DomainError::InvalidArgument(_))
-        ));
-        assert_eq!(error.to_string(), "unsupported task kind bogus");
-    }
+    use super::{HEARTBEAT_MAX_CONSECUTIVE_ERRORS, heartbeat_loop};
 
     fn test_interval() -> std::time::Duration {
         std::time::Duration::from_millis(1)

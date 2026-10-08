@@ -29,3 +29,15 @@ mod cases_compatibility;
 
 #[path = "task_dispatcher_fast_path/cases_outcome.rs"]
 mod cases_outcome;
+
+#[path = "task_dispatcher_fast_path/cases_parent_consistency.rs"]
+mod cases_parent_consistency;
+
+#[path = "task_dispatcher_fast_path/cases_sql_contract.rs"]
+mod cases_sql_contract;
+
+#[path = "task_dispatcher_fast_path/cases_lease_fence.rs"]
+mod cases_lease_fence;
+
+#[path = "task_dispatcher_fast_path/cases_contract_discrimination.rs"]
+mod cases_contract_discrimination;

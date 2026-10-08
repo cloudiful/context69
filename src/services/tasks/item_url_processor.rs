@@ -241,6 +241,7 @@ mod tests {
         crate::db::ClaimedItem {
             id: Uuid::new_v4(),
             task_id: Uuid::new_v4(),
+            ordinal: 0,
             attempt_count: 1,
             lease_token: Uuid::new_v4(),
             attempt_id: 1,

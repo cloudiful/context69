@@ -1,5 +1,6 @@
 use anyhow::Result;
 use serde_json::Value;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::Database;
@@ -8,10 +9,28 @@ use crate::db::task_file_dedup::{claim_failed_item_file_slots, claim_unfinished_
 use super::INITIAL_ITEM_STAGE;
 use super::types::{FinishTaskItemRequest, RerunTaskItem, StoredTask, WaitTaskItemRequest};
 
+/// Recompute the parent projection inside the item transition's own
+/// transaction.
+///
+/// `task_items` is the execution-state source of truth and the parent counters
+/// are a projection of it, so the item write and `recompute.sql` must commit
+/// together: separate transactions let a reader observe an item row the parent
+/// does not account for yet.
+async fn recompute_parent(tx: &mut Transaction<'_, Postgres>, task_id: Uuid) -> Result<()> {
+    sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 impl Database {
     pub async fn finish_task_item(&self, request: FinishTaskItemRequest<'_>) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
-        let updated = sqlx::query_file!(
+        // `updated` is the item transition, never the attempt row count: an
+        // attempt that maintenance already interrupted (or that the worker
+        // fenced out with a stale id) still leaves the item terminal, and the
+        // parent must be recomputed for it.
+        let updated: bool = sqlx::query_file_scalar!(
             "src/sql/db/tasks/finish_item.sql",
             request.item_id,
             request.status,
@@ -22,9 +41,8 @@ impl Database {
             request.lease_token,
             request.attempt_id
         )
-        .execute(&mut *tx)
+        .fetch_one(&mut *tx)
         .await?;
-        let updated = updated.rows_affected() > 0;
         if updated {
             // The file row is the business fact: a terminal item must leave
             // its file succeeded or failed, never stuck running/pending.
@@ -36,9 +54,7 @@ impl Database {
             )
             .execute(&mut *tx)
             .await?;
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", request.task_id)
-                .execute(&mut *tx)
-                .await?;
+            recompute_parent(&mut tx, request.task_id).await?;
         }
         tx.commit().await?;
         Ok(updated)
@@ -68,21 +84,19 @@ impl Database {
         lease_token: Uuid,
         attempt_id: i64,
     ) -> Result<bool> {
-        let updated = sqlx::query_file!(
+        let mut tx = self.pool().begin().await?;
+        let updated: bool = sqlx::query_file_scalar!(
             "src/sql/db/tasks/progress_item.sql",
             item_id,
             lease_token,
             attempt_id
         )
-        .execute(self.pool())
-        .await?
-        .rows_affected()
-            > 0;
+        .fetch_one(&mut *tx)
+        .await?;
         if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-                .execute(self.pool())
-                .await?;
+            recompute_parent(&mut tx, task_id).await?;
         }
+        tx.commit().await?;
         Ok(updated)
     }
 
@@ -93,21 +107,21 @@ impl Database {
         lease_token: Uuid,
         file_id: Uuid,
     ) -> Result<bool> {
+        let mut tx = self.pool().begin().await?;
         let updated = sqlx::query_file!(
             "src/sql/db/tasks/set_file.sql",
             item_id,
             lease_token,
             file_id
         )
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?
         .rows_affected()
             > 0;
         if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-                .execute(self.pool())
-                .await?;
+            recompute_parent(&mut tx, task_id).await?;
         }
+        tx.commit().await?;
         Ok(updated)
     }
 
@@ -157,30 +171,9 @@ impl Database {
             > 0)
     }
 
-    pub async fn fail_task(
-        &self,
-        task_id: Uuid,
-        lease_token: Uuid,
-        failure_stage: &str,
-        error_message: &str,
-    ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/tasks/fail_task.sql",
-            task_id,
-            lease_token,
-            failure_stage,
-            error_message
-        )
-        .execute(self.pool())
-        .await?;
-        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
-            .execute(self.pool())
-            .await?;
-        Ok(())
-    }
-
     pub async fn wait_task_item(&self, request: WaitTaskItemRequest<'_>) -> Result<bool> {
-        let updated = sqlx::query_file!(
+        let mut tx = self.pool().begin().await?;
+        let updated: bool = sqlx::query_file_scalar!(
             "src/sql/db/tasks/wait_item.sql",
             request.item_id,
             request.lease_token,
@@ -189,15 +182,12 @@ impl Database {
             request.next_attempt_at,
             request.error_message
         )
-        .execute(self.pool())
-        .await?
-        .rows_affected()
-            > 0;
+        .fetch_one(&mut *tx)
+        .await?;
         if updated {
-            sqlx::query_file!("src/sql/db/tasks/recompute.sql", request.task_id)
-                .execute(self.pool())
-                .await?;
+            recompute_parent(&mut tx, request.task_id).await?;
         }
+        tx.commit().await?;
         Ok(updated)
     }
 

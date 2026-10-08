@@ -11,6 +11,8 @@ use super::support::{
 };
 use context69::services::secret_store::key_names;
 use sqlx::Row;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const SYNTHETIC_KEY: &str = "synthetic-s3-secret-key";
 const PURPOSE: &str = "runtime_s3.secret_key";
@@ -146,6 +148,53 @@ fn an_absent_s3_secret_key_keeps_the_stored_one() {
                 .s3
                 .as_ref()
                 .is_some_and(|s3| s3.has_secret_key)
+        );
+
+        reset(db).await;
+    });
+}
+
+/// A runtime settings save must notify the observer so the S3 dependency gate
+/// can refresh and re-probe; the connection test stays a pure read-only probe
+/// and must never notify.
+#[test]
+fn a_runtime_settings_save_notifies_the_observer_but_a_connection_test_does_not() {
+    run(async |db| {
+        reset(db).await;
+        let mut settings = service(db, keyed(db));
+        let notifications = Arc::new(AtomicUsize::new(0));
+        let counter = notifications.clone();
+        settings.set_runtime_settings_observer(Some(Arc::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        })));
+
+        settings
+            .update_runtime_settings(&runtime_request(
+                None,
+                Some(s3_request(Some(SYNTHETIC_KEY))),
+            ))
+            .await
+            .expect("save the runtime s3 settings");
+        assert_eq!(
+            notifications.load(Ordering::SeqCst),
+            1,
+            "a runtime settings save must notify the observer once"
+        );
+
+        // The connection test is a pure read-only probe against an unreachable
+        // loopback endpoint: it may fail, but it must not notify the observer or
+        // touch the persisted settings. Install the process-wide HTTP transport
+        // the production binary installs so the probe makes a real attempt.
+        opendal::install_default();
+        let probe = settings.test_s3_connection(&s3_request(None)).await;
+        assert!(
+            probe.is_err(),
+            "the unreachable endpoint must fail the check"
+        );
+        assert_eq!(
+            notifications.load(Ordering::SeqCst),
+            1,
+            "test_s3_connection must stay read-only and never notify the observer"
         );
 
         reset(db).await;

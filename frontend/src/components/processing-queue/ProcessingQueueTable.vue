@@ -6,7 +6,7 @@ import TaskItemsExpanded from "../TaskItemsExpanded.vue";
 import type { SortDirection, TaskKind, TaskListView, TaskResponse, TaskSortBy, TaskStatus } from "../../services/api";
 import { formatTimestamp } from "../../utils/format";
 import { libraryDependencyLabel } from "../../utils/library-status";
-import { queueStageLabel } from "../../composables/queue-helpers";
+import { QUEUE_STAGE_VALUES, queueStageLabel } from "../../composables/queue-helpers";
 import QueueHeaderFilter from "./QueueHeaderFilter.vue";
 import { createQueueFilterSelects, useQueueFilterOptions, useQueueTableColumns } from "./queue-table-filters";
 
@@ -149,6 +149,14 @@ function waitingLabel(reason: string | null, dependency: string | null) {
 function dependencyLabel(dependency: string | null) {
   return dependency ? libraryDependencyLabel(t, dependency) : "--";
 }
+const KNOWN_STAGES: ReadonlySet<string> = new Set(QUEUE_STAGE_VALUES);
+// The parent error cell pairs the error summary with a failure stage, but only
+// when the stage is one the queue names; an unmapped internal stage stays
+// hidden rather than leaking a raw identifier.
+function errorStageLabel(stage: string | null): string | null {
+  if (!stage || !KNOWN_STAGES.has(stage)) return null;
+  return queueStageLabel(t, stage);
+}
 function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "neutral" | "primary" {
   if (status === "succeeded") return "success";
   if (status === "failed") return "error";
@@ -253,8 +261,30 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
     <template #dependency-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="row.original.dependency_key || undefined">{{ dependencyLabel(row.original.dependency_key) }}</span></template>
     <template #stage-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ stageLabel(row.original.stage) }}</span></template>
     <template #waiting-cell="{ row }"><span class="block max-w-48 truncate text-sm text-muted" :title="waitingLabel(row.original.waiting_reason, row.original.dependency_key)">{{ waitingLabel(row.original.waiting_reason, row.original.dependency_key) }}</span></template>
-    <template #progress-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span></template>
-    <template #error-cell="{ row }"><span class="block max-w-80 truncate text-sm text-muted" :title="row.original.error_summary || undefined">{{ row.original.error_summary || "--" }}</span></template>
+    <template #progress-cell="{ row }">
+      <div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted" data-testid="queue-progress">
+        <span class="whitespace-nowrap font-mono">{{ row.original.progress.succeeded }}/{{ row.original.progress.total }}</span>
+        <span v-if="row.original.progress.running" class="whitespace-nowrap">{{ t("processingQueue.statuses.running") }} {{ row.original.progress.running }}</span>
+        <span v-if="row.original.progress.waiting" class="whitespace-nowrap">{{ t("processingQueue.statuses.waiting") }} {{ row.original.progress.waiting }}</span>
+        <span v-if="row.original.progress.queued" class="whitespace-nowrap">{{ t("processingQueue.statuses.queued") }} {{ row.original.progress.queued }}</span>
+        <span v-if="row.original.progress.failed" class="whitespace-nowrap text-(--ui-error)">{{ t("processingQueue.statuses.failed") }} {{ row.original.progress.failed }}</span>
+      </div>
+    </template>
+    <template #error-cell="{ row }">
+      <span
+        class="block max-w-80 truncate text-sm text-muted"
+        :title="row.original.error_summary || undefined"
+        data-testid="queue-error"
+      >
+        <template v-if="row.original.error_summary">
+          <span
+            v-if="errorStageLabel(row.original.failure_stage)"
+            class="mr-1 rounded bg-surface-100 px-1 text-xs dark:bg-surface-800"
+          >{{ errorStageLabel(row.original.failure_stage) }}</span>{{ row.original.error_summary }}
+        </template>
+        <template v-else>--</template>
+      </span>
+    </template>
     <template #created_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.created_at) }}</span></template>
     <template #updated_at-cell="{ row }"><span class="whitespace-nowrap text-sm text-muted">{{ formatTimestamp(row.original.updated_at) }}</span></template>
     <template #actions-cell="{ row }">

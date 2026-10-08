@@ -43,6 +43,7 @@ pub struct SettingsService {
     docling_secrets: SettingsSecrets,
     s3_secrets: SettingsSecrets,
     docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
+    runtime_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl SettingsService {
@@ -71,6 +72,7 @@ impl SettingsService {
             docling_secrets: SettingsSecrets::docling(store.clone()),
             s3_secrets: SettingsSecrets::runtime_s3(store),
             docling_settings_observer: None,
+            runtime_settings_observer: None,
         }
     }
 
@@ -78,6 +80,14 @@ impl SettingsService {
     /// gates (e.g. docling readiness) refresh without a process restart.
     pub fn set_docling_settings_observer(&mut self, observer: Option<Arc<dyn Fn() + Send + Sync>>) {
         self.docling_settings_observer = observer;
+    }
+
+    /// Register a hook invoked after runtime settings are saved, so dependency
+    /// gates (the S3 gate in particular) refresh and re-probe without a process
+    /// restart. Like the Docling hook it is notification only: the persisted
+    /// row is already committed when it fires.
+    pub fn set_runtime_settings_observer(&mut self, observer: Option<Arc<dyn Fn() + Send + Sync>>) {
+        self.runtime_settings_observer = observer;
     }
 
     pub async fn get_runtime_settings(&self) -> Result<RuntimeSettingsResponse> {
@@ -133,6 +143,9 @@ impl SettingsService {
         self.embedding_secrets.commit(&patch).await?;
         self.s3_secrets.commit(&s3_patch).await?;
         let saved = self.db.save_runtime_settings(&stored).await?;
+        if let Some(observer) = &self.runtime_settings_observer {
+            observer();
+        }
         let has = self.embedding_secrets.is_present().await?;
         let has_s3_secret_key = match saved.file_library.s3.as_ref() {
             Some(_) => self.s3_secrets.is_present().await?,

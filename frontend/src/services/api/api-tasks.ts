@@ -6,6 +6,7 @@ import type {
   RerunTaskResponse,
   TaskItemsResponse,
   TaskItemStatus,
+  TaskDiagnoseResponse,
   TaskKind,
   TaskListQuery,
   TaskListView,
@@ -78,6 +79,12 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         },
         signal: options?.signal,
       })) as Promise<TaskItemsResponse>;
+    },
+    getTaskDiagnose(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/tasks/{task_id}/diagnose", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<TaskDiagnoseResponse>;
     },
     retryTask(taskId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/retry", {

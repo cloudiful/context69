@@ -433,6 +433,96 @@ async fn stage_progress_resets_the_attempt_count() {
 }
 
 #[tokio::test]
+async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
+    let Some(url) = test_database_url() else {
+        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping attempt decoupling test");
+        return;
+    };
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let _claim_guard = CLAIM_LOCK.lock().await;
+
+    let user_id = seed_test_user(&db).await;
+    let (task_id, _, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/lease"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "attempt-decoupled",
+        })
+        .await
+        .expect("create task");
+
+    let claimed = db
+        .claim_items(10)
+        .await
+        .expect("claim item")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("item must be claimed");
+
+    // `task_attempts` is append-only forensics, and recovery may already have
+    // closed this attempt before the worker reported its outcome. The item
+    // transition is the fact the parent projection follows, so the finish must
+    // still take effect and still recompute the parent.
+    sqlx::query(
+        "UPDATE context69.task_attempts SET status = 'interrupted', finished_at = now() WHERE id = $1",
+    )
+    .bind(claimed.attempt_id)
+    .execute(db.pool())
+    .await
+    .expect("close the attempt before the worker finishes");
+
+    assert!(
+        db.finish_task_item(context69::db::FinishTaskItemRequest {
+            task_id,
+            item_id: item_ids[0],
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            lease_token: claimed.lease_token,
+            attempt_id: claimed.attempt_id,
+        })
+        .await
+        .expect("finish item"),
+        "a closed attempt must not make a valid item finish look fenced out"
+    );
+
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(
+        task.status, "succeeded",
+        "the parent projection must follow the item, not the attempt row count"
+    );
+    assert_eq!(task.succeeded_count, 1, "the parent must count the item");
+    assert_eq!(task.running_count, 0);
+    let lease_token: Option<Uuid> =
+        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("load lease_token");
+    assert!(
+        lease_token.is_none(),
+        "a terminal parent must release its slot"
+    );
+
+    cleanup_task(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
 async fn items_of_one_parent_are_claimed_one_at_a_time() {
     let Some(url) = test_database_url() else {
         eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parallel claim test");

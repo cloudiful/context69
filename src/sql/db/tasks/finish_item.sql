@@ -1,3 +1,11 @@
+-- Finish one item and close its attempt as one unit.
+--
+-- The statement reports `updated` from the item transition, never from the
+-- `task_attempts` row count. An attempt is append-only forensics: maintenance
+-- may have interrupted it, or the worker may hold a stale attempt id, and
+-- neither changes the fact that the item reached a terminal status. Deciding
+-- the parent recompute from the attempt rows instead made a successful finish
+-- look like a lost lease and skipped the parent projection.
 WITH finished AS (
     UPDATE context69.task_items
     SET status = $2,
@@ -20,14 +28,17 @@ WITH finished AS (
         updated_at = now()
     WHERE id = $1 AND lease_token = $7 AND status = 'running'
     RETURNING id
+), attempt_finished AS (
+    UPDATE context69.task_attempts
+    SET status = $2,
+        retryable = $6,
+        failure_stage = $4,
+        error_message = $5,
+        finished_at = now()
+    WHERE id = $8
+      AND item_id = $1
+      AND finished_at IS NULL
+      AND EXISTS (SELECT 1 FROM finished)
+    RETURNING id
 )
-UPDATE context69.task_attempts
-SET status = $2,
-    retryable = $6,
-    failure_stage = $4,
-    error_message = $5,
-    finished_at = now()
-WHERE id = $8
-  AND item_id = $1
-  AND finished_at IS NULL
-  AND EXISTS (SELECT 1 FROM finished)
+SELECT EXISTS (SELECT 1 FROM finished) AS "updated!"

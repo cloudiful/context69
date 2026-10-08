@@ -6360,6 +6360,45 @@
         }
       }
     },
+    "/v1/tasks/{task_id}/diagnose": {
+      "get": {
+        "tags": [],
+        "operationId": "diagnose_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskDiagnoseResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/{task_id}/items": {
       "get": {
         "tags": [],
@@ -10465,6 +10504,17 @@
             "format": "int64",
             "minimum": 0
           },
+          "parent_consistency": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskQueueConsistencyHealth",
+                "description": "Parent-task consistency gauges. Optional and additive: absent when the\nconsistency snapshot could not be read, so an older deployment never\nfails the health probe on this field."
+              }
+            ]
+          },
           "pending_count": {
             "type": "integer",
             "format": "int64",
@@ -12310,6 +12360,344 @@
           }
         }
       },
+      "TaskAttemptView": {
+        "type": "object",
+        "description": "One `task_attempts` row projected for inspection.\n\nAttempts are append-only forensics; this view is a read projection of the\nnewest row per item plus the open row, never a mutable attempt state.",
+        "required": [
+          "attempt_id",
+          "attempt",
+          "status",
+          "retryable",
+          "started_at"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "attempt_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "TaskConsistencyReport": {
+        "type": "object",
+        "description": "Parent-versus-item consistency verdict for one task.\n\n`mismatches` names the disagreeing fields so an operator sees the breach,\nnot just a boolean.",
+        "required": [
+          "consistent",
+          "mismatches",
+          "open_attempt_count",
+          "near_exhaustion_item_count"
+        ],
+        "properties": {
+          "consistent": {
+            "type": "boolean"
+          },
+          "current_item_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The lowest-ordinal non-terminal item: the one the parent reports as its\ncurrent item."
+          },
+          "mismatches": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "near_exhaustion_item_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "open_attempt_count": {
+            "type": "integer",
+            "format": "int64"
+          }
+        }
+      },
+      "TaskDiagnoseItem": {
+        "type": "object",
+        "description": "One item with its attempt forensics and lease deadline, ordered by\n`ordinal`. Carries no payload: the diagnose view explains progress, it does\nnot re-expose item input.",
+        "required": [
+          "item_id",
+          "ordinal",
+          "status",
+          "attempt_count",
+          "retryable",
+          "created_at"
+        ],
+        "properties": {
+          "active_attempt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskAttemptView",
+                "description": "The open attempt, present exactly while the item is claimed."
+              }
+            ]
+          },
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "item_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "latest_attempt": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskAttemptView",
+                "description": "The newest attempt row, open or finished."
+              }
+            ]
+          },
+          "lease_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Item lease deadline; absent for an item that holds no lease."
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskItemStatus"
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TaskDiagnoseParent": {
+        "type": "object",
+        "description": "Parent projection for `GET /v1/tasks/{task_id}/diagnose`.\n\nCarries the stored parent row plus the admission lease deadline. The lease\ntoken itself is never projected: it authorizes writes and has no diagnostic\nvalue.",
+        "required": [
+          "task_id",
+          "kind",
+          "status",
+          "progress",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error_summary": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failure_stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/TaskKind"
+          },
+          "lease_expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Deadline of the durable parent admission slot, absent when no slot is\nheld."
+          },
+          "next_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/TaskProgress"
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "TaskDiagnoseResponse": {
+        "type": "object",
+        "description": "Response body for `GET /v1/tasks/{task_id}/diagnose`.\n\nRead-only operator detail for one task: the parent projection, its items in\nordinal order with attempt forensics, the dependency gates those items can\nwait on, and the parent/item consistency verdict.",
+        "required": [
+          "task",
+          "items",
+          "items_truncated",
+          "dependency_gates",
+          "consistency",
+          "observed_at"
+        ],
+        "properties": {
+          "consistency": {
+            "$ref": "#/components/schemas/TaskConsistencyReport"
+          },
+          "dependency_gates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryDependencyGateResponse"
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskDiagnoseItem"
+            }
+          },
+          "items_truncated": {
+            "type": "boolean",
+            "description": "`true` when the task has more items than one response can carry; the\nreturned items are then the lowest ordinals."
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task": {
+            "$ref": "#/components/schemas/TaskDiagnoseParent"
+          }
+        }
+      },
       "TaskItemResponse": {
         "type": "object",
         "required": [
@@ -12645,6 +13033,87 @@
           "waiting": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "TaskQueueConsistencyHealth": {
+        "type": "object",
+        "description": "Parent-level task consistency gauges for `/healthz`.\n\n`task_items` is the execution-state source of truth and the parent counters\nare its projection, so every gauge here compares a parent against its own\nitems. A non-zero mismatch or orphan-lease count is an internal-invariant\nbreach, not a user error.",
+        "required": [
+          "parent_count",
+          "active_parent_count",
+          "dependency_waiting_parent_count",
+          "parent_status_counts",
+          "running_parent_without_running_item_count",
+          "lease_without_running_item_count",
+          "open_attempt_count",
+          "near_exhaustion_item_count",
+          "parent_item_mismatch_count"
+        ],
+        "properties": {
+          "active_parent_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parents still holding work (`queued`/`running`/`waiting`).",
+            "minimum": 0
+          },
+          "dependency_waiting_parent_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Active parents whose `current` item is parked on a dependency gate.",
+            "minimum": 0
+          },
+          "lease_without_running_item_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parents holding a durable admission lease with no live item lease:\nthe slot is occupied but no worker owns the work.",
+            "minimum": 0
+          },
+          "near_exhaustion_item_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Items at or one attempt below the five-attempt cap.",
+            "minimum": 0
+          },
+          "oldest_admitted_age_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Age of the oldest admitted parent lease.",
+            "minimum": 0
+          },
+          "open_attempt_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "`task_attempts` rows without `finished_at`; every live claim has one.",
+            "minimum": 0
+          },
+          "parent_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parent tasks counted by the snapshot (all non-trashed tasks).",
+            "minimum": 0
+          },
+          "parent_item_mismatch_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parents whose stored counters/stage disagree with their item rows.",
+            "minimum": 0
+          },
+          "parent_status_counts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryProcessingMetric"
+            },
+            "description": "Parent status distribution, so a queue stuck in one state is visible."
+          },
+          "running_parent_without_running_item_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Parents reporting `running` while no item of theirs is `running`.",
+            "minimum": 0
           }
         }
       },

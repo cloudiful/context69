@@ -90,6 +90,12 @@ pub(super) async fn drive_item(
     runner: &(dyn ItemStageRunner + '_),
 ) -> Result<ProcessResult> {
     for _ in 0..MAX_ITEM_STAGES {
+        // Entry into the stage the worker is about to run. The caller's
+        // lifecycle span already carries task/item/attempt/ordinal, so this
+        // event only has to name the stage itself. Debug: a stage advance is
+        // not a queue-visible transition (the column is not persisted
+        // mid-run) and fires up to `MAX_ITEM_STAGES` times per item.
+        tracing::debug!(target: "task_lifecycle", entered_stage = stage, "task item entered stage");
         match runner.run(item, stage).await? {
             ProcessResult::Progressed { next } => stage = next,
             terminal => return Ok(terminal),
@@ -129,6 +135,15 @@ fn resume_stage(kind: TaskKind, stage: Option<&str>) -> &'static str {
         Some("finalize") => "finalize",
         _ => entry_stage(kind),
     }
+}
+
+/// The stage this claim enters, for the lifecycle log.
+///
+/// The persisted `stage` column is the collapsed `processing` marker and never
+/// advances mid-run, so an attempt log that reports it names a stage no
+/// operator can act on. This is the real entry stage the worker starts at.
+pub(super) fn resolve_entry_stage(kind: TaskKind, stage: Option<&str>) -> &'static str {
+    resume_stage(kind, stage)
 }
 
 fn entry_stage(kind: TaskKind) -> &'static str {
@@ -300,7 +315,7 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_ITEM_STAGES, entry_stage, resume_stage};
+    use super::{MAX_ITEM_STAGES, entry_stage, resolve_entry_stage, resume_stage};
     use context69_contracts::TaskKind;
 
     #[test]
@@ -332,6 +347,35 @@ mod tests {
         assert_eq!(
             resume_stage(TaskKind::FileBatch, Some("finalize")),
             "finalize"
+        );
+    }
+
+    #[test]
+    fn resolve_entry_stage_reports_the_stage_a_claim_actually_enters() {
+        // Issue 702 P3 review: the attempt-start log reported the persisted
+        // `processing` marker, which never advances mid-run, so it named a
+        // stage no operator could act on. The lifecycle log must report the
+        // real entry stage instead.
+        for (kind, expected) in [
+            (TaskKind::UrlBatch, "download"),
+            (TaskKind::TextBatch, "storage"),
+            (TaskKind::FileBatch, "storage"),
+            (TaskKind::DeleteBatch, "delete"),
+            (TaskKind::SourceSync, "sync"),
+            (TaskKind::VectorRebuild, "indexing"),
+            (TaskKind::Translation, "translation"),
+            (TaskKind::GitIndex, "indexing"),
+        ] {
+            assert_eq!(
+                resolve_entry_stage(kind, Some("processing")),
+                expected,
+                "a fresh claim of {kind:?} must report the stage it enters"
+            );
+        }
+        assert_eq!(
+            resolve_entry_stage(TaskKind::FileBatch, Some("finalize")),
+            "finalize",
+            "the terminal marker is the one stage that survives a re-claim"
         );
     }
 

@@ -46,6 +46,8 @@ use super::{
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
+use super::tasks::diagnose_task;
+
 pub async fn router(app: Arc<Context69App>) -> Result<Router> {
     let upload_body_limit = app.library.max_upload_request_size_bytes();
     let api_state = build_api_state(app);
@@ -148,7 +150,23 @@ fn protected_routes(upload_body_limit: usize, api_state: ApiState) -> Router<Api
         .merge(settings_routes(api_state.clone()))
         .merge(library_routes(upload_body_limit, api_state.clone()))
         .merge(document_routes(api_state.clone()))
-        .merge(task_routes(api_state))
+        .merge(task_routes(api_state.clone()))
+        .merge(task_diagnose_routes(api_state))
+}
+
+/// Read-only task inspection routes.
+///
+/// Mounted here rather than in `resource_routes::task_routes` so the diagnose
+/// read keeps its own router next to the documented scope gate instead of
+/// sharing the batch-mutation surface. It uses the same workspace scope gate,
+/// and the handler itself enforces task-detail authorization.
+fn task_diagnose_routes(api_state: ApiState) -> Router<ApiState> {
+    Router::new()
+        .route("/v1/tasks/{task_id}/diagnose", get(diagnose_task))
+        .layer(from_fn_with_state(
+            api_state,
+            require_workspace_scope_middleware,
+        ))
 }
 
 fn general_protected_routes(api_state: ApiState) -> Router<ApiState> {

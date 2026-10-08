@@ -77,6 +77,11 @@ pub struct StoredTaskItem {
 pub struct ClaimedItem {
     pub id: Uuid,
     pub task_id: Uuid,
+    /// Item position inside the parent, returned by the claim statement itself
+    /// (issue 702 P3). Every lifecycle transition reports it, so an operator can
+    /// correlate a transition with item position; a caller never has to read it
+    /// back.
+    pub ordinal: i32,
     pub attempt_count: i32,
     pub lease_token: Uuid,
     pub attempt_id: i64,
@@ -127,6 +132,66 @@ pub struct TaskProcessingHealth {
     pub failed_last_hour: i64,
 }
 
+/// One row of `task_consistency.sql`: the parent/item consistency verdict for
+/// the scope the statement was given.
+///
+/// Two consumers share this projection. `None` scope gives the whole-queue
+/// gauges behind `/healthz`; `Some(task_id)` gives one task's verdict plus the
+/// per-item lease and attempt forensics behind the diagnose endpoint, so both
+/// read the same consistency definition and the same current-item ordering.
+#[derive(Debug, Clone, FromRow)]
+pub struct TaskConsistencyRow {
+    pub parent_count: i64,
+    pub active_parent_count: i64,
+    pub dependency_waiting_parent_count: i64,
+    pub parent_status_counts: Value,
+    pub running_parent_without_running_item_count: i64,
+    pub lease_without_running_item_count: i64,
+    pub open_attempt_count: i64,
+    pub near_exhaustion_item_count: i64,
+    pub oldest_admitted_at: Option<DateTime<Utc>>,
+    pub parent_item_mismatch_count: i64,
+    /// Item leases of the scoped parent that are still live. Used by tests and
+    /// diagnostics to tell "no item is running" from "the item's worker is gone".
+    pub live_running_count: i64,
+    pub current_item_id: Option<Uuid>,
+    /// Deadline of the scoped parent's admission lease. Meaningful only for a
+    /// single-task scope; `None` for the whole-queue scope.
+    pub scoped_lease_until: Option<DateTime<Utc>>,
+    /// Names of the disagreeing parent fields, empty when the parent agrees
+    /// with its items.
+    pub mismatch_fields: Value,
+    /// `[{item_id, ordinal, lease_expires_at, active_attempt, latest_attempt}]`
+    /// for the scoped task. Always empty for the whole-queue scope.
+    pub item_diagnostics: Value,
+}
+
+/// One item's lease deadline and attempt forensics from
+/// [`TaskConsistencyRow::item_diagnostics`]. The SQL returns this as JSONB
+/// because the two lateral attempt lookups are only worth their cost for a
+/// single-task diagnose.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TaskItemDiagnostic {
+    pub item_id: Uuid,
+    pub ordinal: i32,
+    pub lease_expires_at: Option<DateTime<Utc>>,
+    pub active_attempt: Option<StoredTaskAttempt>,
+    pub latest_attempt: Option<StoredTaskAttempt>,
+}
+
+/// A `task_attempts` row projected for the diagnose response.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct StoredTaskAttempt {
+    pub attempt_id: i64,
+    pub attempt: i32,
+    pub status: String,
+    pub retryable: bool,
+    pub failure_stage: Option<String>,
+    pub error_message: Option<String>,
+    pub started_at: DateTime<Utc>,
+    pub finished_at: Option<DateTime<Utc>>,
+}
+
 /// Grouped arguments for task submission.
 ///
 /// Bundles the shared task metadata and submission payload references used by
@@ -148,16 +213,27 @@ pub struct CreateTaskSubmissionRequest<'a> {
     pub request_hash: &'a str,
 }
 
-/// Grouped arguments for inserting one task item.
-#[derive(Debug, Clone, Copy)]
-pub struct InsertTaskItemRequest<'a> {
-    pub item_id: Uuid,
-    pub task_id: Uuid,
-    pub ordinal: i32,
-    pub payload: &'a Value,
-    pub stage: Option<&'a str>,
-    pub file_id: Option<Uuid>,
-    pub input_storage_object_id: Option<Uuid>,
+/// Ordering of a task-item read (issue 702 P3).
+///
+/// One statement serves both task-item reads, so the ordering is a parameter
+/// rather than a second copy of the query: the paged items endpoint documents
+/// active-first, and diagnose documents the task's own ordinal sequence. A new
+/// ordering is added here instead of a new statement.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskItemOrder {
+    /// Failed, running, queued, waiting, cancelled, succeeded, then ordinal.
+    ActiveFirst,
+    /// Lowest ordinal first, so a limit keeps the task's earliest items.
+    OrdinalFirst,
+}
+
+impl TaskItemOrder {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ActiveFirst => "active",
+            Self::OrdinalFirst => "ordinal",
+        }
+    }
 }
 
 /// Grouped filter arguments for listing tasks.

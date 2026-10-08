@@ -2,6 +2,8 @@
 //! view predicate, user scoping, and active-first ordering that the service
 //! layer relies on, and the issue #667 Phase 2B terminal-payload migration
 //! must strip only the planned keys under kind/status/file guards.
+//!
+//! The issue 702 P3 statements have their own module, `sql_contract_tests_p3.rs`.
 
 /// Issue #667 Phase 2B migration, read verbatim so the contract test fails if
 /// a guard, kind list, or stripped key drifts from the plan.

@@ -68,8 +68,10 @@ pub(super) async fn drive_with_inline_waits(
     let mut rounds_used = 0u32;
     while let Some(until) = inline_wait_until(&result, item.attempt_count, rounds_used) {
         tracing::debug!(
+            target: "task_lifecycle",
             task_id = %item.task_id,
             item_id = %item.id,
+            attempt = item.attempt_count,
             round = rounds_used + 1,
             until = %until,
             "task item retryable wait stays inline keeping the admitted lease"

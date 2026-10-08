@@ -1079,8 +1079,7 @@ fn b0_pagination_audit_exact_equals_but_window_and_bounds_differ() {
     assert_eq!(window_value.get("has_more"), Some(&json!(true)));
     assert_eq!(window_value.get("total_is_exact"), Some(&json!(false)));
     let offset_from_same =
-        to_value(OffsetPagination::try_new(1, 8, 9).expect("offset same numbers"))
-            .expect("offset");
+        to_value(OffsetPagination::try_new(1, 8, 9).expect("offset same numbers")).expect("offset");
     assert_ne!(
         window_value, offset_from_same,
         "window signals make Pagination incompatible with OffsetPagination"

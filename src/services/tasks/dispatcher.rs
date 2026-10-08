@@ -1,8 +1,18 @@
+//! The dispatcher loop: decide when an item is claimed and when a lease
+//! expires.
+//!
+//! The lifecycle transitions it emits go through `lifecycle_logging.rs`, which
+//! owns the shared log vocabulary.
+
 use std::time::Duration;
 
 use tokio::time::{MissedTickBehavior, interval};
 
 use super::TaskService;
+use super::lifecycle_logging::{
+    log_claim, log_claims_dispatched, log_maintenance_failed, log_maintenance_outcome,
+    log_no_claimable_item,
+};
 
 const RECOVERY_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -74,9 +84,11 @@ async fn dispatch_available(service: &TaskService) {
             }
         };
         if items.is_empty() {
+            log_no_claimable_item(service.worker_capacity(), available_slots);
             break;
         }
         for item in items {
+            log_claim(&item);
             let Ok(permit) = service.worker_slots().try_acquire_owned() else {
                 break;
             };
@@ -85,13 +97,10 @@ async fn dispatch_available(service: &TaskService) {
         }
     }
 
-    tracing::info!(
-        target: "task_dispatch",
+    log_claims_dispatched(
         claimed_total,
-        parent_capacity = service.worker_capacity(),
-        inflight_count = service.worker_capacity().saturating_sub(service.available_worker_slots()),
-        available_slots = service.available_worker_slots(),
-        "task dispatcher state"
+        service.worker_capacity(),
+        service.available_worker_slots(),
     );
 }
 
@@ -103,34 +112,8 @@ async fn dispatch_available(service: &TaskService) {
 /// without running its own UPDATE/RETURNING work.
 async fn run_maintenance(service: &TaskService) {
     match service.db().maintain_claim_state().await {
-        Ok(outcome) => {
-            if outcome.exhausted_items
-                + outcome.exhausted_files
-                + outcome.exhausted_tasks
-                + outcome.expired_attempts
-                > 0
-            {
-                tracing::info!(
-                    target: "task_dispatch",
-                    exhausted_items = outcome.exhausted_items,
-                    exhausted_files = outcome.exhausted_files,
-                    exhausted_tasks = outcome.exhausted_tasks,
-                    expired_attempts = outcome.expired_attempts,
-                    "task claim maintenance converged terminal state"
-                );
-            }
-            if outcome.renewed_parent_leases + outcome.revoked_parent_leases > 0 {
-                tracing::debug!(
-                    target: "task_dispatch",
-                    renewed_parent_leases = outcome.renewed_parent_leases,
-                    revoked_parent_leases = outcome.revoked_parent_leases,
-                    "task parent admission leases converged"
-                );
-            }
-        }
-        Err(error) => {
-            tracing::warn!(%error, "task claim maintenance failed; continuing");
-        }
+        Ok(outcome) => log_maintenance_outcome(&outcome),
+        Err(error) => log_maintenance_failed(&error),
     }
 }
 
@@ -138,12 +121,11 @@ async fn run_maintenance(service: &TaskService) {
 mod tests {
     use std::time::Duration;
 
+    use futures::{StreamExt, stream::FuturesUnordered};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
     };
-
-    use futures::{StreamExt, stream::FuturesUnordered};
     use tokio::{
         sync::{Notify, Semaphore},
         time::timeout,

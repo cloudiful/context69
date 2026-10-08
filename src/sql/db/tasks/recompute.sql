@@ -1,3 +1,19 @@
+-- Canonical parent projection for one task (issue 702 P1).
+--
+-- `task_items` is the execution-state source of truth; every counter and
+-- summary field on the parent is derived from it here, so a parent can never
+-- disagree with its own items once this statement runs.
+--
+-- One current-item ordering, shared with `claim_items.sql` and
+-- `maintain_claim_state.sql`: the parent's current item is the lowest-ordinal
+-- non-terminal item, full stop. There is no running/queued/waiting ranking.
+--
+-- Head-of-line waiting: because the collapsed scheduler runs one item at a
+-- time, the head-of-line item decides the parent status. A parent whose
+-- current item is backing off or parked on a dependency reports `waiting`
+-- with that item's reason, dependency, and retry time, even while later
+-- siblings sit queued. Only terminal overrides come before it, so a cancelled
+-- task stays cancelled and a finished one stays succeeded/failed.
 UPDATE context69.tasks t
 SET queued_count = counts.queued_count,
     running_count = counts.running_count,
@@ -34,10 +50,8 @@ SET queued_count = counts.queued_count,
              AND counts.failed_count = 0 THEN 'succeeded'
         WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count
              THEN 'failed'
-        WHEN counts.running_count > 0 THEN 'running'
-        WHEN counts.queued_count > 0 THEN 'queued'
-        WHEN counts.waiting_count > 0 THEN 'waiting'
-        ELSE 'queued'
+        WHEN current_item.status IS NULL THEN 'queued'
+        ELSE current_item.status
     END,
     finished_at = CASE
         WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count
@@ -58,11 +72,8 @@ FROM (
     WHERE task_id = $1
     GROUP BY task_id
 ) counts
--- The collapsed stage machine runs one item at a time, so the task snapshot
--- is the first non-terminal item in ordinal order; there is no running/
--- queued/waiting priority left to rank.
 LEFT JOIN LATERAL (
-    SELECT stage, waiting_reason, dependency_key, next_attempt_at
+    SELECT status, stage, waiting_reason, dependency_key, next_attempt_at
     FROM context69.task_items
     WHERE task_id = counts.task_id
       AND status IN ('queued', 'running', 'waiting')
