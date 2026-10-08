@@ -164,6 +164,19 @@ impl SearchService {
         })
     }
 
+    /// The identity used to scope the query-embedding cache. It reads the live
+    /// provider, so a same-dimension model/base change after a rebuild cannot
+    /// reuse a vector embedded by the previous provider. The configured startup
+    /// string is only a fallback for a provider that reports none.
+    fn cache_embedding_identity(&self) -> String {
+        let live = self.embedding.embedding_identity();
+        if live.is_empty() {
+            self.embedding_model.clone()
+        } else {
+            live
+        }
+    }
+
     /// Resolve the absolute candidate offset a request targets: from the opaque
     /// `cursor` when present, otherwise from the deprecated `page` (kept for
     /// compatibility, mapping to the offset `(page - 1) * limit`).
@@ -212,9 +225,12 @@ impl SearchService {
         probe: &mut SearchProbe,
     ) -> Result<CandidateWindow> {
         let embed_started = Instant::now();
+        // The cache is scoped by the live identity, so a provider/identity change
+        // that kept the same width cannot serve a vector embedded by the old one.
+        let embedding_identity = self.cache_embedding_identity();
         let vector = if let Some(vector) = self
             .cache
-            .get_query_embedding(&self.embedding_model, query_hash)
+            .get_query_embedding(&embedding_identity, query_hash)
             .await
         {
             probe.embed_cache_hit = true;
@@ -222,7 +238,7 @@ impl SearchService {
         } else {
             let vector = self.embedding.embed_query(&request.query).await?;
             self.cache
-                .set_query_embedding(&self.embedding_model, query_hash, &vector)
+                .set_query_embedding(&embedding_identity, query_hash, &vector)
                 .await;
             vector
         };
@@ -540,7 +556,10 @@ impl SearchService {
             .unwrap_or_else(SearchSettings::default);
         let generation = self.repository.get_search_generation().await?;
         let request_hash = SearchCache::request_hash(&request);
-        let settings_hash = SearchCache::settings_hash(&settings);
+        // The response cache is scoped by the live embedding identity too, so a
+        // same-width model/base change cannot serve a pre-change page.
+        let settings_hash =
+            SearchCache::settings_hash_with_identity(&settings, &self.cache_embedding_identity());
         let query_hash = SearchCache::query_hash(&request.query);
         let cursor_ctx = cursor_context(&request, request.limit, generation, &settings);
         let vector_multiplier = if request.metadata_filters.is_empty() {

@@ -7,6 +7,7 @@ import AppSettingsSection from "../AppSettingsSection.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
 import SettingsFileLibraryBlock from "./SettingsFileLibraryBlock.vue";
+import SettingsTestButton from "./SettingsTestButton.vue";
 import VectorIndexRebuildControl from "./VectorIndexRebuildControl.vue";
 import type { DraftRuntimeSettings } from "../../utils/settings";
 import type { TaskResponse } from "../../services/api";
@@ -19,6 +20,7 @@ const props = defineProps<{
   schedulerToggleModel: SchedulerToggleModel;
   s3Testing: boolean;
   valkeyTesting: boolean;
+  embeddingTesting: boolean;
   vectorRebuildStatus: TaskResponse | null;
 }>();
 const emit = defineEmits<{
@@ -26,6 +28,7 @@ const emit = defineEmits<{
   "update:schedulerToggleModel": [value: SchedulerToggleModel];
   "test-s3": [];
   "test-valkey": [];
+  "test-embedding": [];
   "rebuild-vector-index": [];
 }>();
 const { t } = useI18n();
@@ -45,6 +48,14 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
   <AppSettingsSection :legend="t('settings.runtime.title')">
     <div class="grid gap-6">
       <AppSettingsBlock id="settings-embedding" compact :title="t('settings.runtime.embeddingTitle')">
+        <template #actions>
+          <SettingsTestButton
+            :testing="embeddingTesting"
+            test-id="runtime-embedding-test"
+            :label="t('settings.runtime.embeddingTest')"
+            @test="emit('test-embedding')"
+          />
+        </template>
         <div class="grid gap-3">
           <div class="grid max-w-2xl gap-3">
             <AppTextField
@@ -124,6 +135,15 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock id="settings-scheduler" compact :title="t('settings.runtime.schedulerTitle')">
+        <template #actions>
+          <SettingsTestButton
+            :testing="valkeyTesting"
+            :disabled="!runtimeDraft.scheduler.valkey_url.trim()"
+            test-id="runtime-valkey-test"
+            :label="t('settings.runtime.valkeyTest')"
+            @test="emit('test-valkey')"
+          />
+        </template>
         <div class="grid max-w-2xl gap-3">
           <AppNumberField
             input-id="runtime-scheduler-interval"
@@ -155,20 +175,6 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
             :helper="t('settings.runtime.valkeyRestartRequired')"
             placeholder="redis://valkey:6379/0"
           />
-          <div class="flex items-end">
-            <UButton
-              size="sm"
-              color="neutral"
-              :disabled="valkeyTesting || !runtimeDraft.scheduler.valkey_url.trim()"
-              :aria-busy="valkeyTesting"
-              data-testid="runtime-valkey-test"
-              @click="emit('test-valkey')"
-            >
-              <UIcon name="i-lucide-loader-circle" v-if="valkeyTesting" class="h-4 w-4" />
-              <UIcon v-else name="i-lucide-zap" />
-              <span>{{ t("settings.runtime.valkeyTest") }}</span>
-            </UButton>
-          </div>
           <AppToggleGroup
             name="runtime.scheduler"
             :model-value="schedulerToggleModel"

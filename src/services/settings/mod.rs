@@ -4,6 +4,7 @@ use anyhow::Result;
 
 use crate::domain_errors::DomainError;
 
+mod embedding_probe;
 mod mappers;
 mod runtime_mappers;
 pub(crate) mod secrets;
@@ -27,13 +28,18 @@ use crate::{
     contracts::{
         CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, DoclingSettingsSource,
         RuntimeSettingsResponse, SearchSettingsResponse, UpdateDoclingSettingsRequest,
-        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+        UpdateRuntimeEmbeddingSettings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::{Database, default_search_settings},
     docling::DoclingConfig,
     services::secret_store::{self, SecretStore},
     support::normalize::normalize_optional_string,
 };
+
+/// Rejects an embedding update the live runtime cannot apply, before it is
+/// persisted.
+type RuntimeEmbeddingGuard =
+    Arc<dyn Fn(&UpdateRuntimeEmbeddingSettings) -> Result<()> + Send + Sync>;
 
 #[derive(Clone)]
 pub struct SettingsService {
@@ -44,6 +50,11 @@ pub struct SettingsService {
     s3_secrets: SettingsSecrets,
     docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     runtime_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
+    /// Rejects an embedding update that cannot be applied to the live runtime
+    /// (a dimension change against a fixed-dimension vector index). Installed
+    /// only by the running application, so an unconfigured service keeps the
+    /// contract its callers already exercise.
+    runtime_embedding_guard: Option<RuntimeEmbeddingGuard>,
 }
 
 impl SettingsService {
@@ -73,6 +84,7 @@ impl SettingsService {
             s3_secrets: SettingsSecrets::runtime_s3(store),
             docling_settings_observer: None,
             runtime_settings_observer: None,
+            runtime_embedding_guard: None,
         }
     }
 
@@ -88,6 +100,14 @@ impl SettingsService {
     /// row is already committed when it fires.
     pub fn set_runtime_settings_observer(&mut self, observer: Option<Arc<dyn Fn() + Send + Sync>>) {
         self.runtime_settings_observer = observer;
+    }
+
+    /// Register a guard that rejects an embedding update the live runtime cannot
+    /// apply (an identity change while a fixed index is live, or a save racing a
+    /// reload/rebuild). It runs before anything is persisted, so a rejected save
+    /// leaves the stored row and the running runtime unchanged.
+    pub fn set_runtime_embedding_guard(&mut self, guard: Option<RuntimeEmbeddingGuard>) {
+        self.runtime_embedding_guard = guard;
     }
 
     pub async fn get_runtime_settings(&self) -> Result<RuntimeSettingsResponse> {
@@ -117,6 +137,14 @@ impl SettingsService {
         request: &UpdateRuntimeSettingsRequest,
     ) -> Result<RuntimeSettingsResponse> {
         settings_validate::runtime_settings_request(request)?;
+
+        // Rejected before any write when the live runtime cannot apply it (a
+        // model/dimension/endpoint identity change against a live vector index),
+        // so a save never reports success while leaving the old runtime in
+        // effect.
+        if let Some(guard) = &self.runtime_embedding_guard {
+            guard(&request.embedding)?;
+        }
 
         let patch = optional_key_patch(request.embedding.api_key.clone());
         // Resolved before anything is written even though the value is not part

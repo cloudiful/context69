@@ -7,6 +7,10 @@ use context69_contracts_search::SearchMode;
 
 pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTOR_WEIGHT_DEFAULT};
 
+mod connection_tests;
+
+pub use connection_tests::{TestRuntimeEmbeddingRequest, TestRuntimeValkeyRequest};
+
 fn default_search_vector_weight() -> f32 {
     SEARCH_VECTOR_WEIGHT_DEFAULT
 }
@@ -207,11 +211,6 @@ pub struct RuntimeSchedulerSettings {
     pub job_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valkey_url: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct TestRuntimeValkeyRequest {
-    pub valkey_url: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]

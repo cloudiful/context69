@@ -64,6 +64,7 @@ declare module 'vue' {
     SettingsFileLibraryBlock: typeof import('./src/components/settings-sections/SettingsFileLibraryBlock.vue')['default']
     SettingsRuntimeSection: typeof import('./src/components/settings-sections/SettingsRuntimeSection.vue')['default']
     SettingsSearchSection: typeof import('./src/components/settings-sections/SettingsSearchSection.vue')['default']
+    SettingsTestButton: typeof import('./src/components/settings-sections/SettingsTestButton.vue')['default']
     SourceConfigEditor: typeof import('./src/components/SourceConfigEditor.vue')['default']
     TablePagination: typeof import('./src/components/TablePagination.vue')['default']
     TaskDiagnosePanel: typeof import('./src/components/TaskDiagnosePanel.vue')['default']

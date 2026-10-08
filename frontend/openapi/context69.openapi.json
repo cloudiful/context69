@@ -5251,6 +5251,47 @@
         }
       }
     },
+    "/v1/settings/runtime/embedding/test": {
+      "post": {
+        "tags": [],
+        "operationId": "test_embedding_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRuntimeEmbeddingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/runtime/s3/test": {
       "post": {
         "tags": [],
@@ -13628,6 +13669,39 @@
             }
           }
         ]
+      },
+      "TestRuntimeEmbeddingRequest": {
+        "type": "object",
+        "description": "A non-persisting embedding provider probe.\n\nAn absent `api_key` falls back to the stored key, so a saved deployment can\nbe tested without re-entering the credential; a submitted key is used as\ngiven and never written.",
+        "required": [
+          "base_url",
+          "model",
+          "dimensions",
+          "timeout_secs"
+        ],
+        "properties": {
+          "api_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "model": {
+            "type": "string"
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
       },
       "TestRuntimeValkeyRequest": {
         "type": "object",

@@ -96,6 +96,10 @@ impl SyncService {
         connector: Arc<dyn SourceConnector>,
     ) -> Result<SyncOutcome> {
         let runtime = self.runtime()?.clone();
+        // One provider for the whole run so a settings save mid-sync cannot
+        // switch providers between records, and so a run does not start while
+        // an identity-changing rebuild is re-embedding the collection.
+        let embedding = runtime.embedding.require_ready()?;
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(&source.key).await?
         } else {
@@ -163,7 +167,7 @@ impl SyncService {
                         .iter()
                         .map(|chunk| chunk.text.clone())
                         .collect::<Vec<_>>();
-                    let embeddings = runtime.embedding.embed_texts(&texts).await?;
+                    let embeddings = embedding.embed_texts(&texts).await?;
                     let payloads = chunks
                         .iter()
                         .map(|chunk| {
@@ -216,6 +220,9 @@ impl SyncService {
 
     pub async fn rebuild_index_from_db(&self) -> Result<usize> {
         let runtime = self.runtime()?.clone();
+        // One provider for the whole rebuild so a settings save mid-rebuild
+        // cannot mix two providers into one collection.
+        let embedding = runtime.embedding.require()?;
         let total_chunks = self.db.count_chunk_payloads_for_reindex().await?;
         self.set_vector_rebuild_progress(0, total_chunks).await;
         if total_chunks == 0 {
@@ -242,7 +249,7 @@ impl SyncService {
                 .iter()
                 .map(|payload| payload.chunk_text.clone())
                 .collect::<Vec<_>>();
-            let embeddings = runtime.embedding.embed_texts(&texts).await?;
+            let embeddings = embedding.embed_texts(&texts).await?;
             runtime
                 .index
                 .replace_document_chunks(&[], &batch, &embeddings)

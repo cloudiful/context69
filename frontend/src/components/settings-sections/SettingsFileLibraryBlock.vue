@@ -5,6 +5,7 @@ import AppNumberField from "../AppNumberField.vue";
 import AppSettingsBlock from "../AppSettingsBlock.vue";
 import AppTextField from "../AppTextField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
+import SettingsTestButton from "./SettingsTestButton.vue";
 import type { DraftRuntimeSettings } from "../../utils/settings";
 
 const props = defineProps<{
@@ -26,6 +27,15 @@ function updateS3PathStyle(value: Record<string, boolean>) {
 
 <template>
   <AppSettingsBlock id="settings-file-library" compact :title="t('settings.runtime.fileLibraryTitle')">
+    <template #actions>
+      <SettingsTestButton
+        v-if="runtimeDraft.file_library.s3_enabled"
+        :testing="s3Testing"
+        test-id="runtime-file-library-s3-test"
+        :label="t('settings.runtime.s3Test')"
+        @test="emit('test-s3')"
+      />
+    </template>
     <div class="grid max-w-2xl gap-3">
       <AppTextField
         input-id="runtime-file-library-root"
@@ -150,18 +160,6 @@ function updateS3PathStyle(value: Record<string, boolean>) {
             :model-value="{ path_style: runtimeDraft.file_library.s3.path_style }"
             @update:model-value="updateS3PathStyle"
           />
-          <UButton
-            size="sm"
-            color="neutral"
-            :disabled="s3Testing"
-            :aria-busy="s3Testing"
-            data-testid="runtime-file-library-s3-test"
-            @click="emit('test-s3')"
-          >
-            <UIcon name="i-lucide-loader-circle" v-if="s3Testing" class="h-4 w-4" />
-            <UIcon v-else name="i-lucide-zap" />
-            <span>{{ t("settings.runtime.s3Test") }}</span>
-          </UButton>
         </div>
       </div>
     </div>

@@ -51,6 +51,7 @@ export function useSettingsPage() {
   const saving = ref(false);
   const s3Testing = ref(false);
   const valkeyTesting = ref(false);
+  const embeddingTesting = ref(false);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -169,8 +170,18 @@ export function useSettingsPage() {
 
     try {
       saveMessage.value = "";
-      const [runtime, docling, search, translation] = await Promise.all([
-        runtimeHasChanges.value ? apiClient.updateRuntimeSettings(buildRuntimePayload(runtimeDraft)) : Promise.resolve(runtimeSettings.value),
+      // The runtime request is the authoritative save admission step: the
+      // backend guard rejects an embedding identity change while a fixed vector
+      // index is live. Send it first so its rejection surfaces accurately and
+      // no other section is dispatched; after it succeeds, the remaining
+      // independent section saves keep their existing parallel behavior.
+      if (runtimeHasChanges.value) {
+        const runtime = await apiClient.updateRuntimeSettings(buildRuntimePayload(runtimeDraft));
+        runtimeSettings.value = runtime;
+        assignRuntimeDraft(runtime);
+      }
+
+      const [docling, search, translation] = await Promise.all([
         doclingHasChanges.value
           ? apiClient.updateDoclingSettings(buildDoclingPayload(doclingDraft))
           : Promise.resolve(doclingSettings.value),
@@ -188,10 +199,6 @@ export function useSettingsPage() {
           : Promise.resolve(translationSettings.value),
       ]);
 
-      if (runtime) {
-        runtimeSettings.value = runtime;
-        assignRuntimeDraft(runtime);
-      }
       if (docling) {
         doclingSettings.value = docling;
         assignDoclingDraft(docling);
@@ -251,6 +258,28 @@ export function useSettingsPage() {
       showErrorToast(error, t("settings.runtime.valkeyTestFailed"));
     } finally {
       valkeyTesting.value = false;
+    }
+  }
+
+  async function testEmbeddingConnection() {
+    embeddingTesting.value = true;
+    try {
+      await apiClient.testEmbeddingConnection({
+        base_url: runtimeDraft.embedding.base_url.trim(),
+        model: runtimeDraft.embedding.model.trim(),
+        dimensions: runtimeDraft.embedding.dimensions,
+        timeout_secs: runtimeDraft.embedding.timeout_secs,
+        api_key: runtimeDraft.embedding.api_key.trim() || undefined,
+      });
+      toast.add({
+        color: "success",
+        title: t("settings.runtime.embeddingTestSuccess"),
+        duration: 2500,
+      });
+    } catch (error) {
+      showErrorToast(error, t("settings.runtime.embeddingTestFailed"));
+    } finally {
+      embeddingTesting.value = false;
     }
   }
 
@@ -321,6 +350,8 @@ export function useSettingsPage() {
     runtimeDraft,
     testS3Connection,
     testValkeyConnection,
+    testEmbeddingConnection,
+    embeddingTesting,
     translationProviders,
     valkeyTesting,
     vectorRebuildStatus: vectorRebuildState.vectorRebuildStatus,

@@ -69,6 +69,15 @@ pub trait SearchRepository: Send + Sync {
 #[async_trait]
 pub trait SearchEmbeddingProvider: Send + Sync {
     async fn embed_query(&self, query: &str) -> Result<Vec<f32>>;
+
+    /// A key identifying the vector space the current provider produces, used to
+    /// scope cached query vectors. It must change whenever the live provider or
+    /// its identity changes, so a cached vector is never reused across two
+    /// different embedding identities. An empty value asks the caller to fall
+    /// back to its configured startup identity.
+    fn embedding_identity(&self) -> String {
+        String::new()
+    }
 }
 
 /// Result of a single date-mode window query against the vector index.

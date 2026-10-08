@@ -1,11 +1,7 @@
-use std::{
-    sync::{Arc, atomic::AtomicBool},
-    time::Duration,
-};
-
 use anyhow::Result;
 use context69_extraction::{ExtractionDependencies, ExtractionService};
 use context69_translation::{TranslationDependencies, TranslationService};
+use std::{sync::Arc, time::Duration};
 use tracing::warn;
 
 use crate::{
@@ -17,7 +13,7 @@ use crate::{
         auth::AuthService,
         extraction::ExtractionPublisherAdapter,
         query::{QueryDeps, QueryService},
-        secret_store,
+        secret_store::{self, SecretStore},
         sync::SyncService,
         translation::TranslationPublisherAdapter,
     },
@@ -30,8 +26,10 @@ pub struct ServicesInit {
     pub extraction: ExtractionService,
     pub sync: SyncService,
     pub query: QueryService,
-    pub vector_index_ready: Arc<AtomicBool>,
     pub automatic_rebuild_needed: bool,
+    /// The shared secret store the application already built, reused by the
+    /// live runtime-settings reload so it resolves keys the same way.
+    pub secrets: SecretStore,
 }
 
 pub async fn initialize(
@@ -99,15 +97,19 @@ pub async fn initialize(
     }
     let automatic_rebuild_needed = sync.runtime_configured()
         && (vector.collection_needs_rebuild || vector.fingerprint_changed);
-    let vector_index_ready = Arc::new(AtomicBool::new(!automatic_rebuild_needed));
+    // One readiness flag for the process: the embedding handle, the query
+    // service, the rebuild tickets and the dependency gates all read this same
+    // value, so writers and readers stop together during a rebuild.
+    vector.gate.set_ready(!automatic_rebuild_needed);
+    let vector_index_ready = vector.gate.flag();
     if automatic_rebuild_needed {
         sync.begin_vector_index_rebuild().await?;
     }
-    let query =
-        if let (Some(embedding), Some(index)) = (vector.embedding.clone(), vector.index.clone()) {
+    let query = match vector.index.clone() {
+        Some(index) if vector.embedding.is_configured() => {
             QueryService::new(QueryDeps {
                 db: db.clone(),
-                embedding,
+                embedding: vector.embedding.clone(),
                 index,
                 valkey_url: config.scheduler.valkey_url.as_deref(),
                 embedding_model: vector_identity::fingerprint(config),
@@ -116,16 +118,16 @@ pub async fn initialize(
                 vector_index_ready: vector_index_ready.clone(),
             })
             .await?
-        } else {
-            QueryService::disabled(db.clone())
-        };
+        }
+        _ => QueryService::disabled(db.clone()),
+    };
 
     Ok(ServicesInit {
         translation,
         extraction,
         sync,
         query,
-        vector_index_ready,
         automatic_rebuild_needed,
+        secrets: store,
     })
 }

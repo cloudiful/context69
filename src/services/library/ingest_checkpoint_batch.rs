@@ -56,14 +56,20 @@ impl LibraryService {
             .iter()
             .map(|chunk| chunk.text.clone())
             .collect::<Vec<_>>();
-        let embeddings = runtime
-            .embedding
-            .embed_texts(&texts)
-            .await
-            .map_err(|error| {
-                let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
-                normalize_task_failure(failure)
-            })?;
+        // One provider for the batch: a concurrent settings save must not switch
+        // providers within a single Qdrant upsert. `require_ready` also makes the
+        // writer wait out an identity-changing rebuild, so it cannot add vectors
+        // with one identity to a collection being re-embedded with another.
+        let embedding = runtime.embedding.require_ready().map_err(|error| {
+            normalize_task_failure(IngestFailure::new(
+                LibraryIngestFailureStage::Embedding,
+                error,
+            ))
+        })?;
+        let embeddings = embedding.embed_texts(&texts).await.map_err(|error| {
+            let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
+            normalize_task_failure(failure)
+        })?;
         let group = PayloadGroup {
             group_id: file.group_id,
             group_key: &file.group_key,

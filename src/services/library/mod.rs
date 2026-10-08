@@ -12,7 +12,7 @@ use std::{
     path::PathBuf,
     sync::{
         Arc,
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
     },
 };
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore};
@@ -30,7 +30,7 @@ use crate::{
     },
     db::Database,
     domain::{LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
-    embedding::EmbeddingProvider,
+    embedding::EmbeddingRuntime,
     library_store::{LibraryStore, NewLibraryFile, file_to_summary},
     normalize::{normalize_body, normalize_record, normalize_whitespace},
     qdrant_index::QdrantIndex,
@@ -45,6 +45,7 @@ pub(crate) use dependency_runtime::{
 };
 mod dependency_storage;
 mod duplicate_content;
+mod embedding_gate;
 mod filenames;
 mod files;
 mod folders;
@@ -153,6 +154,9 @@ pub struct LibraryService {
     /// `None` until the application wires it; release paths wake only when
     /// present so unit-constructed services keep working without a loop.
     source_cleanup_dispatcher: Option<SourceCleanupDispatcher>,
+    /// Shared vector-index readiness, wired by the application. `None` means
+    /// "always ready", which is what unit-constructed services assume.
+    vector_index_ready: Option<Arc<AtomicBool>>,
 }
 
 pub struct LibraryServiceConfig {
@@ -165,7 +169,7 @@ pub struct LibraryServiceConfig {
 
 #[derive(Clone)]
 struct LibraryRuntime {
-    embedding: Arc<dyn EmbeddingProvider>,
+    embedding: EmbeddingRuntime,
     index: QdrantIndex,
 }
 
@@ -188,7 +192,7 @@ struct FolderNodeSeed {
 impl LibraryService {
     pub async fn new(
         db: Database,
-        embedding: Option<Arc<dyn EmbeddingProvider>>,
+        embedding: impl Into<EmbeddingRuntime>,
         index: Option<QdrantIndex>,
         service_config: LibraryServiceConfig,
         settings: SettingsService,
@@ -202,6 +206,7 @@ impl LibraryService {
             embedding_vector_configured,
             embedding_vector_configuration_fingerprint,
         } = service_config;
+        let embedding = embedding.into();
         let storage = Arc::new(object_storage::LibraryObjectStorage::from_config(
             &file_library,
         )?);
@@ -227,9 +232,9 @@ impl LibraryService {
         Ok(Self {
             db: db.clone(),
             store: LibraryStore::new(db),
-            runtime: embedding
-                .zip(index)
-                .map(|(embedding, index)| LibraryRuntime { embedding, index }),
+            runtime: index
+                .filter(|_| embedding.is_configured())
+                .map(|index| LibraryRuntime { embedding, index }),
             chunking,
             settings,
             storage_root: file_library.storage_root,
@@ -246,6 +251,7 @@ impl LibraryService {
             docling_capacity: Arc::new(AtomicUsize::new(docling_limit)),
             docling_resize_lock: Arc::new(Mutex::new(())),
             source_cleanup_dispatcher: None,
+            vector_index_ready: None,
         })
     }
 
@@ -309,6 +315,13 @@ impl LibraryService {
     /// manual and auto releases share one `Notify`.
     pub fn set_source_cleanup_dispatcher(&mut self, dispatcher: SourceCleanupDispatcher) {
         self.source_cleanup_dispatcher = Some(dispatcher);
+    }
+
+    /// Wire the shared vector-index readiness flag. The dependency gates then
+    /// stay closed while an identity-changing rebuild is re-embedding the
+    /// collection, so the pipeline waits instead of adding mixed vectors.
+    pub fn set_vector_index_ready(&mut self, ready: Arc<AtomicBool>) {
+        self.vector_index_ready = Some(ready);
     }
 
     /// Borrow the wired dispatcher, if any. Release paths wake only when
