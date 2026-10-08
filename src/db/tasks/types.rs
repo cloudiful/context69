@@ -48,6 +48,14 @@ pub struct StoredTask {
     pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
     pub deleted_at: Option<DateTime<Utc>>,
+    /// File name of the task's focus item (issue 723): the lowest-ordinal item
+    /// that is not yet succeeded, else the first item. `None` until the task
+    /// has an item with a durable library file.
+    pub file_name: Option<String>,
+    /// Document title of the same focus item, from the item's own submitted
+    /// `title` or the library file's `metadata_json.title`. `None` when neither
+    /// carries one.
+    pub document_title: Option<String>,
 }
 
 /// A task item listed for inspection.
@@ -70,6 +78,12 @@ pub struct StoredTaskItem {
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
+    /// File name of the item's library file, `None` while the item has none
+    /// (issue 723).
+    pub file_name: Option<String>,
+    /// Document title of the item, from its own submitted `title` or its
+    /// library file's `metadata_json.title`; `None` when neither carries one.
+    pub document_title: Option<String>,
 }
 
 /// An item claimed by the dispatcher together with its parent task context.

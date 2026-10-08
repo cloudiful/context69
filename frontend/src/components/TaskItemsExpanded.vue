@@ -5,8 +5,10 @@ import { useI18n } from "vue-i18n";
 import TaskDiagnosePanel from "./TaskDiagnosePanel.vue";
 import TaskItemAction from "./TaskItemAction.vue";
 import { apiClient, type TaskItemResponse, type TaskItemStatus, type TaskResponse } from "../services/api";
-import { queueStageLabel } from "../composables/queue-helpers";
+import { queueStageLabel, taskDocumentTitle, taskFileName } from "../composables/queue-helpers";
 import { summarizeApiError, type ApiErrorSummary } from "../composables/use-error-toast";
+import { formatTimestamp } from "../utils/format";
+import { libraryDependencyLabel } from "../utils/library-status";
 
 const props = defineProps<{
   task: TaskResponse;
@@ -126,6 +128,61 @@ function stageLabel(stage: string | null): string {
   return queueStageLabel(t, stage);
 }
 
+// Structured detail panel (issue 723): the task's identifiers and lifecycle
+// fields live here, not in the queue row, so a row can be read by subject
+// first and the diagnostics stay one click away.
+const taskDetailRows = computed(() => {
+  const task = props.task;
+  const rows: { label: string; value: string; mono?: boolean }[] = [
+    { label: t("processingQueue.details.taskId"), value: task.task_id, mono: true },
+    { label: t("processingQueue.details.type"), value: t(`processingQueue.kinds.${task.kind}`) },
+    { label: t("processingQueue.details.group"), value: task.group_path || task.source_key || "--" },
+  ];
+  // The collapsed row already shows the file name and title, so the panel adds
+  // them only when the task carries one.
+  if (taskFileName(task)) {
+    rows.push({ label: t("processingQueue.details.fileName"), value: taskFileName(task)! });
+  }
+  if (taskDocumentTitle(task)) {
+    rows.push({
+      label: t("processingQueue.details.documentTitle"),
+      value: taskDocumentTitle(task)!,
+    });
+  }
+  rows.push(
+    { label: t("processingQueue.details.createdAt"), value: formatTimestamp(task.created_at) },
+    { label: t("processingQueue.details.updatedAt"), value: formatTimestamp(task.updated_at) },
+  );
+  if (task.finished_at) {
+    rows.push({ label: t("processingQueue.details.finishedAt"), value: formatTimestamp(task.finished_at) });
+  }
+  if (task.dependency_key) {
+    rows.push({ label: t("processingQueue.details.dependency"), value: libraryDependencyLabel(t, task.dependency_key) });
+  }
+  return rows;
+});
+
+function itemDetailRows(item: TaskItemResponse) {
+  const rows: { label: string; value: string; mono?: boolean }[] = [
+    { label: t("processingQueue.details.itemId"), value: item.item_id, mono: true },
+    { label: t("processingQueue.details.position"), value: String(item.ordinal) },
+    { label: t("processingQueue.details.stage"), value: stageLabel(item.stage ?? null) },
+  ];
+  // The file name and document title are the item's own readable context; they
+  // stay absent while the item has neither, so the panel never shows a blank.
+  if (item.file_name) rows.push({ label: t("processingQueue.details.fileName"), value: item.file_name });
+  if (item.document_title) {
+    rows.push({ label: t("processingQueue.details.documentTitle"), value: item.document_title });
+  }
+  if (item.file_id) rows.push({ label: t("processingQueue.details.fileId"), value: item.file_id, mono: true });
+  if (item.dependency_key) {
+    rows.push({ label: t("processingQueue.details.dependency"), value: libraryDependencyLabel(t, item.dependency_key) });
+  }
+  rows.push({ label: t("processingQueue.details.attempts"), value: String(item.attempt_count) });
+  if (item.error_message) rows.push({ label: t("processingQueue.details.error"), value: item.error_message });
+  return rows;
+}
+
 function itemSeverity(status: TaskItemResponse["status"]): "success" | "error" | "warning" | "neutral" | "primary" {
   if (status === "succeeded") return "success";
   if (status === "failed") return "error";
@@ -152,8 +209,21 @@ function itemStatusLabel(status: TaskItemResponse["status"]): string {
 </script>
 
 <template>
-  <div class="p-3">
+  <div class="flex flex-col gap-3 p-3">
     <TaskDiagnosePanel :task-id="props.task.task_id" />
+    <!-- Structured detail panel (issue 723): the task's identifiers and
+         lifecycle fields live here, not in the queue row, so a row is read by
+         subject first and the diagnostics stay one click away. -->
+    <dl
+      class="grid gap-x-4 gap-y-1 rounded-md bg-surface-50 px-3 py-2 text-xs dark:bg-surface-900/40 sm:grid-cols-[minmax(6rem,auto)_minmax(0,1fr)]"
+      data-testid="task-detail-panel"
+    >
+      <dt class="col-span-full text-xs font-medium text-muted">{{ t("processingQueue.details.title") }}</dt>
+      <template v-for="row in taskDetailRows" :key="row.label">
+        <dt class="text-muted">{{ row.label }}</dt>
+        <dd class="min-w-0 break-all text-(--ui-text)" :class="{ 'font-mono': row.mono }">{{ row.value }}</dd>
+      </template>
+    </dl>
     <div class="mb-2 flex flex-wrap items-center gap-2">
       <span class="text-xs text-muted" data-testid="task-items-count">
         {{ t("processingQueue.itemsCount", { shown: shownCount, total: totalCount }) }}
@@ -200,24 +270,35 @@ function itemStatusLabel(status: TaskItemResponse["status"]): string {
     <template v-else-if="items.length === 0">
       <div class="text-sm text-muted">{{ t("processingQueue.noItems") }}</div>
     </template>
-    <div v-else class="grid gap-1">
-      <div
+    <div v-else class="flex flex-col gap-1.5">
+      <article
         v-for="item in items"
         :key="item.item_id"
-        class="grid grid-cols-[minmax(0,1fr)_auto_auto_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-md bg-surface-50 dark:bg-surface-900/40 px-3 py-1.5 text-sm"
+        class="flex flex-col gap-1 rounded-md bg-surface-50 px-3 py-2 text-sm dark:bg-surface-900/40"
+        data-testid="task-item-row"
       >
-        <span class="block truncate font-mono text-xs text-muted" :title="item.item_id">{{ item.item_id }}</span>
-        <UBadge :label="itemStatusLabel(item.status)" :color="itemSeverity(item.status)" variant="subtle" data-testid="task-item-status" />
-        <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage ?? null) }}</span>
-        <span class="block truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
-        <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
-        <TaskItemAction
-          :item="item"
-          :task="props.task"
-          :is-acting="props.isActing"
-          @retry="emit('retry', $event)"
-        />
-      </div>
+        <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+          <UBadge :label="itemStatusLabel(item.status)" :color="itemSeverity(item.status)" variant="subtle" data-testid="task-item-status" />
+          <span class="whitespace-nowrap text-xs text-muted">{{ stageLabel(item.stage ?? null) }}</span>
+          <span class="whitespace-nowrap text-xs text-muted">{{ t("processingQueue.attempts", { count: item.attempt_count }) }}</span>
+          <span class="min-w-0 flex-1 truncate text-xs text-muted" :title="item.error_message || undefined">{{ item.error_message || "--" }}</span>
+          <TaskItemAction
+            :item="item"
+            :task="props.task"
+            :is-acting="props.isActing"
+            @retry="emit('retry', $event)"
+          />
+        </div>
+        <!-- Identifiers and lifecycle fields are details, not the row headline:
+             a definition list keeps them readable and selectable instead of a
+             flat dump of mono columns. -->
+        <dl class="grid gap-x-3 gap-y-0.5 pl-1 text-xs sm:grid-cols-[minmax(5.5rem,auto)_minmax(0,1fr)]" data-testid="task-item-detail">
+          <template v-for="row in itemDetailRows(item)" :key="row.label">
+            <dt class="text-muted">{{ row.label }}</dt>
+            <dd class="min-w-0 break-all text-muted" :class="{ 'font-mono': row.mono }">{{ row.value }}</dd>
+          </template>
+        </dl>
+      </article>
       <div v-if="hasMore" class="mt-1 flex justify-center">
         <UButton
           color="neutral"

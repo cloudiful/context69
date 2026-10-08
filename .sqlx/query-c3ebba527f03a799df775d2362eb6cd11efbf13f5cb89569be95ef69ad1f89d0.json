@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    id,\n    user_id,\n    group_id,\n    kind,\n    status,\n    origin,\n    group_path,\n    source_key,\n    total_count,\n    queued_count,\n    running_count,\n    waiting_count,\n    succeeded_count,\n    failed_count,\n    cancelled_count,\n    failure_stage,\n    error_summary,\n    stage,\n    waiting_reason,\n    dependency_key,\n    next_attempt_at,\n    deleted_at,\n    created_at,\n    started_at,\n    finished_at,\n    updated_at\nFROM context69.tasks\nWHERE id = $1\n",
+  "query": "-- `file_name` and `document_title` are the collapsed row's human-readable\n-- context (issue 723): the focus item's file name and document title, with the\n-- fallback chain documented in `items.sql`. The focus item is the lowest-ordinal\n-- item that is not yet succeeded, falling back to the first item of an\n-- all-succeeded task -- the item a user is looking at when the queue shows the\n-- row. One LATERAL row keeps the join from multiplying a task.\nSELECT\n    task.id,\n    task.user_id,\n    task.group_id,\n    task.kind,\n    task.status,\n    task.origin,\n    task.group_path,\n    task.source_key,\n    task.total_count,\n    task.queued_count,\n    task.running_count,\n    task.waiting_count,\n    task.succeeded_count,\n    task.failed_count,\n    task.cancelled_count,\n    task.failure_stage,\n    task.error_summary,\n    task.stage,\n    task.waiting_reason,\n    task.dependency_key,\n    task.next_attempt_at,\n    task.deleted_at,\n    task.created_at,\n    task.started_at,\n    task.finished_at,\n    task.updated_at,\n    context.file_name,\n    context.document_title\nFROM context69.tasks task\nLEFT JOIN LATERAL (\n    SELECT\n        -- The focus item's readable context; `items.sql` documents the same\n        -- fallback chain for one item.\n        COALESCE(\n            NULLIF(file.filename, ''),\n            NULLIF(item.payload ->> 'filename', ''),\n            CASE\n                WHEN item.payload ? 'url'\n                    THEN NULLIF(\n                        regexp_replace(\n                            split_part(split_part(item.payload ->> 'url', '?', 1), '#', 1),\n                            '^.*/',\n                            ''\n                        ),\n                        ''\n                    )\n            END\n        ) AS file_name,\n        COALESCE(\n            NULLIF(item.payload ->> 'title', ''),\n            NULLIF(doc.title, ''),\n            NULLIF(file.metadata_json ->> 'title', '')\n        ) AS document_title\n    FROM context69.task_items item\n    LEFT JOIN context69.library_files file ON file.id = item.file_id\n    -- The document a file produced is recorded per section, so a plain join\n    -- would fan the row out. One LATERAL row picks the first section in\n    -- document order, which keeps the projection at one row per item and makes\n    -- the choice deterministic. The document must also belong to the group that\n    -- owns the file, so a title can never cross a group boundary.\n    LEFT JOIN LATERAL (\n        SELECT document.title\n        FROM context69.library_file_documents link\n        JOIN context69.documents document ON document.id = link.document_id\n        WHERE link.file_id = file.id\n          AND document.group_id = file.group_id\n        ORDER BY link.sort_order, link.section_key\n        LIMIT 1\n    ) doc ON TRUE\n    WHERE item.task_id = task.id\n    -- The focus item is the lowest-ordinal item that is not yet succeeded, else\n    -- the first item of an all-succeeded task: the item a user is looking at\n    -- when the queue shows the row. One LATERAL row, so the join can never\n    -- multiply a task.\n    ORDER BY item.status = 'succeeded', item.ordinal\n    LIMIT 1\n) context ON TRUE\nWHERE task.id = $1\n  AND (\n      task.user_id = $2\n      OR EXISTS (\n          WITH RECURSIVE inherited_groups AS (\n              SELECT gm.group_id\n              FROM context69.group_memberships gm\n              WHERE gm.user_id = $2\n              UNION ALL\n              SELECT child.id\n              FROM context69.groups child\n              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n          )\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n      )\n  )\n",
   "describe": {
     "columns": [
       {
@@ -288,11 +288,24 @@
             "name": "updated_at"
           }
         }
+      },
+      {
+        "ordinal": 26,
+        "name": "file_name",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 27,
+        "name": "document_title",
+        "type_info": "Text",
+        "origin": "Expression"
       }
     ],
     "parameters": {
       "Left": [
-        "Uuid"
+        "Uuid",
+        "Int8"
       ]
     },
     "nullable": [
@@ -321,8 +334,10 @@
       false,
       true,
       true,
-      false
+      false,
+      true,
+      true
     ]
   },
-  "hash": "07d162c6ca5ebf939ce49a966756a073921cbcf373380f36c34276013f42c618"
+  "hash": "c3ebba527f03a799df775d2362eb6cd11efbf13f5cb89569be95ef69ad1f89d0"
 }

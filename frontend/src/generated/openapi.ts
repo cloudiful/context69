@@ -3967,10 +3967,17 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             dependency_key?: string | null;
+            /**
+             * @description Document title of the item, `None` when neither the item nor its file
+             *     carries one.
+             */
+            document_title?: string | null;
             error_message?: string | null;
             failure_stage?: string | null;
             /** Format: uuid */
             file_id?: string | null;
+            /** @description File name of the item's library file, `None` while the item has none. */
+            file_name?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
             /** Format: uuid */
@@ -4131,10 +4138,21 @@ export interface components {
              */
             deleted_at?: string | null;
             dependency_key?: string | null;
+            /**
+             * @description Document title of the same focus item, `None` when the item and its
+             *     file carry no title.
+             */
+            document_title?: string | null;
             error_summary?: string | null;
             /** Format: int64 */
             eta_seconds?: number | null;
             failure_stage?: string | null;
+            /**
+             * @description File name of the task's focus item, so a collapsed queue row can be
+             *     read by subject instead of by identifier. `None` until the task has an
+             *     item with a durable library file.
+             */
+            file_name?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
             group_path?: string | null;

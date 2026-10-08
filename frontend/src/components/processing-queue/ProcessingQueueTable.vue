@@ -6,7 +6,7 @@ import TaskItemsExpanded from "../TaskItemsExpanded.vue";
 import type { SortDirection, TaskKind, TaskListView, TaskResponse, TaskSortBy, TaskStatus } from "../../services/api";
 import { formatTimestamp } from "../../utils/format";
 import { libraryDependencyLabel } from "../../utils/library-status";
-import { QUEUE_STAGE_VALUES, queueStageLabel } from "../../composables/queue-helpers";
+import { QUEUE_STAGE_VALUES, queueStageLabel, taskDocumentTitle, taskSubject } from "../../composables/queue-helpers";
 import QueueHeaderFilter from "./QueueHeaderFilter.vue";
 import { createQueueFilterSelects, useQueueFilterOptions, useQueueTableColumns } from "./queue-table-filters";
 
@@ -127,7 +127,7 @@ const { columns, updatedHeader } = useQueueTableColumns(t, completedView);
 // popovers; completed hides the status/stage/waiting-reason selectors because
 // its view is already terminal, while type and dependency filtering stay.
 const { statusOptions, kindOptions, stageOptions, waitingReasonOptions, dependencyOptions } = useQueueFilterOptions(t);
-const { selectStatusFilter, selectKindFilter, selectStageFilter, selectWaitingReasonFilter, selectDependencyKeyFilter } = createQueueFilterSelects(emit);
+const { selectStatusFilter, selectKindFilter, selectStageFilter, selectWaitingReasonOption, selectDependencyKeyFilter } = createQueueFilterSelects(emit);
 
 function toggleExpand(row: { original: TaskResponse; id: string }) {
   const next = !expandedRows.value[row.id];
@@ -167,9 +167,8 @@ function statusSeverity(status: TaskStatus): "success" | "error" | "warning" | "
 }
 
 // One labeled primary action per display state: active (queued/running/waiting)
-// cancels, failed retries, cancelled resumes (rerun), succeeded trashes. The
-// trash icon on failed/cancelled rows is a secondary history action, not a
-// primary.
+// cancels, failed retries, cancelled resumes, succeeded trashes. The trash icon
+// on failed/cancelled rows is a secondary history action, not a primary.
 function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "trash" | null {
   if (ACTIVE_TASK_STATUSES.includes(task.status)) return "cancel";
   if (task.status === "failed") return "retry";
@@ -228,8 +227,14 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
     <template #waiting-header>
       <div class="flex items-center gap-0.5">
         <span class="px-1 text-sm font-medium">{{ t("processingQueue.waiting") }}</span>
-        <QueueHeaderFilter v-if="!completedView" :label="t('processingQueue.waitingReasonFilter')" :options="waitingReasonOptions" :selected="props.waitingReasonFilter" @select="selectWaitingReasonFilter" />
-        <QueueHeaderFilter :label="t('processingQueue.dependencyFilter')" :options="dependencyOptions" :selected="props.dependencyKeyFilter" @select="selectDependencyKeyFilter" />
+        <QueueHeaderFilter
+          v-if="!completedView"
+          :label="t('processingQueue.waitingReasonFilter')"
+          :options="waitingReasonOptions"
+          :selected="props.waitingReasonFilter"
+          :active="props.waitingReasonFilter !== null || props.dependencyKeyFilter !== null"
+          @select="selectWaitingReasonOption"
+        />
       </div>
     </template>
     <template #created_at-header>
@@ -254,7 +259,17 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
         @click="toggleExpand(row)"
       />
     </template>
-    <template #task_id-cell="{ row }"><span class="block max-w-64 truncate font-mono text-xs" :title="row.original.task_id">{{ row.original.task_id }}</span></template>
+    <template #task-cell="{ row }">
+      <div class="min-w-0" data-testid="queue-task">
+        <span class="block max-w-64 truncate" :title="taskSubject(row.original) || undefined">{{ taskSubject(row.original) || t("processingQueue.unnamedTask") }}</span>
+        <span
+          v-if="taskDocumentTitle(row.original) && taskDocumentTitle(row.original) !== taskSubject(row.original)"
+          class="block max-w-64 truncate text-xs text-muted"
+          :title="taskDocumentTitle(row.original) ?? undefined"
+          data-testid="queue-task-title"
+        >{{ taskDocumentTitle(row.original) }}</span>
+      </div>
+    </template>
     <template #kind-cell="{ row }"><UBadge :label="taskKindLabel(row.original.kind)" color="neutral" variant="subtle" /></template>
     <template #group_path-cell="{ row }"><span class="block max-w-48 truncate" :title="row.original.group_path || undefined">{{ row.original.group_path || "--" }}</span></template>
     <template #status-cell="{ row }"><UBadge :label="taskStatusLabel(row.original.status)" :color="statusSeverity(row.original.status)" variant="subtle" /></template>
@@ -294,7 +309,7 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
       </div>
       <div v-else class="flex items-center gap-1">
         <UButton v-if="primaryAction(row.original) === 'retry' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t('processingQueue.retry')" :title="t('processingQueue.retry')" @click="emit('recover', row.original)" />
-        <UButton v-if="primaryAction(row.original) === 'resume' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-play" :loading="props.isActing(row.original)" :label="t('processingQueue.continue')" :title="t('processingQueue.resubmitHint')" @click="emit('recover', row.original)" />
+        <UButton v-if="primaryAction(row.original) === 'resume' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-play" :loading="props.isActing(row.original)" :label="t('processingQueue.continue')" :title="t('processingQueue.resumeHint')" @click="emit('recover', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'cancel'" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'trash' || row.original.status === 'failed' || row.original.status === 'cancelled'" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />
       </div>

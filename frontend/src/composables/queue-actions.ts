@@ -68,35 +68,30 @@ export function useQueueActions(options: UseQueueActionsOptions) {
     }
   }
 
-  // Failed task retries in place; a cancelled task reruns into a fresh record.
+  // Failed task retries in place; a cancelled task is resumed in place too, so
+  // one submission never grows a second visible task.
   async function recoverTask(task: TaskResponse) {
     if (!isRecoverableTask(task) || isActing(task)) return;
     beginAction(task);
     try {
-      let rerunTaskId: string | null = null;
-      if (task.status === "cancelled") {
-        const rerun = await apiClient.rerunTask(task.task_id);
-        rerunTaskId = rerun.task.task_id;
-      } else {
-        await apiClient.retryTask(task.task_id);
-      }
-      // A rerun creates a new queued task record: drop a narrowing status
-      // filter so the user lands on it instead of a stale hidden view (446).
-      if (rerunTaskId !== null && statusFilter.value !== null) {
-        statusFilter.value = null;
-      }
+      const resumed = task.status === "cancelled";
+      // Resume reopens the task's own cancelled and failed items and keeps the
+      // record; retry requeues the failed items of a failed task.
+      if (resumed) await apiClient.rerunTask(task.task_id);
+      else await apiClient.retryTask(task.task_id);
+      // A resumed task leaves its terminal status, so a narrowing status filter
+      // would hide the row the user just recovered (446).
+      if (resumed && statusFilter.value !== null) statusFilter.value = null;
       await load();
       toast.add({
         color: "success",
-        title: t(task.status === "cancelled"
-          ? "processingQueue.resubmitAccepted"
-          : "processingQueue.retryAccepted"),
-        description: rerunTaskId ?? task.task_id,
+        title: t(resumed ? "processingQueue.resumeAccepted" : "processingQueue.retryAccepted"),
+        description: task.task_id,
         duration: 2500,
       });
     } catch (recoverError) {
       showErrorToast(recoverError, t(task.status === "cancelled"
-        ? "processingQueue.resubmitFailed"
+        ? "processingQueue.resumeFailed"
         : "processingQueue.retryFailed"));
     } finally {
       endAction(task);
@@ -143,15 +138,16 @@ export function useQueueActions(options: UseQueueActionsOptions) {
     });
   }
 
-  // Bulk recovery retries a failed task in place or reruns a cancelled task
-  // into a fresh record, returning the new id so the caller can jump to it.
-  async function submitRecovery(task: TaskResponse): Promise<string | null> {
+  // Bulk recovery resumes a cancelled task in place and retries a failed one in
+  // place. Reports whether a resume happened, because only a resume moves the
+  // record out of a terminal status that a narrowing filter would keep hidden.
+  async function submitRecovery(task: TaskResponse): Promise<boolean> {
     if (task.status === "cancelled") {
-      const rerun = await apiClient.rerunTask(task.task_id);
-      return rerun.task.task_id;
+      await apiClient.rerunTask(task.task_id);
+      return true;
     }
     await apiClient.retryTask(task.task_id);
-    return null;
+    return false;
   }
 
   function showBulkSummary(summary: ReturnType<typeof summarizeResults>, description?: string) {
@@ -174,19 +170,16 @@ export function useQueueActions(options: UseQueueActionsOptions) {
       const tasks = items.value.filter(isRecoverableTask);
       const results = await Promise.allSettled(tasks.map((task) => submitRecovery(task)));
       const summary = summarizeResults(results, /no retryable/i);
-      const rerunTaskIds = results.flatMap((result) =>
-        result.status === "fulfilled" && result.value ? [result.value] : []);
-      // Reruns create new queued records: drop a narrowing status filter so
-      // they are visible instead of stranding the old filtered view (446).
-      if (rerunTaskIds.length > 0 && statusFilter.value !== null) {
+      const resumed = results.some((result) => result.status === "fulfilled" && result.value);
+      // A resumed task leaves its terminal status: drop a narrowing status
+      // filter so it is visible instead of stranding the old filtered view (446).
+      if (resumed && statusFilter.value !== null) {
         statusFilter.value = null;
       }
       await load();
       showBulkSummary(
         summary,
-        rerunTaskIds.length > 0
-          ? t("processingQueue.bulkRerunCreated", { count: rerunTaskIds.length })
-          : undefined,
+        resumed ? t("processingQueue.bulkResumed", { count: recoverableCount.value }) : undefined,
       );
     } catch (recoverError) {
       showErrorToast(recoverError, t("processingQueue.bulkRetryFailed"));

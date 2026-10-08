@@ -12807,6 +12807,13 @@
               "null"
             ]
           },
+          "document_title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Document title of the item, `None` when neither the item nor its file\ncarries one."
+          },
           "error_message": {
             "type": [
               "string",
@@ -12825,6 +12832,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "File name of the item's library file, `None` while the item has none."
           },
           "finished_at": {
             "type": [
@@ -13250,6 +13264,13 @@
               "null"
             ]
           },
+          "document_title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Document title of the same focus item, `None` when the item and its\nfile carry no title."
+          },
           "error_summary": {
             "type": [
               "string",
@@ -13268,6 +13289,13 @@
               "string",
               "null"
             ]
+          },
+          "file_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "File name of the task's focus item, so a collapsed queue row can be\nread by subject instead of by identifier. `None` until the task has an\nitem with a durable library file."
           },
           "finished_at": {
             "type": [

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Reopen one cancelled task's unfinished items in place (issue 723).\n--\n-- Resume is a same-row state transition: it never inserts a replacement\n-- parent task and never copies items, so the queue keeps one visible record\n-- for one submission and the item/attempt rows keep their audit history. The\n-- reset is the same one a manual retry applies (`retry_items.sql`) because the\n-- worker re-derives its own progress from payload/file state, so no stage is\n-- resumed and no legacy stage value can survive.\n--\n-- `$1` is the task to resume, `$2` the calling user. `allowed` repeats the\n-- ownership/maintainer rule of `retry_items.sql`, so an unauthorized caller\n-- updates no row instead of relying on the service-layer check alone.\n--\n-- Only `cancelled` and `failed` items are reopened; queued/running/waiting\n-- items are already active and stay untouched. A repeat of the same resume\n-- therefore matches nothing and returns no ids, which is what makes repeated\n-- clicks and concurrent requests idempotent instead of duplicating work.\n--\n-- The per-file processing locks are taken by the caller\n-- (`claim_unfinished_item_file_slots`) before this statement, so the\n-- active-sibling guard cannot race a concurrent submission for one of these\n-- files.\nWITH RECURSIVE inherited_groups AS (\n    SELECT gm.group_id,\n           CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END AS role_rank\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $2\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n), allowed AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE task.id = $1\n      AND (\n          (task.group_id IS NULL AND task.user_id = $2)\n          OR EXISTS (\n              SELECT 1\n              FROM inherited_groups\n              WHERE inherited_groups.group_id = task.group_id\n                AND inherited_groups.role_rank >= 2\n          )\n      )\n), resumed AS (\n    UPDATE context69.task_items item\n    SET payload = CASE\n            WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n            ELSE item.payload\n        END,\n        status = 'queued',\n        -- A resume restarts the collapsed item at `processing`; the worker\n        -- re-derives its own progress from payload/file state.\n        stage = 'processing',\n        attempt_count = 0,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = now(),\n        failure_stage = NULL,\n        error_message = NULL,\n        retryable = TRUE,\n        waiting_since = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        finished_at = NULL,\n        updated_at = now()\n    FROM context69.tasks task\n    WHERE item.task_id IN (SELECT id FROM allowed)\n      AND item.task_id = task.id\n      AND item.status IN ('cancelled', 'failed')\n      -- Never requeue a file that already has an active item elsewhere; the\n      -- file stays with its current processing slot.\n      AND (\n          item.file_id IS NULL\n          OR NOT EXISTS (\n              SELECT 1\n              FROM context69.task_items active\n              WHERE active.file_id = item.file_id\n                AND active.id <> item.id\n                AND active.status IN ('queued', 'running', 'waiting')\n          )\n      )\n    RETURNING item.id\n)\nSELECT id FROM resumed ORDER BY id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9b24d2f726dcf93947c73284455b7eab74aec16fb4dcd934a95e6fa0fc559c8c"
+}

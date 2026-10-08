@@ -167,7 +167,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("resubmits a cancelled task through /rerun", async () => {
+  it("resumes a cancelled task in place through /rerun", async () => {
     listTasks
       .mockResolvedValueOnce(page([cancelledTask]) as never)
       .mockResolvedValueOnce(page([]) as never);
@@ -177,12 +177,13 @@ describe("useProcessingQueue", () => {
     await state.recoverTask(cancelledTask);
 
     expect(rerunTask).toHaveBeenCalledWith("cancelled-task-id");
+    expect(rerunTask).toHaveBeenCalledTimes(1);
     expect(retryTask).not.toHaveBeenCalled();
     expect(listTasks).toHaveBeenCalledTimes(2);
     wrapper.unmount();
   });
 
-  it("drops a narrowing status filter after a single rerun so the new task is visible", async () => {
+  it("drops a narrowing status filter after a resume so the reopened task is visible", async () => {
     listTasks
       .mockResolvedValueOnce(page([cancelledTask]) as never)
       .mockResolvedValueOnce(page([]) as never)
@@ -208,7 +209,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("keeps the status filter when a single retry creates no new task", async () => {
+  it("keeps the status filter when a single retry leaves the task in place", async () => {
     listTasks
       .mockResolvedValueOnce(page([failedTask]) as never)
       .mockResolvedValueOnce(page([failedTask]) as never)
@@ -334,7 +335,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("drops a narrowing status filter after bulk rerun creates new tasks", async () => {
+  it("drops a narrowing status filter after a bulk resume", async () => {
     listTasks
       .mockResolvedValueOnce(page([failedTask, cancelledTask]) as never)
       .mockResolvedValueOnce(page([failedTask, cancelledTask]) as never)
@@ -357,7 +358,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("keeps the status filter after bulk recovery with no rerun", async () => {
+  it("keeps the status filter after a bulk recovery with no resume", async () => {
     listTasks
       .mockResolvedValueOnce(page([failedTask]) as never)
       .mockResolvedValueOnce(page([failedTask]) as never)
@@ -376,7 +377,7 @@ describe("useProcessingQueue", () => {
     wrapper.unmount();
   });
 
-  it("excludes waiting tasks from bulk recovery and reruns only cancelled ones", async () => {
+  it("excludes waiting tasks from bulk recovery and resumes only cancelled ones", async () => {
     listTasks
       .mockResolvedValueOnce(page([waitingTask, cancelledTask, failedTask]) as never)
       .mockResolvedValueOnce(page([]) as never);

@@ -175,6 +175,8 @@ mod tests {
             finished_at: None,
             updated_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 1).unwrap(),
             deleted_at: None,
+            file_name: Some("report.pdf".to_string()),
+            document_title: Some("Quarterly report".to_string()),
         }
     }
 
@@ -197,6 +199,8 @@ mod tests {
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
             started_at: None,
             finished_at: None,
+            file_name: None,
+            document_title: None,
         }
     }
 

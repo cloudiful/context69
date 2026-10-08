@@ -213,10 +213,54 @@ impl Database {
         Ok(ids)
     }
 
-    /// Creates a brand new task (new id, no idempotency-key binding) from a source
-    /// task, copying every item that did not already succeed. This is the escape
-    /// hatch for resubmitting a cancelled or failed task whose original
-    /// idempotency key remains permanently bound to the old task.
+    /// Reopen a cancelled (or partly failed) task's unfinished items in place.
+    ///
+    /// Resume is the same-row counterpart of [`Database::retry_task_items`]: no
+    /// replacement parent task is inserted, so the queue keeps one visible
+    /// record per submission and the existing `task_items`/`task_attempts` rows
+    /// keep their history. The item writes and the parent projection commit
+    /// together, and the per-file processing locks are taken first so the
+    /// active-sibling guard cannot race a concurrent submission for one of the
+    /// task's files.
+    ///
+    /// Returns the reopened item ids. An empty result means there was nothing
+    /// left to reopen, which is the expected outcome of a repeated or
+    /// concurrent resume: the first call already moved those items to
+    /// `queued`, so the second one matches no row instead of duplicating work.
+    ///
+    /// A resume that reopens nothing also leaves the parent completely alone:
+    /// no recompute, so no `updated_at` bump and no task event. A losing
+    /// concurrent or repeated caller must be invisible to the queue's SSE
+    /// stream, not only to the item rows.
+    pub async fn resume_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
+        let mut tx = self.pool().begin().await?;
+        let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
+        claim_unfinished_item_file_slots(&mut tx, task.group_id, task_id).await?;
+        let ids = sqlx::query_file_scalar!("src/sql/db/tasks/resume_items.sql", task_id, user_id)
+            .fetch_all(&mut *tx)
+            .await?;
+        if !ids.is_empty() {
+            // The parent leaves `cancelled`/`failed` through its own projection:
+            // once an item is active again the recomputed status is that item's.
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(ids)
+    }
+
+    /// Forks a new task (new id, no idempotency-key binding) from a source
+    /// task, copying every item that did not already succeed.
+    ///
+    /// This is the explicit duplicate-record primitive: submissions whose
+    /// original idempotency key must stay bound to the old task use it. The
+    /// user-facing queue recovery path uses [`Database::resume_task_items`]
+    /// instead, which reopens the same task row so a cancelled submission never
+    /// gains a second visible task.
     pub async fn rerun_task(&self, task_id: Uuid) -> Result<(Uuid, Vec<Uuid>)> {
         let mut tx = self.pool().begin().await?;
         let source = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
