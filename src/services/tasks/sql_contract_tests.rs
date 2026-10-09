@@ -324,6 +324,105 @@ fn the_file_and_title_projection_is_identical_for_a_task_and_its_items() {
     }
 }
 
+/// Issue 730: the list projection must select the filtered/sorted page of
+/// parent tasks before running filename/title LATERAL lookups, so metadata
+/// work is bounded by the page size. The count query must stay metadata-free.
+#[test]
+fn task_list_selects_page_before_metadata_lookups() {
+    let list = include_str!("../../sql/db/tasks/list.sql");
+
+    assert!(
+        list.contains("WITH page AS"),
+        "list.sql must select the page in a `page` CTE before metadata lookups"
+    );
+    assert!(
+        list.contains("FROM page task"),
+        "list.sql must join metadata only against the selected page rows"
+    );
+
+    let page_bound = list.find("LIMIT $10 OFFSET $11").expect("page bound");
+    let lateral = list.find("LEFT JOIN LATERAL (").expect("metadata LATERAL");
+    assert!(
+        page_bound < lateral,
+        "the page LIMIT/OFFSET must come before the filename/title LATERAL"
+    );
+
+    // The page selection (everything before the metadata LATERAL) must not
+    // touch file/document metadata: only the outer join for page rows may.
+    let before = &list[..lateral];
+    for forbidden in [
+        "library_files",
+        "library_file_documents",
+        "metadata_json",
+        "document.title",
+    ] {
+        assert!(
+            !before.contains(forbidden),
+            "page selection must not touch {forbidden}; metadata runs only for page rows"
+        );
+    }
+
+    // The metadata join itself stays for the page rows only.
+    let after = &list[lateral..];
+    for fragment in [
+        "LEFT JOIN context69.library_files file ON file.id = item.file_id",
+        "FROM context69.library_file_documents link",
+        "NULLIF(file.filename, '')",
+        "NULLIF(doc.title, '')",
+    ] {
+        assert!(
+            after.contains(fragment),
+            "page-row metadata join must keep `{fragment}`"
+        );
+    }
+
+    // One row per task is preserved: the focus item and its linked document
+    // stay bounded to one row each.
+    assert_eq!(
+        list.matches("LIMIT 1").count(),
+        2,
+        "list.sql must bound both the linked document and the focus item to one row"
+    );
+}
+
+#[test]
+fn task_count_remains_metadata_free() {
+    let count = include_str!("../../sql/db/tasks/count.sql");
+    let code: String = count
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    for forbidden in [
+        "file_name",
+        "document_title",
+        "library_files",
+        "library_file_documents",
+        "metadata_json",
+        "LATERAL",
+        "doc.title",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "count.sql must stay metadata-free and not contain {forbidden}"
+        );
+    }
+    // The count keeps the same filter/view surface as the page selection, so
+    // totals stay consistent with the list without paying for metadata.
+    for fragment in [
+        "task.user_id = $1",
+        "$2::text IS NULL",
+        "$8::text = 'processing'",
+        "$8::text = 'completed'",
+        "$8::text = 'trash'",
+    ] {
+        assert!(
+            code.contains(fragment),
+            "count.sql must keep the shared filter fragment `{fragment}`"
+        );
+    }
+}
+
 #[test]
 fn terminal_payload_migration_strips_only_planned_keys_under_guards() {
     let code = terminal_payload_migration_code();

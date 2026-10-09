@@ -1,4 +1,4 @@
-import { flushPromises, mount } from "@vue/test-utils";
+import { DOMWrapper, flushPromises, mount } from "@vue/test-utils";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as nuxtUiComposables from "@nuxt/ui/composables";
 import { createMemoryHistory, createRouter } from "vue-router";
@@ -43,6 +43,7 @@ function response(items: TaskResponse[]) {
 }
 
 async function mountQueue() {
+  document.body.innerHTML = '<div id="app-route-actions"></div>';
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
@@ -50,12 +51,27 @@ async function mountQueue() {
   await router.push("/processing-queue");
   await router.isReady();
   return mount(ProcessingQueueView, {
+    attachTo: document.body,
     global: { plugins: [testNuxtUiPlugin, createTestI18n("en"), router] },
   });
 }
 
 function tabButton(wrapper: ReturnType<typeof mount>, label: string) {
-  return wrapper.findAll("button").find((button) => button.text().includes(label));
+  // Issue 730: tabs live in the teleported global header row, so resolve them
+  // from the route-actions target. VTU does not traverse the teleport target,
+  // so wrap the teleported button for triggering.
+  const fromWrapper = wrapper.findAll("button").find((button) => button.text().includes(label));
+  if (fromWrapper) return fromWrapper;
+  const el = [...document.body.querySelectorAll<HTMLElement>("#app-route-actions button")].find((button) => (button.textContent ?? "").includes(label));
+  if (!el) return undefined;
+  return new DOMWrapper(el);
+}
+
+function routeAction(testId: string) {
+  // Issue 730: header actions live in the teleported global header row.
+  const el = document.body.querySelector<HTMLElement>(`#app-route-actions [data-testid="${testId}"]`);
+  if (!el) return undefined;
+  return new DOMWrapper(el);
 }
 
 // Header filters are Nuxt UI menus portalled to the document body, so a test
@@ -190,16 +206,16 @@ describe("ProcessingQueueView tabs", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+    expect(routeAction("clear-completed-button")).toBeUndefined();
 
     await tabButton(wrapper, "Completed")!.trigger("mousedown");
     await flushPromises();
 
-    const clearButton = wrapper.find('[data-testid="clear-completed-button"]');
-    expect(clearButton.exists()).toBe(true);
-    expect(wrapper.find('[data-testid="clear-trash-button"]').exists()).toBe(false);
+    const clearButton = routeAction("clear-completed-button");
+    expect(clearButton).toBeDefined();
+    expect(routeAction("clear-trash-button")).toBeUndefined();
 
-    await clearButton.trigger("click");
+    await (clearButton as DOMWrapper<HTMLElement>).trigger("click");
     await flushPromises();
 
     expect(clearTaskHistory).toHaveBeenCalledWith({ view: "completed" });
@@ -217,11 +233,11 @@ describe("ProcessingQueueView tabs", () => {
     await tabButton(wrapper, "Trash")!.trigger("mousedown");
     await flushPromises();
 
-    const clearButton = wrapper.find('[data-testid="clear-trash-button"]');
-    expect(clearButton.exists()).toBe(true);
-    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
+    const clearButton = routeAction("clear-trash-button");
+    expect(clearButton).toBeDefined();
+    expect(routeAction("clear-completed-button")).toBeUndefined();
 
-    await clearButton.trigger("click");
+    await (clearButton as DOMWrapper<HTMLElement>).trigger("click");
     await flushPromises();
 
     expect(clearTaskHistory).toHaveBeenCalledWith({ view: "trash" });

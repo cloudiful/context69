@@ -11,6 +11,11 @@ import { useToast } from "@nuxt/ui/composables";
 
 const DEFAULT_PAGE_SIZE = 25;
 
+// Issue 730: one bounded list request at a time. Refresh triggers that arrive
+// while a request is pending coalesce into a single trailing snapshot instead
+// of aborting a request storm.
+const LIST_REQUEST_TIMEOUT_MS = 15_000;
+
 interface UseProcessingQueueOptions {
   t: (key: string, params?: Record<string, unknown>) => string;
 }
@@ -37,20 +42,27 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const actionTaskIds = ref<string[]>([]);
   const bulkAction = ref<"recover" | "cancel" | null>(null);
   const clearAction = ref<ClearTaskHistoryView | null>(null);
-  let requestController: AbortController | null = null;
+  let activeController: AbortController | null = null;
   let requestId = 0;
+  let pendingReload = false;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let isUnmounted = false;
 
   // Live updates (issue 405 Task E3) live in `queue-stream.ts`: the watch-all
   // SSE stream, its 20s polling fallback, the 1s structural debounce, and the
   // hidden-tab pause/resume all operate on this composable's own `items` ref
-  // and `load` function, so no queue state is duplicated.
+  // and `load` function, so no queue state is duplicated. Issue 730 keeps SSE
+  // primary: the fallback poll runs only after transport failure and stops
+  // after a successful snapshot, and it never runs concurrently with an
+  // in-flight list request (the interval skips while `loading` is true and
+  // `load` single-flights every other trigger).
   const {
     taskStream,
     startLiveUpdates,
     stopLiveUpdates,
     handleVisibilityChange,
     disposeLiveUpdates,
-  } = useQueueStream({ items, load });
+  } = useQueueStream({ items, load, isLoading: loading });
 
   const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);
   const activeCount = computed(() => items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).length);
@@ -59,11 +71,30 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   async function load(options: { resetPage?: boolean } = {}) {
     if (options.resetPage) page.value = 1;
-    requestController?.abort();
-    requestController = new AbortController();
+    // Coalesce concurrent triggers: at most one active list request per
+    // snapshot. A trigger that arrives mid-flight only marks a trailing
+    // snapshot; the loop below observes the latest filter/page/sort state.
+    if (activeController) {
+      pendingReload = true;
+      return;
+    }
+    do {
+      pendingReload = false;
+      await fetchPage();
+    } while (pendingReload && !isUnmounted);
+  }
+
+  async function fetchPage() {
+    activeController = new AbortController();
     const currentRequest = ++requestId;
     loading.value = true;
     error.value = null;
+    let timedOut = false;
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(() => {
+      timedOut = true;
+      activeController?.abort();
+    }, LIST_REQUEST_TIMEOUT_MS);
 
     try {
       const response = await apiClient.listTasks({
@@ -78,18 +109,47 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
         dependencyKey: dependencyKeyFilter.value,
         sortBy: sort.value?.field,
         sortDirection: sort.value?.direction,
-      }, { signal: requestController.signal });
-      if (currentRequest !== requestId) return;
+      }, { signal: activeController.signal });
+      if (isUnmounted || currentRequest !== requestId) return;
+      // Latest-state wins: a trigger that arrived mid-flight queued a trailing
+      // reload for the newest page/filter/sort refs. Discard this stale
+      // snapshot so its captured page/pageSize cannot clobber those refs; the
+      // trailing fetch observes the latest state.
+      if (pendingReload) return;
       items.value = response.items;
       pagination.value = response.pagination;
       page.value = response.pagination.page;
       pageSize.value = response.pagination.page_size;
     } catch (loadError) {
-      if (loadError instanceof Error && loadError.name === "AbortError") return;
-      if (currentRequest !== requestId) return;
+      // A timeout aborts with AbortError but must settle as a user-visible
+      // error. Any other abort is teardown (unmount): settle silently and keep
+      // stale rows untouched. Any other failure settles with a message while
+      // preserving the last usable page when one exists.
+      if (loadError instanceof Error && loadError.name === "AbortError") {
+        if (!timedOut) return;
+        if (isUnmounted || currentRequest !== requestId) return;
+        // A stale timeout must not settle an error the trailing reload is
+        // about to replace.
+        if (pendingReload) return;
+        error.value = t("processingQueue.loadFailed");
+        return;
+      }
+      if (isUnmounted || currentRequest !== requestId) return;
+      // Same latest-state rule for failures: suppress a stale failure while a
+      // trailing reload for newer refs is queued.
+      if (pendingReload) return;
       error.value = errorMessage(loadError, t("processingQueue.loadFailed"));
     } finally {
-      if (currentRequest === requestId) loading.value = false;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      activeController = null;
+      // A queued trailing snapshot keeps the spinner across the next fetch;
+      // otherwise this snapshot settles the loading state.
+      if (!pendingReload || isUnmounted) {
+        if (currentRequest === requestId) loading.value = false;
+      }
     }
   }
 
@@ -196,9 +256,15 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     }
   });
   onBeforeUnmount(() => {
+    isUnmounted = true;
+    pendingReload = false;
     disposeLiveUpdates();
-    requestController?.abort();
+    activeController?.abort();
     requestId += 1;
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+      timeoutId = null;
+    }
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     }

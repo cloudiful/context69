@@ -7,6 +7,9 @@ import { useTaskStream } from "./use-task-stream";
 // refreshes instead of the fixed 20s poll. The 20s poll is retained as the
 // automatic fallback when the stream errors, is unavailable, or the client
 // cannot use cookie-based SSE (e.g. PAT clients): zero behavior loss.
+// Issue 730 keeps SSE primary: the fallback starts only after transport/error
+// failure, stops after a successful snapshot, and never runs concurrently
+// with an in-flight list request.
 const LIVE_FALLBACK_INTERVAL_MS = 20_000;
 
 // Issue 408 Task F1: off-page updates (task_id not in the current page) imply a
@@ -19,16 +22,22 @@ export interface UseQueueStreamOptions {
   // The queue's page items ref; on-page deltas merge in place.
   items: Ref<TaskResponse[]>;
   // The queue's load function; every snapshot and structural resync calls it.
+  // `load` single-flights concurrent triggers, so these calls coalesce rather
+  // than overlap.
   load: () => void | Promise<void>;
+  // The queue's loading ref; the fallback interval skips a tick while a list
+  // request is in flight so fallback polling never overlaps it.
+  isLoading?: Ref<boolean>;
 }
 
 /** Live-update coordination for the processing queue: the watch-all SSE
  * deltas, the 20s polling fallback, the 1s structural debounce, and the
  * hidden-tab pause/resume. No queue state is owned here — the caller passes
  * its own `items` ref and `load` function, and the SSE transport stays in
- * `useTaskStream`.
+ * `useTaskStream`. The task-event SSE framing and both stream consumers
+ * (this watch-all coordinator and the watch-ids task settler) are preserved.
  */
-export function useQueueStream({ items, load }: UseQueueStreamOptions) {
+export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions) {
   let liveActive = false;
   let liveSynced = false;
   let fallbackTimer: ReturnType<typeof setInterval> | null = null;
@@ -59,9 +68,12 @@ export function useQueueStream({ items, load }: UseQueueStreamOptions) {
   function startFallbackPolling() {
     stopFallbackPolling();
     fallbackTimer = setInterval(() => {
-      if (document.visibilityState === "visible") {
-        void load();
-      }
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      // Never overlap an in-flight list request: the in-flight snapshot is
+      // already fresh, and the next interval tick retries. Immediate resync
+      // loads (snapshot/error paths) still go through `load`, which coalesces.
+      if (isLoading?.value) return;
+      void load();
     }, LIVE_FALLBACK_INTERVAL_MS);
   }
 

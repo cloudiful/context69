@@ -108,6 +108,7 @@ async function openSubmenu(item: HTMLElement) {
 }
 
 async function mountQueue(locale: "en" | "zh-CN" = "en") {
+  document.body.innerHTML = '<div id="app-route-actions"></div>';
   const router = createRouter({
     history: createMemoryHistory(),
     routes: [{ path: "/processing-queue", name: "processing-queue", component: { template: "<div />" } }],
@@ -115,6 +116,7 @@ async function mountQueue(locale: "en" | "zh-CN" = "en") {
   await router.push("/processing-queue");
   await router.isReady();
   return mount(ProcessingQueueView, {
+    attachTo: document.body,
     global: { plugins: [testNuxtUiPlugin, createTestI18n(locale), router] },
   });
 }
@@ -394,13 +396,17 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    const header = wrapper.find('[data-testid="processing-queue-header"]');
-    expect(header.exists()).toBe(true);
-    expect(header.find('[data-testid="processing-queue-tabs"]').exists()).toBe(true);
-    expect(header.find('[aria-label="Refresh queue"]').exists()).toBe(true);
-    expect(header.text()).toContain("Retry recoverable tasks");
-    expect(header.text()).toContain("Cancel active");
-    expect(header.find("h1").exists()).toBe(false);
+    // Issue 730: tabs and actions teleport to the global route header row;
+    // no duplicate page-level header remains in the section.
+    const headerEl = document.body.querySelector('[data-testid="processing-queue-header"]');
+    expect(headerEl).not.toBeNull();
+    expect(document.body.querySelector('#app-route-actions [data-testid="processing-queue-header"]')).not.toBeNull();
+    expect(headerEl?.querySelector('[data-testid="processing-queue-tabs"]')).not.toBeNull();
+    expect(headerEl?.querySelector('[aria-label="Refresh queue"]')).not.toBeNull();
+    expect(headerEl?.textContent).toContain("Retry recoverable tasks");
+    expect(headerEl?.textContent).toContain("Cancel active");
+    expect(wrapper.find("section > header").exists()).toBe(false);
+    expect(wrapper.find("h1").exists()).toBe(false);
     wrapper.unmount();
   });
 
@@ -624,8 +630,11 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    const retryButton = wrapper.findAll("button").find((button) => button.text().includes("Retry"));
-    expect(retryButton).toBeDefined();
+    // Issue 730: the row resumes a cancelled task ("Resume") while the global
+    // header keeps the bulk "Retry recoverable tasks" control teleported.
+    const resumeButton = wrapper.findAll("button").find((button) => button.text().includes("Resume"));
+    expect(resumeButton).toBeDefined();
+    expect(document.body.querySelector("#app-route-actions")?.textContent).toContain("Retry");
     wrapper.unmount();
   });
 
@@ -671,8 +680,8 @@ describe("ProcessingQueueView", () => {
     const wrapper = await mountQueue();
     await flushPromises();
 
-    expect(wrapper.find('[data-testid="clear-completed-button"]').exists()).toBe(false);
-    expect(wrapper.find('[data-testid="clear-trash-button"]').exists()).toBe(false);
+    expect(document.body.querySelector('[data-testid="clear-completed-button"]')).toBeNull();
+    expect(document.body.querySelector('[data-testid="clear-trash-button"]')).toBeNull();
     wrapper.unmount();
   });
 

@@ -2,6 +2,97 @@
 -- context (issue 723): the focus item's file name and document title, with the
 -- fallback chain documented in `items.sql`. One LATERAL row keeps the join from
 -- multiplying a task.
+--
+-- Issue 730 page-first: the filtered/sorted page of parent tasks is selected
+-- in the `page` CTE before any filename/title lookup runs. The outer query
+-- joins the focus-item/document LATERALs only against those page rows, so
+-- metadata work is bounded by the page size. The count query stays
+-- metadata-free on purpose.
+WITH page AS (
+    SELECT
+        task.id,
+        task.user_id,
+        task.group_id,
+        task.kind,
+        task.status,
+        task.origin,
+        task.group_path,
+        task.source_key,
+        task.total_count,
+        task.queued_count,
+        task.running_count,
+        task.waiting_count,
+        task.succeeded_count,
+        task.failed_count,
+        task.cancelled_count,
+        task.failure_stage,
+        task.error_summary,
+        task.stage,
+        task.waiting_reason,
+        task.dependency_key,
+        task.next_attempt_at,
+        task.deleted_at,
+        task.created_at,
+        task.started_at,
+        task.finished_at,
+        task.updated_at
+    FROM context69.tasks task
+    WHERE (
+          task.user_id = $1
+          OR EXISTS (
+              WITH RECURSIVE inherited_groups AS (
+                  SELECT gm.group_id
+                  FROM context69.group_memberships gm
+                  WHERE gm.user_id = $1
+                  UNION ALL
+                  SELECT child.id
+                  FROM context69.groups child
+                  JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id
+              )
+              SELECT 1
+              FROM inherited_groups
+              WHERE inherited_groups.group_id = task.group_id
+          )
+      )
+      AND (
+          $2::text IS NULL
+          OR task.group_path ILIKE '%' || $2 || '%'
+          OR task.source_key ILIKE '%' || $2 || '%'
+          OR task.error_summary ILIKE '%' || $2 || '%'
+          OR EXISTS (
+              SELECT 1
+              FROM context69.task_items item
+              WHERE item.task_id = task.id
+                AND item.payload::text ILIKE '%' || $2 || '%'
+          )
+      )
+      AND ($3::text IS NULL OR task.kind = $3)
+      AND ($4::text IS NULL OR task.status = $4)
+      AND ($5::text IS NULL OR task.stage = $5)
+      AND ($6::text IS NULL OR task.waiting_reason = $6)
+      AND ($7::text IS NULL OR task.dependency_key = $7)
+      AND (
+          ($12::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
+          OR ($12::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
+          OR ($12::text = 'trash' AND task.deleted_at IS NOT NULL)
+      )
+    ORDER BY
+        CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
+        CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'asc' THEN task.kind END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'desc' THEN task.kind END DESC NULLS LAST,
+        CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'asc' THEN COALESCE(task.stage, '') END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'desc' THEN COALESCE(task.stage, '') END DESC NULLS LAST,
+        CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'asc' THEN COALESCE(task.group_path, '') END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'desc' THEN COALESCE(task.group_path, '') END DESC NULLS LAST,
+        CASE WHEN $8::TEXT = 'created_at' AND $9::TEXT = 'asc' THEN task.created_at END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'created_at' AND $9::TEXT = 'desc' THEN task.created_at END DESC NULLS LAST,
+        CASE WHEN $8::TEXT = 'updated_at' AND $9::TEXT = 'asc' THEN task.updated_at END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'updated_at' AND $9::TEXT = 'desc' THEN task.updated_at END DESC NULLS LAST,
+        task.created_at DESC,
+        task.id DESC
+    LIMIT $10 OFFSET $11
+)
 SELECT
     task.id,
     task.user_id,
@@ -31,7 +122,7 @@ SELECT
     task.updated_at,
     context.file_name,
     context.document_title
-FROM context69.tasks task
+FROM page task
 LEFT JOIN LATERAL (
     SELECT
         -- The focus item's readable context; `items.sql` documents the same
@@ -80,45 +171,6 @@ LEFT JOIN LATERAL (
     ORDER BY item.status = 'succeeded', item.ordinal
     LIMIT 1
 ) context ON TRUE
-WHERE (
-      task.user_id = $1
-      OR EXISTS (
-          WITH RECURSIVE inherited_groups AS (
-              SELECT gm.group_id
-              FROM context69.group_memberships gm
-              WHERE gm.user_id = $1
-              UNION ALL
-              SELECT child.id
-              FROM context69.groups child
-              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id
-          )
-          SELECT 1
-          FROM inherited_groups
-          WHERE inherited_groups.group_id = task.group_id
-      )
-  )
-  AND (
-      $2::text IS NULL
-      OR task.group_path ILIKE '%' || $2 || '%'
-      OR task.source_key ILIKE '%' || $2 || '%'
-      OR task.error_summary ILIKE '%' || $2 || '%'
-      OR EXISTS (
-          SELECT 1
-          FROM context69.task_items item
-          WHERE item.task_id = task.id
-            AND item.payload::text ILIKE '%' || $2 || '%'
-      )
-  )
-  AND ($3::text IS NULL OR task.kind = $3)
-  AND ($4::text IS NULL OR task.status = $4)
-  AND ($5::text IS NULL OR task.stage = $5)
-  AND ($6::text IS NULL OR task.waiting_reason = $6)
-  AND ($7::text IS NULL OR task.dependency_key = $7)
-  AND (
-      ($12::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
-      OR ($12::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
-      OR ($12::text = 'trash' AND task.deleted_at IS NOT NULL)
-  )
 ORDER BY
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
@@ -134,4 +186,3 @@ ORDER BY
     CASE WHEN $8::TEXT = 'updated_at' AND $9::TEXT = 'desc' THEN task.updated_at END DESC NULLS LAST,
     task.created_at DESC,
     task.id DESC
-LIMIT $10 OFFSET $11

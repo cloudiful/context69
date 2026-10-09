@@ -16,6 +16,7 @@ const { t } = useI18n();
 
 const routeName = computed(() => String(route.name ?? ""));
 const groupPath = computed(() => String(route.params.groupPath ?? ""));
+const isProcessingQueue = computed(() => routeName.value === "processing-queue");
 
 const settingsSections = computed(() => resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true));
 
@@ -82,11 +83,12 @@ const breadcrumbItems = computed(() => items.value.map((item) => ({
 
 <template>
   <div class="flex min-w-0 items-center gap-3">
-    <UBreadcrumb
-      v-if="items.length > 1"
-      :items="breadcrumbItems"
-      class="min-w-0 flex-1"
-    />
+    <!-- Issue 730: the processing queue renders its accessible title in the
+         global route header row. The single breadcrumb stays hidden (it would
+         duplicate the title), while the teleported tab/action controls land in
+         `#app-route-actions` on the right. -->
+    <h1 v-if="isProcessingQueue" data-testid="route-title" class="min-w-0 flex-1 truncate text-base font-semibold">{{ t("nav.processingQueue") }}</h1>
+    <UBreadcrumb v-else-if="items.length > 1" :items="breadcrumbItems" class="min-w-0 flex-1" />
     <div id="app-route-actions" class="flex shrink-0 items-center justify-end" />
   </div>
 </template>
