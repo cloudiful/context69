@@ -30,7 +30,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.21.19"
+version = "0.21.20"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -45,7 +45,7 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.3" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.21.19" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.21.20" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
 context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
 context69-contracts-extraction = { path = "crates/context69-contracts-extraction", version = "0.1.0" }
@@ -65,7 +65,7 @@ context69-namespace = { path = "crates/context69-namespace", version = "0.1.0" }
 context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.1.0" }
 context69-search = { path = "crates/context69-search", version = "0.1.0" }
 context69-search-http = { path = "crates/context69-search-http", version = "0.1.0" }
-context69-sdk = { path = "crates/context69-sdk", version = "0.21.19" }
+context69-sdk = { path = "crates/context69-sdk", version = "0.21.20" }
 context69-secret-crypto = { path = "crates/context69-secret-crypto", version = "0.1.0" }
 context69-secret-store = { path = "crates/context69-secret-store", version = "0.1.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.1.0" }
