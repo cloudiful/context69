@@ -8,7 +8,22 @@
 -- joins the focus-item/document LATERALs only against those page rows, so
 -- metadata work is bounded by the page size. The count query stays
 -- metadata-free on purpose.
+--
+-- Issue 734: the inherited accessible groups are computed once in
+-- `accessible_groups` (scoped to the page selection, outside the
+-- task-correlated EXISTS) instead of per task row. The page keeps an EXISTS
+-- against that set (never a join), so overlapping memberships cannot duplicate
+-- a task and ownership/descendant semantics match the original.
 WITH page AS (
+    WITH RECURSIVE accessible_groups AS (
+        SELECT gm.group_id
+        FROM context69.group_memberships gm
+        WHERE gm.user_id = $1
+        UNION ALL
+        SELECT child.id
+        FROM context69.groups child
+        JOIN accessible_groups ON child.parent_group_id = accessible_groups.group_id
+    )
     SELECT
         task.id,
         task.user_id,
@@ -40,18 +55,9 @@ WITH page AS (
     WHERE (
           task.user_id = $1
           OR EXISTS (
-              WITH RECURSIVE inherited_groups AS (
-                  SELECT gm.group_id
-                  FROM context69.group_memberships gm
-                  WHERE gm.user_id = $1
-                  UNION ALL
-                  SELECT child.id
-                  FROM context69.groups child
-                  JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id
-              )
               SELECT 1
-              FROM inherited_groups
-              WHERE inherited_groups.group_id = task.group_id
+              FROM accessible_groups ag
+              WHERE ag.group_id = task.group_id
           )
       )
       AND (

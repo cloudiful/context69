@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Issue 734: the inherited accessible groups are computed once in\n-- `accessible_groups` instead of per task row. The count keeps an EXISTS\n-- against that set (never a join), so overlapping memberships cannot duplicate\n-- a task and ownership/descendant semantics match the list query.\nWITH RECURSIVE accessible_groups AS (\n    SELECT gm.group_id\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id\n    FROM context69.groups child\n    JOIN accessible_groups ON child.parent_group_id = accessible_groups.group_id\n)\nSELECT count(*)::bigint\nFROM context69.tasks task\nWHERE (\n      task.user_id = $1\n      OR EXISTS (\n          SELECT 1\n          FROM accessible_groups ag\n          WHERE ag.group_id = task.group_id\n      )\n  )\n  AND (\n      $2::text IS NULL\n      OR task.group_path ILIKE '%' || $2 || '%'\n      OR task.source_key ILIKE '%' || $2 || '%'\n      OR task.error_summary ILIKE '%' || $2 || '%'\n      OR EXISTS (\n          SELECT 1\n          FROM context69.task_items item\n          WHERE item.task_id = task.id\n            AND item.payload::text ILIKE '%' || $2 || '%'\n      )\n  )\n  AND ($3::text IS NULL OR task.kind = $3)\n  AND ($4::text IS NULL OR task.status = $4)\n  AND ($5::text IS NULL OR task.stage = $5)\n  AND ($6::text IS NULL OR task.waiting_reason = $6)\n  AND ($7::text IS NULL OR task.dependency_key = $7)\n  AND (\n      ($8::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')\n      OR ($8::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')\n      OR ($8::text = 'trash' AND task.deleted_at IS NOT NULL)\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "87940fff9ea25a66afd209d80452c21de3d0e953194eb00dbaed0d39df404cf4"
+}

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Project a terminal task item status onto its library file. The file row is\n-- the business fact while the task item is execution detail, so this keeps\n-- them consistent without ever regressing a file that already succeeded and\n-- without stealing a file that still has another active item.\n--\n-- Referenced file is derived from the item itself; a NULL file_id or a\n-- delete-batch item whose row is gone is a no-op.\n--\n-- Issue 734: the projection target is resolved by item id through an indexed\n-- file-identity join (`file.id = target.file_id`) instead of an outer-file\n-- correlated scalar subquery. The sibling guard is evaluated once in\n-- `has_sibling` (same statement snapshot, so combining the three identical\n-- checks is concurrency-safe) against the same partial active-file index.\nWITH target AS (\n    SELECT item.file_id AS file_id, task.group_id AS group_id\n    FROM context69.task_items item\n    JOIN context69.tasks task ON task.id = item.task_id\n    WHERE item.id = $1\n      AND item.file_id IS NOT NULL\n      AND item.status = $2\n),\nhas_sibling AS (\n    SELECT EXISTS (\n        SELECT 1\n        FROM context69.task_items sibling\n        JOIN target ON sibling.file_id = target.file_id\n        WHERE sibling.id <> $1\n          AND sibling.status IN ('queued', 'running', 'waiting')\n    ) AS active\n)\nUPDATE context69.library_files file\nSET ingest_status = CASE\n        WHEN file.ingest_status = 'succeeded' THEN file.ingest_status\n        WHEN (SELECT active FROM has_sibling) THEN file.ingest_status\n        WHEN $2 = 'succeeded' THEN 'succeeded'\n        WHEN $2 = 'failed' THEN 'failed'\n        ELSE file.ingest_status\n    END,\n    error_message = CASE\n        WHEN file.ingest_status = 'succeeded' THEN file.error_message\n        WHEN (SELECT active FROM has_sibling) THEN file.error_message\n        WHEN $2 = 'succeeded' THEN NULL\n        WHEN $2 = 'failed' THEN $3\n        ELSE file.error_message\n    END,\n    ingested_at = CASE\n        WHEN file.ingest_status = 'succeeded' THEN file.ingested_at\n        WHEN (SELECT active FROM has_sibling) THEN file.ingested_at\n        WHEN $2 = 'succeeded' THEN now()\n        WHEN $2 = 'failed' THEN NULL\n        ELSE file.ingested_at\n    END,\n    updated_at = now()\nFROM target\nWHERE file.id = target.file_id\n  -- Defense in depth: never project a task's status onto a file owned by\n  -- a different group, even if a legacy item references a foreign file.\n  AND file.group_id = target.group_id\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c32b7218fa24a1bab4b4192503ef7eede1f2ac59d294db4d140c6dde6af3f3ac"
+}

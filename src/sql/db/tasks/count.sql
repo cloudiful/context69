@@ -1,20 +1,24 @@
+-- Issue 734: the inherited accessible groups are computed once in
+-- `accessible_groups` instead of per task row. The count keeps an EXISTS
+-- against that set (never a join), so overlapping memberships cannot duplicate
+-- a task and ownership/descendant semantics match the list query.
+WITH RECURSIVE accessible_groups AS (
+    SELECT gm.group_id
+    FROM context69.group_memberships gm
+    WHERE gm.user_id = $1
+    UNION ALL
+    SELECT child.id
+    FROM context69.groups child
+    JOIN accessible_groups ON child.parent_group_id = accessible_groups.group_id
+)
 SELECT count(*)::bigint
 FROM context69.tasks task
 WHERE (
       task.user_id = $1
       OR EXISTS (
-          WITH RECURSIVE inherited_groups AS (
-              SELECT gm.group_id
-              FROM context69.group_memberships gm
-              WHERE gm.user_id = $1
-              UNION ALL
-              SELECT child.id
-              FROM context69.groups child
-              JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id
-          )
           SELECT 1
-          FROM inherited_groups
-          WHERE inherited_groups.group_id = task.group_id
+          FROM accessible_groups ag
+          WHERE ag.group_id = task.group_id
       )
   )
   AND (
