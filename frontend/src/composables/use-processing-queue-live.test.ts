@@ -78,12 +78,24 @@ describe("useProcessingQueue live updates", () => {
     await flushPromises();
     expect(listTasks).toHaveBeenCalledTimes(2);
 
-    // Issue 408 Task F1: an in-page update merges locally with zero requests.
-    es.emit("update", { task: { ...runningTask, status: "succeeded" } });
+    vi.useFakeTimers();
+    const priorItems = state.items.value;
+    es.emit("update", {
+      task: {
+        ...runningTask,
+        stage: "storage",
+        progress: { ...runningTask.progress, running: 0, succeeded: 1 },
+      },
+    });
+    expect(state.items.value).toBe(priorItems);
+    await vi.advanceTimersByTimeAsync(100);
     await flushPromises();
     expect(listTasks).toHaveBeenCalledTimes(2);
+    expect(state.items.value).not.toBe(priorItems);
     expect(state.items.value).toHaveLength(1);
-    expect(state.items.value[0]?.status).toBe("succeeded");
+    expect(state.items.value[0]?.status).toBe("running");
+    expect(state.items.value[0]?.stage).toBe("storage");
+    expect(state.items.value[0]?.progress.succeeded).toBe(1);
     expect(state.liveFallback.value).toBe(false);
 
     state.stopLiveUpdates();

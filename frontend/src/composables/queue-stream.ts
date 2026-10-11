@@ -1,6 +1,7 @@
 import type { Ref } from "vue";
 
 import type { TaskResponse } from "../services/api";
+import { createQueueUpdateRegistry, queueUpdateRequiresReload, type QueueUpdateQuery } from "./queue-update-registry";
 import { useTaskStream } from "./use-task-stream";
 
 // Live updates (issue 405 Task E3): a watch-all task SSE stream drives
@@ -12,14 +13,12 @@ import { useTaskStream } from "./use-task-stream";
 // with an in-flight list request.
 const LIVE_FALLBACK_INTERVAL_MS = 20_000;
 
-// Issue 408 Task F1: off-page updates (task_id not in the current page) imply a
-// structural change (new/vanished task, shifted totals) that only a full load
-// can reflect. Collapse a burst of such frames into one trailing load so a
-// 2781-item storm costs one request, not one per frame.
+// Structural changes cannot safely patch server-selected membership or order.
+// Collapse a burst into one trailing authoritative load.
 const STRUCTURAL_DEBOUNCE_MS = 1_000;
 
 export interface UseQueueStreamOptions {
-  // The queue's page items ref; on-page deltas merge in place.
+  // The queue's page items ref; coalesced updates replace it immutably.
   items: Ref<TaskResponse[]>;
   // The queue's load function; every snapshot and structural resync calls it.
   // `load` single-flights concurrent triggers, so these calls coalesce rather
@@ -28,6 +27,8 @@ export interface UseQueueStreamOptions {
   // The queue's loading ref; the fallback interval skips a tick while a list
   // request is in flight so fallback polling never overlaps it.
   isLoading?: Ref<boolean>;
+  // Current server query, used to distinguish local progress from structural changes.
+  query: () => QueueUpdateQuery;
 }
 
 /** Live-update coordination for the processing queue: the watch-all SSE
@@ -37,26 +38,48 @@ export interface UseQueueStreamOptions {
  * `useTaskStream`. The task-event SSE framing and both stream consumers
  * (this watch-all coordinator and the watch-ids task settler) are preserved.
  */
-export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions) {
+export function useQueueStream({ items, load, isLoading, query }: UseQueueStreamOptions) {
   let liveActive = false;
   let liveSynced = false;
   let fallbackTimer: ReturnType<typeof setInterval> | null = null;
   let structuralTimer: ReturnType<typeof setTimeout> | null = null;
 
   function cancelStructuralSync() {
-    if (structuralTimer) {
+    if (structuralTimer !== null) {
       clearTimeout(structuralTimer);
       structuralTimer = null;
     }
   }
 
   function scheduleStructuralSync() {
-    if (structuralTimer) return;
+    if (structuralTimer !== null) return;
     structuralTimer = setTimeout(() => {
       structuralTimer = null;
       void load();
     }, STRUCTURAL_DEBOUNCE_MS);
   }
+
+  function invalidatePendingUpdates() {
+    updateRegistry.invalidate();
+    cancelStructuralSync();
+  }
+
+  function scheduleStructuralReload() {
+    updateRegistry.invalidate();
+    scheduleStructuralSync();
+  }
+
+  function updateReceivedWhileLoading() {
+    invalidatePendingUpdates();
+    void load();
+  }
+
+  const updateRegistry = createQueueUpdateRegistry({
+    items,
+    isLoading: () => isLoading?.value ?? false,
+    onLoadingUpdate: updateReceivedWhileLoading,
+    onStalePage: scheduleStructuralReload,
+  });
 
   function stopFallbackPolling() {
     if (fallbackTimer) {
@@ -83,41 +106,28 @@ export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions
     onSnapshot: () => {
       liveSynced = true;
       stopFallbackPolling();
-      cancelStructuralSync();
+      invalidatePendingUpdates();
       void load();
     },
-    // Issue 408 Task F1: an update frame carries the task's current full
-    // state. When its task_id is already on the current page, merge it in
-    // place (status/stage/progress/counts/error stay realtime) with zero
-    // requests. Otherwise it signals a structural change: collapse the burst
-    // into one trailing debounced load (~1s).
     onUpdate: (task) => {
-      const index = items.value.findIndex((entry) => entry.task_id === task.task_id);
-      if (index >= 0) {
-        items.value[index] = { ...items.value[index], ...task };
+      if (isLoading?.value) {
+        updateReceivedWhileLoading();
         return;
       }
-      scheduleStructuralSync();
-    },
-    onDone: () => {
-      // Watch-all subscriptions never emit `done`; ignore defensively.
-    },
-    onErrorFrame: () => {
-      if (liveActive) startFallbackPolling();
-      if (liveSynced) {
-        cancelStructuralSync();
-        void load();
+      if (structuralTimer !== null) return;
+      const current = items.value.find((entry) => entry.task_id === task.task_id);
+      if (!current || queueUpdateRequiresReload(current, task, query())) {
+        scheduleStructuralReload();
+        return;
       }
+      updateRegistry.enqueue(task);
     },
+    onDone: () => invalidatePendingUpdates(),
+    onErrorFrame: () => invalidatePendingUpdates(),
     onTransportError: () => {
+      invalidatePendingUpdates();
       if (liveActive) startFallbackPolling();
-      // Resync only when the broken stream had delivered its snapshot: before
-      // the first snapshot no delta could have been missed, and the mount
-      // load plus the fallback poll already cover freshness.
-      if (liveSynced) {
-        cancelStructuralSync();
-        void load();
-      }
+      if (liveSynced) void load();
     },
   });
 
@@ -128,6 +138,7 @@ export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions
   function startLiveUpdates() {
     if (liveActive) return;
     liveActive = true;
+    invalidatePendingUpdates();
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
     taskStream.connect();
   }
@@ -136,7 +147,7 @@ export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions
     liveActive = false;
     liveSynced = false;
     stopFallbackPolling();
-    cancelStructuralSync();
+    invalidatePendingUpdates();
     taskStream.disconnect();
   }
 
@@ -148,8 +159,8 @@ export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions
   // snapshot-triggered load() is the catch-up.
   function handleVisibilityChange() {
     if (!liveActive || typeof document === "undefined") return;
+    invalidatePendingUpdates();
     if (document.visibilityState === "hidden") {
-      cancelStructuralSync();
       taskStream.disconnect();
     } else {
       taskStream.reconnect();
@@ -162,12 +173,13 @@ export function useQueueStream({ items, load, isLoading }: UseQueueStreamOptions
   function disposeLiveUpdates() {
     liveActive = false;
     stopFallbackPolling();
-    cancelStructuralSync();
+    invalidatePendingUpdates();
     taskStream.disconnect();
   }
 
   return {
     taskStream,
+    invalidatePendingUpdates,
     startLiveUpdates,
     stopLiveUpdates,
     handleVisibilityChange,

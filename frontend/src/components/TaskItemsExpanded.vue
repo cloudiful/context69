@@ -77,7 +77,12 @@ async function reloadLoadedPages() {
   await fetchLoadedPages(view, items.value.length);
 }
 
-const { refreshError, runExclusive } = useTaskItemsRefresh({
+const {
+  refreshError,
+  runExclusive,
+  scheduleAutomaticRefresh,
+  invalidateAutomaticRefresh,
+} = useTaskItemsRefresh({
   taskId,
   enabled: isActiveTask,
   intervalMs: ITEM_REFRESH_INTERVAL_MS,
@@ -150,6 +155,7 @@ function handleFilterChange(value: TaskItemStatus | null) {
 
 function resetView() {
   viewRevision += 1;
+  invalidateAutomaticRefresh();
   items.value = [];
   nextCursor.value = null;
   isLoading.value = false;
@@ -159,7 +165,7 @@ function resetView() {
 }
 
 watch(
-  () => [props.task.task_id, statusFilter.value] as const,
+  [() => props.task.task_id, () => statusFilter.value],
   ([nextTaskId, nextStatus], [previousTaskId]) => {
     resetView();
     if (nextTaskId !== previousTaskId && nextStatus !== null) {
@@ -176,11 +182,10 @@ watch(
     if (nextTaskId !== previousTaskId || nextUpdatedAt === previousUpdatedAt) return;
     if (!isActiveTask.value || (items.value.length === 0 && !error.value)) return;
     const view = captureView();
-    void runExclusive(reloadLoadedPages, {
-      isCurrent: () => isCurrentView(view),
-    }).catch(() => {
-      if (isCurrentView(view)) refreshError.value = true;
-    });
+    scheduleAutomaticRefresh(
+      () => fetchLoadedPages(view, items.value.length),
+      { isCurrent: () => isCurrentView(view) },
+    );
   },
 );
 

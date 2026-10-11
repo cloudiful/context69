@@ -972,7 +972,7 @@ mod tests {
         assert_inventory_matches_openapi(&json);
     }
 
-    const INVENTORY: &str = include_str!("../../docs/contracts/v0.16-inventory.md");
+    const INVENTORY: &str = include_str!("../../tests/fixtures/contracts/v0.16-inventory.md");
 
     fn inventory_http_section() -> String {
         let marker = "## HTTP operations";

@@ -97,12 +97,15 @@ export function taskSubject(task: TaskResponse): string | null {
     ?? null;
 }
 
-export function summarizeResults(results: PromiseSettledResult<unknown>[], skippedMessagePattern?: RegExp): RecoverySummary {
+export function summarizeResults(
+  results: PromiseSettledResult<unknown>[],
+  isSkipped?: (reason: unknown, index: number) => boolean,
+): RecoverySummary {
   const summary: RecoverySummary = { succeeded: 0, skipped: 0, failed: 0 };
-  for (const result of results) {
+  for (const [index, result] of results.entries()) {
     if (result.status === "fulfilled") {
       summary.succeeded += 1;
-    } else if (skippedMessagePattern && result.reason instanceof Error && skippedMessagePattern.test(result.reason.message)) {
+    } else if (isSkipped?.(result.reason, index)) {
       summary.skipped += 1;
     } else {
       summary.failed += 1;

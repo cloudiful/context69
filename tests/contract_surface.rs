@@ -1,11 +1,11 @@
 //! v0.16 contract parity gate (Redmine 362 Task 1).
 //!
-//! Reads `docs/contracts/v0.16-inventory.md` (compile-time include, deterministic)
+//! Reads `tests/fixtures/contracts/v0.16-inventory.md` (compile-time include, deterministic)
 //! and asserts it classifies every OpenAPI operation exactly once with matching
 //! method/path, no duplicate operation ids, and that every shared schema name
 //! exists in the generated OpenAPI document.
 
-const INVENTORY: &str = include_str!("../docs/contracts/v0.16-inventory.md");
+const INVENTORY: &str = include_str!("fixtures/contracts/v0.16-inventory.md");
 
 #[derive(Debug, Clone)]
 struct InventoryRow {

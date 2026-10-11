@@ -106,7 +106,7 @@ fn pagination_window_signals_are_optional_and_backward_compatible() {
     assert_eq!(decoded.total_is_exact, Some(false));
 }
 
-const INVENTORY: &str = include_str!("../../../docs/contracts/v0.16-inventory.md");
+const INVENTORY: &str = include_str!("../../../tests/fixtures/contracts/v0.16-inventory.md");
 
 fn inventory_http_rows() -> Vec<Vec<String>> {
     let marker = "## HTTP operations";

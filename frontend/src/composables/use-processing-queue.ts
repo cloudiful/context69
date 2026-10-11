@@ -58,11 +58,26 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   // `load` single-flights every other trigger).
   const {
     taskStream,
+    invalidatePendingUpdates,
     startLiveUpdates,
     stopLiveUpdates,
     handleVisibilityChange,
     disposeLiveUpdates,
-  } = useQueueStream({ items, load, isLoading: loading });
+  } = useQueueStream({
+    items,
+    load,
+    isLoading: loading,
+    query: () => ({
+      query: query.value,
+      view: viewFilter.value,
+      status: statusFilter.value,
+      kind: kindFilter.value,
+      stage: stageFilter.value,
+      waitingReason: waitingReasonFilter.value,
+      dependencyKey: dependencyKeyFilter.value,
+      sort: sort.value,
+    }),
+  });
 
   const recoverableCount = computed(() => items.value.filter(isRecoverableTask).length);
   const activeCount = computed(() => items.value.filter((task) => ACTIVE_STATUSES.includes(task.status)).length);
@@ -70,6 +85,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   const cancelledCount = computed(() => items.value.filter((task) => task.status === "cancelled").length);
 
   async function load(options: { resetPage?: boolean } = {}) {
+    invalidatePendingUpdates();
     if (options.resetPage) page.value = 1;
     // Coalesce concurrent triggers: at most one active list request per
     // snapshot. A trigger that arrives mid-flight only marks a trailing
@@ -154,12 +170,14 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   }
 
   function submitSearch() {
+    invalidatePendingUpdates();
     query.value = searchInput.value.trim();
     void load({ resetPage: true });
   }
 
   function setFilter<T>(target: { value: T }, value: T) {
     if (target.value === value) return;
+    invalidatePendingUpdates();
     target.value = value;
     void load({ resetPage: true });
   }
@@ -174,6 +192,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
   // filter.
   function setListView(next: { view: TaskListView }) {
     if (viewFilter.value === next.view && statusFilter.value === null) return;
+    invalidatePendingUpdates();
     viewFilter.value = next.view;
     statusFilter.value = null;
     if (next.view === "completed") {
@@ -186,12 +205,14 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   function changePage(value: number) {
     if (page.value === value) return;
+    invalidatePendingUpdates();
     page.value = value;
     void load();
   }
 
   function changePageSize(value: number) {
     if (pageSize.value === value) return;
+    invalidatePendingUpdates();
     pageSize.value = value;
     page.value = 1;
     void load();
@@ -199,6 +220,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
 
   function changeSort(field: TaskSortBy, direction: SortDirection) {
     if (sort.value?.field === field && sort.value?.direction === direction) return;
+    invalidatePendingUpdates();
     sort.value = { field, direction };
     page.value = 1;
     void load();
@@ -210,6 +232,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     // backend creation-time default.
     const fallback = DEFAULT_QUEUE_SORT_BY_VIEW[viewFilter.value];
     if (sort.value.field === fallback.field && sort.value.direction === fallback.direction) return;
+    invalidatePendingUpdates();
     sort.value = { ...fallback };
     page.value = 1;
     void load();
@@ -243,6 +266,7 @@ export function useProcessingQueue({ t }: UseProcessingQueueOptions) {
     failedCount,
     cancelledCount,
     load,
+    invalidatePendingUpdates,
     toast,
     confirm,
     showErrorToast,

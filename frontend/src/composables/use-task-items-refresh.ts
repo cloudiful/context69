@@ -1,5 +1,7 @@
 import { onBeforeUnmount, onMounted, ref, watch, type Ref } from "vue";
 
+import { createTaskItemsAutomaticRefresh } from "./task-items-automatic-refresh";
+
 export const ITEM_REFRESH_INTERVAL_MS = 3000;
 
 export interface TaskItemsRequestOptions {
@@ -29,6 +31,13 @@ export interface UseTaskItemsRefresh {
     request: () => Promise<void>,
     options?: TaskItemsRequestOptions,
   ) => Promise<boolean>;
+  /** Keep only one trailing automatic refresh while a request is active. */
+  scheduleAutomaticRefresh: (
+    request: () => Promise<void>,
+    options?: TaskItemsRequestOptions,
+  ) => void;
+  /** Invalidate a queued automatic refresh when its task/filter view changes. */
+  invalidateAutomaticRefresh: () => void;
   start: () => void;
   stop: () => void;
 }
@@ -39,6 +48,7 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
   let timer: ReturnType<typeof setInterval> | null = null;
   let inFlight: Promise<void> | null = null;
   let generation = 0;
+  let queuedExclusiveRequests = 0;
   let disposed = false;
 
   async function runExclusive(
@@ -52,8 +62,16 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
     if (inFlight) {
       if (requestOptions.dropIfBusy) return false;
       const previous = inFlight;
-      await previous.catch(() => undefined);
-      if (!isCurrent()) return false;
+      queuedExclusiveRequests += 1;
+      try {
+        await previous.catch(() => undefined);
+      } finally {
+        queuedExclusiveRequests -= 1;
+      }
+      if (!isCurrent()) {
+        if (queuedExclusiveRequests === 0) automaticRefreshScheduler.onIdle();
+        return false;
+      }
       return runExclusive(request, requestOptions);
     }
 
@@ -65,6 +83,7 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
         if (inFlight === currentRequest) {
           inFlight = null;
           isRefreshing.value = false;
+          automaticRefreshScheduler.onIdle();
         }
       });
     inFlight = currentRequest;
@@ -72,6 +91,25 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
 
     await currentRequest;
     return requestGeneration === generation && isCurrent();
+  }
+
+  const automaticRefreshScheduler = createTaskItemsAutomaticRefresh({
+    isDisposed: () => disposed,
+    isBusy: () => inFlight !== null || queuedExclusiveRequests > 0,
+    run: (request, isCurrent) => runExclusive(request, { isCurrent }),
+    onSuccess: () => { refreshError.value = false; },
+    onError: () => { refreshError.value = true; },
+  });
+
+  function scheduleAutomaticRefresh(
+    request: () => Promise<void>,
+    requestOptions: TaskItemsRequestOptions = {},
+  ) {
+    automaticRefreshScheduler.schedule(request, requestOptions.isCurrent);
+  }
+
+  function invalidateAutomaticRefresh() {
+    automaticRefreshScheduler.invalidate();
   }
 
   async function tick() {
@@ -94,6 +132,7 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
       timer = null;
     }
     generation += 1;
+    invalidateAutomaticRefresh();
   }
 
   function start() {
@@ -106,6 +145,7 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
     () => options.taskId.value,
     () => {
       generation += 1;
+      invalidateAutomaticRefresh();
       refreshError.value = false;
     },
   );
@@ -124,5 +164,13 @@ export function useTaskItemsRefresh(options: UseTaskItemsRefreshOptions): UseTas
     stop();
   });
 
-  return { isRefreshing, refreshError, runExclusive, start, stop };
+  return {
+    isRefreshing,
+    refreshError,
+    runExclusive,
+    scheduleAutomaticRefresh,
+    invalidateAutomaticRefresh,
+    start,
+    stop,
+  };
 }

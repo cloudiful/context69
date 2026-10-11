@@ -3,6 +3,12 @@ import type { useToast } from "@nuxt/ui/composables";
 
 import { apiClient, type ClearTaskHistoryView, type TaskResponse, type TaskStatus } from "../services/api";
 import { ACTIVE_STATUSES, isRecoverableTask, isTerminalTask, summarizeResults } from "./queue-helpers";
+import {
+  captureQueueRecoveryTargets,
+  runQueueBulkRecovery,
+  summarizeQueueRecovery,
+  type QueueRecoveryAction,
+} from "./queue-bulk-recovery";
 import type { useAppConfirm } from "./use-app-confirm";
 import type { useErrorToast } from "./use-error-toast";
 
@@ -19,6 +25,7 @@ export interface UseQueueActionsOptions {
   cancelledCount: ComputedRef<number>;
   // Shared collaborators plus the caller's load/toast/confirm/i18n wiring.
   load: () => Promise<void>;
+  invalidatePendingUpdates: () => void;
   toast: ReturnType<typeof useToast>;
   confirm: ReturnType<typeof useAppConfirm>;
   showErrorToast: ReturnType<typeof useErrorToast>;
@@ -31,7 +38,7 @@ export function useQueueActions(options: UseQueueActionsOptions) {
   const {
     items, actionTaskIds, bulkAction, clearAction, statusFilter,
     recoverableCount, activeCount, failedCount, cancelledCount,
-    load, toast, confirm, showErrorToast, t,
+    load, invalidatePendingUpdates, toast, confirm, showErrorToast, t,
   } = options;
 
   function isActing(task: TaskResponse) {
@@ -81,7 +88,10 @@ export function useQueueActions(options: UseQueueActionsOptions) {
       else await apiClient.retryTask(task.task_id);
       // A resumed task leaves its terminal status, so a narrowing status filter
       // would hide the row the user just recovered (446).
-      if (resumed && statusFilter.value !== null) statusFilter.value = null;
+      if (resumed && statusFilter.value !== null) {
+        invalidatePendingUpdates();
+        statusFilter.value = null;
+      }
       await load();
       toast.add({
         color: "success",
@@ -138,16 +148,12 @@ export function useQueueActions(options: UseQueueActionsOptions) {
     });
   }
 
-  // Bulk recovery resumes a cancelled task in place and retries a failed one in
-  // place. Reports whether a resume happened, because only a resume moves the
-  // record out of a terminal status that a narrowing filter would keep hidden.
-  async function submitRecovery(task: TaskResponse): Promise<boolean> {
-    if (task.status === "cancelled") {
-      await apiClient.rerunTask(task.task_id);
-      return true;
+  async function submitRecovery(taskId: string, action: QueueRecoveryAction): Promise<void> {
+    if (action === "rerun") {
+      await apiClient.rerunTask(taskId);
+    } else {
+      await apiClient.retryTask(taskId);
     }
-    await apiClient.retryTask(task.task_id);
-    return false;
   }
 
   function showBulkSummary(summary: ReturnType<typeof summarizeResults>, description?: string) {
@@ -167,19 +173,19 @@ export function useQueueActions(options: UseQueueActionsOptions) {
     if (recoverableCount.value === 0 || bulkAction.value || clearAction.value) return;
     bulkAction.value = "recover";
     try {
-      const tasks = items.value.filter(isRecoverableTask);
-      const results = await Promise.allSettled(tasks.map((task) => submitRecovery(task)));
-      const summary = summarizeResults(results, /no retryable/i);
-      const resumed = results.some((result) => result.status === "fulfilled" && result.value);
+      const targets = captureQueueRecoveryTargets(items.value.filter(isRecoverableTask));
+      const outcomes = await runQueueBulkRecovery(targets, submitRecovery);
+      const { summary, resumedCount } = summarizeQueueRecovery(outcomes);
       // A resumed task leaves its terminal status: drop a narrowing status
       // filter so it is visible instead of stranding the old filtered view (446).
-      if (resumed && statusFilter.value !== null) {
+      if (resumedCount > 0 && statusFilter.value !== null) {
+        invalidatePendingUpdates();
         statusFilter.value = null;
       }
       await load();
       showBulkSummary(
         summary,
-        resumed ? t("processingQueue.bulkResumed", { count: recoverableCount.value }) : undefined,
+        resumedCount > 0 ? t("processingQueue.bulkResumed", { count: resumedCount }) : undefined,
       );
     } catch (recoverError) {
       showErrorToast(recoverError, t("processingQueue.bulkRetryFailed"));

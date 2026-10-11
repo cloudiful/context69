@@ -40,6 +40,14 @@ const emit = defineEmits<{
 
 const { t } = useI18n();
 
+const tableUi = { root: "overflow-visible", base: "min-w-[88rem]", th: "whitespace-nowrap" };
+const sortingOptions = { manualSorting: true };
+const shallowWatchOptions = { deep: false };
+
+function getTaskRowId(task: TaskResponse): string {
+  return task.task_id;
+}
+
 // The queue renders the 6 backend task states 1:1 so badges match the
 // status filter vocabulary (waiting renders 等待中, cancelled renders 已取消).
 // Stage values collapsed to processing/finalize in issue 529, so the task
@@ -134,6 +142,20 @@ function toggleExpand(row: { original: TaskResponse; id: string }) {
   expandedRows.value = { ...expandedRows.value, [row.id]: next };
 }
 
+watch(
+  () => props.items.map((task) => task.task_id),
+  (taskIds) => {
+    const visibleTaskIds = new Set(taskIds);
+    const retained = Object.fromEntries(
+      Object.entries(expandedRows.value).filter(([taskId]) => visibleTaskIds.has(taskId)),
+    );
+    if (Object.keys(retained).length !== Object.keys(expandedRows.value).length) {
+      expandedRows.value = retained;
+    }
+  },
+  { immediate: true },
+);
+
 function taskStatusLabel(status: TaskStatus) {
   return t(`processingQueue.statuses.${status}`);
 }
@@ -182,13 +204,15 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
   <UTable
     v-model:sorting="sorting"
     class="min-w-0"
-    :ui="{ root: 'overflow-visible', base: 'min-w-[88rem]', th: 'whitespace-nowrap' }"
+    :ui="tableUi"
     data-testid="processing-queue-table"
     v-model:expanded="expandedRows"
     :data="props.items"
     :columns="columns"
     :loading="props.loading"
-    :sorting-options="{ manualSorting: true }"
+    :get-row-id="getTaskRowId"
+    :sorting-options="sortingOptions"
+    :watch-options="shallowWatchOptions"
   >
     <template #empty>
       <div class="py-12 text-center text-sm text-muted">
@@ -308,9 +332,6 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
         <UButton color="error" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.deletePermanently')" :title="t('processingQueue.deletePermanently')" @click="emit('delete', row.original)" />
       </div>
       <div v-else class="flex items-center gap-1">
-        // This row action is task-scoped too: `recover` routes to the task-level retry
-        // endpoint, which requeues every retryable item of the failed task. The
-        // label states that scope rather than promising a single-file effect.
         <UButton v-if="primaryAction(row.original) === 'retry' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t('processingQueue.retryTaskScope')" :title="t('processingQueue.retryTaskScope')" @click="emit('recover', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'resume' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-play" :loading="props.isActing(row.original)" :label="t('processingQueue.continue')" :title="t('processingQueue.resumeHint')" @click="emit('recover', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'cancel'" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
