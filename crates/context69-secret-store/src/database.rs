@@ -9,7 +9,13 @@
 //!
 //! The statements live beside this module under `src/sql/internal_secrets/` and
 //! are referenced with `query_file!` / `query_file_as!`, so each one is
-//! type-checked against the live schema at compile time.
+//! type-checked against the live schema at compile time. The startup sealing
+//! backfill's three statements live in the [`backfill`] child module for the
+//! same reason: they are still this boundary's statements, and keeping them
+//! beside it leaves this module a list of operations rather than a transaction
+//! protocol.
+
+pub(crate) mod backfill;
 
 use sqlx::PgPool;
 

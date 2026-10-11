@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- How many rows still hold the legacy plaintext representation.\n--\n-- The sweep reports success only when this is zero, so a row the claim query\n-- could not classify can never be counted as converted. The filter is the\n-- representation marker alone, with no key-name or marker refinement: a row\n-- left behind for any reason still shows up here.\nSELECT count(*)\nFROM context69.internal_secrets\nWHERE ciphertext_version = 0;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "21b562c0221f5e1d32b6252ea3c2c0ed8cf7de07559248f492b075ab81574545"
+}

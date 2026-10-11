@@ -34,6 +34,10 @@ Requirements:
 ```bash
 docker volume create context69-library
 
+# Generate the master secret once, keep it somewhere safe, and pass the same
+# value to every replica.
+export CONTEXT69_MASTER_SECRET="$(openssl rand -base64 32)"
+
 docker run -d \
   --name context69 \
   --restart unless-stopped \
@@ -41,10 +45,19 @@ docker run -d \
   -p 8097:8097 \
   -v context69-library:/app/data/library \
   -e DATABASE_URL='postgres://user:password@db/context69' \
+  -e CONTEXT69_APP__MASTER_SECRET="$CONTEXT69_MASTER_SECRET" \
   ghcr.io/cloudiful/context69:<tag>
 ```
 
 Open `http://localhost` after the first start. Configure Qdrant, the embedding provider, and any optional services in the Settings page, then restart the container. Port `80` serves the web UI and HTTP API; port `8097` serves MCP over HTTP.
+
+### Stored secrets
+
+`CONTEXT69_APP__MASTER_SECRET` is a Base64-encoded 32-byte key that encrypts every stored secret — provider API keys, source connection URLs, Git credentials, webhook secrets, and the browser session key. Generate it once, store it with the same care as any other credential, and keep it: without it, encrypted secrets cannot be read back. Rotating it requires the configured key-rotation run, not a restart.
+
+Setting it on a deployment that already has secrets converts what it finds. At startup, before anything reads a credential, Context69 encrypts every secret still stored in the legacy plaintext form, in batches, using the configured key. The work is per-row and per-batch atomic: if it stops part way, the batches that already finished stay encrypted and the next startup continues from what is left. A startup fails if a stored secret cannot be encrypted — for example one whose key this build does not recognise — so a deployment never runs believing its secrets are protected when they are not. A deployment with no master key configured is unaffected: its secrets stay readable in plaintext exactly as before.
+
+Two things this does not do. It is a startup conversion, not continuous protection, so **every replica that writes secrets must be given the same master secret** (or be stopped while one replica converts); an instance running without the key can write a new plaintext secret after the conversion has finished. And backups taken before the conversion still contain plaintext secrets — **context69 does not scrub existing backups**, so treat them accordingly and retire them on your own schedule.
 
 ### Build from source
 

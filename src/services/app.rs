@@ -19,6 +19,7 @@ mod config_hydration;
 mod library_startup;
 mod readiness;
 mod runtime_settings;
+mod secret_backfill;
 mod services_init;
 mod vector_identity;
 mod vector_rebuild;

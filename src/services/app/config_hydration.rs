@@ -31,6 +31,12 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
              secrets are stored unsealed"
         );
     }
+    // Sealed before the first read below. A deployment that has just configured
+    // a master key must have its stored secrets encrypted before anything
+    // resolves a credential, and it must not resolve one from a row this
+    // process could not protect. Without a key this reports zero work without
+    // touching the database, so the legacy path below is unchanged.
+    super::secret_backfill::seal_legacy_plaintext(&secrets).await?;
     super::runtime_settings::import_legacy_runtime_if_needed(db, config, &secrets).await?;
     let settings = SettingsService::with_secrets(db.clone(), secrets.clone());
     let runtime = super::runtime_settings::load_runtime_settings(db, &secrets).await?;

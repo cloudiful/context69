@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Converts one claimed legacy plaintext row in a single statement, so a row can\n-- never be observed half written and its plaintext value is replaced\n-- atomically.\n--\n-- The markers are both set and re-asserted in the predicate. The statement is\n-- guarded by the exact legacy tuple it converts, so a row that a concurrent\n-- writer has already sealed is reported as \"not converted\" and the batch is\n-- aborted rather than this statement overwriting a newer value.\n--\n-- `key`, `created_at` and `updated_at` are deliberately absent from the SET\n-- list. The key is the row's identity and every reference to it stays valid;\n-- `updated_at` records when a *value* was written through the store, and a\n-- representation change is not one, so a legacy row's NULL stays NULL.\nUPDATE context69.internal_secrets\nSET value = $2,\n    purpose = $3,\n    key_version = $4,\n    ciphertext_version = $5\nWHERE key = $1\n  AND ciphertext_version = 0\n  AND purpose IS NULL\n  AND key_version = 0\nRETURNING key;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Bytea",
+        "Text",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6ab8bfcca0fa0d0463f5af257f7e6768b590b86aa929f7d218f78e97f7c26eff"
+}

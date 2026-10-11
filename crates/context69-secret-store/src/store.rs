@@ -25,14 +25,17 @@
 //! The transition state is deliberate and narrow: a deployment with no master key
 //! can still read and create a legacy plaintext row, so an existing
 //! installation keeps booting with the values it already has. That is the only
-//! plaintext path and the counterpart of [`SecretStore::is_encrypted`]; the
-//! reversible-secret backfill and the legacy-column removal are separate units.
+//! plaintext path and the counterpart of [`SecretStore::is_encrypted`]. A
+//! deployment that *has* configured a key does not keep it: the `backfill` child
+//! module converts what the transition wrote, once, at startup.
 //!
-//! Every operation here is single-deployment — one database, one cipher. The one
-//! exception, [`rewrap`], needs a second deployment because it re-seals this
-//! store's rows under an incoming master key, and it lives in its own module for
-//! that reason.
+//! Every operation here is single-deployment — one database, one cipher. The two
+//! exceptions each need more than that and so live in their own modules:
+//! [`rewrap`] needs a second deployment because it re-seals this store's rows
+//! under an incoming master key, and [`backfill`] needs a transaction because
+//! sealing a whole table one row per statement would leave it half converted.
 
+mod backfill;
 mod rewrap;
 
 use std::fmt;

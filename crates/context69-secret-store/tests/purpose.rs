@@ -214,3 +214,22 @@ fn an_unknown_stored_purpose_is_refused_rather_than_assumed() {
             .unwrap_or_else(|error| panic!("{purpose} must validate: {error}"));
     }
 }
+
+#[test]
+fn the_catalogue_resolves_its_own_key_names_back_to_their_purpose() {
+    // The inverse the startup sealing backfill depends on: a stored key has to
+    // name the purpose that owns it, for every category the catalogue declares.
+    for purpose in SecretPurpose::ALL {
+        let resolved = purpose.singleton_key_name().map_or_else(
+            || {
+                let prefix = purpose
+                    .key_name_prefix()
+                    .expect("every purpose is fixed, record-scoped, or both");
+                SecretPurpose::owning_purpose(&format!("{prefix}acme.record"))
+            },
+            SecretPurpose::owning_purpose,
+        );
+        assert_eq!(resolved, Some(purpose), "{purpose}");
+    }
+    assert_eq!(SecretPurpose::owning_purpose("not_a_catalogue_key"), None);
+}

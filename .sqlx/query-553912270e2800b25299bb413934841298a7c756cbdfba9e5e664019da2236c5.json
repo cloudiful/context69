@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Claims one batch of rows that still hold the legacy plaintext\n-- representation, for the startup sealing backfill.\n--\n-- Every marker-zero row is claimed, including one whose `key_version` is\n-- anomalous, so the run meets it and refuses the batch instead of stranding it\n-- outside the sweep. Rows already sealed are not claimed at all: the run never\n-- opens, validates, or rewrites an existing ciphertext, so a row sealed under a\n-- different key is left exactly as it is.\n--\n-- Ordering is by key and `FOR UPDATE` deliberately has no `SKIP LOCKED`. A\n-- competing startup blocks on the first row of the ordered worklist until the\n-- holder commits, instead of seeing a false-empty batch and reporting a sweep\n-- that did not happen. Under `READ COMMITTED` the next batch is re-evaluated\n-- after each commit, so a row the winner sealed is simply not offered again.\nSELECT key,\n       value,\n       purpose,\n       key_version,\n       ciphertext_version\nFROM context69.internal_secrets\nWHERE ciphertext_version = 0\nORDER BY key\nLIMIT $1\nFOR UPDATE;",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "value",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "value"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "purpose",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "purpose"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "key_version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key_version"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "ciphertext_version",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "ciphertext_version"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "553912270e2800b25299bb413934841298a7c756cbdfba9e5e664019da2236c5"
+}

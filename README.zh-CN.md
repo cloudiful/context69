@@ -34,6 +34,9 @@ Context69 是一个面向检索的知识库服务，用于导入文档、创建�
 ```bash
 docker volume create context69-library
 
+# 只生成一次主密钥，安全保存，并在所有副本上传递同一个值。
+export CONTEXT69_MASTER_SECRET="$(openssl rand -base64 32)"
+
 docker run -d \
   --name context69 \
   --restart unless-stopped \
@@ -41,10 +44,19 @@ docker run -d \
   -p 8097:8097 \
   -v context69-library:/app/data/library \
   -e DATABASE_URL='postgres://user:password@db/context69' \
+  -e CONTEXT69_APP__MASTER_SECRET="$CONTEXT69_MASTER_SECRET" \
   ghcr.io/cloudiful/context69:<tag>
 ```
 
 首次启动后访问 `http://localhost`，在设置页面配置 Qdrant、Embedding 服务及其他可选服务，然后重启容器。`80` 端口提供 Web UI 和 HTTP API，`8097` 端口提供 MCP over HTTP。
+
+### 存储的密钥
+
+`CONTEXT69_APP__MASTER_SECRET` 是 Base64 编码的 32 字节密钥，用于加密所有已存储的密钥——Embedding/Search/Docling/翻译服务 API Key、源连接 URL、Git 凭据、Webhook 签名密钥以及浏览器会话签名密钥。只生成一次，请像保管其他凭据一样保管它：没有它，已加密的密钥将无法读取回。轮换它需要执行已配置的密钥轮换流程，而不是重启。
+
+在已有密钥的部署上设置它会转换它找到的内容。启动时，在任何凭据被读取之前，Context69 会使用已配置的密钥分批加密所有仍以旧版明文形式存储的密钥。转换按行、按批次原子进行：如果中途停止，已完成的批次保持加密，下次启动会从剩余部分继续。如果某个已存储的密钥无法加密（例如其密钥名不被当前版本识别），启动会失败，因此部署不会在密钥实际未受保护时却自认为已受保护。未配置主密钥的部署不受影响：其密钥仍可像以前一样以明文读取。
+
+有两点它不会做。这是启动时的转换，不是持续保护，因此**每个会写入密钥的副本都必须配置同一个主密钥**（或者在一个副本转换期间停止其余副本）；没有该密钥运行的实例可能在转换完成后写入新的明文密钥。转换之前的备份仍然包含明文密钥——**context69 不会清理已有备份**，请自行按需处理并按计划淘汰它们。
 
 ### 从源码构建
 

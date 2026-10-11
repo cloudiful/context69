@@ -11,6 +11,10 @@
 //! bounded name from an existing identifier with [`SecretKeyName::with_prefix`].
 //! Both are validated before anything is written, so a malformed dynamic
 //! identifier is refused at the call site rather than becoming a stored row.
+//!
+//! The catalogue is also the one exhaustive answer to the other direction:
+//! [`SecretPurpose::owning_purpose`] maps a stored key name back to the purpose
+//! that owns it, and returns nothing for a name the catalogue does not own.
 
 use std::fmt;
 
@@ -158,6 +162,29 @@ impl SecretPurpose {
         Self::ALL
             .into_iter()
             .find(|purpose| purpose.as_str() == name)
+    }
+
+    /// Resolves a stored key name back to the purpose that owns it.
+    ///
+    /// This is the exhaustive inverse of the catalogue, and it is what lets a
+    /// stored key be sealed without asking the caller what it owns: the six
+    /// fixed singleton names match exactly, and the four record-scoped prefixes
+    /// match with a record identifier the frame's own bound accepts.
+    ///
+    /// Nothing else resolves. A name outside the catalogue, or a prefix with an
+    /// empty or malformed record identifier, returns `None` so the caller fails
+    /// closed rather than assigning an owner to a value it cannot classify.
+    #[must_use]
+    pub fn owning_purpose(key_name: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|purpose| match purpose.key_name_prefix() {
+                Some(prefix) => key_name
+                    .strip_prefix(prefix)
+                    .and_then(|record| SecretKeyName::with_prefix(prefix, record).ok())
+                    .is_some(),
+                None => purpose.singleton_key_name() == Some(key_name),
+            })
     }
 
     /// Rejects a purpose that is not a bounded identifier.
