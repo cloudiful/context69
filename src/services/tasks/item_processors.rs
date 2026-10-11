@@ -8,6 +8,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::TaskService;
+use super::pipeline_progress::payload_after_sections_saved;
 use crate::services::library::UnifiedIngestError;
 
 /// Outcome of one item run under the collapsed stage machine (issue 529
@@ -227,6 +228,7 @@ pub(super) async fn save_sections(
     if let Some(obj) = payload.as_object_mut() {
         obj.remove("indexing_checkpoint");
     }
+    let payload = payload_after_sections_saved(item, &payload)?;
     if !db
         .set_task_item_payload(item.id, item.lease_token, &payload)
         .await?

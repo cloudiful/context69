@@ -7,9 +7,11 @@
 //! Runs only when `CONTEXT69_TEST_DATABASE_URL` points at a scratch
 //! database; skipped otherwise.
 
+use context69::contracts::{
+    LibraryIngestStatus, LibraryResourceKind, LibraryResourceSortBy, SortDirection,
+};
 use context69::db::Database;
 use context69::library_store::{LibraryStore, ResourceListQuery};
-use context69::contracts::{LibraryIngestStatus, LibraryResourceKind, LibraryResourceSortBy, SortDirection};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -19,7 +21,9 @@ fn test_database_url() -> Option<String> {
 
 async fn connect_scratch() -> Option<(Database, LibraryStore)> {
     let url = test_database_url()?;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let store = LibraryStore::new(db.clone());
     Some((db, store))
 }
@@ -39,12 +43,7 @@ async fn seed_group(db: &Database) -> i64 {
     .get("id")
 }
 
-async fn seed_folder(
-    db: &Database,
-    group_id: i64,
-    parent_id: Option<Uuid>,
-    name: &str,
-) -> Uuid {
+async fn seed_folder(db: &Database, group_id: i64, parent_id: Option<Uuid>, name: &str) -> Uuid {
     let id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO context69.library_folders \
@@ -163,10 +162,23 @@ async fn recursive_true_returns_only_subtree_failed_files() {
         0,
     )
     .await;
-    assert!(ids.contains(&file_l1), "recursive must include files directly in the root of the subtree");
-    assert!(ids.contains(&file_l2), "recursive must include nested failed files");
-    assert!(ids.contains(&file_l3), "recursive must include 3rd-level failed files");
-    assert_eq!(ids.len(), 3, "recursive must exclude sibling, root, and non-failed files: {ids:?}");
+    assert!(
+        ids.contains(&file_l1),
+        "recursive must include files directly in the root of the subtree"
+    );
+    assert!(
+        ids.contains(&file_l2),
+        "recursive must include nested failed files"
+    );
+    assert!(
+        ids.contains(&file_l3),
+        "recursive must include 3rd-level failed files"
+    );
+    assert_eq!(
+        ids.len(),
+        3,
+        "recursive must exclude sibling, root, and non-failed files: {ids:?}"
+    );
 
     // The queried folder itself must not appear as a folder row in recursive mode.
     let items = store
@@ -184,7 +196,9 @@ async fn recursive_true_returns_only_subtree_failed_files() {
         .await
         .expect("list recursive items");
     assert!(
-        !items.iter().any(|item| item.kind == LibraryResourceKind::Folder && item.id == level1),
+        !items
+            .iter()
+            .any(|item| item.kind == LibraryResourceKind::Folder && item.id == level1),
         "recursive listing must not include the queried folder itself"
     );
 
@@ -214,7 +228,11 @@ async fn recursive_false_behavior_unchanged() {
         0,
     )
     .await;
-    assert_eq!(ids, vec![file_l1], "non-recursive must return only direct children");
+    assert_eq!(
+        ids,
+        vec![file_l1],
+        "non-recursive must return only direct children"
+    );
 
     let items = store
         .list_resources_in_project_folder(&ResourceListQuery {
@@ -231,7 +249,9 @@ async fn recursive_false_behavior_unchanged() {
         .await
         .expect("list direct children");
     assert!(
-        items.iter().any(|item| item.kind == LibraryResourceKind::Folder && item.id == level2),
+        items
+            .iter()
+            .any(|item| item.kind == LibraryResourceKind::Folder && item.id == level2),
         "non-recursive must list direct child folders"
     );
 
@@ -252,14 +272,42 @@ async fn recursive_isolated_across_groups_and_whole_group_scope() {
     let file_b = seed_file(&db, group_b, Some(folder_b), "b-failed.txt", "failed").await;
 
     // Whole-group scope: folder_id=None + recursive=true.
-    let ids_a = list_file_ids(&store, group_a, None, true, Some(LibraryIngestStatus::Failed), 100, 0).await;
-    assert!(ids_a.contains(&file_a), "whole-group scope must include own files");
-    assert!(!ids_a.contains(&file_b), "group isolation must hold inside the CTE");
+    let ids_a = list_file_ids(
+        &store,
+        group_a,
+        None,
+        true,
+        Some(LibraryIngestStatus::Failed),
+        100,
+        0,
+    )
+    .await;
+    assert!(
+        ids_a.contains(&file_a),
+        "whole-group scope must include own files"
+    );
+    assert!(
+        !ids_a.contains(&file_b),
+        "group isolation must hold inside the CTE"
+    );
 
     // Subtree query in group A must never leak group B rows even though the
     // CTE joins through parent links.
-    let ids_sub = list_file_ids(&store, group_a, Some(folder_a), true, Some(LibraryIngestStatus::Failed), 100, 0).await;
-    assert_eq!(ids_sub, vec![file_a], "subtree scope must stay within the group");
+    let ids_sub = list_file_ids(
+        &store,
+        group_a,
+        Some(folder_a),
+        true,
+        Some(LibraryIngestStatus::Failed),
+        100,
+        0,
+    )
+    .await;
+    assert_eq!(
+        ids_sub,
+        vec![file_a],
+        "subtree scope must stay within the group"
+    );
 
     cleanup_group(&db, group_a).await;
     cleanup_group(&db, group_b).await;

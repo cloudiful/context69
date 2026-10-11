@@ -59,10 +59,7 @@ impl TaskEvent {
 /// Create a broadcast channel for task events without starting a listener.
 /// Tests and the service constructor use this; production also spawns the
 /// resident listener via [`spawn_task_event_listener`].
-pub fn new_task_event_channel() -> (
-    broadcast::Sender<TaskEvent>,
-    broadcast::Receiver<TaskEvent>,
-) {
+pub fn new_task_event_channel() -> (broadcast::Sender<TaskEvent>, broadcast::Receiver<TaskEvent>) {
     broadcast::channel(TASK_EVENT_BUS_CAPACITY)
 }
 
@@ -99,10 +96,7 @@ pub fn spawn_task_event_listener_with_shutdown(
 /// Spawn the hub into an existing broadcast sender. The service bus uses
 /// this so subscribers on `TaskService::subscribe_task_events` observe
 /// PG NOTIFY directly without a second forwarding hop.
-pub fn spawn_task_event_listener_into(
-    pool: sqlx::PgPool,
-    sender: broadcast::Sender<TaskEvent>,
-) {
+pub fn spawn_task_event_listener_into(pool: sqlx::PgPool, sender: broadcast::Sender<TaskEvent>) {
     tokio::spawn(async move {
         run_task_event_listener(pool, sender).await;
     });
@@ -161,7 +155,7 @@ async fn run_task_event_listener(pool: sqlx::PgPool, sender: broadcast::Sender<T
 
 #[cfg(test)]
 mod tests {
-    use super::{TaskEvent, TASK_EVENT_BUS_CAPACITY, TASK_EVENTS_CHANNEL};
+    use super::{TASK_EVENT_BUS_CAPACITY, TASK_EVENTS_CHANNEL, TaskEvent};
 
     #[test]
     fn channel_name_is_stable() {

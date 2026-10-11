@@ -7,6 +7,8 @@ use context69_contracts::{
 
 use crate::{db::StoredTaskItem, domain::GroupRecord, domain_errors::DomainError};
 
+use super::pipeline_progress::task_item_progress;
+
 pub(super) fn parse_kind(value: &str) -> Result<TaskKind> {
     match value {
         "source_sync" => Ok(TaskKind::SourceSync),
@@ -92,6 +94,9 @@ pub(super) fn parse_status(value: &str) -> Result<TaskStatus> {
 }
 
 pub(super) fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
+    // A record that fails validation is absent rather than partially
+    // rendered, so a client never shows a counter this server could not check.
+    let progress = task_item_progress(item.pipeline_progress);
     TaskItemResponse {
         item_id: item.id,
         ordinal: item.ordinal,
@@ -111,6 +116,7 @@ pub(super) fn task_item_response(item: StoredTaskItem) -> TaskItemResponse {
         finished_at: item.finished_at,
         file_name: item.file_name,
         document_title: item.document_title,
+        progress,
     }
 }
 

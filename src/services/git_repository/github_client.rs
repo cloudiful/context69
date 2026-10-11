@@ -30,14 +30,6 @@ use super::resolve::{MAX_TAG_DEREF_DEPTH, validated_default_branch};
 /// Git file mode for symlinks; their blobs are link targets, not content.
 const SYMLINK_MODE: &str = "120000";
 
-impl GitAcquisitionLimits {
-    fn response_budget(&self) -> ByteBudget {
-        ByteBudget {
-            max_bytes: self.max_response_bytes,
-        }
-    }
-}
-
 /// Provider-neutral acquisition surface. Later source/task/index phases
 /// build scheduling and persistence on top of this trait without depending
 /// on a concrete provider client.
@@ -48,8 +40,8 @@ pub(crate) trait RepositoryAcquirer: Send + Sync {
 
     /// List the recursive tree of `commit_sha` and return its file entries
     /// pinned to that commit. `commit_sha` is a commit identity, not a tree
-    /// id: the provider accepts a commit (or other) id, echoes it, and the
-    /// returned [`TreeListing`] carries the same commit id for provenance.
+    /// id; the provider response is validated against it before entries are
+    /// accepted.
     async fn list_tree(&self, commit_sha: &SafeSha) -> Result<TreeListing>;
 
     /// Fetch and decode one blob, bounded by per-blob and aggregate limits.
@@ -83,7 +75,8 @@ impl<T: GitHttpTransport + ?Sized> GitHubAcquirer<T> {
         })
     }
 
-    /// Coordinates for the repository served by this client.
+    /// Coordinates for repository client assertions.
+    #[cfg(test)]
     pub(crate) fn coordinates(&self) -> &GitHubRepoCoordinates {
         &self.coordinates
     }
@@ -260,6 +253,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             });
         }
         Ok(TreeListing {
+            #[cfg(test)]
             commit_sha: commit_sha.clone(),
             files,
             excluded_files,
@@ -309,7 +303,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             }
         }
         Ok(BlobContent {
-            blob_sha: SafeSha::parse(blob_sha.as_str())?,
+            #[cfg(test)]
             declared_size,
             bytes: Bytes::from(decoded),
         })

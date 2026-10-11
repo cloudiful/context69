@@ -13,10 +13,13 @@ use uuid::Uuid;
 
 use super::ingest_batches::ChunkBatchIter;
 use super::ingest_checkpoint::{
-    IndexingCheckpoint, compute_prepared_record_hash, estimate_total_batches,
+    IndexingCheckpoint, compute_prepared_record_hash, count_prepared_ingest_totals,
     parse_indexing_checkpoint, payload_with_checkpoint,
 };
 use super::ingest_checkpoint_batch::BatchPersistInputs;
+use super::ingest_progress::{PipelineProgress, PipelineProgressStage};
+use super::ingest_progress_resume::ResumeChunkProgress;
+use super::ingest_progress_store::write_pipeline_progress;
 use super::ingest_types::{IngestFailure, IngestSection, PreparedIngestSection};
 use super::task_ingest::{normalize_task_failure, task_failure};
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
@@ -36,6 +39,10 @@ impl LibraryService {
     ///   same batch idempotently.
     /// - Qdrant success + checkpoint failure => checkpoint stays behind, retry
     ///   re-upserts same points idempotently (Qdrant upsert is idempotent).
+    ///
+    /// `attempt` is the claimed item's attempt number. It travels with every
+    /// progress record this method publishes so the items projection can drop
+    /// anything a retry left behind.
     pub async fn persist_file_sections_for_task_with_checkpoint(
         &self,
         file_id: Uuid,
@@ -43,7 +50,8 @@ impl LibraryService {
         item_id: Uuid,
         lease_token: Uuid,
         current_payload: &Value,
-    ) -> Result<(), UnifiedIngestError> {
+        attempt: i32,
+    ) -> Result<Value, UnifiedIngestError> {
         let file = self
             .store
             .get_file(file_id)
@@ -63,7 +71,12 @@ impl LibraryService {
             .clone();
 
         let current_hash = compute_prepared_record_hash(&prepared);
-        let total_batches = estimate_total_batches(&prepared, &self.chunking);
+        // One counting pass feeds both the batch checkpoint and the chunk
+        // counters the progress record publishes, so a total can never
+        // disagree with the batches it is measured against.
+        let totals = count_prepared_ingest_totals(&prepared, &self.chunking);
+        let total_batches = totals.total_batches;
+        let total_chunks = totals.total_chunks;
 
         let mut checkpoint = parse_indexing_checkpoint(current_payload);
         let mut current_payload_value = current_payload.clone();
@@ -105,14 +118,45 @@ impl LibraryService {
                 })?;
         }
 
+        // Publish the planned totals once, before the first batch. The completed
+        // counters stay absent: a resume has already checkpointed batches whose
+        // chunk count is only recovered as the loop re-walks them, and a `0`
+        // published now would be an untruthful observation rather than an
+        // unknown one.
+        let planned = PipelineProgress::new(attempt, PipelineProgressStage::Chunking)
+            .with_known_totals(total_chunks, total_batches)?
+            .observed_now();
+        current_payload_value = write_pipeline_progress(
+            &self.db,
+            item_id,
+            lease_token,
+            &current_payload_value,
+            &planned,
+        )
+        .await?;
+
         if checkpoint.next_batch_index >= total_batches && total_batches > 0 {
-            return self
-                .finalize_resumed_indexing(&file, &prepared, lease_token)
-                .await;
+            // Every batch of this run is already checkpointed, so the counts
+            // are known exactly instead of being reconstructed by the loop.
+            let resumed = PipelineProgress::new(attempt, PipelineProgressStage::Indexing)
+                .with_batch_counters(total_chunks, total_chunks, total_batches, total_batches)?
+                .observed_now();
+            current_payload_value = write_pipeline_progress(
+                &self.db,
+                item_id,
+                lease_token,
+                &current_payload_value,
+                &resumed,
+            )
+            .await?;
+            self.finalize_resumed_indexing(&file, &prepared, lease_token)
+                .await?;
+            return Ok(current_payload_value);
         }
 
         let mut mappings = Vec::with_capacity(prepared.len());
         let mut global_batch_index = 0usize;
+        let mut resume_progress = ResumeChunkProgress::new(checkpoint.next_batch_index);
 
         for (index, prepared_section) in prepared.into_iter().enumerate() {
             let document_id = self
@@ -129,7 +173,10 @@ impl LibraryService {
                 let this_batch_index = global_batch_index;
                 global_batch_index += 1;
 
-                if this_batch_index < checkpoint.next_batch_index {
+                if resume_progress.observe_batch(batch.len()) {
+                    // A resumed batch is re-walked through the same chunking
+                    // pass that produced it, so the chunks it already covers
+                    // are counted rather than guessed.
                     continue;
                 }
 
@@ -141,7 +188,10 @@ impl LibraryService {
                         batch: &batch,
                         this_batch_index,
                         total_batches,
+                        total_chunks,
+                        completed_chunks_before: resume_progress.completed_chunks(),
                         current_hash: &current_hash,
+                        attempt,
                         item_id,
                         lease_token,
                     },
@@ -150,11 +200,13 @@ impl LibraryService {
                     &runtime,
                 )
                 .await?;
+                resume_progress.record_persisted_batch(batch.len());
             }
         }
 
         self.finalize_after_indexing(&file, mappings, lease_token)
-            .await
+            .await?;
+        Ok(current_payload_value)
     }
 
     async fn upsert_section_document(

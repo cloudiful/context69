@@ -30,14 +30,6 @@ pub(crate) struct TransportResponse {
 }
 
 impl TransportResponse {
-    pub(crate) fn ok(body: impl Into<Bytes>) -> Self {
-        Self {
-            status: 200,
-            headers: Vec::new(),
-            body: body.into(),
-        }
-    }
-
     pub(crate) fn header(&self, name: &str) -> Option<&str> {
         self.headers
             .iter()

@@ -70,7 +70,20 @@ SELECT item.id,
            NULLIF(item.payload ->> 'title', ''),
            NULLIF(doc.title, ''),
            NULLIF(file.metadata_json ->> 'title', '')
-       ) AS document_title
+       ) AS document_title,
+       -- Only the bounded `pipeline_progress` sub-object, never the whole
+       -- payload, which also carries `section_payload` and the input bytes.
+       -- Attempt identity is compared as text rather than cast, so a payload
+       -- written by an older or foreign writer can never abort this query: an
+       -- unparsable or non-canonical attempt simply reads as no progress.
+       -- queued and waiting items suppress old progress even before attempts increment.
+       -- running and terminal items show only progress from that same attempt.
+       CASE
+           WHEN item.status IN ('running', 'failed', 'cancelled', 'succeeded')
+             AND item.attempt_count::text = item.payload -> 'pipeline_progress' ->> 'attempt'
+               THEN item.payload -> 'pipeline_progress'
+           ELSE NULL
+       END AS pipeline_progress
 FROM context69.task_items item
 LEFT JOIN context69.library_files file ON file.id = item.file_id
 -- The document a file produced is recorded per section, so a plain join would

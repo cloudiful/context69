@@ -571,6 +571,8 @@ describe("ProcessingQueueView", () => {
     wrapper.unmount();
   });
 
+  // The item row leads with progress and identity; the attempt count now lives
+  // behind the technical disclosure instead of the row headline.
   it("expands a task row and loads its items", async () => {
     getTaskItems.mockResolvedValue({
       items: [
@@ -595,9 +597,11 @@ describe("ProcessingQueueView", () => {
     await flushPromises();
 
     expect(getTaskItems).toHaveBeenCalledWith("task-id", expect.objectContaining({ limit: 100 }));
-    expect(wrapper.text()).toContain("item-id");
     expect(wrapper.text()).toContain("Qdrant unavailable");
-    expect(wrapper.text()).toContain("3 attempts");
+    expect(wrapper.find('[data-testid="task-item-row"]').exists()).toBe(true);
+    // Identity and attempt bookkeeping stay available, behind the disclosure.
+    expect(wrapper.find('[data-testid="task-item-detail"]').text()).toContain("item-id");
+    expect(wrapper.find('[data-testid="task-item-detail"]').text()).toContain("3");
     wrapper.unmount();
   });
 
@@ -713,7 +717,7 @@ describe("ProcessingQueueView", () => {
     await expandButton!.trigger("click");
     await flushPromises();
 
-    const itemRetry = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    const itemRetry = wrapper.findAll("button").filter((button) => button.text().includes("Retry this task"));
     expect(itemRetry.length).toBeGreaterThanOrEqual(2);
     await itemRetry[itemRetry.length - 1]!.trigger("click");
     await flushPromises();
@@ -775,7 +779,7 @@ describe("ProcessingQueueView", () => {
     expect(doclingButtons).toHaveLength(0);
     const recoveryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Recover Docling"));
     expect(recoveryButtons).toHaveLength(0);
-    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry this task"));
     expect(retryButtons.length).toBeGreaterThanOrEqual(3);
 
     wrapper.unmount();
@@ -808,7 +812,7 @@ describe("ProcessingQueueView", () => {
     await expandButton!.trigger("click");
     await flushPromises();
 
-    const itemRetry = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    const itemRetry = wrapper.findAll("button").filter((button) => button.text().includes("Retry this task"));
     expect(itemRetry.length).toBeGreaterThanOrEqual(1);
     await itemRetry[itemRetry.length - 1]!.trigger("click");
     await flushPromises();
@@ -856,9 +860,9 @@ describe("ProcessingQueueView", () => {
     expect(wrapper.text()).toContain("non-retryable-item");
     expect(wrapper.text()).toContain("succeeded-item");
 
-    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry this task"));
     expect(retryButtons).toHaveLength(1);
-    expect(retryButtons[0]!.text()).toContain("Retry file");
+    expect(retryButtons[0]!.text()).toContain("Retry this task");
     wrapper.unmount();
   });
 
@@ -893,7 +897,7 @@ describe("ProcessingQueueView", () => {
     await expandButton!.trigger("click");
     await flushPromises();
 
-    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry file"));
+    const retryButtons = wrapper.findAll("button").filter((button) => button.text().includes("Retry this task"));
     expect(retryButtons.length).toBeGreaterThanOrEqual(2);
     await retryButtons[0]!.trigger("click");
     await flushPromises();

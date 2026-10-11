@@ -97,6 +97,23 @@ describe("TaskDiagnosePanel", () => {
     wrapper.unmount();
   });
 
+  // Diagnose is read-only inspection, so it must say so before the operator
+  // opens it rather than presenting itself as a repair action.
+  it("presents itself as a read-only troubleshooting disclosure", async () => {
+    const wrapper = mountPanel();
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="task-diagnose-disclosure"]').exists()).toBe(true);
+    const explanation = wrapper.find('[data-testid="task-diagnose-explanation"]').text();
+    expect(explanation).toContain("Read-only troubleshooting");
+    expect(explanation).toContain("does not change this task");
+    // The explanation disappears once the operator is already looking at it.
+    await wrapper.find('[data-testid="task-diagnose-toggle"]').trigger("click");
+    await flushPromises();
+    expect(wrapper.find('[data-testid="task-diagnose-explanation"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
   it("loads the diagnose projection on demand and renders its item detail", async () => {
     getTaskDiagnose.mockResolvedValue(diagnoseResponse() as never);
     const wrapper = mountPanel();

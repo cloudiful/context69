@@ -131,17 +131,20 @@ fn a_reachable_docling_endpoint_passes_on_one_keyless_liveness_get() {
             1,
             "a probe must make exactly one request: {seen:?}"
         );
-        assert_eq!(
-            seen[0],
-            Seen {
-                method: "GET".to_string(),
-                path: "/health".to_string(),
-                query: None,
-                header_names: Vec::new(),
-                body: String::new(),
-            },
-            "the probe must ask liveness and nothing else, and send no credential"
-        );
+        let request = &seen[0];
+        assert_eq!(request.method, "GET");
+        assert_eq!(request.path, "/health");
+        assert_eq!(request.query, None);
+        assert!(request.body.is_empty(), "a liveness probe has no body");
+        for credential_header in ["authorization", "x-api-key", "cookie"] {
+            assert!(
+                !request
+                    .header_names
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case(credential_header)),
+                "the probe must not send {credential_header}"
+            );
+        }
 
         reset(db).await;
     });

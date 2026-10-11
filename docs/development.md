@@ -66,6 +66,33 @@ Or use the local dev launcher:
 nu scripts/dev.nu backend
 ```
 
+### Backend test gates
+
+`cargo test --workspace` is a quick check. It has no scratch database by default,
+so database-backed cases that use `CONTEXT69_TEST_DATABASE_URL` follow their
+explicit no-database path; this is not full backend integration acceptance.
+
+For the isolated backend gate, install `uv` and PostgreSQL client tools
+(`createdb` and `dropdb`), and provide an explicitly disposable local PostgreSQL
+scratch cluster with a maintenance database and permission to create/drop
+scratch databases. The runner accepts only loopback PostgreSQL URLs and refuses
+port 5432. For the local issue scratch instance:
+
+```bash
+./scripts/test-backend.sh \
+  --database-url postgres://postgres@127.0.0.1:55499/postgres
+```
+
+The runner discovers workspace test executables from Cargo metadata/artifacts,
+then runs each executable and each library doctest package sequentially with its
+own fresh migrated database and one Rust test thread. It drops only databases
+whose creation succeeded in that run; setup, compile, test, discovery, and
+cleanup failures make the command fail. Logs and a JSON summary remain in
+`target/backend-test-results/<run-id>/`. Child temporary files use a unique
+runner-owned directory under `~/.cache/opencode` and that directory is removed
+at the end. Always pass a disposable scratch endpoint, never an application or
+shared database.
+
 ## Library Storage Maintenance Modes
 
 One one-shot CLI mode maintains library storage. It does not delete old objects

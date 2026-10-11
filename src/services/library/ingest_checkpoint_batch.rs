@@ -12,6 +12,8 @@ use uuid::Uuid;
 use super::ingest_checkpoint::{
     INDEXING_CHECKPOINT_VERSION, IndexingCheckpoint, payload_with_checkpoint,
 };
+use super::ingest_progress::{PipelineProgress, PipelineProgressStage};
+use super::ingest_progress_codec::payload_with_progress;
 use super::ingest_types::{IngestFailure, PreparedIngestSection};
 use super::task_ingest::{normalize_task_failure, task_failure};
 use super::{LibraryRuntime, LibraryService, UnifiedIngestError};
@@ -28,7 +30,14 @@ pub(super) struct BatchPersistInputs<'a> {
     pub(super) batch: &'a [crate::domain::DocumentChunk],
     pub(super) this_batch_index: usize,
     pub(super) total_batches: usize,
+    /// Chunks the whole run will produce, counted by the same pass that
+    /// produced `total_batches`.
+    pub(super) total_chunks: usize,
+    /// Chunks covered by the batches before this one, including the batches a
+    /// resume skipped.
+    pub(super) completed_chunks_before: usize,
     pub(super) current_hash: &'a str,
+    pub(super) attempt: i32,
     pub(super) item_id: Uuid,
     pub(super) lease_token: Uuid,
 }
@@ -48,7 +57,10 @@ impl LibraryService {
             batch,
             this_batch_index,
             total_batches,
+            total_chunks,
+            completed_chunks_before,
             current_hash,
+            attempt,
             item_id,
             lease_token,
         } = inputs;
@@ -131,14 +143,27 @@ impl LibraryService {
             return Err(normalize_task_failure(failure));
         }
 
-        // Advance checkpoint only after both stores succeeded.
+        // Advance the checkpoint only after both stores succeeded, and publish the
+        // counters in the same lease-fenced write: a chunk counts as completed
+        // only once it has been embedded, persisted and upserted, so a failed
+        // batch leaves the published count exactly where it was.
         let next_checkpoint = IndexingCheckpoint {
             v: INDEXING_CHECKPOINT_VERSION,
             next_batch_index: this_batch_index + 1,
             total_batches: Some(total_batches),
             record_hash: Some(current_hash.to_string()),
         };
-        let next_payload = payload_with_checkpoint(current_payload_value, &next_checkpoint)
+        let progress = PipelineProgress::new(attempt, PipelineProgressStage::Indexing)
+            .with_batch_counters(
+                completed_chunks_before + batch.len(),
+                total_chunks,
+                this_batch_index + 1,
+                total_batches,
+            )?
+            .observed_now();
+        let with_progress = payload_with_progress(current_payload_value, &progress)
+            .map_err(|error| task_failure("indexing", error, false))?;
+        let next_payload = payload_with_checkpoint(&with_progress, &next_checkpoint)
             .map_err(|error| task_failure("indexing", error, false))?;
         let ok = self
             .db

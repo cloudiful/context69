@@ -120,7 +120,11 @@ async fn resolve_request_auth(
 ) -> Result<Option<AuthenticatedRequest>, String> {
     let bearer = extract_bearer_token(headers).map(|token| token.map(str::to_owned));
     let browser_session = match extensions.get::<BrowserAuthSession>() {
-        Some(auth) => auth.user().await.as_ref().map(|principal| principal.0.clone()),
+        Some(auth) => auth
+            .user()
+            .await
+            .as_ref()
+            .map(|principal| principal.0.clone()),
         None => None,
     };
     authenticate_request(state, bearer, browser_session).await

@@ -204,19 +204,6 @@ impl Fixture {
     }
 }
 
-/// The scratch database, or `None` when none is configured.
-async fn test_database() -> Option<Database> {
-    let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping git file test");
-        return None;
-    };
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
-}
-
 #[tokio::test]
 async fn lexical_search_serves_the_active_generation_with_provenance() {
     let Some(fixture) = Fixture::setup("public").await else {

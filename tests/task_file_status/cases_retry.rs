@@ -53,10 +53,7 @@ async fn retry_failed_task_leaves_file_failed() {
         Some("boom"),
         "retry must preserve the file error for the new attempt to overwrite on success"
     );
-    assert_eq!(
-        ingested_at, None,
-        "retry must not record a completion time"
-    );
+    assert_eq!(ingested_at, None, "retry must not record a completion time");
 
     cleanup_task(&db, task_id).await;
     cleanup_file(&db, file_id).await;
@@ -152,10 +149,7 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
         Some("boom"),
         "retry must preserve the file error"
     );
-    assert_eq!(
-        ingested_at, None,
-        "retry must not record a completion time"
-    );
+    assert_eq!(ingested_at, None, "retry must not record a completion time");
 
     cleanup_task(&db, task_id).await;
     cleanup_file(&db, file_id).await;

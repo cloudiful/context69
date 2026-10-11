@@ -3961,6 +3961,63 @@ export interface components {
             observed_at: string;
             task: components["schemas"]["TaskDiagnoseParent"];
         };
+        /**
+         * @description Truthful, stage-local progress for one running task item (issue 52).
+         *
+         *     Every field is an observation of work that actually happened: the counters
+         *     are chunk and batch counts of the same chunking run, `stage` is the
+         *     pipeline stage the item really reached, and `last_progress_at` is when real
+         *     progress was last observed. There is deliberately no overall percentage, no
+         *     page count and no estimate — an unknown value stays absent rather than
+         *     guessed.
+         */
+        TaskItemProgress: {
+            /**
+             * Format: int32
+             * @description Attempt this progress belongs to. The server drops progress recorded by
+             *     an older attempt, so a client never renders a stale fraction.
+             */
+            attempt: number;
+            /**
+             * Format: int64
+             * @description Batches of chunks fully persisted so far.
+             */
+            completed_batches?: number | null;
+            /**
+             * Format: int64
+             * @description Chunks embedded, persisted and upserted so far. `None` while the count
+             *     is genuinely unknown, never `0` as a stand-in.
+             */
+            completed_chunks?: number | null;
+            /**
+             * Format: date-time
+             * @description When real progress was last observed. A heartbeat or an unchanged
+             *     remote status never moves it.
+             */
+            last_progress_at?: string | null;
+            /**
+             * @description Remote converter state while a remote conversion is in flight, e.g.
+             *     `pending` or `started`. Docling Serve exposes no page counts, so this
+             *     is a status and never a page fraction.
+             */
+            remote_status?: string | null;
+            /**
+             * @description Pipeline stage the item actually reached (`storage`, `parsing`,
+             *     `docling`, `chunking`, `indexing`, `finalizing`). A stage hint, not
+             *     the persisted item stage.
+             */
+            stage: string;
+            /**
+             * Format: int64
+             * @description Batches the whole run will produce.
+             */
+            total_batches?: number | null;
+            /**
+             * Format: int64
+             * @description Chunks the whole run will produce. `None` until the totals are known.
+             */
+            total_chunks?: number | null;
+        };
         TaskItemResponse: {
             /** Format: int32 */
             attempt_count: number;
@@ -3986,6 +4043,7 @@ export interface components {
             next_attempt_at?: string | null;
             /** Format: int32 */
             ordinal: number;
+            progress?: null | components["schemas"]["TaskItemProgress"];
             resource_id?: string | null;
             retryable: boolean;
             stage?: string | null;

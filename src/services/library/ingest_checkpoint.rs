@@ -150,13 +150,30 @@ pub fn compute_prepared_record_hash(prepared: &[PreparedIngestSection]) -> Strin
         .collect()
 }
 
-/// Estimate the total number of embedding batches a prepared set of sections
-/// would produce. Counts the same streaming batches as `persist_document_chunks`.
-pub fn estimate_total_batches(
+/// Chunk and batch totals of one prepared ingest, measured in a single pass.
+///
+/// Both counters come from the same `ChunkBatchIter` walk that later produces
+/// the batches, so a total can never disagree with the batches it is compared
+/// against — including the variable batch sizes caused by the chunk-count and
+/// character budgets, and the zero-chunk case where both totals are genuinely
+/// `0` rather than unknown.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PreparedIngestTotals {
+    pub total_chunks: usize,
+    pub total_batches: usize,
+}
+
+/// Count the chunks and the batches a prepared set of sections produces, using
+/// the same streaming chunking and batching as `persist_document_chunks`.
+///
+/// The batch total is what the indexing checkpoint advances against and the
+/// chunk total is what the progress record publishes; measuring both here is
+/// what keeps a resumed run's completed count equal to the batches it skipped.
+pub fn count_prepared_ingest_totals(
     prepared: &[PreparedIngestSection],
     chunking: &crate::chunking::ChunkingConfig,
-) -> usize {
-    let mut total = 0usize;
+) -> PreparedIngestTotals {
+    let mut totals = PreparedIngestTotals::default();
     for section in prepared {
         let chunks = chunk_document_iter(
             0,
@@ -164,9 +181,12 @@ pub fn estimate_total_batches(
             &section.normalized,
             chunking,
         );
-        total += ChunkBatchIter::new(chunks).count();
+        for batch in ChunkBatchIter::new(chunks) {
+            totals.total_batches += 1;
+            totals.total_chunks += batch.len();
+        }
     }
-    total
+    totals
 }
 
 #[cfg(test)]
@@ -277,17 +297,17 @@ mod tests {
     }
 
     #[test]
-    fn estimate_total_batches_matches_chunking_rules() {
+    fn count_prepared_ingest_totals_matches_chunking_rules() {
         let cfg = crate::chunking::ChunkingConfig {
             max_chars: 100,
             overlap_chars: 0,
         };
         let prepared = vec![section("hash", "hi")];
-        assert!(estimate_total_batches(&prepared, &cfg) >= 1);
+        assert!(count_prepared_ingest_totals(&prepared, &cfg).total_batches >= 1);
     }
 
     #[test]
-    fn estimate_total_batches_counts_count_boundaries_across_sections() {
+    fn count_prepared_ingest_totals_counts_boundaries_across_sections() {
         let cfg = crate::chunking::ChunkingConfig {
             max_chars: 100,
             overlap_chars: 0,
@@ -295,12 +315,52 @@ mod tests {
         // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
         // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
         let body = vec!["x".repeat(60); 33].join("\n\n");
-        let first = estimate_total_batches(&[section("hash", &body)], &cfg);
-        assert_eq!(first, 2, "fixture must cross the chunk-count boundary");
+        let first = count_prepared_ingest_totals(&[section("hash", &body)], &cfg);
+        assert_eq!(
+            first.total_batches, 2,
+            "fixture must cross the chunk-count boundary"
+        );
 
-        let both =
-            estimate_total_batches(&[section("hash", &body), section("hash-b", "short")], &cfg);
-        assert_eq!(both, first + 1, "section batches must be summed");
+        let both = count_prepared_ingest_totals(
+            &[section("hash", &body), section("hash-b", "short")],
+            &cfg,
+        );
+        assert_eq!(
+            both.total_batches,
+            first.total_batches + 1,
+            "section batches must be summed"
+        );
+        assert!(
+            both.total_chunks > first.total_chunks,
+            "chunk totals accumulate across sections too"
+        );
+    }
+
+    #[test]
+    fn totals_count_chunks_and_batches_from_the_same_pass() {
+        let cfg = crate::chunking::ChunkingConfig {
+            max_chars: 100,
+            overlap_chars: 0,
+        };
+        // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
+        // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
+        let body = vec!["x".repeat(60); 33].join("\n\n");
+        let totals = count_prepared_ingest_totals(&[section("hash", &body)], &cfg);
+        assert_eq!(
+            totals.total_batches, 2,
+            "fixture must cross the count boundary"
+        );
+        assert_eq!(
+            totals.total_chunks, 33,
+            "chunk totals come from the batches"
+        );
+
+        // A document that produces no chunks has a real total of zero, which
+        // is not the same as an unknown total.
+        assert_eq!(
+            count_prepared_ingest_totals(&[section("hash", "")], &cfg),
+            PreparedIngestTotals::default()
+        );
     }
 
     #[test]

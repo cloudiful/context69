@@ -67,7 +67,9 @@ export const processingQueue = {
   collapse: "收起任务项",
   attempts: "{count} 次尝试",
   loadFailed: "加载处理队列失败",
-  retry: "重试文件",
+  // 重试作用于整个任务：接口会重新排队父任务下所有可重试的任务项，
+  // 因此文案不能承诺"仅重试单个文件"。
+  retryTaskScope: "重试此任务",
   retryAccepted: "已重新排队",
   retryFailed: "重试任务失败",
   retryAll: "重试可恢复任务",
@@ -93,6 +95,31 @@ export const processingQueue = {
   clearTrashAccepted: "回收站已清空",
   clearTrashFailed: "清空回收站失败",
   unknownStage: "未知",
+  // 处理进度阶段（问题 52）是任务项实际执行的阶段，取自
+  // `TaskItemProgress.stage`。它与上方的 `stages` 刻意分开：后者是队列阶段
+  // 过滤器所查询的持久化阶段字段取值，若把新阶段加进去，过滤器会提供出根本
+  // 不存在的选项。
+  progressStageLabels: {
+    storage: "存储中",
+    parsing: "解析中",
+    docling: "远端转换中",
+    chunking: "分块中",
+    indexing: "索引中",
+    finalizing: "收尾中",
+  },
+  // `progress` 已是队列列标题，此处用 `itemProgress` 承载详情文案，避免歧义。
+  itemProgress: {
+    chunks: "分块",
+    batches: "批次",
+    chunksCount: "{completed} / {total} 个分块",
+    batchesCount: "{completed} / {total} 个批次",
+    countUnknown: "正在处理，尚未上报计数",
+    complete: "已完成",
+    pageProgressUnavailable: "转换服务仅上报任务状态，不提供页级进度。",
+    remoteStatus: "转换服务：{status}",
+    lastObserved: "最近进度 {time}",
+    refreshFailed: "实时刷新失败，当前显示上一次已知的进度",
+  },
   details: {
     title: "任务详情",
     taskId: "任务 ID",
@@ -106,14 +133,18 @@ export const processingQueue = {
     documentTitle: "文档标题",
     fileId: "文件 ID",
     position: "位置",
+    positionValue: "第 {position} 项",
+    technical: "技术细节",
     stage: "阶段",
     dependency: "依赖",
     attempts: "尝试次数",
     error: "最新错误",
   },
   diagnose: {
-    action: "诊断",
-    hide: "收起诊断",
+    action: "故障排查",
+    hide: "收起故障排查",
+    // 诊断是只读的内部状态查看：它解释任务为何处于当前状态，不会修改任务。
+    explanation: "只读排查：展示队列内部状态、租约与尝试记录，不会修改此任务。",
     failed: "加载诊断失败",
     retry: "重新加载诊断",
     observedAt: "观测时间 {time}",

@@ -407,7 +407,6 @@ async fn the_projection_falls_back_to_the_payload_and_the_linked_document() {
     let pending = create_url_task(
         &db,
         user_id,
-        &format!("{tag}-pending"),
         "https://static.example.com/reports/2026-09-30-summary.PDF?token=abc#page2",
     )
     .await;
@@ -680,7 +679,7 @@ async fn set_file_metadata_title(db: &Database, task_id: Uuid, title: &str) {
 
 /// A `url_batch` task whose single item carries only the submitted URL, i.e. no
 /// library file and no title.
-async fn create_url_task(db: &Database, user_id: i64, tag: &str, url: &str) -> Uuid {
+async fn create_url_task(db: &Database, user_id: i64, url: &str) -> Uuid {
     let (task_id, _, _) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id: Uuid::new_v4(),

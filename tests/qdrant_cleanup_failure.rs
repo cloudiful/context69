@@ -138,8 +138,7 @@ mod integration {
         embedding: Arc<dyn EmbeddingProvider>,
         qdrant: QdrantIndex,
     ) -> (LibraryService, std::path::PathBuf) {
-        let storage_root =
-            std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
+        let storage_root = std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
         let settings = SettingsService::new(db.clone());
         let translation = TranslationService::new(TranslationDependencies {
             pool: db.pool().clone(),
@@ -256,9 +255,8 @@ mod integration {
         let stored_object_id = Uuid::new_v4();
         sqlx::query(
             "INSERT INTO context69.library_storage_objects \
-             (id, group_id, sha256, size_bytes, storage_backend, object_key, staged_file_id, \
-              staged_expires_at, created_at, updated_at) \
-             VALUES ($1, $2, $3, $4, 'local', $5, NULL, NULL, now(), now())",
+             (id, group_id, sha256, size_bytes, storage_backend, object_key, created_at, updated_at) \
+             VALUES ($1, $2, $3, $4, 'local', $5, now(), now())",
         )
         .bind(stored_object_id)
         .bind(group.id)
@@ -272,7 +270,7 @@ mod integration {
             "INSERT INTO context69.library_files \
              (id, group_id, visibility, folder_id, external_id, filename, media_type, size_bytes, \
               sha256, storage_rel_path, storage_object_id, ingest_status) \
-             VALUES ($1, $2, 'public', NULL, $3, $4, 'text/plain', $5, $6, $7, $8, 'pending')",
+             VALUES ($1, $2, 'public', NULL, $3, $4, 'text/plain', $5, $6, $7, $8, 'failed')",
         )
         .bind(file_id)
         .bind(group.id)

@@ -308,7 +308,10 @@ function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "tra
         <UButton color="error" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.deletePermanently')" :title="t('processingQueue.deletePermanently')" @click="emit('delete', row.original)" />
       </div>
       <div v-else class="flex items-center gap-1">
-        <UButton v-if="primaryAction(row.original) === 'retry' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t('processingQueue.retry')" :title="t('processingQueue.retry')" @click="emit('recover', row.original)" />
+        // This row action is task-scoped too: `recover` routes to the task-level retry
+        // endpoint, which requeues every retryable item of the failed task. The
+        // label states that scope rather than promising a single-file effect.
+        <UButton v-if="primaryAction(row.original) === 'retry' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-rotate-ccw" :loading="props.isActing(row.original)" :label="t('processingQueue.retryTaskScope')" :title="t('processingQueue.retryTaskScope')" @click="emit('recover', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'resume' && props.isRecoverableTask(row.original)" color="neutral" variant="ghost" size="sm" icon="i-lucide-play" :loading="props.isActing(row.original)" :label="t('processingQueue.continue')" :title="t('processingQueue.resumeHint')" @click="emit('recover', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'cancel'" color="error" variant="ghost" size="sm" icon="i-lucide-ban" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.cancel')" :title="t('processingQueue.cancel')" @click="emit('cancel', row.original)" />
         <UButton v-if="primaryAction(row.original) === 'trash' || row.original.status === 'failed' || row.original.status === 'cancelled'" color="neutral" variant="ghost" size="sm" icon="i-lucide-trash-2" :loading="props.isActing(row.original)" :aria-label="t('processingQueue.trash')" :title="t('processingQueue.trash')" @click="emit('trash', row.original)" />

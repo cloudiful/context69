@@ -426,11 +426,10 @@ impl ServerHandler for Context69McpServer {
             let detail = document_tools::first_page_detail(&document)?;
             let content = serde_json::to_string_pretty(&detail)
                 .map_err(|error| internal_error(anyhow::Error::new(error)))?;
-            return Ok(
-                ReadResourceResult::new(vec![ResourceContents::text(content, uri)
-                    .with_mime_type("application/json")])
-                    .into(),
-            );
+            return Ok(ReadResourceResult::new(vec![
+                ResourceContents::text(content, uri).with_mime_type("application/json"),
+            ])
+            .into());
         }
 
         Err(McpError::resource_not_found(

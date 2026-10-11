@@ -206,6 +206,10 @@ pub(super) async fn run_docling_stage_blocking(
             }
         };
         let status_name = format!("{:?}", status.task_status).to_ascii_lowercase();
+        // Only a changed observation is progress: the Docling client exposes
+        // only a task status (no page counts), and a repeated long-poll result
+        // is not new work, so it must not move the progress timestamp.
+        super::pipeline_progress::record_remote_status(db, item, &status_name).await?;
         if !status.task_status.is_terminal() {
             attempt += 1;
             if !sleep_owned(db, item, backoff_secs(attempt)).await? {

@@ -33,13 +33,12 @@ mod model;
 mod ref_path_safety;
 mod resolve;
 
-// Content preparation is reached through its own modules (and by the snapshot
-// indexer in [`index_generation`]); re-exporting it here would only add an
-// unused import.
-pub(crate) use github_client::{GitHubAcquirer, RepositoryAcquirer};
-pub(crate) use github_transport::{GitHttpTransport, GitHubApiTransport, TransportResponse};
-pub(crate) use github_url::{GitHubRepoCoordinates, parse_canonical_github_url};
-pub(crate) use model::{BlobContent, GitAcquisitionLimits, TreeFileEntry, TreeListing};
+// Request parsing and validated identifiers are the only Git capabilities
+// composed outside their owning modules.
+pub(crate) use github_transport::GitHubApiTransport;
+pub(crate) use github_url::parse_canonical_github_url;
+#[cfg(test)]
+pub(crate) use model::GitAcquisitionLimits;
 pub(crate) use ref_path_safety::{SafeRef, SafeSha, SafeTreePath};
 
 #[cfg(test)]
@@ -162,7 +161,6 @@ pub(crate) mod support {
                 .map(|(_, _, content)| content.to_vec())
                 .ok_or_else(|| anyhow!(DomainError::internal("unexpected test blob")))?;
             Ok(BlobContent {
-                blob_sha: SafeSha::parse(blob_sha.as_str())?,
                 declared_size: content.len() as u64,
                 bytes: Bytes::from(content),
             })

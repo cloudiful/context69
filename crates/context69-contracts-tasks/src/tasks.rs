@@ -176,6 +176,45 @@ pub struct TaskItemResponse {
     /// Document title of the item, `None` when neither the item nor its file
     /// carries one.
     pub document_title: Option<String>,
+    /// Stage-local progress observed while the item ran. `None` for an item
+    /// that never reported progress, or whose recorded progress belongs to an
+    /// older attempt.
+    pub progress: Option<TaskItemProgress>,
+}
+
+/// Truthful, stage-local progress for one running task item (issue 52).
+///
+/// Every field is an observation of work that actually happened: the counters
+/// are chunk and batch counts of the same chunking run, `stage` is the
+/// pipeline stage the item really reached, and `last_progress_at` is when real
+/// progress was last observed. There is deliberately no overall percentage, no
+/// page count and no estimate — an unknown value stays absent rather than
+/// guessed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskItemProgress {
+    /// Pipeline stage the item actually reached (`storage`, `parsing`,
+    /// `docling`, `chunking`, `indexing`, `finalizing`). A stage hint, not
+    /// the persisted item stage.
+    pub stage: String,
+    /// Attempt this progress belongs to. The server drops progress recorded by
+    /// an older attempt, so a client never renders a stale fraction.
+    pub attempt: i32,
+    /// Chunks embedded, persisted and upserted so far. `None` while the count
+    /// is genuinely unknown, never `0` as a stand-in.
+    pub completed_chunks: Option<i64>,
+    /// Chunks the whole run will produce. `None` until the totals are known.
+    pub total_chunks: Option<i64>,
+    /// Batches of chunks fully persisted so far.
+    pub completed_batches: Option<i64>,
+    /// Batches the whole run will produce.
+    pub total_batches: Option<i64>,
+    /// Remote converter state while a remote conversion is in flight, e.g.
+    /// `pending` or `started`. Docling Serve exposes no page counts, so this
+    /// is a status and never a page fraction.
+    pub remote_status: Option<String>,
+    /// When real progress was last observed. A heartbeat or an unchanged
+    /// remote status never moves it.
+    pub last_progress_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]

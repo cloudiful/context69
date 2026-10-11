@@ -37,6 +37,8 @@ mod item_url_processor;
 mod lifecycle;
 mod lifecycle_logging;
 mod maintenance;
+mod pipeline_progress;
+mod pipeline_progress_input;
 mod responses;
 mod runtime;
 mod runtime_driver;

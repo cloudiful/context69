@@ -131,11 +131,23 @@ function gateStateLabel(state: string): string {
 </script>
 
 <template>
-  <div class="mb-2">
-    <div class="flex flex-wrap items-center gap-2">
+  <div>
+    <details data-testid="task-diagnose-disclosure">
+      <summary class="cursor-pointer">
+        <span class="text-xs text-muted">{{ t("processingQueue.diagnose.action") }}</span>
+      </summary>
+    <!-- Diagnose is read-only inspection of queue internals: it explains why a
+         task sits where it does. The explanation precedes the disclosure so the
+         operator knows opening it changes nothing. -->
+    <p
+      v-if="!isDiagnosing && !diagnose && !diagnoseError"
+      class="mt-1 max-w-prose text-xs text-muted"
+      data-testid="task-diagnose-explanation"
+    >{{ t("processingQueue.diagnose.explanation") }}</p>
+    <div class="mt-1 flex flex-wrap items-center gap-2">
       <UButton
         color="neutral"
-        variant="outline"
+        variant="ghost"
         size="sm"
         icon="i-lucide-stethoscope"
         data-testid="task-diagnose-toggle"
@@ -215,5 +227,6 @@ function gateStateLabel(state: string): string {
       </div>
       <div v-else class="mt-2 text-muted">{{ t("processingQueue.diagnose.noItems") }}</div>
     </div>
+    </details>
   </div>
 </template>

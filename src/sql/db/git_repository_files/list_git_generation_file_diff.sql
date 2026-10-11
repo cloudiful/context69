@@ -92,14 +92,14 @@ SELECT
         WHEN a.path IS NULL THEN 'deleted'
         ELSE 'modified'
     END AS "change_kind!",
-    b.file_key AS "before_file_key",
-    b.language AS "before_language",
-    b.byte_count AS "before_byte_count",
-    b.line_count AS "before_line_count",
-    a.file_key AS "after_file_key",
-    a.language AS "after_language",
-    a.byte_count AS "after_byte_count",
-    a.line_count AS "after_line_count"
+    b.file_key AS "before_file_key?",
+    b.language AS "before_language?",
+    b.byte_count AS "before_byte_count?",
+    b.line_count AS "before_line_count?",
+    a.file_key AS "after_file_key?",
+    a.language AS "after_language?",
+    a.byte_count AS "after_byte_count?",
+    a.line_count AS "after_line_count?"
 FROM (from_side b FULL JOIN to_side a ON a.path = b.path) CROSS JOIN eligible_pair p
 -- `IS DISTINCT FROM` is the comparison itself: a missing side (an added or a
 -- deleted path) is never equal to a stored content address, and two equal

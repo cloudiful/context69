@@ -36,6 +36,7 @@ pub(crate) enum CodeTextRejection {
 
 impl CodeTextRejection {
     /// Domain error code for a rejected file.
+    #[cfg(test)]
     pub(crate) fn error_code(self) -> &'static str {
         match self {
             Self::NotUtf8 => "git_code_text_not_utf8",
@@ -49,6 +50,7 @@ impl CodeTextRejection {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CodeText {
     text: String,
+    #[cfg(test)]
     byte_count: i64,
     line_count: i64,
 }
@@ -64,6 +66,7 @@ impl CodeText {
             return Err(CodeTextRejection::ContainsNul);
         }
         Ok(Self {
+            #[cfg(test)]
             byte_count: count_as_i64(bytes.len()).ok_or(CodeTextRejection::TooLarge)?,
             line_count: count_as_i64(count_lines(text)).ok_or(CodeTextRejection::TooLarge)?,
             text: text.to_owned(),
@@ -75,7 +78,8 @@ impl CodeText {
         &self.text
     }
 
-    /// Raw byte length, as stored in the manifest.
+    /// Raw byte length of the exact text.
+    #[cfg(test)]
     pub(crate) fn byte_count(&self) -> i64 {
         self.byte_count
     }

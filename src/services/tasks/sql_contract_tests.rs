@@ -288,12 +288,10 @@ fn the_file_and_title_projection_is_identical_for_a_task_and_its_items() {
             code.contains("SELECT document.title"),
             "{name} must select the linked document through a one-row LATERAL"
         );
-        for join in ["LEFT JOIN context69.library_files file ON file.id = item.file_id"] {
-            assert!(
-                code.contains(join),
-                "{name} must keep the 1:1 join `{join}`"
-            );
-        }
+        assert!(
+            code.contains("LEFT JOIN context69.library_files file ON file.id = item.file_id"),
+            "{name} must keep the 1:1 file join"
+        );
         assert!(
             !code.contains("item.payload -> 'options' -> 'metadata' ->> 'external_id'"),
             "{name} must not reach a document by external id; the file link is the authority"

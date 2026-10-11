@@ -154,9 +154,6 @@ impl SafeTreePath {
     }
 }
 
-/// Maximum length of an accepted object SHA.
-pub(crate) const SHA_MAX_LENGTH: usize = 64;
-
 /// A validated lowercase hex object SHA (`tree`, `blob`, or commit id).
 ///
 /// Only lowercase hex is accepted, so SHA values returned by provider

@@ -94,8 +94,7 @@ async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
 }
 
 async fn spawn_bus_and_wait(db: &Database) -> tokio::sync::broadcast::Sender<TaskEvent> {
-    let sender =
-        context69::services::tasks::events::spawn_task_event_listener(db.pool().clone());
+    let sender = context69::services::tasks::events::spawn_task_event_listener(db.pool().clone());
     // The hub LISTENs asynchronously; wait for the subscription before the
     // operation under test so its NOTIFY is not lost to a pre-LISTEN race.
     tokio::time::sleep(Duration::from_millis(1500)).await;
@@ -158,7 +157,9 @@ async fn insert_receives_task_and_item_events() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let sender = spawn_bus_and_wait(&db).await;
     let mut receiver = sender.subscribe();
     let user_id = seed_test_user(&db).await;
@@ -200,7 +201,9 @@ async fn update_receives_item_event() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-update-hash", 1).await;
     // Subscribe after setup so only the UPDATE under test is observed.
@@ -241,7 +244,9 @@ async fn payload_is_four_fields_and_small() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
 
     let mut listener = sqlx::postgres::PgListener::connect(&url)
@@ -304,7 +309,9 @@ async fn heartbeat_update_is_throttled() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-heartbeat-hash", 1).await;
     let item_id = item_ids[0];
@@ -335,8 +342,7 @@ async fn heartbeat_update_is_throttled() {
     .await
     .expect("heartbeat");
 
-    let heartbeat_events =
-        collect_events_for(&mut receiver, task_id, Duration::from_secs(2)).await;
+    let heartbeat_events = collect_events_for(&mut receiver, task_id, Duration::from_secs(2)).await;
     assert!(
         heartbeat_events.is_empty(),
         "pure heartbeat (lease_until/updated_at only) must be throttled, got {heartbeat_events:?}"
@@ -374,17 +380,16 @@ async fn cancel_path_emits_event() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, _items) = create_text_task(&db, user_id, "bus-cancel-hash", 1).await;
     let sender = spawn_bus_and_wait(&db).await;
     let mut receiver = sender.subscribe();
 
     // cancel.sql + cancel_items.sql + recompute.sql (SQL-only path via Database).
-    let cancelled = db
-        .cancel_task(task_id, user_id)
-        .await
-        .expect("cancel task");
+    let cancelled = db.cancel_task(task_id, user_id).await.expect("cancel task");
     assert!(cancelled, "cancel must succeed for a queued task");
 
     let event = wait_for_event_matching(
@@ -409,15 +414,19 @@ async fn trash_path_emits_event() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-trash-hash", 1).await;
     // Drive to terminal so trash.sql matches (status succeeded).
-    sqlx::query("UPDATE context69.task_items SET status = 'succeeded', finished_at = now() WHERE id = $1")
-        .bind(item_ids[0])
-        .execute(db.pool())
-        .await
-        .expect("finish item");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'succeeded', finished_at = now() WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .execute(db.pool())
+    .await
+    .expect("finish item");
     db.recompute_task(task_id).await.expect("recompute");
     let sender = spawn_bus_and_wait(&db).await;
     let mut receiver = sender.subscribe();
@@ -425,13 +434,8 @@ async fn trash_path_emits_event() {
     let trashed = db.trash_task(task_id).await.expect("trash task");
     assert!(trashed, "trash must move a terminal task");
 
-    let event = wait_for_event_matching(
-        &mut receiver,
-        task_id,
-        |_| true,
-        Duration::from_secs(10),
-    )
-    .await;
+    let event =
+        wait_for_event_matching(&mut receiver, task_id, |_| true, Duration::from_secs(10)).await;
     assert!(
         event.is_some(),
         "trash (trash.sql deleted_at update) must emit for {task_id}"
@@ -447,14 +451,18 @@ async fn restore_path_emits_event() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-restore-hash", 1).await;
-    sqlx::query("UPDATE context69.task_items SET status = 'succeeded', finished_at = now() WHERE id = $1")
-        .bind(item_ids[0])
-        .execute(db.pool())
-        .await
-        .expect("finish item");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'succeeded', finished_at = now() WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .execute(db.pool())
+    .await
+    .expect("finish item");
     db.recompute_task(task_id).await.expect("recompute");
     assert!(db.trash_task(task_id).await.expect("trash"));
     let sender = spawn_bus_and_wait(&db).await;
@@ -463,13 +471,8 @@ async fn restore_path_emits_event() {
     let restored = db.restore_task(task_id).await.expect("restore task");
     assert!(restored, "restore must clear the trash marker");
 
-    let event = wait_for_event_matching(
-        &mut receiver,
-        task_id,
-        |_| true,
-        Duration::from_secs(10),
-    )
-    .await;
+    let event =
+        wait_for_event_matching(&mut receiver, task_id, |_| true, Duration::from_secs(10)).await;
     assert!(
         event.is_some(),
         "restore (restore.sql deleted_at clear) must emit for {task_id}"
@@ -485,20 +488,26 @@ async fn clear_path_emits_delete_event() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-clear-hash", 1).await;
-    sqlx::query("UPDATE context69.task_items SET status = 'succeeded', finished_at = now() WHERE id = $1")
-        .bind(item_ids[0])
-        .execute(db.pool())
-        .await
-        .expect("finish item");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'succeeded', finished_at = now() WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .execute(db.pool())
+    .await
+    .expect("finish item");
     // Drive the parent to succeeded so the completed view matches.
-    sqlx::query("UPDATE context69.tasks SET status = 'succeeded', finished_at = now() WHERE id = $1")
-        .bind(task_id)
-        .execute(db.pool())
-        .await
-        .expect("mark task succeeded");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'succeeded', finished_at = now() WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("mark task succeeded");
     let sender = spawn_bus_and_wait(&db).await;
     let mut receiver = sender.subscribe();
 
@@ -509,13 +518,8 @@ async fn clear_path_emits_delete_event() {
         .expect("clear history");
     assert_eq!(deleted, 1, "clear must delete the succeeded row");
 
-    let event = wait_for_event_matching(
-        &mut receiver,
-        task_id,
-        |_| true,
-        Duration::from_secs(10),
-    )
-    .await;
+    let event =
+        wait_for_event_matching(&mut receiver, task_id, |_| true, Duration::from_secs(10)).await;
     assert!(
         event.is_some(),
         "clear (DELETE FROM tasks) must emit a delete event for {task_id}"
@@ -532,11 +536,15 @@ async fn clear_path_emits_delete_event() {
 #[tokio::test]
 async fn maintain_claim_state_path_emits_event() {
     let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping maintain_claim_state event test");
+        eprintln!(
+            "CONTEXT69_TEST_DATABASE_URL is not set; skipping maintain_claim_state event test"
+        );
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-maintain-hash", 1).await;
     let item_id = item_ids[0];
@@ -588,7 +596,9 @@ async fn listener_recovers_after_backend_terminate() {
         return;
     };
     let _guard = BUS_LOCK.lock().await;
-    let db = Database::connect(&url).await.expect("connect test database");
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
     let user_id = seed_test_user(&db).await;
 
     // Hub path (broadcast) must survive a terminated PG backend via
@@ -597,13 +607,8 @@ async fn listener_recovers_after_backend_terminate() {
     let mut receiver = sender.subscribe();
 
     let (first_task, _) = create_text_task(&db, user_id, "bus-reconnect-first-hash", 1).await;
-    let first = wait_for_event_matching(
-        &mut receiver,
-        first_task,
-        |_| true,
-        Duration::from_secs(10),
-    )
-    .await;
+    let first =
+        wait_for_event_matching(&mut receiver, first_task, |_| true, Duration::from_secs(10)).await;
     assert!(
         first.is_some(),
         "listener must receive events before the terminate"

@@ -58,8 +58,16 @@ pub use ingest_checkpoint::{
 };
 mod ingest_checkpoint_batch;
 mod ingest_checkpoint_persistence;
+mod ingest_progress;
+mod ingest_progress_codec;
+mod ingest_progress_resume;
+pub use ingest_progress::{PIPELINE_PROGRESS_KEY, PipelineProgress, PipelineProgressStage};
+pub use ingest_progress_codec::{
+    parse_pipeline_progress, payload_with_progress, pipeline_progress_from_value,
+};
 mod ingest_documents;
 mod ingest_persistence;
+mod ingest_progress_store;
 mod ingest_types;
 mod legacy_cleanup;
 pub use legacy_cleanup::{DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, LegacyCleanupSummary};

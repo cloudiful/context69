@@ -73,7 +73,9 @@ pub(crate) async fn read_library_uploads(
                 Ok(text) => match Uuid::parse_str(text.trim()) {
                     Ok(value) => folder_id = Some(value),
                     Err(error) => {
-                        return Err(Box::new(invalid_argument(format!("invalid folder_id: {error}"))));
+                        return Err(Box::new(invalid_argument(format!(
+                            "invalid folder_id: {error}"
+                        ))));
                     }
                 },
                 Err(error) => {

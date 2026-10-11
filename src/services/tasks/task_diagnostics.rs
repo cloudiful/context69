@@ -201,6 +201,7 @@ mod tests {
             finished_at: None,
             file_name: None,
             document_title: None,
+            pipeline_progress: None,
         }
     }
 

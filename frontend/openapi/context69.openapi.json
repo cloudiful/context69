@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.21.20"
+    "version": "0.21.21"
   },
   "paths": {
     "/healthz": {
@@ -12782,6 +12782,72 @@
           }
         }
       },
+      "TaskItemProgress": {
+        "type": "object",
+        "description": "Truthful, stage-local progress for one running task item (issue 52).\n\nEvery field is an observation of work that actually happened: the counters\nare chunk and batch counts of the same chunking run, `stage` is the\npipeline stage the item really reached, and `last_progress_at` is when real\nprogress was last observed. There is deliberately no overall percentage, no\npage count and no estimate — an unknown value stays absent rather than\nguessed.",
+        "required": [
+          "stage",
+          "attempt"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Attempt this progress belongs to. The server drops progress recorded by\nan older attempt, so a client never renders a stale fraction."
+          },
+          "completed_batches": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Batches of chunks fully persisted so far."
+          },
+          "completed_chunks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Chunks embedded, persisted and upserted so far. `None` while the count\nis genuinely unknown, never `0` as a stand-in."
+          },
+          "last_progress_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When real progress was last observed. A heartbeat or an unchanged\nremote status never moves it."
+          },
+          "remote_status": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Remote converter state while a remote conversion is in flight, e.g.\n`pending` or `started`. Docling Serve exposes no page counts, so this\nis a status and never a page fraction."
+          },
+          "stage": {
+            "type": "string",
+            "description": "Pipeline stage the item actually reached (`storage`, `parsing`,\n`docling`, `chunking`, `indexing`, `finalizing`). A stage hint, not\nthe persisted item stage."
+          },
+          "total_batches": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Batches the whole run will produce."
+          },
+          "total_chunks": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Chunks the whole run will produce. `None` until the totals are known."
+          }
+        }
+      },
       "TaskItemResponse": {
         "type": "object",
         "required": [
@@ -12861,6 +12927,17 @@
           "ordinal": {
             "type": "integer",
             "format": "int32"
+          },
+          "progress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskItemProgress",
+                "description": "Stage-local progress observed while the item ran. `None` for an item\nthat never reported progress, or whose recorded progress belongs to an\nolder attempt."
+              }
+            ]
           },
           "resource_id": {
             "type": [

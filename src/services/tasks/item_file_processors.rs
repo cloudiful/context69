@@ -12,8 +12,10 @@ use super::item_processors::{
     ProcessResult, persisted_section_payload, process_error, save_sections, set_file,
     waiting_for_error,
 };
+use super::pipeline_progress::record_stage;
+use super::pipeline_progress_input::deserialize_worker_input;
 use crate::services::library::storage;
-use crate::services::library::{UnifiedIngestError, UploadedLibraryFile};
+use crate::services::library::{PipelineProgressStage, UnifiedIngestError, UploadedLibraryFile};
 
 pub(super) async fn process_text(
     service: &TaskService,
@@ -32,10 +34,13 @@ pub(super) async fn process_text(
         if let Some(next) = text_storage_resume_stage(&item.payload) {
             return Ok(ProcessResult::Progressed { next });
         }
-        let request: UpsertLibraryTextRequest = match serde_json::from_value(item.payload.clone()) {
+        let request: UpsertLibraryTextRequest = match deserialize_worker_input(&item.payload) {
             Ok(request) => request,
             Err(error) => return Ok(process_error(stage, error.into())),
         };
+        // Text ingestion has no storage upload and no remote conversion: the
+        // work this stage performs is parsing the submitted body.
+        record_stage(service.db(), item, PipelineProgressStage::Parsing).await?;
         let (file, section_payload) = match service
             .library()
             .upsert_text_file_for_task(group, &request, item.lease_token)
@@ -82,7 +87,7 @@ pub(super) async fn process_file(
                 Err(error) => return Ok(process_error(stage, error)),
             }
         } else {
-            let request: StoredFileBatchItem = match serde_json::from_value(item.payload.clone()) {
+            let request: StoredFileBatchItem = match deserialize_worker_input(&item.payload) {
                 Ok(request) => request,
                 Err(error) => return Ok(process_error(stage, error.into())),
             };
@@ -103,6 +108,7 @@ pub(super) async fn process_file(
                 }
             };
             let ingest = &request.options;
+            record_stage(service.db(), item, PipelineProgressStage::Storage).await?;
             match service
                 .library()
                 .prepare_file_for_task(
@@ -226,6 +232,7 @@ pub(super) async fn process_file_stage(
                 if let Some(stage) = recovery {
                     return Ok(ProcessResult::Progressed { next: stage });
                 }
+                record_stage(service.db(), item, PipelineProgressStage::Parsing).await?;
                 let sections = match service
                     .library()
                     .prepare_file_sections_for_task(file_id, item.lease_token, item.task_id, None)
@@ -262,6 +269,7 @@ pub(super) async fn process_file_stage(
                     if let Some(stage) = recovery {
                         return Ok(ProcessResult::Progressed { next: stage });
                     }
+                    record_stage(service.db(), item, PipelineProgressStage::Parsing).await?;
                     match service
                         .library()
                         .prepare_file_sections_for_task(
@@ -282,7 +290,7 @@ pub(super) async fn process_file_stage(
                     }
                 }
             };
-            if let Err(error) = service
+            let payload = match service
                 .library()
                 .persist_file_sections_for_task_with_checkpoint(
                     file_id,
@@ -290,11 +298,14 @@ pub(super) async fn process_file_stage(
                     item.id,
                     item.lease_token,
                     &item.payload,
+                    item.attempt_count,
                 )
                 .await
             {
-                return ingest_error_result(service, item, file_id, error).await;
-            }
+                Ok(payload) => payload,
+                Err(error) => return ingest_error_result(service, item, file_id, error).await,
+            };
+            item.payload = payload;
             Ok(ProcessResult::Progressed {
                 next: "translation",
             })
@@ -311,7 +322,10 @@ pub(super) async fn process_file_stage(
             }
             Ok(ProcessResult::Progressed { next: "finalize" })
         }
-        "finalize" => Ok(ProcessResult::Succeeded(Some(file_id.to_string()))),
+        "finalize" => {
+            record_stage(service.db(), item, PipelineProgressStage::Finalizing).await?;
+            Ok(ProcessResult::Succeeded(Some(file_id.to_string())))
+        }
         other => Ok(process_error(
             other,
             DomainError::invalid_argument(format!("unsupported file task stage {other}")).into(),
@@ -347,7 +361,7 @@ async fn ingest_error_result(
 
 #[cfg(test)]
 mod tests {
-    use super::{StoredFileBatchItem, text_storage_resume_stage};
+    use super::{StoredFileBatchItem, deserialize_worker_input, text_storage_resume_stage};
     use context69_contracts::UpsertLibraryTextRequest;
 
     /// Regression for issue 662: a TextBatch item that already persisted its
@@ -470,6 +484,27 @@ mod tests {
             }))
             .is_err(),
             "non-object metadata_json must be rejected"
+        );
+    }
+
+    #[test]
+    fn stored_file_retry_strips_worker_progress_but_keeps_strict_fields() {
+        let payload = serde_json::json!({
+            "filename": "a.pdf",
+            "media_type": "application/pdf",
+            "content_base64": "aGk=",
+            "options": { "metadata": {}, "source_policy": "retain" },
+            "pipeline_progress": { "v": 1, "stage": "storage", "attempt": 1 }
+        });
+        let request: StoredFileBatchItem =
+            deserialize_worker_input(&payload).expect("worker progress is stripped");
+        assert_eq!(request.filename, "a.pdf");
+
+        let mut with_unknown = payload;
+        with_unknown["client_extension"] = serde_json::json!(true);
+        assert!(
+            deserialize_worker_input::<StoredFileBatchItem>(&with_unknown).is_err(),
+            "unknown client fields remain rejected"
         );
     }
 }

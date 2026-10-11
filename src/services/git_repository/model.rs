@@ -50,13 +50,13 @@ pub(crate) struct TreeFileEntry {
     pub size: Option<u64>,
 }
 
-/// Result of one recursive listing pinned to a commit.
+/// File entries from one recursive listing after the echoed commit identity
+/// has been validated against the requested commit.
 #[derive(Debug, Clone)]
 pub(crate) struct TreeListing {
-    /// The commit identity this listing is pinned to: the requested commit
-    /// SHA, echoed back by the provider. Downstream provenance (manifests,
-    /// pinned snapshots) must carry this commit id, not a tree id; the
-    /// provider response is validated to equal the requested commit.
+    /// Retained for unit assertions; production consumers already own the
+    /// requested commit identity that was checked against the provider echo.
+    #[cfg(test)]
     pub commit_sha: SafeSha,
     /// File (blob) entries only; directories, submodules, symlinks, and
     /// entries rejected by path/size policy are skipped, not returned.
@@ -68,10 +68,11 @@ pub(crate) struct TreeListing {
     pub excluded_files: usize,
 }
 
-/// Decoded blob content with its resolved metadata.
+/// Decoded blob bytes after response SHA and declared-size validation.
 #[derive(Debug)]
 pub(crate) struct BlobContent {
-    pub blob_sha: SafeSha,
+    /// Retained for unit assertions; production callers need only the bytes.
+    #[cfg(test)]
     pub declared_size: u64,
     pub bytes: Bytes,
 }

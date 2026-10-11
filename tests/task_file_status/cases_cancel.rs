@@ -63,10 +63,7 @@ async fn cancel_running_file_task_allows_late_success() {
 
     assert!(db.cancel_task(task_id, user_id).await.expect("cancel task"));
     let (status, _, _) = file_status(&db, file_id).await;
-    assert_eq!(
-        status, "failed",
-        "cancel must leave a running file failed"
-    );
+    assert_eq!(status, "failed", "cancel must leave a running file failed");
 
     let updated = store
         .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)

@@ -4,12 +4,11 @@ import { useI18n } from "vue-i18n";
 
 import type { TaskItemResponse, TaskResponse } from "../services/api";
 
-// Per-item action affordance used inside the expanded task-items grid.
-//
-// A failed retryable item emits `retry`; the parent routes it through
-// `recoverTask(task)` and the task-scoped retry endpoint. Issue 529 removed
-// the Docling recovery path (the async submit/poll chain no longer exists),
-// so retry is the single per-item action.
+// The per-item action retries the whole task through the task-scoped endpoint
+// (`POST /v1/tasks/{task_id}/retry`), which requeues every retryable item of
+// that task — not just the item whose row the operator clicked. The label
+// therefore states the real scope; calling it "Retry file" would promise a
+// per-item effect the request does not have.
 const props = defineProps<{
   item: TaskItemResponse;
   task: TaskResponse;
@@ -38,8 +37,9 @@ function handleClick() {
     icon="i-lucide-rotate-ccw"
     :loading="isActing"
     :disabled="isActing"
-    :label="t('processingQueue.retry')"
-    :title="t('processingQueue.retry')"
+    :label="t('processingQueue.retryTaskScope')"
+    :title="t('processingQueue.retryTaskScope')"
+    data-testid="task-item-retry"
     @click="handleClick"
   />
 </template>

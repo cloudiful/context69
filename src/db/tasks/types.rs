@@ -84,6 +84,10 @@ pub struct StoredTaskItem {
     /// Document title of the item, from its own submitted `title` or its
     /// library file's `metadata_json.title`; `None` when neither carries one.
     pub document_title: Option<String>,
+    /// Bounded `pipeline_progress` record for the item's current attempt.
+    /// `None` while the item has published none, when the recorded progress
+    /// belongs to an older attempt, or when the stored record fails validation.
+    pub pipeline_progress: Option<Value>,
 }
 
 /// An item claimed by the dispatcher together with its parent task context.

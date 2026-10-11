@@ -45,7 +45,10 @@ async fn rerun_skips_files_with_active_processing_task() {
     let (status_a, _, _) = file_status(&db, file_a).await;
     assert_eq!(status_a, "failed", "an owned file status is left alone");
     let (status_b, _, _) = file_status(&db, file_b).await;
-    assert_eq!(status_b, "failed", "the rerun file stays failed (issue #400)");
+    assert_eq!(
+        status_b, "failed",
+        "the rerun file stays failed (issue #400)"
+    );
 
     // A source whose every file is already owned cannot be rerun at all.
     let covered = insert_cancelled_source_task(&db, user_id, group_id, &[(file_a, 0)]).await;

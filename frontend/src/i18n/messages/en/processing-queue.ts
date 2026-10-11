@@ -67,7 +67,9 @@ export const processingQueue = {
   collapse: "Collapse task items",
   attempts: "{count} attempts",
   loadFailed: "Failed to load the processing queue",
-  retry: "Retry file",
+  // Retry acts on the whole task: the endpoint requeues every retryable item
+  // of the parent, so no label may promise a per-file effect.
+  retryTaskScope: "Retry this task",
   retryAccepted: "Queued again",
   retryFailed: "Failed to retry the task",
   retryAll: "Retry recoverable tasks",
@@ -93,6 +95,33 @@ export const processingQueue = {
   clearTrashAccepted: "Trash emptied",
   clearTrashFailed: "Failed to empty trash",
   unknownStage: "Unknown",
+  // Progress stages (issue 52) are the stages an item actually performs,
+  // reported in `TaskItemProgress.stage`. They are deliberately a separate
+  // vocabulary from `stages` above, which lists the persisted stage-column
+  // values the queue's stage filter queries: adding these there would make the
+  // filter offer options no stored task stage ever holds.
+  progressStageLabels: {
+    storage: "Storing",
+    parsing: "Parsing",
+    docling: "Converting remotely",
+    chunking: "Chunking",
+    indexing: "Indexing",
+    finalizing: "Finalizing",
+  },
+  // `progress` is already the queue column header ("Progress"), so the detail
+  // copy lives under `itemProgress` to keep both meanings unambiguous.
+  itemProgress: {
+    chunks: "Chunks",
+    batches: "Batches",
+    chunksCount: "{completed} / {total} chunks",
+    batchesCount: "{completed} / {total} batches",
+    countUnknown: "Working — no counts reported yet",
+    complete: "Done",
+    pageProgressUnavailable: "The converter reports task state only; it does not report page progress.",
+    remoteStatus: "Converter: {status}",
+    lastObserved: "Last progress {time}",
+    refreshFailed: "Live refresh failed — showing the last known progress",
+  },
   details: {
     title: "Task details",
     taskId: "Task ID",
@@ -106,14 +135,20 @@ export const processingQueue = {
     documentTitle: "Document title",
     fileId: "File ID",
     position: "Position",
+    positionValue: "Item {position}",
+    technical: "Technical details",
     stage: "Stage",
     dependency: "Dependency",
     attempts: "Attempts",
     error: "Latest error",
   },
   diagnose: {
-    action: "Diagnose",
-    hide: "Hide diagnose",
+    action: "Troubleshooting",
+    hide: "Hide troubleshooting",
+    // Diagnose is read-only inspection of queue internals: it explains why a
+    // task is where it is. It never changes the task, so the disclosure says
+    // so before the operator opens it.
+    explanation: "Read-only troubleshooting: shows internal queue state, leases, and attempts. It does not change this task.",
     failed: "Failed to load diagnose",
     retry: "Retry diagnose",
     observedAt: "Observed {time}",
