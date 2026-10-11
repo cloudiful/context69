@@ -1,0 +1,152 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Candidate rows are narrowed by independent, indexable title and chunk predicates;\n-- the final filter below remains the semantic guard before global ordering/limit.\nWITH query_terms AS (\n    SELECT unnest($3::text[]) AS term\n), distinct_terms AS (\n    SELECT DISTINCT term\n    FROM query_terms\n    WHERE term <> ''\n), metadata_filter_input AS (\n    SELECT\n        filter->>'path' AS path,\n        filter->>'operator' AS operator,\n        filter->'value' AS value,\n        filter->'min' AS min_value,\n        filter->'max' AS max_value\n    FROM jsonb_array_elements($11::jsonb) AS filter\n), eligible_original_documents AS (\n    SELECT d.id AS document_id\n    FROM context69.documents d\n    JOIN context69.groups g ON g.id = d.group_id\n    WHERE ($4::text IS NULL OR d.source_key = $4)\n      AND ($5::text IS NULL OR g.full_path = $5)\n      AND ($6::timestamptz IS NULL OR d.published_at >= $6)\n      AND ($7::timestamptz IS NULL OR d.published_at <= $7)\n      AND (g.visibility = 'public' OR d.group_id = ANY($8))\n), eligible_translation_versions AS (\n    SELECT v.id AS translation_id, d.id AS document_id, v.target_locale\n    FROM context69.document_translation_versions v\n    JOIN context69.documents d\n      ON d.id = v.document_id AND d.record_hash = v.source_record_hash\n    JOIN context69.groups g ON g.id = d.group_id\n    WHERE $10::text IS NOT NULL\n      AND v.target_locale = $10\n      AND ($4::text IS NULL OR d.source_key = $4)\n      AND ($5::text IS NULL OR g.full_path = $5)\n      AND ($6::timestamptz IS NULL OR d.published_at >= $6)\n      AND ($7::timestamptz IS NULL OR d.published_at <= $7)\n      AND (g.visibility = 'public' OR d.group_id = ANY($8))\n), original_title_phrase_documents AS (\n    SELECT d.id AS document_id\n    FROM context69.documents d\n    JOIN eligible_original_documents eligible ON eligible.document_id = d.id\n    WHERE lower(d.title) LIKE $2\n), translated_title_phrase_versions AS (\n    SELECT eligible.translation_id, eligible.document_id, eligible.target_locale\n    FROM eligible_translation_versions eligible\n    JOIN context69.document_translation_versions v ON v.id = eligible.translation_id\n    WHERE lower(v.translated_title) LIKE $2\n), original_phrase_rows AS (\n    SELECT 'original'::text AS origin, c.id AS chunk_id,\n           c.document_id, 'original'::text AS content_locale\n    FROM original_title_phrase_documents title_match\n    JOIN context69.document_chunks c ON c.document_id = title_match.document_id\n    UNION\n    SELECT 'original'::text, c.id, c.document_id, 'original'::text\n    FROM context69.document_chunks c\n    JOIN eligible_original_documents eligible ON eligible.document_id = c.document_id\n    WHERE lower(c.chunk_text) LIKE $2\n), translated_phrase_rows AS (\n    SELECT 'translation'::text AS origin, c.id AS chunk_id,\n           c.document_id, title_match.target_locale AS content_locale\n    FROM translated_title_phrase_versions title_match\n    JOIN context69.document_translation_chunks c\n      ON c.translation_id = title_match.translation_id\n     AND c.document_id = title_match.document_id\n     AND c.target_locale = title_match.target_locale\n    UNION\n    SELECT 'translation'::text, c.id, c.document_id, eligible.target_locale\n    FROM context69.document_translation_chunks c\n    JOIN eligible_translation_versions eligible\n      ON eligible.translation_id = c.translation_id\n     AND eligible.document_id = c.document_id\n     AND eligible.target_locale = c.target_locale\n    WHERE lower(c.chunk_text) LIKE $2\n), phrase_rows AS (\n    SELECT origin, chunk_id, document_id, content_locale\n    FROM original_phrase_rows\n    UNION\n    SELECT origin, chunk_id, document_id, content_locale\n    FROM translated_phrase_rows\n), original_title_term_rows AS (\n    SELECT term.term, 'original'::text AS origin, c.id AS chunk_id,\n           c.document_id, 'original'::text AS content_locale\n    FROM distinct_terms term\n    JOIN context69.documents d\n      ON lower(d.title) LIKE ('%' || term.term || '%')\n    JOIN eligible_original_documents eligible ON eligible.document_id = d.id\n    JOIN context69.document_chunks c ON c.document_id = d.id\n), original_chunk_term_rows AS (\n    SELECT term.term, 'original'::text AS origin, c.id AS chunk_id,\n           c.document_id, 'original'::text AS content_locale\n    FROM distinct_terms term\n    JOIN context69.document_chunks c\n      ON lower(c.chunk_text) LIKE ('%' || term.term || '%')\n    JOIN eligible_original_documents eligible ON eligible.document_id = c.document_id\n), translated_title_term_rows AS (\n    SELECT term.term, 'translation'::text AS origin, c.id AS chunk_id,\n           c.document_id, eligible.target_locale AS content_locale\n    FROM distinct_terms term\n    JOIN eligible_translation_versions eligible ON TRUE\n    JOIN context69.document_translation_versions v\n      ON v.id = eligible.translation_id\n    JOIN context69.document_translation_chunks c\n      ON c.translation_id = eligible.translation_id\n     AND c.document_id = eligible.document_id\n     AND c.target_locale = eligible.target_locale\n    WHERE lower(v.translated_title) LIKE ('%' || term.term || '%')\n), translated_chunk_term_rows AS (\n    SELECT term.term, 'translation'::text AS origin, c.id AS chunk_id,\n           c.document_id, eligible.target_locale AS content_locale\n    FROM distinct_terms term\n    JOIN context69.document_translation_chunks c\n      ON lower(c.chunk_text) LIKE ('%' || term.term || '%')\n    JOIN eligible_translation_versions eligible\n      ON eligible.translation_id = c.translation_id\n     AND eligible.document_id = c.document_id\n     AND eligible.target_locale = c.target_locale\n), term_rows AS (\n    SELECT term, origin, chunk_id, document_id, content_locale\n    FROM original_title_term_rows\n    UNION ALL\n    SELECT term, origin, chunk_id, document_id, content_locale\n    FROM original_chunk_term_rows\n    UNION ALL\n    SELECT term, origin, chunk_id, document_id, content_locale\n    FROM translated_title_term_rows\n    UNION ALL\n    SELECT term, origin, chunk_id, document_id, content_locale\n    FROM translated_chunk_term_rows\n), all_term_rows AS (\n    SELECT origin, chunk_id, document_id, content_locale\n    FROM term_rows\n    GROUP BY origin, chunk_id, document_id, content_locale\n    HAVING COUNT(DISTINCT term) = (SELECT COUNT(*) FROM distinct_terms)\n), candidate_rows AS (\n    SELECT origin, chunk_id, document_id, content_locale\n    FROM phrase_rows\n    UNION\n    SELECT origin, chunk_id, document_id, content_locale\n    FROM all_term_rows\n    WHERE cardinality($3::text[]) > 0\n), searchable AS (\n    SELECT c.id AS chunk_id, d.id AS document_id, d.group_id, g.group_key,\n           g.full_path AS group_path, g.visibility, d.source_key, d.external_id,\n           d.title, d.summary, d.source_uri, d.published_at, c.chunk_index,\n           c.chunk_text, d.metadata_json, 'original'::text AS content_locale,\n           tj.status AS translation_status\n    FROM candidate_rows candidate\n    JOIN context69.document_chunks c\n      ON c.id = candidate.chunk_id AND c.document_id = candidate.document_id\n    JOIN context69.documents d ON d.id = c.document_id\n    JOIN context69.groups g ON g.id = d.group_id\n    LEFT JOIN LATERAL (\n        SELECT status\n        FROM context69.document_translation_jobs\n        WHERE document_id = d.id AND target_locale = $10\n        ORDER BY updated_at DESC\n        LIMIT 1\n    ) tj ON $10::text IS NOT NULL\n    WHERE candidate.origin = 'original'\n      AND candidate.content_locale = 'original'\n    UNION ALL\n    SELECT c.id, d.id, d.group_id, g.group_key, g.full_path, g.visibility,\n           d.source_key, d.external_id, v.translated_title, v.translated_summary,\n           d.source_uri, d.published_at, c.chunk_index, c.chunk_text,\n           d.metadata_json, v.target_locale, 'succeeded'::text\n    FROM candidate_rows candidate\n    JOIN context69.document_translation_chunks c\n      ON c.id = candidate.chunk_id AND c.document_id = candidate.document_id\n     AND c.target_locale = candidate.content_locale\n    JOIN context69.document_translation_versions v\n      ON v.id = c.translation_id AND v.target_locale = candidate.content_locale\n    JOIN context69.documents d\n      ON d.id = c.document_id AND d.record_hash = v.source_record_hash\n    JOIN context69.groups g ON g.id = d.group_id\n    WHERE candidate.origin = 'translation'\n      AND v.target_locale = $10\n), scored AS (\n    SELECT *, lower(title) AS title_lc, lower(chunk_text) AS chunk_lc\n    FROM searchable\n    WHERE ($4::text IS NULL OR source_key = $4)\n      AND ($5::text IS NULL OR group_path = $5)\n      AND ($6::timestamptz IS NULL OR published_at >= $6)\n      AND ($7::timestamptz IS NULL OR published_at <= $7)\n      AND (visibility = 'public' OR group_id = ANY($8))\n      AND (content_locale = 'original' OR content_locale = $10)\n      AND NOT EXISTS (\n          SELECT 1\n          FROM metadata_filter_input filter\n          CROSS JOIN LATERAL (\n              SELECT metadata_json #> string_to_array(filter.path, '.') AS found\n          ) value\n          WHERE NOT CASE filter.operator\n              WHEN 'exists' THEN\n                  (value.found IS NOT NULL AND value.found <> 'null'::jsonb)\n                  = CASE\n                        WHEN jsonb_typeof(filter.value) = 'boolean'\n                        THEN (filter.value #>> '{}')::boolean\n                        ELSE TRUE\n                    END\n              WHEN 'eq' THEN value.found = filter.value\n              WHEN 'in' THEN filter.value @> jsonb_build_array(value.found)\n              WHEN 'contains' THEN value.found @> jsonb_build_array(filter.value)\n              WHEN 'range' THEN\n                  CASE\n                      WHEN jsonb_typeof(value.found) = 'number'\n                           AND (filter.min_value IS NULL OR jsonb_typeof(filter.min_value) = 'number')\n                           AND (filter.max_value IS NULL OR jsonb_typeof(filter.max_value) = 'number') THEN\n                          (filter.min_value IS NULL OR value.found::numeric >= filter.min_value::numeric)\n                          AND (filter.max_value IS NULL OR value.found::numeric <= filter.max_value::numeric)\n                      WHEN jsonb_typeof(value.found) = 'string' THEN\n                          (filter.min_value IS NULL OR value.found #>> '{}' >= filter.min_value #>> '{}')\n                          AND (filter.max_value IS NULL OR value.found #>> '{}' <= filter.max_value #>> '{}')\n                      ELSE FALSE\n                  END\n              ELSE FALSE\n          END\n      )\n      AND (\n        lower(title) LIKE $2 OR lower(chunk_text) LIKE $2\n        OR (cardinality($3::text[]) > 0 AND NOT EXISTS (\n            SELECT 1 FROM query_terms qt\n            WHERE (lower(title) || ' ' || lower(chunk_text)) NOT LIKE ('%' || qt.term || '%')\n        ))\n      )\n)\nSELECT chunk_id AS \"chunk_id!\", document_id AS \"document_id!\",\n       group_key AS \"group_key!\", group_path AS \"group_path!\",\n       visibility AS \"visibility!\", source_key AS \"source_key!\",\n       external_id AS \"external_id!\", title AS \"title!\", summary,\n       source_uri AS \"source_uri!\", published_at, chunk_index AS \"chunk_index!\",\n       chunk_text AS \"chunk_text!\", metadata_json AS \"metadata_json!\",\n       content_locale AS \"content_locale!\", translation_status,\n       (CASE WHEN title_lc = $1 THEN 1.20 ELSE 0 END\n        + CASE WHEN title_lc LIKE $2 THEN 1.00 ELSE 0 END\n        + CASE WHEN chunk_lc LIKE $2 THEN 0.82 ELSE 0 END\n        + CASE WHEN cardinality($3::text[]) > 0 THEN 0.35 ELSE 0 END)::real AS \"keyword_score!\",\n       CASE WHEN title_lc = $1 THEN 'title_exact'\n            WHEN title_lc LIKE $2 THEN 'title_phrase'\n            WHEN chunk_lc LIKE $2 THEN 'chunk_phrase'\n            ELSE 'all_terms' END AS \"match_reason!\"\nFROM scored\nORDER BY \"keyword_score!\" DESC, published_at DESC NULLS LAST, document_id DESC, chunk_index ASC\nLIMIT $9\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chunk_id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "group_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "group_path!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "source_key!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "title!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "source_uri!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "chunk_index!",
+        "type_info": "Int4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "chunk_text!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "metadata_json!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "content_locale!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "translation_status",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "keyword_score!",
+        "type_info": "Float4",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 17,
+        "name": "match_reason!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "TextArray",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Int8Array",
+        "Int8",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "74cc970ea22d1e198c3fa24b0f871c942a7faa3ac67c416e782d9cae723bc53c"
+}
