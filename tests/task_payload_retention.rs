@@ -27,10 +27,6 @@ const MIGRATION_SQL: &str =
 
 static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 fn hex64() -> String {
     "a".repeat(64)
 }
@@ -220,11 +216,9 @@ fn cases() -> [Case; 10] {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn terminal_payload_retention_strips_only_guarded_keys() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping payload retention test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -299,11 +293,9 @@ async fn terminal_payload_retention_strips_only_guarded_keys() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn terminal_payload_retention_is_idempotent_and_applied() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping payload retention test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

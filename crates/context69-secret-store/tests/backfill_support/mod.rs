@@ -67,18 +67,11 @@ pub async fn assert_recovered(
 /// cases are therefore serialized rather than isolated by key name.
 static TABLE: Mutex<()> = Mutex::new(());
 
-/// Runs one case against the disposable database the runner supplied, or
-/// reports that it was not pointed at one.
+/// Runs one case against the disposable database the runner supplied.
 ///
-/// Returns whether the case ran, so a caller that inspects the table afterwards
-/// does not assert against a table nobody created. Never silently accepted as
-/// coverage: a run without the variable prints that it skipped rather than
-/// passing as a database case.
-pub fn run(case: impl AsyncFnOnce(&PgPool)) -> bool {
-    if database_url().is_none() {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the backfill database case");
-        return false;
-    }
+/// A missing target fails here rather than skipping: the case is `#[ignore]`d,
+/// so an ordinary run never reaches it and an explicit run must actually run.
+pub fn run(case: impl AsyncFnOnce(&PgPool)) {
     let _table: MutexGuard<'_, ()> = TABLE.lock().unwrap_or_else(PoisonError::into_inner);
     sqlx::test_block_on(async {
         // The pool is opened inside the runtime that drives the case:
@@ -87,7 +80,6 @@ pub fn run(case: impl AsyncFnOnce(&PgPool)) -> bool {
         let pool = open().await;
         case(&pool).await;
     });
-    true
 }
 
 /// Runs a setup case, then two cases genuinely at the same time, then one
@@ -103,18 +95,12 @@ pub fn run(case: impl AsyncFnOnce(&PgPool)) -> bool {
 /// The verification case is part of this call rather than a following one on
 /// purpose: the table lock is what keeps another case's `cleanup` from deleting
 /// these rows between the race and the assertions about what the race left.
-///
-/// Returns whether the cases ran, for the same reason [`run`] does.
 pub fn run_pair_after(
     setup: impl AsyncFnOnce(&PgPool),
     left: impl AsyncFnOnce(&PgPool) + Send + 'static,
     right: impl AsyncFnOnce(&PgPool) + Send + 'static,
     verify: impl AsyncFnOnce(&PgPool),
-) -> bool {
-    if database_url().is_none() {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the backfill database case");
-        return false;
-    }
+) {
     let _table: MutexGuard<'_, ()> = TABLE.lock().unwrap_or_else(PoisonError::into_inner);
     sqlx::test_block_on(async {
         let pool = open().await;
@@ -138,20 +124,13 @@ pub fn run_pair_after(
         let pool = open().await;
         verify(&pool).await;
     });
-    true
-}
-
-/// The disposable database URL, or `None` when the runner supplied none.
-pub fn database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL")
-        .ok()
-        .filter(|url| !url.trim().is_empty())
 }
 
 async fn open() -> PgPool {
+    let url = context69_test_support::accessor::database_url();
     PgPoolOptions::new()
         .max_connections(4)
-        .connect(&database_url().expect("checked by the caller"))
+        .connect(&url)
         .await
         .expect("connect the disposable test database")
 }

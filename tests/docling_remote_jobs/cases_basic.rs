@@ -4,11 +4,9 @@ use uuid::Uuid;
 use crate::support::{LOCK, cleanup, connect, seed_task, seed_user};
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn create_and_fetch_roundtrip() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -38,11 +36,9 @@ async fn create_and_fetch_roundtrip() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn rejects_second_active_and_duplicate_remote_id() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;

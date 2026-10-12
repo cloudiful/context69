@@ -117,14 +117,12 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn s3_gate_cache_serves_the_last_record_until_this_process_sees_a_transition() {
         let _guard = CACHE_TEST_LOCK.lock().await;
         S3_GATE_CACHE.invalidate();
 
-        let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 gate cache test");
-            return;
-        };
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");

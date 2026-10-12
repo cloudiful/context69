@@ -58,11 +58,8 @@ struct Fixture {
 
 impl Fixture {
     /// A group and a repository, or `None` when no scratch database is configured.
-    async fn setup(visibility: &str) -> Option<Self> {
-        let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping git file search test");
-            return None;
-        };
+    async fn setup(visibility: &str) -> Self {
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");
@@ -96,11 +93,11 @@ impl Fixture {
             .await
             .expect("seed repository source")
             .repository_key;
-        Some(Self {
+        Self {
             db,
             group_id,
             repository_key,
-        })
+        }
     }
 
     async fn start_generation(&self, commit: &str) -> Uuid {
@@ -205,10 +202,9 @@ impl Fixture {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn lexical_search_serves_the_active_generation_with_provenance() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     let visible = vec![fixture.group_id];
     let source = "fn parse_ref(raw: &str) -> SafeRef {\n    SafeRef::parse(raw)\n}\n";
     let first = fixture.start_generation(&"2".repeat(40)).await;
@@ -265,10 +261,9 @@ async fn lexical_search_serves_the_active_generation_with_provenance() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn lexical_search_keeps_identifiers_whole_and_escapes_wildcards() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     let generation_key = fixture.start_generation(&"4".repeat(40)).await;
     fixture
         .store_and_chunk(
@@ -317,10 +312,9 @@ async fn lexical_search_keeps_identifiers_whole_and_escapes_wildcards() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn lexical_search_honours_visibility_filters_and_group_isolation() {
-    let Some(fixture) = Fixture::setup("private").await else {
-        return;
-    };
+    let fixture = Fixture::setup("private").await;
     let generation_key = fixture.start_generation(&"5".repeat(40)).await;
     fixture
         .store_and_chunk(
@@ -355,9 +349,7 @@ async fn lexical_search_honours_visibility_filters_and_group_isolation() {
     assert_eq!(hits[0].path, "src/other.py");
 
     // Another group can neither find this repository nor write into its generations.
-    let other = Fixture::setup("public")
-        .await
-        .expect("scratch database is configured");
+    let other = Fixture::setup("public").await;
     assert!(
         other
             .search("scoped", None, None, vec![other.group_id])

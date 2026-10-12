@@ -107,11 +107,9 @@ fn the_resolved_keys_reach_object_storage_and_embedding_at_startup() {
 /// while it runs, and refuses rather than reporting an unearned pass. Its
 /// values are synthetic, no endpoint is contacted, and it removes both rows.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn startup_reads_the_s3_secret_key_from_the_store_and_fails_closed() {
-    let Ok(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL") else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the startup read");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = crate::db::Database::connect(&url)
         .await
         .expect("connect test database");

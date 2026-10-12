@@ -17,10 +17,6 @@ use uuid::Uuid;
 
 static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_test_user(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
@@ -176,11 +172,9 @@ async fn count(db: &Database, user_id: i64, view: &str, status: Option<&str>) ->
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn list_views_are_mutually_exclusive_and_counts_match() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping list view test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -299,11 +293,9 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_row_projects_the_focus_item_file_name_and_document_title() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping list view projection test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -390,11 +382,9 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
 /// what its payload retained, and an ingested item prefers the authoritative
 /// title of the document it produced over the file's stored metadata title.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_projection_falls_back_to_the_payload_and_the_linked_document() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping projection fallback test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -699,11 +689,9 @@ async fn create_url_task(db: &Database, user_id: i64, url: &str) -> Uuid {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn status_filter_narrows_but_never_widens_a_view() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping list view narrowing test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

@@ -8,10 +8,6 @@ use context69::db::Database;
 use sqlx::Row;
 use uuid::Uuid;
 
-pub fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 pub async fn seed_group(db: &Database) -> i64 {
     let key = format!("version-invariant-{}", Uuid::new_v4());
     sqlx::query(

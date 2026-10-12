@@ -9,6 +9,7 @@ use super::*;
 // --- the whole catalogue -------------------------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_configured_key_seals_every_supported_legacy_row() {
     run(async |pool| {
         cleanup(pool).await;
@@ -48,6 +49,7 @@ fn a_configured_key_seals_every_supported_legacy_row() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_sealed_row_is_left_byte_and_timestamp_identical() {
     run(async |pool| {
         cleanup(pool).await;
@@ -96,6 +98,7 @@ fn a_sealed_row_is_left_byte_and_timestamp_identical() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_row_identity_and_its_timestamps_survive_the_conversion() {
     run(async |pool| {
         cleanup(pool).await;
@@ -121,6 +124,7 @@ fn the_row_identity_and_its_timestamps_survive_the_conversion() {
 // --- batching, resumability, idempotence ---------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn more_rows_than_one_batch_are_sealed_across_batches() {
     run(async |pool| {
         cleanup(pool).await;
@@ -160,6 +164,7 @@ fn more_rows_than_one_batch_are_sealed_across_batches() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_second_run_reports_no_work() {
     run(async |pool| {
         cleanup(pool).await;
@@ -181,6 +186,7 @@ fn a_second_run_reports_no_work() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_deployment_without_a_key_leaves_every_legacy_row_alone() {
     run(async |pool| {
         cleanup(pool).await;

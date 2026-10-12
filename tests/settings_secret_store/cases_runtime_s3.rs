@@ -32,6 +32,7 @@ async fn access_key(db: &context69::db::Database) -> Option<String> {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_runtime_s3_secret_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
@@ -86,6 +87,7 @@ fn the_runtime_s3_secret_key_round_trips_sealed_and_leaves_no_plaintext_column()
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_sealed_s3_secret_key_fails_closed_and_still_reports_presence() {
     run(async |db| {
         reset(db).await;
@@ -118,6 +120,7 @@ fn a_sealed_s3_secret_key_fails_closed_and_still_reports_presence() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn an_absent_s3_secret_key_keeps_the_stored_one() {
     run(async |db| {
         reset(db).await;
@@ -158,6 +161,7 @@ fn an_absent_s3_secret_key_keeps_the_stored_one() {
 /// can refresh and re-probe; the connection test stays a pure read-only probe
 /// and must never notify.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_runtime_settings_save_notifies_the_observer_but_a_connection_test_does_not() {
     run(async |db| {
         reset(db).await;

@@ -61,11 +61,8 @@ struct Fixture {
 impl Fixture {
     /// A group and a repository, or `None` when no scratch database is
     /// configured, which skips the calling test.
-    async fn setup(visibility: &str) -> Option<Self> {
-        let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping git file test");
-            return None;
-        };
+    async fn setup(visibility: &str) -> Self {
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");
@@ -99,11 +96,11 @@ impl Fixture {
             .await
             .expect("seed repository source")
             .repository_key;
-        Some(Self {
+        Self {
             db,
             group_id,
             repository_key,
-        })
+        }
     }
 
     async fn start_generation(&self, commit: &str) -> Uuid {
@@ -168,10 +165,9 @@ impl Fixture {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn manifest_replacement_deduplicates_bytes_and_retires_what_it_drops() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     let generation_key = fixture.start_generation(&"b".repeat(40)).await;
     let shared = "fn shared() {}\n";
 
@@ -260,10 +256,9 @@ async fn manifest_replacement_deduplicates_bytes_and_retires_what_it_drops() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_database_refuses_content_beyond_the_stored_byte_ceilings() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     let generation_key = fixture.start_generation(&"e".repeat(40)).await;
     // A raw blob insert bypasses the storage layer, so the ceilings under test
     // are the database's own.
@@ -298,10 +293,9 @@ async fn the_database_refuses_content_beyond_the_stored_byte_ceilings() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn chunks_round_trip_verbatim_until_the_generation_is_activated() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     let generation_key = fixture.start_generation(&"1".repeat(40)).await;
     // Mixed indentation, trailing spaces, a CRLF line, and a final line without
     // a newline: all of it must survive storage unchanged.

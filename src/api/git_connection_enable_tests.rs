@@ -247,13 +247,12 @@ async fn fixture(db: &Database, label: &str) -> (i64, Vec<String>) {
 }
 
 /// The scratch database, or `None` when the gated round trips must skip.
-async fn scratch() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn scratch() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 /// Removes the seeded groups, then the store rows behind their references.
@@ -279,11 +278,9 @@ async fn cleanup(db: &Database, groups: &[(i64, Vec<String>)]) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_disable_enable_cycle_preserves_the_stored_references() {
-    let Some(db) = scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the enable round trip");
-        return;
-    };
+    let db = scratch().await;
     let (group_id, keys) = fixture(&db, "enable-cycle").await;
     let before = stored(&db, group_id).await;
     assert!(before.disabled_at.is_none(), "a new row is enabled");
@@ -369,11 +366,9 @@ async fn a_disable_enable_cycle_preserves_the_stored_references() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_unowned_scope_reaches_neither_the_read_nor_the_update() {
-    let Some(db) = scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the enable round trip");
-        return;
-    };
+    let db = scratch().await;
     let (group_id, keys) = fixture(&db, "enable-owner").await;
     assert!(
         db.get_git_provider_connection(UNOWNED_GROUP, CONNECTION_KEY)

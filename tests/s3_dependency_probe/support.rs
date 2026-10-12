@@ -77,15 +77,12 @@ impl ExtractionReadiness for NoopCallbacks {
 /// Serializes the cases that mutate the singleton `s3` gate row.
 pub(crate) static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub(crate) async fn connect_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL")
-        .ok()
-        .filter(|url| !url.trim().is_empty())?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+pub(crate) async fn connect_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 /// A service whose storage backend is S3 with a loopback-unreachable endpoint,

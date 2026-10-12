@@ -34,10 +34,9 @@ async fn submit_file_batch(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn released_file_is_rejected_before_enqueue() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
     add_group_maintainer(&db, group_id, user_id).await;

@@ -17,18 +17,13 @@ use sqlx::Row;
 use tokio::task::JoinSet;
 use uuid::Uuid;
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 /// Connect to the scratch database, or report that the case must be skipped.
-async fn scratch_db() -> Option<Database> {
-    let url = test_database_url()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn scratch_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 async fn seed_test_user(db: &Database) -> i64 {
@@ -182,11 +177,9 @@ async fn item_count(db: &Database, task_id: Uuid) -> i64 {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn resume_reopens_the_same_task_without_inserting_a_replacement() {
-    let Some(db) = scratch_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping resume test");
-        return;
-    };
+    let db = scratch_db().await;
     let user_id = seed_test_user(&db).await;
 
     let (task_id, item_ids) = text_task(&db, user_id, 2).await;
@@ -270,11 +263,9 @@ async fn resume_reopens_the_same_task_without_inserting_a_replacement() {
 /// The user-facing resume is a double-clickable action, so the second call must
 /// be a no-op instead of an error or a second requeue.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn repeated_resume_is_idempotent() {
-    let Some(db) = scratch_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping resume test");
-        return;
-    };
+    let db = scratch_db().await;
     let user_id = seed_test_user(&db).await;
 
     let (task_id, item_ids) = text_task(&db, user_id, 1).await;
@@ -312,11 +303,9 @@ async fn repeated_resume_is_idempotent() {
 /// Concurrent resumes of one task must together reopen each unfinished item
 /// exactly once: the per-file slots plus the status guard serialize them.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn concurrent_resume_reopens_each_item_once() {
-    let Some(db) = scratch_db().await.map(Arc::new) else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping resume test");
-        return;
-    };
+    let db = Arc::new(scratch_db().await);
     let user_id = seed_test_user(&db).await;
 
     let (task_id, item_ids) = text_task(&db, user_id, 3).await;
@@ -365,11 +354,9 @@ async fn concurrent_resume_reopens_each_item_once() {
 /// A losing or repeated resume must be invisible: no recompute means no
 /// `updated_at` bump and therefore no task event on the queue's SSE stream.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_resume_that_reopens_nothing_leaves_the_parent_untouched() {
-    let Some(db) = scratch_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping resume test");
-        return;
-    };
+    let db = scratch_db().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = text_task(&db, user_id, 2).await;
     cancel_items(&db, task_id, &item_ids).await;
@@ -405,11 +392,9 @@ async fn a_resume_that_reopens_nothing_leaves_the_parent_untouched() {
 /// A task whose items already succeeded has no unfinished work, so the route
 /// stays a no-op instead of forking or rejecting.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_all_succeeded_task_has_nothing_to_resume() {
-    let Some(db) = scratch_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping resume test");
-        return;
-    };
+    let db = scratch_db().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = text_task(&db, user_id, 1).await;
     sqlx::query("UPDATE context69.task_items SET status = 'succeeded' WHERE id = $1")
@@ -431,11 +416,9 @@ async fn an_all_succeeded_task_has_nothing_to_resume() {
 /// The SQL guard is the authorization boundary: a caller who may not manage
 /// the task reopens nothing instead of being trusted by the service layer.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn resume_by_an_unauthorized_user_reopens_nothing() {
-    let Some(db) = scratch_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping resume test");
-        return;
-    };
+    let db = scratch_db().await;
     let owner_id = seed_test_user(&db).await;
     let other_id = seed_test_user(&db).await;
     let (task_id, item_ids) = text_task(&db, owner_id, 1).await;

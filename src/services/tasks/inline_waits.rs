@@ -192,11 +192,9 @@ mod tests {
     /// DB-backed lease retention: the inline wait renews the item lease and
     /// returns once the deadline passes, without parking the item.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn inline_sleep_keeps_a_live_lease_and_releases_nothing() {
-        let Some(db) = test_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-            return;
-        };
+        let db = test_db().await;
         let (user_id, task_id, item_id, lease) = seed_running_item(&db).await;
         let before: chrono::DateTime<Utc> = lease_until(&db, item_id).await;
         let done =
@@ -213,11 +211,9 @@ mod tests {
 
     /// A past deadline returns immediately without touching the lease.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn inline_sleep_with_a_past_deadline_returns_immediately() {
-        let Some(db) = test_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-            return;
-        };
+        let db = test_db().await;
         let (user_id, task_id, item_id, lease) = seed_running_item(&db).await;
         let done =
             super::sleep_keep_lease(&db, item_id, lease, Utc::now() - ChronoDuration::seconds(1))
@@ -230,11 +226,9 @@ mod tests {
     /// Cancel (lease cleared, item terminal) aborts the inline wait at the
     /// next chunk instead of sleeping through the whole backoff.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn inline_sleep_aborts_when_the_lease_is_gone() {
-        let Some(db) = test_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-            return;
-        };
+        let db = test_db().await;
         let (user_id, task_id, item_id, lease) = seed_running_item(&db).await;
         sqlx::query(
             "UPDATE context69.task_items SET status = 'cancelled', lease_token = NULL, \
@@ -261,13 +255,12 @@ mod tests {
         cleanup(&db, task_id, user_id).await;
     }
 
-    async fn test_db() -> Option<crate::db::Database> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-        Some(
-            crate::db::Database::connect(&url)
-                .await
-                .expect("connect test database"),
-        )
+    async fn test_db() -> crate::db::Database {
+        let url = context69_test_support::accessor::database_url();
+
+        crate::db::Database::connect(&url)
+            .await
+            .expect("connect test database")
     }
 
     async fn seed_running_item(

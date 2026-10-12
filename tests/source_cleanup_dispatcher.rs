@@ -35,10 +35,9 @@ async fn build_wired_service(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn wake_drains_immediately_without_waiting_for_fallback() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     // Hour-long fallback proves the drain below comes from the wake, not the
     // periodic pass.
@@ -101,10 +100,9 @@ async fn wake_drains_immediately_without_waiting_for_fallback() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn fallback_drains_without_any_wake() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root, dispatcher) =
         build_wired_service(&db, Duration::from_millis(50)).await;
@@ -180,10 +178,9 @@ async fn fallback_drains_without_any_wake() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn dispatcher_shutdown_exits_promptly() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root, dispatcher) =
         build_wired_service(&db, Duration::from_secs(3600)).await;
     let shutdown = CancellationToken::new();
@@ -203,10 +200,9 @@ async fn dispatcher_shutdown_exits_promptly() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn release_rollback_creates_no_intent_and_needs_no_wake() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root, _dispatcher) =
         build_wired_service(&db, Duration::from_secs(3600)).await;
@@ -258,10 +254,9 @@ async fn release_rollback_creates_no_intent_and_needs_no_wake() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn duplicate_release_with_dispatcher_stays_idempotent() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root, _dispatcher) =
         build_wired_service(&db, Duration::from_secs(3600)).await;
@@ -307,10 +302,9 @@ async fn duplicate_release_with_dispatcher_stays_idempotent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn failure_retry_and_restart_drain_recover() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root, _dispatcher) =
         build_wired_service(&db, Duration::from_secs(3600)).await;
@@ -363,10 +357,9 @@ async fn failure_retry_and_restart_drain_recover() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn shared_object_and_new_reference_race_never_deletes_bytes() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root, _dispatcher) =
         build_wired_service(&db, Duration::from_secs(3600)).await;

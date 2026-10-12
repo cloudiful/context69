@@ -11,6 +11,7 @@ const SYNTHETIC_KEY: &str = "synthetic-embedding-key";
 const PURPOSE: &str = "embedding.api_key";
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_embedding_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
@@ -44,6 +45,7 @@ fn the_embedding_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_sealed_embedding_key_fails_closed_and_still_reports_presence() {
     run(async |db| {
         reset(db).await;
@@ -82,6 +84,7 @@ fn a_sealed_embedding_key_fails_closed_and_still_reports_presence() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn an_absent_embedding_key_keeps_the_stored_one() {
     run(async |db| {
         reset(db).await;

@@ -14,10 +14,6 @@ use context69::library_store::{LibraryStore, NewLibraryFile};
 use sqlx::Row;
 use uuid::Uuid;
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_group(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.groups \
@@ -107,11 +103,9 @@ async fn cleanup_group(db: &Database, group_id: i64) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn duplicate_content_creates_distinct_file_rows_sharing_storage() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping duplicate content test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -216,11 +210,9 @@ async fn duplicate_content_creates_distinct_file_rows_sharing_storage() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn duplicate_external_id_with_different_sha_still_fails() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping duplicate external_id test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -281,11 +273,9 @@ async fn duplicate_external_id_with_different_sha_still_fails() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn duplicate_content_filename_collision_is_resolved_per_folder() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping duplicate filename test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

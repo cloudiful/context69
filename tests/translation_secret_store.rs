@@ -51,13 +51,12 @@ impl TranslationReadiness for NoopCallbacks {
     }
 }
 
-async fn connect_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn connect_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 fn shared_translation_service(db: &Database, store: SecretStore) -> TranslationService {
@@ -119,11 +118,9 @@ async fn reset_shared_llm_row(db: &Database) {
 /// `CONTEXT69_TEST_DATABASE_URL` points at a scratch database; they never print
 /// a stored value.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping shared provider secret test");
-        return;
-    };
+    let db = connect_db().await;
 
     // A fixed test-only master key, scoped to this disposable database.
     const MASTER_KEY: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";

@@ -13,10 +13,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cancel_queued_file_task_leaves_file_failed() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     add_group_maintainer(&db, group_id, user_id).await;
@@ -45,10 +44,9 @@ async fn cancel_queued_file_task_leaves_file_failed() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cancel_running_file_task_allows_late_success() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let store = LibraryStore::new(db.clone());
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
@@ -87,10 +85,9 @@ async fn cancel_running_file_task_allows_late_success() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cancel_does_not_overwrite_a_succeeded_file() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "succeeded").await;
     add_group_maintainer(&db, group_id, user_id).await;
@@ -112,10 +109,9 @@ async fn cancel_does_not_overwrite_a_succeeded_file() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cancel_keeps_file_failed_when_another_task_is_still_active() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     add_group_maintainer(&db, group_id, user_id).await;

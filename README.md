@@ -75,6 +75,48 @@ docker build -t context69:latest .
 
 Run the locally built image with the Docker command above and replace the image name with `context69:latest`.
 
+## Backend tests
+
+Pure tests run anywhere:
+
+```bash
+cargo test --workspace
+```
+
+Database-backed tests are explicitly marked `#[ignore]`, so the command above
+runs only the pure ones and reports the ignored ones instead of pretending they
+passed. The configured-database runner and its explicit reset flow are shown below.
+
+A normal database run first executes
+`cargo test --workspace --no-fail-fast --offline` with Cargo's default
+parallelism, including doctests. Ignored database and opt-in tests stay
+unselected. A pure-suite failure stops the run before the database target is
+resolved or any database preflight, lock, or reset begins. `--preflight` and
+`--list` remain inspection modes and do not run the pure suite.
+
+The runner reads its target from `CONTEXT69_TEST_DATABASE_URL`, or from
+`DATABASE_URL` in the repository `.env` file when that variable is unset. It
+never takes a database URL as an argument, never creates or drops a database,
+and never provisions a PostgreSQL server. An ambient `DATABASE_URL` on its own
+does not select a target.
+
+`./scripts/test-backend.sh --preflight` inspects the target's schema, migration
+ledger, and extensions without writing anything, and reports whether the runner
+may reset it. `./scripts/test-backend.sh --list` reconciles the checked-in
+database-test inventory against the compiled tests without connecting at all.
+
+Resetting the target is a separate, explicit consent, and the wrapper forwards
+it unchanged rather than adding it for you. The runner only drops and recreates
+the `context69` schema when you ask for it:
+
+```bash
+./scripts/test-backend.sh --preflight         # read-only, report the scope
+./scripts/test-backend.sh --authorize-reset    # pure suite, reset, migrate, then DB tests
+```
+
+Run artifacts and per-target logs are written to
+`target/backend-test-results/<run-id>/`.
+
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).

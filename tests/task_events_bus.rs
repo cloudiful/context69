@@ -25,10 +25,6 @@ use uuid::Uuid;
 
 static BUS_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_test_user(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
@@ -151,11 +147,9 @@ async fn wait_for_event_matching(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn insert_receives_task_and_item_events() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping insert event test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -195,11 +189,9 @@ async fn insert_receives_task_and_item_events() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn update_receives_item_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping update event test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -238,11 +230,9 @@ async fn update_receives_item_event() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn payload_is_four_fields_and_small() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping payload ceiling test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -303,11 +293,9 @@ async fn payload_is_four_fields_and_small() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn heartbeat_update_is_throttled() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping heartbeat throttle test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -374,11 +362,9 @@ async fn heartbeat_update_is_throttled() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cancel_path_emits_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping cancel event test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -408,11 +394,9 @@ async fn cancel_path_emits_event() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn trash_path_emits_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping trash event test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -445,11 +429,9 @@ async fn trash_path_emits_event() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn restore_path_emits_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping restore event test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -482,11 +464,9 @@ async fn restore_path_emits_event() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn clear_path_emits_delete_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping clear event test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -534,13 +514,9 @@ async fn clear_path_emits_delete_event() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintain_claim_state_path_emits_event() {
-    let Some(url) = test_database_url() else {
-        eprintln!(
-            "CONTEXT69_TEST_DATABASE_URL is not set; skipping maintain_claim_state event test"
-        );
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -590,11 +566,9 @@ async fn maintain_claim_state_path_emits_event() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn listener_recovers_after_backend_terminate() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping reconnect test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = BUS_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

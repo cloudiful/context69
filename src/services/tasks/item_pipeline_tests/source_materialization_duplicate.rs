@@ -16,11 +16,9 @@ use super::{claim_item, create_url_task, sha256_hex, staged_url_payload, uploade
 /// content-addressed storage object, and the staging lease is released only
 /// once no item still needs it.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn duplicate_staged_contents_share_one_content_addressed_object() {
-    let Some(database_url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping issue 667 duplicate test");
-        return;
-    };
+    let database_url = context69_test_support::accessor::database_url();
     let _guard = PIPELINE_CASE_LOCK.lock().await;
     let db = Database::connect(&database_url)
         .await

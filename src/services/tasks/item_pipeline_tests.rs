@@ -35,10 +35,7 @@ async fn run_path_case(
     entry_stage: &'static str,
     later_stage: &'static str,
 ) {
-    let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping issue 592 {kind_str} test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     // `claim_items` is global, so hold the shared-database lock for the whole
     // case (claim through cleanup); parallel cases would otherwise steal each
     // other's rows.
@@ -151,6 +148,7 @@ async fn run_path_case(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn text_batch_storage_reaches_indexing_with_persisted_file() {
     run_path_case(
         TaskKind::TextBatch,
@@ -167,11 +165,9 @@ async fn text_batch_storage_reaches_indexing_with_persisted_file() {
 /// payload was re-parsed as `UpsertLibraryTextRequest`, which rejects the
 /// `section_payload` key and looped storage retries forever.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn text_batch_resumes_at_indexing_after_persisted_sections() {
-    let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping issue 662 text recovery test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = PIPELINE_CASE_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -247,6 +243,7 @@ async fn text_batch_resumes_at_indexing_after_persisted_sections() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn file_batch_storage_reaches_embedding_with_persisted_file() {
     run_path_case(
         TaskKind::FileBatch,
@@ -259,6 +256,7 @@ async fn file_batch_storage_reaches_embedding_with_persisted_file() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn url_batch_storage_reaches_embedding_with_persisted_file() {
     run_path_case(
         TaskKind::UrlBatch,

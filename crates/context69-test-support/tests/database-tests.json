@@ -1,0 +1,2188 @@
+{
+  "entries": [
+    {
+      "package": "context69",
+      "target": "app_startup",
+      "test": "app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settings",
+      "class": "app_startup"
+    },
+    {
+      "package": "context69",
+      "target": "browser_session_secret_store",
+      "test": "the_signing_key_is_sealed_and_leaks_neither_its_bytes_nor_its_presence",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "browser_session_secret_store",
+      "test": "the_signing_key_row_keeps_its_historical_name_and_is_reused_across_resolves",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_lifecycle::enable_tests::a_disable_enable_cycle_preserves_the_stored_references",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_lifecycle::enable_tests::an_unowned_scope_reaches_neither_the_read_nor_the_update",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_lifecycle::tests::an_unowned_scope_reaches_neither_the_read_nor_the_update",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_lifecycle::tests::disabling_twice_keeps_the_first_timestamp_and_answers_twice",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::a_create_can_only_reach_its_own_group",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::a_duplicate_key_is_refused_before_any_seal",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::a_set_credential_rides_the_insert_and_no_follow_up_update_runs",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::concurrent_same_key_creates_serialize_to_one_winner_with_its_credential",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::keep_creates_an_enabled_installation_connection_without_a_secret",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::keep_creates_an_uncredentialed_enabled_connection",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::set_seals_the_credential_and_projects_presence_only",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_connection_mutations::tests::the_insert_surface_reports_a_real_unique_violation_error",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_code_search::db_tests::a_building_or_absent_generation_is_never_searched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_code_search::db_tests::a_foreign_group_reads_no_hits",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_code_search::db_tests::a_literal_wildcard_term_matches_only_the_literal_text",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_code_search::db_tests::a_ready_generation_searches_and_reports_its_provenance",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_code_search::db_tests::the_extra_row_reports_truncation_without_returning_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_code_search::db_tests::the_path_prefix_and_language_filters_narrow_the_same_search",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file::db_tests::a_building_or_absent_generation_serves_no_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file::db_tests::a_foreign_or_unknown_group_reads_no_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file::db_tests::an_exact_file_read_returns_the_entry_with_provenance_and_coverage",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file::db_tests::identity_is_the_exact_stored_path_and_nothing_else",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_content::db_tests::a_building_generation_serves_no_text",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_content::db_tests::a_foreign_group_reads_no_stored_text",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_content::db_tests::a_line_window_returns_only_that_window_from_the_serving_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_content::db_tests::the_matching_chunk_rows_come_back_once_and_in_stored_order",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_content::db_tests::the_statement_returns_stored_chunk_text_and_nothing_else",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_diff::db_tests::a_building_generation_is_never_compared",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_diff::db_tests::a_foreign_repository_or_unknown_generation_compares_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_diff::db_tests::add_modify_and_delete_are_classified_and_unchanged_paths_are_omitted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_diff::db_tests::an_identical_pair_is_empty_and_the_reverse_order_is_a_conflict",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_diff::db_tests::the_default_pair_resolves_the_superseded_checkpoint_to_the_active_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_file_diff::db_tests::the_window_continues_without_repeating_or_skipping_a_path",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_files::db_tests::a_foreign_group_sees_no_repository_no_generation_and_no_manifest",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_files::db_tests::a_page_reports_the_serving_generation_provenance_and_coverage",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_files::db_tests::a_repository_with_no_active_generation_reads_as_not_ready",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_repository_files::db_tests::manifest_pages_are_path_ordered_and_cover_the_whole_manifest_once",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::a_reference_less_registration_is_rejected",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::a_repeated_delivery_id_stays_one_row",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::a_sealed_row_without_a_master_key_fails_closed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::active_registration_records_received",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::inactive_registration_records_ignored",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::the_signing_secret_is_read_through_the_owning_record_scope",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_ingress::tests::unknown_hook_and_bad_signature_write_no_delivery",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_registration::db_tests::a_hook_identity_another_repository_claims_is_a_conflict_that_repoints_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_registration::db_tests::a_refused_duplicate_is_rejected_before_anything_is_sealed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_registration::db_tests::a_supplied_secret_is_sealed_once_and_the_response_reports_only_presence",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_registration::db_tests::an_omitted_secret_stores_an_inactive_registration_and_no_store_row",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_registration::db_tests::the_create_only_insert_is_confined_to_a_repository_this_group_owns",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "api::git_webhook_registration::db_tests::two_concurrent_creates_produce_one_winner_whose_sealed_value_is_its_own",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::git_repositories::connections::secret_reference_tests::a_connection_reference_move_is_group_confined",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::git_repositories::connections::secret_reference_tests::a_connection_rotation_moves_one_reference_and_preserves_disabled_state",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::git_repositories::connections::secret_reference_tests::a_seal_only_write_returns_the_reference_without_repointing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::git_repositories::webhooks::signing_secret_reference_tests::a_signing_secret_moves_its_own_reference_and_preserves_active",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::source_connections::tests::a_connection_round_trips_its_identity_and_store_reference",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "mcp::tools::code_get::tests::database_round_trips_cover_windows_and_refusals",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::app::runtime_settings::tests::startup_reads_the_s3_secret_key_from_the_store_and_fails_closed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::git_repository::index_generation::tests::a_bounded_snapshot_persists_exact_content_and_activates",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::git_repository::index_generation::tests::a_changed_target_is_rejected_as_stale",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::git_repository::index_generation::tests::a_failed_fetch_leaves_the_previous_active_generation_serving",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::git_repository::index_generation::tests::an_empty_eligible_snapshot_completes_safely",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::library::s3_gate_cache::tests::s3_gate_cache_serves_the_last_record_until_this_process_sees_a_transition",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::sync::connections::tests::a_saved_connection_is_sealed_referenced_and_fail_closed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::docling_poll::tests::blocking_success_updates_the_worker_snapshot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::inline_waits::tests::inline_sleep_aborts_when_the_lease_is_gone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::inline_waits::tests::inline_sleep_keeps_a_live_lease_and_releases_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::inline_waits::tests::inline_sleep_with_a_past_deadline_returns_immediately",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_git_index_processor::tests::failed_blob_fetch_retries_and_keeps_the_prior_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_git_index_processor::tests::missing_or_foreign_repository_fails_terminally",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_git_index_processor::tests::successful_snapshot_advances_to_finalize_and_activates",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::file_batch_storage_reaches_embedding_with_persisted_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::source_materialization::duplicate::duplicate_staged_contents_share_one_content_addressed_object",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::source_materialization::lease::staged_input_reference_requires_the_running_lease_token",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::source_materialization::resume::url_batch_resumes_from_a_committed_staged_input_object",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::text_batch_resumes_at_indexing_after_persisted_sections",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::text_batch_storage_reaches_indexing_with_persisted_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::url_batch_storage_reaches_embedding_with_persisted_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "dependency_gate_split",
+      "test": "integration::ensure_qdrant_gate_is_created_idempotently",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "dependency_gate_split",
+      "test": "integration::legacy_embedding_vector_alias_is_found_for_canonical_embedding",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "dependency_gate_split",
+      "test": "integration::no_cross_gate_recovery",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "dependency_gate_split",
+      "test": "integration::qdrant_and_embedding_gates_recover_independently",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_basic::create_and_fetch_roundtrip",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_basic::rejects_second_active_and_duplicate_remote_id",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_legacy_adoption::dispatcher_excludes_legacy_park_until_recovery_adopts_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_legacy_adoption::dispatcher_never_claims_waiting_docling_items",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_legacy_adoption::recovery_never_polls_the_remote",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::expired_lease_reclaim_adopts_the_same_remote_id",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_adoption_preserves_payload_and_marks_due",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_cancels_rows_of_cancelled_tasks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_cancels_rows_of_terminal_items",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_cancels_rows_without_a_live_owner",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_leaves_live_workers_alone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_preserves_expired_running_rows_for_adoption",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_terminal::cancel_and_late_commit_paths",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_terminal::finish_with_sections_commits_success_atomically",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_terminal::finish_with_sections_is_fenced_and_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_business_fields",
+      "test": "changed_record_hash_propagates_to_every_chunk",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_business_fields",
+      "test": "unchanged_hash_publish_still_rewrites_parent_document_metadata",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_business_fields",
+      "test": "unchanged_record_hash_is_a_noop_for_document_chunks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_versions_invariant",
+      "test": "changed_hash_creates_complete_ordered_snapshot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_versions_invariant",
+      "test": "changed_hash_with_blank_body_fails_and_rolls_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_versions_invariant",
+      "test": "changed_hash_with_no_chunks_fails_and_rolls_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_versions_invariant",
+      "test": "repeated_invocation_does_not_overwrite_existing_snapshot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_versions_invariant",
+      "test": "same_hash_publish_is_idempotent_without_duplicate_versions",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_health",
+      "test": "health_counts_and_class_aggregation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_health",
+      "test": "health_empty_is_zero",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_retry",
+      "test": "attempt_and_stop_at_max",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_retry",
+      "test": "due_pending_and_claim",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_retry",
+      "test": "manual_retry_and_reset",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_retry",
+      "test": "queued_retry_and_health",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_chunks",
+      "test": "chunks_round_trip_verbatim_until_the_generation_is_activated",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_chunks",
+      "test": "manifest_replacement_deduplicates_bytes_and_retires_what_it_drops",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_chunks",
+      "test": "the_database_refuses_content_beyond_the_stored_byte_ceilings",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_search",
+      "test": "lexical_search_honours_visibility_filters_and_group_isolation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_search",
+      "test": "lexical_search_keeps_identifiers_whole_and_escapes_wildcards",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_search",
+      "test": "lexical_search_serves_the_active_generation_with_provenance",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_search_literals",
+      "test": "a_percent_sign_never_reaches_the_path_branch_as_a_wildcard",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_search_literals",
+      "test": "every_fixture_row_is_searchable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_file_search_literals",
+      "test": "literal_metacharacters_and_identifier_tokens_stay_separate",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_repository_generation_concurrency",
+      "test": "a_failed_generation_rolls_back_no_counter_advance",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_repository_generation_concurrency",
+      "test": "a_failed_start_consumes_no_number_and_stays_in_its_group",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "git_repository_generation_concurrency",
+      "test": "concurrent_starts_take_distinct_consecutive_numbers",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "indexing_batch_checkpoint",
+      "test": "integration::already_complete_checkpoint_short_circuits_to_finalize",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "indexing_batch_checkpoint",
+      "test": "integration::cleanup_failure_preserves_file_row_during_first_run",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "keyword_search_candidates",
+      "test": "keyword_search_benchmark_baseline",
+      "class": "benchmark"
+    },
+    {
+      "package": "context69",
+      "target": "keyword_search_candidates",
+      "test": "keyword_search_matches_frozen_head_oracle",
+      "class": "benchmark"
+    },
+    {
+      "package": "context69",
+      "target": "library_duplicate_content",
+      "test": "duplicate_content_creates_distinct_file_rows_sharing_storage",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_duplicate_content",
+      "test": "duplicate_content_filename_collision_is_resolved_per_folder",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_duplicate_content",
+      "test": "duplicate_external_id_with_different_sha_still_fails",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_duplicate_content_service",
+      "test": "prepare_upload_reuses_storage_and_creates_new_file_row",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_duplicate_content_service",
+      "test": "task_upload_helper_creates_new_file_row_sharing_storage",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
+      "test": "integration::qdrant_cleanup_failure_preserves_sql_and_is_retryable_with_operation_context",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_resources_recursive",
+      "test": "recursive_false_behavior_unchanged",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_resources_recursive",
+      "test": "recursive_isolated_across_groups_and_whole_group_scope",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_resources_recursive",
+      "test": "recursive_pagination_total_matches",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_resources_recursive",
+      "test": "recursive_true_returns_only_subtree_failed_files",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_auto_release::auto_release_sweep_releases_opted_in_succeeded_files",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_auto_release::default_upload_retains_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_cleanup_coexistence::missing_source_selection_excludes_deliberately_released_rows",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_cleanup_coexistence::released_file_row_and_documents_survive_missing_source_path",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_cleanup_coexistence::snapshot_restore_reinstates_the_release_marker",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_concurrency::new_reference_insert_waits_for_the_cleanup_object_lock",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_concurrency::release_waits_for_the_shared_file_lock",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_guards::active_processing_blocks_release",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_guards::cross_group_release_is_rejected",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_guards::failed_ingest_retains_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_guards::sync_control_file_release_is_refused",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_manual_release::manual_release_deletes_source_and_keeps_results",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_manual_release::release_is_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_manual_release::shared_object_survives_until_last_release",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_outbox_recovery::already_missing_bytes_complete_the_intent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_outbox_recovery::legacy_direct_path_delete_failure_is_retried",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_outbox_recovery::physical_delete_failure_is_rescheduled_then_retried",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_outbox_recovery::restart_recovery_drains_pending_intent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_outbox_recovery::reuse_before_cleanup_cancels_intent_without_deleting_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_source_release",
+      "test": "cases_outbox_recovery::superseded_object_identity_is_not_deleted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "backend_mismatch_is_skipped",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "bounded_batches_are_restart_safe_and_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "dry_run_reports_eligible_without_mutating_anything",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "error_recording_and_conditional_mark_behave_at_store_level",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "execute_deletes_object_and_closes_record",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "missing_object_is_an_idempotent_success",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "referenced_old_key_is_skipped_and_stays_open",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "retry_after_prior_failure_clears_error_and_succeeds",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_cleanup",
+      "test": "unknown_backend_is_skipped_and_not_deleted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "bad_size_or_hash_sources_are_rejected_and_retained",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "bounded_batches_are_restart_safe_and_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "dry_run_reports_without_mutating_database_or_storage",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "legacy_reference_update_is_conditional",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "migration_links_content_addressed_object_and_records_old_key",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "missing_source_is_reported_without_any_mutation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "old_key_cleanup_record_survives_file_deletion",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "reference_count_distinguishes_shared_from_unreferenced_objects",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_migration",
+      "test": "startup_helper_migrates_with_default_batch_and_is_restart_safe",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_missing_cleanup",
+      "test": "no_runtime_skips_cleanup_and_marks_qdrant_unavailable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_missing_cleanup",
+      "test": "present_source_does_not_delete_and_does_not_reclassify",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_missing_cleanup",
+      "test": "restart_skips_a_row_that_became_linked_between_runs",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_missing_cleanup",
+      "test": "selection_excludes_young_non_terminal_and_already_linked_rows",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_missing_cleanup",
+      "test": "selection_resolves_a_direct_path_row_in_terminal_state_older_than_grace",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_missing_cleanup",
+      "test": "storage_errors_remain_retryable_and_never_delete",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_text_writes",
+      "test": "legacy_direct_path_rows_stay_readable_and_deletable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_text_writes",
+      "test": "text_replacement_releases_previous_content_only_after_reference_update",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_storage_text_writes",
+      "test": "text_writes_link_content_addressed_storage_and_reuse_identical_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "metadata_index_paging",
+      "test": "build::metadata_index_build_processes_every_document_page",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "metadata_index_paging",
+      "test": "cursor::metadata_documents_page_walks_documents_by_id_cursor",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "qdrant_cleanup_failure",
+      "test": "integration::qdrant_cleanup_failure_aborts_ingest_before_embedding_runs",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "s3_dependency_probe",
+      "test": "cases_isolation::a_configuration_pinned_s3_gate_is_not_probeable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "s3_dependency_probe",
+      "test": "cases_isolation::a_non_s3_backend_never_probes_the_gate",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "s3_dependency_probe",
+      "test": "cases_isolation::an_s3_probe_before_the_backoff_elapses_is_not_due",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "s3_dependency_probe",
+      "test": "cases_state_machine::a_due_probe_carries_a_tripped_gate_through_half_open_to_closed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "s3_dependency_probe",
+      "test": "cases_state_machine::a_failed_s3_probe_reopens_the_gate_with_backoff",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "s3_dependency_probe",
+      "test": "cases_state_machine::a_successful_s3_probe_closes_an_open_gate",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_visibility",
+      "test": "group_visibility_change_immediately_gates_document_search",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_visibility",
+      "test": "scoped_search_follows_group_path_changes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling::a_sealed_docling_vlm_key_fails_closed_and_still_reports_presence",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling::keeping_the_vlm_base_url_keeps_the_stored_docling_key",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling::the_docling_vlm_api_key_round_trips_sealed_and_leaves_no_plaintext_column",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling_probe::a_docling_probe_never_authenticates_and_rejects_userinfo",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling_probe::a_docling_probe_writes_nothing_and_leaves_the_stored_endpoint_alone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling_probe::a_reachable_docling_endpoint_passes_on_one_keyless_liveness_get",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling_probe::a_refused_docling_probe_reports_a_bounded_result",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_docling_probe::a_refused_docling_probe_reports_the_status_and_nothing_else",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding::a_sealed_embedding_key_fails_closed_and_still_reports_presence",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding::an_absent_embedding_key_keeps_the_stored_one",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding::the_embedding_api_key_round_trips_sealed_and_leaves_no_plaintext_column",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_rejected_dimension_save_leaves_every_settings_block_and_the_observer_untouched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::an_identity_guard_rejects_the_save_before_anything_is_persisted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe::a_probe_that_succeeds_sent_the_submitted_key_and_stored_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe::a_probe_without_a_key_sent_the_stored_key",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe::a_refused_probe_reports_the_failure_without_the_submitted_key",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe::an_embedding_probe_uses_the_submitted_key_without_persisting_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe::an_embedding_probe_without_a_submitted_key_uses_the_stored_one",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_bounds::a_credential_across_the_preview_boundary_leaves_no_prefix",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_bounds::a_credential_straddling_the_preview_truncation_is_never_fully_disclosed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_bounds::a_large_http_provider_error_is_bounded_and_redacted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_bounds::a_large_parse_error_provider_message_is_bounded_and_redacted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_redaction::a_probe_refusal_scrubs_mixed_case_percent_encodings_and_repeats",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_redaction::a_probe_refusal_that_echoes_a_short_credential_never_returns_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_redaction::a_probe_refusal_that_echoes_the_credential_never_returns_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_probe_redaction::a_short_echoed_credential_never_returns_through_the_probe",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_s3::a_runtime_settings_save_notifies_the_observer_but_a_connection_test_does_not",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_s3::a_sealed_s3_secret_key_fails_closed_and_still_reports_presence",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_s3::an_absent_s3_secret_key_keeps_the_stored_one",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_s3::the_runtime_s3_secret_key_round_trips_sealed_and_leaves_no_plaintext_column",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_search::a_sealed_search_key_fails_closed_and_still_reports_presence",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_search::keeping_the_search_api_key_leaves_the_stored_one_untouched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_search::the_search_api_key_round_trips_sealed_and_leaves_no_plaintext_column",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "dispatcher_shutdown_exits_promptly",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "duplicate_release_with_dispatcher_stays_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "failure_retry_and_restart_drain_recover",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "fallback_drains_without_any_wake",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "release_rollback_creates_no_intent_and_needs_no_wake",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "shared_object_and_new_reference_race_never_deletes_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "source_cleanup_dispatcher",
+      "test": "wake_drains_immediately_without_waiting_for_fallback",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_clear_history",
+      "test": "clear_completed_deletes_only_own_untrashed_succeeded",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_clear_history",
+      "test": "clear_trash_deletes_only_own_trashed_terminal",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_clear_history",
+      "test": "clear_with_unknown_view_deletes_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_gauges::a_waiting_parent_holding_its_slot_is_not_reported_as_an_orphan",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_gauges::near_exhaustion_is_counted_one_attempt_before_the_claim_cap",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_gauges::oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_gauges::the_health_scope_agrees_with_the_diagnose_scope_on_every_parent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_ordinal::a_claim_reports_the_item_position_the_row_already_has",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_ordinal::diagnose_selects_the_lowest_ordinals_at_the_documented_limit",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_ordinal::one_item_ordinal_resolves_only_within_its_own_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_ordinal::one_ordinal_resolves_after_the_item_leaves_the_active_set",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_ordinal::ordinal_first_selection_returns_the_tasks_lowest_ordinals",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_ordinal::the_logged_ordinal_matches_the_item_the_claim_actually_produced",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_verdict::a_recompute_that_moves_a_parent_to_terminal_is_never_reported_inconsistent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_verdict::claimed_item_reports_its_open_attempt_and_lease_deadline",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_verdict::every_recomputed_terminal_shape_is_reported_consistent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_verdict::fresh_task_diagnoses_consistent_with_ordered_items_and_no_attempts",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_verdict::skewed_parent_counters_are_named_instead_of_hidden",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_verdict::stale_parent_status_is_reported_even_when_counters_agree",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_compatibility::claim_items_compatibility_path_keeps_partial_task_counters_consistent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_compatibility::claim_items_compatibility_path_recycles_an_expired_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_compatibility::claim_items_compatibility_path_still_converges_exhausted_state",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_fast_claim::claim_items_fast_claims_and_activates_a_fresh_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_lease_fence::a_fenced_progress_does_not_close_the_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_lease_fence::a_fenced_wait_does_not_close_the_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_lease_fence::a_reclaimed_running_item_is_counted_once_in_the_parent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_exhausted::maintain_claim_state_keeps_partial_task_counters_consistent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_exhausted::maintain_claim_state_recovers_an_exhausted_item_task_and_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_exhausted::maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_expired::maintain_claim_state_interrupts_an_expired_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_expired::maintain_claim_state_with_no_work_returns_zero_counts",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_parent_consistency::a_new_git_index_task_starts_in_the_indexing_stage",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_parent_consistency::claiming_an_item_moves_the_parent_counters_in_the_same_transaction",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_parent_consistency::head_of_line_waiting_drives_the_parent_and_blocks_later_items",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_parent_consistency::maintenance_keeps_a_parent_slot_for_a_scheduled_retry",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_parent_consistency::maintenance_releases_a_parent_slot_no_claim_can_serve",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "cancel_path_emits_event",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "clear_path_emits_delete_event",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "heartbeat_update_is_throttled",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "insert_receives_task_and_item_events",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "listener_recovers_after_backend_terminate",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "maintain_claim_state_path_emits_event",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "payload_is_four_fields_and_small",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "restore_path_emits_event",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "trash_path_emits_event",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_events_bus",
+      "test": "update_receives_item_event",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_locks_concurrency::concurrent_create_and_retry_keep_single_active_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_locks_concurrency::concurrent_creates_for_one_file_converge_on_one_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_locks_concurrency::retry_and_rerun_wait_for_the_shared_file_lock",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::partially_overlapping_batch_is_rejected_atomically",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::reprocess_creates_new_task_for_failed_files",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::resubmitting_active_file_reuses_existing_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_ownership::cross_group_file_is_rejected_without_locking_or_reuse",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_ownership::cross_group_item_does_not_project_status_onto_foreign_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_projection::terminal_item_status_projects_to_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_released::released_file_is_rejected_before_enqueue",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_rerun::rerun_skips_files_with_active_processing_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_cancel::cancel_does_not_overwrite_a_succeeded_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_cancel::cancel_keeps_file_failed_when_another_task_is_still_active",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_cancel::cancel_queued_file_task_leaves_file_failed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_cancel::cancel_running_file_task_allows_late_success",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_rerun::rerun_cancelled_task_keeps_files_failed_and_keeps_history",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_retry::retry_failed_task_leaves_file_failed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_status",
+      "test": "cases_retry::retry_force_requeues_exhausted_failed_item_without_touching_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "a_finished_attempt_does_not_hide_the_item_finish_from_the_parent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "claiming_a_due_waiting_item_activates_its_parent_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "exhausted_items_are_failed_and_never_claimed_again",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "expired_item_lease_is_reclaimable_and_recycles_the_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "items_of_one_parent_are_claimed_one_at_a_time",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "limited_claim_does_not_activate_unclaimed_parent_tasks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "stage_progress_resets_the_attempt_count",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_list_views",
+      "test": "a_row_projects_the_focus_item_file_name_and_document_title",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_list_views",
+      "test": "list_views_are_mutually_exclusive_and_counts_match",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_list_views",
+      "test": "status_filter_narrows_but_never_widens_a_view",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_list_views",
+      "test": "the_projection_falls_back_to_the_payload_and_the_linked_document",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "admission_candidate_without_a_claimed_item_never_takes_a_slot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "admitted_parent_keeps_its_slot_through_a_retry_wait",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "concurrent_admissions_do_not_oversell_the_parent_capacity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "expired_parent_lease_frees_the_slot_for_the_next_parent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "maintenance_renews_and_revokes_parent_leases",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "parent_capacity_blocks_the_next_parent_and_claims_one_item_per_parent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_payload_retention",
+      "test": "terminal_payload_retention_is_idempotent_and_applied",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_payload_retention",
+      "test": "terminal_payload_retention_strips_only_guarded_keys",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_pipeline_progress",
+      "test": "a_terminal_item_retains_the_counts_of_its_final_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_pipeline_progress",
+      "test": "items_expose_only_the_progress_of_the_current_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_pipeline_progress",
+      "test": "reviewer_finalizing_preserves_persisted_counts_and_checkpoint",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_pipeline_progress",
+      "test": "reviewer_waiting_retry_hides_previous_attempt_progress",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_rerun",
+      "test": "rerun_creates_a_fresh_task_with_only_unfinished_items",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_rerun",
+      "test": "rerun_of_translation_task_drops_stale_job_ids",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_rerun",
+      "test": "the_public_rerun_resumes_cancelled_and_forks_failed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "a_resume_that_reopens_nothing_leaves_the_parent_untouched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "an_all_succeeded_task_has_nothing_to_resume",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "concurrent_resume_reopens_each_item_once",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "repeated_resume_is_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "resume_by_an_unauthorized_user_reopens_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "resume_reopens_the_same_task_without_inserting_a_replacement",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_projection",
+      "test": "active_sibling_blocks_projection",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_projection",
+      "test": "foreign_group_file_is_never_projected",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_projection",
+      "test": "missing_file_and_stale_status_are_noops",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_projection",
+      "test": "succeeded_file_is_never_regressed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_projection",
+      "test": "terminal_status_projects_success_and_failure",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_visibility",
+      "test": "overlapping_membership_never_duplicates_and_filters_paginate",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_sql_opt_visibility",
+      "test": "visibility_covers_owner_member_descendant_and_nonmember",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_trash",
+      "test": "cases_cleanup::permanent_delete_requires_a_trashed_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_trash",
+      "test": "cases_lifecycle::trash_actions_respect_task_ownership",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_trash",
+      "test": "cases_lifecycle::trash_and_restore_round_trip_is_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_trash",
+      "test": "cases_lifecycle::trashing_preserves_items_and_rejects_active_tasks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_secret_store",
+      "test": "shared_llm_provider_key_routes_through_the_encrypted_store",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::byte_boundaries::empty_and_binary_values_and_non_null_timestamps_survive_sealing",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::contention::a_writer_that_commits_before_the_sweep_claims_a_row_is_not_overwritten",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::contention::a_writer_that_commits_while_the_sweep_waits_for_its_row_wins",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::contention::the_swept_value_is_sealed_under_this_deployments_key_and_version",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::contention::two_independent_runs_convert_every_row_exactly_once",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::conversion::a_configured_key_seals_every_supported_legacy_row",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::conversion::a_deployment_without_a_key_leaves_every_legacy_row_alone",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::conversion::a_sealed_row_is_left_byte_and_timestamp_identical",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::conversion::a_second_run_reports_no_work",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::conversion::more_rows_than_one_batch_are_sealed_across_batches",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::conversion::the_row_identity_and_its_timestamps_survive_the_conversion",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::refusal::a_key_name_the_catalogue_does_not_own_stops_the_run_without_leaking",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::refusal::a_legacy_row_whose_markers_disagree_stops_the_run",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::refusal::a_refused_run_leaves_its_earlier_batches_sealed_and_a_retry_finishes",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "backfill",
+      "test": "backfill_support::writer_after_claim::a_writer_after_claim_waits_and_keeps_its_newer_value",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "rewrap",
+      "test": "a_rewrap_hands_back_counts_and_never_a_value_or_a_key_name",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "rewrap",
+      "test": "a_rewrap_moves_every_sealed_row_to_the_target_key_version",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "rewrap",
+      "test": "a_rewrap_refuses_a_target_that_is_not_strictly_newer",
+      "class": "db"
+    },
+    {
+      "package": "context69-secret-store",
+      "target": "rewrap",
+      "test": "a_rewrap_resumes_from_the_rows_still_at_the_source_version",
+      "class": "db"
+    }
+  ]
+}

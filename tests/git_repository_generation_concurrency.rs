@@ -20,10 +20,6 @@ use uuid::Uuid;
 /// repository row instead of being serialised by the pool.
 const CONCURRENT_STARTS: usize = 8;
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_group(db: &Database) -> i64 {
     let key = format!("gen-concurrency-{}", Uuid::new_v4());
     sqlx::query(
@@ -99,11 +95,9 @@ async fn generation_counter(db: &Database, repository_key: Uuid) -> i64 {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn concurrent_starts_take_distinct_consecutive_numbers() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping generation concurrency test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -168,11 +162,9 @@ async fn concurrent_starts_take_distinct_consecutive_numbers() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_failed_start_consumes_no_number_and_stays_in_its_group() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping generation concurrency test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -225,11 +217,9 @@ async fn a_failed_start_consumes_no_number_and_stays_in_its_group() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_failed_generation_rolls_back_no_counter_advance() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping generation concurrency test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

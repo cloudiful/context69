@@ -11,12 +11,10 @@ use super::support::*;
 
 /// A due probe closes an open gate once the backend check succeeds.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_successful_s3_probe_closes_an_open_gate() {
     let _guard = SUITE_LOCK.lock().await;
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 probe test");
-        return;
-    };
+    let db = connect_db().await;
     let store = LibraryStore::new(db.clone());
     seed_s3_gate(
         &db,
@@ -60,12 +58,10 @@ async fn a_successful_s3_probe_closes_an_open_gate() {
 
 /// A failed probe reopens the gate with exponential backoff.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_failed_s3_probe_reopens_the_gate_with_backoff() {
     let _guard = SUITE_LOCK.lock().await;
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 probe test");
-        return;
-    };
+    let db = connect_db().await;
     let service = build_library_service(&db, Some(unreachable_s3())).await;
     seed_s3_gate(
         &db,
@@ -101,12 +97,10 @@ async fn a_failed_s3_probe_reopens_the_gate_with_backoff() {
 /// reserved `half_open`, a successful bounded backend check closes it, and the
 /// gate stops asking for a probe.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_due_probe_carries_a_tripped_gate_through_half_open_to_closed() {
     let _guard = SUITE_LOCK.lock().await;
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 probe test");
-        return;
-    };
+    let db = connect_db().await;
     let fake = start_fake_s3(std::time::Duration::from_millis(750)).await;
     let service = build_library_service(&db, Some(s3_pointed_at(&fake.endpoint))).await;
     seed_s3_gate(

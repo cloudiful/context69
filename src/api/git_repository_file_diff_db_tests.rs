@@ -103,10 +103,9 @@ async fn page(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn add_modify_and_delete_are_classified_and_unchanged_paths_are_omitted() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let (from, to) = index_pair(&fixture).await;
     let response = page(&fixture, from, 50, None).await;
     assert_eq!(response.from_generation_key, from);
@@ -173,10 +172,9 @@ async fn add_modify_and_delete_are_classified_and_unchanged_paths_are_omitted() 
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_identical_pair_is_empty_and_the_reverse_order_is_a_conflict() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let (from, to) = index_pair(&fixture).await;
     // A generation holds the same bytes as itself, so the comparison is empty
     // rather than a conflict.
@@ -196,10 +194,9 @@ async fn an_identical_pair_is_empty_and_the_reverse_order_is_a_conflict() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_default_pair_resolves_the_superseded_checkpoint_to_the_active_generation() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let (from, to) = index_pair(&fixture).await;
     let source = fixture.source().await;
     assert_eq!(
@@ -246,10 +243,9 @@ async fn the_default_pair_resolves_the_superseded_checkpoint_to_the_active_gener
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_foreign_repository_or_unknown_generation_compares_nothing() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let (from, to) = index_pair(&fixture).await;
     let foreign_group_id = fixture.foreign_group().await;
     let foreign_repository = fixture.repository_for(foreign_group_id).await;
@@ -290,10 +286,9 @@ async fn a_foreign_repository_or_unknown_generation_compares_nothing() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_building_generation_is_never_compared() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let (_, to) = index_pair(&fixture).await;
     // A building generation can hold manifest rows, but it is not a completed
     // snapshot, so the pair is ineligible in the statement and the comparison
@@ -326,10 +321,9 @@ async fn a_building_generation_is_never_compared() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_window_continues_without_repeating_or_skipping_a_path() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let (from, to) = index_pair(&fixture).await;
     let first = page(&fixture, from, 2, None).await;
     assert_eq!(

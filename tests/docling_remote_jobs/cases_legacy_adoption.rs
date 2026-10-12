@@ -30,11 +30,9 @@ async fn item_state(
 /// of the dispatcher until recovery adopts the item; the claim keeps no
 /// parked item away from normal workers once the row is gone.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -85,11 +83,9 @@ async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
 /// its remote row already reads terminal and its backoff is due. Only
 /// recovery moves such items.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn dispatcher_never_claims_waiting_docling_items() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -130,11 +126,9 @@ async fn dispatcher_never_claims_waiting_docling_items() {
 /// remote state, attempt count, and due time. There is no background
 /// poll queue left; only the owning worker advances conversions.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn recovery_never_polls_the_remote() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;

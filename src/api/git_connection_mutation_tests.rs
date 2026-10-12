@@ -188,8 +188,8 @@ async fn a_missing_group_maps_to_the_bounded_non_disclosure_shape() {
 /// One seeded group and a keyed store over the scratch pool. Skipped unless
 /// `CONTEXT69_TEST_DATABASE_URL` names a migrated disposable database; each run
 /// uses a fresh group key and master key, so rows never collide.
-async fn fixture() -> Option<(Database, SecretStore, i64)> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
+async fn fixture() -> (Database, SecretStore, i64) {
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -205,7 +205,7 @@ async fn fixture() -> Option<(Database, SecretStore, i64)> {
         1,
     )
     .expect("a store builds from any master key");
-    Some((db, store, group_id))
+    (db, store, group_id)
 }
 
 fn target(group_id: i64) -> GitSecretTarget {
@@ -238,11 +238,9 @@ async fn seed_group(db: &Database, label: &str) -> i64 {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn keep_creates_an_uncredentialed_enabled_connection() {
-    let Some((db, store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the create round trip");
-        return;
-    };
+    let (db, store, group_id) = fixture().await;
     let stored = create_group_connection(
         &db,
         &store,
@@ -275,11 +273,9 @@ async fn keep_creates_an_uncredentialed_enabled_connection() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn set_seals_the_credential_and_projects_presence_only() {
-    let Some((db, store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the create round trip");
-        return;
-    };
+    let (db, store, group_id) = fixture().await;
     let credential = synthetic_credential();
     let stored = create_group_connection(
         &db,
@@ -323,11 +319,9 @@ async fn set_seals_the_credential_and_projects_presence_only() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_set_credential_rides_the_insert_and_no_follow_up_update_runs() {
-    let Some((db, store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ordering case");
-        return;
-    };
+    let (db, store, group_id) = fixture().await;
     let credential = synthetic_credential();
     let stored = create_group_connection(
         &db,
@@ -387,11 +381,9 @@ async fn a_set_credential_rides_the_insert_and_no_follow_up_update_runs() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn keep_creates_an_enabled_installation_connection_without_a_secret() {
-    let Some((db, store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the installation case");
-        return;
-    };
+    let (db, store, group_id) = fixture().await;
     let stored = create_group_connection(
         &db,
         &store,
@@ -429,11 +421,9 @@ async fn keep_creates_an_enabled_installation_connection_without_a_secret() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_insert_surface_reports_a_real_unique_violation_error() {
-    let Some((db, _store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the unique-violation case");
-        return;
-    };
+    let (db, _store, group_id) = fixture().await;
     let new = NewGitProviderConnection {
         connection_key: CONNECTION_KEY.to_string(),
         provider: GitProviderKind::GitHub,
@@ -479,11 +469,9 @@ async fn the_insert_surface_reports_a_real_unique_violation_error() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_duplicate_key_is_refused_before_any_seal() {
-    let Some((db, store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the duplicate case");
-        return;
-    };
+    let (db, store, group_id) = fixture().await;
     create_group_connection(
         &db,
         &store,
@@ -529,11 +517,9 @@ async fn a_duplicate_key_is_refused_before_any_seal() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_create_can_only_reach_its_own_group() {
-    let Some((db, store, group_id)) = fixture().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the confinement case");
-        return;
-    };
+    let (db, store, group_id) = fixture().await;
     let other_group = seed_group(&db, "other").await;
     let credential = synthetic_credential();
     let other_credential = synthetic_credential();
@@ -608,14 +594,10 @@ async fn a_create_can_only_reach_its_own_group() {
 /// default single-threaded runtime. The rounds run with fresh keys so a rare
 /// schedule cannot hide the property.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn concurrent_same_key_creates_serialize_to_one_winner_with_its_credential() {
     for _ in 0..3 {
-        let Some((db, store, group_id)) = fixture().await else {
-            eprintln!(
-                "CONTEXT69_TEST_DATABASE_URL is not set; skipping the concurrent create case"
-            );
-            return;
-        };
+        let (db, store, group_id) = fixture().await;
         let key = format!("github-app-{}", Uuid::new_v4());
         let first = synthetic_credential();
         let second = synthetic_credential();

@@ -4,11 +4,9 @@
 use super::support::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn metadata_documents_page_walks_documents_by_id_cursor() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping cursor paging test");
-        return;
-    };
+    let db = connect_db().await;
     let group_id = seed_group(&db, "metadata-cursor").await;
     seed_documents(&db, group_id, "cursor-source", 7).await;
     seed_documents(&db, group_id, "other-source", 3).await;

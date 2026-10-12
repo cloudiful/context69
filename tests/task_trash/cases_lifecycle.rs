@@ -3,14 +3,12 @@
 use context69::db::Database;
 use sqlx::Row;
 
-use super::support::{create_task, finish_task, item_count, seed_test_user, test_database_url};
+use super::support::{create_task, finish_task, item_count, seed_test_user};
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn trash_and_restore_round_trip_is_idempotent() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping trash round-trip test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = super::support::TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -136,11 +134,9 @@ async fn trash_and_restore_round_trip_is_idempotent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn trashing_preserves_items_and_rejects_active_tasks() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping trash preserve test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = super::support::TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -183,11 +179,9 @@ async fn trashing_preserves_items_and_rejects_active_tasks() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn trash_actions_respect_task_ownership() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping trash ownership test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = super::support::TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

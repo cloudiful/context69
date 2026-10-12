@@ -4,15 +4,12 @@ use uuid::Uuid;
 
 use crate::support::{
     FAST_PATH_LOCK, cleanup_file, cleanup_task, cleanup_user, insert_file, seed_test_user,
-    test_database_url,
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping maintenance recovery test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -280,11 +277,9 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping partial-task maintenance test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -395,11 +390,9 @@ async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping ordinary exhaustion test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

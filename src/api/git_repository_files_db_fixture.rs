@@ -46,23 +46,18 @@ pub(super) struct Fixture {
 impl Fixture {
     /// A group and a repository, or `None` when no scratch database is
     /// configured, which skips the calling test.
-    pub(super) async fn setup() -> Option<Self> {
-        let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-            eprintln!(
-                "CONTEXT69_TEST_DATABASE_URL is not set; skipping git manifest page round trip"
-            );
-            return None;
-        };
+    pub(super) async fn setup() -> Self {
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");
         let group_id = seed_group(&db).await;
         let repository_key = seed_repository(&db, group_id).await;
-        Some(Self {
+        Self {
             db,
             group_id,
             repository_key,
-        })
+        }
     }
 
     /// A second group, used to prove the reads are group-confined.

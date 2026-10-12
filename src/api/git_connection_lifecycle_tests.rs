@@ -278,13 +278,12 @@ async fn fixture(db: &Database, label: &str) -> i64 {
 }
 
 /// The scratch database, or `None` when the gated round trips must skip.
-async fn scratch() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn scratch() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 async fn cleanup(db: &Database, group_ids: &[i64]) {
@@ -298,11 +297,9 @@ async fn cleanup(db: &Database, group_ids: &[i64]) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn disabling_twice_keeps_the_first_timestamp_and_answers_twice() {
-    let Some(db) = scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the disable round trip");
-        return;
-    };
+    let db = scratch().await;
     let group_id = fixture(&db, "disable").await;
     let before = db
         .get_git_provider_connection(group_id, CONNECTION_KEY)
@@ -362,11 +359,9 @@ async fn disabling_twice_keeps_the_first_timestamp_and_answers_twice() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_unowned_scope_reaches_neither_the_read_nor_the_update() {
-    let Some(db) = scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the disable round trip");
-        return;
-    };
+    let db = scratch().await;
     let group_id = fixture(&db, "disable-owner").await;
 
     // The owner's key read under a scope that owns nothing is absent and matches

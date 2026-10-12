@@ -3,16 +3,12 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{
-    FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user, test_database_url,
-};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claim_items_compatibility_path_still_converges_exhausted_state() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping compatibility exhausted test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -173,11 +169,9 @@ async fn claim_items_compatibility_path_still_converges_exhausted_state() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping partial compat test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -314,13 +308,9 @@ async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent()
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claim_items_compatibility_path_recycles_an_expired_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!(
-            "CONTEXT69_TEST_DATABASE_URL is not set; skipping compatibility expired attempt test"
-        );
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

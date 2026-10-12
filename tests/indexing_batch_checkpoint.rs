@@ -473,21 +473,20 @@ mod integration {
         }
     }
 
-    async fn connect_db() -> Option<Database> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-        Some(
-            Database::connect(&url)
-                .await
-                .expect("connect test database"),
-        )
+    async fn connect_db() -> Database {
+        let url = context69_test_support::accessor::database_url();
+
+        Database::connect(&url)
+            .await
+            .expect("connect test database")
     }
 
     static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, Database)> {
+    async fn prepare_isolated_db() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
         let guard = SUITE_LOCK.lock().await;
-        let db = connect_db().await?;
-        Some((guard, db))
+        let db = connect_db().await;
+        (guard, db)
     }
 
     fn sha256_hex(bytes: &[u8]) -> String {
@@ -736,11 +735,9 @@ mod integration {
     // ---------- Cleanup ordering / file-row safety / first-run failure path ----------
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn cleanup_failure_preserves_file_row_during_first_run() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping cleanup ordering test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         // Reaching the rest of the cleanup chain past `delete_points` requires a
         // live Qdrant; using unreachable here exercises the cleanup-time failure
         // path and pins that the file row survives (Qdrant-before-SQL).
@@ -788,16 +785,14 @@ mod integration {
     // ---------- Resume uses a pre-stamped checkpoint; tests finalization only ----------
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn already_complete_checkpoint_short_circuits_to_finalize() {
         // Stamping next_batch_index >= total_batches forces the
         // `finalize_resumed_indexing` path which never calls Qdrant at all. This
         // pins the resume semantics for a clean ingest that crashed after every
         // batch was already checkpointed: retry should re-link the file rows and
         // not re-embed.
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping resume test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         let qdrant =
             QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4).unwrap();
         let embedding = Arc::new(EmbeddingSpy::default());
@@ -858,16 +853,4 @@ mod integration {
         cleanup_group(&db, group.id).await;
         let _ = std::fs::remove_dir_all(storage_root);
     }
-}
-
-#[cfg(not(feature = "integration-test-helpers"))]
-#[tokio::test]
-async fn cleanup_failure_preserves_file_row_during_first_run() {
-    eprintln!("integration-test-helpers not enabled; skipping cleanup ordering test");
-}
-
-#[cfg(not(feature = "integration-test-helpers"))]
-#[tokio::test]
-async fn already_complete_checkpoint_short_circuits_to_finalize() {
-    eprintln!("integration-test-helpers not enabled; skipping resume test");
 }

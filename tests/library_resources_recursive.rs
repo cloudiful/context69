@@ -15,17 +15,13 @@ use context69::library_store::{LibraryStore, ResourceListQuery};
 use sqlx::Row;
 use uuid::Uuid;
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
-async fn connect_scratch() -> Option<(Database, LibraryStore)> {
-    let url = test_database_url()?;
+async fn connect_scratch() -> (Database, LibraryStore) {
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
     let store = LibraryStore::new(db.clone());
-    Some((db, store))
+    (db, store)
 }
 
 async fn seed_group(db: &Database) -> i64 {
@@ -134,11 +130,9 @@ async fn list_file_ids(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn recursive_true_returns_only_subtree_failed_files() {
-    let Some((db, store)) = connect_scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping database test");
-        return;
-    };
+    let (db, store) = connect_scratch().await;
     let group_id = seed_group(&db).await;
     let level1 = seed_folder(&db, group_id, None, "level1").await;
     let level2 = seed_folder(&db, group_id, Some(level1), "level2").await;
@@ -206,11 +200,9 @@ async fn recursive_true_returns_only_subtree_failed_files() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn recursive_false_behavior_unchanged() {
-    let Some((db, store)) = connect_scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping database test");
-        return;
-    };
+    let (db, store) = connect_scratch().await;
     let group_id = seed_group(&db).await;
     let level1 = seed_folder(&db, group_id, None, "level1").await;
     let level2 = seed_folder(&db, group_id, Some(level1), "level2").await;
@@ -259,11 +251,9 @@ async fn recursive_false_behavior_unchanged() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn recursive_isolated_across_groups_and_whole_group_scope() {
-    let Some((db, store)) = connect_scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping database test");
-        return;
-    };
+    let (db, store) = connect_scratch().await;
     let group_a = seed_group(&db).await;
     let group_b = seed_group(&db).await;
     let folder_a = seed_folder(&db, group_a, None, "folder-a").await;
@@ -314,11 +304,9 @@ async fn recursive_isolated_across_groups_and_whole_group_scope() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn recursive_pagination_total_matches() {
-    let Some((db, store)) = connect_scratch().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping database test");
-        return;
-    };
+    let (db, store) = connect_scratch().await;
     let group_id = seed_group(&db).await;
     let level1 = seed_folder(&db, group_id, None, "level1").await;
     let level2 = seed_folder(&db, group_id, Some(level1), "level2").await;

@@ -12,10 +12,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn rerun_skips_files_with_active_processing_task() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
     let file_a = insert_file_in_group(&db, group_id, "failed").await;

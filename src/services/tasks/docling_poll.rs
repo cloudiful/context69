@@ -452,11 +452,9 @@ mod tests {
     /// `embedding` pre-advance guard observes them and cannot route back to
     /// `docling` for a duplicate submit.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn blocking_success_updates_the_worker_snapshot() {
-        let Some(db) = test_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-            return;
-        };
+        let db = test_db().await;
         let (user_id, task_id, mut item, file_id) = seed_running_item(&db).await;
         let job = db
             .create_docling_remote_job(
@@ -493,13 +491,12 @@ mod tests {
         cleanup(&db, task_id, user_id).await;
     }
 
-    async fn test_db() -> Option<crate::db::Database> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-        Some(
-            crate::db::Database::connect(&url)
-                .await
-                .expect("connect test database"),
-        )
+    async fn test_db() -> crate::db::Database {
+        let url = context69_test_support::accessor::database_url();
+
+        crate::db::Database::connect(&url)
+            .await
+            .expect("connect test database")
     }
 
     /// Seeds a running item under a lease and returns the snapshot the worker

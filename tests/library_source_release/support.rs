@@ -65,13 +65,12 @@ impl ExtractionReadiness for NoopCallbacks {
     }
 }
 
-pub async fn connect_scratch() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+pub async fn connect_scratch() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 pub async fn build_library_service(db: &Database) -> (LibraryService, std::path::PathBuf) {

@@ -82,13 +82,12 @@ impl ExtractionReadiness for NoopCallbacks {
     }
 }
 
-async fn connect_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn connect_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 /// Missing-source cleanup selection spans the whole database, so tests run
@@ -96,9 +95,9 @@ async fn connect_db() -> Option<Database> {
 /// fixtures.
 static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, Database)> {
+async fn prepare_isolated_db() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
     let guard = SUITE_LOCK.lock().await;
-    let db = connect_db().await?;
+    let db = connect_db().await;
     sqlx::query(
         "DELETE FROM context69.library_files \
          WHERE storage_object_id IS NULL \
@@ -108,7 +107,7 @@ async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, 
     .execute(db.pool())
     .await
     .expect("purge stray legacy rows");
-    Some((guard, db))
+    (guard, db)
 }
 
 async fn build_library_service(db: &Database) -> (LibraryService, std::path::PathBuf) {
@@ -295,11 +294,9 @@ async fn storage_state(db: &Database, file_id: Uuid) -> (Option<Uuid>, String) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn no_runtime_skips_cleanup_and_marks_qdrant_unavailable() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping no-runtime test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     // Seed a row that would otherwise match: terminal status, missing
@@ -341,11 +338,9 @@ async fn no_runtime_skips_cleanup_and_marks_qdrant_unavailable() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn selection_resolves_a_direct_path_row_in_terminal_state_older_than_grace() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping selection test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     // Verify the store-level helper picks the seeded row. The selection is
     // the core guard; without a Qdrant runtime the deletion cannot run, but
     // every cleanup attempt starts from this set, so we exercise it directly.
@@ -382,11 +377,9 @@ async fn selection_resolves_a_direct_path_row_in_terminal_state_older_than_grace
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn selection_excludes_young_non_terminal_and_already_linked_rows() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping selection-filter test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let store = LibraryStore::new(db.clone());
     let group = seed_group_record(&db).await;
     let storage_root = std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
@@ -516,6 +509,7 @@ async fn selection_excludes_young_non_terminal_and_already_linked_rows() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn restart_skips_a_row_that_became_linked_between_runs() {
     // Models the restart path: selection picks the row in run A; between
     // selection and per-row work a concurrent migration links the row
@@ -530,10 +524,7 @@ async fn restart_skips_a_row_that_became_linked_between_runs() {
     // that the second run still returns the now-linked row from the
     // selection set, which is what `clean_missing_source_row` then
     // re-reads and skips.
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping restart-link test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let store = LibraryStore::new(db.clone());
     let group = seed_group_record(&db).await;
     let storage_root = std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
@@ -616,6 +607,7 @@ async fn restart_skips_a_row_that_became_linked_between_runs() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn present_source_does_not_delete_and_does_not_reclassify() {
     // When the source is physically present in active storage the cleanup
     // must keep the row: only confirmed-missing legacy rows are deleted.
@@ -624,10 +616,7 @@ async fn present_source_does_not_delete_and_does_not_reclassify() {
     // by checking that the row is filtered out by the
     // `clean_missing_source_row` existence check. We exercise the public
     // API's no-runtime guard and then assert the file is intact.
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping present-source test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let (file_id, old_key) = seed_missing_source_file(
@@ -667,6 +656,7 @@ async fn present_source_does_not_delete_and_does_not_reclassify() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn storage_errors_remain_retryable_and_never_delete() {
     // A storage error from the existence check must abort the row without
     // touching the database, so the next startup retries it. With no
@@ -674,10 +664,7 @@ async fn storage_errors_remain_retryable_and_never_delete() {
     // storage call, which is the safe behaviour: production restart with
     // a real runtime but a flaky storage backend would surface the error
     // as a per-row failure rather than a successful delete.
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping storage-error test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let (file_id, old_key) = seed_missing_source_file(

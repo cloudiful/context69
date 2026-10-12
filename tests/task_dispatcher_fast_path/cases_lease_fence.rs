@@ -16,9 +16,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{
-    FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user, test_database_url,
-};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
 
 async fn seed_task(
     db: &Database,
@@ -104,11 +102,9 @@ async fn assert_parent_matches_items(db: &Database, task_id: Uuid) {
 /// attempt close behind `EXISTS (<item CTE>)`; this pins the same rule for the
 /// progress path, whose statement used to carry the same guard.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_fenced_progress_does_not_close_the_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping progress fence test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -181,11 +177,9 @@ async fn a_fenced_progress_does_not_close_the_attempt() {
 
 /// The mirror of the case above on the wait path, so the two stay comparable.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_fenced_wait_does_not_close_the_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping wait fence test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -232,11 +226,9 @@ async fn a_fenced_wait_does_not_close_the_attempt() {
 /// statement snapshot plus the one status transition it performs, so a reclaimed
 /// item that was already `running` must be counted once, not twice.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_reclaimed_running_item_is_counted_once_in_the_parent() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping reclaim projection test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

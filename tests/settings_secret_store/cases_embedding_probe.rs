@@ -26,6 +26,7 @@ fn probe_request(
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn an_embedding_probe_uses_the_submitted_key_without_persisting_it() {
     run(async |db| {
         reset(db).await;
@@ -62,6 +63,7 @@ fn an_embedding_probe_uses_the_submitted_key_without_persisting_it() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn an_embedding_probe_without_a_submitted_key_uses_the_stored_one() {
     run(async |db| {
         reset(db).await;
@@ -89,6 +91,7 @@ fn an_embedding_probe_without_a_submitted_key_uses_the_stored_one() {
 /// The success path of the connection test, and the credential it actually put on
 /// the wire: the submitted key, never the stored one and never persisted.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_probe_that_succeeds_sent_the_submitted_key_and_stored_nothing() {
     run(async |db| {
         reset(db).await;
@@ -121,6 +124,7 @@ fn a_probe_that_succeeds_sent_the_submitted_key_and_stored_nothing() {
 /// The same round trip with no key submitted: the sealed row is opened so the
 /// stored credential is what reaches the provider, and the row is left alone.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_probe_without_a_key_sent_the_stored_key() {
     run(async |db| {
         reset(db).await;
@@ -150,6 +154,7 @@ fn a_probe_without_a_key_sent_the_stored_key() {
 /// A refused probe reports the refusal without echoing the credential it used,
 /// and still writes nothing.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_refused_probe_reports_the_failure_without_the_submitted_key() {
     run(async |db| {
         reset(db).await;

@@ -6,13 +6,9 @@ use uuid::Uuid;
 
 pub static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub fn db_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
-pub async fn connect() -> Option<Database> {
-    let url = db_url()?;
-    Some(Database::connect(&url).await.expect("connect test db"))
+pub async fn connect() -> Database {
+    let url = context69_test_support::accessor::database_url();
+    Database::connect(&url).await.expect("connect test db")
 }
 
 pub async fn seed_user(db: &Database) -> i64 {

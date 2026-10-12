@@ -132,10 +132,6 @@ async fn build_task_service(db: &Database) -> TaskService {
     })
 }
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_test_user(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
@@ -151,11 +147,9 @@ async fn seed_test_user(db: &Database) -> i64 {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping rerun test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -266,11 +260,9 @@ async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn rerun_of_translation_task_drops_stale_job_ids() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping rerun test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -353,11 +345,9 @@ async fn rerun_of_translation_task_drops_stale_job_ids() {
 /// concurrent calls — while a failed task still gets a fresh parent, and an
 /// unrelated state is rejected.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_public_rerun_resumes_cancelled_and_forks_failed() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping rerun service test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

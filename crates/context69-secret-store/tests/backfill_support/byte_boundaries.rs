@@ -1,6 +1,7 @@
 use super::*;
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn empty_and_binary_values_and_non_null_timestamps_survive_sealing() {
     run(async |pool| {
         cleanup(pool).await;

@@ -19,11 +19,9 @@ use super::{claim_item, create_url_task, sha256_hex, staged_url_payload, uploade
 /// and the storage stage consumes the staged bytes through the existing
 /// FileBatch staged-object path.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn url_batch_resumes_from_a_committed_staged_input_object() {
-    let Some(database_url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping issue 667 resume test");
-        return;
-    };
+    let database_url = context69_test_support::accessor::database_url();
     let _guard = PIPELINE_CASE_LOCK.lock().await;
     let db = Database::connect(&database_url)
         .await

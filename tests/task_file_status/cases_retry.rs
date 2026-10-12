@@ -12,10 +12,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn retry_failed_task_leaves_file_failed() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     sqlx::query(
@@ -62,10 +61,9 @@ async fn retry_failed_task_leaves_file_failed() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     sqlx::query(

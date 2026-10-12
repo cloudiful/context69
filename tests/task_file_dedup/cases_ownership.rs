@@ -15,10 +15,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cross_group_file_is_rejected_without_locking_or_reuse() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let owner_group = seed_group(&db).await;
     let foreign_group = seed_group(&db).await;
@@ -70,10 +69,9 @@ async fn cross_group_file_is_rejected_without_locking_or_reuse() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cross_group_item_does_not_project_status_onto_foreign_file() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let owner_group = seed_group(&db).await;
     let attacker_group = seed_group(&db).await;

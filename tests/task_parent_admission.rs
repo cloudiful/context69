@@ -24,17 +24,12 @@ use uuid::Uuid;
 
 static ADMISSION_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
+async fn connect() -> Database {
+    let url = context69_test_support::accessor::database_url();
 
-async fn connect() -> Option<Database> {
-    let url = test_database_url()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 async fn seed_test_user(db: &Database) -> i64 {
@@ -147,11 +142,9 @@ async fn make_due(db: &Database, task_id: Uuid, item_id: Uuid) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn parent_capacity_blocks_the_next_parent_and_claims_one_item_per_parent() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parent capacity test");
-        return;
-    };
+    let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (task_a, items_a) =
@@ -238,11 +231,9 @@ async fn parent_capacity_blocks_the_next_parent_and_claims_one_item_per_parent()
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn admitted_parent_keeps_its_slot_through_a_retry_wait() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping retry slot test");
-        return;
-    };
+    let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (task_a, items_a) = seed_task(
@@ -420,11 +411,9 @@ async fn admitted_parent_keeps_its_slot_through_a_retry_wait() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn expired_parent_lease_frees_the_slot_for_the_next_parent() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping expired slot test");
-        return;
-    };
+    let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (task_a, items_a) = seed_task(
@@ -498,11 +487,9 @@ async fn expired_parent_lease_frees_the_slot_for_the_next_parent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn concurrent_admissions_do_not_oversell_the_parent_capacity() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping concurrent admission test");
-        return;
-    };
+    let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let mut task_ids = Vec::new();
@@ -559,11 +546,9 @@ async fn concurrent_admissions_do_not_oversell_the_parent_capacity() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn admission_candidate_without_a_claimed_item_never_takes_a_slot() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping slot without claim test");
-        return;
-    };
+    let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, items) = seed_task(
@@ -630,11 +615,9 @@ async fn admission_candidate_without_a_claimed_item_never_takes_a_slot() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintenance_renews_and_revokes_parent_leases() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parent lease maintenance test");
-        return;
-    };
+    let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(

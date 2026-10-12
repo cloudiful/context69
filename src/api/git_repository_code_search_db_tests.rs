@@ -23,10 +23,9 @@ use super::fixture::{index_with_code, language_of, lexical, query};
 const TERM: &str = "alpha marker";
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_ready_generation_searches_and_reports_its_provenance() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = index_with_code(&fixture).await;
     let source: StoredGitRepositorySource = fixture.source().await;
     let generation = serving_generation(&fixture.db, &source)
@@ -64,10 +63,9 @@ async fn a_ready_generation_searches_and_reports_its_provenance() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_path_prefix_and_language_filters_narrow_the_same_search() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     index_with_code(&fixture).await;
     let own = vec![fixture.group_id];
 
@@ -152,10 +150,9 @@ async fn the_path_prefix_and_language_filters_narrow_the_same_search() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_literal_wildcard_term_matches_only_the_literal_text() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     index_with_code(&fixture).await;
     let own = vec![fixture.group_id];
 
@@ -199,10 +196,9 @@ async fn a_literal_wildcard_term_matches_only_the_literal_text() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_extra_row_reports_truncation_without_returning_it() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     index_with_code(&fixture).await;
     let source = fixture.source().await;
     let generation = serving_generation(&fixture.db, &source)
@@ -229,10 +225,9 @@ async fn the_extra_row_reports_truncation_without_returning_it() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_building_or_absent_generation_is_never_searched() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     // A building generation can hold chunk rows, but the route refuses to search
     // it: only the generation the repository advertises may answer.
     let building = fixture.start_building().await;
@@ -261,10 +256,9 @@ async fn a_building_or_absent_generation_is_never_searched() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_foreign_group_reads_no_hits() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     index_with_code(&fixture).await;
     let foreign_group_id = fixture.foreign_group().await;
 

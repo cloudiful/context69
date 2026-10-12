@@ -9,10 +9,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn rerun_cancelled_task_keeps_files_failed_and_keeps_history() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
     add_group_maintainer(&db, group_id, user_id).await;

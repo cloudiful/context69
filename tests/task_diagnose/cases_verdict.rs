@@ -11,11 +11,9 @@ use uuid::Uuid;
 use super::support::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn fresh_task_diagnoses_consistent_with_ordered_items_and_no_attempts() {
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _) = seed_task(&db, user_id).await;
 
@@ -78,11 +76,9 @@ async fn fresh_task_diagnoses_consistent_with_ordered_items_and_no_attempts() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claimed_item_reports_its_open_attempt_and_lease_deadline() {
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
 
@@ -139,14 +135,12 @@ async fn claimed_item_reports_its_open_attempt_and_lease_deadline() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn stale_parent_status_is_reported_even_when_counters_agree() {
     // Issue 702 P3 review: the verdict compared counters only, so a parent
     // whose items are all terminal while it still claims to be running read as
     // consistent. Here every counter matches and only `status` diverges.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _item_ids) = seed_task(&db, user_id).await;
 
@@ -188,11 +182,9 @@ async fn stale_parent_status_is_reported_even_when_counters_agree() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn skewed_parent_counters_are_named_instead_of_hidden() {
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _) = seed_task(&db, user_id).await;
 
@@ -272,6 +264,7 @@ async fn skewed_parent_counters_are_named_instead_of_hidden() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn every_recomputed_terminal_shape_is_reported_consistent() {
     // Issue 702 P3 review: the verdict now derives the parent status from the
     // items with the same CASE `recompute.sql` writes. That equivalence is only
@@ -279,10 +272,7 @@ async fn every_recomputed_terminal_shape_is_reported_consistent() {
     // proves nothing about it. Here the real projection runs first, so any arm
     // that disagrees with `recompute.sql` shows up as a false `status`
     // mismatch on a task the system itself just finished correctly.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
 
     // Each shape is one arm of the derived-status CASE, plus the mixed and
@@ -322,6 +312,7 @@ async fn every_recomputed_terminal_shape_is_reported_consistent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_recompute_that_moves_a_parent_to_terminal_is_never_reported_inconsistent() {
     // The derived-status CASE is a copy of `recompute.sql`'s. Where they can
     // silently disagree is a parent the *system* moves: cancel an active task,
@@ -329,10 +320,7 @@ async fn a_recompute_that_moves_a_parent_to_terminal_is_never_reported_inconsist
     // more read. If the derived CASE evaluated its arms in a different order or
     // omitted the parent-cancelled override, this transition would report a
     // false breach on a task cancelled by the product itself.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
     claim_head_item(&db, task_id, item_ids[0], Uuid::new_v4()).await;

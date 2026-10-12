@@ -12,14 +12,12 @@ use uuid::Uuid;
 use super::support::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_waiting_parent_holding_its_slot_is_not_reported_as_an_orphan() {
     // Issue 702 P3 review: the orphan gauge counted every live parent lease
     // with no live item lease, so every legitimate backoff/dependency wait was
     // flagged. `maintain_claim_state.sql` keeps those slots on purpose.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (waiting_task, waiting_items) = seed_task(&db, user_id).await;
     sqlx::query(
@@ -109,13 +107,11 @@ async fn a_waiting_parent_holding_its_slot_is_not_reported_as_an_orphan() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline() {
     // Issue 702 P3 review: the gauge read `min(lease_until)`, a future
     // deadline, so `now - lease_until` clamped to zero for every live parent.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _item_ids) = seed_task(&db, user_id).await;
     sqlx::query(
@@ -147,6 +143,7 @@ async fn oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline()
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
     // Issue 702 P3 review, the whole-queue half. `/healthz` reads the same
     // statement with a NULL scope and diagnose reads it with a task id, so one
@@ -154,10 +151,7 @@ async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
     // in the health gauges, and removing it must remove exactly that
     // contribution: a per-item read that happened to pass while the aggregate
     // silently dropped a shape would defeat the point of one definition.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
 
     // Every assertion below is a delta against this queue-wide baseline, so it
@@ -264,6 +258,7 @@ async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
     // Acceptance criterion: the health payload carries a near-exhaustion
     // signal. It is only actionable if it fires while a claim could still
@@ -271,10 +266,7 @@ async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
     // `attempt_count < 5`, so attempt 4 is the last claimable attempt and must
     // already read as near exhaustion, while attempt 5 is the cap itself and
     // belongs to the orphan signal instead.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _item_ids) = seed_task(&db, user_id).await;
 

@@ -72,13 +72,12 @@ impl ExtractionReadiness for NoopCallbacks {
     }
 }
 
-async fn connect_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn connect_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 async fn build_library_service(db: &Database) -> (LibraryService, std::path::PathBuf) {
@@ -224,11 +223,9 @@ fn text_request(external_id: &str, title: &str, content: &str) -> UpsertLibraryT
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn text_writes_link_content_addressed_storage_and_reuse_identical_bytes() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping text storage test");
-        return;
-    };
+    let db = connect_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     // The service trims request content before hashing and storing bytes.
@@ -264,11 +261,9 @@ async fn text_writes_link_content_addressed_storage_and_reuse_identical_bytes() 
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn text_replacement_releases_previous_content_only_after_reference_update() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping text replacement test");
-        return;
-    };
+    let db = connect_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
 
@@ -310,11 +305,9 @@ async fn text_replacement_releases_previous_content_only_after_reference_update(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn legacy_direct_path_rows_stay_readable_and_deletable() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping legacy direct-path test");
-        return;
-    };
+    let db = connect_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
 

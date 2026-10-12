@@ -4,16 +4,12 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{
-    FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user, test_database_url,
-};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintain_claim_state_interrupts_an_expired_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping expired attempt test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -193,11 +189,9 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintain_claim_state_with_no_work_returns_zero_counts() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping no-work maintenance test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

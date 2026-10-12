@@ -66,13 +66,12 @@ impl ExtractionReadiness for NoopCallbacks {
     }
 }
 
-async fn connect_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn connect_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 async fn build_library_service(db: &Database) -> (LibraryService, std::path::PathBuf) {
@@ -252,11 +251,9 @@ async fn land_original_file(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn prepare_upload_reuses_storage_and_creates_new_file_row() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping prepare-upload service test");
-        return;
-    };
+    let db = connect_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let folder = seed_folder(&db, group.id, "reports").await;
@@ -330,11 +327,9 @@ async fn prepare_upload_reuses_storage_and_creates_new_file_row() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn task_upload_helper_creates_new_file_row_sharing_storage() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping task upload service test");
-        return;
-    };
+    let db = connect_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let folder = seed_folder(&db, group.id, "reports").await;

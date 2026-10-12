@@ -44,10 +44,9 @@ fn the_public_provider_builds_a_credential_free_acquirer() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_bounded_snapshot_persists_exact_content_and_activates() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let commit = sha(0xa1);
     let provider = FakeProvider::new(binary_spec(&commit));
     let result = index_git_repository_snapshot(
@@ -117,10 +116,9 @@ async fn a_bounded_snapshot_persists_exact_content_and_activates() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_empty_eligible_snapshot_completes_safely() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let commit = sha(0xa2);
     let provider = FakeProvider::new(FakeAcquirerSpec {
         commit: commit.clone(),
@@ -155,10 +153,9 @@ async fn an_empty_eligible_snapshot_completes_safely() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_changed_target_is_rejected_as_stale() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let concurrent = sha(0xee);
     let provider = FakeProvider::new(FakeAcquirerSpec {
         commit: sha(0xa3),
@@ -213,10 +210,9 @@ async fn a_changed_target_is_rejected_as_stale() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_failed_fetch_leaves_the_previous_active_generation_serving() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let prior = fixture.start_prior_generation().await;
     let provider = FakeProvider::new(FakeAcquirerSpec {
         commit: sha(0xa4),

@@ -17,16 +17,14 @@ use context69_extraction::ExtractionStore;
 use serde_json::json;
 use support::{
     business_payload, cleanup_group, document_hash, seed_document_with_chunks, seed_group,
-    test_database_url, version_body, version_count,
+    version_body, version_count,
 };
 use uuid::Uuid;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn changed_hash_creates_complete_ordered_snapshot() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping changed-hash snapshot test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -84,11 +82,9 @@ async fn changed_hash_creates_complete_ordered_snapshot() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn same_hash_publish_is_idempotent_without_duplicate_versions() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping same-hash idempotency test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -134,11 +130,9 @@ async fn same_hash_publish_is_idempotent_without_duplicate_versions() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn changed_hash_with_no_chunks_fails_and_rolls_back() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping empty-chunks rollback test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -167,11 +161,9 @@ async fn changed_hash_with_no_chunks_fails_and_rolls_back() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn changed_hash_with_blank_body_fails_and_rolls_back() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping blank-body rollback test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -206,11 +198,9 @@ async fn changed_hash_with_blank_body_fails_and_rolls_back() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn repeated_invocation_does_not_overwrite_existing_snapshot() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping repeated-invocation test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

@@ -78,10 +78,9 @@ async fn lease_running(db: &context69::db::Database, task_id: Uuid, item_id: Uui
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn terminal_status_projects_success_and_failure() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let _guard = TEST_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     for (finish_status, expected) in [("succeeded", "succeeded"), ("failed", "failed")] {
@@ -128,10 +127,9 @@ async fn terminal_status_projects_success_and_failure() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn succeeded_file_is_never_regressed() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let _guard = TEST_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "succeeded").await;
@@ -163,10 +161,9 @@ async fn succeeded_file_is_never_regressed() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn active_sibling_blocks_projection() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let _guard = TEST_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
@@ -200,10 +197,9 @@ async fn active_sibling_blocks_projection() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn foreign_group_file_is_never_projected() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let _guard = TEST_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let group_a = seed_group(&db).await;
@@ -259,10 +255,9 @@ async fn foreign_group_file_is_never_projected() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn missing_file_and_stale_status_are_noops() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let _guard = TEST_LOCK.lock().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;

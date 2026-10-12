@@ -54,20 +54,16 @@ pub const RETIRED_COLUMNS: [(&str, &str); 4] = [
 /// under a save, so the cases are serialized instead of being isolated by key name.
 static SETTINGS_ROWS: Mutex<()> = Mutex::new(());
 
-/// Runs one case against a fresh connection to the scratch database, or reports
-/// that the integration environment is not configured. Migrations are applied on
-/// connect, as every other root integration test does.
+/// Runs one case against a fresh connection to the scratch database.
+///
+/// A missing target fails here rather than skipping: the case is `#[ignore]`d,
+/// so an ordinary run never reaches it and an explicit run must actually run.
+/// Migrations are applied on connect, as every other root integration test does.
 ///
 /// The guard is taken in this synchronous frame and the awaits run in the nested
 /// runtime, so the lock is never held across an await point.
 pub fn run(case: impl AsyncFnOnce(&Database)) {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL")
-        .ok()
-        .filter(|url| !url.trim().is_empty());
-    let Some(url) = url else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the settings secret test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     // Taken before the connection so the lock order is the same in every case, and
     // tolerating a poison keeps a prior failure from skipping the next case.
     let _rows = SETTINGS_ROWS.lock().unwrap_or_else(PoisonError::into_inner);

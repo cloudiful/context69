@@ -325,8 +325,8 @@ mod secret_reference_tests {
     /// One group, one disabled connection, and a keyed store over the scratch
     /// pool. Skipped unless `CONTEXT69_TEST_DATABASE_URL` names a migrated
     /// disposable database; rows use a fresh UUID each run and never collide.
-    async fn fixture() -> Option<(Database, i64, SecretStore)> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
+    async fn fixture() -> (Database, i64, SecretStore) {
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");
@@ -371,7 +371,7 @@ mod secret_reference_tests {
             1,
         )
         .expect("a store builds from any master key");
-        Some((db, group_id, store))
+        (db, group_id, store)
     }
 
     fn target(group_id: i64) -> GitSecretTarget {
@@ -408,11 +408,9 @@ mod secret_reference_tests {
     /// disabled connection stays disabled, `None` and empty bytes keep what is
     /// there, and a no-match reference update leaves the owner's row untouched.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn a_connection_rotation_moves_one_reference_and_preserves_disabled_state() {
-        let Some((db, group_id, store)) = fixture().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the writer round trip");
-            return;
-        };
+        let (db, group_id, store) = fixture().await;
         let writer = GitSecretWriter::new(db.clone(), store.clone());
         let credential = seal_and_point(&writer, group_id, GitSecretSlot::Credential, TOKEN).await;
         let app_key =
@@ -529,11 +527,9 @@ mod secret_reference_tests {
     /// The statements are conditional on the owning group, so a reference can
     /// only ever move inside the group that owns the connection.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn a_connection_reference_move_is_group_confined() {
-        let Some((db, group_id, _)) = fixture().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the confinement case");
-            return;
-        };
+        let (db, group_id, _) = fixture().await;
         for (owner, key) in [
             (UNOWNED_GROUP, CONNECTION_KEY),
             (group_id, "no-such-connection"),
@@ -562,11 +558,9 @@ mod secret_reference_tests {
     /// reference before the row exists and insert the two together;
     /// [`GitSecretWriter::write`] is the only path that then repoints it.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn a_seal_only_write_returns_the_reference_without_repointing() {
-        let Some((db, group_id, store)) = fixture().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the seal-only round trip");
-            return;
-        };
+        let (db, group_id, store) = fixture().await;
         let writer = GitSecretWriter::new(db.clone(), store.clone());
         let sealed = match writer
             .seal(&target(group_id), GitSecretSlot::Credential, Some(TOKEN))

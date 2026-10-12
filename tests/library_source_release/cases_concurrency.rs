@@ -13,10 +13,9 @@ use super::support::*;
 const LOCK_HOLD: Duration = Duration::from_millis(800);
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn new_reference_insert_waits_for_the_cleanup_object_lock() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"identity".to_vec();
@@ -60,10 +59,9 @@ async fn new_reference_insert_waits_for_the_cleanup_object_lock() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn release_waits_for_the_shared_file_lock() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"lock race".to_vec();

@@ -106,10 +106,9 @@ fn transient_failures_retry_and_typed_terminal_failures_do_not() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn successful_snapshot_advances_to_finalize_and_activates() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let provider = FakeProvider::new(binary_spec(&sha(0x51)));
     let result = run_git_index_snapshot(
         fixture.db(),
@@ -136,10 +135,9 @@ async fn successful_snapshot_advances_to_finalize_and_activates() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn missing_or_foreign_repository_fails_terminally() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let provider = FakeProvider::new(binary_spec(&sha(0x52)));
     let result = run_git_index_snapshot(
         fixture.db(),
@@ -164,10 +162,9 @@ async fn missing_or_foreign_repository_fails_terminally() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn failed_blob_fetch_retries_and_keeps_the_prior_generation() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let prior = fixture.start_prior_generation().await;
     let mut spec = binary_spec(&sha(0x53));
     spec.fail_blob = Some(sha(0xb1));

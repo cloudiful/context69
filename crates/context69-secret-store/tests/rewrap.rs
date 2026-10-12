@@ -46,16 +46,12 @@ const TARGET_VERSION_AS_INT: i32 = 2;
 /// serialized rather than isolated by key name.
 static REWRAP_TABLE: Mutex<()> = Mutex::new(());
 
-/// Runs one case against a fresh pool on the disposable database this file owns,
-/// or reports that it was not pointed at one.
+/// Runs one case against a fresh pool on the disposable database this file owns.
+///
+/// A missing target fails here rather than skipping: the case is `#[ignore]`d,
+/// so an ordinary run never reaches it and an explicit run must actually run.
 fn run(case: impl AsyncFnOnce(&PgPool)) {
-    let url = std::env::var("CONTEXT69_TEST_REWRAP_DATABASE_URL").ok();
-    let Some(url) = url.filter(|url| !url.trim().is_empty()) else {
-        eprintln!(
-            "CONTEXT69_TEST_REWRAP_DATABASE_URL is not set; skipping the rewrap database test"
-        );
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _table: MutexGuard<'_, ()> = REWRAP_TABLE.lock().unwrap_or_else(PoisonError::into_inner);
     sqlx::test_block_on(async move {
         // The pool is opened inside the runtime that drives the case:
@@ -165,6 +161,7 @@ fn assert_version_refused(error: &RewrapError, source: u32, target: u32) {
 // --- success -----------------------------------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_rewrap_moves_every_sealed_row_to_the_target_key_version() {
     run(async |pool| {
         cleanup(pool, "success").await;
@@ -209,6 +206,7 @@ fn a_rewrap_moves_every_sealed_row_to_the_target_key_version() {
 // --- strict version ordering -------------------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_rewrap_refuses_a_target_that_is_not_strictly_newer() {
     run(async |pool| {
         cleanup(pool, "order").await;
@@ -263,6 +261,7 @@ fn a_rewrap_refuses_a_target_that_is_not_strictly_newer() {
 // --- resumable, source-version filtered --------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_rewrap_resumes_from_the_rows_still_at_the_source_version() {
     run(async |pool| {
         cleanup(pool, "resume").await;
@@ -355,6 +354,7 @@ fn a_rewrap_resumes_from_the_rows_still_at_the_source_version() {
 // --- counts only -------------------------------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_rewrap_hands_back_counts_and_never_a_value_or_a_key_name() {
     run(async |pool| {
         cleanup(pool, "counts").await;

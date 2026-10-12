@@ -4,10 +4,9 @@
 use super::support::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn auto_release_sweep_releases_opted_in_succeeded_files() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"auto release".to_vec();
@@ -61,10 +60,9 @@ async fn auto_release_sweep_releases_opted_in_succeeded_files() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn default_upload_retains_source() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"retain me".to_vec();

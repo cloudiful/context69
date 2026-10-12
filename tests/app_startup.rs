@@ -35,11 +35,10 @@ use context69::{
 use uuid::Uuid;
 
 use crate::support::{
-    APP_STARTUP_ENV_VAR, TEST_DATABASE_ENV_VAR, assert_open_gate, assert_runtime_settings_applied,
-    assert_test_owned_runtime_settings, bootstrap_admin_config, cleanup_bootstrap_admin_rows,
-    cleanup_own_rows, internal_secret_key_for_value, internal_secret_keys,
-    remove_test_storage_roots, search_request, test_config, test_database_url, test_storage_root,
-    work_row_count,
+    assert_open_gate, assert_runtime_settings_applied, assert_test_owned_runtime_settings,
+    bootstrap_admin_config, cleanup_bootstrap_admin_rows, cleanup_own_rows,
+    internal_secret_key_for_value, internal_secret_keys, remove_test_storage_roots, search_request,
+    test_config, test_storage_root, work_row_count,
 };
 
 /// Degradation recorded by `LibraryService::initialize_dependency_gates` when
@@ -53,11 +52,9 @@ const DEGRADED_SEARCH_ERROR: &str =
     "vector index is rebuilding or unavailable; retry after the rebuild completes";
 
 #[tokio::test(flavor = "current_thread")]
+#[ignore = "requires configured PostgreSQL and CONTEXT69_TEST_APP_STARTUP"]
 async fn app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settings() {
-    let Some(database_url) = test_database_url() else {
-        eprintln!("set {APP_STARTUP_ENV_VAR}=1 and {TEST_DATABASE_ENV_VAR} to run this test");
-        return;
-    };
+    let database_url = context69_test_support::accessor::database_url();
     let db = Database::connect(&database_url);
     let db = db.await.expect("connect test database");
 

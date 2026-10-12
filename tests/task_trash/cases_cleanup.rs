@@ -4,14 +4,12 @@
 
 use context69::db::Database;
 
-use super::support::{create_task, finish_task, seed_test_user, test_database_url};
+use super::support::{create_task, finish_task, seed_test_user};
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn permanent_delete_requires_a_trashed_task() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping permanent delete test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = super::support::TEST_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

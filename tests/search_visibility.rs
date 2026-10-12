@@ -13,10 +13,6 @@ use context69::domain::AccessScope;
 use sqlx::Row;
 use uuid::Uuid;
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 fn anonymous_public_scope() -> AccessScope {
     AccessScope {
         user_id: None,
@@ -115,11 +111,9 @@ async fn search_hits(db: &Database, query: &str, scope: &AccessScope) -> Vec<Str
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn group_visibility_change_immediately_gates_document_search() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping search visibility test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -186,11 +180,9 @@ async fn group_visibility_change_immediately_gates_document_search() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn scoped_search_follows_group_path_changes() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping scoped search test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

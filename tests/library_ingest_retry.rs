@@ -239,20 +239,19 @@ mod integration {
         }
     }
 
-    async fn connect_db() -> Option<Database> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-        Some(
-            Database::connect(&url)
-                .await
-                .expect("connect test database"),
-        )
+    async fn connect_db() -> Database {
+        let url = context69_test_support::accessor::database_url();
+
+        Database::connect(&url)
+            .await
+            .expect("connect test database")
     }
     static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, Database)> {
+    async fn prepare_isolated_db() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
         let guard = SUITE_LOCK.lock().await;
-        let db = connect_db().await?;
-        Some((guard, db))
+        let db = connect_db().await;
+        (guard, db)
     }
     async fn build_library_service(
         db: &Database,
@@ -407,11 +406,9 @@ mod integration {
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn qdrant_cleanup_failure_preserves_sql_and_is_retryable_with_operation_context() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping retry ordering test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         let embedding = Arc::new(EmbeddingSpy::default());
         let qdrant = QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4)
             .expect("build test qdrant index");
@@ -510,16 +507,4 @@ mod integration {
             .await
             .expect("empty delete must be Ok");
     }
-}
-
-#[cfg(not(feature = "integration-test-helpers"))]
-#[tokio::test]
-async fn qdrant_cleanup_failure_preserves_sql_and_is_retryable_with_operation_context() {
-    eprintln!("integration-test-helpers feature not enabled; skipping retry ordering test");
-}
-
-#[cfg(not(feature = "integration-test-helpers"))]
-#[tokio::test]
-async fn empty_delete_is_idempotent_without_network() {
-    eprintln!("integration-test-helpers not enabled; skipping empty delete test");
 }

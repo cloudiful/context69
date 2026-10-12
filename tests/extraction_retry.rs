@@ -14,10 +14,6 @@ use uuid::Uuid;
 
 static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn grp(db: &Database) -> i64 {
     let k = format!("g-{}", Uuid::new_v4());
     let r = sqlx::query("INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) VALUES ($1,$2,'public','personal',$3) RETURNING id")
@@ -90,11 +86,9 @@ async fn clean(db: &Database, ids: &[Uuid]) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn due_pending_and_claim() {
-    let Some(u) = url() else {
-        eprintln!("skip");
-        return;
-    };
+    let u = context69_test_support::accessor::database_url();
     let _g = LOCK.lock().await;
     let db = Database::connect(&u).await.unwrap();
     let store = ExtractionStore::new(db.pool().clone());
@@ -151,11 +145,9 @@ async fn due_pending_and_claim() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn queued_retry_and_health() {
-    let Some(u) = url() else {
-        eprintln!("skip");
-        return;
-    };
+    let u = context69_test_support::accessor::database_url();
     let _g = LOCK.lock().await;
     let db = Database::connect(&u).await.unwrap();
     let store = ExtractionStore::new(db.pool().clone());
@@ -220,11 +212,9 @@ async fn queued_retry_and_health() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn manual_retry_and_reset() {
-    let Some(u) = url() else {
-        eprintln!("skip");
-        return;
-    };
+    let u = context69_test_support::accessor::database_url();
     let _g = LOCK.lock().await;
     let db = Database::connect(&u).await.unwrap();
     let store = ExtractionStore::new(db.pool().clone());
@@ -295,11 +285,9 @@ async fn manual_retry_and_reset() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn attempt_and_stop_at_max() {
-    let Some(u) = url() else {
-        eprintln!("skip");
-        return;
-    };
+    let u = context69_test_support::accessor::database_url();
     let _g = LOCK.lock().await;
     let db = Database::connect(&u).await.unwrap();
     let store = ExtractionStore::new(db.pool().clone());

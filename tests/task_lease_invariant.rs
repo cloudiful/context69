@@ -17,10 +17,6 @@ use uuid::Uuid;
 /// database, so tests in this file must not run concurrently.
 static CLAIM_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_test_user(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
@@ -59,11 +55,9 @@ async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping lease invariant test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -177,11 +171,9 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn exhausted_items_are_failed_and_never_claimed_again() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping attempt cap test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -371,11 +363,9 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn stage_progress_resets_the_attempt_count() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping progress reset test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -433,11 +423,9 @@ async fn stage_progress_resets_the_attempt_count() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping attempt decoupling test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -523,11 +511,9 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn items_of_one_parent_are_claimed_one_at_a_time() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parallel claim test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -621,11 +607,9 @@ async fn items_of_one_parent_are_claimed_one_at_a_time() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping claim limit test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -723,11 +707,9 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claiming_a_due_waiting_item_activates_its_parent_task() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping waiting activation test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

@@ -28,10 +28,6 @@ use sqlx::Row;
 use tokio::time::sleep;
 use uuid::Uuid;
 
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_group(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.groups \
@@ -110,11 +106,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn unchanged_record_hash_is_a_noop_for_document_chunks() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping phase 2 unchanged-hash test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -177,11 +171,9 @@ async fn unchanged_record_hash_is_a_noop_for_document_chunks() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn changed_record_hash_propagates_to_every_chunk() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping phase 2 changed-hash test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -233,16 +225,14 @@ async fn changed_record_hash_propagates_to_every_chunk() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn unchanged_hash_publish_still_rewrites_parent_document_metadata() {
     // The parent documents UPDATE remains unconditional so extracted metadata
     // publishing can legitimately change source_uri, external_id, or
     // metadata_json even when the record_hash is unchanged. This pins the
     // narrow contract: same-hash publish must skip the chunk UPDATE while
     // still rewriting the parent documents row.
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping phase 2 parent-rewrite test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

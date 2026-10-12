@@ -11,6 +11,7 @@ use super::*;
 // --- refusals -----------------------------------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_key_name_the_catalogue_does_not_own_stops_the_run_without_leaking() {
     run(async |pool| {
         cleanup(pool).await;
@@ -53,6 +54,7 @@ fn a_key_name_the_catalogue_does_not_own_stops_the_run_without_leaking() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_legacy_row_whose_markers_disagree_stops_the_run() {
     run(async |pool| {
         cleanup(pool).await;
@@ -80,6 +82,7 @@ fn a_legacy_row_whose_markers_disagree_stops_the_run() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_refused_run_leaves_its_earlier_batches_sealed_and_a_retry_finishes() {
     run(async |pool| {
         cleanup(pool).await;

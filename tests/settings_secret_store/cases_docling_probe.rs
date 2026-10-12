@@ -114,6 +114,7 @@ fn connection(base_url: &str) -> UpdateDoclingConnectionSettings {
 /// A reachable Docling endpoint is a success, and the only thing the probe asked
 /// it was liveness: one GET, no body, no credential, no task.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_reachable_docling_endpoint_passes_on_one_keyless_liveness_get() {
     run(async |db| {
         reset(db).await;
@@ -157,6 +158,7 @@ fn a_reachable_docling_endpoint_passes_on_one_keyless_liveness_get() {
 /// header, so the probe rejects that form before any request exists, and the
 /// stand-in records that a request it does receive carries no authorization.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_docling_probe_never_authenticates_and_rejects_userinfo() {
     run(async |db| {
         reset(db).await;
@@ -212,6 +214,7 @@ fn a_docling_probe_never_authenticates_and_rejects_userinfo() {
 /// timeout may reach the stored row, and the VLM credential the deployment
 /// already holds must be neither opened nor replaced.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_docling_probe_writes_nothing_and_leaves_the_stored_endpoint_alone() {
     run(async |db| {
         reset(db).await;
@@ -267,6 +270,7 @@ fn a_docling_probe_writes_nothing_and_leaves_the_stored_endpoint_alone() {
 /// the status is reported, and neither the submitted URL nor anything the
 /// remote sent comes back.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_refused_docling_probe_reports_a_bounded_result() {
     run(async |db| {
         reset(db).await;
@@ -323,6 +327,7 @@ fn a_refused_docling_probe_reports_a_bounded_result() {
 /// A refusal is bounded: the status reaches the operator so they learn why, and
 /// neither the submitted URL nor the remote's response body comes with it.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_refused_docling_probe_reports_the_status_and_nothing_else() {
     run(async |db| {
         reset(db).await;

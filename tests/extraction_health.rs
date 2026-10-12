@@ -6,10 +6,6 @@ use sqlx::Row;
 use uuid::Uuid;
 
 static HEALTH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
-
-fn url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
 async fn seed_group(db: &Database) -> i64 {
     let k = format!("h-group-{}", Uuid::new_v4());
     let r = sqlx::query("INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) VALUES ($1,$2,'public','personal',$3) RETURNING id")
@@ -44,11 +40,9 @@ async fn seed_job(db: &Database, params: SeedJobParams<'_>) -> Uuid {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn health_counts_and_class_aggregation() {
-    let Some(u) = url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping");
-        return;
-    };
+    let u = context69_test_support::accessor::database_url();
     let _g = HEALTH_LOCK.lock().await;
     let db = Database::connect(&u).await.expect("connect");
     let store = ExtractionStore::new(db.pool().clone());
@@ -186,11 +180,9 @@ async fn health_counts_and_class_aggregation() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn health_empty_is_zero() {
-    let Some(u) = url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping");
-        return;
-    };
+    let u = context69_test_support::accessor::database_url();
     let _g = HEALTH_LOCK.lock().await;
     let db = Database::connect(&u).await.expect("connect");
     // Ensure no jobs for a fresh doc

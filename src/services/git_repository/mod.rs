@@ -214,11 +214,19 @@ pub(crate) mod support {
     }
 
     impl Fixture {
-        pub(crate) async fn setup() -> Option<Self> {
-            let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
+        /// The scratch fixture for the database-backed cases.
+        ///
+        /// The target comes from the shared resolver, so no bespoke URL handling
+        /// is left here, and a missing target fails instead of skipping.
+        pub(crate) async fn setup() -> Self {
+            let url = context69_test_support::accessor::database_url();
             let db = Database::connect(&url)
                 .await
                 .expect("connect test database");
+            Self::seeded(db).await
+        }
+
+        async fn seeded(db: Database) -> Self {
             let key = format!("git-index-{}", Uuid::new_v4());
             let group_id = sqlx::query(
                 "INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) \
@@ -251,11 +259,11 @@ pub(crate) mod support {
                 .await
                 .expect("seed repository source")
                 .repository_key;
-            Some(Self {
+            Self {
                 db,
                 group_id,
                 repository_key,
-            })
+            }
         }
 
         pub(crate) fn db(&self) -> &Database {

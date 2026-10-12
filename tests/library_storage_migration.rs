@@ -71,13 +71,12 @@ impl ExtractionReadiness for NoopCallbacks {
     }
 }
 
-async fn connect_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+async fn connect_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 /// The legacy migration selects rows across the whole database, so tests must
@@ -87,9 +86,9 @@ async fn connect_db() -> Option<Database> {
 /// LIKE 'test/%'`) are removed before each scenario.
 static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, Database)> {
+async fn prepare_isolated_db() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
     let guard = SUITE_LOCK.lock().await;
-    let db = connect_db().await?;
+    let db = connect_db().await;
     sqlx::query(
         "DELETE FROM context69.library_files \
          WHERE storage_object_id IS NULL \
@@ -99,7 +98,7 @@ async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, 
     .execute(db.pool())
     .await
     .expect("purge stray legacy rows");
-    Some((guard, db))
+    (guard, db)
 }
 
 async fn build_library_service(db: &Database) -> (LibraryService, std::path::PathBuf) {
@@ -273,11 +272,9 @@ async fn cleanup_record_count(db: &Database, file_id: Uuid) -> i64 {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn dry_run_reports_without_mutating_database_or_storage() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping dry-run test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"dry run body\n".to_vec();
@@ -331,11 +328,9 @@ async fn dry_run_reports_without_mutating_database_or_storage() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn migration_links_content_addressed_object_and_records_old_key() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping linkage test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"migrate me\n".to_vec();
@@ -413,11 +408,9 @@ async fn migration_links_content_addressed_object_and_records_old_key() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn missing_source_is_reported_without_any_mutation() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping missing-source test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let (file_id, old_key) = seed_legacy_file(
@@ -460,11 +453,9 @@ async fn missing_source_is_reported_without_any_mutation() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn bad_size_or_hash_sources_are_rejected_and_retained() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping validation test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let wrong_size = b"wrong recorded size\n".to_vec();
@@ -524,11 +515,9 @@ async fn bad_size_or_hash_sources_are_rejected_and_retained() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn bounded_batches_are_restart_safe_and_idempotent() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping restart test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let mut seeded = Vec::new();
@@ -586,11 +575,9 @@ async fn bounded_batches_are_restart_safe_and_idempotent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn legacy_reference_update_is_conditional() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping conditional-update test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let store = LibraryStore::new(db.clone());
     let group = seed_group_record(&db).await;
     let sha = "c".repeat(64);
@@ -672,15 +659,13 @@ async fn legacy_reference_update_is_conditional() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reference_count_distinguishes_shared_from_unreferenced_objects() {
     // Covers the verification behind the migration tool's guarded cleanup:
     // an object whose link failed must be removable, while a shared object
     // (including one linked by a transaction that actually committed despite
     // reporting an error) must be retained.
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping reference-count test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let store = LibraryStore::new(db.clone());
     let group = seed_group_record(&db).await;
     let sha = "d".repeat(64);
@@ -740,11 +725,9 @@ async fn reference_count_distinguishes_shared_from_unreferenced_objects() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn old_key_cleanup_record_survives_file_deletion() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping durability test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"outlive me\n".to_vec();
@@ -785,11 +768,9 @@ async fn old_key_cleanup_record_survives_file_deletion() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn startup_helper_migrates_with_default_batch_and_is_restart_safe() {
-    let Some((_guard, db)) = prepare_isolated_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping startup-helper test");
-        return;
-    };
+    let (_guard, db) = prepare_isolated_db().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"startup migrated\n".to_vec();

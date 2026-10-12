@@ -9,10 +9,6 @@ use uuid::Uuid;
 /// concurrent runs do not observe each other's partial state.
 pub static FAST_PATH_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-pub fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 pub async fn seed_test_user(db: &Database) -> i64 {
     sqlx::query(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \

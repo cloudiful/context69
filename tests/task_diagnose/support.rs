@@ -16,10 +16,6 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-pub(crate) fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 /// Connect to the scratch database and take the suite lock, or return `None`
 /// when the case is opted out because no database was configured.
 ///
@@ -28,13 +24,13 @@ pub(crate) fn test_database_url() -> Option<String> {
 /// than in each case means no DB-backed case can forget it, which is the
 /// failure mode that makes a shared-database suite flaky only on a busy
 /// machine.
-pub(crate) async fn locked_database() -> Option<(Database, tokio::sync::MutexGuard<'static, ()>)> {
-    let url = test_database_url()?;
+pub(crate) async fn locked_database() -> (Database, tokio::sync::MutexGuard<'static, ()>) {
+    let url = context69_test_support::accessor::database_url();
     let guard = SUITE_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
-    Some((db, guard))
+    (db, guard)
 }
 
 /// Serialises every DB-backed case in this file.

@@ -172,12 +172,11 @@ fn db_lines() -> Vec<NewGitGenerationChunk> {
     ]
 }
 
-async fn scratch_db() -> Option<Database> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-    let db = Database::connect(&url)
+async fn scratch_db() -> Database {
+    let url = context69_test_support::accessor::database_url();
+    Database::connect(&url)
         .await
-        .expect("connect scratch database");
-    Some(db)
+        .expect("connect scratch database")
 }
 
 // A fresh private group plus one repository source.
@@ -319,10 +318,9 @@ async fn read(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn database_round_trips_cover_windows_and_refusals() {
-    let Some(db) = scratch_db().await else {
-        return;
-    };
+    let db = scratch_db().await;
     let (gid, key) = db_seed(&db).await;
     db_index(&db, gid, key, true).await;
     let scope = member_scope(gid);

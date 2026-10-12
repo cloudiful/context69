@@ -14,10 +14,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn partially_overlapping_batch_is_rejected_atomically() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
     let active_file = insert_file_in_group(&db, group_id, "failed").await;
@@ -67,10 +66,9 @@ async fn partially_overlapping_batch_is_rejected_atomically() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn resubmitting_active_file_reuses_existing_task() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     let (task_a, _) = create_file_task(&db, user_id, group_id, file_id, "dedup-first").await;
@@ -106,10 +104,9 @@ async fn resubmitting_active_file_reuses_existing_task() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reprocess_creates_new_task_for_failed_files() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     for status in ["failed"] {
         let (file_id, group_id) = insert_file(&db, status).await;

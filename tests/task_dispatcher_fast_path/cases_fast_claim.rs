@@ -2,16 +2,12 @@ use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::support::{
-    FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user, test_database_url,
-};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claim_items_fast_claims_and_activates_a_fresh_task() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping fast claim activation test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

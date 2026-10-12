@@ -15,11 +15,9 @@ use super::{claim_item, create_url_task, sha256_hex, staged_url_payload, uploade
 /// running status and the current lease token, so a stale worker cannot bind
 /// or rebind it.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn staged_input_reference_requires_the_running_lease_token() {
-    let Some(database_url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping issue 667 lease test");
-        return;
-    };
+    let database_url = context69_test_support::accessor::database_url();
     let _guard = PIPELINE_CASE_LOCK.lock().await;
     let db = Database::connect(&database_url)
         .await

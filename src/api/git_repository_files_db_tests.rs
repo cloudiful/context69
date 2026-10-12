@@ -23,10 +23,9 @@ use crate::api::git_repository_files_db_fixture::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_page_reports_the_serving_generation_provenance_and_coverage() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = fixture.indexed().await;
     let page = fixture.page(50, None).await;
 
@@ -86,10 +85,9 @@ async fn a_page_reports_the_serving_generation_provenance_and_coverage() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn manifest_pages_are_path_ordered_and_cover_the_whole_manifest_once() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     fixture.indexed().await;
 
     // One unpaginated read is the order the storage layer defines.
@@ -150,10 +148,9 @@ async fn manifest_pages_are_path_ordered_and_cover_the_whole_manifest_once() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_repository_with_no_active_generation_reads_as_not_ready() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     // Registered but never indexed: there is no generation to page at all.
     let source = fixture.source().await;
     assert_eq!(source.index_status, GitIndexStatus::Pending);
@@ -202,10 +199,9 @@ async fn a_repository_with_no_active_generation_reads_as_not_ready() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_foreign_group_sees_no_repository_no_generation_and_no_manifest() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = fixture.indexed().await;
     let foreign_group_id = fixture.foreign_group().await;
     // The foreign group is a real group with its own repository, so an empty

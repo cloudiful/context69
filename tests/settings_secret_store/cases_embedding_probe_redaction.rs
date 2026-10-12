@@ -8,6 +8,7 @@ use super::support::{keyed, reset, run, service, store_metadata};
 use context69::services::secret_store::key_names;
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_probe_refusal_that_echoes_the_credential_never_returns_it() {
     run(async |db| {
         reset(db).await;
@@ -78,6 +79,7 @@ fn a_probe_refusal_that_echoes_the_credential_never_returns_it() {
 /// lengths that were previously exempt and drives each one through the whole
 /// probe path: submitted key, provider, error formatter, settings handler.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_short_echoed_credential_never_returns_through_the_probe() {
     for key in ["a", "ab", "abc", "abcd", "abcde", "abcdef", "abcdefg"] {
         run(async |db| {
@@ -134,6 +136,7 @@ fn a_short_echoed_credential_never_returns_through_the_probe() {
 /// A short credential is redacted too: a provider that echoes it must not be
 /// able to disclose it through an error of any length.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_probe_refusal_that_echoes_a_short_credential_never_returns_it() {
     run(async |db| {
         reset(db).await;
@@ -164,6 +167,7 @@ fn a_probe_refusal_that_echoes_a_short_credential_never_returns_it() {
 /// the scan has to advance past a match and still find the next one. Both are
 /// driven through the real probe path rather than the formatter alone.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_probe_refusal_scrubs_mixed_case_percent_encodings_and_repeats() {
     run(async |db| {
         reset(db).await;

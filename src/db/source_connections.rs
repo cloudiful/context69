@@ -256,11 +256,9 @@ mod tests {
     /// writes is keyed by a fresh UUID and removed again, so it leaves nothing
     /// behind.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn a_connection_round_trips_its_identity_and_store_reference() {
-        let Ok(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL") else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the round trip");
-            return;
-        };
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");

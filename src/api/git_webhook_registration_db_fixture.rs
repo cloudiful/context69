@@ -33,11 +33,8 @@ pub(super) struct Seeded {
 
 /// The scratch database plus one group and one repository source, or `None` when
 /// the round trips must skip.
-pub(super) async fn seeded() -> Option<Seeded> {
-    let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the create round trips");
-        return None;
-    };
+pub(super) async fn seeded() -> Seeded {
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -53,12 +50,12 @@ pub(super) async fn seeded() -> Option<Seeded> {
     .expect("seed group")
     .get("id");
     let repository_key = seed_source(&db, group_id).await;
-    Some(Seeded {
+    Seeded {
         secrets: store(&db),
         db,
         group_id,
         repository_key,
-    })
+    }
 }
 
 /// One credential-free GitHub repository source of `group_id`, with a fresh

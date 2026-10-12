@@ -5,10 +5,9 @@ use super::support::*;
 use super::support_seed_release::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn manual_release_deletes_source_and_keeps_results() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"source body".to_vec();
@@ -72,10 +71,9 @@ async fn manual_release_deletes_source_and_keeps_results() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn release_is_idempotent() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"idempotent".to_vec();
@@ -138,10 +136,9 @@ async fn release_is_idempotent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn shared_object_survives_until_last_release() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"shared bytes".to_vec();

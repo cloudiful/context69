@@ -6,10 +6,9 @@ use super::support::*;
 use super::support_seed_release::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn physical_delete_failure_is_rescheduled_then_retried() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
@@ -71,10 +70,9 @@ async fn physical_delete_failure_is_rescheduled_then_retried() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn restart_recovery_drains_pending_intent() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
@@ -125,10 +123,9 @@ async fn restart_recovery_drains_pending_intent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reuse_before_cleanup_cancels_intent_without_deleting_bytes() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
@@ -197,10 +194,9 @@ async fn reuse_before_cleanup_cancels_intent_without_deleting_bytes() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn already_missing_bytes_complete_the_intent() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
@@ -242,10 +238,9 @@ async fn already_missing_bytes_complete_the_intent() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn superseded_object_identity_is_not_deleted() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
@@ -301,10 +296,9 @@ async fn superseded_object_identity_is_not_deleted() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn legacy_direct_path_delete_failure_is_retried() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     purge_open_cleanup_intents(&db).await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;

@@ -61,13 +61,8 @@ struct Fixture {
 impl Fixture {
     /// A group and a repository, or `None` when no scratch database is
     /// configured, which skips the calling test.
-    async fn setup(visibility: &str) -> Option<Self> {
-        let Some(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok() else {
-            eprintln!(
-                "CONTEXT69_TEST_DATABASE_URL is not set; skipping git file search literal test"
-            );
-            return None;
-        };
+    async fn setup(visibility: &str) -> Self {
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");
@@ -101,11 +96,11 @@ impl Fixture {
             .await
             .expect("seed repository source")
             .repository_key;
-        Some(Self {
+        Self {
             db,
             group_id,
             repository_key,
-        })
+        }
     }
 
     /// Starts a generation, stores `files` as the whole manifest with one chunk
@@ -239,10 +234,9 @@ fn assert_hits(
 /// Every fixture row answers a control query, so no assertion below can pass for
 /// the wrong reason: an unreadable snapshot answers nothing at all.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn every_fixture_row_is_searchable() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     fixture.store_and_activate(&"6".repeat(40), &FILES).await;
 
     // The control words are chosen to appear in chunk text and in no path, so
@@ -279,10 +273,9 @@ async fn every_fixture_row_is_searchable() {
 /// digits is absent, which is the whole regression: unescaped, it would be
 /// admitted as a `path_phrase` wildcard hit.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_percent_sign_never_reaches_the_path_branch_as_a_wildcard() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     fixture.store_and_activate(&"7".repeat(40), &FILES).await;
 
     assert_hits(
@@ -316,10 +309,9 @@ async fn a_percent_sign_never_reaches_the_path_branch_as_a_wildcard() {
 /// The phrase and the identifier tokens are separate matching paths, and a
 /// metacharacter in either stays a literal character.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn literal_metacharacters_and_identifier_tokens_stay_separate() {
-    let Some(fixture) = Fixture::setup("public").await else {
-        return;
-    };
+    let fixture = Fixture::setup("public").await;
     fixture.store_and_activate(&"8".repeat(40), &FILES).await;
 
     // An underscore is an identifier character, so it matches the path that

@@ -37,6 +37,7 @@ fn request(openai_base_url: Option<&str>, api_key: Option<&str>) -> UpdateDoclin
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_docling_vlm_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
@@ -76,6 +77,7 @@ fn the_docling_vlm_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_sealed_docling_vlm_key_fails_closed_and_still_reports_presence() {
     run(async |db| {
         reset(db).await;
@@ -113,6 +115,7 @@ fn a_sealed_docling_vlm_key_fails_closed_and_still_reports_presence() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn keeping_the_vlm_base_url_keeps_the_stored_docling_key() {
     run(async |db| {
         reset(db).await;

@@ -14,6 +14,7 @@ const SYNTHETIC_KEY: &str = "synthetic-embedding-key";
 const PURPOSE: &str = "embedding.api_key";
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn an_identity_guard_rejects_the_save_before_anything_is_persisted() {
     run(async |db| {
         reset(db).await;
@@ -92,6 +93,7 @@ fn an_identity_guard_rejects_the_save_before_anything_is_persisted() {
 /// It also must not notify the observer, or the live runtime would reload from
 /// settings the save was supposed to have refused.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_rejected_dimension_save_leaves_every_settings_block_and_the_observer_untouched() {
     run(async |db| {
         reset(db).await;

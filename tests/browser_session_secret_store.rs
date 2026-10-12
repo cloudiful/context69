@@ -60,21 +60,15 @@ fn store(db: &Database, master_key: Option<&str>) -> SecretStore {
         .expect("a test master key builds a store")
 }
 
-/// Runs one case against a fresh connection to the scratch database, or reports
-/// that the integration environment is not configured.
+/// Runs one case against a fresh connection to the scratch database.
+///
+/// A missing target fails here rather than skipping: the case is `#[ignore]`d,
+/// so an ordinary run never reaches it and an explicit run must actually run.
 ///
 /// The guard is taken in this synchronous frame and the awaits run in the nested
 /// runtime, so the lock is never held across an await point.
 fn run(case: impl AsyncFnOnce(&Database)) {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL")
-        .ok()
-        .filter(|url| !url.trim().is_empty());
-    let Some(url) = url else {
-        eprintln!(
-            "CONTEXT69_TEST_DATABASE_URL is not set; skipping the browser session secret test"
-        );
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _rows = SIGNING_KEY_ROW
         .lock()
         .unwrap_or_else(PoisonError::into_inner);
@@ -122,6 +116,7 @@ async fn stored_bytes(db: &Database) -> Option<(Option<String>, i32, i32, Vec<u8
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_signing_key_row_keeps_its_historical_name_and_is_reused_across_resolves() {
     run(async |db| {
         let existed_before = stored_bytes(db).await.is_some();
@@ -159,6 +154,7 @@ fn the_signing_key_row_keeps_its_historical_name_and_is_reused_across_resolves()
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_signing_key_is_sealed_and_leaks_neither_its_bytes_nor_its_presence() {
     run(async |db| {
         let existed_before = stored_bytes(db).await.is_some();

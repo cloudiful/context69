@@ -33,11 +33,9 @@ async fn item_payload(db: &context69::db::Database, item_id: Uuid) -> serde_json
 /// no crash window can strand a terminal row next to an item without
 /// sections, or sections next to an active row that would resubmit.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn finish_with_sections_commits_success_atomically() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -76,11 +74,9 @@ async fn finish_with_sections_commits_success_atomically() {
 /// The commit is fenced on both sides: a stale item lease, an already
 /// terminal row, and a duplicate commit all change nothing.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn finish_with_sections_is_fenced_and_idempotent() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -140,11 +136,9 @@ async fn finish_with_sections_is_fenced_and_idempotent() {
 /// the cancel changes nothing; a fresh submit is allowed once the row is
 /// terminal.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cancel_and_late_commit_paths() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;

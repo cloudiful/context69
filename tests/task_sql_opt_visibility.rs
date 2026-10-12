@@ -44,10 +44,6 @@ fn optimized_visibility_computes_groups_once_without_duplicates() {
     );
 }
 
-fn test_db_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 async fn seed_user(db: &Database, tag: &str) -> i64 {
     sqlx::query("INSERT INTO context69.users (login_name, display_name, password_hash) VALUES ($1, $2, $3) RETURNING id")
         .bind(format!("sql-opt-{tag}-{}", Uuid::new_v4()))
@@ -195,10 +191,9 @@ async fn cleanup(db: &Database, task_ids: &[Uuid], group_ids: &[i64], user_ids: 
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn visibility_covers_owner_member_descendant_and_nonmember() {
-    let Some(url) = test_db_url() else {
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url).await.expect("connect");
     let owner = seed_user(&db, "owner").await;
@@ -265,10 +260,9 @@ async fn visibility_covers_owner_member_descendant_and_nonmember() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn overlapping_membership_never_duplicates_and_filters_paginate() {
-    let Some(url) = test_db_url() else {
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url).await.expect("connect");
     let owner = seed_user(&db, "overlap-owner").await;

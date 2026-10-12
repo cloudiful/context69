@@ -74,6 +74,31 @@ docker build -t context69:latest .
 
 运行本地镜像时使用上面的 Docker 命令，并将镜像名替换为 `context69:latest`。
 
+## 后端测试
+
+纯测试可在任意环境运行：
+
+```bash
+cargo test --workspace
+```
+
+依赖数据库的测试被显式标记为 `#[ignore]`，因此上面的命令只运行纯测试，并把被忽略的测试如实报告出来，而不会伪装成通过。下方介绍在已配置测试数据库上运行它们的工具与显式重置流程。
+
+运行器的常规调用会先以 Cargo 默认并行度执行 `cargo test --workspace --no-fail-fast --offline`，其中也包括 doctest。被忽略的数据库测试和可选测试不会被选中。纯测试失败时，运行器会在解析数据库目标或开始任何数据库预检、加锁、重置之前停止。`--preflight` 与 `--list` 仍是检查模式，不会执行纯测试套件。
+
+运行器从 `CONTEXT69_TEST_DATABASE_URL` 读取目标；若该变量未设置，则读取仓库 `.env` 文件中的 `DATABASE_URL`。它不会把数据库 URL 作为参数接收，不会创建或删除数据库，也不会自行部署 PostgreSQL 服务。仅仅存在环境变量 `DATABASE_URL` 不会选中任何目标。
+
+`./scripts/test-backend.sh --preflight` 只读检查目标库的 schema、迁移账本与扩展，并报告运行器是否允许重置它。`./scripts/test-backend.sh --list` 在完全不连接数据库的前提下，将仓库中登记的数据库测试清单与编译产物进行核对。
+
+重置目标库需要单独、明确的授权。包装脚本会原样转发参数，但不会替你加上它；只有你显式要求时，运行器才会删除并重建 `context69` schema：
+
+```bash
+./scripts/test-backend.sh --preflight         # 只读，报告重置范围
+./scripts/test-backend.sh --authorize-reset    # 纯测试、重置、迁移，然后执行数据库测试
+```
+
+运行产物与各测试目标的日志写入 `target/backend-test-results/<run-id>/`。
+
 ## 许可证
 
 Apache-2.0，详见 [LICENSE](LICENSE)。

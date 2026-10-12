@@ -53,8 +53,9 @@ async fn create(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_supplied_secret_is_sealed_once_and_the_response_reports_only_presence() {
-    let Some(seeded) = seeded().await else { return };
+    let seeded = seeded().await;
     let secret = synthetic_secret();
     let before = store_row_count(&seeded.db).await;
     let stored = create(
@@ -117,8 +118,9 @@ async fn a_supplied_secret_is_sealed_once_and_the_response_reports_only_presence
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_omitted_secret_stores_an_inactive_registration_and_no_store_row() {
-    let Some(seeded) = seeded().await else { return };
+    let seeded = seeded().await;
     let before = store_row_count(&seeded.db).await;
     let stored = create(
         &seeded.db,
@@ -143,8 +145,9 @@ async fn an_omitted_secret_stores_an_inactive_registration_and_no_store_row() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_refused_duplicate_is_rejected_before_anything_is_sealed() {
-    let Some(seeded) = seeded().await else { return };
+    let seeded = seeded().await;
     let first = create(
         &seeded.db,
         &seeded.secrets,
@@ -199,8 +202,9 @@ async fn a_refused_duplicate_is_rejected_before_anything_is_sealed() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_hook_identity_another_repository_claims_is_a_conflict_that_repoints_nothing() {
-    let Some(seeded) = seeded().await else { return };
+    let seeded = seeded().await;
     let claimed = create(
         &seeded.db,
         &seeded.secrets,
@@ -253,8 +257,9 @@ async fn a_hook_identity_another_repository_claims_is_a_conflict_that_repoints_n
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_create_only_insert_is_confined_to_a_repository_this_group_owns() {
-    let Some(seeded) = seeded().await else { return };
+    let seeded = seeded().await;
     let owned = create(
         &seeded.db,
         &seeded.secrets,
@@ -324,8 +329,9 @@ async fn the_create_only_insert_is_confined_to_a_repository_this_group_owns() {
 const UNOWNED_REPOSITORY: Uuid = Uuid::nil();
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn two_concurrent_creates_produce_one_winner_whose_sealed_value_is_its_own() {
-    let Some(seeded) = seeded().await else { return };
+    let seeded = seeded().await;
     // Two different synthetic secrets against the same repository: the lock must
     // serialize them, so the loser's value can never become the winner's row.
     let secrets = [synthetic_secret(), synthetic_secret()];

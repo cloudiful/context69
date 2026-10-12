@@ -6,11 +6,9 @@ use context69::contracts::{CreateMetadataIndexRequest, MetadataDataType, Metadat
 use super::support::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn metadata_index_build_processes_every_document_page() {
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping build paging test");
-        return;
-    };
+    let db = connect_db().await;
     // 500 documents per page: this needs one full page plus a partial second
     // page, so a build that stops after the first page fails the counts below.
     let document_count = 520_i64;

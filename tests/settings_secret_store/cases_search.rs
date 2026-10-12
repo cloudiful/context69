@@ -28,6 +28,7 @@ fn request(api_key: SecretPatch) -> CanonicalUpdateSearchSettingsRequest {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_search_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
     run(async |db| {
         reset(db).await;
@@ -58,6 +59,7 @@ fn the_search_api_key_round_trips_sealed_and_leaves_no_plaintext_column() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_sealed_search_key_fails_closed_and_still_reports_presence() {
     run(async |db| {
         reset(db).await;
@@ -102,6 +104,7 @@ fn a_sealed_search_key_fails_closed_and_still_reports_presence() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn keeping_the_search_api_key_leaves_the_stored_one_untouched() {
     run(async |db| {
         reset(db).await;

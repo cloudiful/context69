@@ -15,7 +15,6 @@ use crate::dedup_support::{count_active_file_items, insert_cancelled_source_task
 use crate::support::{
     add_group_maintainer, cleanup_file, cleanup_group, cleanup_task, cleanup_user,
     create_file_task, insert_file, insert_file_in_group, seed_group, seed_test_user,
-    test_database_url,
 };
 
 /// How long a worker is expected to stay blocked on the shared file lock. If a
@@ -67,11 +66,9 @@ async fn mark_item_failed(db: &Database, item_id: Uuid) {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn concurrent_creates_for_one_file_converge_on_one_task() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping dedup test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -127,11 +124,9 @@ async fn concurrent_creates_for_one_file_converge_on_one_task() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn concurrent_create_and_retry_keep_single_active_item() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping dedup test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -172,11 +167,9 @@ async fn concurrent_create_and_retry_keep_single_active_item() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn retry_and_rerun_wait_for_the_shared_file_lock() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping dedup test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");

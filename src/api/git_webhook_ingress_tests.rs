@@ -84,8 +84,8 @@ struct Seed {
     signing_secret: Vec<u8>,
 }
 
-async fn fixture(active: bool, seal: bool) -> Option<Seed> {
-    let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
+async fn fixture(active: bool, seal: bool) -> Seed {
+    let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
@@ -159,14 +159,14 @@ async fn fixture(active: bool, seal: bool) -> Option<Seed> {
             .await
             .expect("seal the signing secret");
     }
-    Some(Seed {
+    Seed {
         db,
         store,
         group_id,
         repository_key,
         hook_id,
         signing_secret,
-    })
+    }
 }
 
 fn unkeyed_store(db: &Database) -> SecretStore {
@@ -199,11 +199,9 @@ async fn delivery_status(db: &Database, delivery_id: &str) -> Option<String> {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn unknown_hook_and_bad_signature_write_no_delivery() {
-    let Some(seed) = fixture(true, true).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
+    let seed = fixture(true, true).await;
     let body = b"{\"zen\":\"keep it logically awesome\"}";
     let valid = sign(&seed.signing_secret, body);
 
@@ -244,11 +242,9 @@ async fn unknown_hook_and_bad_signature_write_no_delivery() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn active_registration_records_received() {
-    let Some(seed) = fixture(true, true).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
+    let seed = fixture(true, true).await;
     let body = b"{\"ref\":\"refs/heads/main\"}";
     let delivery_id = format!("{}", Uuid::new_v4());
     let outcome = process_delivery(
@@ -276,11 +272,9 @@ async fn active_registration_records_received() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn inactive_registration_records_ignored() {
-    let Some(seed) = fixture(false, true).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
+    let seed = fixture(false, true).await;
     let body = b"{}";
     let delivery_id = format!("{}", Uuid::new_v4());
     let outcome = process_delivery(
@@ -308,11 +302,9 @@ async fn inactive_registration_records_ignored() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_repeated_delivery_id_stays_one_row() {
-    let Some(seed) = fixture(true, true).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
+    let seed = fixture(true, true).await;
     let body = b"{}";
     let signature = sign(&seed.signing_secret, body);
     let delivery_id = format!("{}", Uuid::new_v4());
@@ -338,11 +330,9 @@ async fn a_repeated_delivery_id_stays_one_row() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_sealed_row_without_a_master_key_fails_closed() {
-    let Some(seed) = fixture(true, true).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
+    let seed = fixture(true, true).await;
     let unkeyed = unkeyed_store(&seed.db);
     // The reader must surface the missing key rather than fall back to plaintext.
     assert!(
@@ -377,11 +367,9 @@ async fn a_sealed_row_without_a_master_key_fails_closed() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_reference_less_registration_is_rejected() {
-    let Some(seed) = fixture(true, false).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
+    let seed = fixture(true, false).await;
     let body = b"{}";
     let delivery_id = format!("{}", Uuid::new_v4());
     let outcome = process_delivery(
@@ -400,12 +388,10 @@ async fn a_reference_less_registration_is_rejected() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_signing_secret_is_read_through_the_owning_record_scope() {
-    let Some(first) = fixture(true, true).await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the ingress round trip");
-        return;
-    };
-    let second = fixture(true, true).await.expect("second seed");
+    let first = fixture(true, true).await;
+    let second = fixture(true, true).await;
     // Each record is opened through its own group-scoped store; the two stores
     // use independent master keys, so a cross read cannot accidentally decrypt.
     let read = |store: &SecretStore, group_id: i64, repository_key: Uuid| {

@@ -139,18 +139,10 @@ fn a_document_with_no_chunks_reports_a_real_zero_total() {
     assert_eq!(parsed.total_batches, Some(0));
 }
 
-// ---------- items.sql projection (scratch database) ----------
-
-fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn items_expose_only_the_progress_of_the_current_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = context69::db::Database::connect(&url)
         .await
@@ -225,11 +217,9 @@ async fn items_expose_only_the_progress_of_the_current_attempt() {
 /// A terminal item keeps the final counts of the attempt that produced them,
 /// because nothing bumps its attempt afterwards.
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_terminal_item_retains_the_counts_of_its_final_attempt() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = context69::db::Database::connect(&url)
         .await
@@ -260,11 +250,9 @@ async fn a_terminal_item_retains_the_counts_of_its_final_attempt() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reviewer_finalizing_preserves_persisted_counts_and_checkpoint() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = context69::db::Database::connect(&url)
         .await
@@ -320,11 +308,9 @@ async fn reviewer_finalizing_preserves_persisted_counts_and_checkpoint() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reviewer_waiting_retry_hides_previous_attempt_progress() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = context69::db::Database::connect(&url)
         .await

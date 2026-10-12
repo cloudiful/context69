@@ -166,10 +166,9 @@ async fn window_page(
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_line_window_returns_only_that_window_from_the_serving_generation() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = index_with_chunks(&fixture).await;
     let (generation, file) = serving(&fixture).await;
     assert_eq!(generation.generation_key, generation_key);
@@ -205,10 +204,9 @@ async fn a_line_window_returns_only_that_window_from_the_serving_generation() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_matching_chunk_rows_come_back_once_and_in_stored_order() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let _generation_key = index_with_chunks(&fixture).await;
     let (_generation, file) = serving(&fixture).await;
     let window = scratch_entry()
@@ -263,10 +261,9 @@ async fn the_matching_chunk_rows_come_back_once_and_in_stored_order() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_foreign_group_reads_no_stored_text() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let _generation_key = index_with_chunks(&fixture).await;
     let (_generation, file) = serving(&fixture).await;
     let foreign_group_id = fixture.foreign_group().await;
@@ -300,10 +297,9 @@ async fn a_foreign_group_reads_no_stored_text() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_building_generation_serves_no_text() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     // A building generation can hold chunk rows, and they are readable by key,
     // but the route refuses them: only the generation the repository advertises
     // may answer.
@@ -343,10 +339,9 @@ async fn a_building_generation_serves_no_text() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_statement_returns_stored_chunk_text_and_nothing_else() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let _generation_key = index_with_chunks(&fixture).await;
     let (_generation, file) = serving(&fixture).await;
     let window = scratch_entry()

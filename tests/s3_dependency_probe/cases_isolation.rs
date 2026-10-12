@@ -9,12 +9,10 @@ use super::support::*;
 
 /// A `configuration:` pin is never probed; only a fingerprint change may heal it.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_configuration_pinned_s3_gate_is_not_probeable() {
     let _guard = SUITE_LOCK.lock().await;
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 probe test");
-        return;
-    };
+    let db = connect_db().await;
     let service = build_library_service(&db, Some(unreachable_s3())).await;
     seed_s3_gate(
         &db,
@@ -41,12 +39,10 @@ async fn a_configuration_pinned_s3_gate_is_not_probeable() {
 
 /// A probe before the backoff elapses is not due and leaves the gate untouched.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_s3_probe_before_the_backoff_elapses_is_not_due() {
     let _guard = SUITE_LOCK.lock().await;
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 probe test");
-        return;
-    };
+    let db = connect_db().await;
     let service = build_library_service(&db, Some(unreachable_s3())).await;
     seed_s3_gate(
         &db,
@@ -73,12 +69,10 @@ async fn an_s3_probe_before_the_backoff_elapses_is_not_due() {
 
 /// A local-storage process never probes the S3 gate.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_non_s3_backend_never_probes_the_gate() {
     let _guard = SUITE_LOCK.lock().await;
-    let Some(db) = connect_db().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping s3 probe test");
-        return;
-    };
+    let db = connect_db().await;
     let service = build_library_service(&db, None).await;
     seed_s3_gate(
         &db,

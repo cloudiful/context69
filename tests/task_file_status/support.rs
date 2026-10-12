@@ -10,22 +10,14 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-pub fn test_database_url() -> Option<String> {
-    std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()
-}
-
 /// Connect to the scratch test database, or `None` when the integration
 /// environment is not configured so the caller can skip cleanly.
-pub async fn connect_scratch() -> Option<Database> {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping database test");
-        return None;
-    };
-    Some(
-        Database::connect(&url)
-            .await
-            .expect("connect test database"),
-    )
+pub async fn connect_scratch() -> Database {
+    let url = context69_test_support::accessor::database_url();
+
+    Database::connect(&url)
+        .await
+        .expect("connect test database")
 }
 
 pub async fn seed_test_user(db: &Database) -> i64 {

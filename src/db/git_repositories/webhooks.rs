@@ -334,8 +334,8 @@ mod signing_secret_reference_tests {
     /// One group, one repository, and an inactive registration on it, plus a
     /// keyed store over the scratch pool. Skipped unless
     /// `CONTEXT69_TEST_DATABASE_URL` names a migrated disposable database.
-    async fn fixture() -> Option<(Database, i64, Uuid, SecretStore)> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
+    async fn fixture() -> (Database, i64, Uuid, SecretStore) {
+        let url = context69_test_support::accessor::database_url();
         let db = Database::connect(&url)
             .await
             .expect("connect test database");
@@ -388,7 +388,7 @@ mod signing_secret_reference_tests {
             &base64::engine::general_purpose::STANDARD,
             Uuid::new_v4().into_bytes().repeat(2),
         );
-        Some((
+        (
             db.clone(),
             group_id,
             repository_key,
@@ -398,7 +398,7 @@ mod signing_secret_reference_tests {
                 1,
             )
             .expect("a store builds from any master key"),
-        ))
+        )
     }
 
     fn target(group_id: i64, repository_key: Uuid) -> GitSecretTarget {
@@ -424,11 +424,9 @@ mod signing_secret_reference_tests {
     /// neither reaches the reference nor disturbs the sealed value it left
     /// behind.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn a_signing_secret_moves_its_own_reference_and_preserves_active() {
-        let Some((db, group_id, repository_key, store)) = fixture().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the webhook round trip");
-            return;
-        };
+        let (db, group_id, repository_key, store) = fixture().await;
         let writer = GitSecretWriter::new(db.clone(), store.clone());
         let key_name = match writer
             .write(

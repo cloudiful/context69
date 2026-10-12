@@ -5,10 +5,9 @@ use super::support::*;
 use super::support_seed_release::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn cross_group_release_is_rejected() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let owner = seed_group_record(&db).await;
     let other = seed_group_record(&db).await;
@@ -49,10 +48,9 @@ async fn cross_group_release_is_rejected() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn active_processing_blocks_release() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let user_id = seed_user(&db).await;
@@ -94,10 +92,9 @@ async fn active_processing_blocks_release() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn sync_control_file_release_is_refused() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"{\"source\": true}".to_vec();
@@ -141,10 +138,9 @@ async fn sync_control_file_release_is_refused() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn failed_ingest_retains_source() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let (service, storage_root) = build_library_service(&db).await;
     let group = seed_group_record(&db).await;
     let content = b"failed body".to_vec();

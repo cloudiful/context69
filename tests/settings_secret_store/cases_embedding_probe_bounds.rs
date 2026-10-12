@@ -17,6 +17,7 @@ use super::support::{keyed, reset, run, service};
 /// reads are safe: the whole credential never appears, and the untruncated
 /// provider message is always fully redacted.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_credential_straddling_the_preview_truncation_is_never_fully_disclosed() {
     run(async |db| {
         reset(db).await;
@@ -53,6 +54,7 @@ fn a_credential_straddling_the_preview_truncation_is_never_fully_disclosed() {
 /// value nor any prefix of it. Driven through the real probe path with padding
 /// sized to place the echoed credential across the boundary.
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_credential_across_the_preview_boundary_leaves_no_prefix() {
     // The error preview keeps 320 characters (src/embedding PREVIEW_CHARS).
     const PREVIEW_CHARS: usize = 320;
@@ -268,6 +270,7 @@ async fn assert_large_provider_error_is_bounded_and_redacted(
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_large_http_provider_error_is_bounded_and_redacted() {
     // The HTTP-error path: a retryable server error, so
     // format_embedding_http_error builds the message the handler returns.
@@ -283,6 +286,7 @@ fn a_large_http_provider_error_is_bounded_and_redacted() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_large_parse_error_provider_message_is_bounded_and_redacted() {
     // The parse path: a success status whose body is not a usable embedding
     // payload, so parse_embedding_response builds the message instead.

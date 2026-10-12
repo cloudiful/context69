@@ -11,10 +11,9 @@ use crate::support::{
 };
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn terminal_item_status_projects_to_file() {
-    let Some(db) = connect_scratch().await else {
-        return;
-    };
+    let db = connect_scratch().await;
     let user_id = seed_test_user(&db).await;
     for (finish_status, expected) in [("succeeded", "succeeded"), ("failed", "failed")] {
         let (file_id, group_id) = insert_file(&db, "failed").await;

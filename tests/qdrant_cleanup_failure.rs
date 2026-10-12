@@ -113,13 +113,12 @@ mod integration {
         }
     }
 
-    async fn connect_db() -> Option<Database> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-        Some(
-            Database::connect(&url)
-                .await
-                .expect("connect test database"),
-        )
+    async fn connect_db() -> Database {
+        let url = context69_test_support::accessor::database_url();
+
+        Database::connect(&url)
+            .await
+            .expect("connect test database")
     }
 
     /// Cleanup reproduction spans library + qdrant runtime state, so the file
@@ -127,10 +126,10 @@ mod integration {
     /// mutex gates the few scenarios in this file.
     static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, Database)> {
+    async fn prepare_isolated_db() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
         let guard = SUITE_LOCK.lock().await;
-        let db = connect_db().await?;
-        Some((guard, db))
+        let db = connect_db().await;
+        (guard, db)
     }
 
     async fn build_library_service(
@@ -303,11 +302,9 @@ mod integration {
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn qdrant_cleanup_failure_aborts_ingest_before_embedding_runs() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping qdrant cleanup repro");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
 
         let embedding = Arc::new(EmbeddingSpy::default());
         // Port 1 is reserved (tcpmux) and never listens; TCP RST is immediate,
@@ -372,16 +369,6 @@ mod integration {
         cleanup_group(&db, group.id).await;
         let _ = std::fs::remove_dir_all(storage_root);
     }
-}
-
-#[cfg(not(feature = "integration-test-helpers"))]
-#[tokio::test]
-async fn qdrant_cleanup_failure_aborts_ingest_before_embedding_runs() {
-    eprintln!(
-        "integration-test-helpers feature not enabled; skipping Qdrant cleanup \
-         reproduction that needs QdrantIndex::for_test_unreachable. Run with \
-         --features integration-test-helpers to exercise the full fixture."
-    );
 }
 
 /// Phase 0 explicitly records that the task payload stage checkpoint

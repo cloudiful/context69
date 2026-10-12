@@ -70,27 +70,24 @@ mod integration {
 
     static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-    async fn connect_db() -> Option<Database> {
-        let url = std::env::var("CONTEXT69_TEST_DATABASE_URL").ok()?;
-        Some(
-            Database::connect(&url)
-                .await
-                .expect("connect test database"),
-        )
+    async fn connect_db() -> Database {
+        let url = context69_test_support::accessor::database_url();
+
+        Database::connect(&url)
+            .await
+            .expect("connect test database")
     }
 
-    async fn prepare_isolated_db() -> Option<(tokio::sync::MutexGuard<'static, ()>, Database)> {
+    async fn prepare_isolated_db() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
         let guard = SUITE_LOCK.lock().await;
-        let db = connect_db().await?;
-        Some((guard, db))
+        let db = connect_db().await;
+        (guard, db)
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn legacy_embedding_vector_alias_is_found_for_canonical_embedding() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping legacy alias test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         let store = LibraryStore::new(db.clone());
         // Ensure clean slate for this test's keys
         for key in ["embedding", "embedding_vector", "qdrant"] {
@@ -154,11 +151,9 @@ mod integration {
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn qdrant_and_embedding_gates_recover_independently() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping independent recovery test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         let store = LibraryStore::new(db.clone());
         let fp = "test-fp-independent";
         // Clean
@@ -288,11 +283,9 @@ mod integration {
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn ensure_qdrant_gate_is_created_idempotently() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping ensure test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         let store = LibraryStore::new(db.clone());
         // Delete qdrant if exists
         sqlx::query(
@@ -338,11 +331,9 @@ mod integration {
     }
 
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn no_cross_gate_recovery() {
-        let Some((_guard, db)) = prepare_isolated_db().await else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL not set; skipping cross-gate test");
-            return;
-        };
+        let (_guard, db) = prepare_isolated_db().await;
         let store = LibraryStore::new(db.clone());
         let fp = "test-fp-cross";
         for key in ["embedding", "qdrant"] {

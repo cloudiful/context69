@@ -10,9 +10,6 @@ use context69::{
     library_store::DependencyGateRecord,
 };
 
-/// Opt-in switch: a plain `CONTEXT69_TEST_DATABASE_URL` run must not start the app.
-pub const APP_STARTUP_ENV_VAR: &str = "CONTEXT69_TEST_APP_STARTUP";
-pub const TEST_DATABASE_ENV_VAR: &str = "CONTEXT69_TEST_DATABASE_URL";
 /// Unreachable loopback endpoints: the connection is refused immediately, so the
 /// app can never reach a real Qdrant or embedding server.
 pub const SENTINEL_URL: &str = "http://127.0.0.1:1";
@@ -39,15 +36,6 @@ const RUNTIME_SETTINGS_TABLES: &[&str] = &[
     "runtime_chunking_settings",
     "runtime_file_library_settings",
 ];
-
-pub fn test_database_url() -> Option<String> {
-    if std::env::var(APP_STARTUP_ENV_VAR).ok().as_deref() != Some("1") {
-        return None;
-    }
-    std::env::var(TEST_DATABASE_ENV_VAR)
-        .ok()
-        .filter(|url| !url.trim().is_empty())
-}
 
 pub fn test_storage_root(marker: &str) -> PathBuf {
     std::env::temp_dir().join(format!("{STORAGE_ROOT_PREFIX}{marker}"))

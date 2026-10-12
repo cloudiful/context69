@@ -12,15 +12,13 @@ use uuid::Uuid;
 use super::support::*;
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn ordinal_first_selection_returns_the_tasks_lowest_ordinals() {
     // Issue 702 P3 review: diagnose promises the lowest ordinals when it
     // truncates. The paged items endpoint orders active-first, so reusing that
     // ordering let a later running/failed item displace a lower-ordinal one.
     // This pins the difference on one task holding both kinds of row.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
     // A late-ordinal failed item: active-first would rank it first.
@@ -58,11 +56,9 @@ async fn ordinal_first_selection_returns_the_tasks_lowest_ordinals() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn one_item_ordinal_resolves_only_within_its_own_task() {
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
     let (other_task_id, other_item_ids) = seed_task(&db, user_id).await;
@@ -86,15 +82,13 @@ async fn one_item_ordinal_resolves_only_within_its_own_task() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_claim_reports_the_item_position_the_row_already_has() {
     // The lifecycle log takes item position from the claim statement instead of
     // reading it back afterwards, so the only way that is safe is if the claim
     // returns the row's own ordinal. This asserts it end to end against the
     // real claim path rather than against the accessor alone.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
 
@@ -122,6 +116,7 @@ async fn a_claim_reports_the_item_position_the_row_already_has() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn the_logged_ordinal_matches_the_item_the_claim_actually_produced() {
     // Finding 1, the join between the two halves. `claim_items.sql` returns no
     // ordinal (P1 SQL this phase must not edit), so the dispatcher resolves the
@@ -130,10 +125,7 @@ async fn the_logged_ordinal_matches_the_item_the_claim_actually_produced() {
     // `running` — not the head ordinal by coincidence, and not a sibling. This
     // seeds a claim on the *second* item, where "always 0" and "the real
     // position" disagree.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
 
@@ -175,16 +167,14 @@ async fn the_logged_ordinal_matches_the_item_the_claim_actually_produced() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn diagnose_selects_the_lowest_ordinals_at_the_documented_limit() {
     // Issue 702 P3 review, at the real limit instead of a two-item toy. The
     // contract promises `items_truncated` means "these are the lowest
     // ordinals", so the selection has to survive 500 items and a late
     // active/failed row: a limit applied to the active-first ordering would
     // push low ordinals out of the response exactly when truncation happens.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     // One more item than the response can carry, so the page is exactly full.
@@ -250,16 +240,14 @@ async fn diagnose_selects_the_lowest_ordinals_at_the_documented_limit() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn one_ordinal_resolves_after_the_item_leaves_the_active_set() {
     // The lifecycle log resolves an item's position once, at claim time, from
     // the same row the worker is about to mutate. That lookup must survive the
     // item's own transitions: a resolution scoped so tightly that a status
     // change hides the row would report `None` for exactly the items whose
     // position an operator needs after they finish or park.
-    let Some((db, _suite)) = locked_database().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping diagnose test");
-        return;
-    };
+    let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
 

@@ -22,10 +22,9 @@ use super::super::git_repository_files::serving_generation;
 const STORED_PATH: &str = "src/alpha.rs";
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn an_exact_file_read_returns_the_entry_with_provenance_and_coverage() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = fixture.indexed().await;
     let source = fixture.source().await;
     let generation = serving_generation(&fixture.db, &source)
@@ -82,10 +81,9 @@ async fn an_exact_file_read_returns_the_entry_with_provenance_and_coverage() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn identity_is_the_exact_stored_path_and_nothing_else() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = fixture.indexed().await;
 
     // A well-formed path the generation never stored, and paths that differ from
@@ -112,10 +110,9 @@ async fn identity_is_the_exact_stored_path_and_nothing_else() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_building_or_absent_generation_serves_no_file() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     // Registered but never indexed: there is no generation to read a file from.
     let source = fixture.source().await;
     assert_eq!(source.index_status, GitIndexStatus::Pending);
@@ -149,10 +146,9 @@ async fn a_building_or_absent_generation_serves_no_file() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_foreign_or_unknown_group_reads_no_file() {
-    let Some(fixture) = Fixture::setup().await else {
-        return;
-    };
+    let fixture = Fixture::setup().await;
     let generation_key = fixture.indexed().await;
     let foreign_group_id = fixture.foreign_group().await;
     // The foreign group is a real group with its own repository, so an empty

@@ -1,7 +1,7 @@
 #[path = "benchmark_helpers.rs"]
 mod helpers;
 
-use super::{BENCHMARK_DATABASE, connect_owned_database, unique_group_key};
+use super::{connect_owned_database, unique_group_key};
 use super::{fixtures, oracle};
 use anyhow::{Context, Result, ensure};
 use context69::db::Database;
@@ -45,7 +45,7 @@ struct Profile {
 }
 
 pub async fn run(database_url: &str) {
-    let db = connect_owned_database(database_url, BENCHMARK_DATABASE).await;
+    let db = connect_owned_database(database_url).await;
     let seed_tag = unique_group_key("benchmark");
     let group_path = format!("issue62/{seed_tag}/benchmark");
     let result = collect_report(&db, &seed_tag, &group_path).await;

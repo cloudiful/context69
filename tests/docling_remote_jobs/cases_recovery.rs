@@ -30,11 +30,9 @@ async fn active_row(
 /// Terminal items fence their rows: a failed item's active reference is
 /// cancelled and the item itself is left alone.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reconcile_cancels_rows_of_terminal_items() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -60,11 +58,9 @@ async fn reconcile_cancels_rows_of_terminal_items() {
 /// Bulk task cancel leaves remote rows behind (only the user cancel path
 /// fences them atomically): recovery cancels rows whose task is terminal.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reconcile_cancels_rows_of_cancelled_tasks() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -97,11 +93,9 @@ async fn reconcile_cancels_rows_of_cancelled_tasks() {
 /// remote reference: recovery never touches running rows, so the reclaim
 /// adopts the tracked remote id instead of submitting a fresh conversion.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reconcile_preserves_expired_running_rows_for_adoption() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -145,11 +139,9 @@ async fn reconcile_preserves_expired_running_rows_for_adoption() {
 /// active, so the resumed worker polls the existing remote id (one remote id
 /// per conversion, no duplicate submit).
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn expired_lease_reclaim_adopts_the_same_remote_id() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -196,11 +188,9 @@ async fn expired_lease_reclaim_adopts_the_same_remote_id() {
 /// A live worker (running item, live lease) owns its row: recovery changes
 /// nothing, so the blocking poll loop is never fenced mid-conversion.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reconcile_leaves_live_workers_alone() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
@@ -232,11 +222,9 @@ async fn reconcile_leaves_live_workers_alone() {
 /// resolve by cancelling the row: the item becomes claimable and resumes
 /// with a fresh submit.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reconcile_cancels_rows_without_a_live_owner() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (queued_task, queued_item) = seed_task(&db, user_id).await;
@@ -266,11 +254,9 @@ async fn reconcile_cancels_rows_without_a_live_owner() {
 /// Legacy adoption preserves the parked payload: the requeued item carries
 /// the same content and becomes due immediately.
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn reconcile_adoption_preserves_payload_and_marks_due() {
-    let Some(db) = connect().await else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL missing; skipping");
-        return;
-    };
+    let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;

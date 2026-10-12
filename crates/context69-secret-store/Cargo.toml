@@ -10,3 +10,6 @@ anyhow.workspace = true
 context69-secret-crypto.workspace = true
 sqlx = { workspace = true, features = ["macros", "postgres", "runtime-tokio"] }
 tracing.workspace = true
+
+[dev-dependencies]
+context69-test-support = { workspace = true }

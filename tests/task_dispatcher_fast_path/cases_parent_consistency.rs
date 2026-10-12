@@ -13,9 +13,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{
-    FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user, test_database_url,
-};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
 
 async fn seed_task(
     db: &Database,
@@ -66,11 +64,9 @@ async fn item_counts(db: &Database, task_id: Uuid) -> (i64, i64, i64, i64, i64, 
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn claiming_an_item_moves_the_parent_counters_in_the_same_transaction() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping parent count projection test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -154,11 +150,9 @@ async fn claiming_an_item_moves_the_parent_counters_in_the_same_transaction() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn head_of_line_waiting_drives_the_parent_and_blocks_later_items() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping head-of-line test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -228,11 +222,9 @@ async fn head_of_line_waiting_drives_the_parent_and_blocks_later_items() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintenance_releases_a_parent_slot_no_claim_can_serve() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping orphan slot reclaim test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -287,11 +279,9 @@ async fn maintenance_releases_a_parent_slot_no_claim_can_serve() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn maintenance_keeps_a_parent_slot_for_a_scheduled_retry() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping retry slot retention test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await
@@ -335,11 +325,9 @@ async fn maintenance_keeps_a_parent_slot_for_a_scheduled_retry() {
 }
 
 #[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_new_git_index_task_starts_in_the_indexing_stage() {
-    let Some(url) = test_database_url() else {
-        eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping git_index stage test");
-        return;
-    };
+    let url = context69_test_support::accessor::database_url();
     let _guard = FAST_PATH_LOCK.lock().await;
     let db = Database::connect(&url)
         .await

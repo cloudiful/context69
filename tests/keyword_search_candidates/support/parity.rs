@@ -3,11 +3,11 @@ use context69::contracts::{SearchHit, TranslationStatus};
 use context69::db::Database;
 use serde_json::Value;
 
-use super::{TEST_DATABASE, connect_owned_database};
+use super::connect_owned_database;
 use super::{fixtures, oracle};
 
 pub async fn run(database_url: &str) {
-    let db = connect_owned_database(database_url, TEST_DATABASE).await;
+    let db = connect_owned_database(database_url).await;
     let fixture = fixtures::seed::seed(&db).await;
     let result = verify_cases(&db, &fixture).await;
     let cleanup = cleanup_fixture(&db, &fixture).await;

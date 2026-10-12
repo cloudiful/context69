@@ -10,6 +10,7 @@ use super::*;
 // --- concurrent startups and writers -------------------------------------------
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn two_independent_runs_convert_every_row_exactly_once() {
     let sealed: Arc<Mutex<Vec<usize>>> = Arc::new(Mutex::new(vec![0, 0]));
     let left = Arc::clone(&sealed);
@@ -54,6 +55,7 @@ fn two_independent_runs_convert_every_row_exactly_once() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_writer_that_commits_before_the_sweep_claims_a_row_is_not_overwritten() {
     run(async |pool| {
         cleanup(pool).await;
@@ -93,6 +95,7 @@ fn a_writer_that_commits_before_the_sweep_claims_a_row_is_not_overwritten() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_writer_that_commits_while_the_sweep_waits_for_its_row_wins() {
     // `aaa` sorts before `zzz`, so the claim query locks the first row and then
     // blocks on the second — the row this writer is holding.
@@ -193,6 +196,7 @@ fn a_writer_that_commits_while_the_sweep_waits_for_its_row_wins() {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn the_swept_value_is_sealed_under_this_deployments_key_and_version() {
     run(async |pool| {
         cleanup(pool).await;

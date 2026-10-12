@@ -25,12 +25,13 @@ members = [
     "crates/context69-secret-crypto",
     "crates/context69-secret-store",
     "crates/context69-settings-http",
+    "crates/context69-test-support",
     "crates/context69-translation",
 ]
 resolver = "3"
 
 [workspace.package]
-version = "0.21.24"
+version = "0.21.25"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -45,7 +46,7 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.3" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.21.24" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.21.25" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
 context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
 context69-contracts-extraction = { path = "crates/context69-contracts-extraction", version = "0.1.0" }
@@ -65,15 +66,17 @@ context69-namespace = { path = "crates/context69-namespace", version = "0.1.0" }
 context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.1.0" }
 context69-search = { path = "crates/context69-search", version = "0.1.0" }
 context69-search-http = { path = "crates/context69-search-http", version = "0.1.0" }
-context69-sdk = { path = "crates/context69-sdk", version = "0.21.24" }
+context69-sdk = { path = "crates/context69-sdk", version = "0.21.25" }
 context69-secret-crypto = { path = "crates/context69-secret-crypto", version = "0.1.0" }
 context69-secret-store = { path = "crates/context69-secret-store", version = "0.1.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.1.0" }
+context69-test-support = { path = "crates/context69-test-support", version = "0.1.0" }
 context69-translation = { path = "crates/context69-translation", version = "0.1.0" }
 docling-convert = { package = "cloudiful-docling-convert", version = "0.3.6" }
 futures = "0.3.34"
 getrandom = "0.4.3"
 hmac = "0.13.0"
+libc = "0.2.189"
 qdrant-client = "1.19.0"
 rate-limiter = { package = "cloudiful-rate-limiter", version = "0.1.0", features = ["valkey"] }
 opendal = { version = "0.59.2", default-features = false, features = ["services-fs", "services-s3", "http-transport-reqwest", "executors-tokio"] }
@@ -102,6 +105,7 @@ uuid = "1.26.1"
 whatlang = "0.18.0"
 zeroize = "1.9.0"
 db-init = { package= "cloudiful-db-init", version = "0.1.0"}
+dotenvy = "0.15.7"
 
 [package]
 name = "context69"
@@ -174,6 +178,7 @@ utoipa = { workspace = true, features = [ "axum_extras", "chrono", "uuid" ] }
 uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 
 [dev-dependencies]
+context69-test-support = { workspace = true }
 sqlx = { workspace = true }
 toml.workspace = true
 

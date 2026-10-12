@@ -24,9 +24,10 @@ async fn wait_for_blocked(pool: &PgPool, application: &str) {
 }
 
 async fn worker_pool(application: &str) -> PgPool {
+    let url = context69_test_support::accessor::database_url();
     let pool = PgPoolOptions::new()
         .max_connections(1)
-        .connect(&database_url().expect("owned database"))
+        .connect(&url)
         .await
         .expect("worker connection");
     sqlx::query("SELECT set_config('application_name', $1, false)")
@@ -38,6 +39,7 @@ async fn worker_pool(application: &str) -> PgPool {
 }
 
 #[test]
+#[ignore = "requires configured reusable PostgreSQL"]
 fn a_writer_after_claim_waits_and_keeps_its_newer_value() {
     run(async |pool| {
         cleanup(pool).await;

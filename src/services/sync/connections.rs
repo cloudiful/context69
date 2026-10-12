@@ -295,11 +295,9 @@ mod tests {
     /// Skipped unless `CONTEXT69_TEST_DATABASE_URL` names one. Every row it
     /// writes is keyed by a fresh UUID and removed again.
     #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
     async fn a_saved_connection_is_sealed_referenced_and_fail_closed() {
-        let Ok(url) = std::env::var("CONTEXT69_TEST_DATABASE_URL") else {
-            eprintln!("CONTEXT69_TEST_DATABASE_URL is not set; skipping the store round trip");
-            return;
-        };
+        let url = context69_test_support::accessor::database_url();
         let db = crate::db::Database::connect(&url)
             .await
             .expect("connect test database");
