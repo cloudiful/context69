@@ -50,6 +50,8 @@ docker run -d \
 
 首次启动后访问 `http://localhost`，在设置页面配置 Qdrant、Embedding 服务及其他可选服务，然后重启容器。`80` 端口提供 Web UI 和 HTTP API，`8097` 端口提供 MCP over HTTP。
 
+运行时设置区为未保存的 Qdrant 地址提供测试连接按钮。它使用与索引相同的 gRPC 链路检查可达性（通常是 `6334` 端口，而非 REST `6333` 端口），5 秒超时，只提示成功或脱敏后的失败，不会保存设置、通知观察者，也不要求集合已存在。
+
 ### 存储的密钥
 
 `CONTEXT69_APP__MASTER_SECRET` 是 Base64 编码的 32 字节密钥，用于加密所有已存储的密钥——Embedding/Search/Docling/翻译服务 API Key、源连接 URL、Git 凭据、Webhook 签名密钥以及浏览器会话签名密钥。只生成一次，请像保管其他凭据一样保管它：没有它，已加密的密钥将无法读取回。轮换它需要执行已配置的密钥轮换流程，而不是重启。

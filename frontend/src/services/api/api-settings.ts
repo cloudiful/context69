@@ -13,6 +13,7 @@ import type {
 } from "./api-types";
 
 type TestRuntimeEmbeddingRequest = components["schemas"]["TestRuntimeEmbeddingRequest"];
+type TestRuntimeQdrantRequest = components["schemas"]["TestRuntimeQdrantRequest"];
 
 type Deps = {
   openapiClient: import("./api-core").OpenApiClient;
@@ -55,6 +56,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
     testEmbeddingConnection(payload: TestRuntimeEmbeddingRequest, options?: RequestOptions) {
       return unwrapResponse(
         openapiClient.POST("/v1/settings/runtime/embedding/test", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      );
+    },
+    testQdrantConnection(payload: TestRuntimeQdrantRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/qdrant/test", {
           body: payload,
           signal: options?.signal,
         }),

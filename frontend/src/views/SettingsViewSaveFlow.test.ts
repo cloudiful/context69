@@ -18,8 +18,18 @@ import {
   type SettingsApiSpies,
 } from "./settings-view-test-support";
 import AppNumberField from "../components/AppNumberField.vue";
+import { apiClient } from "../services/api";
+import * as nuxtUiComposables from "@nuxt/ui/composables";
 
 let apiSpies: SettingsApiSpies;
+
+/** Qdrant probe outcomes each carry a distinct id under this prefix. */
+const QDRANT_TOAST_ID_PREFIX = "runtime-qdrant-test-";
+
+function isQdrantToast(toast: unknown) {
+  const id = (toast as { id?: unknown }).id;
+  return typeof id === "string" && id.startsWith(QDRANT_TOAST_ID_PREFIX);
+}
 
 describe("SettingsView save flow", () => {
   beforeEach(() => {
@@ -269,5 +279,316 @@ describe("SettingsView save flow", () => {
       api_key: undefined,
     });
     expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+  });
+
+  it("tests the unsaved Qdrant URL without saving settings or touching the collection", async () => {
+    const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection").mockResolvedValue(undefined as never);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      await vi.waitFor(() => {
+        expect(wrapper.find('[data-testid="runtime-qdrant-test"]').exists()).toBe(true);
+      });
+
+      // The draft URL is unsaved; editing it must not trigger a save and the
+      // collection value stays out of the probe payload entirely.
+      await wrapper.get("#runtime-qdrant-url").setValue(" http://qdrant:6334 ");
+      await wrapper.get("#runtime-qdrant-collection").setValue("other-collection");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+
+      expect(qdrantSpy).toHaveBeenCalledWith({ url: "http://qdrant:6334" });
+      expect(qdrantSpy.mock.calls.at(-1)?.[0]).not.toHaveProperty("collection_name");
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+    } finally {
+      qdrantSpy.mockRestore();
+    }
+  });
+
+  it("does not surface a stale Qdrant failure after the draft URL changes", async () => {
+    const addToast = vi.fn();
+    const removeToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: removeToast } as never);
+    let rejectProbe!: (reason: Error) => void;
+    const probeGate = new Promise<undefined>((_resolve, reject) => {
+      rejectProbe = reject;
+    });
+    const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection").mockReturnValue(probeGate);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      await wrapper.get("#runtime-qdrant-url").setValue("http://old-endpoint:6334");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      expect(qdrantSpy).toHaveBeenCalledWith({ url: "http://old-endpoint:6334" });
+
+      await wrapper.get("#runtime-qdrant-url").setValue("http://new-endpoint:6334");
+      rejectProbe(new Error("the old Qdrant endpoint could not be reached"));
+      await flushPromises();
+
+      expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("false");
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+      // The invalidated failure must not surface on any toast channel.
+      expect(
+        addToast.mock.calls.filter(([toast]) =>
+          JSON.stringify(toast).includes("the old Qdrant endpoint could not be reached"),
+        ),
+      ).toHaveLength(0);
+      expect(
+        addToast.mock.calls.filter(([toast]) => isQdrantToast(toast)),
+      ).toHaveLength(0);
+    } finally {
+      qdrantSpy.mockRestore();
+      toastSpy.mockRestore();
+    }
+  });
+
+  it("does not surface a stale Qdrant success after the draft URL changes", async () => {
+    const addToast = vi.fn();
+    const removeToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: removeToast } as never);
+    let resolveProbe!: () => void;
+    const probeGate = new Promise<undefined>((resolve) => {
+      resolveProbe = () => resolve(undefined);
+    });
+    const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection").mockReturnValue(probeGate);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      await wrapper.get("#runtime-qdrant-url").setValue("http://old-endpoint:6334");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      expect(qdrantSpy).toHaveBeenCalledWith({ url: "http://old-endpoint:6334" });
+
+      await wrapper.get("#runtime-qdrant-url").setValue("http://new-endpoint:6334");
+      resolveProbe();
+      await flushPromises();
+
+      expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("false");
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+      expect(
+        addToast.mock.calls.filter(([toast]) => isQdrantToast(toast)),
+      ).toHaveLength(0);
+    } finally {
+      qdrantSpy.mockRestore();
+      toastSpy.mockRestore();
+    }
+  });
+
+  it("removes the displayed prior Qdrant outcome when the URL changes", async () => {
+    const addToast = vi.fn();
+    const removeToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: removeToast } as never);
+    const qdrantSpy = vi
+      .spyOn(apiClient, "testQdrantConnection")
+      .mockResolvedValue(undefined as never);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      await wrapper.get("#runtime-qdrant-url").setValue("http://qdrant:6334");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+
+      expect(
+        addToast.mock.calls.filter(([toast]) => isQdrantToast(toast)),
+      ).toHaveLength(1);
+      const emittedId = (
+        addToast.mock.calls.map(([toast]) => toast).find((toast) => isQdrantToast(toast)) as {
+          id: string;
+        }
+      ).id;
+
+      await wrapper.get("#runtime-qdrant-url").setValue("http://other-qdrant:6334");
+      await flushPromises();
+
+      expect(removeToast).toHaveBeenCalledWith(emittedId);
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+    } finally {
+      qdrantSpy.mockRestore();
+      toastSpy.mockRestore();
+    }
+  });
+
+  it("still invalidates the old outcome when the URL is edited away and back", async () => {
+    const addToast = vi.fn();
+    const removeToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: removeToast } as never);
+    let rejectProbe!: (reason: Error) => void;
+    const probeGate = new Promise<undefined>((_resolve, reject) => {
+      rejectProbe = reject;
+    });
+    const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection").mockReturnValue(probeGate);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      await wrapper.get("#runtime-qdrant-url").setValue("http://old-endpoint:6334");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      expect(qdrantSpy).toHaveBeenCalledWith({ url: "http://old-endpoint:6334" });
+
+      // Editing away and back restores the same value but bumps the generation
+      // twice, so the old outcome stays invalidated.
+      await wrapper.get("#runtime-qdrant-url").setValue("http://other-endpoint:6334");
+      await wrapper.get("#runtime-qdrant-url").setValue("http://old-endpoint:6334");
+      rejectProbe(new Error("the old Qdrant endpoint could not be reached"));
+      await flushPromises();
+
+      expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("false");
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+      expect(
+        addToast.mock.calls.filter(([toast]) => isQdrantToast(toast)),
+      ).toHaveLength(0);
+    } finally {
+      qdrantSpy.mockRestore();
+      toastSpy.mockRestore();
+    }
+  });
+
+  it("keeps a fresh Qdrant result when an earlier URL edit has queued toast removal", async () => {
+    const useRealToast = nuxtUiComposables.useToast;
+    let realToast!: ReturnType<typeof useRealToast>;
+    const toastSpy = vi.spyOn(nuxtUiComposables, "useToast").mockImplementation(() => {
+      realToast = useRealToast();
+      return realToast;
+    });
+    const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection").mockResolvedValue(undefined);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      realToast.clear();
+      await wrapper.get("#runtime-qdrant-url").setValue("http://fresh-endpoint:6334");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      expect(qdrantSpy).toHaveBeenCalledWith({ url: "http://fresh-endpoint:6334" });
+      expect(realToast.toasts.value.some((toast) =>
+        toast.title === "Qdrant connection succeeded" && toast.open && toast.color === "success",
+      )).toBe(true);
+
+      // Nuxt UI remove closes immediately and deletes by id after 200ms. The
+      // queued removal of an older outcome must not erase the newly valid one.
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(realToast.toasts.value.some((toast) =>
+        toast.title === "Qdrant connection succeeded" && toast.open && toast.color === "success",
+      )).toBe(true);
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+    } finally {
+      realToast?.clear();
+      qdrantSpy.mockRestore();
+      toastSpy.mockRestore();
+    }
+  });
+
+  it("keeps a fresh Qdrant error visible after a fast probe of an edited URL", async () => {
+    const useRealToast = nuxtUiComposables.useToast;
+    let realToast!: ReturnType<typeof useRealToast>;
+    const toastSpy = vi.spyOn(nuxtUiComposables, "useToast").mockImplementation(() => {
+      realToast = useRealToast();
+      return realToast;
+    });
+    const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection")
+      .mockRejectedValue(new Error("Qdrant endpoint unreachable"));
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      realToast.clear();
+      await wrapper.get("#runtime-qdrant-url").setValue("http://fresh-endpoint:6334");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      const hasError = () => realToast.toasts.value.some((toast) =>
+        toast.description === "Qdrant endpoint unreachable" && toast.open && toast.color === "error",
+      );
+      expect(hasError()).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(hasError()).toBe(true);
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+    } finally {
+      realToast?.clear();
+      qdrantSpy.mockRestore();
+      toastSpy.mockRestore();
+    }
+  });
+
+  it.each(["success", "error"] as const)(
+    "clears every displayed prior Qdrant %s after repeated completed probes and a URL edit",
+    async (outcome) => {
+      const useRealToast = nuxtUiComposables.useToast;
+      let realToast!: ReturnType<typeof useRealToast>;
+      const toastSpy = vi.spyOn(nuxtUiComposables, "useToast").mockImplementation(() => {
+        realToast = useRealToast();
+        return realToast;
+      });
+      const qdrantSpy = vi.spyOn(apiClient, "testQdrantConnection");
+      if (outcome === "success") {
+        qdrantSpy.mockResolvedValue(undefined);
+      } else {
+        qdrantSpy.mockRejectedValue(new Error("old endpoint unreachable"));
+      }
+      try {
+        const { wrapper } = await mountSettingsView("/settings/runtime");
+        realToast.clear();
+        await wrapper.get("#runtime-qdrant-url").setValue("http://old-endpoint:6334");
+        const openQdrantOutcomes = () => realToast.toasts.value.filter((toast) =>
+          toast.open && (toast.title === "Qdrant connection succeeded"
+            || toast.description === "old endpoint unreachable"),
+        );
+        await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+        await flushPromises();
+        expect(openQdrantOutcomes().length).toBeGreaterThan(0);
+        expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("false");
+        await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+        await flushPromises();
+        expect(qdrantSpy).toHaveBeenCalledTimes(2);
+        expect(openQdrantOutcomes().length).toBeGreaterThan(0);
+
+        await wrapper.get("#runtime-qdrant-url").setValue("http://new-endpoint:6334");
+        await flushPromises();
+        expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+        expect(openQdrantOutcomes()).toHaveLength(0);
+      } finally {
+        realToast?.clear();
+        qdrantSpy.mockRestore();
+        toastSpy.mockRestore();
+      }
+    },
+  );
+
+  it("prevents a duplicate Qdrant probe while one is in flight", async () => {
+    let releaseProbe!: () => void;
+    const probeGate = new Promise<void>((resolve) => {
+      releaseProbe = resolve;
+    });
+    const qdrantSpy = vi
+      .spyOn(apiClient, "testQdrantConnection")
+      .mockImplementation((() => probeGate.then(() => undefined)) as never);
+
+    try {
+      const { wrapper } = await mountSettingsView("/settings/runtime");
+      await vi.waitFor(() => {
+        expect(wrapper.find('[data-testid="runtime-qdrant-test"]').exists()).toBe(true);
+      });
+
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      // While the first probe is pending the button reports busy and is
+      // disabled, so a second click cannot start a duplicate request.
+      expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("true");
+      await wrapper.get('[data-testid="runtime-qdrant-test"]').trigger("click");
+      await flushPromises();
+      expect(qdrantSpy).toHaveBeenCalledTimes(1);
+
+      releaseProbe();
+      await flushPromises();
+      expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("false");
+      expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+    } finally {
+      qdrantSpy.mockRestore();
+    }
   });
 });

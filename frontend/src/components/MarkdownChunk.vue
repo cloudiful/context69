@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 
+import { highlightQueryText, highlightRenderedHtml } from "../utils/search-highlight";
+
 const props = withDefaults(defineProps<{
   content: string;
   markdown?: boolean;
@@ -14,53 +16,6 @@ const props = withDefaults(defineProps<{
 
 const markdownHtml = ref("");
 const markdownReady = ref(false);
-
-const escapedHighlight = computed(() => escapeHtml(props.highlight.trim()));
-
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
-function highlightText(text: string, term: string): string {
-  if (!term) {
-    return text;
-  }
-  const parts = text.split(term);
-  if (parts.length === 1) {
-    return text;
-  }
-  return parts.join(`<mark>${term}</mark>`);
-}
-
-// Wrap escaped highlight occurrences in <mark>, leaving real tags untouched.
-function highlightHtml(html: string, term: string): string {
-  if (!term) {
-    return html;
-  }
-  let output = "";
-  let index = 0;
-  while (index < html.length) {
-    const tagStart = html.indexOf("<", index);
-    if (tagStart === -1) {
-      output += highlightText(html.slice(index), term);
-      break;
-    }
-    output += highlightText(html.slice(index, tagStart), term);
-    const tagEnd = html.indexOf(">", tagStart);
-    if (tagEnd === -1) {
-      output += html.slice(tagStart);
-      break;
-    }
-    output += html.slice(tagStart, tagEnd + 1);
-    index = tagEnd + 1;
-  }
-  return output;
-}
 
 watch(
   () => [props.content, props.markdown, props.html],
@@ -92,8 +47,11 @@ watch(
   { immediate: true },
 );
 
-const articleHtml = computed(() => highlightHtml(markdownHtml.value, escapedHighlight.value));
-const preHtml = computed(() => highlightHtml(escapeHtml(props.content), escapedHighlight.value));
+// The markdown renderer already escaped its output, so marking only inserts
+// `<mark>` around matched text runs and leaves tags and entities untouched. The
+// plain fallback has no renderer, so it is escaped once by the shared wrapper.
+const articleHtml = computed(() => highlightRenderedHtml(markdownHtml.value, props.highlight));
+const preHtml = computed(() => highlightQueryText(props.content, props.highlight));
 </script>
 
 <template>

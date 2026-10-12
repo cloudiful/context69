@@ -83,6 +83,12 @@ function snippetHtml(hit: SearchHit): string {
   return highlightQueryText(buildSnippet(body, props.highlight), props.highlight);
 }
 
+// The title is marked through the shared highlighter, which escapes the source
+// text before inserting `<mark>`, so it is safe to bind with v-html.
+function titleHtml(hit: SearchHit): string {
+  return highlightQueryText(hit.title ?? "", props.highlight);
+}
+
 function scoreTooltip(hit: SearchHit): string {
   return t("search.result.scoreLabel", { score: formatScore(hit.score) });
 }
@@ -136,7 +142,7 @@ function reasonTagLabel(token: string): string {
               :title="titleTooltip(hit)"
               @click="emit('preview', hit)"
             >
-              {{ hit.title }}
+              <span v-html="titleHtml(hit)" />
             </UButton>
             <div class="flex shrink-0 items-center gap-1">
               <UButton

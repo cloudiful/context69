@@ -15,6 +15,16 @@ pub struct TestRuntimeValkeyRequest {
     pub valkey_url: String,
 }
 
+/// A non-persisting Qdrant connectivity probe.
+///
+/// The probe tests reachability only, so it carries the URL alone: Qdrant has no
+/// API key in the saved settings, and the collection is irrelevant to a
+/// connection check and therefore deliberately not required.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct TestRuntimeQdrantRequest {
+    pub url: String,
+}
+
 /// A non-persisting embedding provider probe.
 ///
 /// An absent `api_key` falls back to the stored key, so a saved deployment can

@@ -2,6 +2,15 @@ import type { LocationQuery, LocationQueryRaw } from "vue-router";
 
 import type { GroupResponse, SearchRequest, SearchSort } from "../services/api";
 import type { SearchFilters } from "../types/ui";
+import {
+  escapeSearchRegExp,
+  findSearchHighlightRanges,
+  highlightQueryText,
+  searchHighlightTerms,
+} from "./search-highlight";
+
+/** Re-exported so highlighting callers keep a single search utility entry point. */
+export { highlightQueryText };
 
 function readQueryValue(value: LocationQuery[string]): string {
   if (Array.isArray(value)) {
@@ -201,24 +210,11 @@ export function buildSearchPayload(
   };
 }
 
-function escapeSearchHtml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
-}
-
 // Leading section labels tolerated after an embedded document title inside
 // chunk_text (Chinese ingestion prefixes chunks with 标题：<title> followed by
 // 摘要/摘要片段/正文 sections; English chunks use a similar `Title:` line).
 const TITLE_PREFIX_PATTERN = "(?:标题|title)";
 const SECTION_LABEL_PATTERN = "(?:摘要片段|摘要|正文|来源|日期|summary|body|source|date)";
-
-function escapeSearchRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /**
  * Removes a leading "标题：<title>" / "Title: <title>" prefix from a chunk when
@@ -246,22 +242,17 @@ export function stripTitlePrefix(chunkText: string, title: string): string {
   return chunkText.slice(match.index + match[0].length).replace(/^\s+/, "");
 }
 
-export function highlightQueryText(text: string, query: string): string {
-  const term = escapeSearchHtml(query.trim());
-  const escaped = escapeSearchHtml(text);
-  if (!term) {
-    return escaped;
-  }
-  return escaped.split(term).join(`<mark>${term}</mark>`);
-}
-
 export function buildSnippet(text: string, query: string, radius = 90): string {
   const needle = query.trim();
   if (needle) {
-    const index = text.toLowerCase().indexOf(needle.toLowerCase());
-    if (index >= 0) {
-      const start = Math.max(0, index - radius);
-      const end = Math.min(text.length, index + needle.length + radius);
+    // Prefer the whole phrase when it occurs literally, and otherwise fall back
+    // to the earliest matched term, so a multi-word query still windows the
+    // snippet around what the user actually typed.
+    const phrase = findSearchHighlightRanges(text, [needle])[0];
+    const first = phrase ?? findSearchHighlightRanges(text, searchHighlightTerms(query))[0];
+    if (first) {
+      const start = Math.max(0, first.start - radius);
+      const end = Math.min(text.length, first.end + radius);
       return `${start > 0 ? "…" : ""}${text.slice(start, end)}${end < text.length ? "…" : ""}`;
     }
   }

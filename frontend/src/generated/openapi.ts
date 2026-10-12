@@ -1367,6 +1367,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/runtime/qdrant/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A non-persisting connectivity check against a submitted Qdrant endpoint.
+         * @description It reports reachability alone, so a reachable endpoint answers 204 and the
+         *     response body never discloses anything about the remote — not the collection
+         *     list, not the submitted URL.
+         *
+         *     Admin-only like the translation settings admin routes: the settings scope
+         *     admits any authenticated identity, so the handler rejects non-admins before
+         *     any outbound request is built.
+         */
+        post: operations["test_qdrant_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/runtime/s3/test": {
         parameters: {
             query?: never;
@@ -4347,6 +4373,16 @@ export interface components {
             model: string;
             /** Format: int64 */
             timeout_secs: number;
+        };
+        /**
+         * @description A non-persisting Qdrant connectivity probe.
+         *
+         *     The probe tests reachability only, so it carries the URL alone: Qdrant has no
+         *     API key in the saved settings, and the collection is irrelevant to a
+         *     connection check and therefore deliberately not required.
+         */
+        TestRuntimeQdrantRequest: {
+            url: string;
         };
         TestRuntimeValkeyRequest: {
             valkey_url: string;
@@ -8518,6 +8554,51 @@ export interface operations {
                 content?: never;
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    test_qdrant_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRuntimeQdrantRequest"];
+            };
+        };
+        responses: {
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

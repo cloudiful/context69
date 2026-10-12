@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.21.25"
+    "version": "0.21.26"
   },
   "paths": {
     "/healthz": {
@@ -5313,6 +5313,59 @@
             "description": ""
           },
           "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/runtime/qdrant/test": {
+      "post": {
+        "tags": [],
+        "summary": "A non-persisting connectivity check against a submitted Qdrant endpoint.",
+        "description": "It reports reachability alone, so a reachable endpoint answers 204 and the\nresponse body never discloses anything about the remote — not the collection\nlist, not the submitted URL.\n\nAdmin-only like the translation settings admin routes: the settings scope\nadmits any authenticated identity, so the handler rejects non-admins before\nany outbound request is built.",
+        "operationId": "test_qdrant_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRuntimeQdrantRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
             "description": "",
             "content": {
               "application/json": {
@@ -13848,6 +13901,18 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "TestRuntimeQdrantRequest": {
+        "type": "object",
+        "description": "A non-persisting Qdrant connectivity probe.\n\nThe probe tests reachability only, so it carries the URL alone: Qdrant has no\nAPI key in the saved settings, and the collection is irrelevant to a\nconnection check and therefore deliberately not required.",
+        "required": [
+          "url"
+        ],
+        "properties": {
+          "url": {
+            "type": "string"
           }
         }
       },

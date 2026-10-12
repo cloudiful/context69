@@ -21,6 +21,7 @@ const props = defineProps<{
   s3Testing: boolean;
   valkeyTesting: boolean;
   embeddingTesting: boolean;
+  qdrantTesting: boolean;
   vectorRebuildStatus: TaskResponse | null;
 }>();
 const emit = defineEmits<{
@@ -29,6 +30,7 @@ const emit = defineEmits<{
   "test-s3": [];
   "test-valkey": [];
   "test-embedding": [];
+  "test-qdrant": [];
   "rebuild-vector-index": [];
 }>();
 const { t } = useI18n();
@@ -104,6 +106,15 @@ function updateSchedulerToggleModel(value: Record<string, boolean>) {
       </AppSettingsBlock>
 
       <AppSettingsBlock id="settings-qdrant" compact :title="t('settings.runtime.qdrantTitle')">
+        <template #actions>
+          <SettingsTestButton
+            :testing="qdrantTesting"
+            :disabled="!runtimeDraft.qdrant.url.trim()"
+            test-id="runtime-qdrant-test"
+            :label="t('settings.runtime.qdrantTest')"
+            @test="emit('test-qdrant')"
+          />
+        </template>
         <div class="grid max-w-2xl gap-3">
           <AppTextField
             input-id="runtime-qdrant-url"

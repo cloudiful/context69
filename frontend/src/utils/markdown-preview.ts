@@ -28,13 +28,14 @@ function sanitizeUrl(value: string): string | null {
 }
 
 function applyInlineMarkdown(value: string): string {
+  // Tokens stay free of `_` and `*` so the emphasis passes below treat them as opaque text.
   const codeTokens: string[] = [];
   const linkTokens: string[] = [];
 
   let rendered = escapeHtml(value);
 
   rendered = rendered.replace(/`([^`]+)`/g, (_, code: string) => {
-    const token = `@@CODE_${codeTokens.length}@@`;
+    const token = `@@CODE${codeTokens.length}@@`;
     codeTokens.push(`<code>${code}</code>`);
     return token;
   });
@@ -45,7 +46,7 @@ function applyInlineMarkdown(value: string): string {
       return label;
     }
 
-    const token = `@@LINK_${linkTokens.length}@@`;
+    const token = `@@LINK${linkTokens.length}@@`;
     linkTokens.push(
       `<a href="${escapeAttribute(safeHref)}" target="_blank" rel="noreferrer noopener">${label}</a>`,
     );
@@ -61,11 +62,11 @@ function applyInlineMarkdown(value: string): string {
   rendered = rendered.replaceAll("\n", "<br />");
 
   for (const [index, html] of codeTokens.entries()) {
-    rendered = rendered.replaceAll(`@@CODE_${index}@@`, html);
+    rendered = rendered.replaceAll(`@@CODE${index}@@`, html);
   }
 
   for (const [index, html] of linkTokens.entries()) {
-    rendered = rendered.replaceAll(`@@LINK_${index}@@`, html);
+    rendered = rendered.replaceAll(`@@LINK${index}@@`, html);
   }
 
   return rendered;

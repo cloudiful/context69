@@ -9,7 +9,9 @@ pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTO
 
 mod connection_tests;
 
-pub use connection_tests::{TestRuntimeEmbeddingRequest, TestRuntimeValkeyRequest};
+pub use connection_tests::{
+    TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
+};
 
 fn default_search_vector_weight() -> f32 {
     SEARCH_VECTOR_WEIGHT_DEFAULT

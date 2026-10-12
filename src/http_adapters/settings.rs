@@ -50,6 +50,13 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.test_embedding_connection(request).await
     }
 
+    async fn test_qdrant_connection(
+        &self,
+        request: &crate::contracts::settings::TestRuntimeQdrantRequest,
+    ) -> anyhow::Result<()> {
+        self.service.test_qdrant_connection(request).await
+    }
+
     async fn get_docling_settings(
         &self,
     ) -> anyhow::Result<crate::contracts::DoclingSettingsResponse> {

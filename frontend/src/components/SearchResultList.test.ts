@@ -334,4 +334,85 @@ describe("SearchResultList", () => {
     await wrapper.get('[data-testid="search-next"]').trigger("click");
     expect(wrapper.emitted("next")).toBeTruthy();
   });
+
+  function mountWithHit(title: string, chunkText: string, highlight: string) {
+    return mount(SearchResultList, {
+      props: {
+        pagination: { page: 1, page_size: 8, total: 1, total_pages: 1 },
+        highlight,
+        hits: [
+          {
+            chunk_id: "chunk-highlight",
+            document_id: 70,
+            source_key: "gov_documents",
+            external_id: "ext-highlight",
+            group_key: "g",
+            group_path: "g/p",
+            visibility: "private",
+            title,
+            summary: "",
+            source_uri: "",
+            published_at: "2025-03-01",
+            chunk_index: 0,
+            chunk_text: chunkText,
+            score: 0.5,
+            metadata_json: {},
+            match_reason: "keyword+title",
+          },
+        ],
+      },
+      global: { plugins: [testNuxtUiPlugin, createTestI18n()] },
+    });
+  }
+
+  it("marks a title term case-insensitively and keeps the title actions working", async () => {
+    const wrapper = mountWithHit("DeepSeek-V3 Technical Report", "body text", "deepseek-v3");
+    const titleButton = wrapper.get('[data-testid="search-result-select"]');
+    // Query terms split on ASCII punctuation, so both halves are marked.
+    expect(titleButton.html()).toContain("<mark>DeepSeek</mark>");
+    expect(titleButton.html()).toContain("-<mark>V3</mark>");
+    expect(titleButton.html()).toContain("Technical Report");
+    // The visible text is unchanged apart from the marks.
+    expect(titleButton.text()).toBe("DeepSeek-V3 Technical Report");
+    await wrapper.get('[data-testid="search-result-select"]').trigger("click");
+    expect(wrapper.emitted("preview")?.[0]).toEqual([
+      expect.objectContaining({ chunk_id: "chunk-highlight" }),
+    ]);
+  });
+
+  it("marks snippet terms case-insensitively across mixed casing", () => {
+    const wrapper = mountWithHit(
+      "DeepSeek Report",
+      "The DeepSeek model RELEASE notes describe the policy.",
+      "deepseek release",
+    );
+    const snippet = wrapper.get('[data-testid="search-result-item"] p.mt-1').html();
+    expect(snippet).toContain("<mark>DeepSeek</mark>");
+    expect(snippet).toContain("<mark>RELEASE</mark>");
+    expect(wrapper.text()).toContain("The DeepSeek model RELEASE notes");
+  });
+
+  it("renders a dangerous title as text instead of markup", () => {
+    const wrapper = mountWithHit('<img src=x onerror="alert(DeepSeek)">', "body", "deepseek");
+    const titleButton = wrapper.get('[data-testid="search-result-select"]');
+    expect(titleButton.find("img").exists()).toBe(false);
+    expect(titleButton.html()).toContain("&lt;img");
+    expect(titleButton.html()).toContain("<mark>DeepSeek</mark>");
+    expect(titleButton.text()).toBe('<img src=x onerror="alert(DeepSeek)">');
+  });
+
+  it("clears stale title marks when the query changes", async () => {
+    const wrapper = mountWithHit("DeepSeek Report", "DeepSeek body", "deepseek");
+    expect(wrapper.get('[data-testid="search-result-select"]').html()).toContain("<mark>DeepSeek</mark>");
+    await wrapper.setProps({ highlight: "report" });
+    const updated = wrapper.get('[data-testid="search-result-select"]').html();
+    expect(updated).not.toContain("<mark>DeepSeek</mark>");
+    expect(updated).toContain("<mark>Report</mark>");
+  });
+
+  it("leaves the title unmarked for a blank or punctuation-only query", () => {
+    const wrapper = mountWithHit("DeepSeek Report", "DeepSeek body", "---");
+    expect(wrapper.get('[data-testid="search-result-select"]').html()).not.toContain("<mark>");
+    expect(wrapper.html()).not.toContain("<mark>");
+  });
 });

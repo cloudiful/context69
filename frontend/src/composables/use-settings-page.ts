@@ -1,7 +1,7 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useToast } from "@nuxt/ui/composables";
-import { useErrorToast } from "./use-error-toast";
+import { errorMessage, useErrorToast } from "./use-error-toast";
 
 import {
   apiClient,
@@ -39,6 +39,16 @@ type TranslationProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
   current_month_characters: number;
 };
 
+/**
+ * Prefix for Qdrant probe toast ids. Each emitted outcome gets a distinct id
+ * from the module sequence below because Nuxt UI deletes a removed toast by
+ * id after 200ms: reusing one id lets an earlier edit's delayed deletion erase
+ * a fresh outcome. Distinct ids isolate old removals from future outcomes.
+ */
+const QDRANT_PROBE_TOAST_ID_PREFIX = "runtime-qdrant-test-";
+
+let qdrantProbeToastSeq = 0;
+
 export function useSettingsPage() {
   const { t } = useI18n();
   const toast = useToast();
@@ -52,7 +62,20 @@ export function useSettingsPage() {
   const s3Testing = ref(false);
   const valkeyTesting = ref(false);
   const embeddingTesting = ref(false);
+  const qdrantTesting = ref(false);
   const doclingTesting = ref(false);
+  /**
+   * Generation counter for the unsaved Qdrant URL draft. Every edit bumps it,
+   * so a probe started before the edit can recognize its outcome as stale even
+   * when the URL is edited away and back to the same value.
+   */
+  const qdrantUrlRevision = ref(0);
+  /**
+   * Id of the currently displayed Qdrant probe outcome, if any. The URL watch
+   * removes only this outcome and clears the pointer; nothing is removed when
+   * no outcome is displayed.
+   */
+  const activeQdrantToastId = ref<string | null>(null);
   const saveMessage = ref("");
   const runtimeSettings = ref<RuntimeSettingsResponse | null>(null);
   const doclingSettings = ref<DoclingSettingsResponse | null>(null);
@@ -132,6 +155,39 @@ export function useSettingsPage() {
       saveMessage.value = "";
     }
   });
+
+  watch(
+    () => runtimeDraft.qdrant.url,
+    () => {
+      qdrantUrlRevision.value += 1;
+      if (activeQdrantToastId.value !== null) {
+        toast.remove(activeQdrantToastId.value);
+        activeQdrantToastId.value = null;
+      }
+    },
+  );
+
+  /**
+   * Emit one Qdrant probe outcome under a fresh id and track it as the active
+   * outcome. The previously tracked outcome, if any, is retired first: at most
+   * one owned outcome stays visible, so a later URL edit only has to clear the
+   * current one. Ids are never reused, so a pending delayed deletion for a
+   * removed older outcome cannot erase this one.
+   */
+  function emitQdrantOutcome(outcome: {
+    color: "success" | "error";
+    title: string;
+    description?: string;
+    duration: number;
+  }) {
+    if (activeQdrantToastId.value !== null) {
+      toast.remove(activeQdrantToastId.value);
+    }
+    qdrantProbeToastSeq += 1;
+    const id = `${QDRANT_PROBE_TOAST_ID_PREFIX}${qdrantProbeToastSeq}`;
+    activeQdrantToastId.value = id;
+    toast.add({ ...outcome, id });
+  }
 
   async function loadPage() {
     loading.value = true;
@@ -285,6 +341,57 @@ export function useSettingsPage() {
   }
 
   /**
+   * Probe the Qdrant endpoint currently in the draft, without saving it.
+   *
+   * Only the unsaved URL is sent: Qdrant has no API key in the saved settings
+   * and the collection is irrelevant to a connection check, so neither travels.
+   * The button is disabled while the URL is blank and while a probe is in
+   * flight, so a duplicate click cannot start a second request.
+   *
+   * Stale outcomes are suppressed by draft generation: the revision captured at
+   * request start must still match when the outcome arrives, so editing the URL
+   * away — even back to the same value — invalidates the old outcome. A prior
+   * displayed Qdrant outcome is removed on URL edit under its own distinct id,
+   * so the removal cannot erase a later outcome.
+   */
+  async function testQdrantConnection() {
+    if (qdrantTesting.value) {
+      return;
+    }
+    qdrantTesting.value = true;
+    const requestRevision = qdrantUrlRevision.value;
+    const requestUrl = runtimeDraft.qdrant.url.trim();
+    const isStale = () =>
+      requestRevision !== qdrantUrlRevision.value
+      || requestUrl !== runtimeDraft.qdrant.url.trim();
+    try {
+      await apiClient.testQdrantConnection({
+        url: requestUrl,
+      });
+      if (isStale()) {
+        return;
+      }
+      emitQdrantOutcome({
+        color: "success",
+        title: t("settings.runtime.qdrantTestSuccess"),
+        duration: 2500,
+      });
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      emitQdrantOutcome({
+        color: "error",
+        title: t("common.error"),
+        description: errorMessage(error, t("settings.runtime.qdrantTestFailed")),
+        duration: 5000,
+      });
+    } finally {
+      qdrantTesting.value = false;
+    }
+  }
+
+  /**
    * Probe the Docling endpoint currently in the draft, without saving it.
    *
    * The submitted block is the same normalized connection payload a save would
@@ -376,8 +483,10 @@ export function useSettingsPage() {
     testS3Connection,
     testValkeyConnection,
     testEmbeddingConnection,
+    testQdrantConnection,
     testDoclingConnection,
     embeddingTesting,
+    qdrantTesting,
     translationProviders,
     valkeyTesting,
     vectorRebuildStatus: vectorRebuildState.vectorRebuildStatus,

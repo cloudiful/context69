@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildSearchPayload, cursorFromQuery, filtersFromQuery, filtersToQuery, groupFolderOptions, loadSearchSession, normalizeSearchFilters, pageFromQuery, sameSearchFilters, saveSearchSession, stripTitlePrefix } from "./search";
+import { buildSearchPayload, buildSnippet, cursorFromQuery, filtersFromQuery, filtersToQuery, groupFolderOptions, loadSearchSession, normalizeSearchFilters, pageFromQuery, sameSearchFilters, saveSearchSession, stripTitlePrefix } from "./search";
 import { installMockStorage } from "../test-utils/storage";
 
 describe("search utilities", () => {
@@ -268,5 +268,39 @@ describe("search utilities", () => {
     expect(stripTitlePrefix(plain, "纯正文内容没有标题行")).toBe(plain);
     expect(stripTitlePrefix("标题：示例", "")).toBe("标题：示例");
     expect(stripTitlePrefix("", "示例")).toBe("");
+  });
+
+  it("windows the snippet around the earliest matched term", () => {
+    const text = `${"a".repeat(120)}DeepSeek model${"b".repeat(120)}`;
+    const snippet = buildSnippet(text, "deepseek");
+    expect(snippet).toContain("DeepSeek model");
+    expect(snippet.startsWith("…")).toBe(true);
+    expect(snippet.endsWith("…")).toBe(true);
+    // The matched term sits exactly `radius` characters into the visible window.
+    expect(snippet.slice(1).indexOf("DeepSeek")).toBe(90);
+  });
+
+  it("finds a term when the whole query phrase is absent", () => {
+    const text = `${"a".repeat(120)}DeepSeek model${"b".repeat(120)}`;
+    expect(buildSnippet(text, "deep seek").slice(1).indexOf("DeepSeek")).toBe(90);
+  });
+
+  it("prefers the whole trimmed phrase when the phrase is present", () => {
+    // Terms alone would window around the earlier "a"; the literal phrase wins.
+    expect(buildSnippet("x a b a", "b a", 1)).toBe("… b a");
+  });
+
+  it("keeps the legacy radius, truncation and ellipsis behavior without a match", () => {
+    const text = "a".repeat(500);
+    expect(buildSnippet(text, "missing", 90)).toBe(`${"a".repeat(180)}…`);
+    expect(buildSnippet("short body", "missing")).toBe("short body");
+    expect(buildSnippet("short body", "missing", 1)).toBe("sh…");
+  });
+
+  it("chooses the snippet window without a length-changing lowercase copy", () => {
+    // `İ`.toLowerCase() grows to two code units, so a lowercased copy would cut
+    // the window one character short of the real match.
+    const text = `${"a".repeat(120)}İstanbul release${"b".repeat(120)}`;
+    expect(buildSnippet(text, "release").slice(1).indexOf("release")).toBe(90);
   });
 });

@@ -13,6 +13,11 @@ import SettingsRuntimeSection from "./SettingsRuntimeSection.vue";
 function createDraft(): DraftRuntimeSettings {
   return {
     ...createRuntimeDraft(),
+    qdrant: {
+      url: "http://qdrant:6334",
+      collection_name: "context69",
+      recreate_on_dimension_mismatch: false,
+    },
     embedding: {
       base_url: "https://openrouter.ai/api/v1",
       api_key: "",
@@ -39,6 +44,7 @@ function mountSection(draft: DraftRuntimeSettings = createDraft()) {
       s3Testing: false,
       valkeyTesting: false,
       embeddingTesting: false,
+      qdrantTesting: false,
       vectorRebuildStatus: null,
     },
     global: { plugins: [testNuxtUiPlugin, createTestI18n("en")] },
@@ -157,10 +163,39 @@ describe("SettingsRuntimeSection", () => {
     expect(wrapper.get('[data-testid="runtime-embedding-test"]').attributes("aria-busy")).toBe("true");
   });
 
+  it("wires the qdrant test to its title-row action without saving", async () => {
+    const wrapper = mountSection();
+    const button = wrapper.get('[data-testid="runtime-qdrant-test"]');
+
+    expect(button.text()).toContain("Test Connection");
+    await button.trigger("click");
+    expect(wrapper.emitted("test-qdrant")).toHaveLength(1);
+
+    await wrapper.setProps({ qdrantTesting: true });
+    expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("true");
+  });
+
+  it("disables the qdrant test while the URL is blank and re-enables it when typed", async () => {
+    const draft = reactive(createDraft());
+    draft.qdrant.url = "   ";
+    const wrapper = mountSection(draft);
+
+    expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("disabled")).toBeDefined();
+
+    draft.qdrant.url = "http://qdrant:6334";
+    await nextTick();
+    expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("disabled")).toBeUndefined();
+
+    await wrapper.setProps({ qdrantTesting: true });
+    expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("aria-busy")).toBe("true");
+    expect(wrapper.get('[data-testid="runtime-qdrant-test"]').attributes("disabled")).toBeDefined();
+  });
+
   it("places the connection tests on their section title rows", async () => {
     const wrapper = mountSection();
 
     expect(wrapper.get("#settings-embedding").find('[data-testid="runtime-embedding-test"]').exists()).toBe(true);
+    expect(wrapper.get("#settings-qdrant").find('[data-testid="runtime-qdrant-test"]').exists()).toBe(true);
     expect(wrapper.get("#settings-scheduler").find('[data-testid="runtime-valkey-test"]').exists()).toBe(true);
 
     const draft = reactive(createDraft());
@@ -181,6 +216,7 @@ describe("SettingsRuntimeSection", () => {
 
 const CONNECTION_TESTS = [
   { testId: "runtime-embedding-test", section: "#settings-embedding", prop: "embeddingTesting", event: "test-embedding" },
+  { testId: "runtime-qdrant-test", section: "#settings-qdrant", prop: "qdrantTesting", event: "test-qdrant" },
   { testId: "runtime-valkey-test", section: "#settings-scheduler", prop: "valkeyTesting", event: "test-valkey" },
   { testId: "runtime-file-library-s3-test", section: "#settings-file-library", prop: "s3Testing", event: "test-s3" },
 ] as const;

@@ -140,16 +140,16 @@ fn expected_body_kind(op: &Value) -> BodyKind {
 fn registry_is_sorted_unique_and_complete() {
     assert_eq!(
         OPERATIONS.len(),
-        134,
-        "registry must cover all 134 operations"
+        135,
+        "registry must cover all 135 operations"
     );
     let ids = operation_ids();
-    assert_eq!(ids.len(), 134);
+    assert_eq!(ids.len(), 135);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "OPERATIONS must be sorted by operation_id");
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 134, "operation ids must be unique");
+    assert_eq!(unique.len(), 135, "operation ids must be unique");
     for op in OPERATIONS {
         assert!(!op.id.is_empty());
         assert!(["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&op.method));
@@ -164,7 +164,7 @@ fn registry_is_sorted_unique_and_complete() {
 #[test]
 fn registry_matches_openapi_exactly_with_no_omission() {
     let openapi = openapi_operations();
-    assert_eq!(openapi.len(), 134, "OpenAPI must expose 134 operations");
+    assert_eq!(openapi.len(), 135, "OpenAPI must expose 135 operations");
     let registry: Vec<(String, String, String)> = OPERATIONS
         .iter()
         .map(|op| {

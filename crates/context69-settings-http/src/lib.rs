@@ -12,11 +12,11 @@ use axum::{
 use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
-    SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeValkeyRequest,
-    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings,
-    UpdateRuntimeSettingsRequest,
+    SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
+    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
-use context69_http_support::{internal_error_response, map_settings_error};
+use context69_http_support::{CurrentUser, internal_error_response, map_settings_error};
 use utoipa::OpenApi;
 
 #[async_trait]
@@ -29,6 +29,8 @@ pub trait SettingsApi: Send + Sync {
     async fn test_s3_connection(&self, request: &UpdateRuntimeS3Settings) -> Result<()>;
     async fn test_valkey_connection(&self, request: &TestRuntimeValkeyRequest) -> Result<()>;
     async fn test_embedding_connection(&self, request: &TestRuntimeEmbeddingRequest) -> Result<()>;
+    /// A non-persisting connectivity check against a submitted Qdrant endpoint.
+    async fn test_qdrant_connection(&self, request: &TestRuntimeQdrantRequest) -> Result<()>;
     async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse>;
     async fn update_docling_settings(
         &self,
@@ -74,6 +76,10 @@ where
             axum::routing::post(test_embedding_connection),
         )
         .route(
+            "/v1/settings/runtime/qdrant/test",
+            axum::routing::post(test_qdrant_connection),
+        )
+        .route(
             "/v1/settings/docling",
             get(get_docling_settings).put(update_docling_settings),
         )
@@ -95,6 +101,7 @@ where
         test_s3_connection,
         test_valkey_connection,
         test_embedding_connection,
+        test_qdrant_connection,
         get_docling_settings,
         update_docling_settings,
         test_docling_connection,
@@ -109,6 +116,7 @@ where
             UpdateRuntimeS3Settings,
             TestRuntimeValkeyRequest,
             TestRuntimeEmbeddingRequest,
+            TestRuntimeQdrantRequest,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             UpdateDoclingConnectionSettings,
@@ -174,6 +182,41 @@ async fn test_embedding_connection(
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => settings_management_error_response(error),
     }
+}
+
+/// A non-persisting connectivity check against a submitted Qdrant endpoint.
+///
+/// It reports reachability alone, so a reachable endpoint answers 204 and the
+/// response body never discloses anything about the remote — not the collection
+/// list, not the submitted URL.
+///
+/// Admin-only like the translation settings admin routes: the settings scope
+/// admits any authenticated identity, so the handler rejects non-admins before
+/// any outbound request is built.
+#[utoipa::path(post, path = "/v1/settings/runtime/qdrant/test", request_body = TestRuntimeQdrantRequest, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn test_qdrant_connection(
+    State(state): State<SettingsHttpState>,
+    CurrentUser(user): CurrentUser,
+    axum::Json(request): axum::Json<TestRuntimeQdrantRequest>,
+) -> impl IntoResponse {
+    if !user.is_admin {
+        return qdrant_admin_required();
+    }
+    match state.settings.test_qdrant_connection(&request).await {
+        Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+fn qdrant_admin_required() -> axum::response::Response {
+    (
+        StatusCode::FORBIDDEN,
+        axum::Json(ApiErrorResponse::new(
+            "forbidden",
+            "administrator access required".to_string(),
+        )),
+    )
+        .into_response()
 }
 
 #[utoipa::path(get, path = "/v1/settings/docling", responses((status = 200, body = DoclingSettingsResponse), (status = 500, body = ApiErrorResponse)))]
@@ -254,5 +297,58 @@ mod tests {
         assert_eq!(bad_request.status(), StatusCode::BAD_REQUEST);
         let unknown = settings_management_error_response(anyhow::anyhow!("plain internal boom"));
         assert_eq!(unknown.status(), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    /// The probe is a runtime-scoped admin route, so it must be published in the
+    /// same document as the other runtime probes.
+    ///
+    /// The generated frontend client is typed from this document, so a missing
+    /// path or an unregistered request schema would silently leave the settings
+    /// page without a typed call to make.
+    #[test]
+    fn the_qdrant_probe_is_published_in_the_settings_openapi_document() {
+        let document = openapi_document();
+        let path = document
+            .paths
+            .paths
+            .get("/v1/settings/runtime/qdrant/test")
+            .expect("the probe route must be published");
+        let operation = path.post.as_ref().expect("the probe must be a POST");
+
+        for status in ["204", "400", "403", "500"] {
+            assert!(
+                operation.responses.responses.contains_key(status),
+                "the probe must document its {status} response, got: {:?}",
+                operation.responses.responses.keys().collect::<Vec<_>>()
+            );
+        }
+
+        // The request body must reference the generated request type so the
+        // generated frontend client types the call from the named schema.
+        let body = operation
+            .request_body
+            .as_ref()
+            .and_then(|request| request.content.get("application/json"))
+            .and_then(|media| media.schema.as_ref())
+            .expect("the probe must publish a request body");
+        let reference = match body {
+            utoipa::openapi::RefOr::Ref(reference) => reference.ref_location.as_str(),
+            utoipa::openapi::RefOr::T(_) => {
+                panic!("the probe request body must reference a named schema")
+            }
+        };
+        assert!(
+            reference.ends_with("TestRuntimeQdrantRequest"),
+            "the request body must reference the generated request type, got: {reference}"
+        );
+        assert!(
+            document
+                .components
+                .as_ref()
+                .expect("the document must carry components")
+                .schemas
+                .contains_key("TestRuntimeQdrantRequest"),
+            "the request type must be registered in the component schemas"
+        );
     }
 }

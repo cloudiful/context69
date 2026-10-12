@@ -7,6 +7,7 @@ use crate::domain_errors::DomainError;
 mod docling_probe;
 mod embedding_probe;
 mod mappers;
+pub mod qdrant_probe;
 mod runtime_mappers;
 pub(crate) mod secrets;
 mod validate;
