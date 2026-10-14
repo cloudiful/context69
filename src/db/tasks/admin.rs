@@ -14,6 +14,16 @@ impl Database {
             tx.rollback().await?;
             return Ok(false);
         }
+        // Durable cleanup (issue #84 P2): capture still-active remotes before
+        // the ledger flip so a rollback leaves neither a cancelled ledger nor
+        // an outbox row. No network inside this transaction.
+        sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_task.sql",
+            task_id,
+            "business_cancel",
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
             .execute(&mut *tx)
             .await?;
@@ -51,13 +61,23 @@ impl Database {
 
     /// Permanently delete a task row and its cascading history. The SQL only
     /// matches trashed rows; a non-trashed task is never removed here.
+    /// P2: captures any still-active remote into the non-cascading cleanup
+    /// outbox before the cascade so purged jobs are still terminated.
     pub async fn delete_trashed_task(&self, task_id: Uuid) -> Result<bool> {
-        Ok(
-            sqlx::query_file!("src/sql/db/tasks/delete_trashed.sql", task_id)
-                .fetch_optional(self.pool())
-                .await?
-                .is_some(),
+        let mut tx = self.pool().begin().await?;
+        sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_task.sql",
+            task_id,
+            "purge",
         )
+        .fetch_all(&mut *tx)
+        .await?;
+        let deleted = sqlx::query_file!("src/sql/db/tasks/delete_trashed.sql", task_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some();
+        tx.commit().await?;
+        Ok(deleted)
     }
 
     /// Bulk-clear the calling user's history for one view in a single
@@ -66,14 +86,24 @@ impl Database {
     /// trash matches only trashed terminal rows. Active rows, other users'
     /// rows, files, documents, vectors, and S3 objects are never touched.
     /// Idempotent: a repeat call deletes zero rows.
+    /// P2: enqueues still-active remotes for affected tasks before the cascade.
     pub async fn clear_user_task_history(&self, user_id: i64, view: &str) -> Result<u64> {
+        let mut tx = self.pool().begin().await?;
+        sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_cleanup/enqueue_cleanup_for_user_history.sql",
+            user_id,
+            view
+        )
+        .fetch_all(&mut *tx)
+        .await?;
         let result = sqlx::query_file!(
             "src/sql/db/tasks/clear_user_task_history.sql",
             user_id,
             view
         )
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(result.rows_affected())
     }
 
@@ -83,6 +113,22 @@ impl Database {
             .fetch_all(&mut *tx)
             .await?;
         if !ids.is_empty() {
+            for task_id in &ids {
+                sqlx::query_file_scalar!(
+                    "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_task.sql",
+                    task_id,
+                    "business_cancel",
+                )
+                .fetch_all(&mut *tx)
+                .await?;
+                sqlx::query_file!(
+                    "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
+                    task_id,
+                    Option::<&str>::None,
+                )
+                .execute(&mut *tx)
+                .await?;
+            }
             sqlx::query_file!("src/sql/db/tasks/cancel_active_items.sql")
                 .execute(&mut *tx)
                 .await?;

@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\nFROM context69.task_docling_remote_jobs\nWHERE item_id = $1\n  AND status IN ('pending', 'running')\nORDER BY created_at DESC\nLIMIT 1\n",
+  "query": "SELECT\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    endpoint_base_url,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\nFROM context69.task_docling_remote_jobs\nWHERE item_id = $1\n  AND status IN ('pending', 'running')\nORDER BY created_at DESC\nLIMIT 1\n",
   "describe": {
     "columns": [
       {
@@ -126,6 +126,17 @@
       },
       {
         "ordinal": 11,
+        "name": "endpoint_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "endpoint_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
         "name": "lease_token",
         "type_info": "Uuid",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "lease_until",
         "type_info": "Timestamptz",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "last_error",
         "type_info": "Text",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -211,10 +222,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       true
     ]
   },
-  "hash": "8e282b45e22818317425987ffb7689ecd233dcadf33a9547982d35aef3aa9d62"
+  "hash": "f79d503d4d3b2c045cca7dd579149f74bf23a9b0bde51347fff657eb45add74a"
 }

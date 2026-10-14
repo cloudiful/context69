@@ -98,6 +98,7 @@ pub use source_object_cleanup::{
 };
 mod source_release;
 pub use source_release::{DEFAULT_SOURCE_RELEASE_RETRY_BATCH_SIZE, SourceReleaseSweepSummary};
+pub(crate) mod docling_remote_ops;
 mod docling_remote_result;
 mod docling_remote_submit;
 mod staging;

@@ -19,6 +19,7 @@ async fn create_and_fetch_roundtrip() {
             Some("queued"),
             Some(Utc::now() - Duration::seconds(1)),
             Some(Utc::now() + Duration::hours(1)),
+            None,
         )
         .await
         .expect("create");
@@ -44,7 +45,7 @@ async fn rejects_second_active_and_duplicate_remote_id() {
     let (task_id, item_id) = seed_task(&db, user_id).await;
     let (other_task, other_item) = seed_task(&db, user_id).await;
     let remote_id = format!("docling-{}", Uuid::new_v4());
-    db.create_docling_remote_job(task_id, item_id, &remote_id, None, None, None)
+    db.create_docling_remote_job(task_id, item_id, &remote_id, None, None, None, None)
         .await
         .expect("first");
     let second = db
@@ -55,11 +56,12 @@ async fn rejects_second_active_and_duplicate_remote_id() {
             None,
             None,
             None,
+            None,
         )
         .await;
     assert!(second.is_err(), "one active job per item");
     let dup = db
-        .create_docling_remote_job(other_task, other_item, &remote_id, None, None, None)
+        .create_docling_remote_job(other_task, other_item, &remote_id, None, None, None, None)
         .await;
     assert!(dup.is_err(), "remote_task_id is unique");
     cleanup(&db, task_id, user_id).await;

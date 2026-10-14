@@ -25,10 +25,8 @@ async fn item_state(
     )
 }
 
-/// Dispatcher exclusion for legacy parks: an item with an active remote job
-/// is never claimed, even when its waiting backoff is due. The row stays out
-/// of the dispatcher until recovery adopts the item; the claim keeps no
-/// parked item away from normal workers once the row is gone.
+/// Legacy parks remain recovery-owned until requeued, then a fresh worker
+/// lease adopts the retained remote identity.
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
@@ -42,6 +40,7 @@ async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
         &format!("docling-{}", Uuid::new_v4()),
         None,
         Some(past_poll_at()),
+        None,
         None,
     )
     .await
@@ -65,17 +64,29 @@ async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
         .await
         .expect("reconcile");
     assert_eq!(summary.adopted_items, 1, "the legacy park is adopted");
-    assert_eq!(summary.cancelled_remote_jobs, 1);
+    assert_eq!(summary.cancelled_remote_jobs, 0);
     let (status, reason, _) = item_state(&db, item_id).await;
     assert_eq!(status, "queued");
     assert_eq!(reason, None);
+    let retained = db
+        .get_active_docling_remote_job_for_item(item_id)
+        .await
+        .unwrap()
+        .unwrap();
     assert!(
-        db.get_active_docling_remote_job_for_item(item_id)
+        db.claim_items_fast(10)
             .await
-            .expect("active")
-            .is_none(),
-        "adoption cancels the orphaned row so the next claim adopts the item"
+            .unwrap()
+            .iter()
+            .any(|item| item.id == item_id)
     );
+    let adopted = db
+        .get_active_docling_remote_job_for_item(item_id)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(adopted.id, retained.id);
+    assert_eq!(adopted.remote_task_id, retained.remote_task_id);
     cleanup(&db, task_id, user_id).await;
 }
 
@@ -96,6 +107,7 @@ async fn dispatcher_never_claims_waiting_docling_items() {
         Some("pending"),
         Some(past_poll_at()),
         Some(chrono::Utc::now() - Duration::seconds(1)),
+        None,
     )
     .await
     .expect("expired job");
@@ -140,6 +152,7 @@ async fn recovery_never_polls_the_remote() {
             &format!("docling-{}", Uuid::new_v4()),
             Some("submitted"),
             Some(due),
+            None,
             None,
         )
         .await

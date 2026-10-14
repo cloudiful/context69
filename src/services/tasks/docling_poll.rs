@@ -108,8 +108,8 @@ enum OwnerState {
 }
 
 /// Checks whether the blocking worker still owns its item: `Gone` means the
-/// item left `running` (cancelled, failed, or requeued elsewhere) and the
-/// remote reference must be fenced; `Stolen` means another worker holds the
+/// item left `running` (cancelled, failed, or requeued elsewhere); recovery
+/// alone fences confirmed terminal owners. `Stolen` means another worker holds the
 /// item lease (crash reclaim) and this worker must write nothing at all.
 async fn owner_state(db: &Database, item_id: Uuid, lease_token: Uuid) -> Result<OwnerState> {
     let work = db.get_docling_work_item(item_id).await?;
@@ -153,8 +153,8 @@ async fn sleep_owned(db: &Database, item: &crate::db::ClaimedItem, secs: i64) ->
 ///   crash before the item commit re-observes instead of resubmitting, and
 ///   the recovery pass cancels the orphaned row once the item is terminal
 ///   (within one recovery tick);
-/// - lost ownership (cancel, reclaim): fence the remote row when the item is
-///   gone, otherwise write nothing; the fenced item finish observes the loss.
+/// - lost ownership (cancel, reclaim): write nothing; the fenced item finish
+///   observes the loss and terminal-owner recovery handles cleanup.
 pub(super) async fn run_docling_stage_blocking(
     db: &Database,
     ops: &(impl DoclingRemoteOps + '_),
@@ -166,11 +166,6 @@ pub(super) async fn run_docling_stage_blocking(
     loop {
         match owner_state(db, item.id, item.lease_token).await? {
             OwnerState::Gone => {
-                db.cancel_active_docling_remote_job_for_item(
-                    item.id,
-                    Some("owning item left the running worker"),
-                )
-                .await?;
                 return Ok(ProcessResult::Failed {
                     stage: "docling".to_string(),
                     message: "owning item left the running worker".to_string(),
@@ -269,11 +264,6 @@ pub(super) async fn run_docling_stage_blocking(
                 work
             }
             Some(work) if work.status != "running" => {
-                db.cancel_active_docling_remote_job_for_item(
-                    item.id,
-                    Some("owning item left the running worker"),
-                )
-                .await?;
                 return Ok(ProcessResult::Failed {
                     stage: "docling".to_string(),
                     message: "owning item left the running worker".to_string(),
@@ -464,6 +454,7 @@ mod tests {
                 Some("submitted"),
                 Some(Utc::now() - chrono::Duration::seconds(1)),
                 Some(Utc::now() + chrono::Duration::hours(1)),
+                None,
             )
             .await
             .expect("remote job");

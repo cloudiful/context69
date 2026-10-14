@@ -1,0 +1,233 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Claims up to $1 due cleanup rows with FOR UPDATE SKIP LOCKED.\n--\n-- Due means status in ('pending','cancelling','awaiting_terminal'),\n-- next_attempt_at <= now() and no live claim; expired deadlines are settled failed.\n-- Sets a 60s claim lease with the caller's token ($2) and bumps the attempt\n-- count so backoff and caps are observable. Two concurrent claimers never\n-- receive the same row. No network happens here.\nWITH due AS (\n    SELECT id\n    FROM context69.task_docling_remote_cleanup\n    WHERE status IN ('pending', 'cancelling', 'awaiting_terminal')\n      AND next_attempt_at <= now()\n      AND (claim_until IS NULL OR claim_until <= now())\n    ORDER BY next_attempt_at, created_at, id\n    LIMIT $1\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE context69.task_docling_remote_cleanup AS cleanup\nSET claim_token = $2,\n    claim_until = now() + interval '60 seconds',\n    attempt_count = attempt_count + 1,\n    updated_at = now()\nFROM due\nWHERE cleanup.id = due.id\nRETURNING\n    cleanup.id,\n    cleanup.remote_job_id,\n    cleanup.task_id,\n    cleanup.item_id,\n    cleanup.remote_task_id,\n    cleanup.endpoint_base_url,\n    cleanup.reason,\n    cleanup.status,\n    cleanup.outcome,\n    cleanup.attempt_count,\n    cleanup.next_attempt_at,\n    cleanup.created_at,\n    cleanup.updated_at,\n    cleanup.finished_at,\n    cleanup.cleanup_deadline_at,\n    cleanup.claim_token,\n    cleanup.claim_until,\n    cleanup.last_error;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "remote_job_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "remote_job_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "endpoint_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "endpoint_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "reason"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "outcome",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "outcome"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "next_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "cleanup_deadline_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "cleanup_deadline_at"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "claim_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "claim_token"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "claim_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "claim_until"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "last_error"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "3300e2aa9512fdc9adc900fd6f42b75a5ae80b6fc5b7088096d431a77ee6e196"
+}

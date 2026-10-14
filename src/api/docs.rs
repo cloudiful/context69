@@ -69,7 +69,9 @@ use crate::api::{
         __path_delete_source_connection, __path_list_source_connections, __path_list_sources,
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
-    task_maintenance::__path_cancel_active_tasks,
+    task_maintenance::{
+        __path_cancel_active_tasks, __path_list_docling_remote_tasks, __path_wake_docling_cleanup,
+    },
     tasks::{
         __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_diagnose_task,
         __path_ensure_scope, __path_get_task, __path_list_task_items, __path_list_tasks,
@@ -94,12 +96,13 @@ use crate::contracts::{
     ClearTaskHistoryResponse, ClearTaskHistoryView, CreateAdminUserRequest, CreateFolderRequest,
     CreateMetadataIndexRequest, CreatePersonalAccessTokenRequest,
     CreatePersonalAccessTokenResponse, CreateSourceFolderRequest, CreateTextRequest,
-    CursorPageQuery, CursorPagination, DeeplPlan, DeleteBatchRequest, DocumentKey,
-    DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentSort,
-    DocumentSortField, EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass,
-    ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse,
-    ExtractionResultResponse, ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem,
-    FileBatchRequest, GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
+    CursorPageQuery, CursorPagination, DeeplPlan, DeleteBatchRequest, DoclingRemoteTask,
+    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, DocumentKey, DocumentLookupQuery,
+    DocumentQueryRequest, DocumentQueryResponse, DocumentSort, DocumentSortField,
+    EnsureScopeResponse, ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse,
+    ExtractionJobResponse, ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse,
+    ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
+    GroupSortBy, GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
     ImportLibraryFileFromUrlRequest, IngestOptions, LibraryFileDetailResponse,
     LibraryFolderResponse, LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, MemberPageQuery,
@@ -249,7 +252,9 @@ use crate::contracts::sources::{
         restore_task,
         delete_task,
         clear_task_history,
-        cancel_active_tasks
+        cancel_active_tasks,
+        list_docling_remote_tasks,
+        wake_docling_cleanup
     ),
     components(schemas(
         HealthStatus,
@@ -424,6 +429,11 @@ use crate::contracts::sources::{
         TaskStreamUpdate,
         TaskSortBy,
         CancelActiveTasksResponse,
+        DoclingRemoteTask,
+        DoclingRemoteTasksQuery,
+        DoclingRemoteTasksResponse,
+        context69_contracts::DoclingCleanupTask,
+        context69_contracts::DoclingCleanupResponse,
         TextBatchRequest,
         UrlBatchRequest,
         DeleteBatchRequest,
@@ -556,6 +566,8 @@ mod tests {
             "/v1/tasks/{task_id}/trash",
             "/v1/tasks/{task_id}/restore",
             "/v1/admin/tasks/cancel-active",
+            "/v1/admin/docling/tasks",
+            "/v1/admin/docling/cleanup",
         ] {
             assert!(paths.contains_key(path), "missing path {path}");
         }

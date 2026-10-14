@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.21.26"
+    "version": "0.21.27"
   },
   "paths": {
     "/healthz": {
@@ -31,6 +31,95 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/docling/cleanup": {
+      "post": {
+        "tags": [],
+        "operationId": "wake_docling_cleanup",
+        "responses": {
+          "200": {
+            "description": "Eligible owned cleanup scheduled",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoclingCleanupResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/admin/docling/tasks": {
+      "get": {
+        "tags": [],
+        "operationId": "list_docling_remote_tasks",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded page of remote Docling task identities",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoclingRemoteTasksResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid limit or offset",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -7721,6 +7810,65 @@
           }
         }
       },
+      "DoclingCleanupResponse": {
+        "type": "object",
+        "required": [
+          "woken"
+        ],
+        "properties": {
+          "woken": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "DoclingCleanupTask": {
+        "type": "object",
+        "required": [
+          "id",
+          "task_id",
+          "remote_task_id",
+          "status",
+          "attempt_count",
+          "next_attempt_at",
+          "cleanup_deadline_at"
+        ],
+        "properties": {
+          "attempt_count": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "cleanup_deadline_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "next_attempt_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "remote_task_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "DoclingConnectionSettingsResponse": {
         "type": "object",
         "required": [
@@ -7754,6 +7902,80 @@
             "type": "integer",
             "format": "int64",
             "minimum": 0
+          }
+        }
+      },
+      "DoclingRemoteTask": {
+        "type": "object",
+        "description": "One remote Docling task identity projected for the admin list.\n\nOnly the safe identity fields are exposed: no endpoint, no raw remote error\nbody, no credential, no submission payload. `task_status` is a string so an\nunknown non-terminal value stays readable text.",
+        "required": [
+          "task_id",
+          "task_type",
+          "task_status",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "task_status": {
+            "type": "string"
+          },
+          "task_type": {
+            "type": "string"
+          }
+        }
+      },
+      "DoclingRemoteTasksQuery": {
+        "type": "object",
+        "description": "Query for `GET /v1/admin/docling/tasks`.\n\nMirrors the fork's `GET /v1/tasks` bounds: `limit` is `1..=100` (default\n`20`), `offset` is `>=0` (default `0`). Unknown fields are rejected so a\nrenamed fork parameter fails instead of silently changing meaning.",
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "offset": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        },
+        "additionalProperties": false
+      },
+      "DoclingRemoteTasksResponse": {
+        "type": "object",
+        "description": "Response body for `GET /v1/admin/docling/tasks`.\n\n`has_more` is the fork's continuation flag verbatim: the client pages with\nprevious/next on `offset`/`limit` and never invents a total.",
+        "required": [
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "cleanup": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoclingCleanupTask"
+            }
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoclingRemoteTask"
+            }
+          },
+          "remote_error": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         }
       },

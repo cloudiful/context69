@@ -32,6 +32,7 @@ import {
 import { useSettingsAdminUsers } from "./use-settings-admin-users";
 import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-tokens";
 import { useSettingsVectorRebuild } from "./use-settings-vector-rebuild";
+import { useDoclingRemoteTasks } from "./use-docling-remote-tasks";
 
 type TranslationProviderDraft = Omit<TranslationProviderInput, "enabled"> & {
   enabled: boolean;
@@ -56,6 +57,7 @@ export function useSettingsPage() {
   const personalAccessTokens = useSettingsPersonalAccessTokens();
   const adminUsersState = useSettingsAdminUsers();
   const vectorRebuildState = useSettingsVectorRebuild();
+  const doclingRemoteTasks = useDoclingRemoteTasks();
 
   const loading = ref(false);
   const saving = ref(false);
@@ -464,6 +466,7 @@ export function useSettingsPage() {
 
   return {
     ...adminUsersState,
+    ...doclingRemoteTasks,
     doclingDraft,
     doclingTesting,
     hasChanges,

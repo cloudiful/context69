@@ -20,6 +20,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/docling/cleanup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["wake_docling_cleanup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/docling/tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_docling_remote_tasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/extraction/health": {
         parameters: {
             query?: never;
@@ -2030,6 +2062,25 @@ export interface components {
         DeleteBatchRequest: {
             items: components["schemas"]["DocumentKey"][];
         };
+        DoclingCleanupResponse: {
+            /** Format: int32 */
+            woken: number;
+        };
+        DoclingCleanupTask: {
+            /** Format: int32 */
+            attempt_count: number;
+            /** Format: date-time */
+            cleanup_deadline_at: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            next_attempt_at: string;
+            outcome?: string | null;
+            remote_task_id: string;
+            status: string;
+            /** Format: uuid */
+            task_id: string;
+        };
         DoclingConnectionSettingsResponse: {
             base_url?: string | null;
             max_inflight: number;
@@ -2039,6 +2090,45 @@ export interface components {
             task_timeout_secs: number;
             /** Format: int64 */
             timeout_secs: number;
+        };
+        /**
+         * @description One remote Docling task identity projected for the admin list.
+         *
+         *     Only the safe identity fields are exposed: no endpoint, no raw remote error
+         *     body, no credential, no submission payload. `task_status` is a string so an
+         *     unknown non-terminal value stays readable text.
+         */
+        DoclingRemoteTask: {
+            /** Format: date-time */
+            created_at: string;
+            task_id: string;
+            task_status: string;
+            task_type: string;
+        };
+        /**
+         * @description Query for `GET /v1/admin/docling/tasks`.
+         *
+         *     Mirrors the fork's `GET /v1/tasks` bounds: `limit` is `1..=100` (default
+         *     `20`), `offset` is `>=0` (default `0`). Unknown fields are rejected so a
+         *     renamed fork parameter fails instead of silently changing meaning.
+         */
+        DoclingRemoteTasksQuery: {
+            /** Format: int32 */
+            limit?: number;
+            /** Format: int32 */
+            offset?: number;
+        };
+        /**
+         * @description Response body for `GET /v1/admin/docling/tasks`.
+         *
+         *     `has_more` is the fork's continuation flag verbatim: the client pages with
+         *     previous/next on `offset`/`limit` and never invents a total.
+         */
+        DoclingRemoteTasksResponse: {
+            cleanup?: components["schemas"]["DoclingCleanupTask"][];
+            has_more: boolean;
+            items: components["schemas"]["DoclingRemoteTask"][];
+            remote_error?: string | null;
         };
         DoclingSettingsResponse: {
             configured: boolean;
@@ -4627,6 +4717,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    wake_docling_cleanup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Eligible owned cleanup scheduled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoclingCleanupResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_docling_remote_tasks: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded page of remote Docling task identities */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoclingRemoteTasksResponse"];
+                };
+            };
+            /** @description Invalid limit or offset */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };

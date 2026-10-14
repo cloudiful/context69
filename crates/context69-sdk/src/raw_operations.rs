@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (135 operations, sorted by `operation_id` for deterministic diffs).
+//! (136 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -711,6 +711,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "GroupPageResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "list_docling_remote_tasks",
+        method: "GET",
+        path_template: "/v1/admin/docling/tasks",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "DoclingRemoteTasksResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -1515,6 +1526,17 @@ pub const OPERATIONS: &[Operation] = &[
         request_schema: "UpsertMembershipRequest",
         response_schema: "-",
         success_status: 204,
+        idempotent: false,
+    },
+    Operation {
+        id: "wake_docling_cleanup",
+        method: "POST",
+        path_template: "/v1/admin/docling/cleanup",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "DoclingCleanupResponse",
+        success_status: 200,
         idempotent: false,
     },
 ];

@@ -55,6 +55,11 @@ pub async fn execute(
     cancellation::install_signal_handlers()
         .map_err(|error| format!("could not install safe cancellation handlers: {error}"))?;
     let mut summary = RunSummary::new(run_id.to_owned());
+    summary.allow_idle_connections = invocation.allow_idle_connections;
+    summary.record(format!(
+        "policy:allow-idle-connections={}",
+        invocation.allow_idle_connections
+    ));
     let run_dir = RunDir::create(repo_root, run_id).map_err(|error| error.to_string())?;
 
     match invocation.mode {
@@ -67,7 +72,7 @@ pub async fn execute(
             finish(&summary, &run_dir)
         }
         Mode::Preflight => {
-            inspect(&mut summary).await?;
+            inspect(&mut summary, invocation.allow_idle_connections).await?;
             finish(&summary, &run_dir)
         }
         Mode::Run => {
@@ -78,7 +83,7 @@ pub async fn execute(
                 || super::pure::run_workspace_tests(repo_root, run_dir_ref),
                 |outcome| async move {
                     summary_ref.record(super::pure::outcome_action(&outcome));
-                    inspect(summary_ref).await?;
+                    inspect(summary_ref, invocation_ref.allow_idle_connections).await?;
                     if summary_ref.status != RunStatus::Refused {
                         run_targets(repo_root, run_dir_ref, summary_ref, invocation_ref).await?;
                     }
@@ -112,13 +117,14 @@ pub async fn execute(
 }
 
 /// Resolve the target, run the read-only inspection, and record the verdict.
-async fn inspect(summary: &mut RunSummary) -> Result<(), String> {
+async fn inspect(summary: &mut RunSummary, allow_idle_connections: bool) -> Result<(), String> {
     let target = resolve_default().map_err(|error| error.to_string())?;
     let endpoint = target.endpoint();
     summary.endpoint_fingerprint = Some(endpoint.fingerprint());
     summary.endpoint_source = Some(target.source().label().to_owned());
 
-    let report = preflight_report(endpoint).await?;
+    let report = preflight_report(endpoint, allow_idle_connections).await?;
+    record_idle_policy(summary, &report.observation, allow_idle_connections);
     summary.record(format!("preflight:owned-objects={}", report.owned_objects));
     summary.record(format!(
         "preflight:preserved-extensions={}",
@@ -145,6 +151,7 @@ async fn run_targets(
     summary: &mut RunSummary,
     invocation: &Invocation,
 ) -> Result<(), String> {
+    let allow_idle_connections = invocation.allow_idle_connections;
     if cancellation::requested() {
         summary
             .failures
@@ -197,7 +204,8 @@ async fn run_targets(
         manifest.database_test_count(&opt_ins)
     ));
 
-    let report = preflight_report(endpoint).await?;
+    let report = preflight_report(endpoint, allow_idle_connections).await?;
+    record_idle_policy(summary, &report.observation, allow_idle_connections);
     let outcomes = execute::run(
         run_dir.path(),
         endpoint,
@@ -250,17 +258,37 @@ fn requested_opt_ins(invocation: &Invocation) -> Vec<TestClass> {
 }
 
 /// Inspect the target catalog without writing anything.
-async fn preflight_report(endpoint: &Endpoint) -> Result<PreflightReport, String> {
+async fn preflight_report(
+    endpoint: &Endpoint,
+    allow_idle_connections: bool,
+) -> Result<PreflightReport, String> {
     let observation = preflight::collect(endpoint)
         .await
         .map_err(|error| format!("preflight failed: {error}"))?;
-    let decision = preflight::decide_reset(&observation, endpoint);
+    let decision =
+        preflight::decide_reset_with_policy(&observation, endpoint, allow_idle_connections);
     Ok(PreflightReport {
         owned_objects: observation.owned_objects.total(),
         preserved_extension_count: observation.preserved_extension_count,
         observation,
         decision,
     })
+}
+
+fn record_idle_policy(summary: &mut RunSummary, observation: &PreflightObservation, enabled: bool) {
+    summary.permitted_idle_connections = if enabled {
+        observation
+            .foreign_backends
+            .iter()
+            .filter(|backend| backend.is_visible_idle())
+            .count()
+    } else {
+        0
+    };
+    summary.record(format!(
+        "preflight:permitted-idle-connections={}",
+        summary.permitted_idle_connections
+    ));
 }
 
 fn finish(summary: &RunSummary, run_dir: &RunDir) -> Result<RunSummary, String> {

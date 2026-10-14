@@ -43,6 +43,54 @@ fn observation() -> PreflightObservation {
     }
 }
 
+#[test]
+fn idle_opt_in_requires_visible_idle_without_transaction_and_preserves_other_guards() {
+    let idle = ForeignBackend {
+        application_name: "diagnostic".into(),
+        state: "idle".into(),
+        xact_start: None,
+        details_visible: true,
+    };
+    let mut seen = observation();
+    seen.foreign_backends = vec![idle.clone()];
+    assert!(!preflight::decide_reset(&seen, &endpoint()).allowed);
+    let decision = preflight::decide_reset_with_policy(&seen, &endpoint(), true);
+    assert!(decision.allowed);
+    assert!(!ResetAuthorization::new(decision, false).permits_reset());
+    for (state, xact_start, details_visible) in [
+        ("active", None, true),
+        ("idle in transaction", Some("timestamp"), true),
+        ("idle in transaction (aborted)", Some("timestamp"), true),
+        ("idle", Some("timestamp"), true),
+        ("idle", None, false),
+        ("", None, false),
+        ("unknown", None, true),
+        ("prepared", Some("timestamp"), false),
+    ] {
+        seen.foreign_backends = vec![
+            idle.clone(),
+            ForeignBackend {
+                application_name: "other".into(),
+                state: state.into(),
+                xact_start: xact_start.map(str::to_owned),
+                details_visible,
+            },
+        ];
+        assert_eq!(
+            preflight::decide_reset_with_policy(&seen, &endpoint(), true).refusals,
+            vec![Refusal::ActiveApplicationBackends],
+            "state={state}"
+        );
+    }
+    seen.foreign_backends = vec![idle];
+    seen.foreign_schema_dependencies
+        .push("foreign object".into());
+    assert_eq!(
+        preflight::decide_reset_with_policy(&seen, &endpoint(), true).refusals,
+        vec![Refusal::ForeignSchemaDependency]
+    );
+}
+
 fn refusals(observation: &PreflightObservation) -> Vec<Refusal> {
     preflight::decide_reset(observation, &endpoint()).refusals
 }
@@ -163,6 +211,8 @@ fn objects_outside_the_owned_schema_are_never_cascaded_into() {
     let mut busy = observation();
     busy.foreign_backends = vec![ForeignBackend {
         application_name: String::new(),
+        xact_start: None,
+        details_visible: true,
         state: "active".to_owned(),
     }];
     assert_eq!(refusals(&busy), vec![Refusal::ActiveApplicationBackends]);
@@ -175,6 +225,8 @@ fn every_guard_is_evaluated_so_one_run_surfaces_all_of_them() {
     observation.extensions_in_owned_schema = vec!["vector".to_owned()];
     observation.foreign_backends = vec![ForeignBackend {
         application_name: String::new(),
+        xact_start: None,
+        details_visible: true,
         state: "idle".to_owned(),
     }];
 

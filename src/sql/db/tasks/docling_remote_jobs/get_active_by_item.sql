@@ -10,6 +10,7 @@ SELECT
     next_poll_at,
     last_polled_at,
     deadline_at,
+    endpoint_base_url,
     lease_token,
     lease_until,
     last_error,

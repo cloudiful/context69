@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Admin kick: wakes eligible owned cleanup rows so the next worker pass\n-- picks them up immediately. Only rows in due-able statuses with a live\n-- deadline are touched; terminal rows (done/unsupported/failed) and expired\n-- rows stay alone. Never takes caller-supplied IDs: the wake is scoped to\n-- owned rows only, never to arbitrary remote IDs or local running owners.\nUPDATE context69.task_docling_remote_cleanup AS cleanup\nSET next_attempt_at = LEAST(next_attempt_at, now()),\n    updated_at = now()\nWHERE status IN ('pending', 'cancelling', 'awaiting_terminal')\n  AND cleanup_deadline_at > now()\n  AND (claim_until IS NULL OR claim_until <= now())\n  AND NOT EXISTS (\n      SELECT 1 FROM context69.task_docling_remote_jobs job\n      WHERE job.remote_task_id = cleanup.remote_task_id\n        AND job.endpoint_base_url IS NOT DISTINCT FROM cleanup.endpoint_base_url\n        AND job.status IN ('pending', 'running')\n  )\nRETURNING cleanup.id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fc2e16fa7c8833935eaba903996ad9adcdde91859009cfa7c9e6af6b72efd947"
+}

@@ -10,7 +10,10 @@
 #   ./scripts/test-backend.sh --authorize-reset      # reset, migrate, then run
 #
 # The wrapper never adds --authorize-reset on your behalf; the consent is yours
-# to type, and the two lines above are the only supported entry points.
+# to type. --list performs discovery without database access.
+# In a confirmed single-user test window without app writers, both preflight
+# and run may opt into --allow-idle-connections (visible idle, no transaction
+# only). This never grants reset consent and is invalid with --list.
 set -euo pipefail
 repo_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 exec cargo run \

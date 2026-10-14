@@ -28,32 +28,15 @@ impl LibraryService {
             .resolve_docling_config()
             .await?
             .context(DomainError::internal("docling is not configured; open Settings and save the Docling base URL before uploading library files"))?;
-        let runtime = crate::docling::build_runtime_config(&config)?;
-        // Forward the optional picture_description_preset from settings
-        // through the 0.3.3 conversion behavior. When set, the convert crate
-        // emits the preset form field and suppresses the legacy
-        // `picture_description_custom_config` so the preset wins on Docling
-        // Serve. With no preset configured, the default behaviour preserves
-        // the existing custom VLM picture-description pipeline unchanged.
-        let behavior = ConversionBehavior {
-            picture_description_preset: config.vlm.picture_description_preset.clone(),
-            ..ConversionBehavior::default()
-        };
-        PdfConvert::builder(runtime)
-            .behavior(behavior)
-            .output_formats(formats)
-            .build()
-            .map_err(anyhow::Error::from)
+        build_docling_converter(&config, formats)
     }
 
-    /// Converter for one durable-submit file kind: XLSX requests only the
-    /// JSON output its sweep parser consumes, PDF/DOCX keep the full triple.
-    pub(crate) async fn load_docling_converter_for_kind(
-        &self,
+    /// Converter for one durable-submit file kind: XLSX requests only JSON.
+    pub(crate) fn docling_converter_for_config(
+        config: &crate::docling::DoclingConfig,
         kind: &LibraryFileKind,
     ) -> Result<PdfConvert> {
-        self.load_docling_converter_with_formats(docling_output_formats_for_kind(kind))
-            .await
+        build_docling_converter(config, docling_output_formats_for_kind(kind))
     }
 
     pub(super) async fn ingest_text(
@@ -125,6 +108,22 @@ impl LibraryService {
             metadata_json: json!({}),
         }])
     }
+}
+
+fn build_docling_converter(
+    config: &crate::docling::DoclingConfig,
+    formats: Vec<OutputFormat>,
+) -> Result<PdfConvert> {
+    let runtime = crate::docling::build_runtime_config(config)?;
+    let behavior = ConversionBehavior {
+        picture_description_preset: config.vlm.picture_description_preset.clone(),
+        ..ConversionBehavior::default()
+    };
+    PdfConvert::builder(runtime)
+        .behavior(behavior)
+        .output_formats(formats)
+        .build()
+        .map_err(anyhow::Error::from)
 }
 
 pub(crate) fn sections_from_converted_document(

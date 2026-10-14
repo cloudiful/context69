@@ -66,6 +66,7 @@ pub(super) async fn submit_and_await_blocking(
             Some("submitted"),
             Some(submit.next_poll_at),
             Some(submit.deadline_at),
+            Some(submit.endpoint_base_url.as_str()),
         )
         .await
     {
@@ -81,7 +82,11 @@ pub(super) async fn submit_and_await_blocking(
         }
         Err(error) => {
             // Lost race with a concurrent submit (unique active/remote): adopt
-            // the winner instead of failing the item.
+            // the winner instead of failing the item. When the loser's remote
+            // differs from the winner, the orphan will never be polled, so it
+            // is enqueued for durable termination (issue #84 P2). If the
+            // outbox is unavailable no false guarantee is made: adoption still
+            // proceeds and the orphan runs out server-side unfetched.
             let message = error.to_string().to_ascii_lowercase();
             if (message.contains("duplicate")
                 || message.contains("unique")
@@ -91,6 +96,30 @@ pub(super) async fn submit_and_await_blocking(
                     .get_active_docling_remote_job_for_item(item.id)
                     .await?
             {
+                if active.remote_task_id != submit.remote_task_id
+                    || active.endpoint_base_url.as_deref()
+                        != Some(submit.endpoint_base_url.as_str())
+                {
+                    let orphan_job_id = uuid::Uuid::new_v4();
+                    if let Err(_enqueue_error) = service
+                        .db()
+                        .enqueue_direct_docling_cleanup(
+                            orphan_job_id,
+                            task_id,
+                            item.id,
+                            &submit.remote_task_id,
+                            Some(submit.endpoint_base_url.as_str()),
+                            "orphan",
+                        )
+                        .await
+                    {
+                        tracing::warn!(
+                            %task_id,
+                            item_id = %item.id,
+                            "docling orphan cleanup enqueue failed; adoption proceeds"
+                        );
+                    }
+                }
                 return super::docling_poll::run_docling_stage_blocking(
                     service.db(),
                     service.library(),
@@ -118,6 +147,7 @@ pub(super) async fn submit_and_await_blocking(
                             Some("submitted"),
                             Some(submit.next_poll_at),
                             Some(submit.deadline_at),
+                            Some(submit.endpoint_base_url.as_str()),
                         )
                         .await
                     {
@@ -140,9 +170,25 @@ pub(super) async fn submit_and_await_blocking(
                     }
                 }
             }
+            if service
+                .db()
+                .enqueue_direct_docling_cleanup(
+                    uuid::Uuid::new_v4(),
+                    task_id,
+                    item.id,
+                    &submit.remote_task_id,
+                    Some(submit.endpoint_base_url.as_str()),
+                    "orphan",
+                )
+                .await
+                .is_err()
+            {
+                tracing::warn!(%task_id, item_id = %item.id, "docling orphan cleanup could not be persisted; remote termination unconfirmed");
+            }
             Ok(ProcessResult::Failed {
                 stage: "docling".to_string(),
-                message: format!("failed to persist docling remote job: {error}"),
+                message: "Failed to persist Docling remote job; cleanup may be unconfirmed"
+                    .to_string(),
                 retryable: true,
             })
         }

@@ -81,6 +81,15 @@ pub fn repository_migrations() -> Vec<(i64, Vec<u8>)> {
 pub struct ForeignBackend {
     pub application_name: String,
     pub state: String,
+    pub xact_start: Option<String>,
+    pub details_visible: bool,
+}
+
+impl ForeignBackend {
+    #[must_use]
+    pub fn is_visible_idle(&self) -> bool {
+        self.details_visible && self.state == "idle" && self.xact_start.is_none()
+    }
 }
 
 /// Everything the reset decision is allowed to look at.
@@ -254,7 +263,7 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
     let (preserved,): (i64,) = sqlx::query_as(include_str!("../sql/preserved_extension_count.sql"))
         .fetch_one(&pool)
         .await?;
-    let backends: Vec<(String, String)> =
+    let backends: Vec<(String, String, Option<String>, bool)> =
         sqlx::query_as(include_str!("../sql/foreign_backends.sql"))
             .fetch_all(&pool)
             .await?;
@@ -295,10 +304,14 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
         preserved_extension_count: count(preserved),
         foreign_backends: backends
             .into_iter()
-            .map(|(application_name, state)| ForeignBackend {
-                application_name,
-                state,
-            })
+            .map(
+                |(application_name, state, xact_start, details_visible)| ForeignBackend {
+                    application_name,
+                    state,
+                    xact_start,
+                    details_visible,
+                },
+            )
             .collect(),
     })
 }
@@ -343,6 +356,15 @@ pub fn migration_namespace(observation: &PreflightObservation) -> Option<&'stati
 /// and every refusal is reported, so one run surfaces all of them.
 #[must_use]
 pub fn decide_reset(observation: &PreflightObservation, endpoint: &Endpoint) -> ResetDecision {
+    decide_reset_with_policy(observation, endpoint, false)
+}
+
+#[must_use]
+pub fn decide_reset_with_policy(
+    observation: &PreflightObservation,
+    endpoint: &Endpoint,
+    allow_idle_connections: bool,
+) -> ResetDecision {
     let mut refusals = Vec::new();
 
     if observation.connected_database != endpoint.database() {
@@ -394,7 +416,11 @@ pub fn decide_reset(observation: &PreflightObservation, endpoint: &Endpoint) -> 
             refusals.push(Refusal::UnverifiedLedgerRows);
         }
     }
-    if !observation.foreign_backends.is_empty() {
+    if observation
+        .foreign_backends
+        .iter()
+        .any(|backend| !allow_idle_connections || !backend.is_visible_idle())
+    {
         refusals.push(Refusal::ActiveApplicationBackends);
     }
 

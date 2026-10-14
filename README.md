@@ -116,6 +116,18 @@ the `context69` schema when you ask for it:
 ./scripts/test-backend.sh --authorize-reset    # pure suite, reset, migrate, then DB tests
 ```
 
+By default, any other client connection blocks reset. In an operator-confirmed,
+single-user test window, use `--allow-idle-connections` on both preflight and run
+to permit only visible idle sessions with no open transaction. Active, transactional,
+masked/unknown sessions and prepared transactions still block reset. Idle sessions
+may become active after inspection: never use this option with application writers.
+The option is invalid with `--list` and does not grant reset consent.
+
+```bash
+./scripts/test-backend.sh --preflight --allow-idle-connections
+./scripts/test-backend.sh --authorize-reset --allow-idle-connections
+```
+
 Run artifacts and per-target logs are written to
 `target/backend-test-results/<run-id>/`.
 

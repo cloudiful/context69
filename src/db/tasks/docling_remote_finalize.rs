@@ -17,6 +17,7 @@ pub struct DoclingRecoveryRow {
     pub task_id: Uuid,
     pub item_id: Uuid,
     pub remote_task_id: String,
+    pub endpoint_base_url: Option<String>,
     pub deadline_at: Option<DateTime<chrono::Utc>>,
     pub item_status: String,
     pub item_waiting_reason: Option<String>,
@@ -98,39 +99,25 @@ impl Database {
         .await?)
     }
 
-    /// Fences orphaned remote rows and adopts legacy parked items (issue 650
-    /// P3 recovery). Per active row:
-    ///
-    /// - task or item terminal: cancel the row; the owner is done and no
-    ///   worker will ever observe it again.
-    /// - legacy `waiting/docling` park: requeue the item with unchanged
-    ///   content, recompute the parent, then cancel the orphaned row so the
-    ///   next claim adopts the item and the worker submits a fresh
-    ///   conversion. Requeue runs before the cancel so a crash between the
-    ///   two stays visible to the next pass (queued item plus active row is
-    ///   cancelled below; a parked item keeps its row for re-adoption).
-    /// - `running` item: never touched, whether its lease is live (an
-    ///   in-flight blocking worker owns it) or expired (the claim reclaims
-    ///   it with the active row intact so the resumed worker adopts the
-    ///   tracked remote id instead of resubmitting).
-    /// - `waiting` on another reason with an active row (a worker parked
-    ///   after its inline budget with the conversion still referenced), or
-    ///   `queued` with an active row (adoption transient): cancel the row so
-    ///   the item becomes claimable and resumes with a fresh submit.
+    /// Terminal owners enqueue cleanup and fence the exact remote job in one
+    /// statement. Live queued/waiting owners retain their adoption mapping.
     pub async fn reconcile_docling_remote_state(&self) -> Result<DoclingRecoverySummary> {
         let mut summary = DoclingRecoverySummary::default();
         for row in self.list_active_docling_remote_jobs().await? {
             if !is_live_status(&row.task_status) || !is_live_status(&row.item_status) {
-                if self
-                    .cancel_active_docling_remote_job_for_item(
-                        row.item_id,
-                        Some("owning task/item is terminal"),
-                    )
-                    .await?
-                    .is_some()
-                {
-                    summary.cancelled_remote_jobs += 1;
-                }
+                let reason = if row.item_status == "failed" || row.task_status == "failed" {
+                    "permanent_failure"
+                } else {
+                    "business_cancel"
+                };
+                summary.cancelled_remote_jobs += sqlx::query_file_scalar!(
+                    "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_item.sql",
+                    row.id,
+                    reason,
+                )
+                .fetch_all(self.pool())
+                .await?
+                .len() as u64;
                 continue;
             }
             if is_docling_park(&row) {
@@ -143,31 +130,8 @@ impl Database {
                 {
                     self.recompute_task(row.task_id).await?;
                     summary.adopted_items += 1;
-                    if self
-                        .cancel_active_docling_remote_job_for_item(
-                            row.item_id,
-                            Some("legacy parked item adopted for fresh submit"),
-                        )
-                        .await?
-                        .is_some()
-                    {
-                        summary.cancelled_remote_jobs += 1;
-                    }
                 }
                 continue;
-            }
-            if row.item_status == "running" {
-                continue;
-            }
-            if self
-                .cancel_active_docling_remote_job_for_item(
-                    row.item_id,
-                    Some("remote reference without a live owner"),
-                )
-                .await?
-                .is_some()
-            {
-                summary.cancelled_remote_jobs += 1;
             }
         }
         Ok(summary)

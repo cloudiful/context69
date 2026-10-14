@@ -49,6 +49,7 @@ async fn finish_with_sections_commits_success_atomically() {
             Some("submitted"),
             Some(past_poll_at()),
             None,
+            None,
         )
         .await
         .expect("remote job");
@@ -89,6 +90,7 @@ async fn finish_with_sections_is_fenced_and_idempotent() {
             &format!("docling-{}", Uuid::new_v4()),
             None,
             Some(past_poll_at()),
+            None,
             None,
         )
         .await
@@ -152,6 +154,7 @@ async fn cancel_and_late_commit_paths() {
             None,
             Some(past_poll_at()),
             None,
+            None,
         )
         .await
         .expect("cancellable");
@@ -178,6 +181,7 @@ async fn cancel_and_late_commit_paths() {
         task_id,
         item_id,
         &format!("docling-{}", Uuid::new_v4()),
+        None,
         None,
         None,
         None,

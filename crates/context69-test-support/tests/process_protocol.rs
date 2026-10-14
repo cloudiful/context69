@@ -31,6 +31,7 @@ fn invocation_defaults_to_a_run_that_is_not_reset_authorized() {
 
     assert_eq!(parsed.mode, Mode::Run);
     assert!(!parsed.reset_authorized);
+    assert!(!parsed.allow_idle_connections);
 }
 
 #[test]
@@ -48,6 +49,22 @@ fn the_checkpoint_flag_is_opt_in_and_modes_do_not_combine() {
         invocation(&["--preflight", "--list"]).is_err(),
         "a mode conflict must not silently pick one"
     );
+}
+
+#[test]
+fn idle_policy_is_explicit_not_reset_consent_and_invalid_for_list() {
+    for args in [
+        vec!["--allow-idle-connections"],
+        vec!["--preflight", "--allow-idle-connections"],
+    ] {
+        let parsed = invocation(&args).unwrap();
+        assert!(parsed.allow_idle_connections);
+        assert!(!parsed.reset_authorized);
+    }
+    let run = invocation(&["--authorize-reset", "--allow-idle-connections"]).unwrap();
+    assert!(run.reset_authorized && run.allow_idle_connections);
+    assert!(invocation(&["--list", "--allow-idle-connections"]).is_err());
+    assert!(invocation(&["--allow-idle-connections", "--list"]).is_err());
 }
 
 #[test]

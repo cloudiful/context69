@@ -51,6 +51,8 @@ pub struct Invocation {
     /// Run the opt-in application-startup service boot in addition to the
     /// ordinary set.
     pub app_startup: bool,
+    /// Operator assertion of a quiet, single-user test window.
+    pub allow_idle_connections: bool,
 }
 
 /// Compile-time budget for the workspace test build.
@@ -84,6 +86,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
     let mut reset_authorized = false;
     let mut keyword_benchmark = false;
     let mut app_startup = false;
+    let mut allow_idle_connections = false;
     for arg in args {
         match arg.as_str() {
             "--preflight" | "--list" => {
@@ -101,6 +104,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
             // Passed only by the orchestrator once the recorded security
             // checkpoint has approved the reset boundary.
             "--authorize-reset" => reset_authorized = true,
+            "--allow-idle-connections" => allow_idle_connections = true,
             "--with-keyword-benchmark" => keyword_benchmark = true,
             "--with-app-startup" => app_startup = true,
             other => return Err(format!("unsupported argument: {other}")),
@@ -109,11 +113,15 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
     if (keyword_benchmark || app_startup) && mode != Mode::Run {
         return Err("opt-in classes only apply to a run".to_owned());
     }
+    if allow_idle_connections && mode == Mode::List {
+        return Err("--allow-idle-connections does not apply to --list".to_owned());
+    }
     Ok(Invocation {
         mode,
         reset_authorized,
         keyword_benchmark,
         app_startup,
+        allow_idle_connections,
     })
 }
 

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Enqueues durable cleanup for every still-active remote job of one task.\n--\n-- Called inside the same transaction that flips the task ledger to\n-- `cancelled` (user cancel, bulk cancel, purge capture): only\n-- ('pending','running') rows are captured, each with its immutable\n-- submit-time endpoint snapshot and reason. Idempotent via the cleanup\n-- uniqueness (endpoint+remote id, legacy job id): a repeated enqueue for the\n-- same terminalization inserts zero new rows. No network happens here.\nINSERT INTO context69.task_docling_remote_cleanup (\n    remote_job_id,\n    task_id,\n    item_id,\n    remote_task_id,\n    endpoint_base_url,\n    reason\n)\nSELECT\n    job.id,\n    job.task_id,\n    job.item_id,\n    job.remote_task_id,\n    job.endpoint_base_url,\n    $2\nFROM context69.task_docling_remote_jobs AS job\nWHERE job.task_id = $1\n  AND job.status IN ('pending', 'running')\n  AND EXISTS (\n      SELECT 1 FROM context69.tasks task\n      WHERE task.id = job.task_id\n        AND task.status IN ('succeeded', 'failed', 'cancelled')\n  )\nON CONFLICT DO NOTHING\nRETURNING id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8d752fa4a673e57bd5b741e6e2d7f05fd59ddbe9ab46bac86a87b34b5305fcb5"
+}

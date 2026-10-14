@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Counts cleanup rows due for remote work (for admin kick reporting).\nSELECT count(*) AS \"due_count!\"\nFROM context69.task_docling_remote_cleanup\nWHERE status IN ('pending', 'cancelling', 'awaiting_terminal')\n  AND next_attempt_at <= now()\n  AND cleanup_deadline_at > now()\n  AND (claim_until IS NULL OR claim_until <= now());\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "due_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ada474448c53028e988c51431ff9e21f009352430d7329f3de7c1e32b099fbb5"
+}

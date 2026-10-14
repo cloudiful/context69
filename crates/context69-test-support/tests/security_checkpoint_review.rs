@@ -3,6 +3,20 @@ use context69_test_support::runner::{configure_child_command, preflight};
 use preflight::{LedgerLocation, OwnedObjectCounts, PreflightObservation};
 use std::process::Command;
 
+#[test]
+fn connection_catalog_projection_keeps_masked_and_prepared_sessions_blocking() {
+    let sql = include_str!("../src/sql/foreign_backends.sql");
+    assert!(sql.contains("query <> '<insufficient privilege>'"));
+    assert!(sql.contains("query IS NOT NULL"));
+    assert!(sql.contains("state IS NOT NULL"));
+    assert!(sql.contains("xact_start::text"));
+    assert!(sql.contains("FROM pg_prepared_xacts"));
+    assert!(sql.contains("WHERE database = current_database()"));
+    assert!(sql.contains("'prepared', prepared::text, false"));
+    // Query content is used only for visibility, not returned or summarized.
+    assert!(!sql.contains("SELECT query"));
+}
+
 fn observation() -> PreflightObservation {
     PreflightObservation {
         connected_database: "synthetic_db".to_owned(),

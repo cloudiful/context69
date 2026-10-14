@@ -106,6 +106,11 @@ pub use context69_contracts_sources::sources::{
     SourcePageResponse, SourceStatus, SourceSyncStrategy, SyncOutcome,
     UpsertSourceConnectionRequest,
 };
+pub use context69_contracts_tasks::docling::{
+    DOCLING_REMOTE_LIST_LIMIT_DEFAULT, DOCLING_REMOTE_LIST_LIMIT_MAX,
+    DOCLING_REMOTE_LIST_LIMIT_MIN, DoclingCleanupResponse, DoclingCleanupTask, DoclingRemoteTask,
+    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse,
+};
 pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,
     ClearTaskHistoryResponse, ClearTaskHistoryView, DeleteBatchRequest, EnsureScopeResponse,

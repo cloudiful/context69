@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Settles one claimed cleanup row with compare-and-swap on the claim token.\n--\n-- $1 id, $2 status, $3 outcome, $4 last_error, $5 next_attempt_at,\n-- $6 claim_token. Only the holder of the claim token may settle; a stale\n-- claimer matches zero rows. Terminal statuses (done/unsupported/failed)\n-- stamp finished_at; non-terminal (cancelling/awaiting_terminal/pending)\n-- clears the claim so the next tick can reclaim after next_attempt_at.\nUPDATE context69.task_docling_remote_cleanup\nSET status = $2,\n    outcome = $3,\n    last_error = $4,\n    next_attempt_at = $5,\n    finished_at = CASE WHEN $2 IN ('done', 'unsupported', 'failed') THEN now() ELSE NULL END,\n    claim_token = NULL,\n    claim_until = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND claim_token = $6\nRETURNING id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8475622351ec4cca95d8b922eda8cb90beb225a3b9bb7913fd35750a4cf74d8d"
+}

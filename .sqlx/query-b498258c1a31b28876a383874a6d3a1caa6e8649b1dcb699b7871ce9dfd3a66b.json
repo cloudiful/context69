@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH owned AS MATERIALIZED (\n    SELECT job.*\n    FROM context69.task_docling_remote_jobs job\n    JOIN context69.task_items item ON item.id = job.item_id\n    JOIN context69.tasks task ON task.id = job.task_id\n    WHERE job.id = $1 AND item.id = $2\n      AND job.status IN ('pending', 'running')\n      AND item.status = 'running' AND item.lease_token = $3\n      AND item.lease_until > now()\n      AND task.status IN ('queued', 'running', 'waiting')\n    FOR UPDATE OF job, item, task\n), enqueued AS (\n    INSERT INTO context69.task_docling_remote_cleanup (\n        remote_job_id, task_id, item_id, remote_task_id, endpoint_base_url, reason\n    )\n    SELECT id, task_id, item_id, remote_task_id, endpoint_base_url, 'orphan'\n    FROM owned\n    ON CONFLICT DO NOTHING\n)\nUPDATE context69.task_docling_remote_jobs job\nSET status = 'cancelled', finished_at = now(), updated_at = now(),\n    lease_token = NULL, lease_until = NULL\nFROM owned\nWHERE job.id = owned.id\nRETURNING job.id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b498258c1a31b28876a383874a6d3a1caa6e8649b1dcb699b7871ce9dfd3a66b"
+}

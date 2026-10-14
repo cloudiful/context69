@@ -10,6 +10,7 @@ import type {
   UpdateTranslationSettingsRequest,
   TranslationProviderPageResponse,
   TaskRef,
+  DoclingRemoteTasksResponse,
 } from "./api-types";
 
 type TestRuntimeEmbeddingRequest = components["schemas"]["TestRuntimeEmbeddingRequest"];
@@ -98,6 +99,15 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
           signal: options?.signal,
         }),
       );
+    },
+    listDoclingRemoteTasks(params: { limit: number; offset: number }, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/admin/docling/tasks", {
+        params: { query: { limit: params.limit, offset: params.offset } },
+        signal: options?.signal,
+      })) as Promise<DoclingRemoteTasksResponse>;
+    },
+    wakeDoclingCleanup(options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/admin/docling/cleanup", { signal: options?.signal }));
     },
     getSearchSettings(options?: RequestOptions) {
       return unwrapResponse(

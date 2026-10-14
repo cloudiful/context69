@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Enqueues durable cleanup for still-active remotes of tasks about to be\n-- bulk-cleared by clear_user_task_history ($1 user_id, $2 view).\n--\n-- Matches exactly the same task scope as clear_user_task_history.sql:\n-- completed (untrashed succeeded) or trash (trashed terminal). Only\n-- ('pending','running') job rows are captured. Idempotent via cleanup\n-- uniqueness. Runs inside the clear transaction before the cascading delete.\nINSERT INTO context69.task_docling_remote_cleanup (\n    remote_job_id,\n    task_id,\n    item_id,\n    remote_task_id,\n    endpoint_base_url,\n    reason\n)\nSELECT\n    job.id,\n    job.task_id,\n    job.item_id,\n    job.remote_task_id,\n    job.endpoint_base_url,\n    'purge'\nFROM context69.task_docling_remote_jobs AS job\nJOIN context69.tasks AS task ON task.id = job.task_id\nWHERE job.status IN ('pending', 'running')\n  AND task.user_id = $1\n  AND (\n    ($2::text = 'completed'\n      AND task.deleted_at IS NULL\n      AND task.status = 'succeeded')\n    OR ($2::text = 'trash'\n      AND task.deleted_at IS NOT NULL\n      AND task.status IN ('succeeded', 'failed', 'cancelled'))\n  )\nON CONFLICT DO NOTHING\nRETURNING id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "352629c5dd0ffe8b0d85ddd078b4838fdcb82e44bb9fb71aef163f0f9d4b9003"
+}

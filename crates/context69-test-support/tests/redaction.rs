@@ -76,8 +76,12 @@ fn a_run_summary_carries_only_the_fingerprint_and_counts() {
     summary.endpoint_source = Some("repository .env DATABASE_URL".to_owned());
     summary.record("preflight:owned-objects=105");
     summary.status = RunStatus::Passed;
+    summary.allow_idle_connections = true;
+    summary.permitted_idle_connections = 2;
 
     let rendered = serde_json::to_string(&summary).expect("summary serializes");
+    assert!(rendered.contains("\"allow_idle_connections\":true"));
+    assert!(rendered.contains("\"permitted_idle_connections\":2"));
     for secret in [
         "synthetic-secret",
         "db.test",

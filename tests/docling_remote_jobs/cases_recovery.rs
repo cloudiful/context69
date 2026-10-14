@@ -12,6 +12,7 @@ async fn seed_job(db: &context69::db::Database, task_id: Uuid, item_id: Uuid) ->
         Some("submitted"),
         Some(past_poll_at()),
         None,
+        None,
     )
     .await
     .expect("remote job")
@@ -217,20 +218,20 @@ async fn reconcile_leaves_live_workers_alone() {
     cleanup(&db, task_id, user_id).await;
 }
 
-/// A `queued` item with an active row (adoption transient) and a backoff
-/// park with an active row (worker parked after its inline budget) both
-/// resolve by cancelling the row: the item becomes claimable and resumes
-/// with a fresh submit.
+/// Queued and backoff owners retain their exact tracked remote identity
+/// through recovery so a fresh worker adopts rather than resubmits.
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn reconcile_cancels_rows_without_a_live_owner() {
+async fn reconcile_preserves_queued_and_backoff_remote_identity() {
     let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (queued_task, queued_item) = seed_task(&db, user_id).await;
-    seed_job(&db, queued_task, queued_item).await;
+    let queued_job = seed_job(&db, queued_task, queued_item).await;
+    let queued_remote = active_row(&db, queued_item).await.unwrap().remote_task_id;
     let (backoff_task, backoff_item) = seed_task(&db, user_id).await;
-    seed_job(&db, backoff_task, backoff_item).await;
+    let backoff_job = seed_job(&db, backoff_task, backoff_item).await;
+    let backoff_remote = active_row(&db, backoff_item).await.unwrap().remote_task_id;
     sqlx::query(
         "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'backoff', \
          next_attempt_at = now() + interval '1 minute' WHERE id = $1",
@@ -243,10 +244,18 @@ async fn reconcile_cancels_rows_without_a_live_owner() {
         .reconcile_docling_remote_state()
         .await
         .expect("reconcile");
-    assert_eq!(summary.cancelled_remote_jobs, 2);
+    assert_eq!(summary.cancelled_remote_jobs, 0);
     assert_eq!(summary.adopted_items, 0);
-    assert!(active_row(&db, queued_item).await.is_none());
-    assert!(active_row(&db, backoff_item).await.is_none());
+    let queued = active_row(&db, queued_item).await.unwrap();
+    let backoff = active_row(&db, backoff_item).await.unwrap();
+    assert_eq!(
+        (queued.id, queued.remote_task_id),
+        (queued_job, queued_remote)
+    );
+    assert_eq!(
+        (backoff.id, backoff.remote_task_id),
+        (backoff_job, backoff_remote)
+    );
     cleanup(&db, queued_task, user_id).await;
     cleanup(&db, backoff_task, user_id).await;
 }

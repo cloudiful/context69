@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO context69.task_docling_remote_jobs (\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    remote_status,\n    next_poll_at,\n    deadline_at\n)\nVALUES (\n    $1,\n    $2,\n    'docling',\n    $3,\n    $4,\n    COALESCE($5, now()),\n    $6\n)\nRETURNING\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\n",
+  "query": "-- Cancels the active remote job for one item without a lease.\n--\n-- Used when the owning task item is cancelled or the conversion is\n-- abandoned: recovery and the blocking worker must stop observing the remote\n-- even though no poll lease is held. Only ('pending','running') rows are\n-- touched; terminal history is left alone.\nUPDATE context69.task_docling_remote_jobs\nSET status = 'cancelled',\n    remote_status = COALESCE(remote_status, status),\n    last_error = COALESCE($2, last_error, 'remote job cancelled with owning item'),\n    last_polled_at = COALESCE(last_polled_at, now()),\n    finished_at = now(),\n    lease_token = NULL,\n    lease_until = NULL,\n    updated_at = now()\nWHERE item_id = $1\n  AND status IN ('pending', 'running')\nRETURNING\n    id,\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    remote_status,\n    attempt_count,\n    next_poll_at,\n    last_polled_at,\n    deadline_at,\n    endpoint_base_url,\n    lease_token,\n    lease_until,\n    last_error,\n    created_at,\n    updated_at,\n    finished_at\n",
   "describe": {
     "columns": [
       {
@@ -126,6 +126,17 @@
       },
       {
         "ordinal": 11,
+        "name": "endpoint_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "endpoint_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
         "name": "lease_token",
         "type_info": "Uuid",
         "origin": {
@@ -136,7 +147,7 @@
         }
       },
       {
-        "ordinal": 12,
+        "ordinal": 13,
         "name": "lease_until",
         "type_info": "Timestamptz",
         "origin": {
@@ -147,7 +158,7 @@
         }
       },
       {
-        "ordinal": 13,
+        "ordinal": 14,
         "name": "last_error",
         "type_info": "Text",
         "origin": {
@@ -158,7 +169,7 @@
         }
       },
       {
-        "ordinal": 14,
+        "ordinal": 15,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -169,7 +180,7 @@
         }
       },
       {
-        "ordinal": 15,
+        "ordinal": 16,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -180,7 +191,7 @@
         }
       },
       {
-        "ordinal": 16,
+        "ordinal": 17,
         "name": "finished_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -194,11 +205,7 @@
     "parameters": {
       "Left": [
         "Uuid",
-        "Uuid",
-        "Text",
-        "Text",
-        "Timestamptz",
-        "Timestamptz"
+        "Text"
       ]
     },
     "nullable": [
@@ -216,10 +223,11 @@
       true,
       true,
       true,
+      true,
       false,
       false,
       true
     ]
   },
-  "hash": "bc8507783017f161ac055434a14284375f101293872d1e49fe1af1a5c42e7908"
+  "hash": "310de40f2ad50ba4b0308f4e61d38f3ab24341922bc0e8d8a9a0f515d2969922"
 }

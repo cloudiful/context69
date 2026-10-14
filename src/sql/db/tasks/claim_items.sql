@@ -77,22 +77,8 @@ eligible_items AS (
                 AND (ti.lease_until IS NULL OR ti.lease_until < now())
             )
         )
-      -- Crash-recovery adoption (issue 650 P3): a running item whose lease
-      -- expired is reclaimed even while its durable remote reference is still
-      -- active, so the resumed worker adopts the tracked remote id instead of
-      -- recovery cancelling it for a fresh submit. Queued/waiting items with
-      -- an active row stay excluded until recovery adopts (legacy parks) or
-      -- fences them.
-      AND (
-            (ti.status = 'running'
-                AND (ti.lease_until IS NULL OR ti.lease_until < now()))
-            OR NOT EXISTS (
-                SELECT 1
-                FROM context69.task_docling_remote_jobs remote
-                WHERE remote.item_id = ti.id
-                  AND remote.status IN ('pending', 'running')
-            )
-        )
+      -- Active remote references survive handoff: the newly leased worker
+      -- adopts the recorded identity rather than submitting a replacement.
       -- NULL-safe: only waiting/docling rows are excluded. A plain
       -- `waiting_reason = 'docling'` comparison yields NULL (not true) for
       -- ordinary waiting rows with a NULL reason, and `NOT NULL` would

@@ -4,14 +4,15 @@ pub use context69_contracts::{
     AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
     CancelActiveTasksResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateMetadataIndexRequest,
-    CursorPageQuery, CursorPagination, DeleteBatchRequest, DocumentChunkResponse, DocumentKey,
-    DocumentResponse, EnsureScopeResponse, ExtractionDirective, ExtractionJobsResponse,
-    ExtractionTemplateInput, ExtractionTemplateResponse, FileBatchItem, FileBatchRequest,
-    GroupKind, GroupResponse, HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem,
-    IngestOptions, LibraryFileDetailResponse, LibraryTextContentFormat as TextContentFormat,
-    MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, OffsetPageQuery,
-    OffsetPagination, RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex,
-    ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
+    CursorPageQuery, CursorPagination, DeleteBatchRequest, DoclingRemoteTasksQuery,
+    DoclingRemoteTasksResponse, DocumentChunkResponse, DocumentKey, DocumentResponse,
+    EnsureScopeResponse, ExtractionDirective, ExtractionJobsResponse, ExtractionTemplateInput,
+    ExtractionTemplateResponse, FileBatchItem, FileBatchRequest, GroupKind, GroupResponse,
+    HealthResponse, ImportLibraryFileFromUrlRequest as UrlBatchItem, IngestOptions,
+    LibraryFileDetailResponse, LibraryTextContentFormat as TextContentFormat, MetadataDataType,
+    MetadataFilter, MetadataFilterOperator, MetadataValueKind, OffsetPageQuery, OffsetPagination,
+    RebuildDocumentExtractionsRequest, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec,
+    SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
     SourcePolicy, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
     TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
@@ -425,6 +426,37 @@ impl Context69Client {
     pub async fn cancel_active_tasks(&self) -> Result<CancelActiveTasksResponse, Error> {
         self.execute_json(
             self.authorized_request(Method::POST, "/v1/admin/tasks/cancel-active")
+                .await?,
+        )
+        .await
+    }
+
+    /// Bounded admin read of remote Docling task identities
+    /// (`GET /v1/admin/docling/tasks`).
+    ///
+    /// Issue 84 P1: `limit` is `1..=100`, `offset` is `>=0`; the fork's
+    /// `has_more` is returned verbatim and no total is invented. Uses the
+    /// saved Docling endpoint; unknown `task_status` values stay text.
+    pub async fn list_docling_remote_tasks(
+        &self,
+        query: &DoclingRemoteTasksQuery,
+    ) -> Result<DoclingRemoteTasksResponse, Error> {
+        query.validate().map_err(|error| {
+            Error::InvalidResponse(format!("invalid docling remote tasks query: {error}"))
+        })?;
+        self.execute_json(
+            self.authorized_request(Method::GET, "/v1/admin/docling/tasks")
+                .await?
+                .query(query),
+        )
+        .await
+    }
+
+    pub async fn wake_docling_cleanup(
+        &self,
+    ) -> Result<context69_contracts::DoclingCleanupResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::POST, "/v1/admin/docling/cleanup")
                 .await?,
         )
         .await

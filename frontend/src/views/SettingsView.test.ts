@@ -393,4 +393,28 @@ describe("SettingsView", () => {
       code_formula_model: "gpt-4o-mini",
     });
   });
+
+  it("loads the bounded remote list on the docling page without touching saves", async () => {
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await flushPromises();
+
+    expect(apiSpies.listDoclingRemoteTasks).toHaveBeenCalledWith({ limit: 20, offset: 0 });
+    expect(wrapper.find("#settings-docling-remote-tasks").exists()).toBe(true);
+    expect(wrapper.find('[data-testid="docling-remote-empty"]').exists()).toBe(true);
+    expect(apiSpies.updateDoclingSettings).not.toHaveBeenCalled();
+  });
+
+  it("shows admin denial for the remote list without claiming support", async () => {
+    const { ApiError } = await import("../services/api/api-core");
+    apiSpies.listDoclingRemoteTasks.mockRejectedValue(new ApiError("admin access required", 403));
+
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await vi.waitFor(() => {
+      expect(wrapper.find('[data-testid="docling-remote-error"]').exists()).toBe(true);
+    });
+
+    expect(wrapper.get('[data-testid="docling-remote-error"]').text()).toContain(
+      "Admin access required",
+    );
+  });
 });

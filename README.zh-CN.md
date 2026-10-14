@@ -99,6 +99,13 @@ cargo test --workspace
 ./scripts/test-backend.sh --authorize-reset    # 纯测试、重置、迁移，然后执行数据库测试
 ```
 
+默认情况下，其他客户端连接都会阻止重置。在操作者确认的单用户测试窗口中，可在预检和执行时都传入 `--allow-idle-connections`，仅允许统计信息可见、无事务的 idle 会话。活动会话、事务中会话、信息被屏蔽或未知的会话以及预备事务仍会阻止重置。空闲会话可能在检查后变为活动状态，因此不能在应用写入进程存在时使用该选项。该选项不能与 `--list` 组合，也不代表同意重置。
+
+```bash
+./scripts/test-backend.sh --preflight --allow-idle-connections
+./scripts/test-backend.sh --authorize-reset --allow-idle-connections
+```
+
 运行产物与各测试目标的日志写入 `target/backend-test-results/<run-id>/`。
 
 ## 许可证

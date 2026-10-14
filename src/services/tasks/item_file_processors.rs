@@ -138,6 +138,7 @@ pub(super) async fn process_file(
                 .await?;
         }
         let next = if file.ingest_status == LibraryIngestStatus::Succeeded {
+            detach_unused_remote(service, item).await?;
             // The file is already ingested (URL task reusing an existing
             // file, or a resumed item): only translation/extraction are left.
             "translation"
@@ -178,6 +179,20 @@ struct StoredFileBatchItem {
     options: context69_contracts::IngestOptions,
 }
 
+async fn detach_unused_remote(service: &TaskService, item: &crate::db::ClaimedItem) -> Result<()> {
+    if let Some(job) = service
+        .db()
+        .get_active_docling_remote_job_for_item(item.id)
+        .await?
+    {
+        service
+            .db()
+            .detach_unused_owned_docling_job(job.id, item.id, item.lease_token)
+            .await?;
+    }
+    Ok(())
+}
+
 pub(super) async fn process_file_stage(
     service: &TaskService,
     group_id: i64,
@@ -190,6 +205,7 @@ pub(super) async fn process_file_stage(
     match stage {
         "docling" => {
             if persisted_section_payload(&item.payload).is_some() {
+                detach_unused_remote(service, item).await?;
                 return Ok(ProcessResult::Progressed { next: "embedding" });
             }
             let file = service
@@ -197,6 +213,7 @@ pub(super) async fn process_file_stage(
                 .file_summary_for_task(group_id, file_id)
                 .await?;
             if file.ingest_status == LibraryIngestStatus::Succeeded {
+                detach_unused_remote(service, item).await?;
                 return Ok(ProcessResult::Progressed {
                     next: "translation",
                 });
@@ -214,6 +231,9 @@ pub(super) async fn process_file_stage(
             .await;
         }
         "embedding" => {
+            if persisted_section_payload(&item.payload).is_some() {
+                detach_unused_remote(service, item).await?;
+            }
             if persisted_section_payload(&item.payload).is_none() {
                 // Recovery: without a section payload the file still needs
                 // conversion. Docling files advance back to the blocking
@@ -251,6 +271,7 @@ pub(super) async fn process_file_stage(
                 .file_summary_for_task(group_id, file_id)
                 .await?;
             if file.ingest_status == LibraryIngestStatus::Succeeded {
+                detach_unused_remote(service, item).await?;
                 return Ok(ProcessResult::Progressed {
                     next: "translation",
                 });

@@ -12,6 +12,8 @@ use crate::db::Database;
 /// while holding its item lease. There is no independent poll lease and no
 /// poll sweep; only the worker that owns the item lease may commit the
 /// success transition, and recovery cancels rows whose owner is gone.
+/// `endpoint_base_url` is the immutable submit-time fork API base
+/// (`.../v1`); NULL marks a pre-P2 legacy row that never issues HTTP.
 #[derive(Debug, Clone, FromRow)]
 pub struct StoredDoclingRemoteJob {
     pub id: Uuid,
@@ -25,6 +27,7 @@ pub struct StoredDoclingRemoteJob {
     pub next_poll_at: DateTime<Utc>,
     pub last_polled_at: Option<DateTime<Utc>>,
     pub deadline_at: Option<DateTime<Utc>>,
+    pub endpoint_base_url: Option<String>,
     pub lease_token: Option<Uuid>,
     pub lease_until: Option<DateTime<Utc>>,
     pub last_error: Option<String>,
@@ -42,6 +45,7 @@ impl Database {
         remote_status: Option<&str>,
         next_poll_at: Option<DateTime<Utc>>,
         deadline_at: Option<DateTime<Utc>>,
+        endpoint_base_url: Option<&str>,
     ) -> Result<StoredDoclingRemoteJob> {
         Ok(sqlx::query_file_as!(
             StoredDoclingRemoteJob,
@@ -51,7 +55,8 @@ impl Database {
             remote_task_id,
             remote_status,
             next_poll_at,
-            deadline_at
+            deadline_at,
+            endpoint_base_url,
         )
         .fetch_one(self.pool())
         .await?)

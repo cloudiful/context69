@@ -5,7 +5,8 @@ INSERT INTO context69.task_docling_remote_jobs (
     remote_task_id,
     remote_status,
     next_poll_at,
-    deadline_at
+    deadline_at,
+    endpoint_base_url
 )
 VALUES (
     $1,
@@ -14,7 +15,8 @@ VALUES (
     $3,
     $4,
     COALESCE($5, now()),
-    $6
+    $6,
+    $7
 )
 RETURNING
     id,
@@ -28,6 +30,7 @@ RETURNING
     next_poll_at,
     last_polled_at,
     deadline_at,
+    endpoint_base_url,
     lease_token,
     lease_until,
     last_error,

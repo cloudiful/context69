@@ -23,9 +23,13 @@ function createDraft(): DraftDoclingSettings {
   };
 }
 
-function mountSection(draft: DraftDoclingSettings = createDraft(), doclingTesting = false) {
+function mountSection(
+  draft: DraftDoclingSettings = createDraft(),
+  doclingTesting = false,
+  remote: Record<string, unknown> = {},
+) {
   return mount(SettingsDoclingSection, {
-    props: { doclingDraft: draft, doclingTesting },
+    props: { doclingDraft: draft, doclingTesting, ...remote },
     global: {
       plugins: [testNuxtUiPlugin, createTestI18n("en")],
       stubs: {
@@ -38,6 +42,16 @@ function mountSection(draft: DraftDoclingSettings = createDraft(), doclingTestin
 }
 
 describe("SettingsDoclingSection", () => {
+  it("shows scoped cleanup copy and emits an identity-free action", async () => {
+    const wrapper = mountSection();
+    expect(wrapper.text()).toContain("does not stop active Context69 work");
+    const button = wrapper.findAll("button").find(button => button.text().includes("Clean up stopped tasks"));
+    expect(button).toBeDefined();
+    await button!.trigger("click");
+    expect(wrapper.emitted("clean-stopped")).toEqual([[]]);
+    const denied = mountSection(createDraft(), false, { remoteErrorStatus: 403 });
+    expect(denied.findAll("button").find(button => button.text().includes("Clean up stopped tasks"))!.attributes("disabled")).toBeDefined();
+  });
   it("names every docling field after its settings-schema path", () => {
     const wrapper = mountSection();
 
@@ -166,5 +180,88 @@ describe("SettingsDoclingSection", () => {
     // no way to persist the draft, so a test cannot be mistaken for a save.
     expect(wrapper.emitted("test-docling")).toHaveLength(1);
     expect(wrapper.emitted()).not.toHaveProperty("update:doclingDraft");
+  });
+
+  it("shows the remote empty state before the first load", () => {
+    const wrapper = mountSection();
+
+    expect(wrapper.find("#settings-docling-remote-tasks").exists()).toBe(true);
+    expect(wrapper.get('[data-testid="docling-remote-empty"]').text()).toContain(
+      "No active remote tasks",
+    );
+  });
+
+  it("renders remote identities verbatim, including unknown statuses", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      remoteLoadedOnce: true,
+      remoteItems: [
+        {
+          task_id: "task-1",
+          task_type: "convert",
+          task_status: "started",
+          created_at: "2026-10-01T00:00:00Z",
+        },
+        {
+          task_id: "task-2",
+          task_type: "convert",
+          task_status: "unknown_future",
+          created_at: "2026-10-01T01:00:00Z",
+        },
+      ],
+      remoteHasMore: true,
+      remoteOffset: 0,
+    });
+
+    expect(wrapper.text()).toContain("task-1");
+    expect(wrapper.text()).toContain("unknown_future");
+    expect(wrapper.get('[data-testid="docling-remote-next"]').attributes("disabled")).toBeUndefined();
+    expect(wrapper.get('[data-testid="docling-remote-prev"]').attributes("disabled")).toBeDefined();
+  });
+
+  it("shows admin denial accurately on 403", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      remoteLoadedOnce: false,
+      remoteError: "admin access required",
+      remoteErrorStatus: 403,
+    });
+
+    expect(wrapper.get('[data-testid="docling-remote-error"]').text()).toContain(
+      "Admin access required",
+    );
+  });
+
+  it("shows the upstream message for non-admin errors", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      remoteError: "remote unavailable",
+      remoteErrorStatus: 503,
+    });
+
+    expect(wrapper.get('[data-testid="docling-remote-error"]').text()).toContain("remote unavailable");
+    expect(wrapper.get('[data-testid="docling-remote-error"]').text()).toContain("503");
+  });
+
+  it("emits refresh and pagination intents without inventing a total", async () => {
+    const wrapper = mountSection(createDraft(), false, {
+      remoteLoadedOnce: true,
+      remoteItems: [
+        {
+          task_id: "task-1",
+          task_type: "convert",
+          task_status: "started",
+          created_at: "2026-10-01T00:00:00Z",
+        },
+      ],
+      remoteHasMore: true,
+      remoteOffset: 20,
+    });
+
+    await wrapper.get('[data-testid="docling-remote-refresh"]').trigger("click");
+    await wrapper.get('[data-testid="docling-remote-next"]').trigger("click");
+    await wrapper.get('[data-testid="docling-remote-prev"]').trigger("click");
+
+    expect(wrapper.emitted("refresh-remote")).toHaveLength(1);
+    expect(wrapper.emitted("next-remote")).toHaveLength(1);
+    expect(wrapper.emitted("prev-remote")).toHaveLength(1);
+    expect(wrapper.text()).not.toContain("total");
   });
 });

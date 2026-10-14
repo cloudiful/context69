@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH eligible AS MATERIALIZED (\n    SELECT job.*\n    FROM context69.task_docling_remote_jobs AS job\n    JOIN context69.task_items AS item ON item.id = job.item_id\n    JOIN context69.tasks AS task ON task.id = job.task_id\n    WHERE job.id = $1\n      AND job.status IN ('pending', 'running')\n      AND (item.status IN ('succeeded', 'failed', 'cancelled')\n           OR task.status IN ('succeeded', 'failed', 'cancelled'))\n    FOR UPDATE OF job, item, task\n), enqueued AS (\n    INSERT INTO context69.task_docling_remote_cleanup (\n        remote_job_id, task_id, item_id, remote_task_id, endpoint_base_url, reason\n    )\n    SELECT id, task_id, item_id, remote_task_id, endpoint_base_url,\n           CASE WHEN deadline_at <= now() THEN 'deadline' ELSE $2 END\n    FROM eligible\n    ON CONFLICT DO NOTHING\n)\nUPDATE context69.task_docling_remote_jobs AS job\nSET status = 'cancelled', finished_at = now(), updated_at = now(),\n    lease_token = NULL, lease_until = NULL\nFROM eligible\nWHERE job.id = eligible.id\nRETURNING job.id;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a5b9348f6419dd6136e530a8122e255e462a9f79dc75adec34e6f0a50f86a417"
+}

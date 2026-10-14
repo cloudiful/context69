@@ -5,6 +5,7 @@
 
 mod admin;
 mod claims;
+mod docling_cleanup;
 mod docling_remote_finalize;
 mod docling_remote_jobs;
 mod item_lifecycle;

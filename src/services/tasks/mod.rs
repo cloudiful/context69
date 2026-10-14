@@ -21,6 +21,7 @@ use crate::{
 
 mod actions;
 mod dispatcher;
+mod docling_cleanup;
 mod docling_finalize;
 mod docling_poll;
 mod docling_submit;

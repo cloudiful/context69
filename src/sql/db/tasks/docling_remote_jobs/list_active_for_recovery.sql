@@ -11,6 +11,7 @@ SELECT
     job.task_id,
     job.item_id,
     job.remote_task_id,
+    job.endpoint_base_url,
     job.deadline_at,
     item.status AS item_status,
     item.waiting_reason AS item_waiting_reason,

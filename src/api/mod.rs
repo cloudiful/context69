@@ -171,7 +171,9 @@ pub(crate) use sources::{
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
 };
 pub(crate) use task_inputs::{create_text_payload, file_batch_payloads};
-pub(crate) use task_maintenance::cancel_active_tasks;
+pub(crate) use task_maintenance::{
+    cancel_active_tasks, list_docling_remote_tasks, wake_docling_cleanup,
+};
 pub(crate) use tasks::{
     cancel_task, clear_task_history, delete_task, ensure_scope, get_task, list_task_items,
     list_tasks, rerun_task, restore_task, retry_task, stream_tasks, submit_delete_batch,

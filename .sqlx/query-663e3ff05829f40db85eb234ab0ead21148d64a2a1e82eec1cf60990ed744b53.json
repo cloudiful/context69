@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS (\n    SELECT 1 FROM context69.task_docling_remote_cleanup cleanup\n    WHERE cleanup.id = $1 AND cleanup.claim_token = $2\n      AND cleanup.claim_until > now()\n      AND NOT EXISTS (\n          SELECT 1 FROM context69.task_docling_remote_jobs job\n          WHERE job.remote_task_id = cleanup.remote_task_id\n            AND job.endpoint_base_url IS NOT DISTINCT FROM cleanup.endpoint_base_url\n            AND job.status IN ('pending', 'running')\n      )\n) AS \"eligible!\";\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "eligible!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "663e3ff05829f40db85eb234ab0ead21148d64a2a1e82eec1cf60990ed744b53"
+}
