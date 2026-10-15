@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, unref } from "vue";
+import { computed, onMounted, ref, unref, watch } from "vue";
 import type { TableColumn } from "@nuxt/ui";
 import { useI18n } from "vue-i18n";
 
@@ -9,6 +9,7 @@ import AppSettingsSection from "../../components/AppSettingsSection.vue";
 import AppTextField from "../../components/AppTextField.vue";
 import TablePagination from "../../components/TablePagination.vue";
 import { useSettingsPageContext } from "../../composables/settings-page-context";
+import { useLlmProviderProbe } from "../../composables/use-llm-provider-probe";
 import type { TranslationProviderInput } from "../../services/api";
 import { apiClient, type TranslationProviderPageResponse } from "../../services/api";
 
@@ -115,6 +116,53 @@ function usageLabel(provider: ProviderDraft) {
     ? t("settings.translation.lifetimeUsage", { count: provider.current_month_characters })
     : t("settings.translation.currentUsage", { count: provider.current_month_characters });
 }
+
+const probe = useLlmProviderProbe();
+const probeOutcomeKey = computed(() => {
+  switch (probe.probeResult.value?.outcome) {
+    case "success": return "settings.translation.llmProbeResultSuccess";
+    case "auth_error": return "settings.translation.llmProbeResultAuthError";
+    case "not_found": return "settings.translation.llmProbeResultNotFound";
+    case "route_error": return "settings.translation.llmProbeResultRouteError";
+    case "rate_limited": return "settings.translation.llmProbeResultRateLimited";
+    case "invalid_payload": return "settings.translation.llmProbeResultInvalidPayload";
+    case "upstream_error": return "settings.translation.llmProbeResultUpstreamError";
+    case "timeout": return "settings.translation.llmProbeResultTimeout";
+    case "transport_error": return "settings.translation.llmProbeResultTransportError";
+    case "configuration_error": return "settings.translation.llmProbeResultConfigurationError";
+    default: return null;
+  }
+});
+const probeColor = computed<"success" | "warning" | "error" | "neutral">(() => {
+  switch (probe.probeResult.value?.outcome) {
+    case "success": return "success";
+    case "timeout":
+    case "rate_limited": return "warning";
+    case undefined:
+    case null: return "neutral";
+    default: return "error";
+  }
+});
+const probeUsesStoredKey = computed(() => !(editing.value?.api_key?.trim()));
+
+watch(dialogVisible, (open) => {
+  if (!open) probe.resetProbe();
+});
+watch(editing, () => {
+  probe.resetProbe();
+}, { deep: true });
+
+async function submitProbe() {
+  if (!editing.value || editing.value.provider !== "llm") return;
+  const draft = editing.value;
+  const apiKey = draft.api_key?.trim() ? draft.api_key : undefined;
+  await probe.submitLlmProbe({
+    endpoint: draft.endpoint ?? "",
+    model: draft.model ?? "",
+    llm_api_kind: draft.llm_api_kind ?? "",
+    api_key: apiKey,
+  });
+}
 </script>
 
 <template>
@@ -157,6 +205,26 @@ function usageLabel(provider: ProviderDraft) {
         <AppSelectField v-if="editing.provider === 'llm'" v-model="editing.llm_api_kind" input-id="translation-llm-api-kind" name="translation.llm.llm_api_kind" :label="t('settings.translation.apiKind')" :options="llmKinds" />
         <AppSelectField v-if="editing.provider === 'deepl'" v-model="editing.deepl_plan" input-id="translation-deepl-plan" name="translation.deepl.deepl_plan" :label="t('settings.translation.plan')" :options="deeplPlans" />
         <AppNumberField v-if="editing.provider !== 'libretranslate'" v-model="editing.monthly_character_limit" :input-id="`translation-${editing.provider}-quota`" :name="`translation.${editing.provider}.monthly_character_limit`" :label="editing.provider === 'deepl' ? t('settings.translation.lifetimeQuota') : t('settings.translation.monthlyQuota')" :min="1" :step="1000" />
+        <div v-if="editing.provider === 'llm'" class="grid gap-2 border-t border-default pt-3">
+          <p class="text-xs text-muted">{{ t("settings.translation.llmProbeWarning") }}</p>
+          <p class="text-xs text-muted">{{ t("settings.translation.llmProbeEndpointTip") }}</p>
+          <p v-if="probeUsesStoredKey" class="text-xs text-muted">{{ t("settings.translation.llmProbeStoredKey") }}</p>
+          <div>
+            <UButton type="button" color="neutral" variant="outline" :loading="probe.probePending.value" :disabled="probe.probePending.value" @click="submitProbe">{{ t("settings.translation.testLlmProvider") }}</UButton>
+          </div>
+          <UAlert
+            v-if="probe.probeResult.value && probeOutcomeKey"
+            :color="probeColor"
+            variant="subtle"
+            :title="t(probeOutcomeKey)"
+            :description="[
+              probe.probeResult.value.safe_endpoint ? t('settings.translation.llmProbeEndpoint', { endpoint: probe.probeResult.value.safe_endpoint }) : null,
+              probe.probeResult.value.http_status != null ? t('settings.translation.llmProbeStatus', { status: probe.probeResult.value.http_status }) : null,
+              t('settings.translation.llmProbeLatency', { ms: probe.probeResult.value.latency_ms }),
+              probe.probeResult.value.outcome === 'route_error' ? t('settings.translation.llmProbeRouteHint') : null,
+            ].filter((line): line is string => line !== null).join('\n')"
+          />
+        </div>
       </div>
     </template>
 

@@ -281,6 +281,13 @@ impl SettingsApi for FakeSettingsApi {
         unreachable!("the Qdrant route must not reach test_docling_connection")
     }
 
+    async fn test_llm_provider_connection(
+        &self,
+        _request: &context69_contracts::settings::TestLlmProviderRequest,
+    ) -> anyhow::Result<context69_contracts::settings::TestLlmProviderResponse> {
+        unreachable!("the Qdrant route must not reach test_llm_provider_connection")
+    }
+
     async fn get_search_settings(&self) -> anyhow::Result<SearchSettingsResponse> {
         unreachable!("the Qdrant route must not reach get_search_settings")
     }

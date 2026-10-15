@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.22.0"
+    "version": "0.22.1"
   },
   "paths": {
     "/healthz": {
@@ -5765,6 +5765,66 @@
             }
           },
           "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/translation/providers/llm/test": {
+      "post": {
+        "tags": [],
+        "summary": "A non-persisting structured-call probe against submitted LLM draft values.",
+        "description": "It exercises the exact unsaved endpoint/model/protocol/key with one\nforced-tool extraction call and answers 200 with a typed outcome, so a\nroute misconfiguration surfaces before save. Probe failures are typed\noutcome data, never upstream bodies or keys.\n\nAdmin-only like the Qdrant probe: the settings scope admits any\nauthenticated identity, so the handler rejects non-admins before any\noutbound request is built.",
+        "operationId": "test_llm_provider_connection",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestLlmProviderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TestLlmProviderResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
             "description": "",
             "content": {
               "application/json": {
@@ -14641,6 +14701,84 @@
             }
           }
         ]
+      },
+      "TestLlmProviderOutcome": {
+        "type": "string",
+        "description": "Closed probe outcome. Fixed literals only; no remote text is surfaced.",
+        "enum": [
+          "success",
+          "auth_error",
+          "not_found",
+          "route_error",
+          "rate_limited",
+          "invalid_payload",
+          "upstream_error",
+          "timeout",
+          "transport_error",
+          "configuration_error"
+        ]
+      },
+      "TestLlmProviderRequest": {
+        "type": "object",
+        "description": "A non-persisting LLM provider probe.\n\nThe request carries the exact unsaved draft values a save would store.\n`api_key` is write-only: an absent or blank key falls back to the stored\nowned secret, a submitted key is used for this call only and never written\nor echoed back.",
+        "required": [
+          "endpoint",
+          "model",
+          "llm_api_kind"
+        ],
+        "properties": {
+          "api_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "llm_api_kind": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "TestLlmProviderResponse": {
+        "type": "object",
+        "description": "Non-persisting LLM probe result. The typed outcome carries the failure\nclass; `http_status` is the actual transport status when known and `None`\nwhen the transport does not report one (notably on success, where no status\nis invented). `safe_endpoint` is the rebuilt validated endpoint when the\nsubmitted endpoint parses, otherwise `None`. No key, body, or model output\nis ever returned.",
+        "required": [
+          "outcome",
+          "llm_api_kind",
+          "latency_ms"
+        ],
+        "properties": {
+          "http_status": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "latency_ms": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "llm_api_kind": {
+            "type": "string"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/TestLlmProviderOutcome"
+          },
+          "safe_endpoint": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
       },
       "TestRuntimeEmbeddingRequest": {
         "type": "object",

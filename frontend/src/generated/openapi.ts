@@ -1523,6 +1523,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/translation/providers/llm/test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A non-persisting structured-call probe against submitted LLM draft values.
+         * @description It exercises the exact unsaved endpoint/model/protocol/key with one
+         *     forced-tool extraction call and answers 200 with a typed outcome, so a
+         *     route misconfiguration surfaces before save. Probe failures are typed
+         *     outcome data, never upstream bodies or keys.
+         *
+         *     Admin-only like the Qdrant probe: the settings scope admits any
+         *     authenticated identity, so the handler rejects non-admins before any
+         *     outbound request is built.
+         */
+        post: operations["test_llm_provider_connection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/source-connections": {
         parameters: {
             query?: never;
@@ -4598,6 +4625,42 @@ export interface components {
         } | {
             /** @enum {string} */
             kind: "vector_rebuild";
+        };
+        /**
+         * @description Closed probe outcome. Fixed literals only; no remote text is surfaced.
+         * @enum {string}
+         */
+        TestLlmProviderOutcome: "success" | "auth_error" | "not_found" | "route_error" | "rate_limited" | "invalid_payload" | "upstream_error" | "timeout" | "transport_error" | "configuration_error";
+        /**
+         * @description A non-persisting LLM provider probe.
+         *
+         *     The request carries the exact unsaved draft values a save would store.
+         *     `api_key` is write-only: an absent or blank key falls back to the stored
+         *     owned secret, a submitted key is used for this call only and never written
+         *     or echoed back.
+         */
+        TestLlmProviderRequest: {
+            api_key?: string | null;
+            endpoint: string;
+            llm_api_kind: string;
+            model: string;
+        };
+        /**
+         * @description Non-persisting LLM probe result. The typed outcome carries the failure
+         *     class; `http_status` is the actual transport status when known and `None`
+         *     when the transport does not report one (notably on success, where no status
+         *     is invented). `safe_endpoint` is the rebuilt validated endpoint when the
+         *     submitted endpoint parses, otherwise `None`. No key, body, or model output
+         *     is ever returned.
+         */
+        TestLlmProviderResponse: {
+            /** Format: int32 */
+            http_status?: number | null;
+            /** Format: int64 */
+            latency_ms: number;
+            llm_api_kind: string;
+            outcome: components["schemas"]["TestLlmProviderOutcome"];
+            safe_endpoint?: string | null;
         };
         /**
          * @description A non-persisting embedding provider probe.
@@ -9172,6 +9235,53 @@ export interface operations {
                 };
             };
             403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    test_llm_provider_connection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestLlmProviderRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TestLlmProviderResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

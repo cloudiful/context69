@@ -132,6 +132,9 @@ export type UpdateTranslationSettingsRequest = Schemas["UpdateTranslationSetting
 export type TranslationProviderInput = Schemas["TranslationProviderInput"];
 export type TranslationProviderResponse = Schemas["TranslationProviderResponse"];
 export type TranslationProviderPageResponse = Schemas["TranslationProviderPageResponse"];
+export type TestLlmProviderOutcome = Schemas["TestLlmProviderOutcome"];
+export type TestLlmProviderRequest = Schemas["TestLlmProviderRequest"];
+export type TestLlmProviderResponse = Schemas["TestLlmProviderResponse"];
 export type GroupTranslationSettingsResponse = Schemas["GroupTranslationSettingsResponse"];
 export type UpdateGroupTranslationSettingsRequest = Schemas["UpdateGroupTranslationSettingsRequest"];
 

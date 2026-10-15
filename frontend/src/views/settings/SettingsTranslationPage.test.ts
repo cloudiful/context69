@@ -139,4 +139,60 @@ describe("SettingsTranslationPage", () => {
     expect(providers.value[1].endpoint).toBe("https://api.deepl.com");
     expect(apiClient.updateTranslationSettings).not.toHaveBeenCalled();
   });
+
+  it("shows the probe button only in the llm dialog and never marks the form dirty", async () => {
+    const probe = vi.spyOn(apiClient, "testLlmProviderConnection").mockResolvedValue({
+      outcome: "success",
+      safe_endpoint: "https://llm.internal/v1/responses",
+      llm_api_kind: "openai_responses",
+      http_status: null,
+      latency_ms: 12,
+    } as never);
+    const { wrapper, providers } = mountPage();
+    await flushPromises();
+
+    const llmModal = await openEdit(wrapper, 0);
+    expect(llmModal.text()).toContain("Test model call");
+
+    await llmModal.findAll("button").find((button) => button.text() === "Test model call")!.trigger("click");
+    await flushPromises();
+
+    expect(probe).toHaveBeenCalledTimes(1);
+    expect(probe.mock.calls[0][0]).toEqual({
+      endpoint: "https://openrouter.ai/api/v1",
+      model: "gemini-3-flash",
+      llm_api_kind: "openai_responses",
+      api_key: undefined,
+    });
+    expect(llmModal.text()).toContain("Model call succeeded");
+    expect(providers.value[0].endpoint).toBe("https://openrouter.ai/api/v1");
+    expect(apiClient.updateTranslationSettings).not.toHaveBeenCalled();
+  });
+
+  it("hides the probe button in the deepl dialog", async () => {
+    const { wrapper } = mountPage();
+    await flushPromises();
+
+    const modal = await openEdit(wrapper, 1);
+    expect(modal.text()).not.toContain("Test model call");
+  });
+
+  it("shows the route hint for a route_error outcome", async () => {
+    vi.spyOn(apiClient, "testLlmProviderConnection").mockResolvedValue({
+      outcome: "route_error",
+      safe_endpoint: "https://llm.internal/v1/responses",
+      llm_api_kind: "openai_responses",
+      http_status: 405,
+      latency_ms: 12,
+    } as never);
+    const { wrapper } = mountPage();
+    await flushPromises();
+
+    const llmModal = await openEdit(wrapper, 0);
+    await llmModal.findAll("button").find((button) => button.text() === "Test model call")!.trigger("click");
+    await flushPromises();
+
+    expect(llmModal.text()).toContain("route error");
+    expect(llmModal.text()).toContain("version path");
+  });
 });

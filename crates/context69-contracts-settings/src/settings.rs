@@ -10,6 +10,7 @@ pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTO
 mod connection_tests;
 
 pub use connection_tests::{
+    TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
     TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
 };
 

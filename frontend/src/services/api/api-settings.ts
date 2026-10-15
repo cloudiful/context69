@@ -9,6 +9,8 @@ import type {
   CanonicalUpdateSearchSettingsRequest,
   UpdateTranslationSettingsRequest,
   TranslationProviderPageResponse,
+  TestLlmProviderRequest,
+  TestLlmProviderResponse,
   TaskRef,
   DoclingRemoteTasksResponse,
 } from "./api-types";
@@ -142,6 +144,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
           signal: options?.signal,
         }),
       );
+    },
+    testLlmProviderConnection(payload: TestLlmProviderRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/translation/providers/llm/test", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      ) as Promise<TestLlmProviderResponse>;
     },
   };
 }

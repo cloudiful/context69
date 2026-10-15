@@ -12,7 +12,8 @@ use axum::{
 use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
-    SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
+    SearchSettingsResponse, TestLlmProviderOutcome, TestLlmProviderRequest,
+    TestLlmProviderResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
     TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
     UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
@@ -41,6 +42,11 @@ pub trait SettingsApi: Send + Sync {
         &self,
         request: &UpdateDoclingConnectionSettings,
     ) -> Result<()>;
+    /// A non-persisting structured-call probe against submitted LLM draft values.
+    async fn test_llm_provider_connection(
+        &self,
+        request: &TestLlmProviderRequest,
+    ) -> Result<TestLlmProviderResponse>;
     async fn get_search_settings(&self) -> Result<SearchSettingsResponse>;
     async fn update_search_settings(
         &self,
@@ -88,6 +94,10 @@ where
             axum::routing::post(test_docling_connection),
         )
         .route(
+            "/v1/settings/translation/providers/llm/test",
+            axum::routing::post(test_llm_provider_connection),
+        )
+        .route(
             "/v1/settings/search",
             get(get_search_settings).put(update_search_settings),
         )
@@ -105,6 +115,7 @@ where
         get_docling_settings,
         update_docling_settings,
         test_docling_connection,
+        test_llm_provider_connection,
         get_search_settings,
         update_search_settings
     ),
@@ -120,6 +131,9 @@ where
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
             UpdateDoclingConnectionSettings,
+            TestLlmProviderRequest,
+            TestLlmProviderResponse,
+            TestLlmProviderOutcome,
             SearchSettingsResponse,
             CanonicalUpdateSearchSettingsRequest
         )
@@ -254,6 +268,31 @@ async fn test_docling_connection(
     }
 }
 
+/// A non-persisting structured-call probe against submitted LLM draft values.
+///
+/// It exercises the exact unsaved endpoint/model/protocol/key with one
+/// forced-tool extraction call and answers 200 with a typed outcome, so a
+/// route misconfiguration surfaces before save. Probe failures are typed
+/// outcome data, never upstream bodies or keys.
+///
+/// Admin-only like the Qdrant probe: the settings scope admits any
+/// authenticated identity, so the handler rejects non-admins before any
+/// outbound request is built.
+#[utoipa::path(post, path = "/v1/settings/translation/providers/llm/test", request_body = TestLlmProviderRequest, responses((status = 200, body = TestLlmProviderResponse), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn test_llm_provider_connection(
+    State(state): State<SettingsHttpState>,
+    CurrentUser(user): CurrentUser,
+    axum::Json(request): axum::Json<TestLlmProviderRequest>,
+) -> impl IntoResponse {
+    if !user.is_admin {
+        return qdrant_admin_required();
+    }
+    match state.settings.test_llm_provider_connection(&request).await {
+        Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
 #[utoipa::path(get, path = "/v1/settings/search", responses((status = 200, body = SearchSettingsResponse), (status = 500, body = ApiErrorResponse)))]
 async fn get_search_settings(State(state): State<SettingsHttpState>) -> impl IntoResponse {
     match state.settings.get_search_settings().await {
@@ -350,5 +389,61 @@ mod tests {
                 .contains_key("TestRuntimeQdrantRequest"),
             "the request type must be registered in the component schemas"
         );
+    }
+
+    /// The LLM probe is a settings-scoped admin route, so it must be published
+    /// in the same document as the other probes.
+    ///
+    /// The generated frontend client is typed from this document, so a missing
+    /// path or an unregistered request/response schema would silently leave
+    /// the translation page without a typed call to make.
+    #[test]
+    fn the_llm_probe_is_published_in_the_settings_openapi_document() {
+        let document = openapi_document();
+        let path = document
+            .paths
+            .paths
+            .get("/v1/settings/translation/providers/llm/test")
+            .expect("the probe route must be published");
+        let operation = path.post.as_ref().expect("the probe must be a POST");
+
+        for status in ["200", "400", "403", "500"] {
+            assert!(
+                operation.responses.responses.contains_key(status),
+                "the probe must document its {status} response, got: {:?}",
+                operation.responses.responses.keys().collect::<Vec<_>>()
+            );
+        }
+
+        let body = operation
+            .request_body
+            .as_ref()
+            .and_then(|request| request.content.get("application/json"))
+            .and_then(|media| media.schema.as_ref())
+            .expect("the probe must publish a request body");
+        let reference = match body {
+            utoipa::openapi::RefOr::Ref(reference) => reference.ref_location.as_str(),
+            utoipa::openapi::RefOr::T(_) => {
+                panic!("the probe request body must reference a named schema")
+            }
+        };
+        assert!(
+            reference.ends_with("TestLlmProviderRequest"),
+            "the request body must reference the generated request type, got: {reference}"
+        );
+        let components = document
+            .components
+            .as_ref()
+            .expect("the document must carry components");
+        for schema in [
+            "TestLlmProviderRequest",
+            "TestLlmProviderResponse",
+            "TestLlmProviderOutcome",
+        ] {
+            assert!(
+                components.schemas.contains_key(schema),
+                "the {schema} type must be registered in the component schemas"
+            );
+        }
     }
 }

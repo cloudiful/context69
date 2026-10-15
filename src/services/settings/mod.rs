@@ -6,6 +6,7 @@ use crate::domain_errors::DomainError;
 
 mod docling_probe;
 mod embedding_probe;
+pub mod llm_probe;
 mod mappers;
 pub mod qdrant_probe;
 mod runtime_mappers;
@@ -50,6 +51,7 @@ pub struct SettingsService {
     embedding_secrets: SettingsSecrets,
     docling_secrets: SettingsSecrets,
     s3_secrets: SettingsSecrets,
+    llm_provider_secrets: SettingsSecrets,
     docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     runtime_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Rejects an embedding update that cannot be applied to the live runtime
@@ -83,7 +85,12 @@ impl SettingsService {
             search_secrets: SettingsSecrets::search(store.clone()),
             embedding_secrets: SettingsSecrets::embedding(store.clone()),
             docling_secrets: SettingsSecrets::docling(store.clone()),
-            s3_secrets: SettingsSecrets::runtime_s3(store),
+            s3_secrets: SettingsSecrets::runtime_s3(store.clone()),
+            llm_provider_secrets: SettingsSecrets::new(
+                store,
+                crate::services::secret_store::SecretPurpose::TranslationProviderApiKey,
+                crate::services::secret_store::key_names::TRANSLATION_PROVIDER_API_KEY,
+            ),
             docling_settings_observer: None,
             runtime_settings_observer: None,
             runtime_embedding_guard: None,

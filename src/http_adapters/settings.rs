@@ -77,6 +77,13 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.test_docling_connection(request).await
     }
 
+    async fn test_llm_provider_connection(
+        &self,
+        request: &crate::contracts::TestLlmProviderRequest,
+    ) -> anyhow::Result<crate::contracts::TestLlmProviderResponse> {
+        self.service.test_llm_connection(request).await
+    }
+
     async fn get_search_settings(
         &self,
     ) -> anyhow::Result<crate::contracts::SearchSettingsResponse> {

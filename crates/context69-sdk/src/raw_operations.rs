@@ -1309,6 +1309,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "test_llm_provider_connection",
+        method: "POST",
+        path_template: "/v1/settings/translation/providers/llm/test",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "TestLlmProviderRequest",
+        response_schema: "TestLlmProviderResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "test_qdrant_connection",
         method: "POST",
         path_template: "/v1/settings/runtime/qdrant/test",

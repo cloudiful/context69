@@ -57,3 +57,38 @@ describe("settings api docling remote tasks", () => {
     );
   });
 });
+
+describe("settings api llm provider probe", () => {
+  it("posts the unsaved draft to the llm test path without mutation", async () => {
+    const post = vi.fn().mockResolvedValue({ data: { outcome: "success" }, response: { ok: true, status: 200 } });
+    const api = createSettingsApi({ openapiClient: { POST: post } as never, unwrapResponse });
+    const payload = {
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-4o-mini",
+      llm_api_kind: "openai_responses",
+    };
+
+    await api.testLlmProviderConnection(payload);
+
+    expect(post).toHaveBeenCalledWith("/v1/settings/translation/providers/llm/test", {
+      body: payload,
+      signal: undefined,
+    });
+  });
+
+  it("forwards an abort signal so a stale probe can be cancelled", async () => {
+    const controller = new AbortController();
+    const post = vi.fn().mockResolvedValue({ data: { outcome: "success" }, response: { ok: true, status: 200 } });
+    const api = createSettingsApi({ openapiClient: { POST: post } as never, unwrapResponse });
+
+    await api.testLlmProviderConnection(
+      { endpoint: "https://api.openai.com/v1", model: "gpt-4o-mini", llm_api_kind: "openai_responses" },
+      { signal: controller.signal },
+    );
+
+    expect(post).toHaveBeenCalledWith(
+      "/v1/settings/translation/providers/llm/test",
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+});
