@@ -201,4 +201,31 @@ describe("useDoclingRemoteTasks", () => {
     expect(state.doclingRemoteLoadedOnce.value).toBe(false);
     expect(state.doclingRemoteError.value).toBeNull();
   });
+
+  it("records the woken count from cleanup, including zero", async () => {
+    vi.spyOn(apiClient, "wakeDoclingCleanup").mockResolvedValue({ woken: 0 });
+    vi.spyOn(apiClient, "listDoclingRemoteTasks").mockResolvedValue({
+      ...remotePage([], false),
+      cleanup: [],
+    });
+    const state = mountComposable();
+
+    expect(state.doclingCleanupWoken.value).toBeNull();
+    await state.cleanStoppedDoclingTasks();
+    expect(state.doclingCleanupWoken.value).toBe(0);
+  });
+
+  it("records a nonzero woken count and clears it on reset", async () => {
+    vi.spyOn(apiClient, "wakeDoclingCleanup").mockResolvedValue({ woken: 3 });
+    vi.spyOn(apiClient, "listDoclingRemoteTasks").mockResolvedValue({
+      ...remotePage([], false),
+      cleanup: [],
+    });
+    const state = mountComposable();
+
+    await state.cleanStoppedDoclingTasks();
+    expect(state.doclingCleanupWoken.value).toBe(3);
+    state.resetDoclingRemoteTasks();
+    expect(state.doclingCleanupWoken.value).toBeNull();
+  });
 });

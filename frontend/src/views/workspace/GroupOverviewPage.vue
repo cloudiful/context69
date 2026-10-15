@@ -14,6 +14,11 @@ const router = useRouter();
 const { t } = useI18n();
 
 const fromSearch = computed(() => isSearchReturn(route.query));
+const groupName = computed(() => state.group?.name ?? null);
+
+function goBackToGroups() {
+  void router.push({ name: "groups" });
+}
 
 function goBackToSearch() {
   if (window.history.length > 1) {
@@ -31,8 +36,20 @@ function goBackToSearch() {
 
 <template>
   <div class="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
-    <div v-if="fromSearch" class="flex shrink-0 justify-start">
+    <div class="flex shrink-0 flex-wrap items-center justify-start gap-2">
       <UButton
+        data-testid="group-back-to-groups"
+        color="neutral"
+        variant="ghost"
+        size="sm"
+        icon="i-lucide-list"
+        class="shrink-0"
+        @click="goBackToGroups"
+      >
+        {{ t("library.backToGroups") }}
+      </UButton>
+      <UButton
+        v-if="fromSearch"
         data-testid="group-back-to-search"
         color="neutral"
         variant="ghost"
@@ -49,6 +66,7 @@ function goBackToSearch() {
     :child-group-page="state.childrenPage"
     :child-group-search="state.childrenSearch"
     :group-path="state.groupPath"
+    :group-name="groupName"
     @create-child-group="state.openCreateChildGroupDialog"
     @delete-child-group="state.confirmDeleteChildGroup"
     @edit-child-group="state.openEditChildGroupDialog"

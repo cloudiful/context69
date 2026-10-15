@@ -161,6 +161,7 @@ function createApiSpies() {
     getDoclingSettings: vi.spyOn(apiClient, "getDoclingSettings").mockResolvedValue(doclingResponse as never),
     testDoclingConnection: vi.spyOn(apiClient, "testDoclingConnection").mockResolvedValue(undefined as never),
     listDoclingRemoteTasks: vi.spyOn(apiClient, "listDoclingRemoteTasks").mockResolvedValue({ items: [], has_more: false } as never),
+    wakeDoclingCleanup: vi.spyOn(apiClient, "wakeDoclingCleanup").mockResolvedValue({ woken: 0 } as never),
     getSearchSettings: vi.spyOn(apiClient, "getSearchSettings").mockResolvedValue(searchSettingsResponse as never),
     updateDoclingSettings: vi.spyOn(apiClient, "updateDoclingSettings").mockResolvedValue(doclingResponse as never),
     updateSearchSettings: vi.spyOn(apiClient, "updateSearchSettings").mockResolvedValue({

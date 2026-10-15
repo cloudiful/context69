@@ -13,6 +13,8 @@ export const library = {
   openPreview: "Open Preview",
   closePreview: "Hide Preview",
   rootFolder: "Root",
+  backToGroups: "Back to groups",
+  goUp: "Up",
   currentFolder: "Current Folder",
   newFolder: "New Folder",
   newTextFile: "New Text File",

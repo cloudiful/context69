@@ -15,7 +15,9 @@ use super::item_processors::{
 use super::pipeline_progress::record_stage;
 use super::pipeline_progress_input::deserialize_worker_input;
 use crate::services::library::storage;
-use crate::services::library::{PipelineProgressStage, UnifiedIngestError, UploadedLibraryFile};
+use crate::services::library::{
+    ExtractionGateDecision, PipelineProgressStage, UnifiedIngestError, UploadedLibraryFile,
+};
 
 pub(super) async fn process_text(
     service: &TaskService,
@@ -338,10 +340,87 @@ pub(super) async fn process_file_stage(
             Ok(ProcessResult::Progressed { next: "extraction" })
         }
         "extraction" => {
-            if let Err(error) = service.library().convert_file_extractions(file_id).await {
-                return Ok(process_error(stage, error));
+            let report = match service
+                .library()
+                .convert_file_extractions_report(file_id)
+                .await
+            {
+                Ok(report) => report,
+                Err(error) => return Ok(process_error(stage, error)),
+            };
+            match report.decision {
+                ExtractionGateDecision::NoDirective | ExtractionGateDecision::Pass => {
+                    Ok(ProcessResult::Progressed { next: "finalize" })
+                }
+                ExtractionGateDecision::OptionalWarning {
+                    template_key,
+                    job_id,
+                    reason,
+                } => {
+                    tracing::warn!(
+                        file_id = %file_id,
+                        item_id = %item.id,
+                        template_key = %template_key,
+                        job_id = ?job_id,
+                        reason = %reason,
+                        "optional extraction did not succeed; continuing to finalize",
+                    );
+                    Ok(ProcessResult::Progressed { next: "finalize" })
+                }
+                ExtractionGateDecision::RequiredBlocked { message, .. } => {
+                    // Exact-owner CAS: only the current `succeeded` file is
+                    // marked, and only while this worker still owns the item.
+                    // No documents, checkpoints, or indexed rows are deleted;
+                    // retry reuses the retained section payload and indexing
+                    // checkpoint. Terminal job failures already exhausted the
+                    // owned retry policy, so this failure is not retryable and
+                    // must not trigger additional paid calls.
+                    match service
+                        .library()
+                        .mark_extraction_gate_failed(file_id, item.id, item.lease_token, &message)
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                file_id = %file_id,
+                                item_id = %item.id,
+                                error = %error,
+                                "extraction gate CAS mark failed",
+                            );
+                        }
+                    }
+                    // A lost race yields no write; returning `Failed` keeps the
+                    // fenced finish from claiming success.
+                    Ok(ProcessResult::Failed {
+                        stage: "extraction".to_string(),
+                        message,
+                        retryable: false,
+                    })
+                }
+                ExtractionGateDecision::InvariantViolation { message } => {
+                    match service
+                        .library()
+                        .mark_extraction_gate_failed(file_id, item.id, item.lease_token, &message)
+                        .await
+                    {
+                        Ok(_) => {}
+                        Err(error) => {
+                            tracing::warn!(
+                                file_id = %file_id,
+                                item_id = %item.id,
+                                error = %error,
+                                "extraction gate invariant CAS mark failed",
+                            );
+                        }
+                    }
+                    Ok(ProcessResult::Failed {
+                        stage: "extraction".to_string(),
+                        message,
+                        retryable: false,
+                    })
+                }
             }
-            Ok(ProcessResult::Progressed { next: "finalize" })
         }
         "finalize" => {
             record_stage(service.db(), item, PipelineProgressStage::Finalizing).await?;

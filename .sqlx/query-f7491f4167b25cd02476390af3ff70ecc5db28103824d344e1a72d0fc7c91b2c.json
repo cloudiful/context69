@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT template_key, version, description, system_prompt, output_schema, max_output_tokens,\n       enabled, created_at, updated_at\nFROM context69.extraction_templates\nORDER BY template_key\n\n",
+  "query": "INSERT INTO context69.extraction_templates (\n    template_key, version, description, system_prompt, output_schema, max_output_tokens, enabled,\n    kind, decision_definition\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\nON CONFLICT (template_key) DO UPDATE\nSET description = EXCLUDED.description,\n    system_prompt = EXCLUDED.system_prompt,\n    output_schema = EXCLUDED.output_schema,\n    max_output_tokens = EXCLUDED.max_output_tokens,\n    enabled = EXCLUDED.enabled,\n    version = EXCLUDED.version,\n    kind = EXCLUDED.kind,\n    decision_definition = EXCLUDED.decision_definition,\n    updated_at = now()\nRETURNING template_key, version, description, system_prompt, output_schema,\n          max_output_tokens, enabled, kind, decision_definition, created_at, updated_at\n",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,28 @@
       },
       {
         "ordinal": 7,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "decision_definition",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "decision_definition"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +114,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -104,7 +126,17 @@
       }
     ],
     "parameters": {
-      "Left": []
+      "Left": [
+        "Text",
+        "Int4",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int4",
+        "Bool",
+        "Text",
+        "Jsonb"
+      ]
     },
     "nullable": [
       false,
@@ -115,8 +147,10 @@
       false,
       false,
       false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "08ca13b1150d1c3ce51cfe0d4baa9846cbb5bb3dd56046e18b3930e6d9bc9e10"
+  "hash": "f7491f4167b25cd02476390af3ff70ecc5db28103824d344e1a72d0fc7c91b2c"
 }

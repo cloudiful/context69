@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT extraction_template_key, extraction_parameters\nFROM context69.library_files\nWHERE id = $1\n\n",
+  "query": "SELECT extraction_template_key, extraction_parameters, extraction_required\nFROM context69.library_files\nWHERE id = $1\n",
   "describe": {
     "columns": [
       {
@@ -24,6 +24,17 @@
             "name": "extraction_parameters"
           }
         }
+      },
+      {
+        "ordinal": 2,
+        "name": "extraction_required",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "extraction_required"
+          }
+        }
       }
     ],
     "parameters": {
@@ -33,8 +44,9 @@
     },
     "nullable": [
       true,
+      false,
       false
     ]
   },
-  "hash": "37906589c80e5f3b72492ae50e7a64407fa57699d142edee19a0692ac53df943"
+  "hash": "30eb57a592e285d1a27854d3322baa879b7847dd1d49b09a083ddb3d8e35f6cc"
 }

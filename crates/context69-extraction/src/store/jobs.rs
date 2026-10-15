@@ -223,7 +223,8 @@ impl ExtractionStore {
             version.provider_key,
             version.provider_config_hash,
             version.model_name,
-            version.result_json
+            version.result_json,
+            version.template_kind
         )
         .execute(&mut *tx)
         .await?;

@@ -102,8 +102,14 @@ async fn restart_claim_recovers_expired_lease_and_deadline_rows() {
         .find(|row| row.remote_job_id == job)
         .unwrap();
     assert_eq!(row.claim_token, Some(current));
-    assert!(row.cleanup_deadline_at < chrono::Utc::now());
-    assert!(row.claim_until.unwrap() <= chrono::Utc::now() + chrono::Duration::seconds(60));
+    // The 60s lease is database-defined: claim_due.sql sets
+    // claim_until = now() + 60s and updated_at = now() in the same statement,
+    // so both timestamps are compared on the database clock, never the host.
+    assert!(row.cleanup_deadline_at < row.updated_at);
+    assert_eq!(
+        row.claim_until,
+        Some(row.updated_at + chrono::Duration::seconds(60))
+    );
     assert!(
         !db.settle_docling_cleanup(row.id, "done", None, None, chrono::Utc::now(), old)
             .await

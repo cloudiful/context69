@@ -2231,6 +2231,60 @@
       "target": "rewrap",
       "test": "a_rewrap_resumes_from_the_rows_still_at_the_source_version",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_pipeline",
+      "test": "directive_required_persists_in_separate_flag",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_pipeline",
+      "test": "migration_default_true_creates_no_directive",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_pipeline",
+      "test": "owned_gate_marks_succeeded_file_failed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_pipeline",
+      "test": "stale_lease_and_cancelled_item_cannot_mark",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_templates",
+      "test": "nested_extraction_register_preserves_generative_shape",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_templates",
+      "test": "legacy_stored_row_defaults_to_extraction",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_templates",
+      "test": "decision_job_fails_unavailable_before_provider_call",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_templates",
+      "test": "template_kind_change_cannot_reinterpret_history",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "extraction_templates",
+      "test": "decision_register_rejects_invalid_questions",
+      "class": "db"
     }
   ]
 }

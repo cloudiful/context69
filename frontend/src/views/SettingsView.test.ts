@@ -417,4 +417,52 @@ describe("SettingsView", () => {
       "Admin access required",
     );
   });
+
+  it("surfaces the cleanup wake count on the live page, including zero", async () => {
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="docling-cleanup-woken"]').exists()).toBe(false);
+
+    const cleanButton = () => wrapper.findAll("button").find((button) => button.text().includes("Clean up stopped tasks"))!;
+    await cleanButton().trigger("click");
+    await flushPromises();
+
+    expect(apiSpies.wakeDoclingCleanup).toHaveBeenCalledTimes(1);
+    expect(wrapper.get('[data-testid="docling-cleanup-woken"]').text()).toContain("0");
+
+    apiSpies.wakeDoclingCleanup.mockResolvedValue({ woken: 2 } as never);
+    await cleanButton().trigger("click");
+    await flushPromises();
+
+    expect(wrapper.get('[data-testid="docling-cleanup-woken"]').text()).toContain("2");
+  });
+
+  it("keeps cleanup state and the cleanup action on upstream list failure", async () => {
+    const cleanup = [{
+      id: "c-1",
+      task_id: "t-1",
+      remote_task_id: "remote-kept",
+      status: "unsupported",
+      outcome: null,
+      reason_code: "missing_submit_endpoint",
+      attempt_count: 1,
+      next_attempt_at: "2026-10-01T00:00:00Z",
+      cleanup_deadline_at: "2026-10-02T00:00:00Z",
+    }];
+    apiSpies.listDoclingRemoteTasks.mockResolvedValue({ items: [], has_more: false, cleanup } as never);
+
+    const { wrapper } = await mountSettingsView("/settings/docling");
+    await flushPromises();
+    expect(wrapper.text()).toContain("remote-kept");
+
+    const { ApiError } = await import("../services/api/api-core");
+    apiSpies.listDoclingRemoteTasks.mockRejectedValue(new ApiError("remote unavailable", 503));
+    await wrapper.get('[data-testid="docling-remote-refresh"]').trigger("click");
+    await flushPromises();
+
+    expect(wrapper.text()).toContain("remote-kept");
+    const cleanButton = wrapper.findAll("button").find((button) => button.text().includes("Clean up stopped tasks"))!;
+    expect(cleanButton.attributes("disabled")).toBeUndefined();
+  });
 });

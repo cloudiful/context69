@@ -119,6 +119,32 @@ impl ExtractionService {
                 .await?;
             return Ok(false);
         }
+        if template.kind == "decision" {
+            // Decision execution is unavailable until the real decision
+            // adapter lands (later phase): fail terminal permanent before
+            // any generative provider lookup. Never fall back to chat, never
+            // stub success, never reach the generative transport below.
+            self.store
+                .finish_job(FinishExtractionJob {
+                    id,
+                    status: "failed",
+                    provider_key: None,
+                    provider_config_hash: None,
+                    error_message: Some("decision provider is not configured"),
+                    failure_class: Some(failure_class_as_str(ExtractionFailureClass::Permanent)),
+                    next_attempt_at: None,
+                })
+                .await?;
+            warn!(
+                job_id = %id,
+                template_key = %job.template_key,
+                attempt = job.attempt_count,
+                failure_class = "permanent",
+                latency_ms = 0,
+                "extraction failed: decision provider is not configured"
+            );
+            return Ok(false);
+        }
         let Some(provider) = self.store.provider().await? else {
             self.store
                 .finish_job(FinishExtractionJob {
@@ -194,6 +220,9 @@ impl ExtractionService {
                         provider_config_hash: &config_hash,
                         model_name: result.model_name.as_deref(),
                         result_json: &result.result,
+                        // Immutable snapshot: only the extraction branch
+                        // reaches this generative publish.
+                        template_kind: "extraction",
                     })
                     .await?;
                 if let Err(error) = self

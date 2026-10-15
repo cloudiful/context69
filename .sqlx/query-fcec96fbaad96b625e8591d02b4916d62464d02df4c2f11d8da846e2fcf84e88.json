@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_files\nSET extraction_template_key = $2,\n    extraction_parameters = $3,\n    extraction_required = $4,\n    updated_at = now()\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Jsonb",
+        "Bool"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fcec96fbaad96b625e8591d02b4916d62464d02df4c2f11d8da846e2fcf84e88"
+}

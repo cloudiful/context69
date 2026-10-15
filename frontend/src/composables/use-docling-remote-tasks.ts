@@ -13,6 +13,7 @@ export function useDoclingRemoteTasks() {
   const items = ref<DoclingRemoteTask[]>([]);
   const cleanup = ref<DoclingCleanupTask[]>([]);
   const cleaning = ref(false);
+  const cleanupWoken = ref<number | null>(null);
   const hasMore = ref(false);
   const offset = ref(0);
   const loading = ref(false);
@@ -63,8 +64,11 @@ export function useDoclingRemoteTasks() {
     const revision = loadRevision;
     cleaning.value = true;
     try {
-      await apiClient.wakeDoclingCleanup();
-      if (revision === loadRevision) await loadPage();
+      const response = await apiClient.wakeDoclingCleanup();
+      if (revision === loadRevision) {
+        cleanupWoken.value = response.woken;
+        await loadPage();
+      }
     } catch (cause) {
       if (revision === loadRevision) {
         const summary = summarizeApiError(cause);
@@ -101,6 +105,8 @@ export function useDoclingRemoteTasks() {
     offset.value = 0;
     items.value = [];
     cleanup.value = [];
+    cleaning.value = false;
+    cleanupWoken.value = null;
     hasMore.value = false;
     error.value = null;
     errorStatus.value = null;
@@ -110,6 +116,7 @@ export function useDoclingRemoteTasks() {
 
   return {
     doclingCleanupItems: cleanup,
+    doclingCleanupWoken: cleanupWoken,
     doclingCleaning: cleaning,
     cleanStoppedDoclingTasks: cleanStoppedTasks,
     doclingRemoteError: error,

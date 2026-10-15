@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "../services/api";
 import { createTestI18n } from "../test-utils/i18n";
 import { testNuxtUiPlugin } from "../test-utils/nuxt-ui";
+import LibraryToolbar from "./LibraryToolbar.vue";
 import ProjectFilesPanel from "./ProjectFilesPanel.vue";
 
 describe("ProjectFilesPanel", () => {
@@ -34,7 +35,7 @@ describe("ProjectFilesPanel", () => {
     });
   }
 
-  async function mountPanel(router: ReturnType<typeof createRouter>) {
+  async function mountPanel(router: ReturnType<typeof createRouter>, props: Record<string, unknown> = {}) {
     return shallowMount(ProjectFilesPanel, {
       attachTo: document.body,
       props: {
@@ -42,6 +43,7 @@ describe("ProjectFilesPanel", () => {
         childGroupPage: { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } },
         childGroupSearch: "",
         groupPath: "stock",
+        ...props,
       },
       global: {
         plugins: [testNuxtUiPlugin, router, createTestI18n()],
@@ -53,6 +55,74 @@ describe("ProjectFilesPanel", () => {
         },
       },
     });
+  }
+
+  async function mountPanelWithToolbar(router: ReturnType<typeof createRouter>, props: Record<string, unknown> = {}) {
+    return mount(ProjectFilesPanel, {
+      attachTo: document.body,
+      props: {
+        childGroups: [],
+        childGroupPage: { items: [], pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 } },
+        childGroupSearch: "",
+        groupPath: "stock",
+        ...props,
+      },
+      global: {
+        plugins: [testNuxtUiPlugin, router, createTestI18n()],
+        stubs: {
+          UContextMenu: { template: "<div><slot /></div>" },
+          ProjectFilesFileUpload: { template: "<div />" },
+          ProjectFilesLibraryDialogs: { template: "<div />" },
+          ProjectFilesPreviewModal: { template: "<div />" },
+          ProjectFilesScopedSearchModal: { template: "<div />" },
+          ProjectFilesRouteActions: { template: "<div />" },
+          LibraryResourceTable: { template: "<div />" },
+        },
+      },
+    });
+  }
+
+  function treeWithFolders() {
+    return {
+      root: {
+        group_key: "stock",
+        group_path: "stock",
+        visibility: "private",
+        folder_id: null,
+        parent_folder_id: null,
+        name: "Root",
+        path: "/",
+        processing_count: 0,
+        children: [
+          {
+            group_key: "stock",
+            group_path: "stock",
+            visibility: "private",
+            folder_id: "fd-1",
+            parent_folder_id: null,
+            name: "docs",
+            path: "/docs",
+            processing_count: 0,
+            children: [
+              {
+                group_key: "stock",
+                group_path: "stock",
+                visibility: "private",
+                folder_id: "fd-2",
+                parent_folder_id: "fd-1",
+                name: "nested",
+                path: "/docs/nested",
+                processing_count: 0,
+                children: [],
+                files: [],
+              },
+            ],
+            files: [],
+          },
+        ],
+        files: [],
+      },
+    };
   }
 
   it("keeps the file browser in one layout root", async () => {
@@ -185,6 +255,85 @@ describe("ProjectFilesPanel", () => {
 
     expect(getTree).toHaveBeenCalledTimes(1);
     expect(getResources).toHaveBeenCalledTimes(1);
+    wrapper.unmount();
+  });
+
+  it("always renders the toolbar with the group breadcrumb and disabled Up at the root", async () => {
+    mockLibraryApis();
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock");
+    await router.isReady();
+
+    const wrapper = await mountPanelWithToolbar(router, { groupName: "Stock Group" });
+    await flushPromises();
+
+    const toolbar = wrapper.findComponent(LibraryToolbar);
+    expect(toolbar.exists()).toBe(true);
+    expect(toolbar.props("breadcrumbHome")).toMatchObject({ label: "Stock Group" });
+    expect(toolbar.props("breadcrumbItems")).toEqual([]);
+    expect(toolbar.props("canGoUp")).toBe(false);
+    expect(wrapper.find('[data-testid="library-go-up"]').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it("applies a direct folder deep link to the current page", async () => {
+    vi.spyOn(apiClient, "getGroupLibraryTree").mockResolvedValue(treeWithFolders() as never);
+    const getResources = vi.spyOn(apiClient, "getGroupLibraryResources").mockResolvedValue({
+      items: [],
+      pagination: { page: 1, page_size: 50, total: 0, total_pages: 0 },
+    });
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock?folder=fd-1");
+    await router.isReady();
+
+    const wrapper = await mountPanel(router);
+    await flushPromises();
+
+    expect(router.currentRoute.value.query.folder).toBe("fd-1");
+    expect(getResources).toHaveBeenCalledWith("stock", expect.objectContaining({ folderId: "fd-1" }));
+    wrapper.unmount();
+  });
+
+  it("removes an invalid folder query and falls back to the root", async () => {
+    mockLibraryApis();
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock?folder=missing");
+    await router.isReady();
+
+    const wrapper = await mountPanel(router);
+    await flushPromises();
+    await flushPromises();
+
+    expect(router.currentRoute.value.query.folder).toBeUndefined();
+    wrapper.unmount();
+  });
+
+  it("uses the localized root name for scoped search at the virtual root", async () => {
+    mockLibraryApis();
+
+    const router = createRouter({
+      history: createMemoryHistory(),
+      routes: [{ path: "/groups/:groupPath", component: ProjectFilesPanel }],
+    });
+    await router.push("/groups/stock");
+    await router.isReady();
+
+    const wrapper = await mountPanelWithToolbar(router);
+    await flushPromises();
+
+    expect(wrapper.find('[data-testid="library-go-up"]').exists()).toBe(true);
     wrapper.unmount();
   });
 });

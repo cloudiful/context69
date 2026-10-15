@@ -29,9 +29,15 @@ pub use context69_contracts_core::pagination::{
     default_limit, default_page, default_page_size,
 };
 pub use context69_contracts_extraction::extraction::{
-    ExtractionDirective, ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse,
-    ExtractionJobStatus, ExtractionJobsResponse, ExtractionResultResponse, ExtractionTemplateInput,
-    ExtractionTemplateResponse, RebuildDocumentExtractionsRequest,
+    CHOICE_OPTIONS_MAX, CHOICE_OPTIONS_MIN, ChoiceAnswer, ChoiceOption, ChoiceProbability,
+    ChoiceQuestion, DECISION_QUESTIONS_MAX, DECISION_QUESTIONS_MIN, DecisionAnswer,
+    DecisionDefinition, DecisionResultValue, ExtractionDefinition, ExtractionDirective,
+    ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobStatus,
+    ExtractionJobsResponse, ExtractionQuestion, ExtractionResultPayload, ExtractionResultResponse,
+    ExtractionResultValue, ExtractionTemplateDefinition, ExtractionTemplateInput,
+    ExtractionTemplateResponse, PredicateAnswer, PredicateQuestion,
+    RebuildDocumentExtractionsRequest, RefusalAnswer, SCORE_LEVELS_MAX, SCORE_LEVELS_MIN,
+    ScoreAnswer, ScoreLevel, ScoreProbability, ScoreQuestion,
 };
 pub use context69_contracts_library::ingest::{
     CanonicalUploadMetadata, IngestOptions, SourcePolicy,
@@ -108,8 +114,8 @@ pub use context69_contracts_sources::sources::{
 };
 pub use context69_contracts_tasks::docling::{
     DOCLING_REMOTE_LIST_LIMIT_DEFAULT, DOCLING_REMOTE_LIST_LIMIT_MAX,
-    DOCLING_REMOTE_LIST_LIMIT_MIN, DoclingCleanupResponse, DoclingCleanupTask, DoclingRemoteTask,
-    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse,
+    DOCLING_REMOTE_LIST_LIMIT_MIN, DoclingCleanupReasonCode, DoclingCleanupResponse,
+    DoclingCleanupTask, DoclingRemoteTask, DoclingRemoteTasksQuery, DoclingRemoteTasksResponse,
 };
 pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,

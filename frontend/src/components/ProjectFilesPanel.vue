@@ -22,6 +22,12 @@ import { useGroupBrowserEntries } from "../composables/project-library/use-group
 import { useLibraryPreview as useProjectLibraryPreview } from "../composables/library/use-library-preview";
 import { useProjectLibraryTree } from "../composables/project-library/use-project-library-tree";
 import { useProjectSourceFolder } from "../composables/project-library/use-project-source-folder";
+import {
+  buildLibraryFolderQuery,
+  getParentFolderId,
+  isValidLibraryFolder as isValidFolder,
+  readLibraryFolderQuery,
+} from "../composables/project-library/use-project-library-navigation";
 import type { GroupPageResponse, GroupResponse } from "../services/api";
 import { createLibraryStatusHelpers } from "../utils/library-status";
 
@@ -30,6 +36,7 @@ const props = defineProps<{
   childGroupPage: GroupPageResponse;
   childGroupSearch: string;
   groupPath: string;
+  groupName?: string | null;
 }>();
 
 const emit = defineEmits<{
@@ -52,10 +59,27 @@ const route = useRoute();
 const router = useRouter();
 const { statusLabel } = createLibraryStatusHelpers();
 const mapStatusLabel = (status: string) => statusLabel(status as "succeeded" | "failed");
+
+async function requestFolderNavigation(folderId: string | null) {
+  const currentQueryFolder = readLibraryFolderQuery(route.query);
+  const currentSelected = tree.selectedFolderId.value;
+  const hasFile = typeof route.query.file === "string" && !!route.query.file;
+  if (folderId === currentSelected && (currentQueryFolder ?? null) === (folderId ?? null) && !hasFile) {
+    return;
+  }
+  const nextQuery = buildLibraryFolderQuery(route.query, folderId, { clearFile: true });
+  await router.push({
+    name: "group-overview",
+    params: { groupPath: props.groupPath },
+    query: nextQuery,
+  });
+}
+
 const tree = useProjectLibraryTree({
   groupPath: () => props.groupPath,
   statusLabel: mapStatusLabel,
   t,
+  onNavigate: (folderId) => requestFolderNavigation(folderId),
 });
 const treeState = proxyRefs(tree);
 const page = useProjectLibraryPage({
@@ -130,7 +154,29 @@ const visibleChildGroupPage = computed(() => treeState.selectedFolderId || pageS
   ? undefined
   : props.childGroupPage);
 const selectedFileEntry = computed(() => treeState.selectedExplorerEntry?.kind === "file" ? treeState.selectedExplorerEntry : null);
-const currentFolderName = computed(() => treeState.selectedFolderSummary?.name ?? "");
+
+const breadcrumbHome = computed(() => ({
+  label: props.groupName ?? t("library.rootFolder"),
+  onSelect: () => { void requestFolderNavigation(null); },
+}));
+const breadcrumbItems = computed(() => tree.selectedFolderTrail.value.slice(1).map((folder) => ({
+  label: folder.name,
+  onSelect: () => { void requestFolderNavigation(folder.folder_id ?? null); },
+})));
+const canGoUp = computed(() => tree.selectedFolderTrail.value.length > 1);
+
+function handleToolbarUp() {
+  const parentId = getParentFolderId(tree.selectedFolderTrail.value);
+  if (tree.selectedFolderTrail.value.length < 2) return;
+  void requestFolderNavigation(parentId);
+}
+
+const currentFolderName = computed(() => {
+  if (!tree.selectedFolderId.value) {
+    return t("library.rootFolder");
+  }
+  return tree.selectedFolderSummary.value?.name ?? props.groupName ?? t("library.rootFolder");
+});
 const scopedSearchPlaceholder = computed(() => t("search.scoped.placeholder", { folder: currentFolderName.value }));
 const scopedSearchTitle = computed(() => t("search.scoped.title", { folder: currentFolderName.value }));
 
@@ -173,6 +219,94 @@ function releaseSelectedFile(fileId: string) {
   void actionsState.releaseFileSource(fileId, detailState.detail?.filename ?? "");
 }
 
+let routeGeneration = 0;
+let treeReadyPromise: Promise<void> | null = null;
+let treeReadyGroup: string | null = null;
+
+async function ensureTreeLoaded(): Promise<void> {
+  if (tree.tree.value) return;
+  if (treeReadyPromise && treeReadyGroup === props.groupPath) {
+    await treeReadyPromise;
+    return;
+  }
+  treeReadyGroup = props.groupPath;
+  treeReadyPromise = tree.loadTree();
+  try {
+    await treeReadyPromise;
+  } finally {
+    treeReadyPromise = null;
+  }
+}
+
+function readFileQuery(): string | null {
+  const raw = route.query.file;
+  if (typeof raw === "string" && raw) return raw;
+  if (Array.isArray(raw) && typeof raw[0] === "string" && raw[0]) return raw[0];
+  return null;
+}
+
+async function applyRouteToSelection(generation: number): Promise<void> {
+  await ensureTreeLoaded();
+  if (generation !== routeGeneration) return;
+  const root = tree.tree.value?.root ?? null;
+  if (!root) return;
+  const folderQuery = readLibraryFolderQuery(route.query);
+  const fileQuery = readFileQuery();
+
+  if (fileQuery) {
+    if (fileQuery !== tree.selectedFileId.value) {
+      await tree.replaceSelection(tree.selectedFolderId.value ?? folderQuery ?? null, fileQuery);
+      return;
+    }
+    const detailData = detail.detail.value;
+    if (detailData && detailData.file_id === fileQuery) {
+      const canonicalFolder = detailData.folder_id ?? null;
+      if (tree.selectedFolderId.value !== canonicalFolder) {
+        await tree.replaceSelection(canonicalFolder, fileQuery);
+        tree.updateExpandedForFolder(canonicalFolder);
+      } else {
+        tree.updateExpandedForFolder(canonicalFolder);
+      }
+      if ((folderQuery ?? null) !== (canonicalFolder ?? null)) {
+        if (generation !== routeGeneration) return;
+        const nextQuery = { ...route.query };
+        if (canonicalFolder === null) {
+          delete nextQuery.folder;
+        } else {
+          nextQuery.folder = canonicalFolder;
+        }
+        await router.replace({ query: nextQuery });
+      }
+      return;
+    }
+    return;
+  }
+
+  if (!isValidFolder(root, folderQuery)) {
+    if (folderQuery !== null) {
+      await tree.replaceSelection(null, null);
+      tree.updateExpandedForFolder(null);
+      if (generation !== routeGeneration) return;
+      const fresh = { ...route.query };
+      delete fresh.folder;
+      await router.replace({ query: fresh });
+      return;
+    }
+    if (tree.selectedFolderId.value !== null || tree.selectedFileId.value !== null) {
+      await tree.replaceSelection(null, null);
+      tree.updateExpandedForFolder(null);
+    }
+    return;
+  }
+
+  if ((tree.selectedFolderId.value ?? null) !== (folderQuery ?? null)) {
+    await tree.replaceSelection(folderQuery, null);
+    tree.updateExpandedForFolder(folderQuery);
+  } else if (tree.selectedFileId.value !== null && !fileQuery) {
+    await tree.replaceSelection(folderQuery, null);
+  }
+}
+
 watch(tree.selectedFileId, (fileId) => {
   if (fileId && !previewState.previewDocked) {
     previewState.previewDialogVisible = true;
@@ -180,8 +314,8 @@ watch(tree.selectedFileId, (fileId) => {
   void detailState.loadDetail(fileId);
 }, { immediate: true });
 
-watch(tree.selectedFolderId, (folderId) => {
-  treeState.updateExpandedForFolder(folderId);
+watch(tree.selectedFolder, () => {
+  treeState.updateExpandedForFolder(tree.selectedFolderId.value);
   page.reset();
   void page.loadPage();
   void retryAllState.loadFailedCount();
@@ -200,27 +334,31 @@ watch(page.entries, (entries) => {
   treeState.syncSelectedExplorerEntry(entries);
 }, { immediate: true });
 
-watch(() => props.groupPath, async () => {
+watch(() => props.groupPath, async (next, prev) => {
+  if (next === prev) return;
+  routeGeneration += 1;
+  const generation = routeGeneration;
   tree.resetTree();
   page.reset();
-  await tree.loadTree();
-  await page.loadPage();
-  await retryAllState.loadFailedCount();
+  treeReadyPromise = null;
+  treeReadyGroup = null;
+  await ensureTreeLoaded();
+  if (generation !== routeGeneration) return;
+  await applyRouteToSelection(generation);
 }, { immediate: true });
 
-watch(() => route.query.file, async (fileId) => {
-  if (typeof fileId !== "string" || !fileId) return;
-  if (treeState.selectedFileId === fileId) return;
-  try {
-    if (!treeState.tree) await treeState.loadTree();
-    await actionsState.revealPreviewForFile(fileId);
-  } catch {
-    // Load failures are surfaced through the tree error state and toasts.
-  }
-}, { immediate: true });
+watch(() => route.query.folder, async () => {
+  const generation = routeGeneration;
+  await applyRouteToSelection(generation);
+});
+
+watch(() => route.query.file, async () => {
+  const generation = routeGeneration;
+  await applyRouteToSelection(generation);
+});
 
 watch(tree.selectedFileId, (fileId) => {
-  const current = typeof route.query.file === "string" ? route.query.file : null;
+  const current = readFileQuery();
   if (fileId === current) return;
   if (fileId) {
     void router.replace({ query: { ...route.query, file: fileId } });
@@ -230,6 +368,19 @@ watch(tree.selectedFileId, (fileId) => {
     const { file: _file, ...rest } = route.query;
     void router.replace({ query: rest });
   }
+});
+
+watch(tree.selectedFolderId, (folderId) => {
+  const queryFolder = readLibraryFolderQuery(route.query);
+  if ((queryFolder ?? null) === (folderId ?? null)) return;
+  if (!treeState.tree) return;
+  const next = { ...route.query };
+  if (folderId === null) {
+    delete next.folder;
+  } else {
+    next.folder = folderId;
+  }
+  void router.replace({ query: next });
 });
 
 let searchTimer: ReturnType<typeof setTimeout> | undefined;
@@ -276,18 +427,16 @@ onBeforeUnmount(() => {
 
     <UContextMenu :items="activeContextMenuItems">
       <section
-        class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950"
-        :class="treeState.breadcrumbItems.length > 0
-          ? 'grid-rows-[auto_minmax(0,1fr)]'
-          : 'grid-rows-[minmax(0,1fr)]'"
+        class="grid h-full min-h-0 gap-2 overflow-hidden rounded-lg bg-surface-0 dark:bg-surface-950 grid-rows-[auto_minmax(0,1fr)]"
       >
         <LibraryToolbar
-          v-if="treeState.breadcrumbItems.length > 0"
-          :breadcrumb-home="treeState.breadcrumbHome"
-          :breadcrumb-items="treeState.breadcrumbItems"
+          :breadcrumb-home="breadcrumbHome"
+          :breadcrumb-items="breadcrumbItems"
+          :can-go-up="canGoUp"
           :search-query="pageState.query"
           :show-search="false"
           @update:search-query="pageState.query = $event"
+          @up="handleToolbarUp"
         />
         <LibraryResourceTable
           :create-folder-busy="actionsState.createFolderBusy"

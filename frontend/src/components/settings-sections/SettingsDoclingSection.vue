@@ -19,6 +19,7 @@ const props = withDefaults(
     doclingTesting: boolean;
     remoteItems?: DoclingRemoteTask[];
     cleanupItems?: DoclingCleanupTask[];
+    cleanupWoken?: number | null;
     cleaning?: boolean;
     remoteLoading?: boolean;
     remoteError?: string | null;
@@ -30,6 +31,7 @@ const props = withDefaults(
   {
     remoteItems: () => [],
     cleanupItems: () => [],
+    cleanupWoken: null,
     cleaning: false,
     remoteLoading: false,
     remoteError: null,
@@ -79,9 +81,76 @@ const remoteColumns = computed<TableColumn<DoclingRemoteTask>[]>(() => [
 
 const cleanupColumns = computed<TableColumn<DoclingCleanupTask>[]>(() => [
   { accessorKey: "remote_task_id", header: t("settings.docling.remoteTasks.taskId") },
-  { accessorKey: "status", header: t("settings.docling.remoteTasks.taskStatus") },
-  { accessorKey: "outcome", header: t("settings.docling.remoteTasks.outcome") },
+  { id: "status", header: t("settings.docling.remoteTasks.taskStatus") },
+  { id: "outcome", header: t("settings.docling.remoteTasks.outcome") },
+  { id: "reason_code", header: t("settings.docling.remoteTasks.reason") },
 ]);
+
+type CleanupReasonCode = NonNullable<DoclingCleanupTask["reason_code"]>;
+
+function cleanupStatusLabel(status: string): string {
+  switch (status) {
+    case "pending": return t("settings.docling.remoteTasks.statusPending");
+    case "cancelling": return t("settings.docling.remoteTasks.statusCancelling");
+    case "awaiting_terminal": return t("settings.docling.remoteTasks.statusAwaitingTerminal");
+    case "done": return t("settings.docling.remoteTasks.statusDone");
+    case "unsupported": return t("settings.docling.remoteTasks.statusUnsupported");
+    case "failed": return t("settings.docling.remoteTasks.statusFailed");
+    default: return t("settings.docling.remoteTasks.statusUnknown");
+  }
+}
+
+function cleanupStatusColor(status: string): "success" | "info" | "warning" | "error" | "neutral" {
+  switch (status) {
+    case "done": return "success";
+    case "failed": return "error";
+    case "pending": return "warning";
+    case "cancelling":
+    case "awaiting_terminal": return "info";
+    default: return "neutral";
+  }
+}
+
+function cleanupOutcomeLabel(outcome: string | null | undefined): string {
+  switch (outcome) {
+    case "success": return t("settings.docling.remoteTasks.outcomeSuccess");
+    case "failure": return t("settings.docling.remoteTasks.outcomeFailure");
+    case "cancelled": return t("settings.docling.remoteTasks.outcomeCancelled");
+    case "not_found": return t("settings.docling.remoteTasks.outcomeNotFound");
+    case null:
+    case undefined:
+    case "": return t("settings.docling.remoteTasks.outcomeUnknown");
+    default: return t("settings.docling.remoteTasks.outcomeUnknown");
+  }
+}
+
+function cleanupReasonLabel(reason: CleanupReasonCode | null | undefined): string {
+  switch (reason) {
+    case "missing_submit_endpoint": return t("settings.docling.remoteTasks.reasonMissingSubmitEndpoint");
+    case "authentication_failed": return t("settings.docling.remoteTasks.reasonAuthenticationFailed");
+    case "deadline_exceeded": return t("settings.docling.remoteTasks.reasonDeadlineExceeded");
+    case "remote_not_found": return t("settings.docling.remoteTasks.reasonRemoteNotFound");
+    case "awaiting_remote_terminal": return t("settings.docling.remoteTasks.reasonAwaitingRemoteTerminal");
+    case "unspecified":
+    case null:
+    case undefined:
+    default: return t("settings.docling.remoteTasks.reasonUnspecified");
+  }
+}
+
+function cleanupReasonDetail(reason: CleanupReasonCode | null | undefined): string {
+  switch (reason) {
+    case "missing_submit_endpoint": return t("settings.docling.remoteTasks.reasonMissingSubmitEndpointDetail");
+    case "authentication_failed": return t("settings.docling.remoteTasks.reasonAuthenticationFailedDetail");
+    case "deadline_exceeded": return t("settings.docling.remoteTasks.reasonDeadlineExceededDetail");
+    case "remote_not_found": return t("settings.docling.remoteTasks.reasonRemoteNotFoundDetail");
+    case "awaiting_remote_terminal": return t("settings.docling.remoteTasks.reasonAwaitingRemoteTerminalDetail");
+    case "unspecified":
+    case null:
+    case undefined:
+    default: return t("settings.docling.remoteTasks.reasonUnspecifiedDetail");
+  }
+}
 
 const remoteDenied = computed(() => props.remoteErrorStatus === 403);
 const showRemoteLoading = computed(() => props.remoteLoading && !props.remoteLoadedOnce);
@@ -327,10 +396,36 @@ const canNext = computed(() => props.remoteHasMore && !props.remoteLoading);
         </div>
       </AppSettingsBlock>
       <AppSettingsBlock :title="t('settings.docling.remoteTasks.cleanupTitle')" :description="t('settings.docling.remoteTasks.cleanupDescription')">
-        <UButton :loading="cleaning" :disabled="remoteDenied || remoteLoading || cleaning" @click="emit('clean-stopped')">
-          {{ t('settings.docling.remoteTasks.cleanStopped') }}
-        </UButton>
-        <UTable :data="cleanupItems" :columns="cleanupColumns" :empty="t('settings.docling.remoteTasks.cleanupEmpty')" />
+        <div class="grid gap-2">
+          <div>
+            <UButton :loading="cleaning" :disabled="remoteDenied || remoteLoading || cleaning" @click="emit('clean-stopped')">
+              {{ t('settings.docling.remoteTasks.cleanStopped') }}
+            </UButton>
+          </div>
+          <p class="text-xs text-muted">{{ t("settings.docling.remoteTasks.cleanupEligibility") }}</p>
+          <p v-if="cleanupWoken !== null" data-testid="docling-cleanup-woken" class="text-sm">
+            {{ t("settings.docling.remoteTasks.cleanupWoken", { count: cleanupWoken }) }}
+          </p>
+        </div>
+        <UTable :data="cleanupItems" :columns="cleanupColumns" :empty="t('settings.docling.remoteTasks.cleanupEmpty')">
+          <template #status-cell="{ row }">
+            <UBadge
+              class="whitespace-nowrap"
+              :label="cleanupStatusLabel(row.original.status)"
+              :color="cleanupStatusColor(row.original.status)"
+              variant="subtle"
+            />
+          </template>
+          <template #outcome-cell="{ row }">
+            <span>{{ cleanupOutcomeLabel(row.original.outcome) }}</span>
+          </template>
+          <template #reason_code-cell="{ row }">
+            <span class="grid gap-0.5">
+              <span>{{ cleanupReasonLabel(row.original.reason_code) }}</span>
+              <span class="text-xs text-muted">{{ cleanupReasonDetail(row.original.reason_code) }}</span>
+            </span>
+          </template>
+        </UTable>
       </AppSettingsBlock>
     </div>
   </AppSettingsSection>

@@ -264,4 +264,81 @@ describe("SettingsDoclingSection", () => {
     expect(wrapper.emitted("prev-remote")).toHaveLength(1);
     expect(wrapper.text()).not.toContain("total");
   });
+
+  function cleanupRow(overrides: Record<string, unknown> = {}) {
+    return {
+      id: "c-1",
+      task_id: "t-1",
+      remote_task_id: "remote-1",
+      status: "unsupported",
+      outcome: null,
+      reason_code: "missing_submit_endpoint",
+      attempt_count: 1,
+      next_attempt_at: "2026-10-01T00:00:00Z",
+      cleanup_deadline_at: "2026-10-02T00:00:00Z",
+      ...overrides,
+    };
+  }
+
+  it("localizes cleanup status, outcome, and reason without raw diagnostics", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      cleanupItems: [
+        cleanupRow(),
+        cleanupRow({ id: "c-2", remote_task_id: "remote-2", status: "done", outcome: "cancelled", reason_code: null }),
+        cleanupRow({ id: "c-3", remote_task_id: "remote-3", status: "awaiting_terminal", outcome: null, reason_code: "awaiting_remote_terminal" }),
+      ],
+    });
+
+    const text = wrapper.text();
+    expect(text).toContain("Unsupported");
+    expect(text).toContain("Missing submit address");
+    expect(text).toContain("Historical task has no submit address");
+    expect(text).toContain("Cancelled");
+    expect(text).toContain("Awaiting remote terminal");
+    expect(text).not.toContain("Submit endpoint unavailable");
+    expect(text).not.toContain("awaiting_terminal");
+  });
+
+  it("explains a missing submit endpoint without implying a server limitation", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      cleanupItems: [cleanupRow({ reason_code: "missing_submit_endpoint" })],
+    });
+
+    expect(wrapper.text()).toContain("Historical task has no submit address; no remote cancel request was sent.");
+    expect(wrapper.text()).not.toContain("does not support");
+  });
+
+  it("maps remote disappearance to an unconfirmed-cancellation explanation", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      cleanupItems: [cleanupRow({ status: "done", outcome: "not_found", reason_code: "remote_not_found" })],
+    });
+
+    expect(wrapper.text()).toContain("Not found");
+    expect(wrapper.text()).toContain("cancellation unconfirmed");
+  });
+
+  it("falls back to a generic cause for unknown codes and old responses", () => {
+    const wrapper = mountSection(createDraft(), false, {
+      cleanupItems: [
+        cleanupRow({ reason_code: "future_code" }),
+        cleanupRow({ id: "c-9", remote_task_id: "remote-9", reason_code: undefined }),
+      ],
+    });
+
+    expect(wrapper.text()).toContain("Unknown cause");
+    expect(wrapper.text()).not.toContain("future_code");
+  });
+
+  it("shows the woken count including zero with eligibility scope", () => {
+    const zero = mountSection(createDraft(), false, { cleanupWoken: 0 });
+    expect(zero.get('[data-testid="docling-cleanup-woken"]').text()).toContain("0");
+    expect(zero.text()).toContain("Only pending, cancelling, or awaiting-terminal rows");
+
+    const some = mountSection(createDraft(), false, { cleanupWoken: 2 });
+    expect(some.get('[data-testid="docling-cleanup-woken"]').text()).toContain("2");
+
+    const pristine = mountSection(createDraft(), false, {});
+    expect(pristine.find('[data-testid="docling-cleanup-woken"]').exists()).toBe(false);
+    expect(pristine.text()).toContain("Only pending, cancelling, or awaiting-terminal rows");
+  });
 });

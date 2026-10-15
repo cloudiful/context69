@@ -9,9 +9,10 @@ interface UseProjectLibraryTreeOptions {
   groupPath: MaybeRefOrGetter<string>;
   statusLabel: (status: string) => string;
   t: (key: string, params?: Record<string, unknown>) => string;
+  onNavigate?: (folderId: string | null) => void | Promise<void>;
 }
 
-export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectLibraryTreeOptions) {
+export function useProjectLibraryTree({ groupPath, statusLabel, t, onNavigate }: UseProjectLibraryTreeOptions) {
   const showErrorToast = useErrorToast();
   const tree = ref<LibraryTreeResponse | null>(null);
   const treeError = ref<string | null>(null);
@@ -205,6 +206,10 @@ export function useProjectLibraryTree({ groupPath, statusLabel, t }: UseProjectL
   }
 
   async function selectFolder(folderId: string | null) {
+    if (onNavigate) {
+      await onNavigate(folderId);
+      return;
+    }
     updateExpandedForFolder(folderId);
     await replaceSelection(folderId, null);
   }

@@ -1981,6 +1981,27 @@ export interface components {
             published_at?: string | null;
             source_uri?: string | null;
         };
+        ChoiceAnswer: {
+            choice: string;
+            /** Format: double */
+            confidence: number;
+            name: string;
+            probabilities: components["schemas"]["ChoiceProbability"][];
+        };
+        ChoiceOption: {
+            description: string;
+            value: string;
+        };
+        ChoiceProbability: {
+            /** Format: double */
+            probability: number;
+            value: string;
+        };
+        ChoiceQuestion: {
+            choices: components["schemas"]["ChoiceOption"][];
+            instructions: string;
+            name: string;
+        };
         /** @description Request body for `POST /v1/tasks/clear`. */
         ClearTaskHistoryRequest: {
             view: components["schemas"]["ClearTaskHistoryView"];
@@ -2057,11 +2078,45 @@ export interface components {
             has_more: boolean;
             next_cursor?: string | null;
         };
+        /** @description One typed decision answer, tagged by `type`. */
+        DecisionAnswer: (components["schemas"]["PredicateAnswer"] & {
+            /** @enum {string} */
+            type: "predicate";
+        }) | (components["schemas"]["ChoiceAnswer"] & {
+            /** @enum {string} */
+            type: "choice";
+        }) | (components["schemas"]["ScoreAnswer"] & {
+            /** @enum {string} */
+            type: "score";
+        }) | (components["schemas"]["RefusalAnswer"] & {
+            /** @enum {string} */
+            type: "refusal";
+        });
+        DecisionDefinition: {
+            questions: components["schemas"]["ExtractionQuestion"][];
+        };
+        /**
+         * @description Decision result branch: the typed answer list. Refusal answers decode
+         *     here but execution treats them as failure, never success.
+         */
+        DecisionResultValue: {
+            answers: components["schemas"]["DecisionAnswer"][];
+        };
         /** @enum {string} */
         DeeplPlan: "free" | "pro";
         DeleteBatchRequest: {
             items: components["schemas"]["DocumentKey"][];
         };
+        /**
+         * @description Closed backend-owned cause for a cleanup row that needs an explanation.
+         *
+         *     Only exact worker-written diagnostics map to a specific variant (see
+         *     `docling_cleanup_reason_code`); anything else is `Unspecified`, and
+         *     healthy rows carry `None` (serialized as absent). The frontend renders
+         *     this union only and never prints raw `last_error`/endpoint text.
+         * @enum {string}
+         */
+        DoclingCleanupReasonCode: "missing_submit_endpoint" | "authentication_failed" | "deadline_exceeded" | "remote_not_found" | "awaiting_remote_terminal" | "unspecified";
         DoclingCleanupResponse: {
             /** Format: int32 */
             woken: number;
@@ -2076,6 +2131,7 @@ export interface components {
             /** Format: date-time */
             next_attempt_at: string;
             outcome?: string | null;
+            reason_code?: null | components["schemas"]["DoclingCleanupReasonCode"];
             remote_task_id: string;
             status: string;
             /** Format: uuid */
@@ -2225,8 +2281,26 @@ export interface components {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
         };
+        /**
+         * @description Generative extraction branch of a template definition: the legacy
+         *     prompt/schema/token-cap contract, unchanged in behavior.
+         */
+        ExtractionDefinition: {
+            /** Format: int32 */
+            max_output_tokens?: number | null;
+            output_schema: Record<string, never>;
+            system_prompt: string;
+        };
         ExtractionDirective: {
             parameters?: Record<string, never>;
+            /**
+             * @description Required extractions must succeed: a failed/skipped/empty required
+             *     outcome blocks the owning item stage. Legacy and omitted directives
+             *     are required (`true`); only an explicit `false` opts out. Persisted
+             *     independently of `parameters`, never hidden inside them.
+             * @default true
+             */
+            required: boolean;
             template_key: string;
         };
         /** @enum {string} */
@@ -2277,13 +2351,36 @@ export interface components {
             jobs: components["schemas"]["ExtractionJobResponse"][];
             latest_results: components["schemas"]["ExtractionResultResponse"][];
         };
+        /** @description One independently evaluated decision question, tagged by `type`. */
+        ExtractionQuestion: (components["schemas"]["PredicateQuestion"] & {
+            /** @enum {string} */
+            type: "predicate";
+        }) | (components["schemas"]["ChoiceQuestion"] & {
+            /** @enum {string} */
+            type: "choice";
+        }) | (components["schemas"]["ScoreQuestion"] & {
+            /** @enum {string} */
+            type: "score";
+        });
+        /**
+         * @description Tagged public result payload. History is decoded from the row's immutable
+         *     kind snapshot, never from the live template, so a template-kind change
+         *     cannot reinterpret already-persisted results.
+         */
+        ExtractionResultPayload: (components["schemas"]["ExtractionResultValue"] & {
+            /** @enum {string} */
+            kind: "extraction";
+        }) | (components["schemas"]["DecisionResultValue"] & {
+            /** @enum {string} */
+            kind: "decision";
+        });
         ExtractionResultResponse: {
             /** Format: date-time */
             created_at: string;
             /** Format: int64 */
             document_id: number;
             model_name?: string | null;
-            result_json: Record<string, never>;
+            result: components["schemas"]["ExtractionResultPayload"];
             source_record_hash: string;
             template_key: string;
             /** Format: int32 */
@@ -2291,24 +2388,34 @@ export interface components {
             /** Format: uuid */
             version_id: string;
         };
+        /** @description Generative result branch: the existing arbitrary JSON value, unchanged. */
+        ExtractionResultValue: {
+            value: Record<string, never>;
+        };
+        /**
+         * @description Tagged public template definition (accepted breaking contract): either the
+         *     generative extraction branch or a decision question list. Unknown flat
+         *     fields are rejected, never silently ignored.
+         */
+        ExtractionTemplateDefinition: (components["schemas"]["ExtractionDefinition"] & {
+            /** @enum {string} */
+            kind: "extraction";
+        }) | (components["schemas"]["DecisionDefinition"] & {
+            /** @enum {string} */
+            kind: "decision";
+        });
         ExtractionTemplateInput: {
+            definition: components["schemas"]["ExtractionTemplateDefinition"];
             description?: string | null;
             enabled?: boolean;
-            /** Format: int32 */
-            max_output_tokens?: number | null;
-            output_schema: Record<string, never>;
-            system_prompt: string;
             template_key: string;
         };
         ExtractionTemplateResponse: {
             /** Format: date-time */
             created_at: string;
+            definition: components["schemas"]["ExtractionTemplateDefinition"];
             description?: string | null;
             enabled: boolean;
-            /** Format: int32 */
-            max_output_tokens: number;
-            output_schema: Record<string, never>;
-            system_prompt: string;
             template_key: string;
             /** Format: date-time */
             updated_at: string;
@@ -3320,7 +3427,7 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
         };
         /** @enum {string} */
-        LibraryIngestFailureStage: "download" | "storage" | "docling" | "parsing" | "embedding" | "indexing" | "translation" | "other";
+        LibraryIngestFailureStage: "download" | "storage" | "docling" | "parsing" | "embedding" | "indexing" | "translation" | "extraction" | "other";
         /** @enum {string} */
         LibraryIngestStatus: "succeeded" | "failed";
         /** @enum {string} */
@@ -3562,6 +3669,15 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
+        PredicateAnswer: {
+            name: string;
+            /** Format: double */
+            probability: number;
+        };
+        PredicateQuestion: {
+            instructions: string;
+            name: string;
+        };
         /**
          * @description v0.18 canonical prepare-upload: ingest behavior is owned entirely by
          *     `options`. Flattened legacy fields (`metadata`/`translation`/
@@ -3588,6 +3704,13 @@ export interface components {
         };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
+        };
+        /**
+         * @description A refusal is parsed failure evidence, never a successfully persisted
+         *     decision: execution treats it as failure (later adapter phase).
+         */
+        RefusalAnswer: {
+            name: string;
         };
         RerunTaskResponse: {
             task: components["schemas"]["TaskRef"];
@@ -3656,6 +3779,33 @@ export interface components {
             metadata_indexes?: components["schemas"]["ScopeMetadataIndex"][];
             name: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        ScoreAnswer: {
+            /** Format: double */
+            confidence: number;
+            name: string;
+            probabilities: components["schemas"]["ScoreProbability"][];
+            /** Format: double */
+            score: number;
+        };
+        ScoreLevel: {
+            description: string;
+            label: string;
+        };
+        ScoreProbability: {
+            label: string;
+            /** Format: double */
+            probability: number;
+            /**
+             * Format: int32
+             * @description Zero-based index into the question's levels.
+             */
+            value: number;
+        };
+        ScoreQuestion: {
+            instructions: string;
+            levels: components["schemas"]["ScoreLevel"][];
+            name: string;
         };
         SearchHit: {
             /** Format: uuid */

@@ -103,6 +103,55 @@ fn validate_remote_query(query: &DoclingRemoteTasksQuery) -> Result<()> {
     Ok(())
 }
 
+/// Exact worker-written diagnostics that prove a cleanup cause.
+///
+/// Only these constants (from `super::docling_cleanup`) may map to a
+/// specific reason; anything else is `Unspecified` so raw text never reaches
+/// the UI. Comparisons are exact equality, never substring or URL parsing.
+const MISSING_ENDPOINT_ERROR: &str = "Submit endpoint unavailable; remote termination unconfirmed";
+const DEADLINE_ERROR: &str = "Cleanup deadline exceeded; remote termination unconfirmed";
+const CANCEL_AUTH_ERROR: &str = "Remote cancellation requires unsupported authentication";
+const OBSERVE_AUTH_ERROR: &str = "Remote observation requires unsupported authentication";
+const NOT_FOUND_ERROR: &str = "Remote task not found; termination not confirmed";
+const NOT_FOUND_OUTCOME: &str = "not_found";
+
+/// Backend-owned cause for one cleanup row, derived only from the stored
+/// `status`/`outcome` and the exact worker-written `last_error`.
+///
+/// Returns `None` for healthy rows (pending/cancelling/done with no issue),
+/// a specific code for exact known diagnostics, and `Unspecified` for any
+/// other stored error (including `unsupported` with missing detail). No extra
+/// SQL or endpoint reads; `last_error` comes from the already-projected row.
+fn docling_cleanup_reason_code(
+    status: &str,
+    outcome: Option<&str>,
+    last_error: Option<&str>,
+) -> Option<context69_contracts::DoclingCleanupReasonCode> {
+    use context69_contracts::DoclingCleanupReasonCode as Code;
+    match last_error {
+        Some(error) if error == MISSING_ENDPOINT_ERROR => return Some(Code::MissingSubmitEndpoint),
+        Some(error) if error == DEADLINE_ERROR => return Some(Code::DeadlineExceeded),
+        Some(error) if error == CANCEL_AUTH_ERROR || error == OBSERVE_AUTH_ERROR => {
+            return Some(Code::AuthenticationFailed);
+        }
+        Some(error) if error == NOT_FOUND_ERROR => return Some(Code::RemoteNotFound),
+        _ => {}
+    }
+    if outcome == Some(NOT_FOUND_OUTCOME) {
+        return Some(Code::RemoteNotFound);
+    }
+    if status == "awaiting_terminal" {
+        return Some(Code::AwaitingRemoteTerminal);
+    }
+    if status == "unsupported" || status == "failed" {
+        return Some(Code::Unspecified);
+    }
+    if last_error.is_some() {
+        return Some(Code::Unspecified);
+    }
+    None
+}
+
 fn remote_tasks_with_cleanup(
     remote: Result<DoclingRemoteTasksResponse>,
     cleanup: Vec<context69_contracts::DoclingCleanupTask>,
@@ -150,6 +199,7 @@ mod tests {
             remote_task_id: "owned".into(),
             status: "unsupported".into(),
             outcome: None,
+            reason_code: Some(context69_contracts::DoclingCleanupReasonCode::Unspecified),
             attempt_count: 1,
             next_attempt_at: chrono::Utc::now(),
             cleanup_deadline_at: chrono::Utc::now(),
@@ -179,6 +229,95 @@ mod tests {
         assert!(healthy.has_more);
         assert!(healthy.remote_error.is_none());
         assert_eq!(healthy.cleanup.len(), 1);
+    }
+
+    #[test]
+    fn cleanup_reason_codes_map_only_exact_worker_diagnostics() {
+        use context69_contracts::DoclingCleanupReasonCode as Code;
+        let reason = docling_cleanup_reason_code;
+        assert_eq!(
+            reason(
+                "unsupported",
+                None,
+                Some("Submit endpoint unavailable; remote termination unconfirmed")
+            ),
+            Some(Code::MissingSubmitEndpoint)
+        );
+        assert_eq!(
+            reason(
+                "unsupported",
+                None,
+                Some("Remote cancellation requires unsupported authentication")
+            ),
+            Some(Code::AuthenticationFailed)
+        );
+        assert_eq!(
+            reason(
+                "unsupported",
+                None,
+                Some("Remote observation requires unsupported authentication")
+            ),
+            Some(Code::AuthenticationFailed)
+        );
+        assert_eq!(
+            reason(
+                "failed",
+                None,
+                Some("Cleanup deadline exceeded; remote termination unconfirmed")
+            ),
+            Some(Code::DeadlineExceeded)
+        );
+        assert_eq!(
+            reason(
+                "done",
+                Some("not_found"),
+                Some("Remote task not found; termination not confirmed")
+            ),
+            Some(Code::RemoteNotFound)
+        );
+        assert_eq!(
+            reason("done", Some("not_found"), None),
+            Some(Code::RemoteNotFound)
+        );
+        assert_eq!(
+            reason("awaiting_terminal", None, None),
+            Some(Code::AwaitingRemoteTerminal)
+        );
+        assert_eq!(
+            reason(
+                "awaiting_terminal",
+                None,
+                Some("Remote terminal state was not confirmed")
+            ),
+            Some(Code::AwaitingRemoteTerminal)
+        );
+        assert_eq!(reason("unsupported", None, None), Some(Code::Unspecified));
+        assert_eq!(
+            reason("failed", None, Some("some future worker message")),
+            Some(Code::Unspecified)
+        );
+        assert_eq!(reason("pending", None, None), None);
+        assert_eq!(reason("cancelling", None, None), None);
+        assert_eq!(reason("done", None, None), None);
+        assert_eq!(reason("done", Some("cancelled"), None), None);
+        assert_eq!(reason("done", Some("success"), None), None);
+    }
+
+    #[test]
+    fn cleanup_reason_mapping_never_matches_substrings_or_urls() {
+        use context69_contracts::DoclingCleanupReasonCode as Code;
+        assert_eq!(
+            docling_cleanup_reason_code(
+                "pending",
+                None,
+                Some("prefix Submit endpoint unavailable; remote termination unconfirmed")
+            ),
+            Some(Code::Unspecified)
+        );
+        assert_eq!(
+            docling_cleanup_reason_code("pending", None, Some("http://127.0.0.1:5001/v1/tasks/x")),
+            Some(Code::Unspecified)
+        );
     }
 }
 
@@ -214,8 +353,13 @@ impl TaskService {
                 id: row.id,
                 task_id: row.task_id,
                 remote_task_id: row.remote_task_id,
-                status: row.status,
-                outcome: row.outcome,
+                status: row.status.clone(),
+                outcome: row.outcome.clone(),
+                reason_code: docling_cleanup_reason_code(
+                    &row.status,
+                    row.outcome.as_deref(),
+                    row.last_error.as_deref(),
+                ),
                 attempt_count: row.attempt_count,
                 next_attempt_at: row.next_attempt_at,
                 cleanup_deadline_at: row.cleanup_deadline_at,

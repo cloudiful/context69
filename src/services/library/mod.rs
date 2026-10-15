@@ -46,6 +46,8 @@ pub(crate) use dependency_runtime::{
 mod dependency_storage;
 mod duplicate_content;
 mod embedding_gate;
+mod extraction_gate;
+pub(crate) use extraction_gate::ExtractionGateDecision;
 mod filenames;
 mod files;
 mod folders;

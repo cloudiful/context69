@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "INSERT INTO context69.extraction_templates (\n    template_key, version, description, system_prompt, output_schema, max_output_tokens, enabled\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nON CONFLICT (template_key) DO UPDATE\nSET description = EXCLUDED.description,\n    system_prompt = EXCLUDED.system_prompt,\n    output_schema = EXCLUDED.output_schema,\n    max_output_tokens = EXCLUDED.max_output_tokens,\n    enabled = EXCLUDED.enabled,\n    version = EXCLUDED.version,\n    updated_at = now()\nRETURNING template_key, version, description, system_prompt, output_schema,\n          max_output_tokens, enabled, created_at, updated_at\n\n",
+  "query": "SELECT template_key, version, description, system_prompt, output_schema, max_output_tokens,\n       enabled, kind, decision_definition, created_at, updated_at\nFROM context69.extraction_templates\nORDER BY template_key\n",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,28 @@
       },
       {
         "ordinal": 7,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "decision_definition",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "decision_definition"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +114,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -104,15 +126,7 @@
       }
     ],
     "parameters": {
-      "Left": [
-        "Text",
-        "Int4",
-        "Text",
-        "Text",
-        "Jsonb",
-        "Int4",
-        "Bool"
-      ]
+      "Left": []
     },
     "nullable": [
       false,
@@ -123,8 +137,10 @@
       false,
       false,
       false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "95519b9f352fee97487043a80f6bca3ce6cbc6a6c174b68d2435d66cf85f0698"
+  "hash": "304b1f03a68e9fc903b8bafa9f3e784588b23424b68d22425906a848e9fc3e0b"
 }

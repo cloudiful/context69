@@ -27,19 +27,79 @@ impl LibraryService {
 
     /// Blocking extraction conversion for every document mapped to the file.
     /// Runs inline on the calling worker; there is no background scheduler.
+    ///
+    /// Unowned compatibility wrapper: collects the typed gate report but
+    /// performs no owned write. Domain failures stay `Ok(())` and surface via
+    /// the jobs API only; infrastructure errors still propagate as `Err`.
+    /// Only the owned task stage may consume the report and issue the exact-
+    /// owner CAS mark.
     pub(crate) async fn convert_file_extractions(&self, file_id: Uuid) -> Result<()> {
+        self.convert_file_extractions_report(file_id)
+            .await
+            .map(|_| ())
+    }
+
+    /// Typed file-outcome collection for the required-extraction gate.
+    /// Returns the directive, the aggregated jobs, and the gate decision
+    /// without writing. The owned task stage decides the CAS mark; the
+    /// immediate (unowned) path must never mark.
+    pub(crate) async fn convert_file_extractions_report(
+        &self,
+        file_id: Uuid,
+    ) -> Result<super::extraction_gate::ExtractionGateReport> {
         let Some(directive) = self.store.file_extraction_directive(file_id).await? else {
-            return Ok(());
+            return Ok(super::extraction_gate::ExtractionGateReport {
+                directive_present: false,
+                required: true,
+                template_key: String::new(),
+                job_count: 0,
+                had_documents: false,
+                decision: super::extraction_gate::ExtractionGateDecision::NoDirective,
+            });
         };
-        for mapping in self.store.list_file_documents(file_id).await? {
-            self.extraction
+        let mappings = self.store.list_file_documents(file_id).await?;
+        let had_documents = !mappings.is_empty();
+        let mut jobs = Vec::new();
+        for mapping in &mappings {
+            let converted = self
+                .extraction
                 .convert(context69_extraction::EnqueueExtraction {
                     document_id: mapping.document_id,
                     directive: directive.clone(),
                 })
                 .await?;
+            jobs.extend(converted);
         }
-        Ok(())
+        let decision = super::extraction_gate::evaluate_extraction_gate(
+            true,
+            directive.required,
+            &directive.template_key,
+            &jobs,
+            had_documents,
+        );
+        Ok(super::extraction_gate::ExtractionGateReport {
+            directive_present: true,
+            required: directive.required,
+            template_key: directive.template_key.clone(),
+            job_count: jobs.len(),
+            had_documents,
+            decision,
+        })
+    }
+
+    /// Owned gate mark: fail a `succeeded` file only while the caller still
+    /// owns the bound task item. Delegates to the single-statement CAS SQL;
+    /// `None` means lost ownership or an unexpected file state (fenced).
+    pub(crate) async fn mark_extraction_gate_failed(
+        &self,
+        file_id: Uuid,
+        item_id: Uuid,
+        lease_token: Uuid,
+        error_message: &str,
+    ) -> Result<Option<crate::domain::LibraryFileRecord>> {
+        self.store
+            .mark_extraction_gate_failed(file_id, item_id, lease_token, "succeeded", error_message)
+            .await
     }
 
     pub(super) async fn apply_file_translation_directive(

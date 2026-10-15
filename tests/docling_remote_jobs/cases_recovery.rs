@@ -276,22 +276,18 @@ async fn reconcile_adoption_preserves_payload_and_marks_due() {
         .await
         .expect("reconcile");
     assert_eq!(summary.adopted_items, 1);
-    use sqlx::Row;
-    let row = sqlx::query(
-        "SELECT status, waiting_reason, payload, next_attempt_at \
-         FROM context69.task_items WHERE id = $1",
+    let row = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/requeued_item_state.sql",
+        item_id,
     )
-    .bind(item_id)
     .fetch_one(db.pool())
     .await
     .expect("read item");
-    let status: String = row.get("status");
-    let reason: Option<String> = row.get("waiting_reason");
-    let payload: serde_json::Value = row.get("payload");
-    let due: chrono::DateTime<chrono::Utc> = row.get("next_attempt_at");
-    assert_eq!(status, "queued");
-    assert_eq!(reason, None);
-    assert_eq!(payload, serde_json::json!({"external_id": "a"}));
-    assert!(due <= chrono::Utc::now());
+    assert_eq!(row.status, "queued");
+    assert_eq!(row.waiting_reason, None);
+    assert_eq!(row.payload, serde_json::json!({"external_id": "a"}));
+    // Immediate scheduling is proved on the database clock: the requeue sets
+    // next_attempt_at and updated_at to the same now() in one statement.
+    assert_eq!(row.next_attempt_at, Some(row.updated_at));
     cleanup(&db, task_id, user_id).await;
 }

@@ -285,9 +285,12 @@ fn extraction_template_json() -> Value {
         "template_key": "t",
         "version": 1,
         "description": null,
-        "system_prompt": "p",
-        "output_schema": {},
-        "max_output_tokens": 100,
+        "definition": {
+            "kind": "extraction",
+            "system_prompt": "p",
+            "output_schema": {},
+            "max_output_tokens": 100
+        },
         "enabled": true,
         "created_at": now(),
         "updated_at": now()
@@ -1160,8 +1163,11 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
 
     let template_in: context69_sdk::ExtractionTemplateInput = serde_json::from_value(json!({
         "template_key": "t",
-        "system_prompt": "p",
-        "output_schema": {"type": "object"}
+        "definition": {
+            "kind": "extraction",
+            "system_prompt": "p",
+            "output_schema": {"type": "object"}
+        }
     }))
     .expect("template input");
     client

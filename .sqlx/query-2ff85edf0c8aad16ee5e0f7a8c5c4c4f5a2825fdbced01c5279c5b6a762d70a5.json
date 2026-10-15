@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT template_key, version, description, system_prompt, output_schema, max_output_tokens,\n       enabled, created_at, updated_at\nFROM context69.extraction_templates\nWHERE template_key = $1\n\n",
+  "query": "SELECT template_key, version, description, system_prompt, output_schema, max_output_tokens,\n       enabled, kind, decision_definition, created_at, updated_at\nFROM context69.extraction_templates\nWHERE template_key = $1\n",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,28 @@
       },
       {
         "ordinal": 7,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "decision_definition",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.extraction_templates",
+            "name": "decision_definition"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -92,7 +114,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -117,8 +139,10 @@
       false,
       false,
       false,
+      true,
+      false,
       false
     ]
   },
-  "hash": "6813b589593a88c5b29e7c1249ecb58d1f08c759c8b91377ed39cbf1a12c3bb0"
+  "hash": "2ff85edf0c8aad16ee5e0f7a8c5c4c4f5a2825fdbced01c5279c5b6a762d70a5"
 }

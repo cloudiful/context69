@@ -55,6 +55,7 @@ pub enum LibraryIngestFailureStage {
     Embedding,
     Indexing,
     Translation,
+    Extraction,
     Other,
 }
 
@@ -68,6 +69,7 @@ impl LibraryIngestFailureStage {
             Self::Embedding => "embedding",
             Self::Indexing => "indexing",
             Self::Translation => "translation",
+            Self::Extraction => "extraction",
             Self::Other => "other",
         }
     }
@@ -85,6 +87,7 @@ impl std::str::FromStr for LibraryIngestFailureStage {
             "embedding" => Ok(Self::Embedding),
             "indexing" => Ok(Self::Indexing),
             "translation" => Ok(Self::Translation),
+            "extraction" => Ok(Self::Extraction),
             "other" => Ok(Self::Other),
             other => Err(anyhow::anyhow!(
                 "unsupported library ingest failure stage: {other}"

@@ -18,6 +18,7 @@ onMounted(() => {
     :docling-testing="state.doclingTesting.value"
     :remote-items="state.doclingRemoteItems.value"
     :cleanup-items="state.doclingCleanupItems.value"
+    :cleanup-woken="state.doclingCleanupWoken.value"
     :cleaning="state.doclingCleaning.value"
     @clean-stopped="state.cleanStoppedDoclingTasks"
     :remote-loading="state.doclingRemoteLoading.value"

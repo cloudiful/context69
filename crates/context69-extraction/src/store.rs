@@ -1,7 +1,8 @@
 use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Utc};
 use context69_contracts_extraction::{
-    ExtractionFailureClass, ExtractionJobResponse, ExtractionJobStatus, ExtractionResultResponse,
+    DecisionDefinition, ExtractionDefinition, ExtractionFailureClass, ExtractionJobResponse,
+    ExtractionJobStatus, ExtractionResultPayload, ExtractionResultResponse,
     ExtractionTemplateInput, ExtractionTemplateResponse,
 };
 use context69_secret_store::{SecretDatabase, SecretPurpose, SecretStore, key_names};
@@ -39,31 +40,80 @@ pub mod codec {
         })
     }
 
-    pub fn template_response(template: StoredExtractionTemplate) -> ExtractionTemplateResponse {
-        ExtractionTemplateResponse {
+    pub fn template_response(
+        template: StoredExtractionTemplate,
+    ) -> Result<ExtractionTemplateResponse> {
+        let definition = match template.kind.as_str() {
+            "extraction" => {
+                context69_contracts_extraction::ExtractionTemplateDefinition::Extraction(
+                    ExtractionDefinition {
+                        system_prompt: template.system_prompt,
+                        output_schema: template.output_schema,
+                        max_output_tokens: Some(template.max_output_tokens),
+                    },
+                )
+            }
+            "decision" => {
+                let stored = template
+                    .decision_definition
+                    .context("decision template row is missing its decision definition")?;
+                let definition: DecisionDefinition = serde_json::from_value(stored)
+                    .context("stored decision definition is malformed")?;
+                definition
+                    .validate()
+                    .context("stored decision definition is invalid")?;
+                context69_contracts_extraction::ExtractionTemplateDefinition::Decision(definition)
+            }
+            other => {
+                return Err(anyhow!(
+                    "unsupported stored extraction template kind: {other}"
+                ));
+            }
+        };
+        Ok(ExtractionTemplateResponse {
             template_key: template.template_key,
             version: template.version,
             description: template.description,
-            system_prompt: template.system_prompt,
-            output_schema: template.output_schema,
-            max_output_tokens: template.max_output_tokens,
+            definition,
             enabled: template.enabled,
             created_at: template.created_at,
             updated_at: template.updated_at,
-        }
+        })
     }
 
-    pub fn result_response(row: ExtractionVersionRow) -> ExtractionResultResponse {
-        ExtractionResultResponse {
+    pub fn result_response(row: ExtractionVersionRow) -> Result<ExtractionResultResponse> {
+        let result = match row.template_kind.as_str() {
+            // History decodes from the row snapshot only: a template-kind
+            // change never reinterprets already-persisted results.
+            "extraction" => ExtractionResultPayload::Extraction(
+                context69_contracts_extraction::ExtractionResultValue {
+                    value: row.result_json,
+                },
+            ),
+            "decision" => {
+                let answers: Vec<context69_contracts_extraction::DecisionAnswer> =
+                    serde_json::from_value(row.result_json)
+                        .context("stored decision result is malformed")?;
+                ExtractionResultPayload::Decision(
+                    context69_contracts_extraction::DecisionResultValue { answers },
+                )
+            }
+            other => {
+                return Err(anyhow!(
+                    "unsupported stored extraction result kind: {other}"
+                ));
+            }
+        };
+        Ok(ExtractionResultResponse {
             version_id: row.id,
             document_id: row.document_id,
             template_key: row.template_key,
             template_version: row.template_version,
             source_record_hash: row.source_record_hash,
             model_name: row.model_name,
-            result_json: row.result_json,
+            result,
             created_at: row.created_at,
-        }
+        })
     }
 
     pub fn parse_status(value: &str) -> Result<ExtractionJobStatus> {
@@ -96,6 +146,8 @@ pub struct StoredExtractionTemplate {
     pub output_schema: Value,
     pub max_output_tokens: i32,
     pub enabled: bool,
+    pub kind: String,
+    pub decision_definition: Option<Value>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -202,6 +254,7 @@ pub struct ExtractionVersionRow {
     pub source_record_hash: String,
     pub model_name: Option<String>,
     pub result_json: Value,
+    pub template_kind: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -216,6 +269,7 @@ pub struct ExtractionVersionInput<'a> {
     pub provider_config_hash: &'a str,
     pub model_name: Option<&'a str>,
     pub result_json: &'a Value,
+    pub template_kind: &'a str,
 }
 
 /// The shared `provider_key = 'llm'` API key that translation writes and
@@ -318,20 +372,46 @@ impl ExtractionStore {
                 .fetch_one(&self.pool)
                 .await?
                 .unwrap_or(1);
+        // Decision rows keep inert generative columns only to satisfy the
+        // retained constraints; dispatch never treats them as generative.
+        // The typed questions object is the stored decision definition.
+        let (system_prompt, output_schema, max_output_tokens, decision_definition) = match &input
+            .definition
+        {
+            context69_contracts_extraction::ExtractionTemplateDefinition::Extraction(
+                definition,
+            ) => (
+                definition.system_prompt.clone(),
+                definition.output_schema.clone(),
+                definition.max_output_tokens.unwrap_or(8192),
+                None,
+            ),
+            context69_contracts_extraction::ExtractionTemplateDefinition::Decision(definition) => (
+                String::new(),
+                serde_json::json!({}),
+                8192,
+                Some(
+                    serde_json::to_value(definition)
+                        .context("decision definition must serialize")?,
+                ),
+            ),
+        };
         let template = sqlx::query_file_as!(
             StoredExtractionTemplate,
             "sql/templates/upsert.sql",
             input.template_key,
             next_version,
             input.description,
-            input.system_prompt,
-            input.output_schema,
-            input.max_output_tokens.unwrap_or(8192),
-            input.enabled
+            system_prompt,
+            output_schema,
+            max_output_tokens,
+            input.enabled,
+            input.definition.kind_as_str(),
+            decision_definition
         )
         .fetch_one(&self.pool)
         .await?;
-        Ok(codec::template_response(template))
+        codec::template_response(template)
     }
 
     /// The shared `llm` provider row, with its API key resolved from the store.
@@ -359,16 +439,7 @@ fn validate_template_input(input: &ExtractionTemplateInput) -> Result<()> {
     if input.template_key.trim().is_empty() {
         return Err(anyhow!("template_key must not be empty"));
     }
-    if input.system_prompt.trim().is_empty() {
-        return Err(anyhow!("system_prompt must not be empty"));
-    }
-    if !input.output_schema.is_object() {
-        return Err(anyhow!("output_schema must be a JSON Schema object"));
-    }
-    if input.max_output_tokens.is_some_and(|value| value <= 0) {
-        return Err(anyhow!("max_output_tokens must be positive"));
-    }
-    Ok(())
+    input.definition.validate()
 }
 
 fn hex_digest(value: &[u8]) -> String {
@@ -440,5 +511,212 @@ mod tests {
         assert_eq!(normalize_api_key(None), None);
         assert_eq!(normalize_api_key(Some("  ")), None);
         assert_eq!(normalize_api_key(Some("  key  ")), Some("key".to_string()));
+    }
+
+    fn stored_template(
+        kind: &str,
+        decision_definition: Option<serde_json::Value>,
+    ) -> StoredExtractionTemplate {
+        StoredExtractionTemplate {
+            template_key: "t-1".to_string(),
+            version: 1,
+            description: None,
+            system_prompt: "p".to_string(),
+            output_schema: serde_json::json!({"type": "object"}),
+            max_output_tokens: 100,
+            enabled: true,
+            kind: kind.to_string(),
+            decision_definition,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    /// Legacy rows default to extraction and keep their exact generative
+    /// columns; the codec rebuilds the definition from those columns.
+    #[test]
+    fn legacy_extraction_row_lists_and_executes_as_generative() {
+        let response =
+            codec::template_response(stored_template("extraction", None)).expect("legacy row");
+        match response.definition {
+            context69_contracts_extraction::ExtractionTemplateDefinition::Extraction(
+                definition,
+            ) => {
+                assert_eq!(definition.system_prompt, "p");
+                assert_eq!(
+                    definition.output_schema,
+                    serde_json::json!({"type": "object"})
+                );
+                assert_eq!(definition.max_output_tokens, Some(100));
+            }
+            other => panic!("legacy row must decode generative, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn decision_row_decodes_typed_and_unknown_kind_fails() {
+        let definition = serde_json::json!({
+            "questions": [
+                {"type": "predicate", "name": "relevant", "instructions": "Is it?"}
+            ]
+        });
+        let response =
+            codec::template_response(stored_template("decision", Some(definition.clone())))
+                .expect("decision row");
+        match response.definition {
+            context69_contracts_extraction::ExtractionTemplateDefinition::Decision(decoded) => {
+                assert_eq!(
+                    serde_json::to_value(decoded).expect("decision value"),
+                    definition
+                )
+            }
+            other => panic!("decision row must decode typed, got {other:?}"),
+        }
+        // Decision rows never fall back to the inert generative columns.
+        assert!(
+            codec::template_response(stored_template("decision", None)).is_err(),
+            "decision without definition fails"
+        );
+        assert!(
+            codec::template_response(stored_template(
+                "decision",
+                Some(serde_json::json!({"questions": []}))
+            ))
+            .is_err(),
+            "invalid stored decision fails"
+        );
+        assert!(
+            codec::template_response(stored_template("mystery", None)).is_err(),
+            "unknown stored kind fails safely"
+        );
+    }
+
+    fn version_row(kind: &str, result_json: serde_json::Value) -> ExtractionVersionRow {
+        ExtractionVersionRow {
+            id: Uuid::new_v4(),
+            document_id: 7,
+            template_key: "t-1".to_string(),
+            template_version: 2,
+            source_record_hash: "h".to_string(),
+            model_name: None,
+            result_json,
+            template_kind: kind.to_string(),
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    /// History decodes from the row snapshot only: the same JSON under an
+    /// extraction snapshot stays generative even after the template changes
+    /// kind, and decision snapshots require typed answers.
+    #[test]
+    fn result_history_decodes_from_row_snapshot_only() {
+        let stored = serde_json::json!({"direction": "positive"});
+        let response =
+            codec::result_response(version_row("extraction", stored.clone())).expect("legacy");
+        match response.result {
+            context69_contracts_extraction::ExtractionResultPayload::Extraction(value) => {
+                assert_eq!(value.value, stored)
+            }
+            other => panic!("extraction snapshot must stay generative, got {other:?}"),
+        }
+
+        let answers = serde_json::json!([
+            {"type": "predicate", "name": "relevant", "probability": 0.7}
+        ]);
+        let response =
+            codec::result_response(version_row("decision", answers.clone())).expect("decision");
+        match response.result {
+            context69_contracts_extraction::ExtractionResultPayload::Decision(value) => {
+                assert_eq!(
+                    serde_json::to_value(value.answers).expect("answers value"),
+                    answers
+                )
+            }
+            other => panic!("decision snapshot must decode typed, got {other:?}"),
+        }
+        assert!(
+            codec::result_response(version_row("decision", serde_json::json!({"nope": 1})))
+                .is_err(),
+            "malformed stored decision fails safely"
+        );
+        assert!(
+            codec::result_response(version_row("mystery", stored)).is_err(),
+            "unknown stored result kind fails safely"
+        );
+    }
+
+    fn template_input(
+        definition: context69_contracts_extraction::ExtractionTemplateDefinition,
+    ) -> ExtractionTemplateInput {
+        ExtractionTemplateInput {
+            template_key: "t-1".to_string(),
+            description: None,
+            enabled: true,
+            definition,
+        }
+    }
+
+    #[test]
+    fn template_input_validation_branches_on_definition_kind() {
+        use context69_contracts_extraction::{
+            DecisionDefinition, ExtractionDefinition, ExtractionQuestion, PredicateQuestion,
+        };
+
+        assert!(
+            validate_template_input(&template_input(
+                context69_contracts_extraction::ExtractionTemplateDefinition::Extraction(
+                    ExtractionDefinition {
+                        system_prompt: "p".to_string(),
+                        output_schema: serde_json::json!({"type": "object"}),
+                        max_output_tokens: None,
+                    }
+                )
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_template_input(&template_input(
+                context69_contracts_extraction::ExtractionTemplateDefinition::Extraction(
+                    ExtractionDefinition {
+                        system_prompt: "  ".to_string(),
+                        output_schema: serde_json::json!({"type": "object"}),
+                        max_output_tokens: None,
+                    }
+                )
+            ))
+            .is_err()
+        );
+        assert!(
+            validate_template_input(&template_input(
+                context69_contracts_extraction::ExtractionTemplateDefinition::Decision(
+                    DecisionDefinition {
+                        questions: vec![ExtractionQuestion::Predicate(PredicateQuestion {
+                            name: "relevant".to_string(),
+                            instructions: "Is it?".to_string(),
+                        })],
+                    }
+                )
+            ))
+            .is_ok()
+        );
+        assert!(
+            validate_template_input(&template_input(
+                context69_contracts_extraction::ExtractionTemplateDefinition::Decision(
+                    DecisionDefinition { questions: vec![] }
+                )
+            ))
+            .is_err()
+        );
+        let mut empty_key = template_input(
+            context69_contracts_extraction::ExtractionTemplateDefinition::Extraction(
+                ExtractionDefinition {
+                    system_prompt: "p".to_string(),
+                    output_schema: serde_json::json!({"type": "object"}),
+                    max_output_tokens: None,
+                },
+            ),
+        );
+        empty_key.template_key = "  ".to_string();
+        assert!(validate_template_input(&empty_key).is_err());
     }
 }

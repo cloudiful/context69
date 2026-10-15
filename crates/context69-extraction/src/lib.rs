@@ -9,7 +9,7 @@ use async_trait::async_trait;
 use context69_contracts_extraction::{ExtractionDirective, ExtractionJobResponse};
 use sqlx::PgPool;
 
-pub use store::{ExtractionStore, StoredExtractionTemplate};
+pub use store::{ExtractionStore, ExtractionVersionInput, StoredExtractionTemplate};
 pub use worker::ExtractionService;
 
 #[derive(Debug, Clone)]

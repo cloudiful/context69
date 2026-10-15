@@ -13,6 +13,8 @@ export const library = {
   openPreview: "展开预览",
   closePreview: "收起预览",
   rootFolder: "根目录",
+  backToGroups: "返回分组列表",
+  goUp: "上一级",
   currentFolder: "当前目录",
   newFolder: "新建目录",
   newTextFile: "新建文本文件",

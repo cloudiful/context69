@@ -100,9 +100,28 @@ pub struct DoclingCleanupTask {
     pub remote_task_id: String,
     pub status: String,
     pub outcome: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason_code: Option<DoclingCleanupReasonCode>,
     pub attempt_count: i32,
     pub next_attempt_at: DateTime<Utc>,
     pub cleanup_deadline_at: DateTime<Utc>,
+}
+
+/// Closed backend-owned cause for a cleanup row that needs an explanation.
+///
+/// Only exact worker-written diagnostics map to a specific variant (see
+/// `docling_cleanup_reason_code`); anything else is `Unspecified`, and
+/// healthy rows carry `None` (serialized as absent). The frontend renders
+/// this union only and never prints raw `last_error`/endpoint text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DoclingCleanupReasonCode {
+    MissingSubmitEndpoint,
+    AuthenticationFailed,
+    DeadlineExceeded,
+    RemoteNotFound,
+    AwaitingRemoteTerminal,
+    Unspecified,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, ToSchema, JsonSchema)]

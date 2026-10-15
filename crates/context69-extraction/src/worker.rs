@@ -58,7 +58,7 @@ impl ExtractionService {
             .await?
             .into_iter()
             .map(codec::template_response)
-            .collect())
+            .collect::<Result<Vec<_>>>()?)
     }
 
     pub async fn register_template(
@@ -82,7 +82,7 @@ impl ExtractionService {
             .await?
             .into_iter()
             .map(codec::result_response)
-            .collect();
+            .collect::<Result<Vec<_>>>()?;
         Ok(ExtractionJobsResponse {
             jobs,
             latest_results,

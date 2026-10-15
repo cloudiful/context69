@@ -103,4 +103,70 @@ describe("useProjectLibraryTree", () => {
     expect(state.tree.value?.root.group_path).toBe("stock/beta");
     wrapper.unmount();
   });
+
+  it("delegates user folder intent to the navigation callback when installed", async () => {
+    const onNavigate = vi.fn(async () => {});
+    let state!: ReturnType<typeof useProjectLibraryTree>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryTree({
+          groupPath: "stock/alpha",
+          statusLabel: (status) => status,
+          t: (key) => key,
+          onNavigate,
+        });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
+
+    await state.selectFolder("folder-1");
+
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+    expect(onNavigate).toHaveBeenCalledWith("folder-1");
+    expect(state.selectedFolderId.value).toBeNull();
+    wrapper.unmount();
+  });
+
+  it("keeps direct selection when no navigation callback is installed", async () => {
+    getGroupLibraryTree.mockImplementation(async (path: string) => libraryTree(path));
+    let state!: ReturnType<typeof useProjectLibraryTree>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryTree({ groupPath: "stock/alpha", statusLabel: (status) => status, t: (key) => key });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
+
+    await state.loadTree();
+    await state.selectFolder("folder-1");
+
+    expect(state.selectedFolderId.value).toBe("folder-1");
+    wrapper.unmount();
+  });
+
+  it("keeps replaceSelection as the route-application primitive with a callback installed", async () => {
+    const onNavigate = vi.fn(async () => {});
+    let state!: ReturnType<typeof useProjectLibraryTree>;
+    const wrapper = mount(defineComponent({
+      setup() {
+        state = useProjectLibraryTree({
+          groupPath: "stock/alpha",
+          statusLabel: (status) => status,
+          t: (key) => key,
+          onNavigate,
+        });
+        return {};
+      },
+      template: "<div />",
+    }), { global: { plugins: [testNuxtUiPlugin, createTestI18n()] } });
+
+    await state.replaceSelection("folder-2", "file-9");
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(state.selectedFolderId.value).toBe("folder-2");
+    expect(state.selectedFileId.value).toBe("file-9");
+    wrapper.unmount();
+  });
 });

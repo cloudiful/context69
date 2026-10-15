@@ -1,3 +1,4 @@
+mod decision;
 mod llm;
 
 use anyhow::Result;
@@ -5,6 +6,10 @@ use context69_contracts_extraction::ExtractionFailureClass;
 use serde_json::Value;
 
 use crate::store::StoredExtractionProvider;
+
+pub use decision::{
+    DECISION_MODEL, DecisionAnswers, DecisionInput, DecisionProviderConfig, decide,
+};
 
 #[derive(Debug, Clone)]
 pub struct ProviderExtractionRequest<'a> {

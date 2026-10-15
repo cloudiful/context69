@@ -148,4 +148,23 @@ mod tests {
         assert_eq!(merged["extraction"]["other.v1"]["a"], 1);
         assert_eq!(merged["extraction"]["stock.news.v1"]["b"], 2);
     }
+
+    /// A canonical decision value merges namespaced like any other result:
+    /// the whole typed object lands under its template key with no
+    /// projection into business fields and no sibling disturbance.
+    #[test]
+    fn merges_decision_canonical_value_namespaced_without_projection() {
+        let current = json!({"ts_code": "600519.SH", "extraction": {"gen.v1": {"a": 1}}});
+        let canonical = json!({
+            "answers": [
+                {"type": "predicate", "name": "relevant", "probability": 0.7}
+            ],
+            "confidence": 0.7,
+            "usage": {"input_tokens": 10, "output_tokens": 5}
+        });
+        let merged = merge_extraction_metadata(&current, "decide.v1", &canonical).unwrap();
+        assert_eq!(merged["extraction"]["decide.v1"], canonical);
+        assert_eq!(merged["extraction"]["gen.v1"]["a"], 1);
+        assert_eq!(merged["ts_code"], "600519.SH");
+    }
 }

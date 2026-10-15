@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.21.27"
+    "version": "0.22.0"
   },
   "paths": {
     "/healthz": {
@@ -7515,6 +7515,90 @@
         },
         "additionalProperties": false
       },
+      "ChoiceAnswer": {
+        "type": "object",
+        "required": [
+          "name",
+          "choice",
+          "probabilities",
+          "confidence"
+        ],
+        "properties": {
+          "choice": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "probabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChoiceProbability"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChoiceOption": {
+        "type": "object",
+        "required": [
+          "value",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChoiceProbability": {
+        "type": "object",
+        "required": [
+          "value",
+          "probability"
+        ],
+        "properties": {
+          "probability": {
+            "type": "number",
+            "format": "double"
+          },
+          "value": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ChoiceQuestion": {
+        "type": "object",
+        "required": [
+          "name",
+          "instructions",
+          "choices"
+        ],
+        "properties": {
+          "choices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChoiceOption"
+            }
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ClearTaskHistoryRequest": {
         "type": "object",
         "description": "Request body for `POST /v1/tasks/clear`.",
@@ -7789,6 +7873,126 @@
           }
         }
       },
+      "DecisionAnswer": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PredicateAnswer"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "predicate"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChoiceAnswer"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "choice"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScoreAnswer"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "score"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RefusalAnswer"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "refusal"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "One typed decision answer, tagged by `type`."
+      },
+      "DecisionDefinition": {
+        "type": "object",
+        "required": [
+          "questions"
+        ],
+        "properties": {
+          "questions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ExtractionQuestion"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "DecisionResultValue": {
+        "type": "object",
+        "description": "Decision result branch: the typed answer list. Refusal answers decode\nhere but execution treats them as failure, never success.",
+        "required": [
+          "answers"
+        ],
+        "properties": {
+          "answers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DecisionAnswer"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
       "DeeplPlan": {
         "type": "string",
         "enum": [
@@ -7809,6 +8013,18 @@
             }
           }
         }
+      },
+      "DoclingCleanupReasonCode": {
+        "type": "string",
+        "description": "Closed backend-owned cause for a cleanup row that needs an explanation.\n\nOnly exact worker-written diagnostics map to a specific variant (see\n`docling_cleanup_reason_code`); anything else is `Unspecified`, and\nhealthy rows carry `None` (serialized as absent). The frontend renders\nthis union only and never prints raw `last_error`/endpoint text.",
+        "enum": [
+          "missing_submit_endpoint",
+          "authentication_failed",
+          "deadline_exceeded",
+          "remote_not_found",
+          "awaiting_remote_terminal",
+          "unspecified"
+        ]
       },
       "DoclingCleanupResponse": {
         "type": "object",
@@ -7855,6 +8071,16 @@
             "type": [
               "string",
               "null"
+            ]
+          },
+          "reason_code": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DoclingCleanupReasonCode"
+              }
             ]
           },
           "remote_task_id": {
@@ -8383,6 +8609,30 @@
           }
         }
       },
+      "ExtractionDefinition": {
+        "type": "object",
+        "description": "Generative extraction branch of a template definition: the legacy\nprompt/schema/token-cap contract, unchanged in behavior.",
+        "required": [
+          "system_prompt",
+          "output_schema"
+        ],
+        "properties": {
+          "max_output_tokens": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32"
+          },
+          "output_schema": {
+            "type": "object"
+          },
+          "system_prompt": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "ExtractionDirective": {
         "type": "object",
         "required": [
@@ -8391,6 +8641,11 @@
         "properties": {
           "parameters": {
             "type": "object"
+          },
+          "required": {
+            "type": "boolean",
+            "description": "Required extractions must succeed: a failed/skipped/empty required\noutcome blocks the owning item stage. Legacy and omitted directives\nare required (`true`); only an explicit `false` opts out. Persisted\nindependently of `parameters`, never hidden inside them.",
+            "default": true
           },
           "template_key": {
             "type": "string"
@@ -8567,6 +8822,121 @@
           }
         }
       },
+      "ExtractionQuestion": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/PredicateQuestion"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "predicate"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ChoiceQuestion"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "choice"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ScoreQuestion"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "type"
+                ],
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "enum": [
+                      "score"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "One independently evaluated decision question, tagged by `type`."
+      },
+      "ExtractionResultPayload": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionResultValue"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "extraction"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DecisionResultValue"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "decision"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "Tagged public result payload. History is decoded from the row's immutable\nkind snapshot, never from the live template, so a template-kind change\ncannot reinterpret already-persisted results."
+      },
       "ExtractionResultResponse": {
         "type": "object",
         "required": [
@@ -8575,7 +8945,7 @@
           "template_key",
           "template_version",
           "source_record_hash",
-          "result_json",
+          "result",
           "created_at"
         ],
         "properties": {
@@ -8593,8 +8963,8 @@
               "null"
             ]
           },
-          "result_json": {
-            "type": "object"
+          "result": {
+            "$ref": "#/components/schemas/ExtractionResultPayload"
           },
           "source_record_hash": {
             "type": "string"
@@ -8612,14 +8982,76 @@
           }
         }
       },
+      "ExtractionResultValue": {
+        "type": "object",
+        "description": "Generative result branch: the existing arbitrary JSON value, unchanged.",
+        "required": [
+          "value"
+        ],
+        "properties": {
+          "value": {
+            "type": "object"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ExtractionTemplateDefinition": {
+        "oneOf": [
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExtractionDefinition"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "extraction"
+                    ]
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DecisionDefinition"
+              },
+              {
+                "type": "object",
+                "required": [
+                  "kind"
+                ],
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "decision"
+                    ]
+                  }
+                }
+              }
+            ]
+          }
+        ],
+        "description": "Tagged public template definition (accepted breaking contract): either the\ngenerative extraction branch or a decision question list. Unknown flat\nfields are rejected, never silently ignored."
+      },
       "ExtractionTemplateInput": {
         "type": "object",
         "required": [
           "template_key",
-          "system_prompt",
-          "output_schema"
+          "definition"
         ],
         "properties": {
+          "definition": {
+            "$ref": "#/components/schemas/ExtractionTemplateDefinition"
+          },
           "description": {
             "type": [
               "string",
@@ -8629,32 +9061,18 @@
           "enabled": {
             "type": "boolean"
           },
-          "max_output_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "output_schema": {
-            "type": "object"
-          },
-          "system_prompt": {
-            "type": "string"
-          },
           "template_key": {
             "type": "string"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "ExtractionTemplateResponse": {
         "type": "object",
         "required": [
           "template_key",
           "version",
-          "system_prompt",
-          "output_schema",
-          "max_output_tokens",
+          "definition",
           "enabled",
           "created_at",
           "updated_at"
@@ -8664,6 +9082,9 @@
             "type": "string",
             "format": "date-time"
           },
+          "definition": {
+            "$ref": "#/components/schemas/ExtractionTemplateDefinition"
+          },
           "description": {
             "type": [
               "string",
@@ -8672,16 +9093,6 @@
           },
           "enabled": {
             "type": "boolean"
-          },
-          "max_output_tokens": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "output_schema": {
-            "type": "object"
-          },
-          "system_prompt": {
-            "type": "string"
           },
           "template_key": {
             "type": "string"
@@ -10767,6 +11178,7 @@
           "embedding",
           "indexing",
           "translation",
+          "extraction",
           "other"
         ]
       },
@@ -11572,6 +11984,39 @@
           "admin"
         ]
       },
+      "PredicateAnswer": {
+        "type": "object",
+        "required": [
+          "name",
+          "probability"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "PredicateQuestion": {
+        "type": "object",
+        "required": [
+          "name",
+          "instructions"
+        ],
+        "properties": {
+          "instructions": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
       "PrepareLibraryUploadRequest": {
         "type": "object",
         "description": "v0.18 canonical prepare-upload: ingest behavior is owned entirely by\n`options`. Flattened legacy fields (`metadata`/`translation`/\n`extraction`/`delete_source_after_processing`) are gone; unknown fields\n(including those legacy keys) are rejected.",
@@ -11661,6 +12106,19 @@
             }
           }
         }
+      },
+      "RefusalAnswer": {
+        "type": "object",
+        "description": "A refusal is parsed failure evidence, never a successfully persisted\ndecision: execution treats it as failure (later adapter phase).",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "RerunTaskResponse": {
         "type": "object",
@@ -11947,6 +12405,97 @@
             "$ref": "#/components/schemas/Visibility"
           }
         }
+      },
+      "ScoreAnswer": {
+        "type": "object",
+        "required": [
+          "name",
+          "score",
+          "probabilities",
+          "confidence"
+        ],
+        "properties": {
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "name": {
+            "type": "string"
+          },
+          "probabilities": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreProbability"
+            }
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScoreLevel": {
+        "type": "object",
+        "required": [
+          "label",
+          "description"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScoreProbability": {
+        "type": "object",
+        "required": [
+          "value",
+          "label",
+          "probability"
+        ],
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "probability": {
+            "type": "number",
+            "format": "double"
+          },
+          "value": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Zero-based index into the question's levels."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ScoreQuestion": {
+        "type": "object",
+        "required": [
+          "name",
+          "instructions",
+          "levels"
+        ],
+        "properties": {
+          "instructions": {
+            "type": "string"
+          },
+          "levels": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScoreLevel"
+            }
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
       },
       "SearchHit": {
         "type": "object",
