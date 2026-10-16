@@ -10,6 +10,7 @@ use crate::api::{
         __path_list_admin_users, __path_reset_admin_user_password, __path_update_admin_user,
     },
     auth::handlers::{__path_login, __path_logout, __path_me},
+    document_results::{__path_create_document_result, __path_list_document_results},
     documents::{
         __path_batch_get_group_documents, __path_create_metadata_index,
         __path_delete_group_document_by_key, __path_delete_metadata_index,
@@ -17,11 +18,6 @@ use crate::api::{
         __path_query_group_documents, __path_retry_metadata_index, __path_update_metadata_index,
     },
     errors::internal_error_response,
-    extractions::{
-        __path_get_extraction_health, __path_list_document_extraction_jobs,
-        __path_list_extraction_templates, __path_rebuild_document_extractions,
-        __path_upsert_extraction_template,
-    },
     git_connection_lifecycle::{__path_disable_git_connection, __path_enable_git_connection},
     git_connection_mutations::__path_create_git_connection,
     git_connection_readiness::__path_get_git_connection_readiness,
@@ -92,43 +88,38 @@ use crate::contracts::{
     ApiErrorResponse, AuthLoginRequest, AuthMeResponse, AuthUserResponse, BatchDocumentItem,
     BatchGetDocumentsRequest, BatchGetDocumentsResponse, CancelActiveTasksResponse,
     CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
-    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, ChoiceAnswer, ChoiceOption,
-    ChoiceProbability, ChoiceQuestion, ClearTaskHistoryRequest, ClearTaskHistoryResponse,
-    ClearTaskHistoryView, CreateAdminUserRequest, CreateFolderRequest, CreateMetadataIndexRequest,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, ClearTaskHistoryRequest,
+    ClearTaskHistoryResponse, ClearTaskHistoryView, CreateAdminUserRequest,
+    CreateDocumentResultRequest, CreateFolderRequest, CreateMetadataIndexRequest,
     CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateSourceFolderRequest,
-    CreateTextRequest, CursorPageQuery, CursorPagination, DecisionAnswer, DecisionDefinition,
-    DecisionResultValue, DeeplPlan, DeleteBatchRequest, DoclingCleanupReasonCode,
-    DoclingRemoteTask, DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, DocumentKey,
-    DocumentLookupQuery, DocumentQueryRequest, DocumentQueryResponse, DocumentSort,
-    DocumentSortField, EnsureScopeResponse, ExtractionDefinition, ExtractionDirective,
-    ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobStatus,
-    ExtractionJobsResponse, ExtractionQuestion, ExtractionResultPayload, ExtractionResultResponse,
-    ExtractionResultValue, ExtractionTemplateDefinition, ExtractionTemplateInput,
-    ExtractionTemplateResponse, FileBatchItem, FileBatchRequest, GroupSortBy,
+    CreateTextRequest, CursorPageQuery, CursorPagination, DeeplPlan, DeleteBatchRequest,
+    DoclingCleanupReasonCode, DoclingRemoteTask, DoclingRemoteTasksQuery,
+    DoclingRemoteTasksResponse, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
+    DocumentQueryResponse, DocumentResultProvenance, DocumentResultResponse, DocumentSort,
+    DocumentSortField, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GroupSortBy,
     GroupTranslationSettingsResponse, HealthResponse, HealthStatus,
     ImportLibraryFileFromUrlRequest, IngestOptions, LibraryFileDetailResponse,
     LibraryFolderResponse, LibraryIngestFailureStage, LibraryResourceItem, LibraryResourceKind,
-    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse, MemberPageQuery,
-    MemberSortBy, MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataIndexPageQuery,
+    LibraryResourcePageResponse, LibraryResourceSortBy, LibraryTreeResponse,
+    ListDocumentResultsQuery, ListDocumentResultsResponse, MemberPageQuery, MemberSortBy,
+    MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataIndexPageQuery,
     MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
     MoveFileRequest, MoveFolderRequest, OffsetPageQuery, PersonalAccessTokenPageQuery,
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    PredicateAnswer, PredicateQuestion, PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
-    RebuildDocumentExtractionsRequest, RebuildDocumentTranslationsRequest, RefusalAnswer,
-    RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, ScoreAnswer,
-    ScoreLevel, ScoreProbability, ScoreQuestion, SearchMode, SecretPatch, SortDirection, SortOrder,
-    SourceConfigInput, SourceConnectionResponse, SourceFolderResponse, SourcePageQuery,
-    SourcePageResponse, SourcePolicy, SourceStatus, SyncOutcome, TaskAttemptView,
-    TaskConsistencyReport, TaskDiagnoseItem, TaskDiagnoseParent, TaskDiagnoseResponse,
-    TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery,
-    TaskListView, TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse,
-    TaskSortBy, TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot,
-    TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest, TranslationDirective,
-    TranslationGlossaryEntry, TranslationJobResponse, TranslationJobsResponse,
-    TranslationLlmApiKind, TranslationProviderInput, TranslationProviderKind,
-    TranslationProviderPageQuery, TranslationProviderPageResponse, TranslationProviderResponse,
-    TranslationSettingsResponse, TranslationStatus, UpdateAdminUserRequest,
-    UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, RebuildDocumentTranslationsRequest,
+    RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, SearchMode,
+    SecretPatch, SortDirection, SortOrder, SourceConfigInput, SourceConnectionResponse,
+    SourceFolderResponse, SourcePageQuery, SourcePageResponse, SourcePolicy, SourceStatus,
+    SyncOutcome, TaskAttemptView, TaskConsistencyReport, TaskDiagnoseItem, TaskDiagnoseParent,
+    TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse,
+    TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery,
+    TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest,
+    TranslationDirective, TranslationGlossaryEntry, TranslationJobResponse,
+    TranslationJobsResponse, TranslationLlmApiKind, TranslationProviderInput,
+    TranslationProviderKind, TranslationProviderPageQuery, TranslationProviderPageResponse,
+    TranslationProviderResponse, TranslationSettingsResponse, TranslationStatus,
+    UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
     UpdateTranslationSettingsRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
     UrlBatchRequest,
 };
@@ -220,6 +211,8 @@ use crate::contracts::sources::{
         get_group_document_by_key,
         batch_get_group_documents,
         delete_group_document_by_key,
+        create_document_result,
+        list_document_results,
         list_metadata_indexes,
         create_metadata_index,
         update_metadata_index,
@@ -232,11 +225,6 @@ use crate::contracts::sources::{
         update_group_translation_settings,
         list_document_translation_jobs,
         rebuild_document_translations,
-        list_extraction_templates,
-        upsert_extraction_template,
-        list_document_extraction_jobs,
-        rebuild_document_extractions,
-        get_extraction_health,
         ensure_scope,
         submit_text_batch,
         submit_url_batch,
@@ -343,12 +331,17 @@ use crate::contracts::sources::{
         BatchGetDocumentsResponse,
         BatchDocumentItem,
         CreateMetadataIndexRequest,
+        CreateDocumentResultRequest,
         DocumentKey,
         DocumentLookupQuery,
         DocumentQueryRequest,
         DocumentQueryResponse,
+        DocumentResultProvenance,
+        DocumentResultResponse,
         DocumentSort,
         DocumentSortField,
+        ListDocumentResultsQuery,
+        ListDocumentResultsResponse,
         MetadataDataType,
         MetadataFilter,
         MetadataFilterOperator,
@@ -376,35 +369,6 @@ use crate::contracts::sources::{
         TranslationJobResponse,
         TranslationJobsResponse,
         RebuildDocumentTranslationsRequest,
-        ExtractionDirective,
-        ExtractionTemplateInput,
-        ExtractionTemplateResponse,
-        ExtractionTemplateDefinition,
-        ExtractionDefinition,
-        DecisionDefinition,
-        ExtractionQuestion,
-        PredicateQuestion,
-        ChoiceQuestion,
-        ChoiceOption,
-        ScoreQuestion,
-        ScoreLevel,
-        ExtractionJobResponse,
-        ExtractionJobStatus,
-        ExtractionFailureClass,
-        ExtractionJobsResponse,
-        ExtractionResultResponse,
-        ExtractionResultPayload,
-        ExtractionResultValue,
-        DecisionResultValue,
-        DecisionAnswer,
-        PredicateAnswer,
-        ChoiceAnswer,
-        ChoiceProbability,
-        ScoreAnswer,
-        ScoreProbability,
-        RefusalAnswer,
-        ExtractionHealthResponse,
-        RebuildDocumentExtractionsRequest,
         IngestOptions,
         CanonicalUploadMetadata,
         SourcePolicy,
@@ -577,9 +541,6 @@ mod tests {
             "/v1/groups/by-path/{group_path}/library/files/upload",
             "/v1/groups/by-path/{group_path}/library/files/{file_id}",
             "/v1/groups/by-path/{group_path}/library/files/{file_id}/move",
-            "/v1/groups/by-path/{group_path}/extraction-templates",
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions",
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild",
             "/v1/tasks",
             "/v1/tasks/stream",
             "/v1/tasks/{task_id}",
@@ -1308,5 +1269,65 @@ mod tests {
             Some(100),
             "stream limit maximum must be 100"
         );
+    }
+
+    #[test]
+    fn openapi_exposes_caller_produced_document_results() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let paths = json
+            .get("paths")
+            .and_then(Value::as_object)
+            .expect("paths to exist");
+        let results = paths
+            .get("/v1/groups/by-path/{group_path}/documents/{document_id}/results")
+            .and_then(Value::as_object)
+            .expect("document results path to exist");
+        assert_eq!(
+            results
+                .get("post")
+                .and_then(|op| op.get("operationId"))
+                .and_then(Value::as_str),
+            Some("create_document_result"),
+        );
+        assert_eq!(
+            results
+                .get("get")
+                .and_then(|op| op.get("operationId"))
+                .and_then(Value::as_str),
+            Some("list_document_results"),
+        );
+        // Read-only surface: no DELETE/UPDATE operation is exposed.
+        assert!(!results.contains_key("delete"));
+        assert!(!results.contains_key("put"));
+        assert!(!results.contains_key("patch"));
+
+        let schemas = json
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas to exist");
+        for schema in [
+            "CreateDocumentResultRequest",
+            "DocumentResultProvenance",
+            "DocumentResultResponse",
+            "ListDocumentResultsQuery",
+            "ListDocumentResultsResponse",
+        ] {
+            assert!(
+                schemas.contains_key(schema),
+                "missing document result schema {schema}"
+            );
+        }
+        // The request never accepts a caller-supplied author identity.
+        let request_properties = schemas
+            .get("CreateDocumentResultRequest")
+            .and_then(|schema| schema.get("properties"))
+            .and_then(Value::as_object)
+            .expect("CreateDocumentResultRequest properties");
+        for forbidden in ["author_user_id", "user_id", "id"] {
+            assert!(
+                !request_properties.contains_key(forbidden),
+                "the request must not accept {forbidden}"
+            );
+        }
     }
 }

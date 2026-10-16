@@ -1,6 +1,6 @@
 //! Crate-private constructors for [`ChunkPayload`].
 //!
-//! Every ingest, sync, extraction, translation and reindex path repeats the
+//! Every ingest, sync, translation and reindex path repeats the
 //! same group/scope and source-document fields; only the chunk position and
 //! locale metadata vary. Centralising them here keeps the field mapping in one
 //! audited place while preserving the public [`ChunkPayload`] shape.

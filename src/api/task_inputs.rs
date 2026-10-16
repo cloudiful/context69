@@ -38,7 +38,6 @@ pub(crate) fn create_text_payload(request: CreateTextRequest) -> Result<Value> {
         published_at: None,
         metadata_json: Default::default(),
         translation: request.translation,
-        extraction: None,
     })
     .map_err(Into::into)
 }
@@ -66,7 +65,6 @@ mod tests {
                         .collect(),
                 },
                 translation: None,
-                extraction: None,
                 source_policy: context69_contracts::SourcePolicy::ReleaseAfterProcessing,
             },
             staged_storage_object_id: None,

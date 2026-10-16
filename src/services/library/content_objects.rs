@@ -34,7 +34,6 @@ impl LibraryService {
                         existing,
                         (!ingest.metadata.is_empty()).then_some(&ingest.metadata),
                         ingest.translation.as_ref(),
-                        ingest.extraction.as_ref(),
                     )
                     .await;
             }
@@ -65,7 +64,6 @@ impl LibraryService {
                     existing,
                     (!ingest.metadata.is_empty()).then_some(&ingest.metadata),
                     ingest.translation.as_ref(),
-                    ingest.extraction.as_ref(),
                 )
                 .await;
         }
@@ -78,7 +76,6 @@ impl LibraryService {
         file: crate::domain::LibraryFileRecord,
         metadata: Option<&crate::contracts::CanonicalUploadMetadata>,
         translation: Option<&crate::contracts::TranslationDirective>,
-        extraction: Option<&crate::contracts::ExtractionDirective>,
     ) -> Result<PrepareLibraryUploadResponse> {
         let file = if let Some(metadata) = metadata {
             self.apply_file_business_metadata(file.id, metadata).await?
@@ -87,10 +84,6 @@ impl LibraryService {
         };
         if let Some(directive) = translation {
             self.apply_file_translation_directive(file.id, directive)
-                .await?;
-        }
-        if let Some(directive) = extraction {
-            self.apply_file_extraction_directive(file.id, directive)
                 .await?;
         }
         Ok(PrepareLibraryUploadResponse {
@@ -190,15 +183,6 @@ impl LibraryService {
         if let Some(directive) = ingest.translation.as_ref()
             && let Err(error) = self
                 .apply_file_translation_directive(file_id, directive)
-                .await
-        {
-            self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)
-                .await;
-            return Err(error);
-        }
-        if let Some(directive) = ingest.extraction.as_ref()
-            && let Err(error) = self
-                .apply_file_extraction_directive(file_id, directive)
                 .await
         {
             self.rollback_prepared_duplicate_file(project.id, file_id, storage_object.id)

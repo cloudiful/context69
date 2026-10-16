@@ -35,10 +35,6 @@ use context69::db::Database;
 use context69::library_store::{LibraryStore, MissingLegacySourceFileRow};
 use context69::services::library::{LibraryService, LibraryServiceConfig};
 use context69::services::settings::SettingsService;
-use context69_extraction::{
-    ExtractionDependencies, ExtractionPublication, ExtractionPublisher, ExtractionReadiness,
-    ExtractionService,
-};
 use context69_namespace::GroupRecord;
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
@@ -65,18 +61,6 @@ impl TranslationPublisher for NoopCallbacks {
 }
 #[async_trait]
 impl TranslationReadiness for NoopCallbacks {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
-#[async_trait]
-impl ExtractionPublisher for NoopCallbacks {
-    async fn publish(&self, _publication: &ExtractionPublication<'_>) -> Result<()> {
-        Ok(())
-    }
-}
-#[async_trait]
-impl ExtractionReadiness for NoopCallbacks {
     async fn is_ready(&self) -> Result<bool> {
         Ok(false)
     }
@@ -120,13 +104,6 @@ async fn build_library_service(db: &Database) -> (LibraryService, std::path::Pat
         concurrency: 1,
         readiness: Arc::new(NoopCallbacks),
     });
-    let extraction = ExtractionService::new(ExtractionDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(NoopCallbacks),
-        concurrency: 1,
-        readiness: Arc::new(NoopCallbacks),
-    });
     let service = LibraryService::new(
         db.clone(),
         // No embedding and no Qdrant index: exercises the runtime guard.
@@ -153,7 +130,6 @@ async fn build_library_service(db: &Database) -> (LibraryService, std::path::Pat
         },
         settings,
         translation,
-        extraction,
     )
     .await
     .expect("build library service");

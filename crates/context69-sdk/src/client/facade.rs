@@ -3,20 +3,16 @@ use std::time::{Duration, Instant};
 pub use context69_contracts::{
     AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
     CancelActiveTasksResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
-    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, ChoiceAnswer, ChoiceOption,
-    ChoiceProbability, ChoiceQuestion, CreateMetadataIndexRequest, CursorPageQuery,
-    CursorPagination, DecisionAnswer, DecisionDefinition, DecisionResultValue, DeleteBatchRequest,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateDocumentResultRequest,
+    CreateMetadataIndexRequest, CursorPageQuery, CursorPagination, DeleteBatchRequest,
     DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, DocumentChunkResponse, DocumentKey,
-    DocumentResponse, EnsureScopeResponse, ExtractionDefinition, ExtractionDirective,
-    ExtractionJobsResponse, ExtractionQuestion, ExtractionResultPayload, ExtractionResultValue,
-    ExtractionTemplateDefinition, ExtractionTemplateInput, ExtractionTemplateResponse,
+    DocumentResponse, DocumentResultProvenance, DocumentResultResponse, EnsureScopeResponse,
     FileBatchItem, FileBatchRequest, GroupKind, GroupResponse, HealthResponse,
     ImportLibraryFileFromUrlRequest as UrlBatchItem, IngestOptions, LibraryFileDetailResponse,
-    LibraryTextContentFormat as TextContentFormat, MetadataDataType, MetadataFilter,
-    MetadataFilterOperator, MetadataValueKind, OffsetPageQuery, OffsetPagination, PredicateAnswer,
-    PredicateQuestion, RebuildDocumentExtractionsRequest, RefusalAnswer, RerunTaskResponse,
-    ScopeMetadataIndex, ScopeSpec, ScoreAnswer, ScoreLevel, ScoreProbability, ScoreQuestion,
-    SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
+    LibraryTextContentFormat as TextContentFormat, ListDocumentResultsQuery,
+    ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
+    MetadataValueKind, OffsetPageQuery, OffsetPagination, RerunTaskResponse, ScopeMetadataIndex,
+    ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
     SourcePolicy, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
     TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
@@ -550,56 +546,63 @@ impl Context69Client {
         .await
     }
 
-    pub async fn list_extraction_templates(
-        &self,
-        group_path_value: &str,
-    ) -> Result<Vec<ExtractionTemplateResponse>, Error> {
-        let path = group_path(group_path_value, "/extraction-templates");
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
-            .await
-    }
-
-    pub async fn upsert_extraction_template(
-        &self,
-        group_path_value: &str,
-        request: &ExtractionTemplateInput,
-    ) -> Result<ExtractionTemplateResponse, Error> {
-        let path = group_path(group_path_value, "/extraction-templates");
-        self.execute_json(
-            self.authorized_request(Method::PUT, &path)
-                .await?
-                .json(request),
-        )
-        .await
-    }
-
-    pub async fn document_extractions(
+    /// Append one caller-produced result to a document
+    /// (`POST /v1/groups/by-path/{group_path}/documents/{document_id}/results`).
+    ///
+    /// Append-only: an exact retry returns the original immutable record, and a
+    /// changed envelope under a used idempotency key is a `409`. The caller must
+    /// bind the document's current `record_hash` as `source_record_hash`.
+    pub async fn create_document_result(
         &self,
         group_path_value: &str,
         document_id: i64,
-    ) -> Result<ExtractionJobsResponse, Error> {
+        request: &CreateDocumentResultRequest,
+    ) -> Result<DocumentResultResponse, Error> {
         let path = format!(
-            "{}/documents/{document_id}/extractions",
-            group_path(group_path_value, "")
-        );
-        self.execute_json(self.authorized_request(Method::GET, &path).await?)
-            .await
-    }
-
-    pub async fn rebuild_document_extractions(
-        &self,
-        group_path_value: &str,
-        document_id: i64,
-        request: &RebuildDocumentExtractionsRequest,
-    ) -> Result<ExtractionJobsResponse, Error> {
-        let path = format!(
-            "{}/documents/{document_id}/extractions/rebuild",
+            "{}/documents/{document_id}/results",
             group_path(group_path_value, "")
         );
         self.execute_json(
             self.authorized_request(Method::POST, &path)
                 .await?
                 .json(request),
+        )
+        .await
+    }
+
+    /// List one document's appended results newest-first
+    /// (`GET /v1/groups/by-path/{group_path}/documents/{document_id}/results`).
+    ///
+    /// `limit` is validated (`1..=100`); `producer`/`result_kind`/`after_id` are
+    /// omitted when unset. The response carries the document's current
+    /// `source_record_hash` for binding a subsequent append.
+    pub async fn list_document_results(
+        &self,
+        group_path_value: &str,
+        document_id: i64,
+        query: &ListDocumentResultsQuery,
+    ) -> Result<ListDocumentResultsResponse, Error> {
+        query
+            .validate()
+            .map_err(|error| Error::InvalidResponse(format!("invalid result query: {error}")))?;
+        let path = format!(
+            "{}/documents/{document_id}/results",
+            group_path(group_path_value, "")
+        );
+        let mut pairs: Vec<(String, String)> = vec![("limit".to_string(), query.limit.to_string())];
+        if let Some(producer) = &query.producer {
+            pairs.push(("producer".to_string(), producer.clone()));
+        }
+        if let Some(result_kind) = &query.result_kind {
+            pairs.push(("result_kind".to_string(), result_kind.clone()));
+        }
+        if let Some(after_id) = query.after_id {
+            pairs.push(("after_id".to_string(), after_id.to_string()));
+        }
+        self.execute_json(
+            self.authorized_request(Method::GET, &path)
+                .await?
+                .query(&pairs),
         )
         .await
     }

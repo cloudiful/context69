@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.22.1"
+    "version": "0.23.0"
   },
   "paths": {
     "/healthz": {
@@ -120,24 +120,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/admin/extraction/health": {
-      "get": {
-        "tags": [],
-        "operationId": "get_extraction_health",
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExtractionHealthResponse"
                 }
               }
             }
@@ -1546,10 +1528,10 @@
         }
       }
     },
-    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions": {
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/results": {
       "get": {
         "tags": [],
-        "operationId": "list_document_extraction_jobs",
+        "operationId": "list_document_results",
         "parameters": [
           {
             "name": "group_path",
@@ -1567,6 +1549,42 @@
               "type": "integer",
               "format": "int64"
             }
+          },
+          {
+            "name": "producer",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "result_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "after_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
           }
         ],
         "responses": {
@@ -1575,18 +1593,36 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ExtractionJobsResponse"
+                  "$ref": "#/components/schemas/ListDocumentResultsResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
           }
         }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild": {
+      },
       "post": {
         "tags": [],
-        "operationId": "rebuild_document_extractions",
+        "operationId": "create_document_result",
         "parameters": [
           {
             "name": "group_path",
@@ -1610,7 +1646,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/RebuildDocumentExtractionsRequest"
+                "$ref": "#/components/schemas/CreateDocumentResultRequest"
               }
             }
           },
@@ -1622,7 +1658,47 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ExtractionJobsResponse"
+                  "$ref": "#/components/schemas/DocumentResultResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -1716,73 +1792,6 @@
           },
           "404": {
             "description": ""
-          }
-        }
-      }
-    },
-    "/v1/groups/by-path/{group_path}/extraction-templates": {
-      "get": {
-        "tags": [],
-        "operationId": "list_extraction_templates",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/ExtractionTemplateResponse"
-                  }
-                }
-              }
-            }
-          }
-        }
-      },
-      "put": {
-        "tags": [],
-        "operationId": "upsert_extraction_template",
-        "parameters": [
-          {
-            "name": "group_path",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ExtractionTemplateInput"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ExtractionTemplateResponse"
-                }
-              }
-            }
           }
         }
       }
@@ -5664,7 +5673,7 @@
     "/v1/settings/translation": {
       "get": {
         "tags": [],
-        "description": "Get translation providers. The LLM provider is also used by document extraction and enrichment jobs.",
+        "description": "Get translation providers for document translation jobs.",
         "operationId": "get_translation_settings",
         "responses": {
           "200": {
@@ -5691,7 +5700,7 @@
       },
       "put": {
         "tags": [],
-        "description": "Update translation providers. The LLM provider settings apply to document extraction and enrichment jobs as well as translation.",
+        "description": "Update translation providers. The LLM provider settings apply to document translation jobs.",
         "operationId": "update_translation_settings",
         "requestBody": {
           "content": {
@@ -7575,90 +7584,6 @@
         },
         "additionalProperties": false
       },
-      "ChoiceAnswer": {
-        "type": "object",
-        "required": [
-          "name",
-          "choice",
-          "probabilities",
-          "confidence"
-        ],
-        "properties": {
-          "choice": {
-            "type": "string"
-          },
-          "confidence": {
-            "type": "number",
-            "format": "double"
-          },
-          "name": {
-            "type": "string"
-          },
-          "probabilities": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ChoiceProbability"
-            }
-          }
-        },
-        "additionalProperties": false
-      },
-      "ChoiceOption": {
-        "type": "object",
-        "required": [
-          "value",
-          "description"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ChoiceProbability": {
-        "type": "object",
-        "required": [
-          "value",
-          "probability"
-        ],
-        "properties": {
-          "probability": {
-            "type": "number",
-            "format": "double"
-          },
-          "value": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ChoiceQuestion": {
-        "type": "object",
-        "required": [
-          "name",
-          "instructions",
-          "choices"
-        ],
-        "properties": {
-          "choices": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ChoiceOption"
-            }
-          },
-          "instructions": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
       "ClearTaskHistoryRequest": {
         "type": "object",
         "description": "Request body for `POST /v1/tasks/clear`.",
@@ -7715,6 +7640,56 @@
             "type": "string"
           }
         }
+      },
+      "CreateDocumentResultRequest": {
+        "type": "object",
+        "description": "One caller-produced result to append. Append-only: the same idempotency key\nwith an identical envelope replays the original immutable record, and a\nchanged envelope under a used key is a conflict. There is no field for the\nauthor identity: ownership is the authenticated caller.",
+        "required": [
+          "producer",
+          "result_kind",
+          "schema_ref",
+          "source_record_hash",
+          "idempotency_key",
+          "result"
+        ],
+        "properties": {
+          "idempotency_key": {
+            "type": "string",
+            "description": "Caller-chosen idempotency key, scoped to the document, author, and\nproducer."
+          },
+          "producer": {
+            "type": "string",
+            "description": "Bounded opaque producer identifier, e.g. `stock.news`."
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentResultProvenance",
+                "description": "Credential-free provenance; omitted when the caller has none."
+              }
+            ]
+          },
+          "result": {
+            "type": "object",
+            "description": "The opaque result payload; must be a JSON object."
+          },
+          "result_kind": {
+            "type": "string",
+            "description": "Bounded opaque result-kind identifier chosen by the producer."
+          },
+          "schema_ref": {
+            "type": "string",
+            "description": "Producer-owned schema reference for the opaque payload."
+          },
+          "source_record_hash": {
+            "type": "string",
+            "description": "The document `record_hash` this result was produced from. The current\nsource hash can be read from `GET` before binding a subsequent `POST`."
+          }
+        },
+        "additionalProperties": false
       },
       "CreateFolderRequest": {
         "type": "object",
@@ -7932,126 +7907,6 @@
             ]
           }
         }
-      },
-      "DecisionAnswer": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PredicateAnswer"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "predicate"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ChoiceAnswer"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "choice"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ScoreAnswer"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "score"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/RefusalAnswer"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "refusal"
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        ],
-        "description": "One typed decision answer, tagged by `type`."
-      },
-      "DecisionDefinition": {
-        "type": "object",
-        "required": [
-          "questions"
-        ],
-        "properties": {
-          "questions": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExtractionQuestion"
-            }
-          }
-        },
-        "additionalProperties": false
-      },
-      "DecisionResultValue": {
-        "type": "object",
-        "description": "Decision result branch: the typed answer list. Refusal answers decode\nhere but execution treats them as failure, never success.",
-        "required": [
-          "answers"
-        ],
-        "properties": {
-          "answers": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/DecisionAnswer"
-            }
-          }
-        },
-        "additionalProperties": false
       },
       "DeeplPlan": {
         "type": "string",
@@ -8586,6 +8441,99 @@
           }
         }
       },
+      "DocumentResultProvenance": {
+        "type": "object",
+        "description": "Credential-free, typed provenance. Only these four optional fields exist:\nContext69 stores them as opaque strings and never interprets them as a\nbusiness schema, and no credential may be placed here.",
+        "properties": {
+          "model_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "producer_config_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "run_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "workflow_version": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "DocumentResultResponse": {
+        "type": "object",
+        "description": "One immutable stored result. `author_user_id` is the authenticated owner,\nnever a caller-supplied producer string.",
+        "required": [
+          "id",
+          "document_id",
+          "author_user_id",
+          "producer",
+          "result_kind",
+          "schema_ref",
+          "source_record_hash",
+          "idempotency_key",
+          "result",
+          "created_at"
+        ],
+        "properties": {
+          "author_user_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "idempotency_key": {
+            "type": "string"
+          },
+          "producer": {
+            "type": "string"
+          },
+          "provenance": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DocumentResultProvenance"
+              }
+            ]
+          },
+          "result": {
+            "type": "object"
+          },
+          "result_kind": {
+            "type": "string"
+          },
+          "schema_ref": {
+            "type": "string"
+          },
+          "source_record_hash": {
+            "type": "string"
+          }
+        }
+      },
       "DocumentSort": {
         "type": "object",
         "required": [
@@ -8666,504 +8614,6 @@
             "items": {
               "$ref": "#/components/schemas/MetadataIndexResponse"
             }
-          }
-        }
-      },
-      "ExtractionDefinition": {
-        "type": "object",
-        "description": "Generative extraction branch of a template definition: the legacy\nprompt/schema/token-cap contract, unchanged in behavior.",
-        "required": [
-          "system_prompt",
-          "output_schema"
-        ],
-        "properties": {
-          "max_output_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int32"
-          },
-          "output_schema": {
-            "type": "object"
-          },
-          "system_prompt": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ExtractionDirective": {
-        "type": "object",
-        "required": [
-          "template_key"
-        ],
-        "properties": {
-          "parameters": {
-            "type": "object"
-          },
-          "required": {
-            "type": "boolean",
-            "description": "Required extractions must succeed: a failed/skipped/empty required\noutcome blocks the owning item stage. Legacy and omitted directives\nare required (`true`); only an explicit `false` opts out. Persisted\nindependently of `parameters`, never hidden inside them.",
-            "default": true
-          },
-          "template_key": {
-            "type": "string"
-          }
-        }
-      },
-      "ExtractionFailureClass": {
-        "type": "string",
-        "enum": [
-          "transient",
-          "quota_exceeded",
-          "permanent"
-        ]
-      },
-      "ExtractionHealthResponse": {
-        "type": "object",
-        "required": [
-          "queued",
-          "running",
-          "awaiting_retry",
-          "failed_last_hour",
-          "failure_class_counts"
-        ],
-        "properties": {
-          "awaiting_retry": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "failed_last_hour": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "failure_class_counts": {
-            "type": "object",
-            "additionalProperties": {
-              "type": "integer",
-              "format": "int64"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "next_retry_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "queued": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "running": {
-            "type": "integer",
-            "format": "int64"
-          }
-        }
-      },
-      "ExtractionJobResponse": {
-        "type": "object",
-        "required": [
-          "job_id",
-          "document_id",
-          "template_key",
-          "template_version",
-          "source_record_hash",
-          "status",
-          "attempt_count",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "attempt_count": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "document_id": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "error_message": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "failure_class": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionFailureClass"
-              }
-            ]
-          },
-          "finished_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "job_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "next_attempt_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "source_record_hash": {
-            "type": "string"
-          },
-          "started_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time"
-          },
-          "status": {
-            "$ref": "#/components/schemas/ExtractionJobStatus"
-          },
-          "template_key": {
-            "type": "string"
-          },
-          "template_version": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ExtractionJobStatus": {
-        "type": "string",
-        "enum": [
-          "queued",
-          "running",
-          "succeeded",
-          "failed",
-          "skipped"
-        ]
-      },
-      "ExtractionJobsResponse": {
-        "type": "object",
-        "required": [
-          "jobs",
-          "latest_results"
-        ],
-        "properties": {
-          "jobs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExtractionJobResponse"
-            }
-          },
-          "latest_results": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ExtractionResultResponse"
-            }
-          }
-        }
-      },
-      "ExtractionQuestion": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/PredicateQuestion"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "predicate"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ChoiceQuestion"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "choice"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ScoreQuestion"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "type"
-                ],
-                "properties": {
-                  "type": {
-                    "type": "string",
-                    "enum": [
-                      "score"
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        ],
-        "description": "One independently evaluated decision question, tagged by `type`."
-      },
-      "ExtractionResultPayload": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ExtractionResultValue"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "extraction"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DecisionResultValue"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "decision"
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        ],
-        "description": "Tagged public result payload. History is decoded from the row's immutable\nkind snapshot, never from the live template, so a template-kind change\ncannot reinterpret already-persisted results."
-      },
-      "ExtractionResultResponse": {
-        "type": "object",
-        "required": [
-          "version_id",
-          "document_id",
-          "template_key",
-          "template_version",
-          "source_record_hash",
-          "result",
-          "created_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "document_id": {
-            "type": "integer",
-            "format": "int64"
-          },
-          "model_name": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "result": {
-            "$ref": "#/components/schemas/ExtractionResultPayload"
-          },
-          "source_record_hash": {
-            "type": "string"
-          },
-          "template_key": {
-            "type": "string"
-          },
-          "template_version": {
-            "type": "integer",
-            "format": "int32"
-          },
-          "version_id": {
-            "type": "string",
-            "format": "uuid"
-          }
-        }
-      },
-      "ExtractionResultValue": {
-        "type": "object",
-        "description": "Generative result branch: the existing arbitrary JSON value, unchanged.",
-        "required": [
-          "value"
-        ],
-        "properties": {
-          "value": {
-            "type": "object"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ExtractionTemplateDefinition": {
-        "oneOf": [
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/ExtractionDefinition"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "extraction"
-                    ]
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "allOf": [
-              {
-                "$ref": "#/components/schemas/DecisionDefinition"
-              },
-              {
-                "type": "object",
-                "required": [
-                  "kind"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "enum": [
-                      "decision"
-                    ]
-                  }
-                }
-              }
-            ]
-          }
-        ],
-        "description": "Tagged public template definition (accepted breaking contract): either the\ngenerative extraction branch or a decision question list. Unknown flat\nfields are rejected, never silently ignored."
-      },
-      "ExtractionTemplateInput": {
-        "type": "object",
-        "required": [
-          "template_key",
-          "definition"
-        ],
-        "properties": {
-          "definition": {
-            "$ref": "#/components/schemas/ExtractionTemplateDefinition"
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "template_key": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ExtractionTemplateResponse": {
-        "type": "object",
-        "required": [
-          "template_key",
-          "version",
-          "definition",
-          "enabled",
-          "created_at",
-          "updated_at"
-        ],
-        "properties": {
-          "created_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "definition": {
-            "$ref": "#/components/schemas/ExtractionTemplateDefinition"
-          },
-          "description": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "template_key": {
-            "type": "string"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "version": {
-            "type": "integer",
-            "format": "int32"
           }
         }
       },
@@ -10826,16 +10276,6 @@
       "IngestOptions": {
         "type": "object",
         "properties": {
-          "extraction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionDirective"
-              }
-            ]
-          },
           "metadata": {
             "$ref": "#/components/schemas/CanonicalUploadMetadata"
           },
@@ -11552,6 +10992,64 @@
           }
         }
       },
+      "ListDocumentResultsQuery": {
+        "type": "object",
+        "description": "List filters. `limit` defaults to 50 and is bounded to `1..=100`; results\nare ordered by `id` descending and `after_id` continues from the last\nreturned id.",
+        "properties": {
+          "after_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "producer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result_kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "ListDocumentResultsResponse": {
+        "type": "object",
+        "description": "A page of results for one document, exposing the document's current source\nrecord hash so a caller can bind a subsequent `POST`. The read never\nmutates document metadata.",
+        "required": [
+          "source_record_hash",
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentResultResponse"
+            }
+          },
+          "next_after_id": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
+          },
+          "source_record_hash": {
+            "type": "string",
+            "description": "The document's current `record_hash` at read time."
+          }
+        }
+      },
       "MemberPageQuery": {
         "type": "object",
         "properties": {
@@ -12044,39 +11542,6 @@
           "admin"
         ]
       },
-      "PredicateAnswer": {
-        "type": "object",
-        "required": [
-          "name",
-          "probability"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          },
-          "probability": {
-            "type": "number",
-            "format": "double"
-          }
-        },
-        "additionalProperties": false
-      },
-      "PredicateQuestion": {
-        "type": "object",
-        "required": [
-          "name",
-          "instructions"
-        ],
-        "properties": {
-          "instructions": {
-            "type": "string"
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
       "PrepareLibraryUploadRequest": {
         "type": "object",
         "description": "v0.18 canonical prepare-upload: ingest behavior is owned entirely by\n`options`. Flattened legacy fields (`metadata`/`translation`/\n`extraction`/`delete_source_after_processing`) are gone; unknown fields\n(including those legacy keys) are rejected.",
@@ -12145,17 +11610,6 @@
           }
         }
       },
-      "RebuildDocumentExtractionsRequest": {
-        "type": "object",
-        "properties": {
-          "template_keys": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          }
-        }
-      },
       "RebuildDocumentTranslationsRequest": {
         "type": "object",
         "properties": {
@@ -12166,19 +11620,6 @@
             }
           }
         }
-      },
-      "RefusalAnswer": {
-        "type": "object",
-        "description": "A refusal is parsed failure evidence, never a successfully persisted\ndecision: execution treats it as failure (later adapter phase).",
-        "required": [
-          "name"
-        ],
-        "properties": {
-          "name": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
       },
       "RerunTaskResponse": {
         "type": "object",
@@ -12465,97 +11906,6 @@
             "$ref": "#/components/schemas/Visibility"
           }
         }
-      },
-      "ScoreAnswer": {
-        "type": "object",
-        "required": [
-          "name",
-          "score",
-          "probabilities",
-          "confidence"
-        ],
-        "properties": {
-          "confidence": {
-            "type": "number",
-            "format": "double"
-          },
-          "name": {
-            "type": "string"
-          },
-          "probabilities": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ScoreProbability"
-            }
-          },
-          "score": {
-            "type": "number",
-            "format": "double"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ScoreLevel": {
-        "type": "object",
-        "required": [
-          "label",
-          "description"
-        ],
-        "properties": {
-          "description": {
-            "type": "string"
-          },
-          "label": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
-      },
-      "ScoreProbability": {
-        "type": "object",
-        "required": [
-          "value",
-          "label",
-          "probability"
-        ],
-        "properties": {
-          "label": {
-            "type": "string"
-          },
-          "probability": {
-            "type": "number",
-            "format": "double"
-          },
-          "value": {
-            "type": "integer",
-            "format": "int32",
-            "description": "Zero-based index into the question's levels."
-          }
-        },
-        "additionalProperties": false
-      },
-      "ScoreQuestion": {
-        "type": "object",
-        "required": [
-          "name",
-          "instructions",
-          "levels"
-        ],
-        "properties": {
-          "instructions": {
-            "type": "string"
-          },
-          "levels": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ScoreLevel"
-            }
-          },
-          "name": {
-            "type": "string"
-          }
-        },
-        "additionalProperties": false
       },
       "SearchHit": {
         "type": "object",
@@ -15550,16 +14900,6 @@
           },
           "external_id": {
             "type": "string"
-          },
-          "extraction": {
-            "oneOf": [
-              {
-                "type": "null"
-              },
-              {
-                "$ref": "#/components/schemas/ExtractionDirective"
-              }
-            ]
           },
           "folder_id": {
             "type": [

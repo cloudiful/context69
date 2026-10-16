@@ -3,7 +3,6 @@ use anyhow::Result;
 use crate::domain_errors::DomainError;
 use bytes::Bytes;
 use chrono::Utc;
-use context69_extraction::{ExtractionCoordinator, ExtractionService};
 use context69_translation::{TranslationCoordinator, TranslationService};
 use serde_json::{Value, json};
 use std::{
@@ -46,8 +45,6 @@ pub(crate) use dependency_runtime::{
 mod dependency_storage;
 mod duplicate_content;
 mod embedding_gate;
-mod extraction_gate;
-pub(crate) use extraction_gate::ExtractionGateDecision;
 mod filenames;
 mod files;
 mod folders;
@@ -150,7 +147,6 @@ pub struct LibraryService {
     embedding_vector_configuration_fingerprint: String,
     url_import_runtime: Arc<url_import_runtime::UrlImportRuntime>,
     translation: TranslationService,
-    extraction: ExtractionService,
     docling_slots: Arc<Semaphore>,
     /// Actual total permits of `docling_slots`. Tracks reality, not desire:
     /// a shrink that races checked-out permits reclaims only idle ones, so
@@ -208,7 +204,6 @@ impl LibraryService {
         service_config: LibraryServiceConfig,
         settings: SettingsService,
         translation: TranslationService,
-        extraction: ExtractionService,
     ) -> Result<Self> {
         let LibraryServiceConfig {
             chunking,
@@ -257,7 +252,6 @@ impl LibraryService {
             embedding_vector_configuration_fingerprint,
             url_import_runtime,
             translation,
-            extraction,
             docling_slots: Arc::new(Semaphore::new(docling_limit)),
             docling_capacity: Arc::new(AtomicUsize::new(docling_limit)),
             docling_resize_lock: Arc::new(Mutex::new(())),

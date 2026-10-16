@@ -40,7 +40,6 @@ fn ingested_options(external_id: &str) -> context69_contracts::IngestOptions {
             metadata_json: Default::default(),
         },
         translation: None,
-        extraction: None,
         source_policy: context69_contracts::SourcePolicy::Retain,
     }
 }

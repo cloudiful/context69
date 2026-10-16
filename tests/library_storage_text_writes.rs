@@ -23,10 +23,6 @@ use context69::contracts::{LibraryTextContentFormat, UpsertLibraryTextRequest};
 use context69::db::Database;
 use context69::services::library::{LibraryService, LibraryServiceConfig};
 use context69::services::settings::SettingsService;
-use context69_extraction::{
-    ExtractionDependencies, ExtractionPublication, ExtractionPublisher, ExtractionReadiness,
-    ExtractionService,
-};
 use context69_namespace::GroupRecord;
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
@@ -36,7 +32,7 @@ use sha2::{Digest, Sha256};
 use sqlx::Row;
 use uuid::Uuid;
 
-/// No-op stand-in for the translation/extraction callbacks LibraryService requires.
+/// No-op stand-in for the translation callbacks LibraryService requires.
 struct NoopCallbacks;
 
 #[async_trait]
@@ -59,18 +55,6 @@ impl TranslationReadiness for NoopCallbacks {
         Ok(false)
     }
 }
-#[async_trait]
-impl ExtractionPublisher for NoopCallbacks {
-    async fn publish(&self, _publication: &ExtractionPublication<'_>) -> Result<()> {
-        Ok(())
-    }
-}
-#[async_trait]
-impl ExtractionReadiness for NoopCallbacks {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
 
 async fn connect_db() -> Database {
     let url = context69_test_support::accessor::database_url();
@@ -84,13 +68,6 @@ async fn build_library_service(db: &Database) -> (LibraryService, std::path::Pat
     let storage_root = std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
     let settings = SettingsService::new(db.clone());
     let translation = TranslationService::new(TranslationDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(NoopCallbacks),
-        concurrency: 1,
-        readiness: Arc::new(NoopCallbacks),
-    });
-    let extraction = ExtractionService::new(ExtractionDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::new(),
         publisher: Arc::new(NoopCallbacks),
@@ -122,7 +99,6 @@ async fn build_library_service(db: &Database) -> (LibraryService, std::path::Pat
         },
         settings,
         translation,
-        extraction,
     )
     .await
     .expect("build library service");
@@ -218,7 +194,6 @@ fn text_request(external_id: &str, title: &str, content: &str) -> UpsertLibraryT
         published_at: None,
         metadata_json: Default::default(),
         translation: None,
-        extraction: None,
     }
 }
 

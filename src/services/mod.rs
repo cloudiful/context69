@@ -1,7 +1,6 @@
 pub mod app;
 pub mod auth;
 pub mod document_store;
-pub mod extraction;
 pub mod git_repository;
 pub mod git_secrets;
 pub mod git_webhook_signature;

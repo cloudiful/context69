@@ -1,8 +1,8 @@
 //! Non-persisting LLM provider connection probe.
 //!
 //! Tests the exact unsaved draft values a save would store (endpoint, model,
-//! protocol, key) with one forced-tool structured call through the real
-//! extraction transport. Nothing is written, no observer fires, and no
+//! protocol, key) with one forced-tool structured call through the shared LLM
+//! transport. Nothing is written, no observer fires, and no
 //! credential, body, or model output ever reaches a response or a log: every
 //! failure is a fixed outcome code.
 
@@ -133,26 +133,24 @@ async fn run_probe(
         .timeout(LLM_PROBE_TIMEOUT)
         .build()
         .map_err(|_| DomainError::internal("the LLM connection test could not start"))?;
-    let provider = context69_extraction::StoredExtractionProvider {
-        enabled: true,
-        endpoint: Some(validated.base_endpoint.clone()),
-        api_key: Some(api_key.to_string()),
-        model: Some(request.model.trim().to_string()),
-        llm_api_kind: Some(validated.extraction_api_kind.to_string()),
-    };
     let schema = serde_json::json!({
         "type": "object",
         "properties": {"ok": {"type": "boolean"}},
         "required": ["ok"],
         "additionalProperties": false,
     });
-    let probe_request = context69_extraction::providers::ProviderExtractionRequest {
+    let call = context69_llm_support::StructuredToolCall {
+        endpoint: &validated.base_endpoint,
+        api_key,
+        model: request.model.trim(),
+        api_kind: validated.api_kind,
+        tool_name: "submit_result",
         system_prompt: PROBE_SYSTEM_PROMPT,
         user_content: PROBE_USER_CONTENT,
         output_schema: &schema,
         max_output_tokens: PROBE_MAX_OUTPUT_TOKENS,
     };
-    match context69_extraction::providers::extract(&client, &provider, &probe_request).await {
+    match context69_llm_support::structured_tool_call(&client, &call).await {
         Ok(_) => Ok(TestLlmProviderResponse {
             outcome: TestLlmProviderOutcome::Success,
             safe_endpoint: Some(validated.safe_endpoint.clone()),
@@ -171,11 +169,11 @@ async fn run_probe(
 struct ValidatedProbe {
     base_endpoint: String,
     safe_endpoint: String,
-    extraction_api_kind: &'static str,
+    api_kind: &'static str,
 }
 
 fn validate_probe_request(request: &TestLlmProviderRequest) -> Result<ValidatedProbe> {
-    let extraction_api_kind = match request.llm_api_kind.as_str() {
+    let api_kind = match request.llm_api_kind.as_str() {
         "openai_responses" => "openai_responses",
         "openai_chat_completions" => "openai_chat_completions",
         "anthropic_messages" => "anthropic_messages",
@@ -191,7 +189,7 @@ fn validate_probe_request(request: &TestLlmProviderRequest) -> Result<ValidatedP
             DomainError::invalid_argument("translation.llm.model must not be empty").into(),
         );
     }
-    let suffix = match extraction_api_kind {
+    let suffix = match api_kind {
         "openai_responses" => "/responses",
         "openai_chat_completions" => "/chat/completions",
         _ => "/v1/messages",
@@ -200,7 +198,7 @@ fn validate_probe_request(request: &TestLlmProviderRequest) -> Result<ValidatedP
     Ok(ValidatedProbe {
         base_endpoint,
         safe_endpoint,
-        extraction_api_kind,
+        api_kind,
     })
 }
 
@@ -291,9 +289,7 @@ fn classify_probe_error(
             latency_ms: 0,
         };
     for cause in error.chain() {
-        if let Some(http) =
-            cause.downcast_ref::<context69_extraction::providers::ProviderHttpError>()
-        {
+        if let Some(http) = cause.downcast_ref::<context69_llm_support::LlmHttpError>() {
             let outcome = match http.status {
                 401 | 403 => TestLlmProviderOutcome::AuthError,
                 404 => TestLlmProviderOutcome::NotFound,
@@ -330,10 +326,10 @@ fn classify_probe_error(
             return base(TestLlmProviderOutcome::TransportError, None);
         }
         if cause
-            .downcast_ref::<context69_extraction::providers::ProviderPayloadError>()
+            .downcast_ref::<context69_llm_support::LlmPayloadError>()
             .is_some()
             || cause
-                .downcast_ref::<context69_extraction::providers::ProviderSchemaError>()
+                .downcast_ref::<context69_llm_support::LlmSchemaError>()
                 .is_some()
         {
             return base(TestLlmProviderOutcome::InvalidPayload, None);

@@ -22,10 +22,6 @@ use context69::db::Database;
 use context69::library_store::{DependencyGateRecord, LibraryStore};
 use context69::services::library::{LibraryService, LibraryServiceConfig};
 use context69::services::settings::SettingsService;
-use context69_extraction::{
-    ExtractionDependencies, ExtractionPublication, ExtractionPublisher, ExtractionReadiness,
-    ExtractionService,
-};
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
     TranslationPublisher, TranslationReadiness, TranslationService,
@@ -35,7 +31,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-/// No-op stand-in for the translation/extraction callbacks LibraryService requires.
+/// No-op stand-in for the translation callbacks LibraryService requires.
 struct NoopCallbacks;
 
 #[async_trait]
@@ -55,20 +51,6 @@ impl TranslationPublisher for NoopCallbacks {
 
 #[async_trait]
 impl TranslationReadiness for NoopCallbacks {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
-
-#[async_trait]
-impl ExtractionPublisher for NoopCallbacks {
-    async fn publish(&self, _publication: &ExtractionPublication<'_>) -> Result<()> {
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl ExtractionReadiness for NoopCallbacks {
     async fn is_ready(&self) -> Result<bool> {
         Ok(false)
     }
@@ -104,13 +86,6 @@ pub(crate) async fn build_library_service(
         concurrency: 1,
         readiness: Arc::new(NoopCallbacks),
     });
-    let extraction = ExtractionService::new(ExtractionDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(NoopCallbacks),
-        concurrency: 1,
-        readiness: Arc::new(NoopCallbacks),
-    });
     LibraryService::new(
         db.clone(),
         None,
@@ -136,7 +111,6 @@ pub(crate) async fn build_library_service(
         },
         settings,
         translation,
-        extraction,
     )
     .await
     .expect("build library service")

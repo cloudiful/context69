@@ -1,9 +1,9 @@
-//! Focused coverage for the shared translation/extraction provider API key.
+//! Focused coverage for the shared translation provider API key.
 //!
 //! The `context69.translation_provider_settings` row with `provider_key = 'llm'`
-//! is one logical secret written by translation and read by extraction. These
-//! cases cover the contract for that row: the store is its only representation,
-//! reads fail closed on a sealed row this deployment cannot open, presence is
+//! holds one logical secret written by translation. These cases cover the
+//! contract for that row: the store is its only representation, reads fail
+//! closed on a sealed row this deployment cannot open, presence is
 //! metadata-only, and `None`/blank is a Keep.
 //!
 //! The tests run only when `CONTEXT69_TEST_DATABASE_URL` points at a scratch
@@ -19,7 +19,6 @@ use context69::contracts::translation::{
     UpdateTranslationSettingsRequest,
 };
 use context69::db::Database;
-use context69_extraction::ExtractionStore;
 use context69_secret_store::{SecretDatabase, SecretStore, key_names};
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
@@ -113,8 +112,8 @@ async fn reset_shared_llm_row(db: &Database) {
     .expect("reset the llm row");
 }
 
-/// The `provider_key = 'llm'` row is one logical secret consumed by both
-/// translation and extraction. These cases run only when
+/// The `provider_key = 'llm'` row is one logical secret consumed by
+/// translation. These cases run only when
 /// `CONTEXT69_TEST_DATABASE_URL` points at a scratch database; they never print
 /// a stored value.
 #[tokio::test]
@@ -133,15 +132,6 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
 
     // With no store row the shared provider is simply not configured.
     assert_eq!(shared_row_column(&db).await, None);
-    assert!(
-        ExtractionStore::new(db.pool().clone())
-            .with_secret_store(unkeyed.clone())
-            .provider()
-            .await
-            .expect("an unconfigured shared provider is readable")
-            .is_none_or(|provider| provider.api_key.is_none()),
-        "no store row means no shared credential"
-    );
 
     // The writer seals the key and leaves the row's own column empty: the store is
     // the only representation, so there is no second plaintext copy to keep in step.
@@ -173,15 +163,6 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
         "the stored row is sealed, not plaintext"
     );
 
-    // Extraction reads the same sealed row through the store.
-    let sealed = ExtractionStore::new(db.pool().clone())
-        .with_secret_store(keyed.clone())
-        .provider()
-        .await
-        .expect("sealed read")
-        .expect("llm row exists");
-    assert_eq!(sealed.api_key.as_deref(), Some("sealed-key"));
-
     // Presence is metadata-only: an unkeyed store still reports the key.
     let metadata_only = shared_translation_service(&db, unkeyed.clone())
         .settings()
@@ -191,16 +172,6 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
         matches!(provider.provider, TranslationProviderKind::Llm) && provider.has_api_key
     }));
 
-    // Fail closed: the unkeyed store cannot open the sealed row.
-    assert!(
-        ExtractionStore::new(db.pool().clone())
-            .with_secret_store(unkeyed.clone())
-            .provider()
-            .await
-            .is_err(),
-        "a sealed row with no master key must fail instead of reporting no credential"
-    );
-
     // None/blank is a Keep: the store keeps the value and the row stays empty.
     translation
         .update_settings(&UpdateTranslationSettingsRequest {
@@ -208,13 +179,6 @@ async fn shared_llm_provider_key_routes_through_the_encrypted_store() {
         })
         .await
         .expect("keep update");
-    let kept = ExtractionStore::new(db.pool().clone())
-        .with_secret_store(keyed.clone())
-        .provider()
-        .await
-        .expect("kept read")
-        .expect("llm row exists");
-    assert_eq!(kept.api_key.as_deref(), Some("sealed-key"));
     assert_eq!(shared_row_column(&db).await, None);
 
     reset_shared_llm_row(&db).await;

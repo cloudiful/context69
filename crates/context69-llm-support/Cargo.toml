@@ -7,5 +7,6 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+jsonschema = "0.56.0"
 reqwest = { workspace = true, features = ["json"] }
 serde_json.workspace = true

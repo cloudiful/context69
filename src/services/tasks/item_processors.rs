@@ -42,7 +42,7 @@ const MAX_ITEM_STAGES: usize = 16;
 /// Run one claimed item to completion.
 ///
 /// The whole pipeline runs inline: download/storage/docling/embedding/indexing/
-/// translation/extraction exist only as function calls here, never as queue
+/// translation exist only as function calls here, never as queue
 /// values. A step that cannot finish parks the item (`Waiting`/`Failed`) and
 /// the next claim restarts from the kind's entry stage, where every step
 /// re-derives its progress from the persisted payload and file state.
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn stage_budget_covers_the_longest_pipeline() {
         // URL items run the longest pipeline: download, storage, docling,
-        // embedding, indexing, translation, extraction, finalize.
+        // embedding, indexing, translation, finalize.
         let longest_pipeline = [
             "download",
             "storage",
@@ -392,7 +392,6 @@ mod tests {
             "embedding",
             "indexing",
             "translation",
-            "extraction",
             "finalize",
         ];
         assert!(MAX_ITEM_STAGES > longest_pipeline.len());

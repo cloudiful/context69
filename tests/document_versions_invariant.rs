@@ -13,7 +13,6 @@
 mod support;
 
 use context69::db::Database;
-use context69_extraction::ExtractionStore;
 use serde_json::json;
 use support::{
     business_payload, cleanup_group, document_hash, seed_document_with_chunks, seed_group,
@@ -68,15 +67,6 @@ async fn changed_hash_creates_complete_ordered_snapshot() {
         row.2.get("invariant_marker").and_then(|v| v.as_bool()),
         Some(true)
     );
-
-    // Extraction read path joins the current hash; it must succeed now.
-    let store = ExtractionStore::new(db.pool().clone());
-    let doc = store
-        .document(document_id)
-        .await
-        .expect("extraction load must succeed");
-    assert_eq!(doc.record_hash, new_hash);
-    assert_eq!(doc.body_text, "alpha body\nbeta body\ngamma body");
 
     cleanup_group(&db, group_id).await;
 }

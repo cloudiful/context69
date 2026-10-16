@@ -48,7 +48,6 @@ pub async fn initialize(
         },
         settings.clone(),
         services.translation.clone(),
-        services.extraction.clone(),
     )
     .await?;
     // Wire the shared readiness flag before the startup gates resolve, so a
@@ -63,7 +62,7 @@ pub async fn initialize(
     // Before task workers resume, migrate any remaining legacy UUID
     // direct-path library files (storage_object_id IS NULL) onto the
     // content-addressed layout. This runs after LibraryService is ready and
-    // before tasks.resume_pending()/translation/extraction resume, so new
+    // before tasks.resume_pending()/translation resume, so new
     // ingestion cannot race the transition. Per-row errors are handled and
     // retried inside the migration; only a fatal selection error bubbles up
     // here. We tolerate that fatal error (log and continue) instead of

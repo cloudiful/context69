@@ -16,10 +16,10 @@ use crate::{
 mod admin_users;
 mod auth;
 mod docs;
+mod document_results;
 mod documents;
 mod error_mapping;
 mod errors;
-mod extractions;
 mod git_connection_lifecycle;
 mod git_connection_mutations;
 mod git_connection_readiness;
@@ -121,14 +121,11 @@ pub(crate) use auth::{
     touch_personal_access_token_middleware,
 };
 pub(crate) use docs::openapi_json;
+pub(crate) use document_results::{create_document_result, list_document_results};
 pub(crate) use documents::{
     batch_get_group_documents, create_metadata_index, delete_group_document_by_key,
     delete_metadata_index, get_group_document_by_key, list_metadata_indexes, query_group_documents,
     retry_metadata_index, update_metadata_index,
-};
-pub(crate) use extractions::{
-    get_extraction_health, list_document_extraction_jobs, list_extraction_templates,
-    rebuild_document_extractions, upsert_extraction_template,
 };
 pub(crate) use git_connection_lifecycle::{disable_git_connection, enable_git_connection};
 pub(crate) use git_connection_mutations::create_git_connection;

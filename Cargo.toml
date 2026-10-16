@@ -4,17 +4,16 @@ members = [
     "crates/context69-contracts",
     "crates/context69-contracts-auth",
     "crates/context69-contracts-core",
-    "crates/context69-contracts-extraction",
     "crates/context69-contracts-library",
     "crates/context69-contracts-mcp",
     "crates/context69-contracts-namespace",
+    "crates/context69-contracts-results",
     "crates/context69-contracts-search",
     "crates/context69-contracts-settings",
     "crates/context69-contracts-sources",
     "crates/context69-contracts-tasks",
     "crates/context69-contracts-translation",
     "crates/context69-db-schema",
-    "crates/context69-extraction",
     "crates/context69-http-support",
     "crates/context69-llm-support",
     "crates/context69-namespace",
@@ -31,7 +30,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.22.1"
+version = "0.23.0"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -46,27 +45,26 @@ base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
 config = { package = "cloudiful-config", version = "0.6.3" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.22.1" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.23.0" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
 context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
-context69-contracts-extraction = { path = "crates/context69-contracts-extraction", version = "0.1.0" }
 context69-contracts-library = { path = "crates/context69-contracts-library", version = "0.1.0" }
 context69-contracts-mcp = { path = "crates/context69-contracts-mcp", version = "0.1.0" }
 context69-contracts-namespace = { path = "crates/context69-contracts-namespace", version = "0.1.0" }
+context69-contracts-results = { path = "crates/context69-contracts-results", version = "0.1.0" }
 context69-contracts-search = { path = "crates/context69-contracts-search", version = "0.1.0" }
 context69-contracts-settings = { path = "crates/context69-contracts-settings", version = "0.1.0" }
 context69-contracts-sources = { path = "crates/context69-contracts-sources", version = "0.1.0" }
 context69-contracts-tasks = { path = "crates/context69-contracts-tasks", version = "0.1.0" }
 context69-contracts-translation = { path = "crates/context69-contracts-translation", version = "0.1.0" }
 context69-db-schema = { path = "crates/context69-db-schema", version = "0.1.0" }
-context69-extraction = { path = "crates/context69-extraction", version = "0.1.0" }
 context69-http-support = { path = "crates/context69-http-support", version = "0.1.0" }
 context69-llm-support = { path = "crates/context69-llm-support", version = "0.1.0" }
 context69-namespace = { path = "crates/context69-namespace", version = "0.1.0" }
 context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.1.0" }
 context69-search = { path = "crates/context69-search", version = "0.1.0" }
 context69-search-http = { path = "crates/context69-search-http", version = "0.1.0" }
-context69-sdk = { path = "crates/context69-sdk", version = "0.22.1" }
+context69-sdk = { path = "crates/context69-sdk", version = "0.23.0" }
 context69-secret-crypto = { path = "crates/context69-secret-crypto", version = "0.1.0" }
 context69-secret-store = { path = "crates/context69-secret-store", version = "0.1.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.1.0" }
@@ -138,8 +136,8 @@ chrono = { workspace = true, features = ["serde"] }
 config.workspace = true
 context69-contracts.workspace = true
 context69-db-schema.workspace = true
-context69-extraction.workspace = true
 context69-http-support.workspace = true
+context69-llm-support.workspace = true
 context69-namespace.workspace = true
 context69-namespace-http.workspace = true
 context69-search.workspace = true

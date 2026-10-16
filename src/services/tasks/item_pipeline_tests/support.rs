@@ -8,7 +8,6 @@ use std::{path::PathBuf, sync::Arc};
 use anyhow::Result;
 use async_trait::async_trait;
 use context69_contracts::TaskKind;
-use context69_extraction::{ExtractionDependencies, ExtractionReadiness, ExtractionService};
 use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
 use uuid::Uuid;
 
@@ -19,7 +18,6 @@ use crate::{
     domain::GroupRecord,
     services::{
         document_store::DocumentStoreService,
-        extraction::ExtractionPublisherAdapter,
         library::{LibraryService, LibraryServiceConfig},
         namespace::NamespaceService,
         secret_store,
@@ -42,18 +40,11 @@ use crate::{
 /// and `tests/task_lease_invariant`.
 pub(super) static PIPELINE_CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// Readiness only; the tests never run translation or extraction.
+/// Readiness only; the tests never run translation.
 struct NotReady;
 
 #[async_trait]
 impl TranslationReadiness for NotReady {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
-
-#[async_trait]
-impl ExtractionReadiness for NotReady {
     async fn is_ready(&self) -> Result<bool> {
         Ok(false)
     }
@@ -75,13 +66,6 @@ pub(super) async fn build_service(db: &Database) -> (TaskService, PathBuf) {
             None,
             chunking.clone(),
         )),
-        concurrency: 1,
-        readiness: Arc::new(NotReady),
-    });
-    let extraction = ExtractionService::new(ExtractionDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(ExtractionPublisherAdapter::new(db.clone(), None)),
         concurrency: 1,
         readiness: Arc::new(NotReady),
     });
@@ -107,7 +91,6 @@ pub(super) async fn build_service(db: &Database) -> (TaskService, PathBuf) {
         },
         SettingsService::new(db.clone()),
         translation.clone(),
-        extraction,
     )
     .await
     .expect("build library service");

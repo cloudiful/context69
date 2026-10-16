@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (136 operations, sorted by `operation_id` for deterministic diffs).
+//! (140 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -85,6 +85,17 @@ pub const OPERATIONS: &[Operation] = &[
         request_schema: "CreateAdminUserRequest",
         response_schema: "AdminUserResponse",
         success_status: 201,
+        idempotent: false,
+    },
+    Operation {
+        id: "create_document_result",
+        method: "POST",
+        path_template: "/v1/groups/by-path/{group_path}/documents/{document_id}/results",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "CreateDocumentResultRequest",
+        response_schema: "DocumentResultResponse",
+        success_status: 200,
         idempotent: false,
     },
     Operation {
@@ -451,17 +462,6 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
-        id: "get_extraction_health",
-        method: "GET",
-        path_template: "/v1/admin/extraction/health",
-        requires_auth: true,
-        body_kind: BodyKind::Empty,
-        request_schema: "-",
-        response_schema: "ExtractionHealthResponse",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
         id: "get_git_connection_readiness",
         method: "GET",
         path_template: "/v1/groups/by-path/{group_path}/git-connections/{connection_key}",
@@ -726,13 +726,13 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
-        id: "list_document_extraction_jobs",
+        id: "list_document_results",
         method: "GET",
-        path_template: "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions",
+        path_template: "/v1/groups/by-path/{group_path}/documents/{document_id}/results",
         requires_auth: true,
         body_kind: BodyKind::Empty,
         request_schema: "-",
-        response_schema: "ExtractionJobsResponse",
+        response_schema: "ListDocumentResultsResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -744,17 +744,6 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "TranslationJobsResponse",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
-        id: "list_extraction_templates",
-        method: "GET",
-        path_template: "/v1/groups/by-path/{group_path}/extraction-templates",
-        requires_auth: true,
-        body_kind: BodyKind::Empty,
-        request_schema: "-",
-        response_schema: "array<ExtractionTemplateResponse>",
         success_status: 200,
         idempotent: false,
     },
@@ -997,17 +986,6 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "DocumentQueryRequest",
         response_schema: "DocumentQueryResponse",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
-        id: "rebuild_document_extractions",
-        method: "POST",
-        path_template: "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild",
-        requires_auth: true,
-        body_kind: BodyKind::Json,
-        request_schema: "RebuildDocumentExtractionsRequest",
-        response_schema: "ExtractionJobsResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -1504,17 +1482,6 @@ pub const OPERATIONS: &[Operation] = &[
         request_schema: "multipart-form",
         response_schema: "TaskRef",
         success_status: 202,
-        idempotent: false,
-    },
-    Operation {
-        id: "upsert_extraction_template",
-        method: "PUT",
-        path_template: "/v1/groups/by-path/{group_path}/extraction-templates",
-        requires_auth: true,
-        body_kind: BodyKind::Json,
-        request_schema: "ExtractionTemplateInput",
-        response_schema: "ExtractionTemplateResponse",
-        success_status: 200,
         idempotent: false,
     },
     Operation {

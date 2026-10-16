@@ -1,9 +1,9 @@
 pub use context69_contracts_auth::auth;
 pub use context69_contracts_core::{common, errors, pagination};
-pub use context69_contracts_extraction::extraction;
 pub use context69_contracts_library::{ingest, library};
 pub use context69_contracts_mcp::{code, mcp, projections};
 pub use context69_contracts_namespace::namespace;
+pub use context69_contracts_results::document_results;
 pub use context69_contracts_search::{documents, search};
 pub use context69_contracts_settings::settings;
 pub use context69_contracts_sources::sources;
@@ -27,17 +27,6 @@ pub use context69_contracts_core::pagination::{
     CURSOR_LIMIT_MAX, CURSOR_LIMIT_MIN, CursorPageQuery, CursorPagination, OffsetPageQuery,
     OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
     default_limit, default_page, default_page_size,
-};
-pub use context69_contracts_extraction::extraction::{
-    CHOICE_OPTIONS_MAX, CHOICE_OPTIONS_MIN, ChoiceAnswer, ChoiceOption, ChoiceProbability,
-    ChoiceQuestion, DECISION_QUESTIONS_MAX, DECISION_QUESTIONS_MIN, DecisionAnswer,
-    DecisionDefinition, DecisionResultValue, ExtractionDefinition, ExtractionDirective,
-    ExtractionFailureClass, ExtractionHealthResponse, ExtractionJobResponse, ExtractionJobStatus,
-    ExtractionJobsResponse, ExtractionQuestion, ExtractionResultPayload, ExtractionResultResponse,
-    ExtractionResultValue, ExtractionTemplateDefinition, ExtractionTemplateInput,
-    ExtractionTemplateResponse, PredicateAnswer, PredicateQuestion,
-    RebuildDocumentExtractionsRequest, RefusalAnswer, SCORE_LEVELS_MAX, SCORE_LEVELS_MIN,
-    ScoreAnswer, ScoreLevel, ScoreProbability, ScoreQuestion,
 };
 pub use context69_contracts_library::ingest::{
     CanonicalUploadMetadata, IngestOptions, SourcePolicy,
@@ -82,6 +71,14 @@ pub use context69_contracts_namespace::namespace::{
     GroupResponse, GroupSearchQuery, GroupSortBy, MemberPageQuery, MemberSortBy, MembershipRole,
     MoveGroupRequest, NamespacePageQuery, UpdateGroupRequest, UpsertMembershipRequest,
     UserDirectoryEntryResponse, Visibility,
+};
+pub use context69_contracts_results::document_results::{
+    CreateDocumentResultRequest, DOCUMENT_RESULT_IDEMPOTENCY_KEY_MAX_CHARS,
+    DOCUMENT_RESULT_KIND_MAX_CHARS, DOCUMENT_RESULT_PRODUCER_MAX_CHARS,
+    DOCUMENT_RESULT_PROVENANCE_MAX_CHARS, DOCUMENT_RESULT_REQUEST_MAX_BYTES,
+    DOCUMENT_RESULT_SCHEMA_REF_MAX_CHARS, DOCUMENT_RESULT_SOURCE_HASH_MAX_CHARS,
+    DocumentResultProvenance, DocumentResultResponse, ListDocumentResultsQuery,
+    ListDocumentResultsResponse,
 };
 pub use context69_contracts_search::documents::{
     BatchDocumentItem, BatchGetDocumentsRequest, BatchGetDocumentsResponse, CanonicalDocumentSort,

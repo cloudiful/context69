@@ -376,10 +376,6 @@ fn inventory_covers_sdk_facade_and_mcp_surfaces() {
         "get_document",
         "get_document_by_key",
         "get_documents",
-        "list_extraction_templates",
-        "upsert_extraction_template",
-        "document_extractions",
-        "rebuild_document_extractions",
         "me",
         "healthz",
     ] {

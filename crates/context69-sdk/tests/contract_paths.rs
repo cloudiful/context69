@@ -2,7 +2,7 @@
 //!
 //! Only `context69_sdk` (plus test scaffolding crates) is imported here:
 //! every request/response type under test must be constructible from the SDK
-//! facade alone. Raw 116-operation transport coverage is explicitly Task 4b
+//! facade alone. Raw transport coverage is explicitly Task 4b
 //! remaining work and is not claimed by this suite.
 
 use std::collections::HashMap;
@@ -14,10 +14,11 @@ use axum::http::{HeaderMap, Method, StatusCode};
 use axum::routing::{get, post};
 use context69_sdk::{
     AuthMeResponse, BatchGetDocumentsRequest, CanonicalSearchRequest, CanonicalTaskListQuery,
-    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, Context69Client, DocumentKey,
-    IngestOptions, RebuildDocumentExtractionsRequest, SearchPagination, SearchRequest,
-    SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemStatus, TaskItemsOptions,
-    TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, Context69Client,
+    CreateDocumentResultRequest, DocumentKey, DocumentResultProvenance, DocumentResultResponse,
+    IngestOptions, ListDocumentResultsQuery, ListDocumentResultsResponse, SearchPagination,
+    SearchRequest, SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemStatus,
+    TaskItemsOptions, TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -280,25 +281,28 @@ fn library_file_detail_json() -> Value {
     })
 }
 
-fn extraction_template_json() -> Value {
+fn document_result_json() -> Value {
     json!({
-        "template_key": "t",
-        "version": 1,
-        "description": null,
-        "definition": {
-            "kind": "extraction",
-            "system_prompt": "p",
-            "output_schema": {},
-            "max_output_tokens": 100
-        },
-        "enabled": true,
-        "created_at": now(),
-        "updated_at": now()
+        "id": 9,
+        "document_id": 42,
+        "author_user_id": 1,
+        "producer": "stock.news",
+        "result_kind": "sentiment.v1",
+        "schema_ref": "stock.news/sentiment@1",
+        "source_record_hash": "sha256:abc",
+        "idempotency_key": "run-1",
+        "result": {"direction": "positive"},
+        "provenance": {"run_id": "run-1"},
+        "created_at": now()
     })
 }
 
-fn extraction_jobs_json() -> Value {
-    json!({"jobs": [], "latest_results": []})
+fn document_result_page_json() -> Value {
+    json!({
+        "source_record_hash": "sha256:abc",
+        "items": [document_result_json()],
+        "next_after_id": null
+    })
 }
 
 fn me_json() -> Value {
@@ -611,50 +615,24 @@ async fn test_router(log: SharedLog) -> axum::Router {
             }),
         )
         .route(
-            "/v1/groups/by-path/{group_path}/extraction-templates",
+            "/v1/groups/by-path/{group_path}/documents/{document_id}/results",
             get({
                 let log = log.clone();
                 move |method: Method, uri: OriginalUri, headers: HeaderMap| {
                     let log = log.clone();
                     async move {
                         record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(json!([extraction_template_json()])))
+                        (StatusCode::OK, Json(document_result_page_json()))
                     }
                 }
             })
-            .put({
+            .post({
                 let log = log.clone();
                 move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(_body): Json<Value>| {
                     let log = log.clone();
                     async move {
                         record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(extraction_template_json()))
-                    }
-                }
-            }),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions",
-            get({
-                let log = log.clone();
-                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
-                    let log = log.clone();
-                    async move {
-                        record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(extraction_jobs_json()))
-                    }
-                }
-            }),
-        )
-        .route(
-            "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild",
-            post({
-                let log = log.clone();
-                move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(_body): Json<Value>| {
-                    let log = log.clone();
-                    async move {
-                        record(&method, &uri, &headers, &log);
-                        (StatusCode::OK, Json(extraction_jobs_json()))
+                        (StatusCode::OK, Json(document_result_json()))
                     }
                 }
             }),
@@ -862,6 +840,39 @@ fn sdk_only_construction_covers_facade_inputs() {
         source_key: "src".to_string(),
         external_id: "ext".to_string(),
     };
+    // Issue #910 P1: the whole result envelope is constructible from the SDK.
+    let _result_request = CreateDocumentResultRequest {
+        producer: "stock.news".to_string(),
+        result_kind: "sentiment.v1".to_string(),
+        schema_ref: "stock.news/sentiment@1".to_string(),
+        source_record_hash: "sha256:abc".to_string(),
+        idempotency_key: "run-1".to_string(),
+        result: json!({"direction": "positive"}),
+        provenance: Some(DocumentResultProvenance {
+            model_name: Some("m".to_string()),
+            workflow_version: None,
+            run_id: Some("run-1".to_string()),
+            producer_config_hash: Some("cfg".to_string()),
+        }),
+    };
+    let _result_query = ListDocumentResultsQuery {
+        producer: Some("stock.news".to_string()),
+        result_kind: None,
+        after_id: Some(9),
+        limit: 50,
+    };
+    let _result_page: ListDocumentResultsResponse = serde_json::from_value(json!({
+        "source_record_hash": "sha256:abc",
+        "items": [{
+            "id": 9, "document_id": 42, "author_user_id": 1, "producer": "stock.news",
+            "result_kind": "sentiment.v1", "schema_ref": "s",
+            "source_record_hash": "sha256:abc", "idempotency_key": "run-1",
+            "result": {}, "created_at": "2026-01-01T00:00:00Z"
+        }],
+        "next_after_id": null
+    }))
+    .expect("result page decodes SDK-only");
+    let _result: DocumentResultResponse = _result_page.items[0].clone();
 }
 
 #[tokio::test]
@@ -1127,6 +1138,76 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
         source_key: "src".to_string(),
         external_id: "ext".to_string(),
     };
+
+    // Issue #910 P1: caller-produced document results.
+    let result_request = CreateDocumentResultRequest {
+        producer: "stock.news".to_string(),
+        result_kind: "sentiment.v1".to_string(),
+        schema_ref: "stock.news/sentiment@1".to_string(),
+        source_record_hash: "sha256:abc".to_string(),
+        idempotency_key: "run-1".to_string(),
+        result: json!({"direction": "positive"}),
+        provenance: Some(DocumentResultProvenance {
+            run_id: Some("run-1".to_string()),
+            ..DocumentResultProvenance::default()
+        }),
+    };
+    result_request.validate().expect("result request valid");
+    let created = client
+        .create_document_result(group, 42, &result_request)
+        .await
+        .expect("create_document_result");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(
+        last(&log).path,
+        format!("/v1/groups/by-path/{group}/documents/42/results")
+    );
+    assert_eq!(created.author_user_id, 1);
+    assert_eq!(created.producer, "stock.news");
+
+    let listed = client
+        .list_document_results(
+            group,
+            42,
+            &ListDocumentResultsQuery {
+                producer: Some("stock.news".to_string()),
+                limit: 10,
+                ..ListDocumentResultsQuery::default()
+            },
+        )
+        .await
+        .expect("list_document_results");
+    assert_eq!(last(&log).method, "GET");
+    assert_eq!(
+        last(&log).path,
+        format!("/v1/groups/by-path/{group}/documents/42/results")
+    );
+    let query = query_map(&last(&log).query);
+    assert_eq!(query.get("limit").map(String::as_str), Some("10"));
+    assert_eq!(
+        query.get("producer").map(String::as_str),
+        Some("stock.news")
+    );
+    assert!(!query.contains_key("result_kind"));
+    assert!(!query.contains_key("after_id"));
+    assert_eq!(listed.source_record_hash, "sha256:abc");
+    assert_eq!(listed.items.len(), 1);
+
+    // Out-of-bounds limit is rejected before any IO.
+    assert!(
+        client
+            .list_document_results(
+                group,
+                42,
+                &ListDocumentResultsQuery {
+                    limit: 0,
+                    ..ListDocumentResultsQuery::default()
+                },
+            )
+            .await
+            .is_err()
+    );
+
     client
         .get_document_by_key(group, &key, None)
         .await
@@ -1150,51 +1231,6 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
         last(&log).path,
         format!("/v1/groups/by-path/{group}/documents/batch-get")
     );
-
-    client
-        .list_extraction_templates(group)
-        .await
-        .expect("list templates");
-    assert_eq!(last(&log).method, "GET");
-    assert_eq!(
-        last(&log).path,
-        format!("/v1/groups/by-path/{group}/extraction-templates")
-    );
-
-    let template_in: context69_sdk::ExtractionTemplateInput = serde_json::from_value(json!({
-        "template_key": "t",
-        "definition": {
-            "kind": "extraction",
-            "system_prompt": "p",
-            "output_schema": {"type": "object"}
-        }
-    }))
-    .expect("template input");
-    client
-        .upsert_extraction_template(group, &template_in)
-        .await
-        .expect("upsert template");
-    assert_eq!(last(&log).method, "PUT");
-
-    client
-        .document_extractions(group, 42)
-        .await
-        .expect("document extractions");
-    assert_eq!(last(&log).method, "GET");
-    assert_eq!(
-        last(&log).path,
-        format!("/v1/groups/by-path/{group}/documents/42/extractions")
-    );
-
-    let rebuild = RebuildDocumentExtractionsRequest {
-        template_keys: Vec::new(),
-    };
-    client
-        .rebuild_document_extractions(group, 42, &rebuild)
-        .await
-        .expect("rebuild");
-    assert_eq!(last(&log).method, "POST");
-    assert!(last(&log).path.ends_with("/extractions/rebuild"));
 
     let me: AuthMeResponse = client.me().await.expect("me");
     assert_eq!(me.user.login_name, "alice");

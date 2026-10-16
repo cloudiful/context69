@@ -2,7 +2,7 @@
 //!
 //! The store itself — the purpose catalogue, the SQL boundary, and the typed
 //! accessor — lives in the leaf [`context69_secret_store`] crate, so the
-//! translation and extraction crates can reach the same implementation without a
+//! translation crate can reach the same implementation without a
 //! dependency cycle and there is only ever one representation of a stored
 //! secret. This module is the application's stable name for that seam, so a
 //! service depends on `crate::services::secret_store` and never on the leaf's

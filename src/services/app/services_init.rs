@@ -1,5 +1,4 @@
 use anyhow::Result;
-use context69_extraction::{ExtractionDependencies, ExtractionService};
 use context69_translation::{TranslationDependencies, TranslationService};
 use std::{sync::Arc, time::Duration};
 use tracing::warn;
@@ -11,7 +10,6 @@ use crate::{
     library_store::LibraryStore,
     services::{
         auth::AuthService,
-        extraction::ExtractionPublisherAdapter,
         query::{QueryDeps, QueryService},
         secret_store::{self, SecretStore},
         sync::SyncService,
@@ -23,7 +21,6 @@ use super::{readiness, vector_identity, vector_runtime::VectorRuntime};
 
 pub struct ServicesInit {
     pub translation: TranslationService,
-    pub extraction: ExtractionService,
     pub sync: SyncService,
     pub query: QueryService,
     pub automatic_rebuild_needed: bool,
@@ -55,22 +52,6 @@ pub async fn initialize(
                 max_chars: config.chunking.max_chars,
                 overlap_chars: config.chunking.overlap_chars,
             },
-        )),
-        concurrency: config.scheduler.max_concurrency,
-        readiness: Arc::new(readiness::LibraryEmbeddingVectorReadiness {
-            store: LibraryStore::new(db.clone()),
-            configuration_fingerprint: vector_identity::configuration_fingerprint(config),
-        }),
-    })
-    .with_secret_store(store.clone());
-    let extraction = ExtractionService::new(ExtractionDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::builder()
-            .timeout(Duration::from_secs(120))
-            .build()?,
-        publisher: Arc::new(ExtractionPublisherAdapter::new(
-            db.clone(),
-            vector.index.clone(),
         )),
         concurrency: config.scheduler.max_concurrency,
         readiness: Arc::new(readiness::LibraryEmbeddingVectorReadiness {
@@ -124,7 +105,6 @@ pub async fn initialize(
 
     Ok(ServicesInit {
         translation,
-        extraction,
         sync,
         query,
         automatic_rebuild_needed,

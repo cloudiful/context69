@@ -1,15 +1,13 @@
 use context69_contracts::{
     ApiErrorCode, CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
-    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, ChoiceAnswer, ChoiceOption,
-    ChoiceQuestion, CreateTextRequest, CursorPageQuery, CursorPagination, DecisionAnswer,
-    DecisionDefinition, DecisionResultValue, ExtractionDefinition, ExtractionDirective,
-    ExtractionQuestion, ExtractionResultPayload, ExtractionResultValue,
-    ExtractionTemplateDefinition, ExtractionTemplateInput, FileBatchItem,
-    ImportLibraryFileFromUrlRequest, IngestOptions, LibraryIngestFailureStage, LibraryIngestStatus,
-    LibraryTextContentFormat, MetadataObject, OffsetPageQuery, OffsetPagination, Pagination,
-    PersonalAccessTokenScope, PredicateQuestion, PrepareLibraryUploadRequest, RefusalAnswer,
-    ScoreAnswer, ScoreLevel, ScoreQuestion, SearchRequest, SecretPatch, SortDirection, SortOrder,
-    SourcePolicy, TaskListQuery, TaskListView, UpsertLibraryTextRequest,
+    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateDocumentResultRequest,
+    CreateTextRequest, CursorPageQuery, CursorPagination, DocumentResultProvenance,
+    DocumentResultResponse, FileBatchItem, ImportLibraryFileFromUrlRequest, IngestOptions,
+    LibraryIngestFailureStage, LibraryIngestStatus, LibraryTextContentFormat,
+    ListDocumentResultsQuery, ListDocumentResultsResponse, MetadataObject, OffsetPageQuery,
+    OffsetPagination, Pagination, PersonalAccessTokenScope, PrepareLibraryUploadRequest,
+    SearchRequest, SecretPatch, SortDirection, SortOrder, SourcePolicy, TaskListQuery,
+    TaskListView, UpsertLibraryTextRequest,
 };
 use serde_json::{json, to_value};
 
@@ -465,7 +463,6 @@ fn source_policy_and_ingest_options_cover_all_upload_paths() {
     let empty: IngestOptions = serde_json::from_value(json!({})).expect("ingest options default");
     assert_eq!(empty.source_policy, SourcePolicy::Retain);
     assert!(empty.translation.is_none());
-    assert!(empty.extraction.is_none());
     assert!(!empty.is_release());
     let serialized = to_value(&empty).expect("serialize ingest");
     assert!(
@@ -1068,53 +1065,6 @@ fn file_ingest_status_is_terminal_only() {
 }
 
 #[test]
-fn extraction_directive_required_defaults_true_and_round_trips() {
-    // Issue #89 P3: omitted and legacy directives are required; only an
-    // explicit `false` opts out. The flag persists independently of
-    // `parameters`, never hidden inside them.
-    let omitted: ExtractionDirective = serde_json::from_value(json!({
-        "template_key": "t-1"
-    }))
-    .expect("omitted required");
-    assert!(omitted.required);
-    assert_eq!(omitted.parameters, json!({}));
-
-    let legacy: ExtractionDirective = serde_json::from_value(json!({
-        "template_key": "t-1",
-        "parameters": { "depth": "fast" }
-    }))
-    .expect("legacy directive");
-    assert!(legacy.required);
-    assert_eq!(legacy.parameters, json!({ "depth": "fast" }));
-
-    let optional: ExtractionDirective = serde_json::from_value(json!({
-        "template_key": "t-1",
-        "parameters": {},
-        "required": false
-    }))
-    .expect("explicit optional");
-    assert!(!optional.required);
-    let round_tripped: ExtractionDirective =
-        serde_json::from_value(to_value(&optional).expect("serialize optional"))
-            .expect("round trip optional");
-    assert_eq!(round_tripped, optional);
-
-    assert!(ExtractionDirective::default().required);
-    assert_eq!(
-        to_value(ExtractionDirective::default()).expect("serialize default")["required"],
-        json!(true)
-    );
-
-    // Options-level legacy payloads without the flag stay required.
-    let options: IngestOptions = serde_json::from_value(json!({
-        "metadata": {},
-        "extraction": { "template_key": "t-1" }
-    }))
-    .expect("legacy ingest options");
-    assert!(options.extraction.expect("directive").required);
-}
-
-#[test]
 fn library_ingest_failure_stage_extraction_wire_is_stable() {
     assert_eq!(
         to_value(LibraryIngestFailureStage::Extraction).expect("serialize extraction"),
@@ -1161,270 +1111,255 @@ fn b0_pagination_audit_exact_equals_but_window_and_bounds_differ() {
     assert_eq!(task_value, offset_value);
 }
 
+fn sample_document_result_request() -> serde_json::Value {
+    json!({
+        "producer": "stock.news",
+        "result_kind": "sentiment.v1",
+        "schema_ref": "stock.news/sentiment@1",
+        "source_record_hash": "sha256:abc123",
+        "idempotency_key": "run-2026-01-01:0001",
+        "result": {"direction": "positive", "confidence": 0.82},
+        "provenance": {
+            "model_name": "gpt-x",
+            "workflow_version": "3",
+            "run_id": "run-1",
+            "producer_config_hash": "cfg-9"
+        }
+    })
+}
+
 #[test]
-fn extraction_template_input_is_tagged_and_flat_is_rejected() {
-    // Issue #89 P4 (accepted breaking): nested extraction preserves the
-    // generative contract; the old flat shape is rejected, never dual-parsed.
-    let nested: ExtractionTemplateInput = serde_json::from_value(json!({
-        "template_key": "t-1",
-        "definition": {
-            "kind": "extraction",
-            "system_prompt": "p",
-            "output_schema": {"type": "object"}
-        }
-    }))
-    .expect("nested extraction input");
-    match &nested.definition {
-        ExtractionTemplateDefinition::Extraction(definition) => {
-            assert_eq!(definition.system_prompt, "p");
-            assert_eq!(definition.output_schema, json!({"type": "object"}));
-            assert_eq!(definition.max_output_tokens, None);
-        }
-        other => panic!("expected extraction branch, got {other:?}"),
-    }
-    assert!(nested.enabled);
-    let round_tripped: ExtractionTemplateInput =
-        serde_json::from_value(to_value(&nested).expect("serialize")).expect("round trip");
+fn caller_result_request_envelope_is_strict_and_bounded() {
+    let request: CreateDocumentResultRequest =
+        serde_json::from_value(sample_document_result_request()).expect("canonical request");
+    request.validate().expect("canonical valid");
+    assert_eq!(request.producer, "stock.news");
     assert_eq!(
-        to_value(round_tripped.definition).expect("definition value"),
-        to_value(nested.definition).expect("definition value")
+        request.result,
+        json!({"direction": "positive", "confidence": 0.82})
     );
+    assert_eq!(
+        request
+            .provenance
+            .as_ref()
+            .and_then(|p| p.run_id.as_deref()),
+        Some("run-1")
+    );
+    let round_tripped: CreateDocumentResultRequest =
+        serde_json::from_value(to_value(&request).expect("serialize")).expect("round trips");
+    assert_eq!(round_tripped, request);
 
-    // Old flat requests fail: the tagged definition is required.
-    assert!(
-        serde_json::from_value::<ExtractionTemplateInput>(json!({
-            "template_key": "t-1",
-            "system_prompt": "p",
-            "output_schema": {"type": "object"}
-        }))
-        .is_err(),
-        "flat legacy input must be rejected"
-    );
-    // Flat keys smuggled alongside the tagged definition are rejected too.
-    assert!(
-        serde_json::from_value::<ExtractionTemplateInput>(json!({
-            "template_key": "t-1",
-            "system_prompt": "p",
-            "definition": {
-                "kind": "extraction",
-                "system_prompt": "p",
-                "output_schema": {"type": "object"}
-            }
-        }))
-        .is_err(),
-        "mixed flat+nested input must be rejected"
-    );
-    // Unknown definition kinds are rejected, never defaulted.
-    assert!(
-        serde_json::from_value::<ExtractionTemplateInput>(json!({
-            "template_key": "t-1",
-            "definition": {"kind": "mystery"}
-        }))
-        .is_err(),
-        "unknown kind must be rejected"
-    );
-}
-
-fn sample_decision_definition() -> DecisionDefinition {
-    DecisionDefinition {
-        questions: vec![
-            ExtractionQuestion::Predicate(PredicateQuestion {
-                name: "relevant".to_string(),
-                instructions: "Is this relevant?".to_string(),
-            }),
-            ExtractionQuestion::Choice(ChoiceQuestion {
-                name: "direction".to_string(),
-                instructions: "Pick a direction.".to_string(),
-                choices: vec![
-                    ChoiceOption {
-                        value: "up".to_string(),
-                        description: "Upward.".to_string(),
-                    },
-                    ChoiceOption {
-                        value: "down".to_string(),
-                        description: "Downward.".to_string(),
-                    },
-                ],
-            }),
-            ExtractionQuestion::Score(ScoreQuestion {
-                name: "quality".to_string(),
-                instructions: "Rate it.".to_string(),
-                levels: vec![
-                    ScoreLevel {
-                        label: "bad".to_string(),
-                        description: "Bad.".to_string(),
-                    },
-                    ScoreLevel {
-                        label: "good".to_string(),
-                        description: "Good.".to_string(),
-                    },
-                ],
-            }),
-        ],
-    }
-}
-
-#[test]
-fn decision_definition_round_trips_and_validates_bounds() {
-    let definition = sample_decision_definition();
-    definition.validate().expect("sample validates");
-    let value = to_value(&definition).expect("serialize");
-    assert_eq!(value["questions"][0]["type"], json!("predicate"));
-    assert_eq!(value["questions"][1]["type"], json!("choice"));
-    assert_eq!(value["questions"][2]["type"], json!("score"));
-    let round_tripped: DecisionDefinition =
-        serde_json::from_value(value).expect("round trip decision");
-    assert_eq!(round_tripped, definition);
-
-    let input: ExtractionTemplateInput = serde_json::from_value(json!({
-        "template_key": "d-1",
-        "definition": {
-            "kind": "decision",
-            "questions": [
-                {"type": "predicate", "name": "relevant", "instructions": "Is it?"}
-            ]
-        }
-    }))
-    .expect("decision input");
-    assert!(matches!(
-        input.definition,
-        ExtractionTemplateDefinition::Decision(_)
-    ));
-
-    // Zero questions rejected (application bound 1..=32).
-    assert!(
-        DecisionDefinition { questions: vec![] }.validate().is_err(),
-        "empty questions rejected"
-    );
-    // Duplicate names rejected.
-    let mut duplicate = sample_decision_definition();
-    duplicate
-        .questions
-        .push(ExtractionQuestion::Predicate(PredicateQuestion {
-            name: "direction".to_string(),
-            instructions: "Dup.".to_string(),
-        }));
-    assert!(duplicate.validate().is_err(), "duplicate names rejected");
-    // Empty name / instructions rejected.
-    assert!(
-        DecisionDefinition {
-            questions: vec![ExtractionQuestion::Predicate(PredicateQuestion {
-                name: "  ".to_string(),
-                instructions: "x".to_string(),
-            })]
-        }
-        .validate()
-        .is_err(),
-        "empty names rejected"
-    );
-    // Single-option choice rejected (bound 2..=64); duplicate values rejected.
-    assert!(
-        DecisionDefinition {
-            questions: vec![ExtractionQuestion::Choice(ChoiceQuestion {
-                name: "c".to_string(),
-                instructions: "x".to_string(),
-                choices: vec![ChoiceOption {
-                    value: "only".to_string(),
-                    description: "Only.".to_string(),
-                }],
-            })]
-        }
-        .validate()
-        .is_err(),
-        "single choice option rejected"
-    );
-    // Single-level score rejected (bound 2..=32).
-    assert!(
-        DecisionDefinition {
-            questions: vec![ExtractionQuestion::Score(ScoreQuestion {
-                name: "s".to_string(),
-                instructions: "x".to_string(),
-                levels: vec![ScoreLevel {
-                    label: "only".to_string(),
-                    description: "Only.".to_string(),
-                }],
-            })]
-        }
-        .validate()
-        .is_err(),
-        "single score level rejected"
-    );
-    // Unknown question payload rejected, never a raw fallback.
-    assert!(
-        serde_json::from_value::<DecisionDefinition>(json!({
-            "questions": [{"type": "mystery", "name": "x"}]
-        }))
-        .is_err(),
-        "unknown question type rejected"
-    );
-}
-
-#[test]
-fn decision_answers_and_result_payloads_are_typed() {
-    // Every answer kind carries its type tag; refusal decodes as evidence.
-    for (payload, tag) in [
-        (
-            json!({"type": "predicate", "name": "relevant", "probability": 0.7}),
-            "predicate",
-        ),
-        (
-            json!({"type": "choice", "name": "direction", "choice": "up",
-                   "probabilities": [{"value": "up", "probability": 0.8}], "confidence": 0.8}),
-            "choice",
-        ),
-        (
-            json!({"type": "score", "name": "quality", "score": 1.0,
-                   "probabilities": [{"value": 1, "label": "good", "probability": 0.9}],
-                   "confidence": 0.9}),
-            "score",
-        ),
-        (json!({"type": "refusal", "name": "relevant"}), "refusal"),
+    // Provenance and the whole envelope are closed: unknown fields are
+    // rejected, never silently ignored.
+    for unknown in [
+        json!({
+            "producer": "stock.news", "result_kind": "k", "schema_ref": "s",
+            "source_record_hash": "h", "idempotency_key": "i", "result": {},
+            "author_user_id": 7
+        }),
+        json!({
+            "producer": "stock.news", "result_kind": "k", "schema_ref": "s",
+            "source_record_hash": "h", "idempotency_key": "i", "result": {},
+            "provenance": {"model_name": "m", "api_key": "secret"}
+        }),
     ] {
-        let answer: DecisionAnswer = serde_json::from_value(payload).expect("answer decodes");
-        assert_eq!(to_value(&answer).expect("answer value")["type"], json!(tag));
+        assert!(
+            serde_json::from_value::<CreateDocumentResultRequest>(unknown).is_err(),
+            "unknown envelope/provenance field must be rejected"
+        );
     }
+
+    // `result` is required and must be an object.
+    let mut missing = sample_document_result_request();
+    missing.as_object_mut().expect("object").remove("result");
+    assert!(serde_json::from_value::<CreateDocumentResultRequest>(missing).is_err());
+    let non_object: CreateDocumentResultRequest = serde_json::from_value(json!({
+        "producer": "stock.news", "result_kind": "k", "schema_ref": "s",
+        "source_record_hash": "h", "idempotency_key": "i", "result": [1, 2]
+    }))
+    .expect("array result parses, validation rejects");
     assert!(
-        serde_json::from_value::<DecisionAnswer>(json!({"type": "verdict", "name": "x"})).is_err(),
-        "unknown answer type rejected"
+        non_object.validate().is_err(),
+        "result must be a JSON object"
     );
 
-    // Generative results stay arbitrary JSON under the extraction tag.
-    let generative: ExtractionResultPayload = serde_json::from_value(json!({
-        "kind": "extraction",
-        "value": {"direction": "positive", "nested": [1, 2]}
-    }))
-    .expect("generative payload");
-    match &generative {
-        ExtractionResultPayload::Extraction(value) => {
-            assert_eq!(
-                value.value,
-                json!({"direction": "positive", "nested": [1, 2]})
-            );
-        }
-        other => panic!("expected extraction payload, got {other:?}"),
+    // Identifier alphabet and length bounds are enforced.
+    for bad in [
+        "stock news",  // space
+        "stock/news",  // slash
+        "stock.news!", // punctuation outside the alphabet
+        "",            // empty
+    ] {
+        let mut payload = sample_document_result_request();
+        payload["producer"] = json!(bad);
+        let parsed: CreateDocumentResultRequest = serde_json::from_value(payload).expect("parses");
+        assert!(
+            parsed.validate().is_err(),
+            "producer {bad:?} must be rejected"
+        );
     }
-    let typed: ExtractionResultPayload = serde_json::from_value(json!({
-        "kind": "decision",
-        "answers": [{"type": "predicate", "name": "relevant", "probability": 0.7}]
+    let mut too_long = sample_document_result_request();
+    too_long["producer"] = json!("a".repeat(129));
+    let parsed: CreateDocumentResultRequest = serde_json::from_value(too_long).expect("parses");
+    assert!(
+        parsed.validate().is_err(),
+        "producer over 128 chars rejected"
+    );
+    let mut kind_long = sample_document_result_request();
+    kind_long["result_kind"] = json!("a".repeat(129));
+    let parsed: CreateDocumentResultRequest = serde_json::from_value(kind_long).expect("parses");
+    assert!(
+        parsed.validate().is_err(),
+        "result_kind over 128 chars rejected"
+    );
+    let mut key_long = sample_document_result_request();
+    key_long["idempotency_key"] = json!("a".repeat(129));
+    let parsed: CreateDocumentResultRequest = serde_json::from_value(key_long).expect("parses");
+    assert!(
+        parsed.validate().is_err(),
+        "idempotency_key over 128 chars rejected"
+    );
+
+    // Nonblank bounded strings: schema_ref, source_record_hash, provenance.
+    for (field, value) in [
+        ("schema_ref", json!("   ")),
+        ("source_record_hash", json!("")),
+    ] {
+        let mut payload = sample_document_result_request();
+        payload[field] = value;
+        let parsed: CreateDocumentResultRequest = serde_json::from_value(payload).expect("parses");
+        assert!(parsed.validate().is_err(), "{field} blank must be rejected");
+    }
+    let mut schema_long = sample_document_result_request();
+    schema_long["schema_ref"] = json!("a".repeat(257));
+    let parsed: CreateDocumentResultRequest = serde_json::from_value(schema_long).expect("parses");
+    assert!(parsed.validate().is_err(), "schema_ref over 256 rejected");
+    let mut provenance_long = sample_document_result_request();
+    provenance_long["provenance"] = json!({"run_id": "a".repeat(257)});
+    let parsed: CreateDocumentResultRequest =
+        serde_json::from_value(provenance_long).expect("parses");
+    assert!(
+        parsed.validate().is_err(),
+        "provenance string over 256 rejected"
+    );
+
+    // The serialized envelope is bounded at 256 KiB.
+    let mut oversize = sample_document_result_request();
+    oversize["result"] = json!({"blob": "a".repeat(256 * 1024)});
+    let parsed: CreateDocumentResultRequest = serde_json::from_value(oversize).expect("parses");
+    assert!(
+        parsed.validate().is_err(),
+        "oversize serialized request must be rejected"
+    );
+
+    // Provenance is optional; omitted round-trips without the key.
+    let mut minimal = sample_document_result_request();
+    minimal
+        .as_object_mut()
+        .expect("object")
+        .remove("provenance");
+    let parsed: CreateDocumentResultRequest =
+        serde_json::from_value(minimal).expect("no provenance");
+    parsed.validate().expect("provenance optional");
+    assert_eq!(parsed.provenance, None);
+    assert!(
+        !to_value(&parsed)
+            .expect("serialize")
+            .as_object()
+            .expect("object")
+            .contains_key("provenance"),
+        "omitted provenance must not serialize a null"
+    );
+    assert!(DocumentResultProvenance::default().validate().is_ok());
+}
+
+#[test]
+fn caller_result_list_query_defaults_and_bounds() {
+    let empty: ListDocumentResultsQuery =
+        serde_json::from_value(json!({})).expect("query defaults");
+    assert_eq!(empty.limit, 50);
+    assert_eq!(empty.producer, None);
+    assert_eq!(empty.result_kind, None);
+    assert_eq!(empty.after_id, None);
+    empty.validate().expect("defaults valid");
+    let serialized = to_value(&empty).expect("serialize query");
+    let object = serialized.as_object().expect("object");
+    assert_eq!(object.get("limit"), Some(&json!(50)));
+    assert!(!object.contains_key("producer"));
+    assert!(!object.contains_key("result_kind"));
+    assert!(!object.contains_key("after_id"));
+
+    for bad in [0, 101] {
+        let parsed: ListDocumentResultsQuery =
+            serde_json::from_value(json!({"limit": bad})).expect("parses, validation rejects");
+        assert!(parsed.validate().is_err(), "limit {bad} must be rejected");
+    }
+
+    let filtered: ListDocumentResultsQuery = serde_json::from_value(json!({
+        "producer": "stock.disclosure",
+        "result_kind": "summary.v1",
+        "after_id": 42,
+        "limit": 10
     }))
-    .expect("decision payload");
-    assert!(matches!(typed, ExtractionResultPayload::Decision(_)));
-    // Spot-check the named answer/option/level leaves used across the suite.
-    let _ = ChoiceAnswer {
-        name: "d".to_string(),
-        choice: "up".to_string(),
-        probabilities: vec![],
-        confidence: 0.0,
+    .expect("filtered query");
+    filtered.validate().expect("filtered valid");
+    assert_eq!(filtered.after_id, Some(42));
+
+    let bad_producer: ListDocumentResultsQuery =
+        serde_json::from_value(json!({"producer": "stock news"})).expect("parses");
+    assert!(bad_producer.validate().is_err());
+    let bad_after: ListDocumentResultsQuery =
+        serde_json::from_value(json!({"after_id": -1})).expect("parses");
+    assert!(bad_after.validate().is_err());
+}
+
+#[test]
+fn caller_result_responses_are_wire_stable() {
+    let response = DocumentResultResponse {
+        id: 9,
+        document_id: 42,
+        author_user_id: 1,
+        producer: "stock.news".to_string(),
+        result_kind: "sentiment.v1".to_string(),
+        schema_ref: "stock.news/sentiment@1".to_string(),
+        source_record_hash: "sha256:abc".to_string(),
+        idempotency_key: "run-1".to_string(),
+        result: json!({"direction": "positive"}),
+        provenance: None,
+        created_at: "2026-01-01T00:00:00Z".parse().expect("timestamp"),
     };
-    let _ = ScoreAnswer {
-        name: "s".to_string(),
-        score: 0.0,
-        probabilities: vec![],
-        confidence: 0.0,
+    let value = to_value(&response).expect("serialize response");
+    let object = value.as_object().expect("object");
+    assert_eq!(object.get("author_user_id"), Some(&json!(1)));
+    assert_eq!(object.get("document_id"), Some(&json!(42)));
+    assert!(
+        !object.contains_key("provenance"),
+        "absent provenance must not serialize a null"
+    );
+    let round_tripped: DocumentResultResponse =
+        serde_json::from_value(value).expect("round trip response");
+    assert_eq!(round_tripped, response);
+
+    let page = ListDocumentResultsResponse {
+        source_record_hash: "sha256:abc".to_string(),
+        items: vec![response],
+        next_after_id: None,
     };
-    let _ = RefusalAnswer {
-        name: "r".to_string(),
-    };
-    let _ = ExtractionResultValue { value: json!({}) };
-    let _ = DecisionResultValue { answers: vec![] };
+    let page_value = to_value(&page).expect("serialize page");
+    let page_object = page_value.as_object().expect("object");
+    assert_eq!(
+        page_object.get("source_record_hash"),
+        Some(&json!("sha256:abc"))
+    );
+    assert_eq!(
+        page_object
+            .get("items")
+            .and_then(|v| v.as_array())
+            .map(Vec::len),
+        Some(1)
+    );
+    assert!(
+        !page_object.contains_key("next_after_id"),
+        "terminal page omits next_after_id"
+    );
 }

@@ -148,8 +148,7 @@ pub(super) async fn process_url(
                 .await?;
         }
         let next = if file.ingest_status == LibraryIngestStatus::Succeeded {
-            // A reused, already-ingested file only needs translation and
-            // extraction.
+            // A reused, already-ingested file only needs translation.
             "translation"
         } else {
             service

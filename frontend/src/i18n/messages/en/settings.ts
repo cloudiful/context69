@@ -15,7 +15,7 @@ export const settings = {
     runtime: "Runtime",
     docling: "Docling",
     docling_poll: "Docling Poll",
-    translation: "Translation and enrichment",
+    translation: "Translation",
     adminUsers: "Admin Users",
   },
   hints: {
@@ -104,9 +104,9 @@ export const settings = {
     keywordWeight: "Keyword weight",
   },
   translation: {
-    title: "Translation and document enrichment",
-    description: "The LLM configuration here is shared by document translation, news enrichment, and disclosure enrichment. New jobs use the updated endpoint, model, and API kind.",
-    llmDescription: "This LLM provider is shared by translation and document enrichment, including news summaries, tags, impact judgments, and structured disclosure extraction.",
+    title: "Translation",
+    description: "The LLM configuration here is used by document translation. New jobs use the updated endpoint, model, and API kind.",
+    llmDescription: "This LLM provider is shared by translation jobs.",
     enabled: "Enabled",
     endpoint: "Endpoint",
     apiKey: "API Key",

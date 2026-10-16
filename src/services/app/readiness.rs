@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_extraction::ExtractionReadiness;
 use context69_translation::TranslationReadiness;
 use uuid::Uuid;
 
@@ -16,18 +15,6 @@ use crate::{
 pub struct LibraryEmbeddingVectorReadiness {
     pub store: LibraryStore,
     pub configuration_fingerprint: String,
-}
-
-#[async_trait]
-impl ExtractionReadiness for LibraryEmbeddingVectorReadiness {
-    async fn is_ready(&self) -> Result<bool> {
-        let gates = self.store.list_dependency_gates().await?;
-        let canonical = LibraryDependency::Embedding.canonical_str();
-        let gate = gates
-            .iter()
-            .find(|gate| LibraryDependency::canonical_key(&gate.dependency_key) == canonical);
-        Ok(gate.is_some_and(|gate| gate.state == "closed"))
-    }
 }
 
 #[async_trait]

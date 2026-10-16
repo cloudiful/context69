@@ -154,7 +154,6 @@ pub async fn start(
     tasks.start_maintenance();
     tasks.start_event_bus();
     services.translation.resume().await?;
-    services.extraction.resume().await?;
     if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
         warn!(error = %error, "failed to prune expired rerank item scores during startup");
     }

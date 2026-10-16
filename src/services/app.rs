@@ -1,5 +1,4 @@
 use anyhow::Result;
-use context69_extraction::ExtractionService;
 use context69_translation::TranslationService;
 
 use crate::{
@@ -41,7 +40,6 @@ pub struct Context69App {
     pub source_folders: SourceFoldersService,
     pub document_store: DocumentStoreService,
     pub translation: TranslationService,
-    pub extraction: ExtractionService,
     pub tasks: TaskService,
     /// The one path to persisted reversible runtime secrets. Later work routes
     /// provider and settings credentials through it instead of reading their
@@ -88,7 +86,6 @@ impl Context69App {
             source_folders: startup.source_folders,
             document_store: background.document_store,
             translation: services.translation,
-            extraction: services.extraction,
             tasks: background.tasks,
             secrets: hydration.secrets,
             browser_sessions: hydration.browser_sessions,

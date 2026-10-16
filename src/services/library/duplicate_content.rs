@@ -92,15 +92,6 @@ impl LibraryService {
                 .await;
             return Err(error);
         }
-        if let Some(directive) = upload.options.extraction.as_ref()
-            && let Err(error) = self
-                .apply_file_extraction_directive(file_id, directive)
-                .await
-        {
-            self.rollback_new_uploaded_file_for_task(group_id, file_id, &object, lease_token)
-                .await;
-            return Err(error);
-        }
 
         info!(
             file_id = %file_id,

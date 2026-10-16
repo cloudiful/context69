@@ -25,7 +25,6 @@ use context69::{
     config::FileLibraryConfig,
     services::{
         document_store::DocumentStoreService,
-        extraction::ExtractionPublisherAdapter,
         library::{LibraryService, LibraryServiceConfig},
         namespace::NamespaceService,
         secret_store,
@@ -36,24 +35,16 @@ use context69::{
         translation::TranslationPublisherAdapter,
     },
 };
-use context69_extraction::{ExtractionDependencies, ExtractionReadiness, ExtractionService};
 use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
 use serde_json::{Value, json};
 use sqlx::Row;
 use uuid::Uuid;
 
-/// Readiness only: the rerun contract never runs translation or extraction.
+/// Readiness only: the rerun contract never runs translation.
 struct NotReady;
 
 #[async_trait]
 impl TranslationReadiness for NotReady {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
-
-#[async_trait]
-impl ExtractionReadiness for NotReady {
     async fn is_ready(&self) -> Result<bool> {
         Ok(false)
     }
@@ -74,13 +65,6 @@ async fn build_task_service(db: &Database) -> TaskService {
             None,
             chunking.clone(),
         )),
-        concurrency: 1,
-        readiness: Arc::new(NotReady),
-    });
-    let extraction = ExtractionService::new(ExtractionDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(ExtractionPublisherAdapter::new(db.clone(), None)),
         concurrency: 1,
         readiness: Arc::new(NotReady),
     });
@@ -107,7 +91,6 @@ async fn build_task_service(db: &Database) -> TaskService {
         },
         SettingsService::new(db.clone()),
         translation.clone(),
-        extraction,
     )
     .await
     .expect("build library service");

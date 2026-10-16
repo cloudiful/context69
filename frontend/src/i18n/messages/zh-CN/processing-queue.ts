@@ -186,7 +186,7 @@ export const processingQueue = {
     file_batch: "文件",
     url_batch: "URL",
     delete_batch: "删除",
-    translation: "翻译与富化",
+    translation: "翻译",
     vector_rebuild: "向量重建",
   },
   waitingReasons: {

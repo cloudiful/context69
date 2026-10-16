@@ -1,0 +1,151 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    id,\n    document_id,\n    author_user_id,\n    producer,\n    result_kind,\n    schema_ref,\n    source_record_hash,\n    idempotency_key,\n    result,\n    provenance,\n    created_at\nFROM context69.document_results\nWHERE document_id = $1\n  AND author_user_id = $2\n  AND producer = $3\n  AND idempotency_key = $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "author_user_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "author_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "producer",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "producer"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "result_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "result_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "schema_ref",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "schema_ref"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "source_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "source_record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "idempotency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "idempotency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "result",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "result"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "provenance",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "provenance"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "4eec0f7a6e62117f938c7400f9212867046e61097ae56d35b7c0e2c0c001898e"
+}

@@ -13,10 +13,6 @@ use context69::contracts::{LibraryFileSummary, PrepareLibraryUploadRequest};
 use context69::db::Database;
 use context69::services::library::{LibraryService, LibraryServiceConfig, UploadedLibraryFile};
 use context69::services::settings::SettingsService;
-use context69_extraction::{
-    ExtractionDependencies, ExtractionPublication, ExtractionPublisher, ExtractionReadiness,
-    ExtractionService,
-};
 use context69_namespace::GroupRecord;
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
@@ -30,7 +26,7 @@ use uuid::Uuid;
 const URI_A: &str = "https://example.com/a";
 const URI_B: &str = "https://example.com/b";
 
-/// No-op stand-in for the translation/extraction callbacks LibraryService requires.
+/// No-op stand-in for the translation callbacks LibraryService requires.
 struct NoopCallbacks;
 
 #[async_trait]
@@ -53,18 +49,6 @@ impl TranslationReadiness for NoopCallbacks {
         Ok(false)
     }
 }
-#[async_trait]
-impl ExtractionPublisher for NoopCallbacks {
-    async fn publish(&self, _publication: &ExtractionPublication<'_>) -> Result<()> {
-        Ok(())
-    }
-}
-#[async_trait]
-impl ExtractionReadiness for NoopCallbacks {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
 
 async fn connect_db() -> Database {
     let url = context69_test_support::accessor::database_url();
@@ -78,13 +62,6 @@ async fn build_library_service(db: &Database) -> (LibraryService, std::path::Pat
     let storage_root = std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
     let settings = SettingsService::new(db.clone());
     let translation = TranslationService::new(TranslationDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(NoopCallbacks),
-        concurrency: 1,
-        readiness: Arc::new(NoopCallbacks),
-    });
-    let extraction = ExtractionService::new(ExtractionDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::new(),
         publisher: Arc::new(NoopCallbacks),
@@ -116,7 +93,6 @@ async fn build_library_service(db: &Database) -> (LibraryService, std::path::Pat
         },
         settings,
         translation,
-        extraction,
     )
     .await
     .expect("build library service");
@@ -239,7 +215,6 @@ async fn land_original_file(
                             .collect(),
                     },
                     translation: None,
-                    extraction: None,
                     source_policy: context69::contracts::SourcePolicy::Retain,
                 },
                 staged_storage_object_id: None,
@@ -286,7 +261,6 @@ async fn prepare_upload_reuses_storage_and_creates_new_file_row() {
                             .collect(),
                     },
                     translation: None,
-                    extraction: None,
                     source_policy: context69::contracts::SourcePolicy::Retain,
                 },
             },
@@ -361,7 +335,6 @@ async fn task_upload_helper_creates_new_file_row_sharing_storage() {
                             .collect(),
                     },
                     translation: None,
-                    extraction: None,
                     source_policy: context69::contracts::SourcePolicy::Retain,
                 },
                 staged_storage_object_id: None,

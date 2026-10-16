@@ -49,7 +49,7 @@ pub(super) async fn ensure_library_version_in_transaction(
     }
 
     // Reconstruct the complete body from ordered chunks. Never use
-    // `payload.chunk_text` here: the extraction publisher only carries the
+    // `payload.chunk_text` here: the translation publisher only carries the
     // first chunk, which would persist a partial snapshot.
     let chunks = sqlx::query_file_as!(
         ChunkRow,

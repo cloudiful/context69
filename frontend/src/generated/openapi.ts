@@ -52,22 +52,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/admin/extraction/health": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["get_extraction_health"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/admin/tasks/cancel-active": {
         parameters: {
             query?: never;
@@ -420,32 +404,16 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions": {
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/results": {
         parameters: {
             query?: never;
             header?: never;
             path?: never;
             cookie?: never;
         };
-        get: operations["list_document_extraction_jobs"];
+        get: operations["list_document_results"];
         put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/by-path/{group_path}/documents/{document_id}/extractions/rebuild": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["rebuild_document_extractions"];
+        post: operations["create_document_result"];
         delete?: never;
         options?: never;
         head?: never;
@@ -478,22 +446,6 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["rebuild_document_translations"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/v1/groups/by-path/{group_path}/extraction-templates": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["list_extraction_templates"];
-        put: operations["upsert_extraction_template"];
-        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1496,9 +1448,9 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** @description Get translation providers. The LLM provider is also used by document extraction and enrichment jobs. */
+        /** @description Get translation providers for document translation jobs. */
         get: operations["get_translation_settings"];
-        /** @description Update translation providers. The LLM provider settings apply to document extraction and enrichment jobs as well as translation. */
+        /** @description Update translation providers. The LLM provider settings apply to document translation jobs. */
         put: operations["update_translation_settings"];
         post?: never;
         delete?: never;
@@ -2008,27 +1960,6 @@ export interface components {
             published_at?: string | null;
             source_uri?: string | null;
         };
-        ChoiceAnswer: {
-            choice: string;
-            /** Format: double */
-            confidence: number;
-            name: string;
-            probabilities: components["schemas"]["ChoiceProbability"][];
-        };
-        ChoiceOption: {
-            description: string;
-            value: string;
-        };
-        ChoiceProbability: {
-            /** Format: double */
-            probability: number;
-            value: string;
-        };
-        ChoiceQuestion: {
-            choices: components["schemas"]["ChoiceOption"][];
-            instructions: string;
-            name: string;
-        };
         /** @description Request body for `POST /v1/tasks/clear`. */
         ClearTaskHistoryRequest: {
             view: components["schemas"]["ClearTaskHistoryView"];
@@ -2051,6 +1982,33 @@ export interface components {
             is_admin: boolean;
             login_name: string;
             password: string;
+        };
+        /**
+         * @description One caller-produced result to append. Append-only: the same idempotency key
+         *     with an identical envelope replays the original immutable record, and a
+         *     changed envelope under a used key is a conflict. There is no field for the
+         *     author identity: ownership is the authenticated caller.
+         */
+        CreateDocumentResultRequest: {
+            /**
+             * @description Caller-chosen idempotency key, scoped to the document, author, and
+             *     producer.
+             */
+            idempotency_key: string;
+            /** @description Bounded opaque producer identifier, e.g. `stock.news`. */
+            producer: string;
+            provenance?: null | components["schemas"]["DocumentResultProvenance"];
+            /** @description The opaque result payload; must be a JSON object. */
+            result: Record<string, never>;
+            /** @description Bounded opaque result-kind identifier chosen by the producer. */
+            result_kind: string;
+            /** @description Producer-owned schema reference for the opaque payload. */
+            schema_ref: string;
+            /**
+             * @description The document `record_hash` this result was produced from. The current
+             *     source hash can be read from `GET` before binding a subsequent `POST`.
+             */
+            source_record_hash: string;
         };
         CreateFolderRequest: {
             name: string;
@@ -2104,30 +2062,6 @@ export interface components {
         CursorPagination: {
             has_more: boolean;
             next_cursor?: string | null;
-        };
-        /** @description One typed decision answer, tagged by `type`. */
-        DecisionAnswer: (components["schemas"]["PredicateAnswer"] & {
-            /** @enum {string} */
-            type: "predicate";
-        }) | (components["schemas"]["ChoiceAnswer"] & {
-            /** @enum {string} */
-            type: "choice";
-        }) | (components["schemas"]["ScoreAnswer"] & {
-            /** @enum {string} */
-            type: "score";
-        }) | (components["schemas"]["RefusalAnswer"] & {
-            /** @enum {string} */
-            type: "refusal";
-        });
-        DecisionDefinition: {
-            questions: components["schemas"]["ExtractionQuestion"][];
-        };
-        /**
-         * @description Decision result branch: the typed answer list. Refusal answers decode
-         *     here but execution treats them as failure, never success.
-         */
-        DecisionResultValue: {
-            answers: components["schemas"]["DecisionAnswer"][];
         };
         /** @enum {string} */
         DeeplPlan: "free" | "pro";
@@ -2289,6 +2223,38 @@ export interface components {
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
         };
+        /**
+         * @description Credential-free, typed provenance. Only these four optional fields exist:
+         *     Context69 stores them as opaque strings and never interprets them as a
+         *     business schema, and no credential may be placed here.
+         */
+        DocumentResultProvenance: {
+            model_name?: string | null;
+            producer_config_hash?: string | null;
+            run_id?: string | null;
+            workflow_version?: string | null;
+        };
+        /**
+         * @description One immutable stored result. `author_user_id` is the authenticated owner,
+         *     never a caller-supplied producer string.
+         */
+        DocumentResultResponse: {
+            /** Format: int64 */
+            author_user_id: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: int64 */
+            document_id: number;
+            /** Format: int64 */
+            id: number;
+            idempotency_key: string;
+            producer: string;
+            provenance?: null | components["schemas"]["DocumentResultProvenance"];
+            result: Record<string, never>;
+            result_kind: string;
+            schema_ref: string;
+            source_record_hash: string;
+        };
         DocumentSort: {
             field: components["schemas"]["DocumentSortField"];
             order: components["schemas"]["SortOrder"];
@@ -2307,147 +2273,6 @@ export interface components {
         EnsureScopeResponse: {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
-        };
-        /**
-         * @description Generative extraction branch of a template definition: the legacy
-         *     prompt/schema/token-cap contract, unchanged in behavior.
-         */
-        ExtractionDefinition: {
-            /** Format: int32 */
-            max_output_tokens?: number | null;
-            output_schema: Record<string, never>;
-            system_prompt: string;
-        };
-        ExtractionDirective: {
-            parameters?: Record<string, never>;
-            /**
-             * @description Required extractions must succeed: a failed/skipped/empty required
-             *     outcome blocks the owning item stage. Legacy and omitted directives
-             *     are required (`true`); only an explicit `false` opts out. Persisted
-             *     independently of `parameters`, never hidden inside them.
-             * @default true
-             */
-            required: boolean;
-            template_key: string;
-        };
-        /** @enum {string} */
-        ExtractionFailureClass: "transient" | "quota_exceeded" | "permanent";
-        ExtractionHealthResponse: {
-            /** Format: int64 */
-            awaiting_retry: number;
-            /** Format: int64 */
-            failed_last_hour: number;
-            failure_class_counts: {
-                [key: string]: number;
-            };
-            /** Format: date-time */
-            next_retry_at?: string | null;
-            /** Format: int64 */
-            queued: number;
-            /** Format: int64 */
-            running: number;
-        };
-        ExtractionJobResponse: {
-            /** Format: int32 */
-            attempt_count: number;
-            /** Format: date-time */
-            created_at: string;
-            /** Format: int64 */
-            document_id: number;
-            error_message?: string | null;
-            failure_class?: null | components["schemas"]["ExtractionFailureClass"];
-            /** Format: date-time */
-            finished_at?: string | null;
-            /** Format: uuid */
-            job_id: string;
-            /** Format: date-time */
-            next_attempt_at?: string | null;
-            source_record_hash: string;
-            /** Format: date-time */
-            started_at?: string | null;
-            status: components["schemas"]["ExtractionJobStatus"];
-            template_key: string;
-            /** Format: int32 */
-            template_version: number;
-            /** Format: date-time */
-            updated_at: string;
-        };
-        /** @enum {string} */
-        ExtractionJobStatus: "queued" | "running" | "succeeded" | "failed" | "skipped";
-        ExtractionJobsResponse: {
-            jobs: components["schemas"]["ExtractionJobResponse"][];
-            latest_results: components["schemas"]["ExtractionResultResponse"][];
-        };
-        /** @description One independently evaluated decision question, tagged by `type`. */
-        ExtractionQuestion: (components["schemas"]["PredicateQuestion"] & {
-            /** @enum {string} */
-            type: "predicate";
-        }) | (components["schemas"]["ChoiceQuestion"] & {
-            /** @enum {string} */
-            type: "choice";
-        }) | (components["schemas"]["ScoreQuestion"] & {
-            /** @enum {string} */
-            type: "score";
-        });
-        /**
-         * @description Tagged public result payload. History is decoded from the row's immutable
-         *     kind snapshot, never from the live template, so a template-kind change
-         *     cannot reinterpret already-persisted results.
-         */
-        ExtractionResultPayload: (components["schemas"]["ExtractionResultValue"] & {
-            /** @enum {string} */
-            kind: "extraction";
-        }) | (components["schemas"]["DecisionResultValue"] & {
-            /** @enum {string} */
-            kind: "decision";
-        });
-        ExtractionResultResponse: {
-            /** Format: date-time */
-            created_at: string;
-            /** Format: int64 */
-            document_id: number;
-            model_name?: string | null;
-            result: components["schemas"]["ExtractionResultPayload"];
-            source_record_hash: string;
-            template_key: string;
-            /** Format: int32 */
-            template_version: number;
-            /** Format: uuid */
-            version_id: string;
-        };
-        /** @description Generative result branch: the existing arbitrary JSON value, unchanged. */
-        ExtractionResultValue: {
-            value: Record<string, never>;
-        };
-        /**
-         * @description Tagged public template definition (accepted breaking contract): either the
-         *     generative extraction branch or a decision question list. Unknown flat
-         *     fields are rejected, never silently ignored.
-         */
-        ExtractionTemplateDefinition: (components["schemas"]["ExtractionDefinition"] & {
-            /** @enum {string} */
-            kind: "extraction";
-        }) | (components["schemas"]["DecisionDefinition"] & {
-            /** @enum {string} */
-            kind: "decision";
-        });
-        ExtractionTemplateInput: {
-            definition: components["schemas"]["ExtractionTemplateDefinition"];
-            description?: string | null;
-            enabled?: boolean;
-            template_key: string;
-        };
-        ExtractionTemplateResponse: {
-            /** Format: date-time */
-            created_at: string;
-            definition: components["schemas"]["ExtractionTemplateDefinition"];
-            description?: string | null;
-            enabled: boolean;
-            template_key: string;
-            /** Format: date-time */
-            updated_at: string;
-            /** Format: int32 */
-            version: number;
         };
         /**
          * @description v0.18 canonical file batch item: ingest behavior is owned entirely by
@@ -3344,7 +3169,6 @@ export interface components {
             url: string;
         };
         IngestOptions: {
-            extraction?: null | components["schemas"]["ExtractionDirective"];
             metadata?: components["schemas"]["CanonicalUploadMetadata"];
             source_policy?: components["schemas"]["SourcePolicy"];
             translation?: null | components["schemas"]["TranslationDirective"];
@@ -3536,6 +3360,31 @@ export interface components {
         LibraryTreeResponse: {
             root: components["schemas"]["LibraryFolderNode"];
         };
+        /**
+         * @description List filters. `limit` defaults to 50 and is bounded to `1..=100`; results
+         *     are ordered by `id` descending and `after_id` continues from the last
+         *     returned id.
+         */
+        ListDocumentResultsQuery: {
+            /** Format: int64 */
+            after_id?: number | null;
+            /** Format: int32 */
+            limit?: number;
+            producer?: string | null;
+            result_kind?: string | null;
+        };
+        /**
+         * @description A page of results for one document, exposing the document's current source
+         *     record hash so a caller can bind a subsequent `POST`. The read never
+         *     mutates document metadata.
+         */
+        ListDocumentResultsResponse: {
+            items: components["schemas"]["DocumentResultResponse"][];
+            /** Format: int64 */
+            next_after_id?: number | null;
+            /** @description The document's current `record_hash` at read time. */
+            source_record_hash: string;
+        };
         MemberPageQuery: {
             /** Format: int32 */
             page?: number;
@@ -3696,15 +3545,6 @@ export interface components {
         };
         /** @enum {string} */
         PersonalAccessTokenScope: "search" | "workspace" | "library" | "sources" | "settings" | "admin";
-        PredicateAnswer: {
-            name: string;
-            /** Format: double */
-            probability: number;
-        };
-        PredicateQuestion: {
-            instructions: string;
-            name: string;
-        };
         /**
          * @description v0.18 canonical prepare-upload: ingest behavior is owned entirely by
          *     `options`. Flattened legacy fields (`metadata`/`translation`/
@@ -3726,18 +3566,8 @@ export interface components {
             task?: null | components["schemas"]["TaskRef"];
             upload_required: boolean;
         };
-        RebuildDocumentExtractionsRequest: {
-            template_keys?: string[];
-        };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
-        };
-        /**
-         * @description A refusal is parsed failure evidence, never a successfully persisted
-         *     decision: execution treats it as failure (later adapter phase).
-         */
-        RefusalAnswer: {
-            name: string;
         };
         RerunTaskResponse: {
             task: components["schemas"]["TaskRef"];
@@ -3806,33 +3636,6 @@ export interface components {
             metadata_indexes?: components["schemas"]["ScopeMetadataIndex"][];
             name: string;
             visibility: components["schemas"]["Visibility"];
-        };
-        ScoreAnswer: {
-            /** Format: double */
-            confidence: number;
-            name: string;
-            probabilities: components["schemas"]["ScoreProbability"][];
-            /** Format: double */
-            score: number;
-        };
-        ScoreLevel: {
-            description: string;
-            label: string;
-        };
-        ScoreProbability: {
-            label: string;
-            /** Format: double */
-            probability: number;
-            /**
-             * Format: int32
-             * @description Zero-based index into the question's levels.
-             */
-            value: number;
-        };
-        ScoreQuestion: {
-            instructions: string;
-            levels: components["schemas"]["ScoreLevel"][];
-            name: string;
         };
         SearchHit: {
             /** Format: uuid */
@@ -4866,7 +4669,6 @@ export interface components {
             content: string;
             content_format?: components["schemas"]["LibraryTextContentFormat"];
             external_id: string;
-            extraction?: null | components["schemas"]["ExtractionDirective"];
             /** Format: uuid */
             folder_id?: string | null;
             metadata_json?: Record<string, never>;
@@ -5000,25 +4802,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
-    get_extraction_health: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionHealthResponse"];
                 };
             };
         };
@@ -6020,9 +5803,14 @@ export interface operations {
             };
         };
     };
-    list_document_extraction_jobs: {
+    list_document_results: {
         parameters: {
-            query?: never;
+            query?: {
+                producer?: string;
+                result_kind?: string;
+                after_id?: number;
+                limit?: number;
+            };
             header?: never;
             path: {
                 group_path: string;
@@ -6037,12 +5825,28 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExtractionJobsResponse"];
+                    "application/json": components["schemas"]["ListDocumentResultsResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };
     };
-    rebuild_document_extractions: {
+    create_document_result: {
         parameters: {
             query?: never;
             header?: never;
@@ -6054,7 +5858,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RebuildDocumentExtractionsRequest"];
+                "application/json": components["schemas"]["CreateDocumentResultRequest"];
             };
         };
         responses: {
@@ -6063,7 +5867,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ExtractionJobsResponse"];
+                    "application/json": components["schemas"]["DocumentResultResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };
@@ -6125,52 +5961,6 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
-            };
-        };
-    };
-    list_extraction_templates: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_path: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionTemplateResponse"][];
-                };
-            };
-        };
-    };
-    upsert_extraction_template: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                group_path: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["ExtractionTemplateInput"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ExtractionTemplateResponse"];
-                };
             };
         };
     };

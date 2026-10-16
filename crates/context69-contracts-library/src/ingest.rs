@@ -83,8 +83,6 @@ pub struct IngestOptions {
     pub metadata: CanonicalUploadMetadata,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub translation: Option<context69_contracts_translation::TranslationDirective>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extraction: Option<context69_contracts_extraction::ExtractionDirective>,
     #[serde(default)]
     pub source_policy: SourcePolicy,
 }

@@ -1,7 +1,7 @@
 //! Shared fixtures for the issue 139 version-invariant regression.
 //!
 //! Seeding and assertion helpers only; behavior and isolation match the
-//! original single-file test. Extraction read-path assertions stay in the
+//! original single-file test. Version read-path assertions stay in the
 //! parent test file.
 
 use context69::db::Database;

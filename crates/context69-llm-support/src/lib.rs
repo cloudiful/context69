@@ -1,11 +1,15 @@
 //! Shared transport primitives for LLM-backed providers.
 //!
-//! Extraction and translation keep their own request payloads, tool names,
+//! Translation keeps its own request payloads, tool names,
 //! prompts, schemas, token policies, result validation, and domain error
 //! types. This crate only owns the duplicated wire mechanics: endpoint
 //! normalization, non-empty model/key/kind validation, provider HTTP request
 //! execution, successful JSON decoding, structured HTTP/JSON errors, and the
 //! common OpenAI Chat/Responses plus Anthropic tool-call payload extraction.
+
+pub mod structured;
+
+pub use structured::{LlmSchemaError, StructuredToolCall, structured_tool_call, validate_schema};
 
 use anyhow::{Context, Result};
 use serde_json::Value;

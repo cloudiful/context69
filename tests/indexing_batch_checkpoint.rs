@@ -402,10 +402,6 @@ mod integration {
         parse_indexing_checkpoint, parse_pipeline_progress, payload_with_checkpoint,
     };
     use context69::services::settings::SettingsService;
-    use context69_extraction::{
-        ExtractionDependencies, ExtractionPublication, ExtractionPublisher, ExtractionReadiness,
-        ExtractionService,
-    };
     use context69_namespace::GroupRecord;
     use context69_translation::{
         TranslationChunkPublication, TranslationDependencies, TranslationPublication,
@@ -437,18 +433,6 @@ mod integration {
     }
     #[async_trait]
     impl TranslationReadiness for NoopCallbacks {
-        async fn is_ready(&self) -> anyhow::Result<bool> {
-            Ok(false)
-        }
-    }
-    #[async_trait]
-    impl ExtractionPublisher for NoopCallbacks {
-        async fn publish(&self, _publication: &ExtractionPublication<'_>) -> anyhow::Result<()> {
-            Ok(())
-        }
-    }
-    #[async_trait]
-    impl ExtractionReadiness for NoopCallbacks {
         async fn is_ready(&self) -> anyhow::Result<bool> {
             Ok(false)
         }
@@ -510,13 +494,6 @@ mod integration {
             concurrency: 1,
             readiness: Arc::new(NoopCallbacks),
         });
-        let extraction = ExtractionService::new(ExtractionDependencies {
-            pool: db.pool().clone(),
-            http_client: reqwest::Client::new(),
-            publisher: Arc::new(NoopCallbacks),
-            concurrency: 1,
-            readiness: Arc::new(NoopCallbacks),
-        });
         let service = LibraryService::new(
             db.clone(),
             Some(embedding),
@@ -542,7 +519,6 @@ mod integration {
             },
             settings,
             translation,
-            extraction,
         )
         .await
         .expect("build library service");

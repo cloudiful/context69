@@ -190,7 +190,7 @@ export const processingQueue = {
     file_batch: "File",
     url_batch: "URL",
     delete_batch: "Delete",
-    translation: "Translation and enrichment",
+    translation: "Translation",
     vector_rebuild: "Vector rebuild",
   },
   waitingReasons: {

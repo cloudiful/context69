@@ -13,10 +13,6 @@ use context69::config::FileLibraryConfig;
 use context69::db::Database;
 use context69::services::library::{LibraryService, LibraryServiceConfig};
 use context69::services::settings::SettingsService;
-use context69_extraction::{
-    ExtractionDependencies, ExtractionPublication, ExtractionPublisher, ExtractionReadiness,
-    ExtractionService,
-};
 use context69_namespace::GroupRecord;
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
@@ -51,20 +47,6 @@ impl TranslationReadiness for NoopCallbacks {
     }
 }
 
-#[async_trait]
-impl ExtractionPublisher for NoopCallbacks {
-    async fn publish(&self, _publication: &ExtractionPublication<'_>) -> Result<()> {
-        Ok(())
-    }
-}
-
-#[async_trait]
-impl ExtractionReadiness for NoopCallbacks {
-    async fn is_ready(&self) -> Result<bool> {
-        Ok(false)
-    }
-}
-
 pub async fn connect_scratch() -> Database {
     let url = context69_test_support::accessor::database_url();
 
@@ -87,13 +69,6 @@ pub async fn build_library_service_at(
 ) -> LibraryService {
     let settings = SettingsService::new(db.clone());
     let translation = TranslationService::new(TranslationDependencies {
-        pool: db.pool().clone(),
-        http_client: reqwest::Client::new(),
-        publisher: Arc::new(NoopCallbacks),
-        concurrency: 1,
-        readiness: Arc::new(NoopCallbacks),
-    });
-    let extraction = ExtractionService::new(ExtractionDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::new(),
         publisher: Arc::new(NoopCallbacks),
@@ -125,7 +100,6 @@ pub async fn build_library_service_at(
         },
         settings,
         translation,
-        extraction,
     )
     .await
     .expect("build library service")

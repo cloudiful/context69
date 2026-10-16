@@ -215,14 +215,6 @@ impl LibraryService {
             self.rollback_project_file_change(rollback_request).await;
             return Err(error);
         }
-        if let Some(directive) = request.extraction.as_ref()
-            && let Err(error) = self
-                .apply_file_extraction_directive(file_id, directive)
-                .await
-        {
-            self.rollback_project_file_change(rollback_request).await;
-            return Err(error);
-        }
         let section_payload = match serde_json::to_value(vec![IngestSection {
             section_key: "document".to_string(),
             section_label: title.clone(),

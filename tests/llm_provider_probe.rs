@@ -367,7 +367,7 @@ fn tool_payload(kind: &str) -> serde_json::Value {
         "openai_responses" => serde_json::json!({
             "output": [{
                 "type": "function_call",
-                "name": "submit_extraction",
+                "name": "submit_result",
                 "arguments": "{\"ok\": true}"
             }]
         }),
@@ -381,7 +381,7 @@ fn tool_payload(kind: &str) -> serde_json::Value {
         _ => serde_json::json!({
             "content": [{
                 "type": "tool_use",
-                "name": "submit_extraction",
+                "name": "submit_result",
                 "input": {"ok": true}
             }]
         }),
@@ -610,7 +610,7 @@ async fn malformed_payloads_are_invalid_without_remote_text() {
         serde_json::json!({"output": []}),
         serde_json::json!({"output": [{
             "type": "function_call",
-            "name": "submit_extraction",
+            "name": "submit_result",
             "arguments": "{\"ok\": \"not-a-bool\"}"
         }]}),
         serde_json::json!({"not": "the envelope"}),
