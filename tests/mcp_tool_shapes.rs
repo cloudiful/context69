@@ -94,6 +94,7 @@ fn sample_document() -> DocumentResponse {
             chunk_id: Uuid::new_v4(),
             chunk_index: 0,
             text: "chunk body".to_string(),
+            record_hash: "hash".to_string(),
         }],
         requested_locale: None,
         content_locale: None,

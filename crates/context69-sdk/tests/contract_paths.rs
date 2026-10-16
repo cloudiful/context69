@@ -241,7 +241,7 @@ fn document_json() -> Value {
         "record_hash": "abc",
         "metadata_json": {},
         "is_library_file": false,
-        "chunks": [{"chunk_id": task_id(), "chunk_index": 0, "text": "hello"}],
+        "chunks": [{"chunk_id": task_id(), "chunk_index": 0, "text": "hello", "record_hash": "abc"}],
         "is_fallback": false
     })
 }

@@ -2198,6 +2198,30 @@
     },
     {
       "package": "context69",
+      "target": "document_chunk_generations",
+      "test": "cases::localized_read_reports_translation_source_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_chunk_generations",
+      "test": "cases::mixed_generation_read_is_observable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_chunk_generations",
+      "test": "cases::original_none_locale_read_keeps_provenance_and_text",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_chunk_generations",
+      "test": "cases::original_read_reports_each_chunk_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "document_results",
       "test": "cases::accepted_delivery_stays_replayable_after_document_update",
       "class": "db"
@@ -2242,6 +2266,12 @@
       "package": "context69",
       "target": "document_results",
       "test": "cases::out_of_scope_and_cross_group_document_reads_are_not_found",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_results",
+      "test": "cases::source_read_reports_chunk_generation",
       "class": "db"
     },
     {

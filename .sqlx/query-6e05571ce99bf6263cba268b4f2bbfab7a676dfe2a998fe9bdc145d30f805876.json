@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT v.id, v.target_locale, v.translated_title, v.translated_summary\nFROM context69.document_translation_versions v\nJOIN context69.documents d ON d.id = v.document_id\nWHERE v.document_id = $1 AND v.target_locale = $2\n  AND v.source_record_hash = d.record_hash\n",
+  "query": "SELECT v.id, v.target_locale, v.translated_title, v.translated_summary, v.source_record_hash\nFROM context69.document_translation_versions v\nJOIN context69.documents d ON d.id = v.document_id\nWHERE v.document_id = $1 AND v.target_locale = $2\n  AND v.source_record_hash = d.record_hash\n",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,17 @@
             "name": "translated_summary"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "source_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_versions",
+            "name": "source_record_hash"
+          }
+        }
       }
     ],
     "parameters": {
@@ -58,8 +69,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "e84cc0b6f1b2bf440dbbb203f5ef0a4bade7bfe8a5df22a97374458dbad4db97"
+  "hash": "6e05571ce99bf6263cba268b4f2bbfab7a676dfe2a998fe9bdc145d30f805876"
 }

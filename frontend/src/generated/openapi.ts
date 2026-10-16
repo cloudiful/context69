@@ -2168,6 +2168,18 @@ export interface components {
             chunk_id: string;
             /** Format: int32 */
             chunk_index: number;
+            /**
+             * @description Source generation this chunk text was produced from.
+             *
+             *     For an original-locale chunk it is the chunk's own
+             *     `document_chunks.record_hash`; for a translated chunk it is the
+             *     translation version's `source_record_hash`. A caller must compare it
+             *     against the enclosing document header's `record_hash` and reject an
+             *     empty chunk or a mismatch. Header and chunk reads are independent, so
+             *     they are not an atomic snapshot and a mismatch is observable rather than
+             *     impossible.
+             */
+            record_hash: string;
             text: string;
         };
         DocumentKey: {

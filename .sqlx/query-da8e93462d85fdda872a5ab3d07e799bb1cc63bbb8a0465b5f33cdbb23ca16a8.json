@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT DISTINCT ON (v.document_id)\n    v.document_id,\n    v.id,\n    v.target_locale,\n    v.translated_title,\n    v.translated_summary\nFROM context69.document_translation_versions v\nJOIN context69.documents d\n  ON d.id = v.document_id\n AND d.record_hash = v.source_record_hash\nWHERE v.document_id = ANY($1)\n  AND v.target_locale = $2\nORDER BY v.document_id, v.created_at DESC, v.id DESC\n",
+  "query": "SELECT DISTINCT ON (v.document_id)\n    v.document_id,\n    v.id,\n    v.target_locale,\n    v.translated_title,\n    v.translated_summary,\n    v.source_record_hash\nFROM context69.document_translation_versions v\nJOIN context69.documents d\n  ON d.id = v.document_id\n AND d.record_hash = v.source_record_hash\nWHERE v.document_id = ANY($1)\n  AND v.target_locale = $2\nORDER BY v.document_id, v.created_at DESC, v.id DESC\n",
   "describe": {
     "columns": [
       {
@@ -57,6 +57,17 @@
             "name": "translated_summary"
           }
         }
+      },
+      {
+        "ordinal": 5,
+        "name": "source_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_versions",
+            "name": "source_record_hash"
+          }
+        }
       }
     ],
     "parameters": {
@@ -70,8 +81,9 @@
       false,
       false,
       false,
-      true
+      true,
+      false
     ]
   },
-  "hash": "fa0eaed38285bd16253984ca49345e414f119ef4e98a44650733c207de395f79"
+  "hash": "da8e93462d85fdda872a5ab3d07e799bb1cc63bbb8a0465b5f33cdbb23ca16a8"
 }

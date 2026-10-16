@@ -107,6 +107,7 @@ fn sample_document(chunks: usize, chunk_len: usize) -> DocumentResponse {
                 chunk_id: Uuid::new_v4(),
                 chunk_index: index as i32,
                 text: "x".repeat(chunk_len),
+                record_hash: "deadbeef".to_string(),
             })
             .collect(),
         requested_locale: None,

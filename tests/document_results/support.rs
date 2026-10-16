@@ -74,6 +74,29 @@ pub async fn seed_document(
     .get("id")
 }
 
+/// Seed an original-locale chunk carrying its own stored `record_hash`.
+pub async fn seed_document_chunk(
+    db: &Database,
+    document_id: i64,
+    chunk_index: i32,
+    chunk_text: &str,
+    record_hash: &str,
+) {
+    sqlx::query(
+        "INSERT INTO context69.document_chunks \
+         (id, document_id, chunk_index, chunk_text, record_hash) \
+         VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(Uuid::new_v4())
+    .bind(document_id)
+    .bind(chunk_index)
+    .bind(chunk_text)
+    .bind(record_hash)
+    .execute(db.pool())
+    .await
+    .expect("seed document chunk");
+}
+
 /// A caller-facing scope whose only visible group is `group_id`.
 pub fn member_scope(group_id: i64, group_path: &str) -> AccessScope {
     AccessScope {

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT chunk_index, chunk_text\nFROM context69.document_chunks\nWHERE document_id = $1\nORDER BY chunk_index\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "chunk_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "chunk_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "246f34ef3a065faa5331952598019c6c81b158975133d7e909ab71e7044d2b04"
+}

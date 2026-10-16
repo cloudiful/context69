@@ -371,6 +371,33 @@ async fn list_read_does_not_mutate_document_metadata() {
     cleanup_user(&db, user).await;
 }
 
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn source_read_reports_chunk_generation() {
+    // The document read path a caller uses to produce results must expose the
+    // generation each returned chunk belongs to, not a blank field.
+    let db = connect_scratch().await;
+    let group = seed_group(&db, "public").await;
+    let path = group_path(&db, group).await;
+    let scope = member_scope(group, &path);
+    let document = seed_document(&db, group, "hash-2", &serde_json::json!({})).await;
+    seed_document_chunk(&db, document, 0, "alpha", "hash-1").await;
+
+    let response = db
+        .get_document(document, &scope)
+        .await
+        .expect("read document")
+        .expect("document is visible");
+    assert_eq!(response.record_hash, "hash-2", "header generation");
+    assert_eq!(response.chunks.len(), 1);
+    assert_eq!(
+        response.chunks[0].record_hash, "hash-1",
+        "the chunk exposes its own generation so a caller can compare"
+    );
+
+    cleanup_group(&db, group).await;
+}
+
 #[test]
 fn malformed_and_oversize_envelopes_are_rejected_before_any_io() {
     // Blank identifier alphabet, non-object result, and an oversize serialized

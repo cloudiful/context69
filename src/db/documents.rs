@@ -4,11 +4,11 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use super::{
-    ChunkRow, Database, DocumentChunkRow, DocumentKeyLookupRow, DocumentRow, ExistingDocumentRow,
-    KeywordSearchHitRow, ReindexChunkRow, SearchHitRow, TranslationChunkBatchRow,
-    TranslationStatusBatchRow, TranslationVersionBatchRow, UpsertedDocument, is_library_file,
-    keyword_terms, library_file_id, library_path, library_section_label,
-    search_hit_from_keyword_row, translation_status,
+    Database, DocumentKeyLookupRow, DocumentRow, ExistingDocumentRow, KeywordSearchHitRow,
+    ReadDocumentChunkBatchRow, ReadDocumentChunkRow, ReindexChunkRow, SearchHitRow,
+    TranslationChunkBatchRow, TranslationStatusBatchRow, TranslationVersionBatchRow,
+    UpsertedDocument, is_library_file, keyword_terms, library_file_id, library_path,
+    library_section_label, search_hit_from_keyword_row, translation_status,
 };
 use crate::chunk_payload::{RowPayload, from_row};
 use crate::contracts::{
@@ -92,8 +92,8 @@ impl Database {
         .fetch_all(&self.pool)
         .await?;
         let chunks = sqlx::query_file_as!(
-            DocumentChunkRow,
-            "src/sql/db/documents/get_document_chunks_by_ids.sql",
+            ReadDocumentChunkBatchRow,
+            "src/sql/db/documents/get_read_document_chunks_by_ids.sql",
             &ids
         )
         .fetch_all(&self.pool)
@@ -109,6 +109,7 @@ impl Database {
                         chunk_id: chunk.id,
                         chunk_index: chunk.chunk_index,
                         text: chunk.chunk_text,
+                        record_hash: chunk.record_hash,
                     });
             }
         }
@@ -166,16 +167,12 @@ impl Database {
             .into_iter()
             .map(|version| (version.document_id, version))
             .collect::<HashMap<_, _>>();
-        let mut chunks_by_version = HashMap::<Uuid, Vec<DocumentChunkResponse>>::new();
+        let mut chunks_by_version = HashMap::<Uuid, Vec<TranslationChunkBatchRow>>::new();
         for chunk in translation_chunks {
             chunks_by_version
                 .entry(chunk.translation_id)
                 .or_default()
-                .push(DocumentChunkResponse {
-                    chunk_id: chunk.id,
-                    chunk_index: chunk.chunk_index,
-                    text: chunk.chunk_text,
-                });
+                .push(chunk);
         }
         let statuses_by_document = statuses
             .into_iter()
@@ -188,7 +185,17 @@ impl Database {
                 document.summary = version.translated_summary.clone();
                 document.chunks = chunks_by_version
                     .get(&version.id)
-                    .cloned()
+                    .map(|chunks| {
+                        chunks
+                            .iter()
+                            .map(|chunk| DocumentChunkResponse {
+                                chunk_id: chunk.id,
+                                chunk_index: chunk.chunk_index,
+                                text: chunk.chunk_text.clone(),
+                                record_hash: version.source_record_hash.clone(),
+                            })
+                            .collect()
+                    })
                     .unwrap_or_default();
                 document.requested_locale = Some(locale.to_string());
                 document.content_locale = Some(version.target_locale.clone());
@@ -598,8 +605,8 @@ impl Database {
         };
 
         let chunks = sqlx::query_file_as!(
-            ChunkRow,
-            "src/sql/db/documents/get_document_chunks.sql",
+            ReadDocumentChunkRow,
+            "src/sql/db/documents/get_read_document_chunks.sql",
             document_id
         )
         .fetch_all(&self.pool)
@@ -614,6 +621,7 @@ impl Database {
                     chunk_id: chunk.id,
                     chunk_index: chunk.chunk_index,
                     text: chunk.chunk_text,
+                    record_hash: chunk.record_hash,
                 })
                 .collect(),
             None,

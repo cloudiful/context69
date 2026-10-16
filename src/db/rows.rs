@@ -35,17 +35,25 @@ pub(super) struct DocumentRow {
 
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct ChunkRow {
-    pub(super) id: Uuid,
     pub(super) chunk_index: i32,
     pub(super) chunk_text: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(super) struct DocumentChunkRow {
+pub(super) struct ReadDocumentChunkRow {
+    pub(super) id: Uuid,
+    pub(super) chunk_index: i32,
+    pub(super) chunk_text: String,
+    pub(super) record_hash: String,
+}
+
+#[derive(Debug, Clone, FromRow)]
+pub(super) struct ReadDocumentChunkBatchRow {
     pub(super) document_id: i64,
     pub(super) id: Uuid,
     pub(super) chunk_index: i32,
     pub(super) chunk_text: String,
+    pub(super) record_hash: String,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -55,6 +63,7 @@ pub(super) struct TranslationVersionBatchRow {
     pub(super) target_locale: String,
     pub(super) translated_title: String,
     pub(super) translated_summary: Option<String>,
+    pub(super) source_record_hash: String,
 }
 
 #[derive(Debug, Clone, FromRow)]

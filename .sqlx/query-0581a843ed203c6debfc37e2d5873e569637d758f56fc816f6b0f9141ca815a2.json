@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT document_id, id, chunk_index, chunk_text\nFROM context69.document_chunks\nWHERE document_id = ANY($1)\nORDER BY document_id, chunk_index\n",
+  "query": "SELECT document_id, id, chunk_index, chunk_text, record_hash\nFROM context69.document_chunks\nWHERE document_id = ANY($1)\nORDER BY document_id, chunk_index\n",
   "describe": {
     "columns": [
       {
@@ -46,6 +46,17 @@
             "name": "chunk_text"
           }
         }
+      },
+      {
+        "ordinal": 4,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunks",
+            "name": "record_hash"
+          }
+        }
       }
     ],
     "parameters": {
@@ -57,8 +68,9 @@
       false,
       false,
       false,
+      false,
       false
     ]
   },
-  "hash": "cc25eaef96450eacc45a03cc5862a5396d9b2145372a866f9584f2e8dbf0b3b9"
+  "hash": "0581a843ed203c6debfc37e2d5873e569637d758f56fc816f6b0f9141ca815a2"
 }

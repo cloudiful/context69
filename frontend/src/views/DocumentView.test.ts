@@ -66,6 +66,7 @@ describe("DocumentView", () => {
         {
           chunk_id: "chunk-1",
           chunk_index: 0,
+          record_hash: "hash-42",
           text: "First chunk",
         },
       ],
@@ -150,6 +151,7 @@ describe("DocumentView", () => {
       chunks: Array.from({ length: 12 }, (_, index) => ({
         chunk_id: `chunk-${index + 1}`,
         chunk_index: index,
+        record_hash: "hash-42",
         text: `block-${index + 1}`,
       })),
     });

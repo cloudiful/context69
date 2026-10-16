@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.23.0"
+    "version": "0.23.1"
   },
   "paths": {
     "/healthz": {
@@ -8197,7 +8197,8 @@
         "required": [
           "chunk_id",
           "chunk_index",
-          "text"
+          "text",
+          "record_hash"
         ],
         "properties": {
           "chunk_id": {
@@ -8207,6 +8208,10 @@
           "chunk_index": {
             "type": "integer",
             "format": "int32"
+          },
+          "record_hash": {
+            "type": "string",
+            "description": "Source generation this chunk text was produced from.\n\nFor an original-locale chunk it is the chunk's own\n`document_chunks.record_hash`; for a translated chunk it is the\ntranslation version's `source_record_hash`. A caller must compare it\nagainst the enclosing document header's `record_hash` and reject an\nempty chunk or a mismatch. Header and chunk reads are independent, so\nthey are not an atomic snapshot and a mismatch is observable rather than\nimpossible."
           },
           "text": {
             "type": "string"

@@ -1,13 +1,13 @@
 use context69_contracts::{
     ApiErrorCode, CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateDocumentResultRequest,
-    CreateTextRequest, CursorPageQuery, CursorPagination, DocumentResultProvenance,
-    DocumentResultResponse, FileBatchItem, ImportLibraryFileFromUrlRequest, IngestOptions,
-    LibraryIngestFailureStage, LibraryIngestStatus, LibraryTextContentFormat,
-    ListDocumentResultsQuery, ListDocumentResultsResponse, MetadataObject, OffsetPageQuery,
-    OffsetPagination, Pagination, PersonalAccessTokenScope, PrepareLibraryUploadRequest,
-    SearchRequest, SecretPatch, SortDirection, SortOrder, SourcePolicy, TaskListQuery,
-    TaskListView, UpsertLibraryTextRequest,
+    CreateTextRequest, CursorPageQuery, CursorPagination, DocumentChunkResponse,
+    DocumentResultProvenance, DocumentResultResponse, FileBatchItem,
+    ImportLibraryFileFromUrlRequest, IngestOptions, LibraryIngestFailureStage, LibraryIngestStatus,
+    LibraryTextContentFormat, ListDocumentResultsQuery, ListDocumentResultsResponse,
+    MetadataObject, OffsetPageQuery, OffsetPagination, Pagination, PersonalAccessTokenScope,
+    PrepareLibraryUploadRequest, SearchRequest, SecretPatch, SortDirection, SortOrder,
+    SourcePolicy, TaskListQuery, TaskListView, UpsertLibraryTextRequest,
 };
 use serde_json::{json, to_value};
 
@@ -1361,5 +1361,31 @@ fn caller_result_responses_are_wire_stable() {
     assert!(
         !page_object.contains_key("next_after_id"),
         "terminal page omits next_after_id"
+    );
+}
+
+#[test]
+fn document_chunk_response_requires_source_generation() {
+    // The generation field is required and round-trips verbatim.
+    let chunk: DocumentChunkResponse = serde_json::from_value(json!({
+        "chunk_id": "00000000-0000-0000-0000-000000000000",
+        "chunk_index": 2,
+        "text": "body",
+        "record_hash": "h1"
+    }))
+    .expect("chunk decodes with a source generation");
+    let value = to_value(&chunk).expect("serialize chunk");
+    assert_eq!(value.get("record_hash"), Some(&json!("h1")));
+
+    // A chunk without the generation field fails deserialization rather than
+    // silently defaulting, so a caller can never read an unattributed chunk.
+    let missing = serde_json::from_value::<DocumentChunkResponse>(json!({
+        "chunk_id": "00000000-0000-0000-0000-000000000000",
+        "chunk_index": 2,
+        "text": "body"
+    }));
+    assert!(
+        missing.is_err(),
+        "a chunk missing record_hash must not deserialize"
     );
 }

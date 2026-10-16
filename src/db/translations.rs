@@ -12,6 +12,7 @@ struct TranslationVersionRow {
     target_locale: String,
     translated_title: String,
     translated_summary: Option<String>,
+    source_record_hash: String,
 }
 
 #[derive(Debug, FromRow)]
@@ -51,6 +52,7 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
         if let Some(version) = version {
+            let source_record_hash = version.source_record_hash.clone();
             let chunks = sqlx::query_file_as!(
                 TranslationChunkRow,
                 "src/sql/db/translations/get_version_chunks.sql",
@@ -66,6 +68,7 @@ impl Database {
                     chunk_id: chunk.id,
                     chunk_index: chunk.chunk_index,
                     text: chunk.chunk_text,
+                    record_hash: source_record_hash.clone(),
                 })
                 .collect();
             document.content_locale = Some(version.target_locale);

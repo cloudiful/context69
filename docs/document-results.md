@@ -64,6 +64,22 @@ document's results, newest first, and returns the document's current
 
 There is no generic result `DELETE` or `UPDATE` endpoint; records are immutable.
 
+## Chunk source generation
+
+Every returned chunk carries a required `record_hash` field naming the source
+generation the chunk text belongs to. For an original-locale chunk it is the
+chunk's own stored `document_chunks.record_hash`; for a translated chunk it is
+the translation version's `source_record_hash`.
+
+A consumer that must not analyse mismatched text compares every chunk's
+`record_hash` with the enclosing document header's `record_hash` and rejects the
+response when any chunk is empty or mismatched. The document header and its
+chunks are read independently, so a single response is not an atomic snapshot: a
+concurrent update can leave the header on a newer generation than its chunks,
+and the field makes that observable rather than silently stamping the header
+hash onto stale text. Missing the field fails deserialization, so an
+unattributed chunk can never be read.
+
 ## Authorization
 
 Both operations are group-scoped. The route group must be one the caller can
