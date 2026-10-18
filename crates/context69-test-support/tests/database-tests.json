@@ -8,6 +8,18 @@
     },
     {
       "package": "context69",
+      "target": "runtime_readiness",
+      "test": "liveness_stays_up_while_readiness_reports_the_vector_runtime_honestly",
+      "class": "app_startup"
+    },
+    {
+      "package": "context69",
+      "target": "app_startup",
+      "test": "a_dormant_controller_activates_from_a_committed_settings_save",
+      "class": "app_startup"
+    },
+    {
+      "package": "context69",
       "target": "browser_session_secret_store",
       "test": "the_signing_key_is_sealed_and_leaks_neither_its_bytes_nor_its_presence",
       "class": "db"
@@ -423,6 +435,12 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::item_file_processors::tests::dependency_wait::indexing_parks_on_an_unavailable_vector_runtime_without_mutating_the_file_or_checkpoint",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::item_git_index_processor::tests::failed_blob_fetch_retries_and_keeps_the_prior_generation",
       "class": "db"
     },
@@ -819,7 +837,25 @@
     {
       "package": "context69",
       "target": "library_ingest_retry",
+      "test": "integration::indexing_parks_on_a_missing_pair_and_resumes_without_duplicate_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
+      "test": "integration::managed_unconfigured_and_legacy_optional_source_deletion_stay_distinct",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
       "test": "integration::qdrant_cleanup_failure_preserves_sql_and_is_retryable_with_operation_context",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
+      "test": "integration::source_deletion_requires_a_ready_vector_runtime",
       "class": "db"
     },
     {
@@ -2289,7 +2325,31 @@
     {
       "package": "context69",
       "target": "legacy_extraction_removal",
-      "test": "preserved_source_snapshots_tasks_translation_and_results_survive",
+      "test": "source_generations_tasks_translation_and_results_survive_legacy_table_removal",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "embedded_enrichment_migration",
+      "test": "database::outbox_schema_matches_the_worker_contract",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "embedded_enrichment_migration",
+      "test": "database::zero_affected_documents_still_clear_obsolete_labels_and_index_definitions",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "embedded_enrichment_migration",
+      "test": "database::unsafe_document_rolls_back_every_cleanup_change",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "metadata_payload_sync",
+      "test": "database::claim_complete_and_fail_are_fenced_by_the_lease",
       "class": "db"
     }
   ]

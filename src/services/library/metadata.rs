@@ -92,7 +92,7 @@ impl LibraryService {
     pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
         let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
         if !chunk_ids.is_empty() {
-            let runtime = self.runtime.as_ref().ok_or_else(|| {
+            let runtime = self.vector.snapshot().ok_or_else(|| {
                 DomainError::unavailable(format!(
                     "embedding/vector dependency unavailable: cannot clean {} indexed chunks without vector runtime",
                     chunk_ids.len()
@@ -106,7 +106,7 @@ impl LibraryService {
             // qdrant-classified error and never reach the SQL delete below.
             runtime.index.delete_points(&chunk_ids).await?;
         }
-        if let Some(runtime) = &self.runtime {
+        if let Some(runtime) = self.vector.snapshot() {
             // SQL may already have been cleared by a previous partial ingest while its
             // Qdrant points survived; the payload filter catches those orphaned points.
             // This second delete is explicit: operation=delete_points_for_library_file with
@@ -223,7 +223,7 @@ impl LibraryService {
             }
         }
 
-        if let Some(runtime) = &self.runtime {
+        if let Some(runtime) = self.vector.snapshot() {
             let payloads = self.store.list_chunk_payloads_for_files(&[file_id]).await?;
             runtime.index.update_chunk_payloads(&payloads).await?;
         }
@@ -242,7 +242,7 @@ impl LibraryService {
         }
 
         let chunk_ids = self.store.list_chunk_ids_for_files(file_ids).await?;
-        if let Some(runtime) = &self.runtime {
+        if let Some(runtime) = self.vector.snapshot() {
             runtime.index.delete_points(&chunk_ids).await?;
         }
         self.store.delete_documents_for_files(file_ids).await?;

@@ -1065,18 +1065,36 @@ fn file_ingest_status_is_terminal_only() {
 }
 
 #[test]
-fn library_ingest_failure_stage_extraction_wire_is_stable() {
-    assert_eq!(
-        to_value(LibraryIngestFailureStage::Extraction).expect("serialize extraction"),
-        json!("extraction")
+fn library_ingest_failure_stage_rejects_removed_extraction() {
+    // No runtime producer exists for the built-in extraction pipeline, so the
+    // public contract no longer accepts or advertises that stage.
+    assert!(
+        serde_json::from_value::<LibraryIngestFailureStage>(json!("extraction")).is_err(),
+        "extraction must no longer deserialize as a failure stage"
     );
-    assert_eq!(
-        "extraction"
-            .parse::<LibraryIngestFailureStage>()
-            .expect("parse extraction"),
-        LibraryIngestFailureStage::Extraction
+    assert!(
+        "extraction".parse::<LibraryIngestFailureStage>().is_err(),
+        "extraction must no longer parse as a failure stage"
     );
-    assert_eq!(LibraryIngestFailureStage::Extraction.as_str(), "extraction");
+
+    for (stage, wire) in [
+        (LibraryIngestFailureStage::Download, "download"),
+        (LibraryIngestFailureStage::Storage, "storage"),
+        (LibraryIngestFailureStage::Docling, "docling"),
+        (LibraryIngestFailureStage::Parsing, "parsing"),
+        (LibraryIngestFailureStage::Embedding, "embedding"),
+        (LibraryIngestFailureStage::Indexing, "indexing"),
+        (LibraryIngestFailureStage::Translation, "translation"),
+        (LibraryIngestFailureStage::Other, "other"),
+    ] {
+        assert_eq!(to_value(stage).expect("serialize stage"), json!(wire));
+        assert_eq!(
+            wire.parse::<LibraryIngestFailureStage>()
+                .expect("parse stage"),
+            stage
+        );
+        assert_eq!(stage.as_str(), wire);
+    }
 }
 
 #[test]

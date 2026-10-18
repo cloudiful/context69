@@ -8,6 +8,7 @@ mod cleanup;
 mod collection;
 mod date_window;
 mod errors;
+pub mod metadata_retirement;
 mod payload;
 mod replacement;
 mod search;

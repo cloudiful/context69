@@ -45,6 +45,44 @@ async fn refused_url() -> String {
 }
 
 #[tokio::test]
+async fn recovery_attach_is_read_only_and_validates_before_it_can_register_a_client() {
+    use context69::config::QdrantConfig;
+    use context69::qdrant_index::QdrantIndex;
+
+    let mock = QdrantMock::start(ListBehaviour::Succeeds).await;
+    let config = QdrantConfig {
+        url: mock.url().to_string(),
+        collection_name: "recovery_collection".to_string(),
+        recreate_on_dimension_mismatch: true,
+    };
+
+    // The mock answers `list` only and refuses collection reads, so attach
+    // cannot complete. What matters is the RPC set it attempted: a read-only
+    // attach must never create, delete, or update a collection even though
+    // `recreate_on_dimension_mismatch` is enabled.
+    let _ = QdrantIndex::attach_read_only(&config, 8).await;
+    let calls = mock.observed_calls();
+    assert!(
+        calls.contains("collection_exists") || calls.contains("get"),
+        "attach must validate the configured collection, observed: {calls:?}"
+    );
+    for mutating in [
+        "create",
+        "delete",
+        "update",
+        "update_aliases",
+        "update_collection_cluster_setup",
+        "create_shard_key",
+        "delete_shard_key",
+    ] {
+        assert!(
+            !calls.contains(mutating),
+            "recovery attach must never mutate a collection, but {mutating} was called: {calls:?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_reachable_endpoint_succeeds_with_one_read_only_call() {
     let mock = QdrantMock::start(ListBehaviour::Succeeds).await;
 

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.metadata_index_definitions\n    (index_id, group_id, source_key, field_path, data_type, value_kind, status)\nVALUES ($1, $2, 'retire-migration-src', $3, 'keyword', 'scalar', $4)\nRETURNING index_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "index_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.metadata_index_definitions",
+            "name": "index_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d3d236f00fac37aeab272d8399061aaa4f8ef05996f0b082ba2f136570d844d3"
+}

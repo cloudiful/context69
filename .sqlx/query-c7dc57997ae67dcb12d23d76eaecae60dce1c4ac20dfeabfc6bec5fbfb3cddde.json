@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT metadata_json AS \"metadata_json!\"\nFROM context69.documents\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "metadata_json!",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "metadata_json"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c7dc57997ae67dcb12d23d76eaecae60dce1c4ac20dfeabfc6bec5fbfb3cddde"
+}

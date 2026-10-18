@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.internal_secrets\nWHERE key = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c8e1f117df50845fef31af44985da27c5a651b99d3e9b3aefb1504e3cba0b2a7"
+}

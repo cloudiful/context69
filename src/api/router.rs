@@ -23,6 +23,7 @@ use tower_sessions_redis_store::{
 
 use crate::services::app::Context69App;
 
+use super::health::{livez, readyz};
 use super::resource_routes::{document_routes, library_routes, task_routes};
 use super::{
     ApiState, auth_middleware, build_api_state, cancel_active_tasks, create_admin_user,
@@ -120,6 +121,8 @@ fn build_router_with_session_store<S: SessionStore + Clone + Send + Sync + 'stat
     Ok(Router::new()
         .route("/openapi.json", get(openapi_json))
         .route("/healthz", get(healthz))
+        .route("/readyz", get(readyz))
+        .route("/livez", get(livez))
         .route("/v1/auth/login", post(login))
         .route("/v1/auth/logout", post(logout))
         .merge(webhook_routes())

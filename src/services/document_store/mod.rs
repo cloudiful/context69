@@ -23,7 +23,7 @@ use uuid::Uuid;
 
 use crate::{
     db::Database, domain::AccessScope, domain_errors::DomainError, pagination::PageBounds,
-    qdrant_index::QdrantIndex, services::library::LibraryService,
+    qdrant_index::QdrantIndex, services::library::LibraryService, vector_runtime::VectorRuntime,
 };
 
 use cursor::{Cursor, decode_cursor, encode_cursor, query_hash};
@@ -33,7 +33,11 @@ use query_validation::{validate_query, validate_query_definitions};
 #[derive(Clone)]
 pub struct DocumentStoreService {
     db: Database,
-    index: Option<QdrantIndex>,
+    vector: VectorRuntime,
+    /// A detached index supplied by the legacy constructor, used only when the
+    /// shared runtime has no published pair. The application path passes the
+    /// shared handle instead.
+    detached_index: Option<QdrantIndex>,
     library: LibraryService,
     worker_lock: Arc<Mutex<()>>,
 }
@@ -42,10 +46,32 @@ impl DocumentStoreService {
     pub fn new(db: Database, index: Option<QdrantIndex>, library: LibraryService) -> Self {
         Self {
             db,
-            index,
+            vector: VectorRuntime::unconfigured(),
+            detached_index: index,
             library,
             worker_lock: Arc::new(Mutex::new(())),
         }
+    }
+
+    pub fn with_vector_runtime(
+        db: Database,
+        vector: VectorRuntime,
+        library: LibraryService,
+    ) -> Self {
+        Self {
+            db,
+            vector,
+            detached_index: None,
+            library,
+            worker_lock: Arc::new(Mutex::new(())),
+        }
+    }
+
+    fn index(&self) -> Option<Arc<QdrantIndex>> {
+        self.vector
+            .snapshot()
+            .map(|snapshot| snapshot.index)
+            .or_else(|| self.detached_index.clone().map(Arc::new))
     }
 
     pub fn resume_pending(&self) {
@@ -280,7 +306,7 @@ impl DocumentStoreService {
         }
         let chunk_ids = self.db.document_chunk_ids(id).await?;
         self.db.delete_document_by_id(id).await?;
-        if let Some(index) = &self.index {
+        if let Some(index) = self.index() {
             index.delete_points(&chunk_ids).await?;
         }
         Ok(())

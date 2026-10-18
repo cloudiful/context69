@@ -10,7 +10,7 @@ use crate::{
     library_store::LibraryStore,
     services::{
         auth::AuthService,
-        query::{QueryDeps, QueryService},
+        query::{QueryService, SharedQueryDeps},
         secret_store::{self, SecretStore},
         sync::SyncService,
         translation::TranslationPublisherAdapter,
@@ -40,18 +40,18 @@ pub async fn initialize(
     // built. Building a handle is just a cipher over the existing pool; the
     // unconfigured state was reported once during config hydration.
     let store = secret_store::build(db, config)?;
+    let chunking = ChunkingConfig {
+        max_chars: config.chunking.max_chars,
+        overlap_chars: config.chunking.overlap_chars,
+    };
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()?,
-        publisher: Arc::new(TranslationPublisherAdapter::new(
-            vector.embedding.clone(),
-            vector.index.clone(),
-            ChunkingConfig {
-                max_chars: config.chunking.max_chars,
-                overlap_chars: config.chunking.overlap_chars,
-            },
+        publisher: Arc::new(TranslationPublisherAdapter::with_vector_runtime(
+            vector.vector.clone(),
+            chunking.clone(),
         )),
         concurrency: config.scheduler.max_concurrency,
         readiness: Arc::new(readiness::LibraryEmbeddingVectorReadiness {
@@ -60,15 +60,11 @@ pub async fn initialize(
         }),
     })
     .with_secret_store(store.clone());
-    let sync = SyncService::new(
+    let sync = SyncService::with_vector_runtime(
         db.clone(),
         store.clone(),
-        vector.embedding.clone(),
-        vector.index.clone(),
-        ChunkingConfig {
-            max_chars: config.chunking.max_chars,
-            overlap_chars: config.chunking.overlap_chars,
-        },
+        vector.vector.clone(),
+        chunking,
         config.scheduler.max_concurrency,
         translation.clone(),
     );
@@ -78,30 +74,20 @@ pub async fn initialize(
     }
     let automatic_rebuild_needed = sync.runtime_configured()
         && (vector.collection_needs_rebuild || vector.fingerprint_changed);
-    // One readiness flag for the process: the embedding handle, the query
-    // service, the rebuild tickets and the dependency gates all read this same
-    // value, so writers and readers stop together during a rebuild.
-    vector.gate.set_ready(!automatic_rebuild_needed);
-    let vector_index_ready = vector.gate.flag();
-    if automatic_rebuild_needed {
-        sync.begin_vector_index_rebuild().await?;
-    }
-    let query = match vector.index.clone() {
-        Some(index) if vector.embedding.is_configured() => {
-            QueryService::new(QueryDeps {
-                db: db.clone(),
-                embedding: vector.embedding.clone(),
-                index,
-                valkey_url: config.scheduler.valkey_url.as_deref(),
-                embedding_model: vector_identity::fingerprint(config),
-                auth: auth.clone(),
-                store: store.clone(),
-                vector_index_ready: vector_index_ready.clone(),
-            })
-            .await?
-        }
-        _ => QueryService::disabled(db.clone()),
-    };
+    // One readiness truth for the process: a configured runtime with no
+    // published pair must not report ready, and a startup rebuild keeps the
+    // embedding handle, query service, and dependency gates stopped together.
+    let has_pair = vector.vector.snapshot().is_some();
+    vector.gate.set_ready(has_pair && !automatic_rebuild_needed);
+    let query = QueryService::with_vector_runtime(SharedQueryDeps {
+        db: db.clone(),
+        vector: vector.vector.clone(),
+        valkey_url: config.scheduler.valkey_url.as_deref(),
+        embedding_model: vector_identity::fingerprint(config),
+        auth: auth.clone(),
+        store: store.clone(),
+    })
+    .await?;
 
     Ok(ServicesInit {
         translation,

@@ -34,6 +34,7 @@ use crate::{
     normalize::{normalize_body, normalize_record, normalize_whitespace},
     qdrant_index::QdrantIndex,
     services::settings::SettingsService,
+    vector_runtime::VectorRuntime,
 };
 
 mod content_objects;
@@ -135,7 +136,7 @@ pub(crate) const LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS: i64 = 120;
 pub struct LibraryService {
     db: Database,
     store: LibraryStore,
-    runtime: Option<LibraryRuntime>,
+    vector: VectorRuntime,
     chunking: ChunkingConfig,
     settings: SettingsService,
     storage_root: PathBuf,
@@ -174,10 +175,14 @@ pub struct LibraryServiceConfig {
     pub embedding_vector_configuration_fingerprint: String,
 }
 
+/// One coherent pair for an ingest operation, built from the shared runtime
+/// snapshot. The embedder handle carries the snapshot provider, so the existing
+/// ingest batching code can acquire it once per document while the index is the
+/// same generation's pair.
 #[derive(Clone)]
-struct LibraryRuntime {
-    embedding: EmbeddingRuntime,
-    index: QdrantIndex,
+pub(crate) struct LibraryRuntime {
+    pub(crate) embedding: EmbeddingRuntime,
+    pub(crate) index: QdrantIndex,
 }
 
 #[derive(Debug, Clone)]
@@ -205,6 +210,19 @@ impl LibraryService {
         settings: SettingsService,
         translation: TranslationService,
     ) -> Result<Self> {
+        let vector = VectorRuntime::from_legacy(embedding.into(), index, "");
+        Self::with_vector_runtime(db, vector, service_config, settings, translation).await
+    }
+
+    /// Builds the service onto the process-wide shared vector runtime, so a
+    /// Qdrant that becomes available after startup is usable without a restart.
+    pub async fn with_vector_runtime(
+        db: Database,
+        vector: VectorRuntime,
+        service_config: LibraryServiceConfig,
+        settings: SettingsService,
+        translation: TranslationService,
+    ) -> Result<Self> {
         let LibraryServiceConfig {
             chunking,
             file_library,
@@ -212,7 +230,7 @@ impl LibraryService {
             embedding_vector_configured,
             embedding_vector_configuration_fingerprint,
         } = service_config;
-        let embedding = embedding.into();
+        let embedding_vector_configured = embedding_vector_configured || vector.is_configured();
         let storage = Arc::new(object_storage::LibraryObjectStorage::from_config(
             &file_library,
         )?);
@@ -238,9 +256,7 @@ impl LibraryService {
         Ok(Self {
             db: db.clone(),
             store: LibraryStore::new(db),
-            runtime: index
-                .filter(|_| embedding.is_configured())
-                .map(|index| LibraryRuntime { embedding, index }),
+            vector,
             chunking,
             settings,
             storage_root: file_library.storage_root,
@@ -268,14 +284,35 @@ impl LibraryService {
         self.max_upload_request_size_bytes
     }
 
-    fn runtime(&self) -> Result<&LibraryRuntime> {
-        self.runtime.as_ref().ok_or_else(|| {
-            if self.embedding_vector_configured {
+    fn runtime(&self) -> Result<LibraryRuntime> {
+        let current = self.vector.current();
+        if current.rebuilding {
+            return Err(DomainError::unavailable(
+                "vector index is rebuilding or unavailable; retry after the rebuild completes",
+            )
+            .into());
+        }
+        if self.vector_configured() && !current.ready {
+            return Err(DomainError::unavailable("embedding/vector runtime is unavailable").into());
+        }
+        let snapshot = current.snapshot.ok_or_else(|| {
+            if self.vector_configured() {
                 DomainError::unavailable("embedding/vector runtime is unavailable").into()
             } else {
                 library_runtime_unavailable()
             }
+        })?;
+        Ok(LibraryRuntime {
+            embedding: EmbeddingRuntime::new(Some(snapshot.embedding), snapshot.identity),
+            index: (*snapshot.index).clone(),
         })
+    }
+
+    /// Whether vector work is configured for this deployment. Read from the
+    /// shared runtime so a settings save activates an instance that started
+    /// without runtime settings.
+    fn vector_configured(&self) -> bool {
+        self.embedding_vector_configured || self.vector.is_configured()
     }
 
     pub(super) async fn acquire_docling_permit(&self) -> Result<OwnedSemaphorePermit> {

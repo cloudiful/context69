@@ -1,4 +1,3 @@
-use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use anyhow::{Result, anyhow};
@@ -21,13 +20,17 @@ use super::processing_health::{
 };
 use super::s3_gate_cache::observe_s3_gate_transition;
 use super::ttl_cache::TtlCache;
-use super::{LibraryDependency, LibraryService};
+use super::{LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS, LibraryDependency, LibraryService};
 use crate::library_store::LibraryStore;
 
 /// `/healthz` reports the processing snapshot from a whole-queue scan, so
 /// probes inside this short window reuse the cached snapshot instead of
 /// re-reading the queue and the gates every time.
 const PROCESSING_HEALTH_CACHE_TTL: Duration = Duration::from_secs(1);
+
+/// The stable gate text for a configured runtime with no usable pair. The
+/// detailed connector cause belongs in the diagnostic log, not in this contract.
+const VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT: &str = "embedding/vector runtime is unavailable";
 
 type ProcessingHealthSnapshot = (
     bool,
@@ -71,19 +74,17 @@ impl LibraryService {
         self.store
             .ensure_dependency_gate(LibraryDependency::EmbeddingVector.as_str())
             .await?;
-        let runtime_ready = self
+        // A configured runtime with no usable pair is unavailable rather than
+        // rebuilding: the gates stay closed so the pipeline waits, and the stable
+        // unavailable text is what the retry path classifies. Only a real
+        // rebuild fence reports a rebuild.
+        let current = self
             .vector_index_ready
             .as_ref()
-            .is_none_or(|ready| ready.load(Ordering::Acquire));
-        let fingerprint = self.embedding_vector_configuration_fingerprint.clone();
-        // A configured runtime that is mid-rebuild is deliberately reported as
-        // unavailable: the embedding and qdrant gates stay closed so the
-        // pipeline waits, instead of adding vectors with one identity to a
-        // collection being re-embedded with another. `false` here is a
-        // configuration-level hold, reopened by the readiness refresh after the
-        // rebuild completes.
+            .map(|_| self.vector.current());
         let (configured, not_configured_error) =
-            embedding_gate_configuration(self.embedding_vector_configured, runtime_ready);
+            embedding_gate_state(self.vector_configured(), current);
+        let fingerprint = self.embedding_vector_configuration_fingerprint.clone();
         for dependency in [
             LibraryDependency::Embedding,
             LibraryDependency::Qdrant,
@@ -97,7 +98,7 @@ impl LibraryService {
             )
             .await?;
         }
-        if configured && self.runtime.is_none() {
+        if configured && self.vector.snapshot().is_none() {
             let error = anyhow!("embedding/vector runtime is unavailable");
             // Trip both canonical gates independently; the legacy alias is
             // also tripped so old rows do not stay closed while the new gates
@@ -404,6 +405,59 @@ impl LibraryService {
             log_dependency_transition(&transition);
         }
     }
+    /// Reports a vector-runtime recovery/probe failure through the shared
+    /// dependency gates. A configuration-class failure is persisted with the
+    /// `configuration:` prefix so the gates stay pinned until the configuration
+    /// fingerprint changes instead of retrying rapidly. A transient failure
+    /// keeps the stable unavailable text; the sanitized connector cause stays in
+    /// the diagnostic log.
+    pub(crate) async fn note_vector_runtime_failure(&self, configuration: bool, message: &str) {
+        let error = if configuration {
+            anyhow!("configuration: {message}")
+        } else {
+            warn!(
+                cause = %message,
+                "vector runtime is unavailable; the dependency gates keep the stable unavailable text"
+            );
+            anyhow!("{VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT}")
+        };
+        for dependency in [
+            LibraryDependency::Embedding,
+            LibraryDependency::Qdrant,
+            LibraryDependency::EmbeddingVector,
+        ] {
+            self.note_dependency_failure(dependency, &error).await;
+        }
+    }
+
+    /// Reopens a dependency gate after a successful probe, under the existing
+    /// half-open lease protocol. A gate that is already closed or not yet due
+    /// for a probe is left untouched, so this replica never reopens a shared
+    /// healthy gate merely because its local probe was not admitted.
+    pub(crate) async fn note_vector_runtime_recovered(&self) {
+        for dependency in [LibraryDependency::Embedding, LibraryDependency::Qdrant] {
+            let token = Uuid::new_v4();
+            match self
+                .store
+                .reserve_dependency_probe(
+                    dependency.canonical_str(),
+                    token,
+                    LIBRARY_DEPENDENCY_PROBE_LEASE_TTL_SECS,
+                )
+                .await
+            {
+                Ok(Some(_)) => self.note_dependency_success(dependency, token).await,
+                Ok(None) => {}
+                Err(error) => {
+                    warn!(
+                        dependency = dependency.canonical_str(),
+                        %error,
+                        "failed to reserve a dependency probe after vector runtime recovery"
+                    );
+                }
+            }
+        }
+    }
 }
 
 pub(crate) async fn report_dependency_processing_error_with_lease(
@@ -566,4 +620,89 @@ fn configuration_fingerprint(parts: &[impl AsRef<str>]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// The embedding/qdrant gate state for one coherent runtime read.
+///
+/// A deployment without vector configuration, a real rebuild fence, and a
+/// configured runtime with no usable pair are three different states: only the
+/// fence reports a rebuild, and the missing pair keeps the stable unavailable
+/// text the retry path classifies.
+fn embedding_gate_state(
+    configured: bool,
+    current: Option<crate::vector_runtime::CurrentVectorState>,
+) -> (bool, Option<&'static str>) {
+    if !configured {
+        return embedding_gate_configuration(false, false);
+    }
+    match current {
+        Some(current) if current.rebuilding => embedding_gate_configuration(true, false),
+        Some(current) if !current.ready => (false, Some(VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT)),
+        _ => embedding_gate_configuration(true, true),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::vector_runtime::CurrentVectorState;
+
+    use super::{VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT, embedding_gate_state};
+
+    fn state(ready: bool, rebuilding: bool) -> Option<CurrentVectorState> {
+        Some(CurrentVectorState {
+            generation: 3,
+            ready,
+            rebuilding,
+            snapshot: None,
+        })
+    }
+
+    #[test]
+    fn a_ready_pair_opens_the_gates() {
+        assert_eq!(embedding_gate_state(true, state(true, false)), (true, None));
+    }
+
+    #[test]
+    fn a_missing_pair_is_unavailable_not_a_rebuild() {
+        assert_eq!(
+            embedding_gate_state(true, state(false, false)),
+            (false, Some(VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT))
+        );
+        assert_eq!(
+            VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT,
+            "embedding/vector runtime is unavailable"
+        );
+    }
+
+    #[test]
+    fn only_a_rebuild_fence_reports_a_rebuild() {
+        assert_eq!(
+            embedding_gate_state(true, state(false, true)),
+            (false, Some("configuration: vector index is rebuilding"))
+        );
+    }
+
+    #[test]
+    fn an_unconfigured_runtime_keeps_the_configuration_message() {
+        for current in [
+            state(true, false),
+            state(false, false),
+            state(false, true),
+            None,
+        ] {
+            assert_eq!(
+                embedding_gate_state(false, current),
+                (
+                    false,
+                    Some("configuration: embedding/vector runtime is not configured")
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn a_unit_constructed_service_without_a_gate_flag_stays_ready() {
+        // No shared readiness wiring: the historical "always ready" contract.
+        assert_eq!(embedding_gate_state(true, None), (true, None));
+    }
 }

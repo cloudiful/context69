@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.documents (\n    source_key,\n    group_id,\n    visibility,\n    external_id,\n    title,\n    source_uri,\n    updated_at_source,\n    record_hash\n)\nVALUES ($1, $2, 'public', $3, $3, $4, now(), $5)\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9d33195b4796ea94084d22b2338c4ac0ae4b281dce4b23cabd654eef250896d2"
+}

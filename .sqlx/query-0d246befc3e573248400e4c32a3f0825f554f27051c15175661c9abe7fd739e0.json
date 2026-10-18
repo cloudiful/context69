@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.runtime_embedding_settings\nWHERE singleton\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "0d246befc3e573248400e4c32a3f0825f554f27051c15175661c9abe7fd739e0"
+}

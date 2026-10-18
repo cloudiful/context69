@@ -236,3 +236,51 @@ pub fn remove_test_storage_roots(roots: impl IntoIterator<Item = PathBuf>) {
         }
     }
 }
+
+/// A valid runtime-settings save for one startup: loopback sentinels, the
+/// test's own storage root, and a marker-scoped collection/job name.
+pub fn runtime_settings_request(
+    marker: &str,
+    storage_root: &Path,
+) -> context69::contracts::UpdateRuntimeSettingsRequest {
+    use context69::contracts::{
+        RuntimeChunkingSettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
+        UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
+        UpdateRuntimeSettingsRequest,
+    };
+    UpdateRuntimeSettingsRequest {
+        qdrant: RuntimeQdrantSettings {
+            url: SENTINEL_URL.to_string(),
+            collection_name: format!("app_startup_{marker}"),
+            recreate_on_dimension_mismatch: false,
+        },
+        embedding: UpdateRuntimeEmbeddingSettings {
+            base_url: SENTINEL_EMBEDDING_URL.to_string(),
+            model: format!("app-startup-{marker}"),
+            dimensions: 128,
+            timeout_secs: 5,
+            api_key: None,
+        },
+        scheduler: RuntimeSchedulerSettings {
+            interval_secs: 3600,
+            run_on_start: false,
+            max_concurrency: 1,
+            job_id: format!("app-startup-{marker}"),
+            valkey_url: None,
+        },
+        chunking: RuntimeChunkingSettings {
+            max_chars: 1200,
+            overlap_chars: 100,
+        },
+        file_library: UpdateRuntimeFileLibrarySettings {
+            storage_root: storage_root.display().to_string(),
+            max_upload_size_mb: 16,
+            max_upload_request_size_mb: 32,
+            ingest_concurrency: 1,
+            url_import_concurrency: 1,
+            url_import_min_interval_ms: 1000,
+            trusted_proxy_enabled: false,
+            s3: None,
+        },
+    }
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.document_metadata_payload_sync (document_id, payload_key)\nVALUES ($1, 'metadata_index.extraction')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "babfd26b282f1001210eea318e3dd11c7307e2f8545cd907279f7bb3bf6c3010"
+}

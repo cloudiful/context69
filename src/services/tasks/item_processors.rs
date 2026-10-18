@@ -184,7 +184,8 @@ async fn run_stage(
             super::item_lifecycle_processors::process_sync(service, group, task, item, stage).await
         }
         TaskKind::VectorRebuild => {
-            super::item_lifecycle_processors::process_vector_rebuild(service, task, stage).await
+            super::item_lifecycle_processors::process_vector_rebuild(service, task, item, stage)
+                .await
         }
         TaskKind::Translation => {
             super::item_translation_processors::process_translation(
@@ -292,6 +293,11 @@ pub(super) fn process_source_sync_error(
     item: &crate::db::ClaimedItem,
     error: anyhow::Error,
 ) -> ProcessResult {
+    // A source sync that cannot serve vector work waits on the dependency with
+    // the existing backoff instead of consuming a normal failure attempt.
+    if let Some(unavailable) = UnifiedIngestError::vector_runtime_unavailable("sync", &error) {
+        return waiting_for_error(item, unavailable);
+    }
     if let Some(ingest_error) = error.downcast_ref::<UnifiedIngestError>() {
         if ingest_error.retryable {
             return waiting_for_error(item, ingest_error.clone());
@@ -317,8 +323,74 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_ITEM_STAGES, entry_stage, resolve_entry_stage, resume_stage};
+    use super::{
+        MAX_ITEM_STAGES, ProcessResult, entry_stage, process_source_sync_error,
+        resolve_entry_stage, resume_stage,
+    };
     use context69_contracts::TaskKind;
+
+    fn claimed_item(attempt_count: i32) -> crate::db::ClaimedItem {
+        crate::db::ClaimedItem {
+            id: uuid::Uuid::nil(),
+            task_id: uuid::Uuid::nil(),
+            ordinal: 0,
+            attempt_count,
+            lease_token: uuid::Uuid::nil(),
+            attempt_id: 0,
+            payload: serde_json::json!({}),
+            file_id: None,
+            stage: None,
+            input_storage_object_id: None,
+            kind: "source_sync".to_string(),
+            group_id: None,
+            group_path: None,
+            source_key: None,
+        }
+    }
+
+    #[test]
+    fn a_vector_runtime_wait_parks_the_item_without_burning_the_attempt() {
+        let item = claimed_item(2);
+        let error = anyhow::anyhow!(
+            "vector index is rebuilding or unavailable; retry after the rebuild completes"
+        );
+
+        let result = process_source_sync_error(&item, error);
+        match result {
+            ProcessResult::Waiting {
+                reason,
+                dependency_key,
+                next_attempt_at,
+                message,
+            } => {
+                assert_eq!(reason, "dependency");
+                assert_eq!(dependency_key.as_deref(), Some("qdrant"));
+                assert!(next_attempt_at > chrono::Utc::now());
+                assert!(
+                    message
+                        .as_deref()
+                        .is_some_and(|message| message.contains("rebuilding")),
+                    "the wait must carry the runtime's own explanation"
+                );
+            }
+            _ => panic!("expected a dependency wait"),
+        }
+        // The conversion only reads the claim: no counter, status, or stage
+        // mutation happens at this boundary.
+        assert_eq!(item.attempt_count, 2);
+        assert_eq!(item.stage, None);
+    }
+
+    #[test]
+    fn an_ordinary_source_sync_failure_keeps_the_failure_path() {
+        let item = claimed_item(1);
+        let error = anyhow::anyhow!("source returns an unsupported schema");
+
+        match process_source_sync_error(&item, error) {
+            ProcessResult::Failed { retryable, .. } => assert!(!retryable),
+            _ => panic!("expected a failure"),
+        }
+    }
 
     #[test]
     fn collapsed_pipeline_starts_at_the_kind_entry_stage() {

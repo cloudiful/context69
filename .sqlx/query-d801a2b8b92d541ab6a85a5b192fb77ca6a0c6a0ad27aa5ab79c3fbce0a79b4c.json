@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.runtime_qdrant_settings\nWHERE singleton\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d801a2b8b92d541ab6a85a5b192fb77ca6a0c6a0ad27aa5ab79c3fbce0a79b4c"
+}

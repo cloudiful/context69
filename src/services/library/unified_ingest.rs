@@ -28,6 +28,38 @@ impl UnifiedIngestError {
             message: failure.to_string(),
         }
     }
+
+    /// Normalizes the shared vector runtime's own unavailability into the
+    /// existing dependency-wait shape, so a task item waits with the correct
+    /// dependency key instead of burning an attempt as a generic failure.
+    ///
+    /// Only the runtime's fixed messages qualify; any other error returns
+    /// `None` and keeps its original classification.
+    pub fn vector_runtime_unavailable(stage: &str, error: &anyhow::Error) -> Option<Self> {
+        if !super::dependency_errors::is_vector_runtime_unavailable(error)
+            && !is_unpublished_runtime_message(error)
+        {
+            return None;
+        }
+        Some(Self {
+            stage: stage.to_string(),
+            dependency_key: Some(LibraryDependency::Qdrant.canonical_str().to_string()),
+            retryable: true,
+            message: error.to_string(),
+        })
+    }
+}
+
+/// The shared runtime's second fixed sentence for its own unavailability: a
+/// configured deployment whose pair has not been published yet. Matched as the
+/// whole message (not a substring), so an unrelated failure that merely
+/// mentions the runtime keeps its classification.
+const UNPUBLISHED_VECTOR_RUNTIME_MESSAGE: &str = "embedding/vector runtime is unavailable";
+
+fn is_unpublished_runtime_message(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| cause.to_string() == UNPUBLISHED_VECTOR_RUNTIME_MESSAGE)
 }
 
 impl LibraryService {

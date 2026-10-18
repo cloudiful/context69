@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Admit one parent at a caller-supplied instant so the admission-age\n-- regression never depends on the database clock agreeing with the host clock.\n-- $1 is the task id, $2 the explicit admission instant. The lease deadline\n-- stays on the database clock, so the fixture still proves that a future lease\n-- value is not mistaken for the admission time.\nUPDATE context69.tasks\nSET status = 'running',\n    started_at = $2,\n    lease_token = gen_random_uuid(),\n    lease_until = now() + interval '8 minutes'\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b1a6a158defacdae5fb57e820c788527eea154a34ffe80a75c3efe91cf587f2b"
+}

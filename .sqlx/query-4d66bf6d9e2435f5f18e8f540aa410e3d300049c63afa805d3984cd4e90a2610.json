@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT column_name AS \"column_name!\"\nFROM information_schema.columns\nWHERE table_schema = 'context69'\n  AND table_name = 'document_metadata_payload_sync'\nORDER BY column_name\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "column_name!",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "information_schema.columns",
+            "name": "column_name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4d66bf6d9e2435f5f18e8f540aa410e3d300049c63afa805d3984cd4e90a2610"
+}

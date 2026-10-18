@@ -10,7 +10,7 @@ impl SyncService {
         if source_keys.is_empty() {
             return Ok(());
         }
-        let runtime = self.runtime()?.clone();
+        let runtime = self.runtime()?;
         let results = stream::iter(source_keys.into_iter().map(|source_key| {
             let service = self.clone();
             let trigger = trigger.to_string();
@@ -95,11 +95,11 @@ impl SyncService {
         source: &SourceConfig,
         connector: Arc<dyn SourceConnector>,
     ) -> Result<SyncOutcome> {
-        let runtime = self.runtime()?.clone();
-        // One provider for the whole run so a settings save mid-sync cannot
-        // switch providers between records, and so a run does not start while
-        // an identity-changing rebuild is re-embedding the collection.
-        let embedding = runtime.embedding.require_ready()?;
+        let runtime = self.runtime()?;
+        // One provider for the whole run: the snapshot pairs it with the index
+        // of the same generation, so a settings save mid-sync cannot switch
+        // providers between records and a rebuild is fenced out by readiness.
+        let embedding = runtime.embedding.clone();
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(&source.key).await?
         } else {
@@ -219,10 +219,10 @@ impl SyncService {
     }
 
     pub async fn rebuild_index_from_db(&self) -> Result<usize> {
-        let runtime = self.runtime()?.clone();
-        // One provider for the whole rebuild so a settings save mid-rebuild
-        // cannot mix two providers into one collection.
-        let embedding = runtime.embedding.require()?;
+        let runtime = self.vector.require_snapshot()?;
+        // One provider for the whole rebuild: the snapshot is the coherent
+        // provider/index pair this rebuild re-embeds with.
+        let embedding = runtime.embedding.clone();
         let total_chunks = self.db.count_chunk_payloads_for_reindex().await?;
         self.set_vector_rebuild_progress(0, total_chunks).await;
         if total_chunks == 0 {
@@ -294,7 +294,7 @@ impl SyncService {
     }
 
     pub(crate) async fn begin_vector_index_rebuild(&self) -> Result<()> {
-        self.runtime()?;
+        self.vector.require_snapshot()?;
         let mut status = self.vector_rebuild_status.write().await;
         if status.state == VectorIndexRebuildState::Running {
             return Err(DomainError::conflict("vector index rebuild is already running").into());

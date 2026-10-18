@@ -13,6 +13,7 @@ mod document_versions;
 mod documents;
 mod git_repositories;
 mod metadata_indexes;
+mod metadata_payload_sync;
 mod namespaces;
 mod personal_access_tokens;
 mod rows;
@@ -45,6 +46,7 @@ pub use git_repositories::{
 };
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
+pub use metadata_payload_sync::{ClaimedMetadataPayloadSyncJob, MetadataPayloadSyncPoints};
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use tasks::{

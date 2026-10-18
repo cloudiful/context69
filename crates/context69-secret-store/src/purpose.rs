@@ -40,7 +40,7 @@ pub mod key_names {
     pub const SEARCH_API_KEY: &str = "search_api_key";
     /// Docling VLM provider API key (singleton).
     pub const DOCLING_VLM_API_KEY: &str = "docling_vlm_api_key";
-    /// Shared translation / extraction provider API key (singleton).
+    /// Shared translation provider API key (singleton).
     pub const TRANSLATION_PROVIDER_API_KEY: &str = "translation_provider_api_key";
     /// Runtime S3 secret key (singleton). The access key stays a non-secret
     /// identifier outside reversible storage.
@@ -71,7 +71,7 @@ pub enum SecretPurpose {
     SearchApiKey,
     /// Docling VLM provider API key.
     DoclingVlmApiKey,
-    /// Provider API key shared by translation and extraction.
+    /// Provider API key shared by the translation providers.
     TranslationProviderApiKey,
     /// Source connection database URL, including embedded credentials.
     SourceConnectionDatabaseUrl,

@@ -20,6 +20,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/livez": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["livez"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/readyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["readyz"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/docling/cleanup": {
         parameters: {
             query?: never;
@@ -3290,7 +3322,7 @@ export interface components {
             visibility: components["schemas"]["Visibility"];
         };
         /** @enum {string} */
-        LibraryIngestFailureStage: "download" | "storage" | "docling" | "parsing" | "embedding" | "indexing" | "translation" | "extraction" | "other";
+        LibraryIngestFailureStage: "download" | "storage" | "docling" | "parsing" | "embedding" | "indexing" | "translation" | "other";
         /** @enum {string} */
         LibraryIngestStatus: "succeeded" | "failed";
         /** @enum {string} */
@@ -4738,6 +4770,55 @@ export interface operations {
                 };
             };
             /** @description API is degraded */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    livez: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Process is running */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    readyz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description API can serve core work */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+            /** @description A required dependency is not ready */
             503: {
                 headers: {
                     [name: string]: unknown;

@@ -64,6 +64,27 @@ document's results, newest first, and returns the document's current
 
 There is no generic result `DELETE` or `UPDATE` endpoint; records are immutable.
 
+## Imported records
+
+The enrichment retirement migration appends results through the same immutable
+storage contract, with no HTTP caller and no hidden account. For each retired
+embedded payload it inserts a row owned by the lowest-id existing enabled
+administrator:
+
+- producer `context69.enrichment-import`, result kind `imported-enrichment`,
+  schema ref the original enrichment schema key, and the document's current
+  `source_record_hash`;
+- deterministic idempotency key `sqlx-retire:` plus a SHA-256 over the document
+  id, schema ref, source hash, and canonical payload, so a replay matches the
+  existing row instead of appending another;
+- provenance limited to `workflow_version` and `run_id`; no model, original
+  author, or credential is claimed.
+
+The payload remains the original opaque object; Context69 still does not
+validate it as a business schema. An existing row with a different envelope
+under the same identity aborts the migration, and a database with affected data
+but no enabled administrator rolls back rather than fabricating an account.
+
 ## Chunk source generation
 
 Every returned chunk carries a required `record_hash` field naming the source

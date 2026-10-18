@@ -9,6 +9,8 @@ use std::sync::{
 use super::{EmbeddingSettingsGuard, VectorIndexGate};
 use crate::contracts::UpdateRuntimeEmbeddingSettings;
 use crate::embedding::{EmbeddingIdentity, EmbeddingRuntime};
+use crate::qdrant_index::QdrantIndex;
+use crate::vector_runtime::VectorRuntime;
 
 fn update(
     base_url: &str,
@@ -25,18 +27,24 @@ fn update(
     }
 }
 
+fn identity() -> EmbeddingIdentity {
+    EmbeddingIdentity {
+        base_url: "https://embeddings.example/v1".to_string(),
+        model: "model-a".to_string(),
+        dimensions: 8,
+    }
+}
+
 fn guard_with_identity(index_present: bool) -> (EmbeddingSettingsGuard, Arc<AtomicBool>) {
-    let runtime = EmbeddingRuntime::new(
-        None,
-        Some(EmbeddingIdentity {
-            base_url: "https://embeddings.example/v1".to_string(),
-            model: "model-a".to_string(),
-            dimensions: 8,
-        }),
-    );
+    let runtime = EmbeddingRuntime::new(None, Some(identity()));
+    let vector = if index_present {
+        VectorRuntime::for_test_with_index(QdrantIndex::for_test("test", 8), identity())
+    } else {
+        VectorRuntime::unconfigured()
+    };
     let reloading = Arc::new(AtomicBool::new(false));
     (
-        EmbeddingSettingsGuard::new(runtime, index_present, reloading.clone()),
+        EmbeddingSettingsGuard::new(runtime, vector, reloading.clone()),
         reloading,
     )
 }
@@ -90,16 +98,10 @@ fn an_identity_change_is_allowed_without_a_live_index() {
 fn an_identity_change_is_rejected_while_a_reload_or_rebuild_is_in_progress() {
     // Without a live index an identity change is otherwise acceptable, so
     // the reload/rebuild check is what makes this rejection observable.
-    let runtime = EmbeddingRuntime::new(
-        None,
-        Some(EmbeddingIdentity {
-            base_url: "https://embeddings.example/v1".to_string(),
-            model: "model-a".to_string(),
-            dimensions: 8,
-        }),
-    );
+    let runtime = EmbeddingRuntime::new(None, Some(identity()));
+    let vector = VectorRuntime::unconfigured();
     let reloading = Arc::new(AtomicBool::new(true));
-    let guard = EmbeddingSettingsGuard::new(runtime.clone(), false, reloading);
+    let guard = EmbeddingSettingsGuard::new(runtime.clone(), vector.clone(), reloading);
     let error = guard
         .check(&update("https://embeddings.example/v1", "model-b", 8, None))
         .expect_err("an identity change racing a reload must be rejected");
@@ -108,7 +110,7 @@ fn an_identity_change_is_rejected_while_a_reload_or_rebuild_is_in_progress() {
     // A credential-only save stays live-safe even while a reload is running,
     // so a broken credential can still be repaired.
     let reloading = Arc::new(AtomicBool::new(true));
-    let guard = EmbeddingSettingsGuard::new(runtime, false, reloading);
+    let guard = EmbeddingSettingsGuard::new(runtime, vector, reloading);
     guard
         .check(&update(
             "https://embeddings.example/v1",
@@ -120,13 +122,20 @@ fn an_identity_change_is_rejected_while_a_reload_or_rebuild_is_in_progress() {
 }
 
 #[test]
-fn rebuild_ticket_marks_unready_and_a_startup_gate_reopens_it() {
-    let gate = VectorIndexGate::new();
+fn a_rebuild_fence_closes_and_reopens_through_committed_state() {
+    let runtime = VectorRuntime::for_test_with_index(QdrantIndex::for_test("test", 8), identity());
+    assert!(runtime.is_ready());
+    let gate = VectorIndexGate::from_runtime(&runtime);
     assert!(gate.flag().load(Ordering::Acquire));
+
+    let generation = runtime.begin_rebuild();
+    assert!(!gate.flag().load(Ordering::Acquire));
+    assert!(!runtime.is_ready());
+    assert!(runtime.is_rebuilding());
 
     let ticket = gate.rebuild_ticket();
-    assert!(!gate.flag().load(Ordering::Acquire));
-
+    assert!(runtime.complete_rebuild(generation));
     ticket.settle();
     assert!(gate.flag().load(Ordering::Acquire));
+    assert!(runtime.is_ready());
 }

@@ -7,7 +7,9 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::TaskService;
-use super::item_processors::{ProcessResult, process_error, process_source_sync_error};
+use super::item_processors::{
+    ProcessResult, process_error, process_source_sync_error, waiting_for_error,
+};
 
 pub(super) async fn process_delete(
     service: &TaskService,
@@ -140,6 +142,7 @@ pub(super) async fn process_sync(
 pub(super) async fn process_vector_rebuild(
     service: &TaskService,
     task: &crate::db::StoredTask,
+    item: &crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     if stage == "finalize" {
@@ -172,6 +175,17 @@ pub(super) async fn process_vector_rebuild(
             next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
             message: Some("another vector index rebuild is still running".to_string()),
         }),
-        Err(error) => Ok(process_error(stage, error)),
+        Err(error) => {
+            // No published vector pair is a dependency wait, not a failed
+            // rebuild attempt; anything else keeps its original failure path.
+            if let Some(unavailable) =
+                crate::services::library::UnifiedIngestError::vector_runtime_unavailable(
+                    "indexing", &error,
+                )
+            {
+                return Ok(waiting_for_error(item, unavailable));
+            }
+            Ok(process_error(stage, error))
+        }
     }
 }

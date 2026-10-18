@@ -17,7 +17,7 @@ Commands:
 Config:
   Provide runtime config through the standard context69 config file or CONTEXT69_* env vars.
   RUST_LOG defaults to info if not set.
-  Frontend listens on 0.0.0.0:5173 and proxies /v1, /healthz, and /openapi.json to the backend.
+  Frontend listens on 0.0.0.0:5173 and proxies /v1, /healthz, /readyz, /livez, and /openapi.json to the backend.
   Backend listens on 0.0.0.0:8096 and MCP on 0.0.0.0:8097.
   Browser sessions fall back to memory when Valkey is unavailable.
   CONTEXT69_AUTH__SESSION_VALKEY_URL is available as a break-glass override.
@@ -50,6 +50,8 @@ run_stack() {
   printf '  backend             http://127.0.0.1:8096\n'
   printf '  backend OpenAPI     http://127.0.0.1:8096/openapi.json\n'
   printf '  backend health      http://127.0.0.1:8096/healthz\n'
+  printf '  backend ready       http://127.0.0.1:8096/readyz\n'
+  printf '  backend live        http://127.0.0.1:8096/livez\n'
   printf '  MCP HTTP            http://127.0.0.1:8097/mcp\n'
   printf '  auth sessions       runtime Settings Valkey (fallback redis://127.0.0.1:6379)\n'
   if [[ "$mode" == "full" ]]; then

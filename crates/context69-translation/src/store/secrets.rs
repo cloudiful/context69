@@ -3,15 +3,14 @@ use context69_secret_store::{SecretPurpose, SecretStore, key_names};
 
 use super::codec::clean;
 
-/// The shared `provider_key = 'llm'` API key, owned by translation and read by
-/// extraction.
+/// The shared `provider_key = 'llm'` API key, owned by translation.
 ///
-/// Both crates bind the row to the singleton
+/// The row binds to the singleton
 /// [`SecretPurpose::TranslationProviderApiKey`], so the value written here is
-/// the one extraction reads. The store is the only representation: the
-/// `translation_provider_settings.api_key` column belongs to the sibling
-/// providers, whose credentials no purpose owns, and the shared row never writes
-/// it.
+/// the one the translation providers read. The store is the only
+/// representation: the `translation_provider_settings.api_key` column belongs
+/// to the sibling providers, whose credentials no purpose owns, and the shared
+/// row never writes it.
 #[derive(Debug, Clone)]
 pub(super) struct ProviderApiKey {
     store: SecretStore,

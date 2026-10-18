@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT metadata_json AS \"metadata_json!\",\n       record_hash AS \"record_hash!\"\nFROM context69.documents\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "metadata_json!",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "record_hash!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "ab9782eaf969c7337c66f436dbe7671c2de411f713c7a8d89645ac7af0445dd5"
+}

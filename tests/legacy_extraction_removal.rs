@@ -6,13 +6,14 @@
 //! plain `cargo test --workspace` and are reconciled against
 //! `crates/context69-test-support/tests/database-tests.json`.
 //!
-//! They assert the two halves of the P2 acceptance contract: the four
-//! dedicated legacy extraction tables and the three `library_files` directive
-//! columns are gone, while unrelated business data (source documents and their
-//! hashed snapshots, chunks, task history, translation provider rows and the P1
-//! generic results) survives unchanged. The migration that drops the legacy
-//! objects is applied at the named checkpoint, so these cases are only
-//! meaningful once it has run.
+//! They assert the two halves of the #910 contract: the four dedicated legacy
+//! extraction tables and the three `library_files` directive columns are gone,
+//! while unrelated business data (source documents and their hashed snapshots,
+//! chunks, task history, translation provider rows and the P1 generic results)
+//! survives unchanged. The retirement migration runs automatically when
+//! `Database::connect` opens the deployment database; rows created after it are
+//! never revisited, so this fixture also proves that a later source generation
+//! is not rewritten by the schema retirement.
 
 use context69::db::Database;
 use serde_json::json;
@@ -53,9 +54,10 @@ async fn seed_user(db: &Database) -> i64 {
     .get("id")
 }
 
-/// A document whose metadata still carries the historical `extraction`
-/// namespace. That key is part of the canonical source `record_hash` and must
-/// be preserved verbatim, never stripped.
+/// A document whose source metadata still carries the retired `extraction`
+/// namespace. The automatic retirement migration processes existing rows once
+/// at deployment and never rewrites a source generation it has already passed,
+/// so this later fixture proves the canonical snapshot and chunks stay intact.
 async fn seed_document_with_extraction_metadata(db: &Database, group_id: i64) -> (i64, String) {
     let record_hash = format!("legacy-removal-{}", Uuid::new_v4());
     let metadata = json!({
@@ -161,20 +163,22 @@ async fn legacy_extraction_tables_and_columns_are_gone() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn preserved_source_snapshots_tasks_translation_and_results_survive() {
+async fn source_generations_tasks_translation_and_results_survive_legacy_table_removal() {
     let db = connect_scratch().await;
     let group_id = seed_group(&db).await;
     let user_id = seed_user(&db).await;
     let (document_id, record_hash) = seed_document_with_extraction_metadata(&db, group_id).await;
 
-    // Immutable source snapshot: version row + chunk, both carrying the same
-    // hashed metadata. The removal must not rewrite or delete these.
+    // Immutable source snapshot: the canonical version keeps the business
+    // metadata that the retired embedded key was merged over, plus a chunk at
+    // the same generation. The schema retirement must not rewrite or delete
+    // these.
     sqlx::query(
         "INSERT INTO context69.document_versions \
          (document_id, record_hash, title, summary, body_text, source_uri, metadata_json) \
          VALUES ($1, $2, 'Legacy Doc', NULL, 'alpha\nbeta', \
                  'https://example.test/legacy-removal', \
-                 '{\"extraction\": {\"stock.news.v1\": {\"direction\": \"positive\"}}}'::jsonb)",
+                 '{\"ts_code\": \"600519.SH\"}'::jsonb)",
     )
     .bind(document_id)
     .bind(&record_hash)
@@ -251,12 +255,12 @@ async fn preserved_source_snapshots_tasks_translation_and_results_survive() {
             .expect("document survives");
     assert_eq!(hash, record_hash, "record_hash must be unchanged");
     assert_eq!(
-        metadata["extraction"]["stock.news.v1"]["direction"], "positive",
-        "hashed extraction metadata must be preserved verbatim"
+        metadata["ts_code"], "600519.SH",
+        "non-enrichment source metadata must be preserved"
     );
 
-    let version_metadata: serde_json::Value = sqlx::query_scalar(
-        "SELECT metadata_json FROM context69.document_versions \
+    let (version_metadata, version_body): (serde_json::Value, String) = sqlx::query_as(
+        "SELECT metadata_json, body_text FROM context69.document_versions \
          WHERE document_id = $1 AND record_hash = $2",
     )
     .bind(document_id)
@@ -264,9 +268,10 @@ async fn preserved_source_snapshots_tasks_translation_and_results_survive() {
     .fetch_one(db.pool())
     .await
     .expect("version snapshot survives");
+    assert_eq!(version_metadata["ts_code"], "600519.SH");
     assert_eq!(
-        version_metadata["extraction"]["stock.news.v1"]["direction"], "positive",
-        "immutable version snapshot must not be rewritten"
+        version_body, "alpha\nbeta",
+        "canonical snapshot body must not change"
     );
 
     let chunk_count: i64 =

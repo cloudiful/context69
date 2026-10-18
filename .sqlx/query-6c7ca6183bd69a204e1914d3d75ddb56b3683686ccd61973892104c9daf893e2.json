@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Only this test's own fixture signing key is looked up, to decide whether the\n-- boot created the row it later deletes. Existing rows are never printed.\nSELECT key AS \"key!\"\nFROM context69.internal_secrets\nWHERE value = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bytea"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6c7ca6183bd69a204e1914d3d75ddb56b3683686ccd61973892104c9daf893e2"
+}

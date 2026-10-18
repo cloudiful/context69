@@ -17,6 +17,7 @@ use crate::qdrant_index::QdrantIndex;
 use crate::services::auth::AuthService;
 use crate::services::secret_store::SecretStore;
 use crate::services::settings::secrets::SettingsSecrets;
+use crate::vector_runtime::VectorRuntime;
 
 mod adapters;
 
@@ -46,6 +47,18 @@ pub struct QueryDeps<'a> {
     pub vector_index_ready: Arc<AtomicBool>,
 }
 
+/// The shared-runtime variant of [`QueryDeps`]: the search path takes its
+/// embedding/index pair from the process-wide handle per request, so a Qdrant
+/// that becomes available after startup starts serving without a restart.
+pub struct SharedQueryDeps<'a> {
+    pub db: Database,
+    pub vector: VectorRuntime,
+    pub valkey_url: Option<&'a str>,
+    pub embedding_model: String,
+    pub auth: AuthService,
+    pub store: SecretStore,
+}
+
 #[derive(Clone)]
 pub struct QueryService {
     db: Database,
@@ -68,16 +81,29 @@ impl QueryService {
     /// service never reads the legacy column directly and never holds a key it
     /// could log or echo.
     pub async fn new(deps: QueryDeps<'_>) -> Result<Self> {
-        let QueryDeps {
+        let vector = VectorRuntime::from_legacy(deps.embedding, Some(deps.index), "");
+        Self::with_vector_runtime(SharedQueryDeps {
+            db: deps.db,
+            vector,
+            valkey_url: deps.valkey_url,
+            embedding_model: deps.embedding_model,
+            auth: deps.auth,
+            store: deps.store,
+        })
+        .await
+    }
+
+    /// Builds the search service onto the process-wide shared vector runtime.
+    pub async fn with_vector_runtime(deps: SharedQueryDeps<'_>) -> Result<Self> {
+        let SharedQueryDeps {
             db,
-            embedding,
-            index,
+            vector,
             valkey_url,
             embedding_model,
             auth,
             store,
-            vector_index_ready,
         } = deps;
+        let vector_index_ready = vector.readiness_flag();
         Ok(Self {
             db: db.clone(),
             inner: Some(
@@ -85,12 +111,12 @@ impl QueryService {
                     Arc::new(DbSearchRepository::new(
                         db,
                         auth.clone(),
-                        index.clone(),
+                        vector.clone(),
                         SettingsSecrets::search(store),
                     )),
                     Arc::new(AuthScopeResolver::new(auth)),
-                    Arc::new(EmbeddingAdapter::new(embedding)),
-                    Arc::new(QdrantSearchIndex::new(index)),
+                    Arc::new(EmbeddingAdapter::new(vector.clone())),
+                    Arc::new(QdrantSearchIndex::new(vector)),
                     valkey_url,
                     embedding_model,
                 )

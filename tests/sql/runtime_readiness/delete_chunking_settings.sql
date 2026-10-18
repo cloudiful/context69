@@ -1,0 +1,2 @@
+DELETE FROM context69.runtime_chunking_settings
+WHERE singleton

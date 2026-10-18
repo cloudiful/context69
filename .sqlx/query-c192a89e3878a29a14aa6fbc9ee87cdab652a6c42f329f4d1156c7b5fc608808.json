@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.runtime_scheduler_settings\nWHERE singleton\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c192a89e3878a29a14aa6fbc9ee87cdab652a6c42f329f4d1156c7b5fc608808"
+}

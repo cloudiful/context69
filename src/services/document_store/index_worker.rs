@@ -27,7 +27,7 @@ impl DocumentStoreService {
         };
         for definition in self.db.pending_metadata_indexes().await? {
             if definition.status == "deleting" {
-                if let Some(index) = &self.index
+                if let Some(index) = self.index()
                     && let Err(error) = index
                         .delete_metadata_field_index(&definition.field_path)
                         .await
@@ -80,7 +80,7 @@ impl DocumentStoreService {
                 .replace_metadata_values_bulk(&metadata_keys, &metadata_values)
                 .await?;
         }
-        if let Some(index) = &self.index {
+        if let Some(index) = self.index() {
             index
                 .ensure_metadata_field_index(&definition.field_path, &definition.data_type)
                 .await?;

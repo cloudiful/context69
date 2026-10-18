@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 
@@ -15,15 +15,15 @@ use crate::{
     chunking::{ChunkingConfig, chunk_document},
     contracts::Visibility,
     domain::SourceRecord,
-    embedding::{EmbeddingProvider, EmbeddingRuntime},
+    embedding::EmbeddingRuntime,
     normalize::normalize_record,
     qdrant_index::QdrantIndex,
+    vector_runtime::{VectorRuntime, VectorSnapshot},
 };
 
 #[derive(Clone)]
 pub struct TranslationPublisherAdapter {
-    embedding: EmbeddingRuntime,
-    index: Option<QdrantIndex>,
+    vector: VectorRuntime,
     chunking: ChunkingConfig,
 }
 
@@ -33,26 +33,26 @@ impl TranslationPublisherAdapter {
         index: Option<QdrantIndex>,
         chunking: ChunkingConfig,
     ) -> Self {
-        Self {
-            embedding: embedding.into(),
-            index,
+        Self::with_vector_runtime(
+            VectorRuntime::from_legacy(embedding.into(), index, ""),
             chunking,
-        }
+        )
     }
 
-    fn runtime(&self) -> Result<(Arc<dyn EmbeddingProvider>, &QdrantIndex)> {
+    pub fn with_vector_runtime(vector: VectorRuntime, chunking: ChunkingConfig) -> Self {
+        Self { vector, chunking }
+    }
+
+    fn runtime(&self) -> Result<VectorSnapshot> {
         // Translation publishes new vectors, so it waits out an
         // identity-changing rebuild instead of adding vectors to a collection
         // being re-embedded.
-        let embedding = self.embedding.require_ready().map_err(|error| {
+        self.vector.require_ready().map_err(|error| {
             DomainError::unavailable(format!(
                 "translation embedding runtime is unavailable: {error}"
             ))
-        })?;
-        let index = self.index.as_ref().ok_or_else(|| {
-            DomainError::unavailable("translation embedding runtime is unavailable")
-        })?;
-        Ok((embedding, index))
+            .into()
+        })
     }
 }
 
@@ -75,7 +75,9 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         translation: TranslationPublication<'_>,
     ) -> Result<TranslationPublicationResult> {
         let started = Instant::now();
-        let (embedding, index) = self.runtime()?;
+        let runtime = self.runtime()?;
+        let embedding = runtime.embedding.clone();
+        let index = runtime.index.clone();
         let visibility = translation
             .visibility
             .parse::<Visibility>()
@@ -176,8 +178,8 @@ impl TranslationPublisher for TranslationPublisherAdapter {
     }
 
     async fn delete(&self, chunk_ids: &[uuid::Uuid]) -> Result<()> {
-        if let Some(index) = &self.index {
-            index.delete_points(chunk_ids).await?;
+        if let Some(snapshot) = self.vector.snapshot() {
+            snapshot.index.delete_points(chunk_ids).await?;
         }
         Ok(())
     }

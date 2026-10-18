@@ -55,6 +55,22 @@
 
 不存在通用的结果 `DELETE` 或 `UPDATE` 端点；记录不可变。
 
+## 导入记录
+
+富集退役迁移通过同一不可变存储契约追加结果，没有 HTTP 调用方，也没有隐藏账户。
+对每个退役的内嵌负载，它插入一条归属现存最小 id 且已启用管理员的行：
+
+- producer 为 `context69.enrichment-import`，result kind 为
+  `imported-enrichment`，schema ref 为原始富集 schema 键，并绑定文档当前的
+  `source_record_hash`；
+- 幂等键为 `sqlx-retire:` 加上文档 id、schema ref、源哈希与规范负载的 SHA-256，
+  因此重放匹配既有行，不会再追加；
+- provenance 仅限 `workflow_version` 与 `run_id`；不冒充模型、原始作者或凭据。
+
+负载仍是原始不透明对象；Context69 仍不按业务 schema 校验它。同一身份下已存在
+但信封不同的行会使迁移中止；存在受影响数据却没有已启用管理员时，迁移回滚而不
+伪造账户。
+
 ## 分块来源代
 
 每个返回的分块都带有一个必填的 `record_hash` 字段，标明该分块文本所属的来源代。

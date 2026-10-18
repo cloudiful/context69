@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT key AS \"key!\"\nFROM context69.internal_secrets\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "key!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.internal_secrets",
+            "name": "key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "13909aa413727fbbcc4f862291a7ee1995641640715e0557b57be52a903f7e28"
+}

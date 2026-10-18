@@ -344,7 +344,7 @@ async fn list_read_does_not_mutate_document_metadata() {
     let path = group_path(&db, group).await;
     let user = seed_user(&db).await;
     let scope = member_scope(group, &path);
-    let metadata = serde_json::json!({"ts_code": "600519.SH", "extraction": {"t": {"a": 1}}});
+    let metadata = serde_json::json!({"ts_code": "600519.SH", "topic": "markets"});
     let document = seed_document(&db, group, "hash-1", &metadata).await;
     let req = request(result_request("stock.news", "key-1", "hash-1")).await;
     db.append_document_result(group, document, &path, user, &scope, &req)

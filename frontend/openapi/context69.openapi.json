@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.23.1"
+    "version": "0.23.2"
   },
   "paths": {
     "/healthz": {
@@ -27,6 +27,52 @@
           },
           "503": {
             "description": "API is degraded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/livez": {
+      "get": {
+        "tags": [],
+        "operationId": "livez",
+        "responses": {
+          "200": {
+            "description": "Process is running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/readyz": {
+      "get": {
+        "tags": [],
+        "operationId": "readyz",
+        "responses": {
+          "200": {
+            "description": "API can serve core work",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "A required dependency is not ready",
             "content": {
               "application/json": {
                 "schema": {
@@ -10683,7 +10729,6 @@
           "embedding",
           "indexing",
           "translation",
-          "extraction",
           "other"
         ]
       },

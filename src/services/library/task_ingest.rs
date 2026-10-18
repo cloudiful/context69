@@ -180,6 +180,14 @@ pub(crate) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestErr
         failure.retryable = true;
         return UnifiedIngestError::from_failure(failure);
     }
+    // A vector runtime that is rebuilding or has no published pair is a
+    // dependency wait, not a failed attempt: normalize it at this boundary
+    // before the task mapper decides between waiting and failing.
+    if let Some(waiting) =
+        UnifiedIngestError::vector_runtime_unavailable(failure.stage.as_str(), &failure.error)
+    {
+        return waiting;
+    }
     if failure.dependency.is_none() {
         failure.dependency = super::unified_ingest::infer_unified_dependency(&failure);
     }
@@ -188,6 +196,19 @@ pub(crate) fn normalize_task_failure(failure: IngestFailure) -> UnifiedIngestErr
             || is_configuration_error(&failure.error);
     }
     UnifiedIngestError::from_failure(failure)
+}
+
+/// Classifies an indexing-stage runtime-resolution failure from the error the
+/// runtime produced.
+///
+/// Classification never re-reads the runtime: a pair that becomes ready between
+/// the failed resolution and this call must not reinterpret the original
+/// failure, so a genuine dependency wait stays a wait. The runtime's own fixed
+/// messages become the existing qdrant dependency wait; a not-configured or
+/// unrelated failure keeps its original non-retryable classification.
+pub(crate) fn normalize_indexing_runtime_failure(error: anyhow::Error) -> UnifiedIngestError {
+    UnifiedIngestError::vector_runtime_unavailable("indexing", &error)
+        .unwrap_or_else(|| task_failure("indexing", error, false))
 }
 
 pub(crate) fn task_failure(
@@ -248,9 +269,22 @@ impl std::str::FromStr for LibraryDependency {
 #[cfg(test)]
 mod tests {
     use std::str::FromStr;
+    use std::sync::{Arc, atomic::AtomicBool};
 
     use super::*;
     use crate::domain_errors::{DomainError, find_domain_error};
+    use crate::embedding::EmbeddingProvider;
+    use crate::qdrant_index::QdrantIndex;
+    use crate::vector_runtime::{VectorRuntime, VectorSnapshot};
+
+    struct StubProvider;
+
+    #[async_trait::async_trait]
+    impl EmbeddingProvider for StubProvider {
+        async fn embed_texts(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+            Ok(texts.iter().map(|_| vec![0.0; 4]).collect())
+        }
+    }
 
     #[test]
     fn unknown_library_dependency_is_typed_invalid_argument() {
@@ -263,6 +297,79 @@ mod tests {
         assert_eq!(
             LibraryDependency::from_str("embedding_vector").expect("legacy alias"),
             LibraryDependency::Embedding
+        );
+    }
+
+    #[test]
+    fn a_missing_vector_pair_parks_indexing_on_the_qdrant_dependency() {
+        let failure =
+            normalize_indexing_runtime_failure(anyhow!("embedding/vector runtime is unavailable"));
+        assert_eq!(failure.stage, "indexing");
+        assert!(failure.retryable);
+        assert_eq!(failure.dependency_key.as_deref(), Some("qdrant"));
+    }
+
+    #[test]
+    fn a_rebuild_fence_parks_indexing_on_the_qdrant_dependency() {
+        let failure = normalize_indexing_runtime_failure(anyhow!(
+            "vector index is rebuilding or unavailable; retry after the rebuild completes"
+        ));
+        assert!(failure.retryable);
+        assert_eq!(failure.dependency_key.as_deref(), Some("qdrant"));
+    }
+
+    #[test]
+    fn an_unrelated_indexing_failure_stays_terminal() {
+        let failure = normalize_indexing_runtime_failure(anyhow!("unexpected index failure"));
+        assert!(!failure.retryable);
+        assert!(failure.dependency_key.is_none());
+        assert_eq!(failure.message, "unexpected index failure");
+    }
+
+    #[test]
+    fn an_unconfigured_runtime_keeps_the_terminal_configuration_failure() {
+        // The not-configured sentence is deliberately not one of the runtime's
+        // transient messages: absent deployment configuration cannot heal by
+        // waiting, so it keeps the terminal classification.
+        let failure = normalize_indexing_runtime_failure(anyhow!(
+            "library ingest runtime is not configured; save runtime and docling settings and restart the service"
+        ));
+        assert!(!failure.retryable);
+        assert!(failure.dependency_key.is_none());
+    }
+
+    #[test]
+    fn a_failure_captured_before_recovery_still_waits_after_the_pair_is_published() {
+        let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
+        let captured = runtime
+            .require_ready()
+            .err()
+            .expect("an unpublished runtime cannot serve vector work");
+
+        let generation = runtime.generation();
+        assert!(runtime.publish(
+            generation,
+            VectorSnapshot {
+                embedding: Arc::new(StubProvider),
+                identity: None,
+                index: Arc::new(QdrantIndex::for_test("test", 4)),
+                collection: "test".to_string(),
+                generation,
+            }
+        ));
+        assert!(
+            runtime.is_ready(),
+            "the pair is live by classification time"
+        );
+
+        // The classification must describe the captured failure, not the state
+        // that exists when it is classified.
+        let failure = normalize_indexing_runtime_failure(captured);
+        assert!(failure.retryable);
+        assert_eq!(failure.dependency_key.as_deref(), Some("qdrant"));
+        assert_eq!(
+            failure.message,
+            "embedding/vector runtime is unavailable: vector index is unavailable; retry after it recovers"
         );
     }
 }

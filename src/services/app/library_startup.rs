@@ -30,10 +30,9 @@ pub async fn initialize(
     settings: &SettingsService,
     services: &ServicesInit,
 ) -> Result<LibraryStartup> {
-    let mut library = LibraryService::new(
+    let mut library = LibraryService::with_vector_runtime(
         db.clone(),
-        vector.embedding.clone(),
-        vector.index.clone(),
+        vector.vector.clone(),
         LibraryServiceConfig {
             chunking: ChunkingConfig {
                 max_chars: config.chunking.max_chars,

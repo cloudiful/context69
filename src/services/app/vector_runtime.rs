@@ -12,18 +12,20 @@ use crate::{
     db::Database,
     domain_errors::DomainError,
     embedding::{EmbeddingIdentity, EmbeddingRuntime, build_provider},
-    qdrant_index::QdrantIndex,
     services::secret_store::SecretStore,
+    vector_runtime::VectorRuntime as SharedVectorRuntime,
 };
 
 use super::{runtime_settings, vector_rebuild::VectorRebuildTicket};
 
-/// The process-wide vector-index gate: the shared readiness flag that the
-/// embedding handle, the query service, the rebuild tickets and the dependency
-/// gates all observe.
+/// The process-wide vector-index gate: the readiness mirror that the embedding
+/// handle, the query service, and the dependency gates observe.
+///
+/// The gate never owns readiness; it delegates every change to the shared
+/// runtime so those observers can only see a committed state.
 #[derive(Clone)]
 pub struct VectorIndexGate {
-    ready: Arc<AtomicBool>,
+    runtime: SharedVectorRuntime,
 }
 
 impl Default for VectorIndexGate {
@@ -35,30 +37,37 @@ impl Default for VectorIndexGate {
 impl VectorIndexGate {
     pub fn new() -> Self {
         Self {
-            ready: Arc::new(AtomicBool::new(true)),
+            runtime: SharedVectorRuntime::unconfigured(),
         }
     }
 
-    /// The shared readiness flag for the embedding handle and query service.
+    pub fn from_runtime(runtime: &SharedVectorRuntime) -> Self {
+        Self {
+            runtime: runtime.clone(),
+        }
+    }
+
+    /// The shared readiness mirror for the embedding handle and query service.
     pub fn flag(&self) -> Arc<AtomicBool> {
-        self.ready.clone()
+        self.runtime.readiness_flag()
     }
 
     pub fn set_ready(&self, ready: bool) {
-        self.ready.store(ready, Ordering::Release);
+        self.runtime.commit_readiness(ready);
     }
 
-    /// The completion ticket for an explicit startup/manual rebuild. It marks
-    /// the index unready until the rebuild succeeds. A settings save never
-    /// creates one.
+    /// The completion hook for an explicit startup/manual rebuild. The rebuild
+    /// fence itself is opened by `VectorRuntime::begin_rebuild` before this
+    /// ticket exists, so a settings save can never close a gate on its own.
     pub fn rebuild_ticket(&self) -> VectorRebuildTicket {
-        VectorRebuildTicket::new(self.ready.clone())
+        VectorRebuildTicket::new()
     }
 }
 
 pub struct VectorRuntime {
     pub embedding: EmbeddingRuntime,
-    pub index: Option<QdrantIndex>,
+    /// The shared handle every vector consumer reads its coherent pair from.
+    pub vector: SharedVectorRuntime,
     pub embedding_vector_configured: bool,
     pub collection_needs_rebuild: bool,
     pub fingerprint: String,
@@ -66,6 +75,10 @@ pub struct VectorRuntime {
     /// Shared with the embedding handle and the query service, so a rebuild
     /// gates writes and reads with one flag.
     pub gate: VectorIndexGate,
+    /// The one recovery controller for this process. It exists even when the
+    /// instance starts unconfigured and is activated by the first committed
+    /// settings save.
+    pub recovery: Arc<super::vector_recovery::VectorRecoveryWiring>,
 }
 
 pub async fn initialize(
@@ -79,35 +92,23 @@ pub async fn initialize(
         .await?;
     let fingerprint_changed = stored_fingerprint.as_deref() != Some(&fingerprint);
 
-    // Created before the provider so the embedding handle and the query path
-    // share one readiness gate for the whole process.
-    let gate = VectorIndexGate::new();
+    // The shared handle exists for the whole process lifetime, so every consumer
+    // observes the same readiness truth before and after configuration.
+    let shared = SharedVectorRuntime::unconfigured();
+    let gate = VectorIndexGate::from_runtime(&shared);
     let mut embedding = EmbeddingRuntime::with_readiness(None, None, gate.flag());
-    let mut index: Option<QdrantIndex> = None;
     let mut embedding_vector_configured = false;
-    let mut collection_needs_rebuild = false;
 
     if runtime_configured {
         match build_provider(&config.embedding) {
             Ok(provider) => {
                 embedding_vector_configured = true;
-                let identity = EmbeddingIdentity::from_config(&config.embedding);
-                let mut qdrant_config = config.qdrant.clone();
-                qdrant_config.recreate_on_dimension_mismatch |= fingerprint_changed;
-                match QdrantIndex::connect(&qdrant_config, config.embedding.dimensions).await {
-                    Ok((connected_index, recreated)) => {
-                        embedding = EmbeddingRuntime::with_readiness(
-                            Some(provider),
-                            Some(identity),
-                            gate.flag(),
-                        );
-                        index = Some(connected_index);
-                        collection_needs_rebuild = recreated;
-                    }
-                    Err(error) => {
-                        warn!(error = %error, "qdrant runtime is unavailable; continuing in degraded mode");
-                    }
-                }
+                shared.mark_configured(true);
+                embedding = EmbeddingRuntime::with_readiness(
+                    Some(provider),
+                    Some(EmbeddingIdentity::from_config(&config.embedding)),
+                    gate.flag(),
+                );
             }
             Err(error) => {
                 warn!(%error, "embedding runtime is unavailable; continuing in degraded mode");
@@ -115,14 +116,25 @@ pub async fn initialize(
         }
     }
 
+    let recovery =
+        super::vector_recovery::startup_recovery(db, config, shared.clone(), runtime_configured)
+            .await;
+
+    // A collection that exists but has diverged needs the explicit rebuild
+    // path, which is the only path allowed to recreate destructively.
+    let collection_needs_rebuild = shared.snapshot().is_some()
+        && fingerprint_changed
+        && config.qdrant.recreate_on_dimension_mismatch;
+
     Ok(VectorRuntime {
         embedding,
-        index,
+        vector: shared,
         embedding_vector_configured,
         collection_needs_rebuild,
         fingerprint,
         fingerprint_changed,
         gate,
+        recovery,
     })
 }
 
@@ -139,19 +151,19 @@ pub async fn initialize(
 #[derive(Clone)]
 pub struct EmbeddingSettingsGuard {
     runtime: EmbeddingRuntime,
-    index_present: bool,
+    vector: SharedVectorRuntime,
     reload_in_progress: Arc<AtomicBool>,
 }
 
 impl EmbeddingSettingsGuard {
     pub fn new(
         runtime: EmbeddingRuntime,
-        index_present: bool,
+        vector: SharedVectorRuntime,
         reload_in_progress: Arc<AtomicBool>,
     ) -> Self {
         Self {
             runtime,
-            index_present,
+            vector,
             reload_in_progress,
         }
     }
@@ -165,7 +177,7 @@ impl EmbeddingSettingsGuard {
             .runtime
             .current_identity()
             .is_some_and(|current| current != candidate);
-        if identity_change && self.index_present {
+        if identity_change && self.vector.snapshot().is_some() {
             return Err(DomainError::invalid_argument(
                 "runtime.embedding model/base URL/dimensions cannot change while the vector index \
                  is live; only credential and timeout changes apply without a rebuild",
@@ -211,7 +223,7 @@ pub struct EmbeddingRuntimeReloaderContext {
     pub db: Database,
     pub store: SecretStore,
     pub runtime: EmbeddingRuntime,
-    pub index_present: bool,
+    pub vector: SharedVectorRuntime,
     pub base_config: Config,
     pub reload_in_progress: Arc<AtomicBool>,
 }
@@ -254,7 +266,7 @@ impl EmbeddingRuntimeReloader {
 
         let candidate_identity = EmbeddingIdentity::from_config(&effective.embedding);
         let previous = self.context.runtime.current_identity();
-        if self.context.index_present
+        if self.context.vector.snapshot().is_some()
             && previous
                 .as_ref()
                 .is_some_and(|previous| previous != &candidate_identity)
@@ -276,6 +288,21 @@ impl EmbeddingRuntimeReloader {
                 return Ok(());
             }
         };
+        // A live pair keeps its provider identity: only a credential or timeout
+        // change may replace it. With no published pair there is nothing to
+        // preserve, so the first configuration activates the standalone handle
+        // for the consumers that read it before the pair is published.
+        if self.context.vector.snapshot().is_some()
+            && !self
+                .context
+                .vector
+                .replace_provider(provider.clone(), candidate_identity.clone())
+        {
+            warn!(
+                "embedding identity changed under a concurrent update; keeping the previous runtime"
+            );
+            return Ok(());
+        }
         self.context.runtime.install(provider, candidate_identity);
         Ok(())
     }

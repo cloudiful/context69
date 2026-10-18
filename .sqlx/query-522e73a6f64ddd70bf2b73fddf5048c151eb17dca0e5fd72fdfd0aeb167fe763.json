@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.documents\n    (group_id, source_key, external_id, title, summary, source_uri,\n     updated_at_source, record_hash, metadata_json, visibility)\nVALUES ($1, 'retire-migration-src', $2, 'Business Doc', NULL,\n        'https://example.test/retire-migration', now(), $3, $4, 'public')\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "522e73a6f64ddd70bf2b73fddf5048c151eb17dca0e5fd72fdfd0aeb167fe763"
+}

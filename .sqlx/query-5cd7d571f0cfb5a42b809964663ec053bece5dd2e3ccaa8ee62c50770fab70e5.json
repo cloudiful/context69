@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT attempts,\n       last_error,\n       next_attempt_at > now() AS \"next_due!\"\nFROM context69.document_metadata_payload_sync\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_metadata_payload_sync",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_metadata_payload_sync",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "next_due!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "5cd7d571f0cfb5a42b809964663ec053bece5dd2e3ccaa8ee62c50770fab70e5"
+}

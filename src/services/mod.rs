@@ -6,6 +6,7 @@ pub mod git_secrets;
 pub mod git_webhook_signature;
 pub mod library;
 pub mod maintenance;
+pub mod metadata_payload_sync;
 pub mod namespace;
 pub mod personal_access_tokens;
 pub mod query;

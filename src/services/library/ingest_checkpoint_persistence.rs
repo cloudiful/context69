@@ -21,7 +21,9 @@ use super::ingest_progress::{PipelineProgress, PipelineProgressStage};
 use super::ingest_progress_resume::ResumeChunkProgress;
 use super::ingest_progress_store::write_pipeline_progress;
 use super::ingest_types::{IngestFailure, IngestSection, PreparedIngestSection};
-use super::task_ingest::{normalize_task_failure, task_failure};
+use super::task_ingest::{
+    normalize_indexing_runtime_failure, normalize_task_failure, task_failure,
+};
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
 use crate::chunking::chunk_document_iter;
 use crate::contracts::LibraryIngestFailureStage;
@@ -67,7 +69,7 @@ impl LibraryService {
 
         let runtime = self
             .runtime()
-            .map_err(|error| task_failure("indexing", error, false))?
+            .map_err(normalize_indexing_runtime_failure)?
             .clone();
 
         let current_hash = compute_prepared_record_hash(&prepared);

@@ -112,6 +112,104 @@ impl QdrantIndex {
         Ok((index, recreated))
     }
 
+    /// Attaches to an existing collection with read-only validation only.
+    ///
+    /// Recovery must never mutate a reachable Qdrant: this performs
+    /// `collection_exists`, `get`, and `count` and nothing else. A missing
+    /// collection, a dimension mismatch, or an unreadable collection is
+    /// reported to the caller, which decides whether creation is permitted for
+    /// a genuinely uninitialized installation.
+    pub async fn attach_read_only(config: &QdrantConfig, dimensions: usize) -> Result<Self> {
+        let client = Qdrant::from_url(&config.url).build()?;
+        let index = Self {
+            client,
+            collection_name: config.collection_name.clone(),
+            dimensions,
+        };
+        index.probe_collection().await?;
+        Ok(index)
+    }
+
+    /// Attaches to an existing collection, or creates it only when `allow_create`
+    /// is true for a genuinely uninitialized collection.
+    ///
+    /// Creation is idempotent and non-destructive: a concurrent creator's
+    /// `AlreadyExists` re-reads and validates the existing collection, and no
+    /// path deletes or recreates anything. A mismatched existing collection is
+    /// a configuration error; only the explicit rebuild path may recreate under
+    /// its own safety gate.
+    pub async fn bootstrap(
+        config: &QdrantConfig,
+        dimensions: usize,
+        allow_create: bool,
+    ) -> Result<(Self, bool)> {
+        let client = Qdrant::from_url(&config.url).build()?;
+        let index = Self {
+            client,
+            collection_name: config.collection_name.clone(),
+            dimensions,
+        };
+        if index.collection_exists_checked().await? {
+            index.probe_collection().await?;
+            return Ok((index, false));
+        }
+        if !allow_create {
+            return Err(anyhow!(
+                "qdrant collection {} is missing and this installation has prior vector state; refusing to create an empty replacement",
+                index.collection_name
+            ));
+        }
+        match index.create_collection(dimensions).await {
+            Ok(()) => {
+                index.probe_collection().await?;
+                Ok((index, true))
+            }
+            Err(error) if is_collection_already_exists(&error) => {
+                // Another replica won the create race: re-read and validate
+                // instead of treating the race as a failure.
+                index.probe_collection().await?;
+                Ok((index, false))
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// One read-only liveness/identity probe: collection exists, declared
+    /// dimension matches, and a count round trip succeeds.
+    pub async fn probe_collection(&self) -> Result<()> {
+        if !self.collection_exists_checked().await? {
+            return Err(anyhow!(
+                "qdrant collection {} does not exist",
+                self.collection_name
+            ));
+        }
+        let collection = self
+            .client
+            .collection_info(&self.collection_name)
+            .await?
+            .result
+            .context("missing qdrant collection info")?;
+        let actual_dimensions = collection_vector_size(&collection)
+            .context("missing qdrant vector size in collection config")?;
+        if actual_dimensions != self.dimensions {
+            return Err(anyhow!(
+                "qdrant collection {} dimension mismatch: expected {}, found {}",
+                self.collection_name,
+                self.dimensions,
+                actual_dimensions
+            ));
+        }
+        self.count_points().await?;
+        Ok(())
+    }
+
+    async fn collection_exists_checked(&self) -> Result<bool> {
+        self.client
+            .collection_exists(&self.collection_name)
+            .await
+            .map_err(|error| anyhow::Error::new(error).context("qdrant collection_exists failed"))
+    }
+
     async fn ensure_collection(
         &self,
         dimensions: usize,
@@ -256,6 +354,16 @@ fn is_qdrant_field_index_already_exists(error: &qdrant_client::QdrantError) -> b
     field_index_hint && exists_hint
 }
 
+fn is_collection_already_exists(error: &anyhow::Error) -> bool {
+    let text = error
+        .chain()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_ascii_lowercase();
+    text.contains("already exists") && text.contains("collection")
+}
+
 fn collection_vector_size(collection: &qdrant_client::qdrant::CollectionInfo) -> Option<usize> {
     let config = collection.config.as_ref()?;
     let vectors_config = config.params.as_ref()?.vectors_config.as_ref()?;
@@ -268,6 +376,20 @@ fn collection_vector_size(collection: &qdrant_client::qdrant::CollectionInfo) ->
             .next()
             .map(|params| params.size as usize),
         None => None,
+    }
+}
+
+#[cfg(test)]
+impl QdrantIndex {
+    /// A detached index for unit tests that never performs network I/O.
+    pub(crate) fn for_test(collection_name: &str, dimensions: usize) -> Self {
+        Self {
+            client: Qdrant::from_url("http://127.0.0.1:1")
+                .build()
+                .expect("build test qdrant client"),
+            collection_name: collection_name.to_string(),
+            dimensions,
+        }
     }
 }
 

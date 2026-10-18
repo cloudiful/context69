@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.tasks\n    (id, user_id, group_id, kind, status, group_path, total_count,\n     queued_count, running_count, succeeded_count, failed_count,\n     cancelled_count, failure_stage, error_summary)\nVALUES ($1, $2, $3, 'file_batch', $4, 'test/retire-migration', 1,\n        0, 0, 0, 1, 0, $5, 'kept summary')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "77e38b74294d44a555ff3ea4747aaf690b38436a63c697537ab697d967bcf0a3"
+}

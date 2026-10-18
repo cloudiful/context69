@@ -137,19 +137,31 @@ fn expected_body_kind(op: &Value) -> BodyKind {
 }
 
 #[test]
+fn health_probe_operations_are_registered_as_public_paths() {
+    for (id, path) in [("livez", "/livez"), ("readyz", "/readyz")] {
+        let operation = find_operation(id).unwrap_or_else(|| panic!("{id} must be registered"));
+        assert_eq!(operation.method, "GET", "{id} method");
+        assert_eq!(operation.path_template, path, "{id} path");
+        assert!(!operation.requires_auth, "{id} must stay public");
+        assert_eq!(operation.response_schema, "HealthResponse", "{id} response");
+        assert_eq!(operation.success_status, 200, "{id} success status");
+    }
+}
+
+#[test]
 fn registry_is_sorted_unique_and_complete() {
     assert_eq!(
         OPERATIONS.len(),
-        135,
-        "registry must cover all 135 operations"
+        137,
+        "registry must cover all 137 operations"
     );
     let ids = operation_ids();
-    assert_eq!(ids.len(), 135);
+    assert_eq!(ids.len(), 137);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "OPERATIONS must be sorted by operation_id");
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 135, "operation ids must be unique");
+    assert_eq!(unique.len(), 137, "operation ids must be unique");
     for op in OPERATIONS {
         assert!(!op.id.is_empty());
         assert!(["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&op.method));
@@ -164,7 +176,7 @@ fn registry_is_sorted_unique_and_complete() {
 #[test]
 fn registry_matches_openapi_exactly_with_no_omission() {
     let openapi = openapi_operations();
-    assert_eq!(openapi.len(), 135, "OpenAPI must expose 135 operations");
+    assert_eq!(openapi.len(), 137, "OpenAPI must expose 137 operations");
     let registry: Vec<(String, String, String)> = OPERATIONS
         .iter()
         .map(|op| {
@@ -754,7 +766,10 @@ fn every_operation_builds_a_request_without_handwritten_methods() {
             op.id
         );
         assert!(
-            rendered.starts_with("/healthz") || rendered.starts_with("/v1/"),
+            ["/healthz", "/livez", "/readyz"]
+                .iter()
+                .any(|prefix| rendered.starts_with(prefix))
+                || rendered.starts_with("/v1/"),
             "unexpected path for {}: {rendered}",
             op.id
         );

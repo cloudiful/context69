@@ -1,7 +1,4 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::sync::Arc;
 
 use anyhow::Result;
 use tracing::{error, info};
@@ -11,27 +8,21 @@ use crate::{
     db::{Database, VectorIndexState},
     qdrant_index::QdrantIndex,
     services::sync::SyncService,
+    vector_runtime::VectorRuntime,
 };
 
-/// Completion handle for one explicit vector-index rebuild.
+/// Completion hook for one explicit vector-index rebuild.
 ///
-/// The ticket marks the index unready while the rebuild runs and reopens reads
-/// once it succeeds. Only the explicit startup and manual rebuild paths create
-/// one; a settings save never does, because an identity-changing save is
-/// rejected before it is persisted.
+/// The rebuild fence itself is committed by `VectorRuntime::begin_rebuild`; this
+/// ticket only reports success once `complete_rebuild` kept that generation.
 #[derive(Clone)]
 pub struct VectorRebuildTicket {
-    readiness: Arc<AtomicBool>,
     on_settled: Option<Arc<dyn Fn() + Send + Sync>>,
 }
 
 impl VectorRebuildTicket {
-    pub fn new(readiness: Arc<AtomicBool>) -> Self {
-        readiness.store(false, Ordering::Release);
-        Self {
-            readiness,
-            on_settled: None,
-        }
+    pub fn new() -> Self {
+        Self { on_settled: None }
     }
 
     /// Registers a hook invoked once this rebuild reopens reads, so the
@@ -41,25 +32,43 @@ impl VectorRebuildTicket {
         self
     }
 
-    /// Reopens reads and notifies the settle hook. Called only after a
-    /// successful rebuild.
+    /// Notifies the settle hook. Called only after a successful rebuild whose
+    /// generation was still current.
     pub(crate) fn settle(&self) {
-        self.readiness.store(true, Ordering::Release);
         if let Some(on_settled) = &self.on_settled {
             on_settled();
         }
     }
 }
 
+impl Default for VectorRebuildTicket {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// The shared runtime, its published index, and the generation a rebuild
+/// started under.
+pub struct RebuildTarget {
+    pub runtime: VectorRuntime,
+    pub index: Arc<QdrantIndex>,
+    pub generation: u64,
+}
+
 pub fn spawn(
     sync: SyncService,
     db: Database,
-    index: QdrantIndex,
+    target: RebuildTarget,
     config: Config,
     fingerprint: String,
     recreate_collection: bool,
     ticket: VectorRebuildTicket,
 ) {
+    let RebuildTarget {
+        runtime,
+        index,
+        generation,
+    } = target;
     tokio::spawn(async move {
         info!(
             collection_name = config.qdrant.collection_name,
@@ -75,7 +84,13 @@ pub fn spawn(
         )
         .await;
         if result.is_ok() {
-            ticket.settle();
+            // A settings change or a second rebuild may have started after this
+            // one; only the still-current generation may reopen readiness.
+            if runtime.complete_rebuild(generation) {
+                ticket.settle();
+            }
+        } else {
+            runtime.fail_rebuild(generation);
         }
         if let Err(error) = &result {
             error!(error = %error, "automatic vector index rebuild failed");
@@ -112,14 +127,13 @@ async fn rebuild(
 mod tests {
     use std::sync::{
         Arc,
-        atomic::{AtomicBool, AtomicUsize, Ordering},
+        atomic::{AtomicUsize, Ordering},
     };
 
     use super::VectorRebuildTicket;
 
     #[test]
-    fn a_ticket_marks_unready_then_reopens_reads_and_notifies() {
-        let ready = Arc::new(AtomicBool::new(true));
+    fn a_ticket_notifies_its_settle_hook_once() {
         let calls = Arc::new(AtomicUsize::new(0));
         let hook: Arc<dyn Fn() + Send + Sync> = {
             let calls = calls.clone();
@@ -128,12 +142,10 @@ mod tests {
             })
         };
 
-        let ticket = VectorRebuildTicket::new(ready.clone()).with_on_settled(hook);
-        assert!(!ready.load(Ordering::Acquire));
+        let ticket = VectorRebuildTicket::new().with_on_settled(hook);
         assert_eq!(calls.load(Ordering::SeqCst), 0);
 
         ticket.settle();
-        assert!(ready.load(Ordering::Acquire));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

@@ -22,6 +22,7 @@ mod secret_backfill;
 mod services_init;
 mod vector_identity;
 mod vector_rebuild;
+mod vector_recovery;
 mod vector_runtime;
 
 pub use browser_sessions::BrowserSessionConfig;
@@ -46,6 +47,12 @@ pub struct Context69App {
     /// own plaintext columns.
     pub secrets: SecretStore,
     pub browser_sessions: BrowserSessionConfig,
+    /// The one process-wide vector runtime every vector consumer reads.
+    pub vector_runtime: crate::vector_runtime::VectorRuntime,
+    /// The one recovery controller for the process, kept alive (and cancelled
+    /// on drop) for the lifetime of the application. It is dormant instead of
+    /// absent when this instance starts without runtime settings.
+    pub vector_recovery: std::sync::Arc<vector_recovery::VectorRecoveryWiring>,
 }
 
 impl Context69App {
@@ -89,6 +96,8 @@ impl Context69App {
             tasks: background.tasks,
             secrets: hydration.secrets,
             browser_sessions: hydration.browser_sessions,
+            vector_runtime: vector.vector.clone(),
+            vector_recovery: vector.recovery.clone(),
         })
     }
 }

@@ -138,6 +138,23 @@ fn is_qdrant_transient(message: &str) -> bool {
         || status_is_server_error(message)
 }
 
+/// The exact messages the shared vector runtime uses for its own
+/// unavailability. Only these fixed sentences qualify: a generic failure that
+/// merely mentions vectors or a runtime must keep its original classification.
+const VECTOR_RUNTIME_UNAVAILABLE_SIGNALS: &[&str] = &[
+    "vector index is rebuilding or unavailable",
+    "vector index is unavailable",
+];
+
+/// Whether `error` is the shared vector runtime reporting that it cannot serve
+/// vector work yet (a rebuild fence or no published runtime pair).
+pub(super) fn is_vector_runtime_unavailable(error: &anyhow::Error) -> bool {
+    let message = error_chain_message(error);
+    VECTOR_RUNTIME_UNAVAILABLE_SIGNALS
+        .iter()
+        .any(|signal| message.contains(signal))
+}
+
 pub(super) fn is_configuration_error(error: &anyhow::Error) -> bool {
     let message = error_chain_message(error);
     message.contains("not configured")

@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.source_configs (\n    group_id,\n    visibility,\n    source_key,\n    display_name,\n    description,\n    example_queries,\n    connection,\n    sync_strategy,\n    connector_type,\n    base_query,\n    batch_size\n)\nVALUES ($1, 'public', $2, $2, NULL, '[]'::jsonb, $3, $4, 'postgres_sql', $5, $6)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2986e0d84a21eaa465273e8ab7013a1df3128afc5ef1d4072681e6ecbd1172cb"
+}

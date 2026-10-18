@@ -20,5 +20,6 @@ pub mod services;
 pub mod source_store;
 pub mod sources;
 pub mod support;
+pub mod vector_runtime;
 
 pub use context69_contracts as contracts;

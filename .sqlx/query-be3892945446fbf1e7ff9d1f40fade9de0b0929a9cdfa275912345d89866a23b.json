@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.documents\nWHERE metadata_json->>'library_file_id' IN (\n    SELECT id::text\n    FROM context69.library_files\n    WHERE group_id = $1\n)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "be3892945446fbf1e7ff9d1f40fade9de0b0929a9cdfa275912345d89866a23b"
+}

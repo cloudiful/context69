@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT indexdef AS \"indexdef!\"\nFROM pg_indexes\nWHERE schemaname = 'context69'\n  AND tablename = 'document_metadata_payload_sync'\n  AND indexname = 'uq_document_metadata_payload_sync_pending'\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "indexdef!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "pg_indexes",
+            "name": "indexdef"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "13d4a1334d4db4dee4d01aa4f38836ffc79750410065f5c00f349d8a0eee448d"
+}

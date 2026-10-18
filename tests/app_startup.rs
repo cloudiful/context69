@@ -37,8 +37,8 @@ use uuid::Uuid;
 use crate::support::{
     assert_open_gate, assert_runtime_settings_applied, assert_test_owned_runtime_settings,
     bootstrap_admin_config, cleanup_bootstrap_admin_rows, cleanup_own_rows,
-    internal_secret_key_for_value, internal_secret_keys, remove_test_storage_roots, search_request,
-    test_config, test_storage_root, work_row_count,
+    internal_secret_key_for_value, internal_secret_keys, remove_test_storage_roots,
+    runtime_settings_request, search_request, test_config, test_storage_root, work_row_count,
 };
 
 /// Degradation recorded by `LibraryService::initialize_dependency_gates` when
@@ -208,6 +208,105 @@ async fn app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settin
         "restart must not create the passed root"
     );
 
+    let message = "startup must not create task, library, or metadata-index work rows";
+    assert_eq!(work_row_count(&db).await, 0, "{message}");
+}
+
+/// The recovery controller is owned even when this instance starts without a
+/// usable vector configuration, and the first committed settings save activates
+/// it without a process restart.
+///
+/// Dormancy is reached by withdrawing the committed configuration from the
+/// shared handle (no probe is allowed while it is absent), then a real settings
+/// save through the application service proves the observer still reaches the
+/// same controller. Qdrant and the embedding endpoint stay on loopback
+/// sentinels, so nothing here can reach an external service.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "requires configured PostgreSQL and CONTEXT69_TEST_APP_STARTUP"]
+async fn a_dormant_controller_activates_from_a_committed_settings_save() {
+    let database_url = context69_test_support::accessor::database_url();
+    let db = Database::connect(&database_url);
+    let db = db.await.expect("connect test database");
+
+    let settings_before = db.get_runtime_settings().await.expect("read settings");
+    assert!(
+        settings_before.is_none(),
+        "this case needs a scratch database without committed runtime settings"
+    );
+    let message = "refusing to start the app: the scratch database already holds work startup would resume or clean up";
+    assert_eq!(work_row_count(&db).await, 0, "{message}");
+    let secret_keys_before = internal_secret_keys(&db).await;
+
+    let marker = Uuid::new_v4().simple().to_string();
+    let root = test_storage_root(&marker);
+    let app = Context69App::new(test_config(&database_url, &marker, &root))
+        .await
+        .expect("app startup");
+    let signing_key_name =
+        internal_secret_key_for_value(&app.db, &app.browser_sessions.signing_key)
+            .await
+            .expect("startup must persist the signing key");
+    let key_created = !secret_keys_before.contains(&signing_key_name);
+
+    assert!(
+        app.vector_runtime.is_configured(),
+        "the persisted settings configure the runtime at boot"
+    );
+    let configured_generation = app.vector_runtime.generation();
+
+    // Withdraw the configuration, as a deployment whose committed settings are
+    // no longer usable would be: no dependency may be probed while dormant.
+    app.vector_runtime.mark_configured(false);
+    assert!(!app.vector_runtime.is_ready());
+    let failure_before = app
+        .vector_runtime
+        .failure()
+        .map(|failure| (failure.generation, failure.message.clone()));
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    assert_eq!(
+        app.vector_runtime
+            .failure()
+            .map(|failure| (failure.generation, failure.message.clone())),
+        failure_before,
+        "a dormant controller must not probe a dependency"
+    );
+    assert_eq!(
+        app.vector_runtime.generation(),
+        configured_generation,
+        "dormancy alone must not advance a generation"
+    );
+
+    // The committed save reaches the same controller: one new generation, and
+    // the supervisor resumes with the saved collection.
+    let mut request = runtime_settings_request(&marker, &root);
+    request.qdrant.collection_name = format!("app_startup_reconfigured_{marker}");
+    app.settings
+        .update_runtime_settings(&request)
+        .await
+        .expect("a valid runtime settings save");
+
+    for _ in 0..250 {
+        if app.vector_runtime.is_configured() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        app.vector_runtime.is_configured(),
+        "a valid save must activate the dormant controller"
+    );
+    assert!(
+        app.vector_runtime.generation() > configured_generation,
+        "activation must start a new generation"
+    );
+    assert!(
+        !app.vector_runtime.is_ready(),
+        "the sentinel qdrant cannot publish a ready pair"
+    );
+
+    drop(app);
+    cleanup_own_rows(&db, true, key_created.then_some(signing_key_name.as_str())).await;
+    remove_test_storage_roots([root]);
     let message = "startup must not create task, library, or metadata-index work rows";
     assert_eq!(work_row_count(&db).await, 0, "{message}");
 }

@@ -75,7 +75,7 @@ impl LibraryService {
     ) -> Result<MissingSourceCleanupSummary> {
         let batch_size = batch_size.max(1);
         let mut summary = MissingSourceCleanupSummary::default();
-        if self.runtime.is_none() {
+        if self.vector.snapshot().is_none() {
             // Qdrant (and therefore the vector delete path) is unavailable.
             // Skip the whole cleanup safely; the next startup retries with
             // the same grace window.
@@ -146,7 +146,7 @@ impl LibraryService {
         // assertion makes that invariant explicit and surfaces a Qdrant
         // outage as a failure before we touch the database row, instead
         // of letting the chain silently strand vector points.
-        if self.runtime.is_none() {
+        if self.vector.snapshot().is_none() {
             anyhow::bail!(
                 "missing-source cleanup requires the qdrant runtime; \
                  the chain silently skips qdrant without it"

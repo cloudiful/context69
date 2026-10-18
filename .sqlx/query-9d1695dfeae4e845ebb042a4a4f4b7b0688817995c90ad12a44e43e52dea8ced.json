@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.runtime_chunking_settings\nWHERE singleton\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "9d1695dfeae4e845ebb042a4a4f4b7b0688817995c90ad12a44e43e52dea8ced"
+}

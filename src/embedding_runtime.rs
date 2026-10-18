@@ -132,6 +132,19 @@ impl EmbeddingRuntime {
         self.read().identity.clone()
     }
 
+    /// The provider and identity currently in effect as one coherent pair.
+    ///
+    /// A caller that must embed and index together takes this snapshot so it
+    /// never combines a provider from one generation with an identity from
+    /// another. The lock is released before this returns.
+    pub fn snapshot(&self) -> Option<(Arc<dyn EmbeddingProvider>, Option<EmbeddingIdentity>)> {
+        let state = self.read();
+        state
+            .provider
+            .clone()
+            .map(|provider| (provider, state.identity.clone()))
+    }
+
     /// A stable key for the vector space the current provider produces, used to
     /// scope cached query vectors. It changes whenever the provider's identity
     /// changes, and falls back to the provider address for an identity-less

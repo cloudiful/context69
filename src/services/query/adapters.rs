@@ -13,17 +13,16 @@ use crate::{
     contracts::{DocumentResponse, SearchHit, SearchRequest},
     db::{Database, StoredRerankItemScore},
     domain::AccessScope,
-    embedding::EmbeddingRuntime,
-    qdrant_index::QdrantIndex,
     services::auth::AuthService,
     services::settings::secrets::SettingsSecrets,
+    vector_runtime::VectorRuntime,
 };
 
 #[derive(Clone)]
 pub(super) struct DbSearchRepository {
     db: Database,
     auth: AuthService,
-    qdrant: QdrantIndex,
+    vector: VectorRuntime,
     /// Resolves the rerank API key through the shared store on every read.
     secrets: SettingsSecrets,
 }
@@ -32,13 +31,13 @@ impl DbSearchRepository {
     pub(super) fn new(
         db: Database,
         auth: AuthService,
-        qdrant: QdrantIndex,
+        vector: VectorRuntime,
         secrets: SettingsSecrets,
     ) -> Self {
         Self {
             db,
             auth,
-            qdrant,
+            vector,
             secrets,
         }
     }
@@ -57,23 +56,23 @@ impl AuthScopeResolver {
 
 #[derive(Clone)]
 pub(super) struct EmbeddingAdapter {
-    embedding: EmbeddingRuntime,
+    vector: VectorRuntime,
 }
 
 impl EmbeddingAdapter {
-    pub(super) fn new(embedding: EmbeddingRuntime) -> Self {
-        Self { embedding }
+    pub(super) fn new(vector: VectorRuntime) -> Self {
+        Self { vector }
     }
 }
 
 #[derive(Clone)]
 pub(super) struct QdrantSearchIndex {
-    index: QdrantIndex,
+    vector: VectorRuntime,
 }
 
 impl QdrantSearchIndex {
-    pub(super) fn new(index: QdrantIndex) -> Self {
-        Self { index }
+    pub(super) fn new(vector: VectorRuntime) -> Self {
+        Self { vector }
     }
 }
 
@@ -146,8 +145,9 @@ impl SearchRepository for DbSearchRepository {
             .auth
             .access_scope(user_id, request.group_path.clone())
             .await?;
-        let max = self
-            .qdrant
+        let snapshot = self.vector.require_ready()?;
+        let max = snapshot
+            .index
             .date_max_published_ts(request, &to_root_scope(&to_search_scope(&scope)))
             .await?;
         Ok(max)
@@ -252,11 +252,15 @@ impl SearchEmbeddingProvider for EmbeddingAdapter {
         // released before the embedding network call. `require_ready` refuses
         // while a rebuild is re-embedding the collection, so a query cannot
         // embed against an old collection with a new provider.
-        self.embedding.require_ready()?.embed_query(query).await
+        self.vector
+            .require_ready()?
+            .embedding
+            .embed_query(query)
+            .await
     }
 
     fn embedding_identity(&self) -> String {
-        self.embedding.cache_identity()
+        self.vector.cache_identity()
     }
 }
 
@@ -268,7 +272,8 @@ impl SearchIndex for QdrantSearchIndex {
         request: &SearchRequest,
         scope: &SearchAccessScope,
     ) -> Result<Vec<SearchPointHit>> {
-        Ok(self
+        let snapshot = self.vector.require_ready()?;
+        Ok(snapshot
             .index
             .search(vector, request, &to_root_scope(scope))
             .await?
@@ -287,7 +292,8 @@ impl SearchIndex for QdrantSearchIndex {
         scope: &SearchAccessScope,
         query: DateWindowQuery,
     ) -> Result<DateWindowPage> {
-        let page = self
+        let snapshot = self.vector.require_ready()?;
+        let page = snapshot
             .index
             .search_by_date_window(vector, request, &to_root_scope(scope), query)
             .await?;

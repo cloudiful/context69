@@ -106,6 +106,7 @@ impl SyncService {
     }
 
     pub async fn search_smoke_test(&self) -> Result<u64> {
-        self.runtime()?.index.count_points().await
+        let snapshot = self.runtime()?;
+        snapshot.index.count_points().await
     }
 }

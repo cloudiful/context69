@@ -16,9 +16,9 @@ use context69_sdk::{
     AuthMeResponse, BatchGetDocumentsRequest, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, Context69Client,
     CreateDocumentResultRequest, DocumentKey, DocumentResultProvenance, DocumentResultResponse,
-    IngestOptions, ListDocumentResultsQuery, ListDocumentResultsResponse, SearchPagination,
-    SearchRequest, SearchResponse, SecretPatch, SortDirection, SourcePolicy, TaskItemStatus,
-    TaskItemsOptions, TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
+    IngestOptions, ListDocumentResultsQuery, ListDocumentResultsResponse, RawRequest,
+    SearchPagination, SearchRequest, SearchResponse, SecretPatch, SortDirection, SourcePolicy,
+    TaskItemStatus, TaskItemsOptions, TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -651,6 +651,32 @@ async fn test_router(log: SharedLog) -> axum::Router {
             }),
         )
         .route(
+            "/readyz",
+            get({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (StatusCode::OK, Json(health_json()))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/livez",
+            get({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (StatusCode::OK, Json(health_json()))
+                    }
+                }
+            }),
+        )
+        .route(
             "/healthz",
             get({
                 let log = log_clone;
@@ -1244,6 +1270,22 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
         last(&log).auth.is_none(),
         "healthz must stay unauthenticated"
     );
+
+    // The readiness and liveness probes are public raw paths: they must reach
+    // their exact templates without an Authorization header.
+    for (operation, path) in [("readyz", "/readyz"), ("livez", "/livez")] {
+        client
+            .raw()
+            .execute_empty(&RawRequest::new(operation).expect("registered probe"))
+            .await
+            .unwrap_or_else(|error| panic!("{operation} must answer: {error}"));
+        assert_eq!(last(&log).method, "GET");
+        assert_eq!(last(&log).path, path, "{operation} path");
+        assert!(
+            last(&log).auth.is_none(),
+            "{operation} must stay unauthenticated"
+        );
+    }
 }
 
 #[test]

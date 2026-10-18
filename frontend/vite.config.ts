@@ -30,6 +30,14 @@ export default defineConfig(({ mode }) => {
           target: apiTarget,
           changeOrigin: true,
         },
+        "/readyz": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
+        "/livez": {
+          target: apiTarget,
+          changeOrigin: true,
+        },
         "/openapi.json": {
           target: apiTarget,
           changeOrigin: true,

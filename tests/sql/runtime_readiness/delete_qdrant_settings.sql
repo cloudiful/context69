@@ -1,0 +1,2 @@
+DELETE FROM context69.runtime_qdrant_settings
+WHERE singleton

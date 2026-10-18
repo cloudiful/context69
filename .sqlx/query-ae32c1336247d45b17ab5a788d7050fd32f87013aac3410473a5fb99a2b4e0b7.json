@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS count\nFROM context69.document_chunks chunk\nJOIN context69.documents document ON document.id = chunk.document_id\nWHERE document.metadata_json->>'library_file_id' = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ae32c1336247d45b17ab5a788d7050fd32f87013aac3410473a5fb99a2b4e0b7"
+}

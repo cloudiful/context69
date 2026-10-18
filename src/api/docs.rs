@@ -49,7 +49,7 @@ use crate::api::{
         __path_create_group_source_folder, __path_sync_group_source_folder,
         __path_update_group_source_folder_config,
     },
-    health::__path_healthz,
+    health::{__path_healthz, __path_livez, __path_readyz},
     library::{
         __path_create_library_folder, __path_create_library_text, __path_delete_library_file,
         __path_delete_library_folder, __path_get_library_file, __path_get_library_resources,
@@ -140,6 +140,8 @@ use crate::contracts::sources::{
 #[openapi(
     paths(
         healthz,
+        readyz,
+        livez,
         login,
         logout,
         me,
@@ -509,6 +511,8 @@ mod tests {
 
         for path in [
             "/healthz",
+            "/readyz",
+            "/livez",
             "/v1/auth/login",
             "/v1/auth/logout",
             "/v1/auth/me",

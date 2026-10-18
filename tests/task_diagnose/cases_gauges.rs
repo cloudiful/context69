@@ -6,6 +6,7 @@
 //! near-exhaustion fires one attempt before the claim cap, and that the
 //! whole-queue scope agrees with the single-task diagnose scope.
 
+use chrono::SubsecRound as _;
 use context69::db::Database;
 use uuid::Uuid;
 
@@ -114,11 +115,17 @@ async fn oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline()
     let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _item_ids) = seed_task(&db, user_id).await;
-    sqlx::query(
-        "UPDATE context69.tasks SET status = 'running', started_at = now() - interval '90 minutes', \
-         lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes' WHERE id = $1",
+    // Bind the admission instant from this process's clock, truncated to
+    // PostgreSQL's microsecond precision, so the assertion never depends on the
+    // host clock and the database clock agreeing. The row is stamped with
+    // exactly the timestamp compared below.
+    let expected_admitted_at =
+        (chrono::Utc::now() - chrono::Duration::minutes(90)).trunc_subsecs(6);
+    sqlx::query_file!(
+        "tests/sql/task_diagnose/admit_task_at.sql",
+        task_id,
+        expected_admitted_at,
     )
-    .bind(task_id)
     .execute(db.pool())
     .await
     .expect("admit long ago");
@@ -128,6 +135,10 @@ async fn oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline()
         .await
         .expect("scoped consistency");
     let admitted_at = row.oldest_admitted_at.expect("admitted timestamp");
+    assert_eq!(
+        admitted_at, expected_admitted_at,
+        "the gauge must report the exact admission instant that was bound"
+    );
     let age = chrono::Utc::now()
         .signed_duration_since(admitted_at)
         .num_seconds();

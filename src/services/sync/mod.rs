@@ -25,6 +25,7 @@ use crate::{
     services::secret_store::SecretStore,
     source_store::SourceStore,
     sources::SourceConnector,
+    vector_runtime::{VectorRuntime, VectorSnapshot},
 };
 
 use super::source_registry::SourceRegistry;
@@ -47,17 +48,56 @@ pub(super) struct PendingSourceConnection {
     pub(super) database_url: String,
 }
 
+/// How source cleanup treats a runtime that cannot serve vector work.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SourceVectorMode {
+    /// An application-managed deployment: vector work is always expected, so a
+    /// source deletion must not run while the runtime is rebuilding or has no
+    /// published pair.
+    Managed,
+    /// A construction that was given an explicitly optional index. The remote
+    /// delete is skipped when no pair is published, which is what such callers
+    /// have always observed.
+    LegacyOptional,
+}
+
+/// Source cleanup's view of the shared runtime.
+///
+/// Managed instances take one current-ready snapshot per deletion, so a missing
+/// pair or an open rebuild fence fails the deletion before its local rows are
+/// touched. `LegacyOptional` keeps the explicitly optional behavior.
 #[derive(Clone)]
-struct SyncRuntime {
-    embedding: EmbeddingRuntime,
-    index: QdrantIndex,
+struct SourceVectorIndex {
+    runtime: VectorRuntime,
+    mode: SourceVectorMode,
+}
+
+impl SourceVectorIndex {
+    async fn delete_points(&self, chunk_ids: &[uuid::Uuid]) -> Result<()> {
+        match self.mode {
+            SourceVectorMode::Managed => {
+                self.runtime
+                    .require_ready()?
+                    .index
+                    .delete_points(chunk_ids)
+                    .await
+            }
+            SourceVectorMode::LegacyOptional => {
+                if let Some(snapshot) = self.runtime.snapshot() {
+                    snapshot.index.delete_points(chunk_ids).await?;
+                }
+                Ok(())
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
 pub struct SyncService {
     db: Database,
     store: SecretStore,
-    runtime: Option<SyncRuntime>,
+    vector: VectorRuntime,
+    source_index: SourceVectorIndex,
     chunking: ChunkingConfig,
     max_concurrency: usize,
     source_pools: Arc<RwLock<HashMap<String, PgPool>>>,
@@ -87,14 +127,57 @@ impl SyncService {
         max_concurrency: usize,
         translation: TranslationService,
     ) -> Self {
-        let embedding = embedding.into();
-        let runtime = index
-            .filter(|_| embedding.is_configured())
-            .map(|index| SyncRuntime { embedding, index });
+        let vector = VectorRuntime::from_legacy(embedding.into(), index, "");
+        Self::with_source_vector_mode(
+            db,
+            store,
+            vector,
+            SourceVectorMode::LegacyOptional,
+            chunking,
+            max_concurrency,
+            translation,
+        )
+    }
+
+    /// Builds the service onto the process-wide shared vector runtime, so a
+    /// Qdrant that becomes available after startup is usable without a restart.
+    pub fn with_vector_runtime(
+        db: Database,
+        store: SecretStore,
+        vector: VectorRuntime,
+        chunking: ChunkingConfig,
+        max_concurrency: usize,
+        translation: TranslationService,
+    ) -> Self {
+        Self::with_source_vector_mode(
+            db,
+            store,
+            vector,
+            SourceVectorMode::Managed,
+            chunking,
+            max_concurrency,
+            translation,
+        )
+    }
+
+    fn with_source_vector_mode(
+        db: Database,
+        store: SecretStore,
+        vector: VectorRuntime,
+        mode: SourceVectorMode,
+        chunking: ChunkingConfig,
+        max_concurrency: usize,
+        translation: TranslationService,
+    ) -> Self {
+        let source_index = SourceVectorIndex {
+            runtime: vector.clone(),
+            mode,
+        };
         Self {
             db: db.clone(),
             store,
-            runtime,
+            source_index,
+            vector,
             chunking,
             max_concurrency,
             source_pools: Arc::new(RwLock::new(HashMap::new())),
@@ -116,8 +199,21 @@ impl SyncService {
         }
     }
 
-    fn runtime(&self) -> Result<&SyncRuntime> {
-        self.runtime.as_ref().ok_or_else(sync_runtime_unavailable)
+    fn runtime(&self) -> Result<VectorSnapshot> {
+        let current = self.vector.current();
+        if current.rebuilding {
+            return Err(DomainError::unavailable(
+                "vector index is rebuilding or unavailable; retry after the rebuild completes",
+            )
+            .into());
+        }
+        if !current.ready {
+            return Err(DomainError::unavailable(
+                "sync runtime is unavailable: vector index is unavailable; retry after it recovers",
+            )
+            .into());
+        }
+        current.snapshot.ok_or_else(sync_runtime_unavailable)
     }
 
     /// The store binding for the source connections' sealed database URLs.
@@ -126,7 +222,7 @@ impl SyncService {
     }
 
     pub fn runtime_configured(&self) -> bool {
-        self.runtime.is_some()
+        self.vector.is_configured()
     }
 
     pub async fn seed_sources_if_empty(&self, sources: &[SourceConfig]) -> Result<()> {

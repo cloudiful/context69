@@ -411,3 +411,49 @@ fn inventory_covers_sdk_facade_and_mcp_surfaces() {
         );
     }
 }
+
+/// The readiness and liveness probes are public HTTP operations, so they must
+/// be classified in the inventory and published by OpenAPI under the same
+/// operation id, method, and path. The exhaustive parity test above already
+/// covers the counts; this pins the exact new paths.
+#[test]
+fn readiness_and_liveness_probes_are_classified_and_published() {
+    let rows = parse_http_rows();
+    let document =
+        serde_json::to_value(context69::api::openapi_document()).expect("openapi serializes");
+    let paths = document
+        .get("paths")
+        .and_then(serde_json::Value::as_object)
+        .expect("paths exist");
+
+    for (operation_id, path) in [("livez", "/livez"), ("readyz", "/readyz")] {
+        let row = rows
+            .iter()
+            .find(|row| row.operation_id == operation_id)
+            .unwrap_or_else(|| panic!("inventory must classify {operation_id}"));
+        assert_eq!(row.method, "GET", "{operation_id} method");
+        assert_eq!(row.path, path, "{operation_id} path");
+        assert_eq!(row.response, "HealthResponse", "{operation_id} response");
+        assert_eq!(row.visibility, "public", "{operation_id} visibility");
+
+        let operation = paths
+            .get(path)
+            .and_then(|item| item.get("get"))
+            .unwrap_or_else(|| panic!("OpenAPI must publish {path}"));
+        assert_eq!(
+            operation
+                .get("operationId")
+                .and_then(serde_json::Value::as_str),
+            Some(operation_id),
+            "{path} operation id"
+        );
+        assert_eq!(
+            operation
+                .pointer("/responses/200/content/application~1json/schema/$ref")
+                .and_then(serde_json::Value::as_str)
+                .and_then(|reference| reference.rsplit('/').next()),
+            Some("HealthResponse"),
+            "{path} success schema"
+        );
+    }
+}
