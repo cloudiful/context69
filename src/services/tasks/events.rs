@@ -108,12 +108,24 @@ pub fn spawn_task_event_listener_into_with_shutdown(
     sender: broadcast::Sender<TaskEvent>,
     shutdown: tokio_util::sync::CancellationToken,
 ) {
+    drop(spawn_task_event_listener_into_with_shutdown_owned(
+        pool, sender, shutdown,
+    ));
+}
+
+/// Shutdown-aware listener that returns its join handle, so a caller that must
+/// prove the LISTEN connection is gone can await termination before migrating.
+pub fn spawn_task_event_listener_into_with_shutdown_owned(
+    pool: sqlx::PgPool,
+    sender: broadcast::Sender<TaskEvent>,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         tokio::select! {
             () = run_task_event_listener(pool, sender) => {},
             () = shutdown.cancelled() => {},
         }
-    });
+    })
 }
 
 async fn run_task_event_listener(pool: sqlx::PgPool, sender: broadcast::Sender<TaskEvent>) {

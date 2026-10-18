@@ -114,6 +114,10 @@ pub async fn reset_owned_schema(
     Ok(())
 }
 
+/// The last migration before the pinned retirement migration. The opt-in
+/// upgrade-recovery class initializes exactly this chain.
+pub const UPGRADE_RECOVERY_PRIOR_VERSION: i64 = 20261016115941;
+
 /// Apply the Context69 migrations to a freshly reset schema.
 ///
 /// # Errors
@@ -121,6 +125,21 @@ pub async fn reset_owned_schema(
 /// Returns the migrator error when a migration cannot be applied.
 pub async fn initialize_schema(pool: &PgPool) -> Result<(), sqlx::migrate::MigrateError> {
     MIGRATOR.run(pool).await
+}
+
+/// Apply the ordinary migration chain up to and including `target`.
+///
+/// The opt-in upgrade-recovery class uses the pinned prior version, so the next
+/// ordinary run applies the retirement migration for real.
+///
+/// # Errors
+///
+/// Returns the migrator error when the chain cannot be applied.
+pub async fn initialize_schema_to(
+    pool: &PgPool,
+    target: i64,
+) -> Result<(), sqlx::migrate::MigrateError> {
+    MIGRATOR.run_to(target, pool).await
 }
 
 /// The reset was not authorized; nothing was written.

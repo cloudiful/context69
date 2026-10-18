@@ -51,6 +51,9 @@ pub struct Invocation {
     /// Run the opt-in application-startup service boot in addition to the
     /// ordinary set.
     pub app_startup: bool,
+    /// Run the opt-in upgrade-recovery class, whose target starts from the
+    /// schema immediately before the pinned retirement migration.
+    pub upgrade_recovery: bool,
     /// Operator assertion of a quiet, single-user test window.
     pub allow_idle_connections: bool,
 }
@@ -86,6 +89,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
     let mut reset_authorized = false;
     let mut keyword_benchmark = false;
     let mut app_startup = false;
+    let mut upgrade_recovery = false;
     let mut allow_idle_connections = false;
     for arg in args {
         match arg.as_str() {
@@ -107,10 +111,11 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
             "--allow-idle-connections" => allow_idle_connections = true,
             "--with-keyword-benchmark" => keyword_benchmark = true,
             "--with-app-startup" => app_startup = true,
+            "--with-upgrade-recovery" => upgrade_recovery = true,
             other => return Err(format!("unsupported argument: {other}")),
         }
     }
-    if (keyword_benchmark || app_startup) && mode != Mode::Run {
+    if (keyword_benchmark || app_startup || upgrade_recovery) && mode != Mode::Run {
         return Err("opt-in classes only apply to a run".to_owned());
     }
     if allow_idle_connections && mode == Mode::List {
@@ -121,6 +126,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
         reset_authorized,
         keyword_benchmark,
         app_startup,
+        upgrade_recovery,
         allow_idle_connections,
     })
 }

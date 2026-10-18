@@ -254,6 +254,9 @@ fn requested_opt_ins(invocation: &Invocation) -> Vec<TestClass> {
     if invocation.app_startup {
         classes.push(TestClass::AppStartup);
     }
+    if invocation.upgrade_recovery {
+        classes.push(TestClass::UpgradeRecovery);
+    }
     classes
 }
 

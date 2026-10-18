@@ -69,6 +69,58 @@ restart. A rebuild in progress keeps writers and readers stopped together until
 it completes, and a completion from a superseded generation cannot reopen
 readiness.
 
+## Shutdown
+
+`SIGTERM` from a container stop and `SIGINT` from an interactive stop go through
+one coordinator. On the first observed signal the process stops acquiring task
+work, stops the scheduler, the MCP server, and the rerank-cache cleanup, and
+begins the API server's graceful drain. A claim already issued by this replica
+when the signal is observed still gets its owned worker, so work the database
+already admitted is not silently abandoned.
+
+Natural item completion and the HTTP drain share one five-second budget measured
+from the observed signal. They never run as two serial five-second waits, and a
+held request cannot extend the stop. When the budget expires the process logs
+that unfinished work was left behind and exits. It does not cancel a running
+item, write a synthetic terminal task or item state, or release a lease: those
+items keep their persisted identity, progress, and lease, and the existing
+expiry and recovery path reclaims them after the process is gone.
+
+A container or orchestrator stop timeout must be greater than five seconds so it
+does not kill the process before this budget can finish.
+
+## Upgrade recovery
+
+When the pinned embedded-enrichment retirement migration is the only pending
+migration and its own guard predicates still match persisted ingestion work,
+startup enters upgrade recovery instead of failing before any worker exists.
+The process serves only liveness and explicit unready health on the configured
+API address: `/livez` answers `200`, while `/readyz` and `/healthz` answer `503`
+with `upgrade_pending`. No auth, management, task, search, MCP, or scheduler
+route is reachable.
+
+Recovery starts only the dependencies and writers that finish already persisted
+work: task dispatch and maintenance, Docling remote-state recovery, dependency
+gates, the vector supervisor, and source cleanup. Normal startup sweeps, the
+metadata-index worker, the payload-mirror worker, startup sync, and the
+scheduler stay off. Existing expired claims are reclaimed by the normal lease
+rules, and a persisted Docling remote id is adopted instead of resubmitted.
+Slow remote work keeps the process live and unready with periodic guard-count
+and elapsed-time logs rather than a crash loop.
+
+Once the migration's guards are clear, acquisition stops and every recovery
+writer is joined before the unchanged migration runs under the ordinary SQLx
+migrator. A writer race or an unrelated migration failure is reported and the
+process exits instead of serving with an unknown schema. After the migration the
+normal application is rebuilt on the same port and binds readiness to the usual
+database, library, and vector gates.
+
+This path assumes the single-instance, stop-old-before-start-new replacement
+described for this deployment. It does not provide multi-replica write fencing.
+Unfinished work still keeps its persisted identity, progress, and leases; the
+same five-second stop budget and operator timeout requirement documented for
+shutdown apply while recovery is waiting.
+
 ## Dependency waits
 
 When the vector runtime cannot serve work, ingestion and source sync wait under

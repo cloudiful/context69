@@ -16,6 +16,31 @@ pub(super) fn start(service: &TaskService) {
     start_with_shutdown(service, tokio_util::sync::CancellationToken::new());
 }
 
+/// Owned handles for the maintenance writers started with a recovery profile.
+pub(crate) struct MaintenanceHandles {
+    source_cleanup: Option<tokio::task::JoinHandle<()>>,
+    docling_recovery: Option<tokio::task::JoinHandle<()>>,
+}
+
+impl MaintenanceHandles {
+    /// Await both loops after their shared token has been cancelled, so no
+    /// statement can still be running when the caller migrates.
+    ///
+    /// Cancellation-safe: each handle is awaited by mutable reference and only
+    /// released after it is observed to finish, so an interrupted wait can be
+    /// resumed by the bounded stop.
+    pub(crate) async fn wait(&mut self) {
+        if let Some(handle) = self.source_cleanup.as_mut() {
+            let _ = (&mut *handle).await;
+            self.source_cleanup = None;
+        }
+        if let Some(handle) = self.docling_recovery.as_mut() {
+            let _ = (&mut *handle).await;
+            self.docling_recovery = None;
+        }
+    }
+}
+
 /// Wakeable source-cleanup wiring (issues 389/391): task history is never
 /// auto-deleted, so only the shared source-cleanup dispatcher runs here
 /// (startup drain, immediate wake after commit, 5-minute fallback).
@@ -25,9 +50,17 @@ pub(super) fn start_with_shutdown(
     service: &TaskService,
     shutdown: tokio_util::sync::CancellationToken,
 ) {
+    drop(start_with_shutdown_owned(service, shutdown));
+}
+
+/// Shutdown-aware start that returns both owned loop handles.
+pub(super) fn start_with_shutdown_owned(
+    service: &TaskService,
+    shutdown: tokio_util::sync::CancellationToken,
+) -> MaintenanceHandles {
     let release_service = service.clone();
     let release_shutdown = shutdown.clone();
-    tokio::spawn(async move {
+    let source_cleanup = tokio::spawn(async move {
         let dispatcher = release_service
             .library()
             .source_cleanup_dispatcher()
@@ -40,9 +73,13 @@ pub(super) fn start_with_shutdown(
     // so rows left by the previous process are fenced before the first
     // dispatch drain, then the periodic pass. Shutdown-aware for tests.
     let recovery_service = service.clone();
-    tokio::spawn(async move {
+    let docling_recovery = tokio::spawn(async move {
         run_docling_recovery(&recovery_service, shutdown).await;
     });
+    MaintenanceHandles {
+        source_cleanup: Some(source_cleanup),
+        docling_recovery: Some(docling_recovery),
+    }
 }
 
 /// Recovery loop for durable Docling remote ids: fences rows whose
@@ -171,6 +208,48 @@ fn remote_tasks_with_cleanup(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn interrupted_maintenance_wait_keeps_each_owned_loop_joinable() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use std::time::Duration;
+
+        let source_done = Arc::new(AtomicBool::new(false));
+        let docling_done = Arc::new(AtomicBool::new(false));
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let source_flag = source_done.clone();
+        let docling_flag = docling_done.clone();
+        let mut handles = MaintenanceHandles {
+            source_cleanup: Some(tokio::spawn({
+                let released = released;
+                async move {
+                    source_flag.store(true, Ordering::SeqCst);
+                    let _ = released.await;
+                }
+            })),
+            docling_recovery: Some(tokio::spawn(async move {
+                docling_flag.store(false, Ordering::SeqCst);
+            })),
+        };
+
+        // Cancel the wait while the source loop is still held.
+        let held = tokio::time::timeout(Duration::from_millis(20), handles.wait()).await;
+        assert!(held.is_err(), "the source loop is still running");
+        assert!(source_done.load(Ordering::SeqCst));
+        assert!(
+            handles.source_cleanup.is_some(),
+            "the cancelled wait keeps the handle owned"
+        );
+
+        // The next bounded stop resumes the same join instead of a no-op.
+        release.send(()).expect("release the source loop");
+        handles.wait().await;
+        assert!(handles.source_cleanup.is_none());
+        assert!(handles.docling_recovery.is_none());
+    }
 
     #[test]
     fn invalid_remote_limits_are_http_400_before_io() {

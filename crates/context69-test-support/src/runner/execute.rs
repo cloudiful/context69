@@ -26,6 +26,10 @@ use super::targets::TestExecutable;
 pub struct PlannedTarget {
     pub label: String,
     pub tests: Vec<String>,
+    /// Apply only the chain ending immediately before the pinned retirement
+    /// migration, so the upgrade-recovery target observes a real pending
+    /// migration instead of a fabricated ledger.
+    pub initialize_to: Option<i64>,
 }
 
 /// Build the ordered plan from a manifest.
@@ -42,7 +46,19 @@ pub fn plan(manifest: &TestManifest, opt_ins: &[TestClass]) -> Vec<PlannedTarget
         .into_iter()
         .filter_map(|label| {
             let tests = manifest.selection(&label, &classes);
-            (!tests.is_empty()).then_some(PlannedTarget { label, tests })
+            let initialize_to = classes
+                .contains(&TestClass::UpgradeRecovery)
+                .then_some(reset::UPGRADE_RECOVERY_PRIOR_VERSION)
+                .filter(|_| {
+                    !manifest
+                        .selection(&label, &[TestClass::UpgradeRecovery])
+                        .is_empty()
+                });
+            (!tests.is_empty()).then_some(PlannedTarget {
+                label,
+                tests,
+                initialize_to,
+            })
         })
         .collect()
 }
@@ -137,7 +153,9 @@ pub async fn execute_target(
         )));
     }
 
-    if let Err(error) = reset_and_migrate(endpoint, observation, decision).await {
+    if let Err(error) =
+        reset_and_migrate(endpoint, observation, decision, entry.initialize_to).await
+    {
         return Ok(Some(stalled(&entry.label, error.0, &error.1)));
     }
 
@@ -202,6 +220,7 @@ async fn reset_and_migrate(
     endpoint: &Endpoint,
     observation: &PreflightObservation,
     decision: &ResetDecision,
+    initialize_to: Option<i64>,
 ) -> Result<(), (TargetStage, String)> {
     let migration_namespace = preflight::migration_namespace(observation).ok_or((
         TargetStage::Reset,
@@ -229,7 +248,10 @@ async fn reset_and_migrate(
                 format!("could not connect to the verified migration namespace: {error}"),
             )
         })?;
-    let migrated = reset::initialize_schema(&pool).await;
+    let migrated = match initialize_to {
+        Some(target) => reset::initialize_schema_to(&pool, target).await,
+        None => reset::initialize_schema(&pool).await,
+    };
     pool.close().await;
     migrated.map_err(|error| {
         (

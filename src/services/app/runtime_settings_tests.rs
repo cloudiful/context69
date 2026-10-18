@@ -4,7 +4,10 @@
 //! row while it runs, needs a migrated scratch database, and writes only
 //! synthetic values.
 
-use super::{apply_runtime_settings, load_runtime_settings, qdrant_grpc_url_from_rest_port};
+use super::{
+    RuntimeSettingsMode, apply_runtime_settings, load_runtime_settings,
+    normalize_legacy_qdrant_url, qdrant_grpc_url_from_rest_port,
+};
 use crate::{
     contracts::SecretPatch,
     db::{
@@ -71,6 +74,44 @@ fn upgrades_qdrant_rest_port_to_grpc_port() {
         qdrant_grpc_url_from_rest_port("http://qdrant:6333/").as_deref(),
         Some("http://qdrant:6334")
     );
+}
+
+#[test]
+fn recovery_normalization_never_offers_the_legacy_rewrite_for_persistence() {
+    let mut stored = stored_runtime_settings();
+    stored.qdrant.url = "http://qdrant:6333".to_string();
+
+    let (in_memory, rewrite) =
+        normalize_legacy_qdrant_url(stored.clone(), RuntimeSettingsMode::Readonly);
+    assert_eq!(in_memory.qdrant.url, "http://qdrant:6334");
+    assert!(
+        rewrite.is_none(),
+        "the recovery read must not produce a row to save"
+    );
+    assert_eq!(
+        stored.qdrant.url, "http://qdrant:6333",
+        "the stored row still holds the legacy REST URL after a recovery read"
+    );
+
+    let (in_memory, rewrite) = normalize_legacy_qdrant_url(stored, RuntimeSettingsMode::Persist);
+    assert_eq!(in_memory.qdrant.url, "http://qdrant:6334");
+    assert_eq!(
+        rewrite
+            .expect("normal boot persists the rewrite")
+            .qdrant
+            .url,
+        "http://qdrant:6334"
+    );
+}
+
+#[test]
+fn a_grpc_runtime_url_is_left_alone_in_both_modes() {
+    let stored = stored_runtime_settings();
+    for mode in [RuntimeSettingsMode::Readonly, RuntimeSettingsMode::Persist] {
+        let (in_memory, rewrite) = normalize_legacy_qdrant_url(stored.clone(), mode);
+        assert_eq!(in_memory.qdrant.url, "http://qdrant:6334");
+        assert!(rewrite.is_none());
+    }
 }
 
 #[test]

@@ -110,6 +110,15 @@ impl VectorRecoveryWiring {
 
     /// Spawns the ongoing supervisor with the application's observer.
     pub fn spawn(self: &Arc<Self>, observer: Arc<dyn RecoveryObserver>) {
+        drop(self.spawn_owned(observer));
+    }
+
+    /// Spawns the ongoing supervisor and returns its join handle, so a caller
+    /// that must prove the supervisor stopped can await it.
+    pub fn spawn_owned(
+        self: &Arc<Self>,
+        observer: Arc<dyn RecoveryObserver>,
+    ) -> tokio::task::JoinHandle<()> {
         let engine = VectorRecovery::new(
             self.runtime.clone(),
             self.connector.clone(),
@@ -119,7 +128,7 @@ impl VectorRecoveryWiring {
         let shutdown = self.shutdown.token();
         tokio::spawn(async move {
             engine.supervise(shutdown).await;
-        });
+        })
     }
 }
 
@@ -190,6 +199,10 @@ pub struct AppRecoveryObserver {
     embedding: crate::embedding::EmbeddingRuntime,
     library: LibraryService,
     document_store: crate::services::document_store::DocumentStoreService,
+    /// The normal profile resumes the metadata-index worker when a pair is
+    /// published. The upgrade-recovery profile does not own that writer and
+    /// must not start it before the migration.
+    resume_document_store: bool,
 }
 
 impl AppRecoveryObserver {
@@ -198,10 +211,30 @@ impl AppRecoveryObserver {
         library: LibraryService,
         document_store: crate::services::document_store::DocumentStoreService,
     ) -> Self {
+        Self::with_document_store_resume(embedding, library, document_store, true)
+    }
+
+    /// Recovery-profile observer: refreshes dependency gates but never starts
+    /// the metadata-index worker.
+    pub fn without_document_store_resume(
+        embedding: crate::embedding::EmbeddingRuntime,
+        library: LibraryService,
+        document_store: crate::services::document_store::DocumentStoreService,
+    ) -> Self {
+        Self::with_document_store_resume(embedding, library, document_store, false)
+    }
+
+    fn with_document_store_resume(
+        embedding: crate::embedding::EmbeddingRuntime,
+        library: LibraryService,
+        document_store: crate::services::document_store::DocumentStoreService,
+        resume_document_store: bool,
+    ) -> Self {
         Self {
             embedding,
             library,
             document_store,
+            resume_document_store,
         }
     }
 }
@@ -218,7 +251,9 @@ impl RecoveryObserver for AppRecoveryObserver {
         // A metadata index queued while Qdrant was unavailable skipped its
         // remote field-index step. Resume the backlog now that a safe pair is
         // published instead of leaving it permanently incomplete.
-        self.document_store.resume_pending();
+        if self.resume_document_store {
+            self.document_store.resume_pending();
+        }
     }
 
     async fn failed(&self, generation: u64, class: VectorFailureClass, message: &str) {

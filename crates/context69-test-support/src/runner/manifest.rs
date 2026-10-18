@@ -20,6 +20,9 @@ pub enum TestClass {
     /// Opt-in application startup service boot; never part of the ordinary
     /// database run.
     AppStartup,
+    /// Opt-in startup recovery from the schema immediately before the pinned
+    /// retirement migration; never part of the ordinary database run.
+    UpgradeRecovery,
 }
 
 impl TestClass {
@@ -115,6 +118,7 @@ pub struct CoverageReport {
     pub database_tests: usize,
     pub benchmark_tests: usize,
     pub app_startup_tests: usize,
+    pub upgrade_recovery_tests: usize,
     pub ignored_tests: usize,
     pub pure_tests: usize,
     /// Targets whose every compiled test is database-backed.
@@ -187,6 +191,7 @@ impl TestManifest {
                 }
                 TestClass::Benchmark => report.benchmark_tests += 1,
                 TestClass::AppStartup => report.app_startup_tests += 1,
+                TestClass::UpgradeRecovery => report.upgrade_recovery_tests += 1,
             }
         }
 

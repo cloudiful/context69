@@ -2351,6 +2351,12 @@
       "target": "metadata_payload_sync",
       "test": "database::claim_complete_and_fail_are_fenced_by_the_lease",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "upgrade_recovery",
+      "test": "upgrade_recovery_waits_live_unready_adopts_the_remote_id_and_migrates_once",
+      "class": "upgrade_recovery"
     }
   ]
 }

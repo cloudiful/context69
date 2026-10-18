@@ -257,7 +257,8 @@ impl EmbeddingRuntimeReloader {
         let _reloading = ReloadInProgressGuard::begin(self.context.reload_in_progress.clone());
 
         let Some(stored) =
-            runtime_settings::load_runtime_settings(&self.context.db, &self.context.store).await?
+            runtime_settings::load_runtime_settings_readonly(&self.context.db, &self.context.store)
+                .await?
         else {
             return Ok(());
         };

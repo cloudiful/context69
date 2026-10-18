@@ -23,13 +23,36 @@ pub struct LibraryStartup {
     pub source_folders: SourceFoldersService,
 }
 
-pub async fn initialize(
+/// Build the library service without any startup sweep.
+///
+/// The upgrade-recovery profile may only run writers that finish already
+/// persisted task work. Legacy-storage migration, missing-source cleanup,
+/// source release retries, and object cleanup are normal-startup work and must
+/// not run before the pinned migration.
+pub async fn initialize_recovery(
     db: &Database,
     config: &Config,
     vector: &VectorRuntime,
     settings: &SettingsService,
-    services: &ServicesInit,
+    sync: &crate::services::sync::SyncService,
+    translation: &context69_translation::TranslationService,
 ) -> Result<LibraryStartup> {
+    let library = build_library(db, config, vector, settings, translation).await?;
+    let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
+    library.initialize_dependency_gates().await?;
+    Ok(LibraryStartup {
+        library,
+        source_folders,
+    })
+}
+
+async fn build_library(
+    db: &Database,
+    config: &Config,
+    vector: &VectorRuntime,
+    settings: &SettingsService,
+    translation: &context69_translation::TranslationService,
+) -> Result<LibraryService> {
     let mut library = LibraryService::with_vector_runtime(
         db.clone(),
         vector.vector.clone(),
@@ -46,7 +69,7 @@ pub async fn initialize(
             ),
         },
         settings.clone(),
-        services.translation.clone(),
+        translation.clone(),
     )
     .await?;
     // Wire the shared readiness flag before the startup gates resolve, so a
@@ -58,6 +81,17 @@ pub async fn initialize(
     // before startup drains and task creation so every clone shares it.
     let source_cleanup_dispatcher = SourceCleanupDispatcher::new();
     library.set_source_cleanup_dispatcher(source_cleanup_dispatcher);
+    Ok(library)
+}
+
+pub async fn initialize(
+    db: &Database,
+    config: &Config,
+    vector: &VectorRuntime,
+    settings: &SettingsService,
+    services: &ServicesInit,
+) -> Result<LibraryStartup> {
+    let library = build_library(db, config, vector, settings, &services.translation).await?;
     // Before task workers resume, migrate any remaining legacy UUID
     // direct-path library files (storage_object_id IS NULL) onto the
     // content-addressed layout. This runs after LibraryService is ready and

@@ -8,6 +8,7 @@ use crate::{
     db::Database,
     services::{
         document_store::DocumentStoreService,
+        library::LibraryService,
         metadata_payload_sync::MetadataPayloadSyncWorker,
         namespace::NamespaceService,
         settings::SettingsService,
@@ -124,8 +125,11 @@ pub async fn start(
                 // an in-flight recovery attempt cannot publish the old pair and
                 // the supervisor reconnects with the committed configuration.
                 let mut effective = base_config;
-                match super::runtime_settings::load_runtime_settings(&settings_db, &settings_store)
-                    .await
+                match super::runtime_settings::load_runtime_settings_readonly(
+                    &settings_db,
+                    &settings_store,
+                )
+                .await
                 {
                     Ok(Some(stored)) => {
                         super::runtime_settings::apply_runtime_settings(&mut effective, &stored);
@@ -249,6 +253,129 @@ pub async fn start(
     })
 }
 
+/// Start the upgrade-recovery profile.
+///
+/// Only writers that finish already persisted task work are started; normal
+/// startup sweeps, the metadata-index worker, the payload-mirror worker, the
+/// scheduler, and MCP stay off. Every started loop is owned and joinable so the
+/// caller can prove local writer quiescence before the migration runs.
+/// The already-built handles the recovery profile wires into its task service.
+pub struct UpgradeRecoveryServices<'a> {
+    pub namespace: &'a NamespaceService,
+    pub settings: &'a SettingsService,
+    pub sync: &'a crate::services::sync::SyncService,
+    pub translation: &'a context69_translation::TranslationService,
+    pub startup: &'a LibraryStartup,
+}
+
+pub async fn start_upgrade_recovery(
+    db: &Database,
+    config: &Config,
+    vector: &VectorRuntime,
+    services: UpgradeRecoveryServices<'_>,
+) -> BackgroundTasks {
+    let startup = services.startup;
+    let document_store = DocumentStoreService::with_vector_runtime(
+        db.clone(),
+        vector.vector.clone(),
+        startup.library.clone(),
+    );
+    let tasks = TaskService::new(TaskServiceDependencies {
+        db: db.clone(),
+        namespace: services.namespace.clone(),
+        document_store: document_store.clone(),
+        library: startup.library.clone(),
+        sync: services.sync.clone(),
+        source_folders: startup.source_folders.clone(),
+        translation: services.translation.clone(),
+        concurrency: task_worker_capacity(config),
+    })
+    .with_settings(services.settings.clone());
+    BackgroundTasks {
+        document_store,
+        tasks,
+    }
+}
+
+/// Every background loop the upgrade-recovery profile owns.
+pub struct UpgradeRecoveryWriters {
+    cancellation: tokio_util::sync::CancellationToken,
+    vector_shutdown: tokio_util::sync::CancellationToken,
+    s3_gate: Option<tokio::task::JoinHandle<()>>,
+    vector_supervisor: Option<tokio::task::JoinHandle<()>>,
+    maintenance: crate::services::tasks::MaintenanceHandles,
+    event_bus: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Start the recovery-profile writers and return their owned handles.
+pub fn start_upgrade_recovery_writers(
+    tasks: &TaskService,
+    library: &LibraryService,
+    vector: &VectorRuntime,
+    document_store: &DocumentStoreService,
+) -> UpgradeRecoveryWriters {
+    let cancellation = tokio_util::sync::CancellationToken::new();
+    let s3_shutdown = cancellation.clone();
+    let s3_library = library.clone();
+    let s3_gate = tokio::spawn(async move {
+        s3_library.run_s3_gate_recovery(s3_shutdown).await;
+    });
+    let observer = std::sync::Arc::new(
+        super::vector_recovery::AppRecoveryObserver::without_document_store_resume(
+            vector.embedding.clone(),
+            library.clone(),
+            document_store.clone(),
+        ),
+    );
+    let vector_shutdown = vector.recovery.shutdown_token();
+    let vector_supervisor = vector.recovery.spawn_owned(observer);
+    tasks.resume_pending();
+    let maintenance = tasks.start_maintenance_with_shutdown_owned(cancellation.clone());
+    let event_bus = tasks.start_event_bus_with_shutdown_owned(cancellation.clone());
+    UpgradeRecoveryWriters {
+        cancellation,
+        vector_shutdown,
+        s3_gate: Some(s3_gate),
+        vector_supervisor: Some(vector_supervisor),
+        maintenance,
+        event_bus: Some(event_bus),
+    }
+}
+
+impl UpgradeRecoveryWriters {
+    /// Stop acquisition, cancel every owned loop, and await the dispatcher,
+    /// current item workers, and each loop handle.
+    ///
+    /// Cancellation-safe: every handle is awaited by mutable reference and is
+    /// only released once it is observed to finish, so a stop interrupted by a
+    /// signal resumes the same join under the remaining budget instead of
+    /// detaching a loop or reporting a false completion.
+    pub async fn stop_and_join(&mut self, tasks: &TaskService) {
+        tasks.begin_shutdown();
+        tasks.wait_for_dispatch_stop().await;
+        tasks.wait_until_idle().await;
+        self.cancellation.cancel();
+        self.vector_shutdown.cancel();
+        self.maintenance.wait().await;
+        join_owned(&mut self.s3_gate).await;
+        join_owned(&mut self.event_bus).await;
+        join_owned(&mut self.vector_supervisor).await;
+    }
+
+    /// Cancel every owned loop without waiting for item workers.
+    pub fn cancel(&self) {
+        self.cancellation.cancel();
+        self.vector_shutdown.cancel();
+    }
+}
+
+async fn join_owned(slot: &mut Option<tokio::task::JoinHandle<()>>) {
+    if let Some(task) = slot.as_mut() {
+        let _ = (&mut *task).await;
+        *slot = None;
+    }
+}
+
 /// Starts the automatic rebuild when a vector pair is already published.
 fn spawn_vector_rebuild(
     vector: &VectorRuntime,
@@ -278,4 +405,39 @@ fn spawn_vector_rebuild(
             .with_on_settled(readiness_refresh.clone()),
     );
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    use std::time::Duration;
+
+    use super::join_owned;
+
+    #[tokio::test]
+    async fn an_interrupted_owned_join_keeps_the_handle_for_the_next_stop() {
+        let (release, released) = tokio::sync::oneshot::channel::<()>();
+        let done = Arc::new(AtomicBool::new(false));
+        let task_done = done.clone();
+        let mut slot = Some(tokio::spawn(async move {
+            let _ = released.await;
+            task_done.store(true, Ordering::SeqCst);
+        }));
+
+        let held = tokio::time::timeout(Duration::from_millis(20), join_owned(&mut slot)).await;
+        assert!(held.is_err(), "the owned loop is still running");
+        assert!(
+            slot.is_some(),
+            "a cancelled join keeps the handle owned instead of detaching it"
+        );
+        assert!(!done.load(Ordering::SeqCst));
+
+        release.send(()).expect("release the owned loop");
+        join_owned(&mut slot).await;
+        assert!(slot.is_none(), "the handle is released after completion");
+        assert!(done.load(Ordering::SeqCst), "the real loop finished");
+    }
 }

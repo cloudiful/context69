@@ -26,6 +26,7 @@ mod task_file_dedup;
 pub(crate) use task_file_dedup::lock_file_processing_slots;
 mod tasks;
 mod translations;
+mod upgrade_admission;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
@@ -55,11 +56,19 @@ pub use tasks::{
     StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemDiagnostic,
     TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
 };
+pub use upgrade_admission::{
+    PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
+    UpgradeAdmission, UpgradeGuardCounts,
+};
 pub use vector_index_state::VectorIndexState;
 
 #[derive(Clone)]
 pub struct Database {
     pool: PgPool,
+    /// Set only when startup must recover persisted work before the pinned
+    /// retirement migration may run. A database in this state has deliberately
+    /// not been migrated.
+    pending_upgrade: Option<UpgradeGuardCounts>,
 }
 
 #[derive(Debug, Clone)]
@@ -253,10 +262,33 @@ impl Database {
         )
         .await
         .context("failed to connect app_db pool")?;
-        run_migrations(&pool, &MIGRATOR)
+        let admission = upgrade_admission::classify(&pool)
             .await
-            .context("failed to run app_db migrations")?;
-        Ok(Self { pool })
+            .context("failed to classify the pending upgrade")?;
+        let pending_upgrade = match admission {
+            UpgradeAdmission::Normal => {
+                run_migrations(&pool, &MIGRATOR)
+                    .await
+                    .context("failed to run app_db migrations")?;
+                None
+            }
+            UpgradeAdmission::Recovery { guards, .. } => Some(guards),
+        };
+        Ok(Self {
+            pool,
+            pending_upgrade,
+        })
+    }
+
+    /// Whether this database is waiting for recovery before its migration may
+    /// run.
+    pub fn pending_upgrade(&self) -> Option<UpgradeGuardCounts> {
+        self.pending_upgrade
+    }
+
+    /// Read the pinned migration's guard predicates afresh.
+    pub async fn upgrade_guard_counts(&self) -> Result<UpgradeGuardCounts> {
+        upgrade_admission::guard_counts(&self.pool).await
     }
 
     /// Read-only connection for operator audits. Opens a pool and performs
@@ -266,7 +298,10 @@ impl Database {
         let pool = connect_pool(url, DbInitOptions { max_connections: 5 })
             .await
             .context("failed to connect read-only audit pool")?;
-        Ok(Self { pool })
+        Ok(Self {
+            pool,
+            pending_upgrade: None,
+        })
     }
 
     pub fn pool(&self) -> &PgPool {

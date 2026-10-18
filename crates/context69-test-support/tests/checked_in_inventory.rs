@@ -64,11 +64,14 @@ fn opt_in_classes_are_never_selected_by_the_ordinary_run() {
         .map(|entry| match entry.class {
             TestClass::Benchmark => "benchmark",
             TestClass::AppStartup => "app_startup",
+            TestClass::UpgradeRecovery => "upgrade_recovery",
             TestClass::Db => "db",
         })
         .collect();
     assert!(
-        classes.contains("benchmark") || classes.contains("app_startup"),
+        classes.contains("benchmark")
+            || classes.contains("app_startup")
+            || classes.contains("upgrade_recovery"),
         "the opt-in classes are represented, so a disabled opt-in is skipped \
          rather than silently counted as a pass"
     );
@@ -78,6 +81,9 @@ fn opt_in_classes_are_never_selected_by_the_ordinary_run() {
             !ordinary.is_empty()
                 || manifest.selection(&label, &[TestClass::Benchmark]).len()
                     + manifest.selection(&label, &[TestClass::AppStartup]).len()
+                    + manifest
+                        .selection(&label, &[TestClass::UpgradeRecovery])
+                        .len()
                     == manifest
                         .entries
                         .iter()
@@ -93,7 +99,14 @@ fn the_database_selection_of_every_target_is_non_empty_or_opt_in_only() {
     let manifest = list::manifest(&repo_root()).expect("the inventory parses");
     for label in manifest.target_labels() {
         let db = manifest.selection(&label, &[TestClass::Db]);
-        let opt_ins = manifest.selection(&label, &[TestClass::Benchmark, TestClass::AppStartup]);
+        let opt_ins = manifest.selection(
+            &label,
+            &[
+                TestClass::Benchmark,
+                TestClass::AppStartup,
+                TestClass::UpgradeRecovery,
+            ],
+        );
         assert!(
             !db.is_empty() || !opt_ins.is_empty(),
             "{label} is never selected by any invocation"

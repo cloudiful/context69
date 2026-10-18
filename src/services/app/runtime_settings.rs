@@ -143,6 +143,16 @@ pub async fn import_legacy_runtime_if_needed(
     Ok(())
 }
 
+/// Whether loading runtime settings may write the legacy Qdrant URL rewrite
+/// back to the settings row.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum RuntimeSettingsMode {
+    /// Normal boot: the rewrite is committed exactly as it is today.
+    Persist,
+    /// Recovery, observers, and live reloads: normalize only in memory.
+    Readonly,
+}
+
 /// Loads the persisted runtime settings with the reversible keys resolved
 /// through the shared store.
 ///
@@ -156,18 +166,32 @@ pub async fn load_runtime_settings(
     db: &Database,
     store: &SecretStore,
 ) -> Result<Option<StoredRuntimeSettings>> {
-    let Some(mut runtime) = db.get_runtime_settings().await? else {
+    load_runtime_settings_with_mode(db, store, RuntimeSettingsMode::Persist).await
+}
+
+/// The same read for paths that must not write while they initialize.
+///
+/// The legacy REST-to-gRPC rewrite and every secret resolution keep their
+/// behavior and defaults, but the normalized row stays in memory.
+pub async fn load_runtime_settings_readonly(
+    db: &Database,
+    store: &SecretStore,
+) -> Result<Option<StoredRuntimeSettings>> {
+    load_runtime_settings_with_mode(db, store, RuntimeSettingsMode::Readonly).await
+}
+
+async fn load_runtime_settings_with_mode(
+    db: &Database,
+    store: &SecretStore,
+    mode: RuntimeSettingsMode,
+) -> Result<Option<StoredRuntimeSettings>> {
+    let Some(runtime) = db.get_runtime_settings().await? else {
         return Ok(None);
     };
 
-    if let Some(grpc_url) = qdrant_grpc_url_from_rest_port(&runtime.qdrant.url) {
-        warn!(
-            old_url = runtime.qdrant.url,
-            new_url = grpc_url,
-            "upgrading legacy qdrant runtime URL from REST port to gRPC port"
-        );
-        runtime.qdrant.url = grpc_url;
-        runtime = db.save_runtime_settings(&runtime).await?;
+    let (mut runtime, rewrite) = normalize_legacy_qdrant_url(runtime, mode);
+    if let Some(rewrite) = rewrite {
+        runtime = db.save_runtime_settings(&rewrite).await?;
     }
 
     // Fails closed: a sealed embedding key this deployment cannot open must not
@@ -183,6 +207,28 @@ pub async fn load_runtime_settings(
     }
 
     Ok(Some(runtime))
+}
+
+/// Applies the legacy REST-to-gRPC Qdrant rewrite to the in-memory value and
+/// returns the row to persist, if the selected mode allows a write.
+///
+/// The returned row is the same value the caller uses in memory, so a caller
+/// that persists it still observes exactly the normalized URL.
+fn normalize_legacy_qdrant_url(
+    mut runtime: StoredRuntimeSettings,
+    mode: RuntimeSettingsMode,
+) -> (StoredRuntimeSettings, Option<StoredRuntimeSettings>) {
+    let Some(grpc_url) = qdrant_grpc_url_from_rest_port(&runtime.qdrant.url) else {
+        return (runtime, None);
+    };
+    warn!(
+        old_url = runtime.qdrant.url,
+        new_url = grpc_url,
+        "upgrading legacy qdrant runtime URL from REST port to gRPC port"
+    );
+    runtime.qdrant.url = grpc_url;
+    let persist = (mode == RuntimeSettingsMode::Persist).then(|| runtime.clone());
+    (runtime, persist)
 }
 
 pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettings) {
