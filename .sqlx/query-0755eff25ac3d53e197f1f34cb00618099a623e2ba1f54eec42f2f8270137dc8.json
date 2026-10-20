@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Metadata-only terminal item states for an artifact-aware preview (issue #975\n-- P5).\n--\n-- Unlike list_inline_candidates.sql this may reference the artifact relation;\n-- the caller only runs it after detecting the relation. It distinguishes an\n-- inline value, an existing artifact reference and no value at all without\n-- reading either payload field.\nWITH kinds(kind) AS (\n    VALUES ('download'), ('sections')\n), rows AS (\n    SELECT item.id AS item_id,\n           kinds.kind AS kind,\n           item.task_id,\n           task.group_id,\n           item.status AS item_status,\n           task.status AS task_status,\n           task.deleted_at IS NOT NULL AS task_deleted,\n           (item.lease_token IS NOT NULL OR item.lease_until IS NOT NULL) AS lease_active,\n           CASE WHEN kinds.kind = 'download'\n                THEN jsonb_typeof(item.payload #> '{download_artifact,content_base64}')\n                ELSE jsonb_typeof(item.payload -> 'section_payload')\n           END AS field_type,\n           CASE WHEN kinds.kind = 'download'\n                THEN octet_length(item.payload #>> '{download_artifact,content_base64}')::bigint\n                ELSE octet_length(item.payload ->> 'section_payload')::bigint\n           END AS encoded_len,\n           CASE WHEN kinds.kind = 'download'\n                THEN jsonb_typeof(item.payload #> '{download_artifact,sha256}') = 'string'\n                ELSE false\n           END AS declared_sha256_present,\n           CASE WHEN kinds.kind = 'download'\n                THEN (item.payload #>> '{download_artifact,sha256}') ~ '^[0-9a-f]{64}$'\n                ELSE false\n           END AS declared_sha256_valid,\n           EXISTS (\n               SELECT 1\n               FROM context69.task_item_artifacts AS artifact\n               WHERE artifact.item_id = item.id\n                 AND artifact.kind = kinds.kind\n           ) AS artifact_present\n    FROM context69.task_items AS item\n    JOIN context69.tasks AS task ON task.id = item.task_id\n    CROSS JOIN kinds\n    WHERE item.status IN ('succeeded', 'failed', 'cancelled')\n      AND ($1::text = 'all' OR kinds.kind = $1)\n      AND ($5::uuid[] IS NULL OR item.id = ANY($5::uuid[]))\n      AND ($2::uuid IS NULL OR (item.id, kinds.kind) > ($2, $3))\n)\nSELECT item_id,\n       kind,\n       task_id,\n       group_id,\n       item_status,\n       task_status,\n       task_deleted,\n       lease_active,\n       field_type,\n       encoded_len,\n       declared_sha256_present,\n       declared_sha256_valid,\n       artifact_present\nFROM rows\nORDER BY item_id, kind\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "task_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "task_deleted",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "lease_active",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "field_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "encoded_len",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "declared_sha256_present",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "declared_sha256_valid",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "artifact_present",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0755eff25ac3d53e197f1f34cb00618099a623e2ba1f54eec42f2f8270137dc8"
+}

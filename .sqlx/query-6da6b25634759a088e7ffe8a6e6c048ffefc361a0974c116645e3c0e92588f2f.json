@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.library_storage_object_cleanup WHERE group_id = ANY($1)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6da6b25634759a088e7ffe8a6e6c048ffefc361a0974c116645e3c0e92588f2f"
+}

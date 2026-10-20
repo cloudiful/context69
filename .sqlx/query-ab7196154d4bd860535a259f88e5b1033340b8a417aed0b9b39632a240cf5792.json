@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Make a staged object immediately reclaimable by the production sweep: both\n-- its lease and its ordering key are older than the 24-hour grace. The literal\n-- ordering keeps the fixture inside the bounded first page.\nUPDATE context69.library_storage_objects\nSET staging_lease_until = $2,\n    updated_at = $2\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ab7196154d4bd860535a259f88e5b1033340b8a417aed0b9b39632a240cf5792"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_storage_object_cleanup\nSET next_attempt_at = now()\nWHERE object_id = $1 AND completed_at IS NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "78684bfc76d98250d5e76f0a6d5e3e6ac6c6abe452e32b0d93e6b6336d679674"
+}

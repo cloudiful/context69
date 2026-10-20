@@ -37,6 +37,7 @@ use crate::{
     vector_runtime::VectorRuntime,
 };
 
+pub mod artifact_backfill;
 mod content_objects;
 mod dependency_errors;
 mod dependency_runtime;
@@ -105,6 +106,8 @@ mod staging;
 mod staging_cleanup;
 pub(crate) mod storage;
 mod streaming;
+mod task_artifacts;
+pub(crate) use task_artifacts::MAX_TASK_ITEM_ARTIFACT_BYTES;
 pub mod task_ingest;
 mod texts;
 mod tree;

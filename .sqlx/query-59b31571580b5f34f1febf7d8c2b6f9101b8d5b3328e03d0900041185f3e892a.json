@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Applied ledger entry for the #975 migration validation (issue #975 P5).\n--\n-- The apply path compares this checksum with the checksum compiled into this\n-- binary and refuses to continue on a missing, failed or different entry. No\n-- DDL and no ledger write happens here.\nSELECT checksum,\n       success\nFROM _sqlx_migrations\nWHERE version = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "checksum",
+        "type_info": "Bytea",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "checksum"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "success",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "success"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "59b31571580b5f34f1febf7d8c2b6f9101b8d5b3328e03d0900041185f3e892a"
+}

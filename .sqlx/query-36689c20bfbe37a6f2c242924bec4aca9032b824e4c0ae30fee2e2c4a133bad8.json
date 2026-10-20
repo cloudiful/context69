@@ -1,0 +1,101 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Known pre-artifact recovery profile only (issue #975 P9).\n--\n-- Artifact-free twin of `get_storage_object_by_id_for_update.sql`.\n-- Selected only while `Database::pending_upgrade()` reports the validated\n-- pinned admission, where the migration ledger proves\n-- context69.task_item_artifacts does not exist and no artifact row can exist.\n-- It is never chosen from a query error, a relation probe or configuration.\n\n-- Re-read an orphan candidate under the identity lock (issue #975 P8).\n--\n-- Physical deletion happens after this guard, so an artifact reference that\n-- appeared after enumeration must refuse the candidate here.\nSELECT id, group_id, sha256, size_bytes, storage_backend, object_key, staging_lease_until\nFROM context69.library_storage_objects AS object\nWHERE object.id = $1\n  AND object.staging_lease_until IS NOT NULL\n  AND object.staging_lease_until < $2\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.library_files AS file\n      WHERE file.storage_object_id = object.id\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.task_items AS item\n      WHERE item.input_storage_object_id = object.id\n  )\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "storage_backend"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "object_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "object_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "staging_lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "staging_lease_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "36689c20bfbe37a6f2c242924bec4aca9032b824e4c0ae30fee2e2c4a133bad8"
+}

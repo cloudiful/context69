@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use db_init::{DbInitOptions, connect_pool, run_migrations};
 use sqlx::PgPool;
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
+use std::str::FromStr;
 use uuid::Uuid;
 
 use crate::contracts::{SearchMode, SyncOutcome};
@@ -51,10 +53,13 @@ pub use metadata_payload_sync::{ClaimedMetadataPayloadSyncJob, MetadataPayloadSy
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use tasks::{
-    ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow,
-    DoclingRecoverySummary, FinishTaskItemRequest, StoredDoclingRemoteJob, StoredTask,
-    StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemDiagnostic,
-    TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
+    ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
+    AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,
+    ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow, DoclingRecoverySummary,
+    FinishTaskItemRequest, RemainingArtifactReferences, RestoreTaskItemArtifactInlineRequest,
+    StoredDoclingRemoteJob, StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow,
+    TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef, TaskItemArtifactRow,
+    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
 };
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
@@ -298,6 +303,30 @@ impl Database {
         let pool = connect_pool(url, DbInitOptions { max_connections: 5 })
             .await
             .context("failed to connect read-only audit pool")?;
+        Ok(Self {
+            pool,
+            pending_upgrade: None,
+        })
+    }
+
+    /// Non-migrating connection for the explicit operator backfill tool.
+    ///
+    /// No upgrade admission and no migrator run here. `read_only` adds
+    /// `default_transaction_read_only=on` to this pool's connections, so the
+    /// preview is refused a write by PostgreSQL rather than by convention.
+    /// Application startup keeps using [`Database::connect`]; the ordinary
+    /// [`Database::connect_read_only`] semantics are unchanged for its callers.
+    pub async fn connect_operator(url: &str, read_only: bool) -> Result<Self> {
+        let mut options =
+            PgConnectOptions::from_str(url).context("failed to parse the operator database URL")?;
+        if read_only {
+            options = options.options([("default_transaction_read_only", "on")]);
+        }
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(options)
+            .await
+            .context("failed to connect the operator database pool")?;
         Ok(Self {
             pool,
             pending_upgrade: None,

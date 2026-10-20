@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT storage_object_id, kind, encoding\nFROM context69.task_item_artifacts\nWHERE item_id = $1 AND kind = $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "storage_object_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "encoding",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "encoding"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "a39355347488ef2a65471cfbe6ec4f3029a057c867cdde26e59fdcb905c20f1c"
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.task_item_artifacts (item_id, kind, storage_object_id, encoding)\nVALUES ($1, $2, $3, $4)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "631a988df830d8ec30b402a2b4ae812c2f9ff83f1c5b7506ddcf3ba2964c5154"
+}

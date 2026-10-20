@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.library_storage_object_cleanup WHERE completed_at IS NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4f2966a1c84a518378d95de6573f75dfc59b0160bf9c8e8dc6905ec9e90e78d4"
+}

@@ -159,20 +159,33 @@ impl LibraryStore {
     }
 
     /// Live reference count for a storage object (library_files rows plus
-    /// staged task inputs). Zero means a guarded unreferenced-object delete
-    /// is allowed to remove it.
+    /// staged task inputs, plus task-item artifacts on the normal profile).
+    /// Zero means a guarded unreferenced-object delete is allowed to remove it.
     pub async fn count_storage_object_references(&self, object_id: Uuid) -> Result<i64> {
         #[derive(sqlx::FromRow)]
         struct ReferenceCountRow {
             references: i64,
         }
-        let row = sqlx::query_file_as!(
-            ReferenceCountRow,
-            "src/sql/library_store/objects/count_storage_object_references.sql",
-            object_id
-        )
-        .fetch_one(self.db.pool())
-        .await?;
+        // The known pre-artifact recovery profile has no artifact relation, so
+        // the two-referrer twin is the complete count there. Every other
+        // database uses the artifact-aware statement and propagates its errors.
+        let row = if self.db.pending_upgrade().is_some() {
+            sqlx::query_file_as!(
+                ReferenceCountRow,
+                "src/sql/library_store/objects/count_storage_object_references_before_artifacts.sql",
+                object_id
+            )
+            .fetch_one(self.db.pool())
+            .await?
+        } else {
+            sqlx::query_file_as!(
+                ReferenceCountRow,
+                "src/sql/library_store/objects/count_storage_object_references.sql",
+                object_id
+            )
+            .fetch_one(self.db.pool())
+            .await?
+        };
         Ok(row.references)
     }
 
@@ -210,6 +223,16 @@ impl LibraryStore {
         object_id: Uuid,
         before: DateTime<Utc>,
     ) -> Result<Option<StorageObjectRecord>> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file_as!(
+                StorageObjectRecord,
+                "src/sql/library_store/objects/get_storage_object_by_id_for_update_before_artifacts.sql",
+                object_id,
+                before
+            )
+            .fetch_optional(connection)
+            .await?);
+        }
         Ok(sqlx::query_file_as!(
             StorageObjectRecord,
             "src/sql/library_store/objects/get_storage_object_by_id_for_update.sql",
@@ -247,6 +270,15 @@ impl LibraryStore {
         &self,
         id: Uuid,
     ) -> Result<Option<DeletedStorageObject>> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file_as!(
+                DeletedStorageObject,
+                "src/sql/library_store/objects/delete_unreferenced_storage_object_before_artifacts.sql",
+                id
+            )
+            .fetch_optional(self.db.pool())
+            .await?);
+        }
         Ok(sqlx::query_file_as!(
             DeletedStorageObject,
             "src/sql/library_store/objects/delete_unreferenced_storage_object.sql",
@@ -254,6 +286,21 @@ impl LibraryStore {
         )
         .fetch_optional(self.db.pool())
         .await?)
+    }
+
+    /// Drop the staging lease of a committed artifact object.
+    ///
+    /// The statement itself requires a committed artifact reference and refuses
+    /// an object that any task input still stages, so a shared input keeps its
+    /// 24-hour protection. Returns whether the lease was cleared.
+    pub async fn promote_task_item_artifact_object(&self, object_id: Uuid) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/objects/promote_task_item_artifact_object.sql",
+            object_id
+        )
+        .fetch_optional(self.db.pool())
+        .await?
+        .is_some())
     }
 
     pub async fn clear_storage_object_staged(&self, object_id: Uuid, file_id: Uuid) -> Result<()> {
@@ -272,6 +319,15 @@ impl LibraryStore {
         connection: &mut sqlx::PgConnection,
         object_id: Uuid,
     ) -> Result<Option<StorageObjectRecord>> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file_as!(
+                StorageObjectRecord,
+                "src/sql/library_store/objects/get_staged_storage_object_for_update_before_artifacts.sql",
+                object_id
+            )
+            .fetch_optional(connection)
+            .await?);
+        }
         Ok(sqlx::query_file_as!(
             StorageObjectRecord,
             "src/sql/library_store/objects/get_staged_storage_object_for_update.sql",
@@ -286,6 +342,15 @@ impl LibraryStore {
         connection: &mut sqlx::PgConnection,
         object_id: Uuid,
     ) -> Result<bool> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file!(
+                "src/sql/library_store/objects/delete_released_staged_storage_object_before_artifacts.sql",
+                object_id
+            )
+            .fetch_optional(connection)
+            .await?
+            .is_some());
+        }
         Ok(sqlx::query_file!(
             "src/sql/library_store/objects/delete_released_staged_storage_object.sql",
             object_id
@@ -300,6 +365,16 @@ impl LibraryStore {
         before: DateTime<Utc>,
         limit: i64,
     ) -> Result<u64> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file!(
+                "src/sql/library_store/objects/clear_expired_staging_with_file_reference_before_artifacts.sql",
+                before,
+                limit
+            )
+            .execute(self.db.pool())
+            .await?
+            .rows_affected());
+        }
         Ok(sqlx::query_file!(
             "src/sql/library_store/objects/clear_expired_staging_with_file_reference.sql",
             before,
@@ -315,6 +390,16 @@ impl LibraryStore {
         before: DateTime<Utc>,
         limit: i64,
     ) -> Result<Vec<StorageObjectRecord>> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file_as!(
+                StorageObjectRecord,
+                "src/sql/library_store/objects/list_orphaned_storage_objects_before_artifacts.sql",
+                before,
+                limit
+            )
+            .fetch_all(self.db.pool())
+            .await?);
+        }
         Ok(sqlx::query_file_as!(
             StorageObjectRecord,
             "src/sql/library_store/objects/list_orphaned_storage_objects.sql",
@@ -331,6 +416,16 @@ impl LibraryStore {
         object_id: Uuid,
         before: DateTime<Utc>,
     ) -> Result<bool> {
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file!(
+                "src/sql/library_store/objects/delete_orphaned_storage_object_record_for_update_before_artifacts.sql",
+                object_id,
+                before
+            )
+            .fetch_optional(connection)
+            .await?
+            .is_some());
+        }
         Ok(sqlx::query_file!(
             "src/sql/library_store/objects/delete_orphaned_storage_object_record_for_update.sql",
             object_id,

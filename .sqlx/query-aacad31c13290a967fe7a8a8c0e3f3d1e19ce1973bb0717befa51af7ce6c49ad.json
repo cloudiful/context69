@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Point-in-time snapshot of remaining artifact references (issue #975 P6,\n-- total scope corrected in P8).\n--\n-- The total counts every artifact row, including references under a\n-- soft-deleted parent: those rows and their checkpoint bytes still exist and\n-- must not be reported as zero. The application may create new references while\n-- it is online, so a zero here is a snapshot, never a rollback certificate or a\n-- claim about the deployed schema and migration ledger.\nSELECT count(*)::bigint AS \"total!\",\n       count(*) FILTER (WHERE artifact.kind = 'download')::bigint AS \"download!\",\n       count(*) FILTER (WHERE artifact.kind = 'sections')::bigint AS \"sections!\",\n       count(*) FILTER (\n           WHERE item.lease_token IS NOT NULL OR item.lease_until IS NOT NULL\n       )::bigint AS \"active!\",\n       count(*) FILTER (\n           WHERE item.lease_token IS NULL\n             AND item.lease_until IS NULL\n             AND item.status IN ('succeeded', 'failed', 'cancelled')\n       )::bigint AS \"terminal!\",\n       count(*) FILTER (WHERE task.deleted_at IS NOT NULL)::bigint AS \"soft_deleted!\"\nFROM context69.task_item_artifacts AS artifact\nJOIN context69.task_items AS item ON item.id = artifact.item_id\nJOIN context69.tasks AS task ON task.id = item.task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "download!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "sections!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "active!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "terminal!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "soft_deleted!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "aacad31c13290a967fe7a8a8c0e3f3d1e19ce1973bb0717befa51af7ce6c49ad"
+}

@@ -1,0 +1,137 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Load the existence of one artifact reference joined with its registry object\n-- (issue #975 P3, repaired in P8).\n--\n-- This query answers \"is there a reference row for this item/kind\", never \"is\n-- there a usable reference\": group, backend, encoding and registry identity are\n-- projected for validation in Rust and are deliberately NOT used as filters.\n-- Predicating them away here made an existing but unusable checkpoint look\n-- absent, which let task stages reconvert or fall back to inline bytes instead\n-- of reporting the bad reference.\nSELECT artifact.item_id,\n       artifact.kind,\n       artifact.encoding,\n       artifact.storage_object_id,\n       task.group_id AS task_group_id,\n       object.group_id AS object_group_id,\n       object.sha256,\n       object.size_bytes,\n       object.object_key,\n       object.storage_backend\nFROM context69.task_item_artifacts AS artifact\nJOIN context69.task_items AS item\n  ON item.id = artifact.item_id\nJOIN context69.tasks AS task\n  ON task.id = item.task_id\nLEFT JOIN context69.library_storage_objects AS object\n  ON object.id = artifact.storage_object_id\nWHERE artifact.item_id = $1\n  AND artifact.kind = $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "encoding",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "encoding"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "storage_object_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "task_group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "object_group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "object_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "object_key"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "storage_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "storage_backend"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f1362d9e6122d7d4b25ffdc26ac685a3f5a58c57d630d4f1eeabc0dd05f76062"
+}

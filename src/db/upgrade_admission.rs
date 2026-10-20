@@ -12,7 +12,7 @@
 
 use anyhow::{Context, Result, anyhow};
 use sqlx::PgPool;
-use sqlx::migrate::{AppliedMigration, Migrate, MigrateError};
+use sqlx::migrate::{AppliedMigration, Migrate, MigrateError, Migration};
 
 use crate::db::MIGRATOR;
 
@@ -114,15 +114,24 @@ pub async fn guard_counts(pool: &PgPool) -> Result<UpgradeGuardCounts> {
     .context("failed to count pending-upgrade guard rows")
 }
 
-/// Whether the ledger is exactly the complete prior chain plus the one pinned
-/// pending retirement migration.
+/// Whether the ledger is exactly the complete prior chain with the pinned
+/// retirement migration as the first pending one.
 ///
+/// Later compiled migrations are allowed: recovery never applies migrations, so
+/// they stay pending until the ordinary migrator runs after the guard clears.
 /// Returns `Ok(false)` for anything else, including an empty ledger, a missing
-/// prior migration, an unknown version, a checksum mismatch, or an already
-/// applied retirement.
+/// prior migration, an unknown version, a checksum mismatch, a different first
+/// pending migration, or an already applied retirement.
 pub fn pin_pending_retirement(applied: &[AppliedMigration]) -> Result<bool> {
+    pin_pending_retirement_in(MIGRATOR.migrations.as_ref(), applied)
+}
+
+fn pin_pending_retirement_in(
+    migrations: &[Migration],
+    applied: &[AppliedMigration],
+) -> Result<bool> {
     let expected = expected_retirement_checksum()?;
-    let retirement = MIGRATOR
+    let retirement = migrations
         .iter()
         .find(|migration| migration.version == RETIREMENT_VERSION)
         .ok_or_else(|| {
@@ -133,16 +142,15 @@ pub fn pin_pending_retirement(applied: &[AppliedMigration]) -> Result<bool> {
             "the compiled retirement migration does not match its pinned SHA-384"
         ));
     }
-    if MIGRATOR
+    let first_pending = migrations
         .iter()
         .filter(|migration| migration.version > PRIOR_VERSION)
-        .count()
-        != 1
-    {
+        .min_by_key(|migration| migration.version);
+    if first_pending.map(|migration| migration.version) != Some(RETIREMENT_VERSION) {
         return Ok(false);
     }
 
-    let prior: Vec<_> = MIGRATOR
+    let prior: Vec<_> = migrations
         .iter()
         .filter(|migration| migration.version <= PRIOR_VERSION)
         .collect();
@@ -195,11 +203,12 @@ fn is_missing_ledger(error: &MigrateError) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use sqlx::migrate::AppliedMigration;
+    use sqlx::SqlSafeStr;
+    use sqlx::migrate::{AppliedMigration, Migration, MigrationType};
 
     use super::{
         PRIOR_VERSION, RETIREMENT_VERSION, UpgradeGuardCounts, expected_retirement_checksum,
-        pin_pending_retirement,
+        pin_pending_retirement, pin_pending_retirement_in,
     };
     use crate::db::MIGRATOR;
 
@@ -227,6 +236,58 @@ mod tests {
     #[test]
     fn the_complete_prior_chain_plus_the_pending_retirement_is_admitted() {
         assert!(pin_pending_retirement(&prior_ledger()).expect("pinned ledger"));
+    }
+
+    #[test]
+    fn a_later_compiled_migration_keeps_the_pending_retirement_admitted() {
+        let pending: Vec<_> = MIGRATOR
+            .iter()
+            .filter(|migration| migration.version > PRIOR_VERSION)
+            .collect();
+        assert_eq!(
+            pending.first().map(|migration| migration.version),
+            Some(RETIREMENT_VERSION)
+        );
+        assert!(
+            pending.len() > 1,
+            "the issue-975 schema migration is compiled after the pinned retirement"
+        );
+        assert!(pin_pending_retirement(&prior_ledger()).expect("pinned ledger"));
+    }
+
+    #[test]
+    fn a_compiled_migration_before_the_pinned_retirement_is_not_admitted() {
+        let mut migrations = MIGRATOR.migrations.as_ref().to_vec();
+        migrations.push(Migration::new(
+            PRIOR_VERSION + 1,
+            "synthetic".into(),
+            MigrationType::Simple,
+            "SELECT 1".into_sql_str(),
+            false,
+        ));
+        migrations.sort();
+        assert!(
+            !pin_pending_retirement_in(&migrations, &prior_ledger()).expect("synthetic ledger")
+        );
+    }
+
+    #[test]
+    fn a_changed_compiled_retirement_checksum_is_rejected() {
+        let mut migrations = MIGRATOR.migrations.as_ref().to_vec();
+        let retirement = migrations
+            .iter_mut()
+            .find(|migration| migration.version == RETIREMENT_VERSION)
+            .expect("retirement migration is compiled");
+        *retirement = Migration::new(
+            RETIREMENT_VERSION,
+            "changed".into(),
+            MigrationType::Simple,
+            "-- changed retirement\n".into_sql_str(),
+            false,
+        );
+        let error = pin_pending_retirement_in(&migrations, &prior_ledger())
+            .expect_err("a changed retirement checksum must fail closed");
+        assert!(error.to_string().contains("pinned SHA-384"));
     }
 
     #[test]

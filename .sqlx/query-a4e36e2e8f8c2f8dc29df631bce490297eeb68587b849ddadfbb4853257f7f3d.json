@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_item_artifacts\nSET storage_object_id = storage_object_id\nWHERE item_id = $1 AND kind = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a4e36e2e8f8c2f8dc29df631bce490297eeb68587b849ddadfbb4853257f7f3d"
+}

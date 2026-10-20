@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.library_files\n    (id, group_id, filename, media_type, size_bytes, sha256, storage_rel_path,\n     storage_object_id, ingest_status, visibility)\nVALUES ($1, $2, $3, 'text/plain', $4, $5, $6, $7, 'succeeded', 'public')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0277a5ac5bb334b00184e350f313b6af952fff208d2bf8eb1edf08fce1c740ef"
+}

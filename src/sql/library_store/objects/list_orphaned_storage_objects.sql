@@ -12,5 +12,10 @@ WHERE object.staging_lease_until IS NOT NULL
       FROM context69.task_items AS item
       WHERE item.input_storage_object_id = object.id
   )
+  AND NOT EXISTS (
+      SELECT 1
+      FROM context69.task_item_artifacts AS artifact
+      WHERE artifact.storage_object_id = object.id
+  )
 ORDER BY object.updated_at
 LIMIT $2

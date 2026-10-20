@@ -216,12 +216,12 @@ pub(super) async fn set_file(
 }
 
 pub(super) async fn save_sections(
-    db: &Database,
+    service: &TaskService,
     item: &mut crate::db::ClaimedItem,
     sections: Value,
 ) -> Result<()> {
     let mut payload = item.payload.clone();
-    payload["section_payload"] = sections;
+    payload["section_payload"] = sections.clone();
     // New sections invalidate any previous batch progress; start at 0.
     // Preserve boundedness: remove small checkpoint rather than carrying
     // stale hash/total. The next indexing stage will recreate it with the
@@ -230,14 +230,59 @@ pub(super) async fn save_sections(
         obj.remove("indexing_checkpoint");
     }
     let payload = payload_after_sections_saved(item, &payload)?;
-    if !db
+    if !service
+        .db()
         .set_task_item_payload(item.id, item.lease_token, &payload)
         .await?
     {
         return Err(DomainError::conflict("task item lease was lost while saving sections").into());
     }
     item.payload = payload;
+    // The inline save is durable first; externalization then removes only that
+    // inline copy once a verified artifact reference commits. A lease loss or
+    // storage error leaves the durable inline checkpoint in place and fails the
+    // item, so the next claim re-drives from valid state.
+    service
+        .library()
+        .externalize_task_item_sections(item, &sections)
+        .await?;
     Ok(())
+}
+
+/// Resolve the sections a task item pipeline stage must consume.
+///
+/// Inline legacy bytes win, so existing rows keep their exact behavior.
+/// Otherwise a verified `sections` artifact is read and decoded into the same
+/// JSON shape. Unlike the pure [`persisted_section_payload`], a present but
+/// unreadable, unverifiable or undecodable artifact is an error, so a caller
+/// never mistakes it for "no sections" and reconverts.
+pub(super) async fn resolved_section_payload(
+    service: &TaskService,
+    item: &crate::db::ClaimedItem,
+) -> Result<Option<Value>> {
+    if let Some(inline) = persisted_section_payload(&item.payload) {
+        return Ok(Some(inline));
+    }
+    if item.group_id.is_none() {
+        return Ok(None);
+    }
+    let Some(bytes) = service
+        .library()
+        .read_task_item_artifact(
+            item.id,
+            crate::db::TaskItemArtifactKind::Sections,
+            crate::services::library::MAX_TASK_ITEM_ARTIFACT_BYTES,
+        )
+        .await?
+    else {
+        return Ok(None);
+    };
+    let sections = serde_json::from_slice(&bytes).map_err(|error| {
+        anyhow::Error::from(DomainError::conflict(format!(
+            "task item sections artifact is not valid JSON: {error}"
+        )))
+    })?;
+    Ok(Some(sections))
 }
 
 pub(super) async fn save_payload(
@@ -255,7 +300,7 @@ pub(super) async fn save_payload(
     Ok(())
 }
 
-pub(super) fn persisted_section_payload(payload: &Value) -> Option<Value> {
+pub(crate) fn persisted_section_payload(payload: &Value) -> Option<Value> {
     payload
         .get("section_payload")
         .filter(|value| !value.is_null())

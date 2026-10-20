@@ -4,6 +4,7 @@
 //! `db::mod`.
 
 mod admin;
+mod artifact_backfill;
 mod claims;
 mod docling_cleanup;
 mod docling_remote_finalize;
@@ -13,12 +14,18 @@ mod queries;
 mod submission;
 mod types;
 
+pub use artifact_backfill::{
+    ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
+    AttachTerminalTaskItemArtifactRequest, RemainingArtifactReferences,
+    RestoreTaskItemArtifactInlineRequest,
+};
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use types::{
-    ClaimMaintenanceOutcome, ClaimedItem, CreateTaskSubmissionRequest, FinishTaskItemRequest,
-    StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter,
-    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
+    AttachTaskItemArtifactRequest, ClaimMaintenanceOutcome, ClaimedItem,
+    CreateTaskSubmissionRequest, FinishTaskItemRequest, StoredTask, StoredTaskAttempt,
+    StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef,
+    TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
 };
 
 /// Every item of the collapsed pipeline (issue 529 Task 4) is created in the

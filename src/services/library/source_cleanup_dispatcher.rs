@@ -417,20 +417,324 @@ mod tests {
         // Only staged leases past the cutoff are candidates.
         assert!(list.contains("staging_lease_until IS NOT NULL"));
         assert!(list.contains("staging_lease_until < $1"));
-        // Referenced bytes are never candidates: no file or task input may
-        // point at the object. No task-history row is touched.
+        // Referenced bytes are never candidates: no file, task input or task
+        // artifact may point at the object. No task-history row is touched.
         assert!(list.contains("NOT EXISTS ( SELECT 1 FROM context69.library_files"));
         assert!(list.contains("NOT EXISTS ( SELECT 1 FROM context69.task_items"));
         assert!(list.contains("WHERE item.input_storage_object_id = object.id"));
+        assert!(list.contains("NOT EXISTS ( SELECT 1 FROM context69.task_item_artifacts"));
+        assert!(list.contains("WHERE artifact.storage_object_id = object.id"));
         assert!(!list.contains("context69.tasks"));
         assert!(!list.contains("DELETE"));
         let clear = normalized(include_str!(
             "../../sql/library_store/objects/clear_expired_staging_with_file_reference.sql"
         ));
         // The lease-clear path only nulls the staging lease on file-backed
-        // rows with no task input; it never deletes bytes or task history.
+        // rows with no task input or artifact; it never deletes bytes or task
+        // history.
         assert!(clear.contains("SET staging_lease_until = NULL"));
+        assert!(clear.contains(
+            "EXISTS ( SELECT 1 FROM context69.library_files AS file WHERE file.storage_object_id = object.id )"
+        ));
+        assert!(clear.contains("NOT EXISTS ( SELECT 1 FROM context69.task_items"));
+        assert!(clear.contains("NOT EXISTS ( SELECT 1 FROM context69.task_item_artifacts"));
+        assert!(clear.contains("FOR UPDATE SKIP LOCKED"));
         assert!(!clear.contains("DELETE FROM context69.tasks"));
+    }
+
+    #[test]
+    fn every_object_reference_guard_counts_task_item_artifacts() {
+        fn normalized(path: &str) -> String {
+            path.lines()
+                .map(|line| line.split_once("--").map_or(line, |(code, _)| code))
+                .collect::<Vec<_>>()
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        let count = normalized(include_str!(
+            "../../sql/library_store/objects/count_storage_object_references.sql"
+        ));
+        assert!(count.contains("FROM context69.library_files AS file"));
+        assert!(count.contains("FROM context69.task_items AS item"));
+        assert!(count.contains("FROM context69.task_item_artifacts AS artifact"));
+        assert!(count.contains("WHERE artifact.storage_object_id = $1"));
+        assert!(count.contains(r#"AS "references!""#));
+
+        for sql in [
+            normalized(include_str!(
+                "../../sql/library_store/objects/delete_unreferenced_storage_object.sql"
+            )),
+            normalized(include_str!(
+                "../../sql/library_store/source_object_cleanup/delete_cleanup_storage_object.sql"
+            )),
+        ] {
+            // Every destructive path keeps all three guards, and each one is
+            // still bounded by the absent staging lease.
+            assert!(sql.contains("staging_lease_until IS NULL"));
+            assert!(sql.contains("FROM context69.library_files AS file"));
+            assert!(sql.contains("WHERE file.storage_object_id = object.id"));
+            assert!(sql.contains("FROM context69.task_items AS item"));
+            assert!(sql.contains("WHERE item.input_storage_object_id = object.id"));
+            assert!(sql.contains("FROM context69.task_item_artifacts AS artifact"));
+            assert!(sql.contains("WHERE artifact.storage_object_id = object.id"));
+        }
+    }
+
+    #[test]
+    fn staged_and_orphan_under_lock_guards_count_task_item_artifacts() {
+        fn normalized(path: &str) -> String {
+            path.lines()
+                .map(|line| line.split_once("--").map_or(line, |(code, _)| code))
+                .collect::<Vec<_>>()
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        // Issue #975 P8: the staged release and the orphan sweep physically
+        // delete bytes, and an artifact-owned object may reach them because a
+        // deduplicated stage resets the shared staging lease. Every
+        // enumerate/under-lock/delete step must therefore exclude artifacts.
+        for (label, sql) in [
+            (
+                "staged release lock",
+                normalized(include_str!(
+                    "../../sql/library_store/objects/get_staged_storage_object_for_update.sql"
+                )),
+            ),
+            (
+                "staged release delete",
+                normalized(include_str!(
+                    "../../sql/library_store/objects/delete_released_staged_storage_object.sql"
+                )),
+            ),
+            (
+                "orphan under-lock re-read",
+                normalized(include_str!(
+                    "../../sql/library_store/objects/get_storage_object_by_id_for_update.sql"
+                )),
+            ),
+            (
+                "orphan under-lock delete",
+                normalized(include_str!(
+                    "../../sql/library_store/objects/delete_orphaned_storage_object_record_for_update.sql"
+                )),
+            ),
+        ] {
+            assert!(
+                sql.contains(
+                    "NOT EXISTS ( SELECT 1 FROM context69.task_item_artifacts AS artifact"
+                ),
+                "{label} must exclude artifact-owned objects"
+            );
+            assert!(
+                sql.contains("WHERE artifact.storage_object_id = object.id"),
+                "{label} must check the artifact object identity"
+            );
+            assert!(
+                sql.contains("FROM context69.library_files AS file"),
+                "{label} must keep the file guard"
+            );
+            assert!(
+                sql.contains("WHERE item.input_storage_object_id = object.id"),
+                "{label} must keep the task-input guard"
+            );
+            assert!(
+                sql.contains("object.staging_lease_until IS NOT NULL"),
+                "{label} must keep the staging-lease guard"
+            );
+        }
+    }
+
+    #[test]
+    fn recovery_profile_pairs_keep_artifact_guards_only_on_the_normal_statement() {
+        fn normalized(path: &str) -> String {
+            path.lines()
+                .map(|line| line.split_once("--").map_or(line, |(code, _)| code))
+                .collect::<Vec<_>>()
+                .join(" ")
+                .split_whitespace()
+                .collect::<Vec<_>>()
+                .join(" ")
+        }
+
+        // Issue #975 P9: each known pre-artifact statement is the exact twin of
+        // its normal statement with ONLY the artifact clause removed, so the
+        // file/task-input guards, grace and identity locks and return shapes
+        // stay identical.
+        for (label, normal, compat, structural) in [
+            (
+                "count",
+                include_str!("../../sql/library_store/objects/count_storage_object_references.sql"),
+                include_str!(
+                    "../../sql/library_store/objects/count_storage_object_references_before_artifacts.sql"
+                ),
+                &[
+                    "FROM context69.library_files AS file",
+                    "FROM context69.task_items AS item",
+                ][..],
+            ),
+            (
+                "delete unreferenced",
+                include_str!(
+                    "../../sql/library_store/objects/delete_unreferenced_storage_object.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/objects/delete_unreferenced_storage_object_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until IS NULL",
+                    "FROM context69.library_files AS file",
+                    "FROM context69.task_items AS item",
+                    "RETURNING object_key, storage_backend",
+                ][..],
+            ),
+            (
+                "delete cleanup record",
+                include_str!(
+                    "../../sql/library_store/source_object_cleanup/delete_cleanup_storage_object.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/source_object_cleanup/delete_cleanup_storage_object_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until IS NULL",
+                    "FROM context69.library_files AS file",
+                    "FROM context69.task_items AS item",
+                    "RETURNING object_key",
+                ][..],
+            ),
+            (
+                "clear expired staging",
+                include_str!(
+                    "../../sql/library_store/objects/clear_expired_staging_with_file_reference.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/objects/clear_expired_staging_with_file_reference_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until < $1",
+                    "EXISTS ( SELECT 1 FROM context69.library_files AS file",
+                    "FOR UPDATE SKIP LOCKED",
+                    "SET staging_lease_until = NULL",
+                ][..],
+            ),
+            (
+                "list orphans",
+                include_str!("../../sql/library_store/objects/list_orphaned_storage_objects.sql"),
+                include_str!(
+                    "../../sql/library_store/objects/list_orphaned_storage_objects_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until < $1",
+                    "ORDER BY object.updated_at",
+                    "LIMIT $2",
+                ][..],
+            ),
+            (
+                "orphan under-lock re-read",
+                include_str!(
+                    "../../sql/library_store/objects/get_storage_object_by_id_for_update.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/objects/get_storage_object_by_id_for_update_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until < $2",
+                    "FOR UPDATE",
+                    "SELECT id, group_id, sha256, size_bytes, storage_backend, object_key, staging_lease_until",
+                ][..],
+            ),
+            (
+                "orphan under-lock delete",
+                include_str!(
+                    "../../sql/library_store/objects/delete_orphaned_storage_object_record_for_update.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/objects/delete_orphaned_storage_object_record_for_update_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until < $2",
+                    "RETURNING object.id",
+                    "FROM context69.library_files AS file",
+                ][..],
+            ),
+            (
+                "staged release lock",
+                include_str!(
+                    "../../sql/library_store/objects/get_staged_storage_object_for_update.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/objects/get_staged_storage_object_for_update_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until IS NOT NULL",
+                    "FOR UPDATE",
+                    "FROM context69.task_items AS item",
+                ][..],
+            ),
+            (
+                "staged release delete",
+                include_str!(
+                    "../../sql/library_store/objects/delete_released_staged_storage_object.sql"
+                ),
+                include_str!(
+                    "../../sql/library_store/objects/delete_released_staged_storage_object_before_artifacts.sql"
+                ),
+                &[
+                    "staging_lease_until IS NOT NULL",
+                    "RETURNING object.id",
+                    "FROM context69.library_files AS file",
+                ][..],
+            ),
+        ] {
+            let normal = normalized(normal);
+            let compat = normalized(compat);
+            assert!(
+                normal.contains("FROM context69.task_item_artifacts AS artifact"),
+                "the normal {label} statement must keep the artifact guard"
+            );
+            assert!(
+                !compat.contains("task_item_artifacts"),
+                "the compat {label} statement must never reference the absent relation"
+            );
+            for clause in structural {
+                let clause = normalized(clause);
+                assert!(
+                    compat.contains(&clause),
+                    "the compat {label} statement dropped {clause}"
+                );
+                assert!(
+                    normal.contains(&clause),
+                    "the normal {label} statement lost {clause}"
+                );
+            }
+            // Removing the artifact clause from the normal statement yields the
+            // compat statement text apart from the header comment.
+            let stripped = if label == "count" {
+                normal
+                    .replace(
+                        "+ ( SELECT count(*) FROM context69.task_item_artifacts AS artifact WHERE artifact.storage_object_id = $1 )",
+                        "",
+                    )
+                    .replace(") ,", "),")
+            } else {
+                normal.replace(
+                    "AND NOT EXISTS ( SELECT 1 FROM context69.task_item_artifacts AS artifact WHERE artifact.storage_object_id = object.id )",
+                    "",
+                )
+            };
+            let normalized_gap = stripped.split_whitespace().collect::<Vec<_>>().join(" ");
+            let compat_compact = compat.split_whitespace().collect::<Vec<_>>().join(" ");
+            assert_eq!(
+                compat_compact, normalized_gap,
+                "the compat {label} statement must be the normal statement without only the artifact clause"
+            );
+        }
     }
 
     #[tokio::test]

@@ -35,6 +35,12 @@ async fn main() -> Result<()> {
         export_openapi(env::args().nth(2)).await?;
         return Ok(());
     }
+    // The audited artifact maintenance tool ships in this binary as well. It
+    // parses arguments and exits on its own, before any configuration load,
+    // database admission, migration, worker or signal handler starts.
+    if mode == "task-artifacts" {
+        return run_task_artifacts(env::args().skip(2)).await;
+    }
     // Before `Context69App::new`, and deliberately not behind it: a rewrap is a
     // maintenance run over the application database, so it must not start
     // Valkey, Qdrant, the scheduler, the API, or the MCP server, and it must not
@@ -97,12 +103,25 @@ async fn main() -> Result<()> {
         "serve" => serve(app).await?,
         other => {
             return Err(anyhow::anyhow!(
-                "unsupported mode {other}; expected serve, sync-once, mcp-stdio, rewrap-secrets, migrate-library-storage, or export-openapi"
+                "unsupported mode {other}; {SUPPORTED_MODES}"
             ));
         }
     }
 
     Ok(())
+}
+
+/// Modes this binary accepts after the program name.
+const SUPPORTED_MODES: &str = "expected serve, sync-once, mcp-stdio, rewrap-secrets, migrate-library-storage, task-artifacts, or export-openapi";
+
+/// The one shared task-artifact maintenance entry, also used by the standalone
+/// `task_artifact_backfill` binary.
+async fn run_task_artifacts<I, S>(raw: I) -> Result<()>
+where
+    I: IntoIterator<Item = S>,
+    S: Into<String>,
+{
+    context69::services::library::artifact_backfill::run_cli(raw).await
 }
 
 async fn export_openapi(output_path: Option<String>) -> Result<()> {
@@ -1370,6 +1389,122 @@ mod tests {
             }
             std::thread::sleep(Duration::from_millis(10));
         }
+    }
+
+    const TASK_ARTIFACTS_CHILD_ENV: &str = "CONTEXT69_TASK_ARTIFACTS_CLI_CHILD";
+    const TASK_ARTIFACTS_ARGS_ENV: &str = "CONTEXT69_TASK_ARTIFACTS_CLI_ARGS";
+
+    #[test]
+    fn task_artifacts_cli_child_helper() {
+        if std::env::var(TASK_ARTIFACTS_CHILD_ENV).as_deref() != Ok("1") {
+            return;
+        }
+        let raw = std::env::var(TASK_ARTIFACTS_ARGS_ENV).unwrap_or_default();
+        let args: Vec<String> = if raw.is_empty() {
+            Vec::new()
+        } else {
+            raw.split('\u{1f}').map(str::to_string).collect()
+        };
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("child runtime");
+        if let Err(error) = runtime.block_on(super::run_task_artifacts(args)) {
+            eprintln!("fatal: {error:#}");
+            std::process::exit(1);
+        }
+    }
+
+    /// Run the same entry `main` uses in a child process with an unusable
+    /// database URL, so a successful or argument-only run proves no connection
+    /// was attempted.
+    fn run_task_artifacts_child(args: &[&str]) -> std::process::Output {
+        use std::process::{Command, Stdio};
+
+        let exe = std::env::current_exe().expect("current test binary");
+        Command::new(exe)
+            .args([
+                "--exact",
+                "tests::task_artifacts_cli_child_helper",
+                "--nocapture",
+            ])
+            .env(TASK_ARTIFACTS_CHILD_ENV, "1")
+            .env(TASK_ARTIFACTS_ARGS_ENV, args.join("\u{1f}"))
+            .env(
+                "DATABASE_URL",
+                "postgres://invalid:invalid@127.0.0.1:1/none",
+            )
+            .current_dir(std::env::temp_dir())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .expect("spawn the task-artifacts child")
+    }
+
+    fn child_text(output: &std::process::Output) -> (String, String) {
+        (
+            String::from_utf8_lossy(&output.stdout).into_owned(),
+            String::from_utf8_lossy(&output.stderr).into_owned(),
+        )
+    }
+
+    #[test]
+    fn task_artifacts_help_finishes_without_config_or_database() {
+        let output = run_task_artifacts_child(&["--help"]);
+        let (stdout, stderr) = child_text(&output);
+        assert!(output.status.success(), "help failed: {stderr}");
+        assert!(stdout.contains("Usage: context69 task-artifacts"));
+        assert!(stdout.contains("--restore-inline"));
+        assert!(
+            !stdout.contains("connect"),
+            "help must not connect: {stdout}"
+        );
+        assert!(
+            !stderr.contains("postgres") && !stderr.contains("connect"),
+            "help touched the database: {stderr}"
+        );
+    }
+
+    #[test]
+    fn task_artifacts_invalid_flags_fail_before_connecting() {
+        for args in [
+            vec!["--kind", "bogus"],
+            vec!["--apply"],
+            vec!["--restore-inline", "--apply"],
+            vec!["--apply=false"],
+            vec!["--apply=false", "--acknowledge-reader-upgrade=false"],
+            vec!["--restore-inline=false"],
+            vec![
+                "--restore-inline=false",
+                "--apply=false",
+                "--acknowledge-inline-growth=false",
+            ],
+            vec!["--apply", "false"],
+        ] {
+            let output = run_task_artifacts_child(&args);
+            let (stdout, stderr) = child_text(&output);
+            assert!(
+                !output.status.success(),
+                "invalid flags succeeded for {args:?}: {stdout}"
+            );
+            assert!(
+                !stdout.contains("connect") && !stderr.contains("connect"),
+                "invalid flags reached the database for {args:?}: {stdout} {stderr}"
+            );
+            assert!(
+                !stdout.contains("Usage:")
+                    && !stdout.contains(
+                        "{
+"
+                    ),
+                "invalid flags produced normal output for {args:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn supported_modes_document_the_task_artifacts_command() {
+        assert!(super::SUPPORTED_MODES.contains("task-artifacts"));
     }
 
     struct FakeRecovery {

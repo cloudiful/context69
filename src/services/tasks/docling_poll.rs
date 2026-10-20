@@ -38,6 +38,15 @@ pub(super) trait DoclingRemoteOps: Send + Sync {
     ) -> Result<Value, UnifiedIngestError>;
     async fn note_remote_failure(&self, error: &UnifiedIngestError);
     async fn note_remote_success(&self);
+    /// Externalize the just-committed inline sections for a group-owned item.
+    ///
+    /// The inline commit has already happened, so an error here leaves a valid
+    /// inline checkpoint and never resubmits the remote conversion.
+    async fn externalize_sections(
+        &self,
+        item: &mut crate::db::ClaimedItem,
+        sections: &Value,
+    ) -> Result<()>;
 }
 
 #[async_trait::async_trait]
@@ -76,6 +85,14 @@ impl DoclingRemoteOps for LibraryService {
     async fn note_remote_success(&self) {
         self.note_dependency_success(LibraryDependency::Docling, Uuid::nil())
             .await;
+    }
+
+    async fn externalize_sections(
+        &self,
+        item: &mut crate::db::ClaimedItem,
+        sections: &Value,
+    ) -> Result<()> {
+        self.externalize_task_item_sections(item, sections).await
     }
 }
 
@@ -289,7 +306,7 @@ pub(super) async fn run_docling_stage_blocking(
                 continue;
             }
         };
-        let payload = payload_with_sections(owned.payload, sections);
+        let payload = payload_with_sections(owned.payload, sections.clone());
         match db
             .finish_docling_remote_job_with_sections(
                 job.id,
@@ -304,9 +321,11 @@ pub(super) async fn run_docling_stage_blocking(
                 // The same claim keeps driving this snapshot: publish the
                 // committed sections into it so the `embedding` stage observes
                 // the success instead of routing back to `docling` for a
-                // duplicate submit.
+                // duplicate submit. Externalization then removes only the
+                // inline copy; on failure the durable inline checkpoint stays.
                 item.payload = payload;
                 ops.note_remote_success().await;
+                ops.externalize_sections(item, &sections).await?;
                 return Ok(ProcessResult::Progressed { next: "embedding" });
             }
             None => return Ok(lease_lost()),
@@ -435,6 +454,14 @@ mod tests {
         async fn note_remote_failure(&self, _error: &UnifiedIngestError) {}
 
         async fn note_remote_success(&self) {}
+
+        async fn externalize_sections(
+            &self,
+            _item: &mut crate::db::ClaimedItem,
+            _sections: &Value,
+        ) -> anyhow::Result<()> {
+            Ok(())
+        }
     }
 
     /// Stage-level regression for the P0: the real blocking loop commits a

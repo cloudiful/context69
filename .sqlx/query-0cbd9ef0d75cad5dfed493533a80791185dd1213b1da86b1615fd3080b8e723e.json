@@ -1,0 +1,199 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Metadata-only restore candidates for the inverse operator direction\n-- (issue #975 P6).\n--\n-- One row per existing artifact reference joined with its registry object and\n-- owning task/item. The projection carries the expected reference identity the\n-- restore CAS re-checks, and the flags needed to classify exclusions. No field\n-- text and no digest value is ever printed by the caller.\n--\n-- Rows are NOT filtered to eligible ones: an active item, a NULL group or an\n-- already-restored inline field is reported as an explicit skip class instead\n-- of silently disappearing from the counts.\nSELECT artifact.item_id,\n       item.task_id,\n       artifact.kind,\n       artifact.encoding,\n       artifact.storage_object_id,\n       object.group_id AS object_group_id,\n       object.sha256,\n       object.size_bytes,\n       object.storage_backend,\n       item.status AS item_status,\n       task.status AS task_status,\n       task.deleted_at IS NOT NULL AS task_deleted,\n       (item.lease_token IS NOT NULL OR item.lease_until IS NOT NULL) AS lease_active,\n       task.group_id AS task_group_id,\n       CASE WHEN artifact.kind = 'download'\n            THEN jsonb_typeof(item.payload #> '{download_artifact,content_base64}')\n            ELSE jsonb_typeof(item.payload -> 'section_payload')\n       END AS inline_type,\n       CASE WHEN artifact.kind = 'download'\n            THEN jsonb_typeof(item.payload -> 'download_artifact')\n            ELSE 'object'\n       END AS download_metadata_type,\n       CASE WHEN artifact.kind = 'download'\n            THEN item.payload #>> '{download_artifact,sha256}'\n            ELSE NULL\n       END AS declared_sha256\nFROM context69.task_item_artifacts AS artifact\nJOIN context69.library_storage_objects AS object\n  ON object.id = artifact.storage_object_id\nJOIN context69.task_items AS item\n  ON item.id = artifact.item_id\nJOIN context69.tasks AS task\n  ON task.id = item.task_id\nWHERE ($1::text = 'all' OR artifact.kind = $1)\n  AND ($5::uuid[] IS NULL OR item.id = ANY($5::uuid[]))\n  AND ($2::uuid IS NULL OR (item.id, artifact.kind) > ($2, $3))\nORDER BY item.id, artifact.kind\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "encoding",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "encoding"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_item_artifacts",
+            "name": "storage_object_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "object_group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "storage_backend",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_storage_objects",
+            "name": "storage_backend"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "task_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "task_deleted",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "lease_active",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "task_group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "inline_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "download_metadata_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "declared_sha256",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Uuid",
+        "Text",
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      null,
+      true,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "0cbd9ef0d75cad5dfed493533a80791185dd1213b1da86b1615fd3080b8e723e"
+}

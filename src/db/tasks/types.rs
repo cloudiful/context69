@@ -115,6 +115,8 @@ pub struct ClaimedItem {
 
 #[derive(Debug, Clone, FromRow)]
 pub struct RerunTaskItem {
+    /// Source item id, so its artifact references can be inherited.
+    pub id: Uuid,
     pub payload: Value,
     pub file_id: Option<Uuid>,
     pub input_storage_object_id: Option<Uuid>,
@@ -308,4 +310,100 @@ pub struct WaitTaskItemRequest<'a> {
     pub dependency_key: Option<&'a str>,
     pub next_attempt_at: DateTime<Utc>,
     pub error_message: Option<&'a str>,
+}
+
+/// The extractable task-item artifact kinds (issue #975 P1 pairs).
+///
+/// The database relation fixes exactly one encoding per kind, so the mapping
+/// lives here once instead of at every call site. An unknown kind/encoding pair
+/// from storage is refused rather than guessed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TaskItemArtifactKind {
+    /// Raw downloaded bytes of a URL item (`raw-v1`).
+    Download,
+    /// Serialized ingestion sections of a text/file item
+    /// (`ingest-sections-json-v1`).
+    Sections,
+}
+
+impl TaskItemArtifactKind {
+    pub fn kind(self) -> &'static str {
+        match self {
+            Self::Download => "download",
+            Self::Sections => "sections",
+        }
+    }
+
+    pub fn encoding(self) -> &'static str {
+        match self {
+            Self::Download => "raw-v1",
+            Self::Sections => "ingest-sections-json-v1",
+        }
+    }
+
+    /// Resolve a stored kind/encoding pair, refusing anything not authored by
+    /// [`Self::kind`]/[`Self::encoding`].
+    pub fn from_parts(kind: &str, encoding: &str) -> Option<Self> {
+        [Self::Download, Self::Sections]
+            .into_iter()
+            .find(|candidate| candidate.kind() == kind && candidate.encoding() == encoding)
+    }
+}
+
+/// Raw joined projection of one existing artifact reference (issue #975 P8).
+///
+/// The row exists whenever the reference exists; group, backend and registry
+/// identity stay optional so an unusable reference is reported as an error
+/// instead of disappearing as "no reference". Callers validate this row before
+/// any object read.
+#[derive(Debug, Clone, FromRow)]
+pub struct TaskItemArtifactRow {
+    pub item_id: Uuid,
+    pub kind: String,
+    pub encoding: String,
+    pub storage_object_id: Uuid,
+    pub task_group_id: Option<i64>,
+    pub object_group_id: Option<i64>,
+    pub sha256: Option<String>,
+    pub size_bytes: Option<i64>,
+    pub object_key: Option<String>,
+    pub storage_backend: Option<String>,
+}
+
+/// Validated projection of one artifact reference and the registry object it
+/// owns.
+///
+/// Byte size, digest, group and backend come from the storage registry; the
+/// relation itself stores only the item/kind/object identity and encoding. The
+/// task group is joined in the query so a caller can never supply its own.
+#[derive(Debug, Clone, FromRow)]
+pub struct TaskItemArtifactRef {
+    pub item_id: Uuid,
+    pub kind: String,
+    pub storage_object_id: Uuid,
+    pub group_id: i64,
+    pub sha256: String,
+    pub size_bytes: i64,
+    pub object_key: String,
+    pub storage_backend: String,
+    pub encoding: String,
+}
+
+impl TaskItemArtifactRef {
+    /// Whether the stored pair is the exact pair the caller asked for.
+    pub fn resolved_kind(&self) -> Option<TaskItemArtifactKind> {
+        TaskItemArtifactKind::from_parts(&self.kind, &self.encoding)
+    }
+}
+
+/// Grouped arguments for the lease-fenced artifact attach.
+#[derive(Debug, Clone, Copy)]
+pub struct AttachTaskItemArtifactRequest<'a> {
+    pub item_id: Uuid,
+    pub lease_token: Uuid,
+    pub kind: TaskItemArtifactKind,
+    pub storage_object_id: Uuid,
+    pub sha256: &'a str,
+    pub size_bytes: i64,
+    pub storage_backend: &'a str,
 }

@@ -1,0 +1,59 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Source rows for `rerun_task` (issue #975 P4).\n--\n-- The source task row is locked first and materialized, so the whole rerun\n-- transaction owns the source task before any item payload or artifact\n-- reference is read. A concurrent task delete (which must take the same row\n-- lock) can therefore neither remove a referenced object nor commit between the\n-- payload snapshot and the artifact copy.\nWITH locked_task AS MATERIALIZED (\n    SELECT task.id\n    FROM context69.tasks AS task\n    WHERE task.id = $1\n    FOR UPDATE\n)\nSELECT item.id,\n       CASE\n           WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n           ELSE item.payload\n       END AS payload,\n       item.file_id,\n       item.input_storage_object_id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nJOIN locked_task ON locked_task.id = task.id\nWHERE item.task_id = $1\n  AND item.status <> 'succeeded'\n  -- Skip files that already have a live item in a newer task so a rerun can\n  -- never create the second active processing task for one file.\n  AND (\n      item.file_id IS NULL\n      OR NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items active\n          WHERE active.file_id = item.file_id\n            AND active.id <> item.id\n            AND active.status IN ('queued', 'running', 'waiting')\n      )\n  )\nORDER BY item.ordinal\nFOR UPDATE OF item\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "input_storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "input_storage_object_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      true,
+      true
+    ]
+  },
+  "hash": "20e6ba2478e075236983175cfe28526a7e9e0fc35fc680becbdca3b486d0ea25"
+}

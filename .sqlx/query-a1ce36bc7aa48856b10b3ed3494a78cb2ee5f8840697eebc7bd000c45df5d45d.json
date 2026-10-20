@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.task_items\n    (id, task_id, ordinal, payload, status, lease_token, attempt_count)\nVALUES ($1, $2, 0, $3, 'running', $4, 1)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a1ce36bc7aa48856b10b3ed3494a78cb2ee5f8840697eebc7bd000c45df5d45d"
+}

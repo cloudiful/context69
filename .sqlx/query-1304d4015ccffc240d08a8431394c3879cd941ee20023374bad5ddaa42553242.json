@@ -1,0 +1,108 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Fetch one terminal item kind's encoded field once, gated in the same\n-- snapshot (issue #975 P5, capped at the database boundary in P8).\n--\n-- Metadata classification happened in an earlier statement, so a concurrent\n-- retry can rewrite the field between that scan and this fetch. The projection\n-- therefore re-derives the owner state, the current field shape and the current\n-- length here, and projects the text ONLY when the row is still an eligible\n-- terminal owner and the text fits the caller's cap. Otherwise the text is\n-- NULL and `skip_reason` names the refusal, so an oversized or changed field is\n-- never materialized client-side. No substring windows are used; the row is\n-- detoasted once by PostgreSQL as documented.\nWITH current AS (\n    SELECT item.id AS item_id,\n           task.group_id,\n           item.status AS item_status,\n           task.status AS task_status,\n           task.deleted_at AS deleted_at,\n           (item.lease_token IS NOT NULL OR item.lease_until IS NOT NULL) AS lease_active,\n           CASE WHEN $2::text = 'download'\n                THEN item.payload #>> '{download_artifact,content_base64}'\n                ELSE item.payload ->> 'section_payload'\n           END AS field_text,\n           CASE WHEN $2::text = 'download'\n                THEN jsonb_typeof(item.payload #> '{download_artifact,content_base64}')\n                ELSE jsonb_typeof(item.payload -> 'section_payload')\n           END AS field_type,\n           CASE WHEN $2::text = 'download'\n                THEN item.payload #>> '{download_artifact,sha256}'\n                ELSE NULL\n           END AS declared_sha256\n    FROM context69.task_items AS item\n    JOIN context69.tasks AS task ON task.id = item.task_id\n    WHERE item.id = $1\n), classified AS (\n    SELECT current.*,\n           CASE\n               WHEN current.field_type IS NULL THEN 'no_inline'\n               WHEN current.item_status NOT IN ('succeeded', 'failed', 'cancelled')\n                   THEN 'race_changed'\n               WHEN current.task_status NOT IN ('succeeded', 'failed', 'cancelled')\n                   THEN 'race_changed'\n               WHEN current.deleted_at IS NOT NULL THEN 'race_changed'\n               WHEN current.lease_active THEN 'race_changed'\n               WHEN current.group_id IS NULL THEN 'race_changed'\n               WHEN current.field_type <> CASE WHEN $2::text = 'download'\n                                               THEN 'string'\n                                               ELSE 'array'\n                                          END\n                   THEN 'invalid_shape'\n               WHEN octet_length(current.field_text) > $3::bigint THEN 'oversize'\n               ELSE NULL\n           END AS skip_reason\n    FROM current\n)\nSELECT item_id,\n       group_id,\n       item_status,\n       task_status,\n       deleted_at IS NOT NULL AS task_deleted,\n       lease_active,\n       field_type,\n       skip_reason,\n       CASE WHEN skip_reason IS NULL THEN field_text ELSE NULL END AS field_text,\n       declared_sha256\nFROM classified\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "task_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "task_deleted",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "lease_active",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "field_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "skip_reason",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "field_text",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "declared_sha256",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "1304d4015ccffc240d08a8431394c3879cd941ee20023374bad5ddaa42553242"
+}

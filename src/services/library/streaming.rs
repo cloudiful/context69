@@ -163,6 +163,68 @@ pub(super) async fn transfer(
     Ok(accumulator.finish())
 }
 
+/// Fixed-size chunks over an in-memory body.
+///
+/// Artifact staging already holds the plain bytes; the chunked source keeps the
+/// same `transfer` accounting (cap, digest, sink semantics) as a remote body.
+pub(super) struct BytesChunkSource {
+    bytes: Bytes,
+    chunk_size: usize,
+}
+
+impl BytesChunkSource {
+    pub(super) fn new(bytes: Bytes, chunk_size: usize) -> Self {
+        Self {
+            bytes,
+            chunk_size: chunk_size.max(1),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl ChunkSource for BytesChunkSource {
+    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
+        if self.bytes.is_empty() {
+            return Ok(None);
+        }
+        let chunk = self.bytes.split_to(self.bytes.len().min(self.chunk_size));
+        Ok(Some(chunk))
+    }
+}
+
+/// Collect one streamed body under a byte cap.
+///
+/// The cap is checked again here, so a caller that bypasses `transfer` still
+/// cannot accumulate an oversized artifact in memory.
+pub(super) struct BoundedBytesSink {
+    bytes: Vec<u8>,
+    max_bytes: usize,
+}
+
+impl BoundedBytesSink {
+    pub(super) fn new(max_bytes: usize) -> Self {
+        Self {
+            bytes: Vec::new(),
+            max_bytes,
+        }
+    }
+
+    pub(super) fn into_bytes(self) -> Bytes {
+        Bytes::from(self.bytes)
+    }
+}
+
+#[async_trait::async_trait]
+impl ByteSink for BoundedBytesSink {
+    async fn write_chunk(&mut self, chunk: Bytes) -> Result<()> {
+        if self.bytes.len().saturating_add(chunk.len()) > self.max_bytes {
+            return Err(DomainError::payload_too_large("artifact_too_large").into());
+        }
+        self.bytes.extend_from_slice(&chunk);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;

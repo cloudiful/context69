@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.task_item_artifacts WHERE item_id = $1 AND kind = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f3533d39f2d88fb6e09814b50c4372128fb6f693ac207bf236da4a84221a98d2"
+}

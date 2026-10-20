@@ -190,6 +190,21 @@ impl LibraryService {
             tx.rollback().await?;
             return Ok(());
         }
+        // Fresh reference snapshot under the held object lock (issue #975 P10).
+        // The lock query's own predicates were evaluated before it waited for
+        // any uncommitted attach/insert key-share, so a reference that commits
+        // while we wait would otherwise be invisible here. This statement runs
+        // after the lock is acquired and inside the same transaction, so a new
+        // reference either blocks on this lock or is counted.
+        if self
+            .store
+            .count_storage_object_references_on_connection(&mut tx, object.id)
+            .await?
+            > 0
+        {
+            tx.rollback().await?;
+            return Ok(());
+        }
         self.delete_active_storage(&object.object_key).await?;
         if !self
             .store
@@ -243,6 +258,19 @@ impl LibraryService {
                     active_storage_backend = self.storage.backend(),
                     "orphaned storage object belongs to an inactive backend"
                 );
+                lock_tx.rollback().await?;
+                continue;
+            }
+            // Same fresh snapshot as the staged release (issue #975 P10): the
+            // enumeration and the under-lock re-read both evaluated their
+            // reference predicates before any key-share wait, so re-count
+            // under the acquired lock before touching bytes.
+            if self
+                .store
+                .count_storage_object_references_on_connection(&mut lock_tx, object.id)
+                .await?
+                > 0
+            {
                 lock_tx.rollback().await?;
                 continue;
             }

@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Terminal-item artifact attach with an exact inline-field fingerprint\n-- (issue #975 P5).\n--\n-- The running-item attach cannot serve a finished item: it requires a live\n-- lease and a running status. This statement keeps the same one-statement\n-- guarantee for terminal rows:\n--   1. the parent task row is locked first, then the item row, matching the\n--      rerun lock order;\n--   2. the UPDATE rechecks the terminal item, the terminal parent, no lease, a\n--      non-NULL group, the verified registry identity and the exact SHA-256 of\n--      the current inline field text;\n--   3. it removes ONLY the migrated field, preserving identity and checkpoint\n--      keys, and inserts the reference from the UPDATE's RETURNING;\n--   4. the reference insert takes the object key share lock, so the cleanup\n--      worker cannot release the bytes between the reference commit and the\n--      strip.\n--\n-- Any mismatch produces zero rows and changes nothing.\nWITH locked_parent AS MATERIALIZED (\n    SELECT task.id\n    FROM context69.tasks AS task\n    WHERE task.id = (\n        SELECT item.task_id\n        FROM context69.task_items AS item\n        WHERE item.id = $1\n    )\n    FOR UPDATE\n), locked_item AS MATERIALIZED (\n    SELECT item.id\n    FROM context69.task_items AS item\n    JOIN locked_parent AS parent ON parent.id = item.task_id\n    WHERE item.id = $1\n    FOR UPDATE OF item\n), attached_item AS (\n    UPDATE context69.task_items AS item\n    SET payload = CASE WHEN $2::text = 'download'\n                       THEN item.payload #- '{download_artifact,content_base64}'\n                       ELSE item.payload - 'section_payload'\n                  END,\n        updated_at = now()\n    FROM context69.tasks AS task,\n         context69.library_storage_objects AS object,\n         locked_item\n    WHERE item.id = locked_item.id\n      AND task.id = item.task_id\n      AND object.id = $3\n      AND item.status IN ('succeeded', 'failed', 'cancelled')\n      AND item.lease_token IS NULL\n      AND item.lease_until IS NULL\n      AND task.status IN ('succeeded', 'failed', 'cancelled')\n      AND task.deleted_at IS NULL\n      AND task.group_id IS NOT NULL\n      AND object.group_id = task.group_id\n      AND object.sha256 = $4\n      AND object.size_bytes = $5\n      AND object.storage_backend = $6\n      AND (\n          CASE WHEN $2::text = 'download'\n               THEN item.payload #>> '{download_artifact,content_base64}'\n               ELSE item.payload ->> 'section_payload'\n          END\n      ) IS NOT NULL\n      AND encode(\n              sha256(convert_to(\n                  CASE WHEN $2::text = 'download'\n                       THEN item.payload #>> '{download_artifact,content_base64}'\n                       ELSE item.payload ->> 'section_payload'\n                  END,\n                  'UTF8'\n              )),\n              'hex'\n          ) = $7\n    RETURNING item.id\n), attached_ref AS (\n    INSERT INTO context69.task_item_artifacts\n        (item_id, kind, storage_object_id, encoding)\n    SELECT attached_item.id, $2::text, $3, $8::text\n    FROM attached_item\n    ON CONFLICT (item_id, kind) DO UPDATE\n    SET storage_object_id = EXCLUDED.storage_object_id\n    RETURNING item_id\n)\nSELECT count(*)::bigint AS \"attached!\"\nFROM attached_ref\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "attached!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "892a743b38904cfc1df575faffa7dd40d478644e9449697f20d4f54635aef5ce"
+}

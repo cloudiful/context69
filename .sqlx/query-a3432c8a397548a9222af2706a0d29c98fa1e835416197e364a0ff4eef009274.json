@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Inverse CAS: restore one missing inline field from a verified artifact and\n-- remove exactly that reference in the same statement (issue #975 P6).\n--\n-- The parent task row is locked before the item, matching the rerun and forward\n-- apply order. The UPDATE rechecks the terminal item and parent, the absent\n-- inline field, the non-NULL group and the exact registry identity; it restores\n-- ONLY the missing field and preserves every other payload key, including\n-- `indexing_checkpoint`. The reference DELETE is driven from the UPDATE's\n-- RETURNING, so a restore and its reference removal always commit together, and\n-- the P1 trigger enqueues the old-object cleanup in the same transaction.\n--\n-- Any mismatch (changed reference, new claim, restored inline value, other\n-- group, inactive backend) yields zero rows and changes nothing.\nWITH locked_parent AS MATERIALIZED (\n    SELECT task.id\n    FROM context69.tasks AS task\n    WHERE task.id = (\n        SELECT item.task_id\n        FROM context69.task_items AS item\n        WHERE item.id = $1\n    )\n    FOR UPDATE\n), locked_item AS MATERIALIZED (\n    SELECT item.id\n    FROM context69.task_items AS item\n    JOIN locked_parent AS parent ON parent.id = item.task_id\n    WHERE item.id = $1\n    FOR UPDATE OF item\n), restored AS (\n    UPDATE context69.task_items AS item\n    SET payload = CASE WHEN $2::text = 'download'\n                       THEN jsonb_set(\n                                item.payload,\n                                '{download_artifact,content_base64}',\n                                to_jsonb($8::text),\n                                true\n                            )\n                       ELSE jsonb_set(\n                                item.payload,\n                                '{section_payload}',\n                                $9::jsonb,\n                                true\n                            )\n                  END,\n        updated_at = now()\n    FROM context69.tasks AS task,\n         context69.library_storage_objects AS object,\n         locked_item\n    WHERE item.id = locked_item.id\n      AND task.id = item.task_id\n      AND object.id = $3\n      AND item.status IN ('succeeded', 'failed', 'cancelled')\n      AND item.lease_token IS NULL\n      AND item.lease_until IS NULL\n      AND task.status IN ('succeeded', 'failed', 'cancelled')\n      AND task.deleted_at IS NULL\n      AND task.group_id IS NOT NULL\n      AND object.group_id = task.group_id\n      AND object.sha256 = $4\n      AND object.size_bytes = $5\n      AND object.storage_backend = $6\n      AND (\n          ($2::text = 'download' AND $7::text = 'raw-v1')\n          OR ($2::text = 'sections' AND $7::text = 'ingest-sections-json-v1')\n      )\n      AND (\n          CASE WHEN $2::text = 'download'\n               THEN jsonb_typeof(item.payload -> 'download_artifact') = 'object'\n                    AND item.payload #> '{download_artifact,content_base64}' IS NULL\n               ELSE item.payload -> 'section_payload' IS NULL\n          END\n      )\n      AND EXISTS (\n          SELECT 1\n          FROM context69.task_item_artifacts AS artifact\n          WHERE artifact.item_id = item.id\n            AND artifact.kind = $2\n            AND artifact.storage_object_id = $3\n            AND artifact.encoding = $7\n      )\n    RETURNING item.id\n), removed AS (\n    DELETE FROM context69.task_item_artifacts AS artifact\n    USING restored\n    WHERE artifact.item_id = restored.id\n      AND artifact.kind = $2\n      AND artifact.storage_object_id = $3\n    RETURNING artifact.item_id\n)\nSELECT count(*)::bigint AS \"restored!\"\nFROM removed\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "restored!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a3432c8a397548a9222af2706a0d29c98fa1e835416197e364a0ff4eef009274"
+}

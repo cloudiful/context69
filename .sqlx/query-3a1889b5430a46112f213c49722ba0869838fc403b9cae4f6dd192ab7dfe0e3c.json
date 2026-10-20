@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Known pre-artifact recovery profile only (issue #975 P9).\n--\n-- Artifact-free twin of `count_storage_object_references.sql`.\n-- Selected only while `Database::pending_upgrade()` reports the validated\n-- pinned admission, where the migration ledger proves\n-- context69.task_item_artifacts does not exist and no artifact row can exist.\n-- It is never chosen from a query error, a relation probe or configuration.\n\n-- Number of live references to a storage object across library_files and\n-- staged task inputs. The artifact relation does not exist in this profile, so\n-- these two referrers are the complete set.\nSELECT COALESCE((\n    SELECT count(*)\n    FROM context69.library_files AS file\n    WHERE file.storage_object_id = $1\n) + (\n    SELECT count(*)\n    FROM context69.task_items AS item\n    WHERE item.input_storage_object_id = $1\n), 0)::bigint AS \"references!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "references!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3a1889b5430a46112f213c49722ba0869838fc403b9cae4f6dd192ab7dfe0e3c"
+}

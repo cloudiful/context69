@@ -7,7 +7,10 @@ use crate::db::Database;
 use crate::db::task_file_dedup::{claim_failed_item_file_slots, claim_unfinished_item_file_slots};
 
 use super::INITIAL_ITEM_STAGE;
-use super::types::{FinishTaskItemRequest, RerunTaskItem, StoredTask, WaitTaskItemRequest};
+use super::types::{
+    AttachTaskItemArtifactRequest, FinishTaskItemRequest, RerunTaskItem, StoredTask,
+    TaskItemArtifactRow, WaitTaskItemRequest,
+};
 
 /// Recompute the parent projection inside the item transition's own
 /// transaction.
@@ -171,6 +174,55 @@ impl Database {
             > 0)
     }
 
+    /// Attach one verified artifact reference to a running, leased item and
+    /// remove only that kind's migrated inline bytes in the same statement.
+    ///
+    /// Returns `false` without any mutation when the item's lease, status or
+    /// task group no longer match, when the registry object is not the declared
+    /// identity, or when that object is not in the item's own group. The
+    /// reference insert takes the same object-key lock the cleanup worker's
+    /// `FOR UPDATE` excludes, so verified bytes cannot be released between the
+    /// guard and the commit.
+    pub async fn attach_task_item_artifact(
+        &self,
+        request: AttachTaskItemArtifactRequest<'_>,
+    ) -> Result<bool> {
+        let attached: i64 = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/attach_task_item_artifact.sql",
+            request.item_id,
+            request.lease_token,
+            request.storage_object_id,
+            request.sha256,
+            request.size_bytes,
+            request.storage_backend,
+            request.kind.kind(),
+            request.kind.encoding()
+        )
+        .fetch_one(self.pool())
+        .await?;
+        Ok(attached > 0)
+    }
+
+    /// Load the raw joined projection of one existing artifact reference.
+    ///
+    /// The row is returned whenever the reference exists, even when its registry
+    /// identity is unusable; callers validate group, backend and encoding before
+    /// any object read.
+    pub async fn get_task_item_artifact(
+        &self,
+        item_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<TaskItemArtifactRow>> {
+        Ok(sqlx::query_file_as!(
+            TaskItemArtifactRow,
+            "src/sql/db/tasks/get_task_item_artifact.sql",
+            item_id,
+            kind
+        )
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
     pub async fn wait_task_item(&self, request: WaitTaskItemRequest<'_>) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
         let updated: bool = sqlx::query_file_scalar!(
@@ -307,6 +359,18 @@ impl Database {
                 INITIAL_ITEM_STAGE,
                 item.file_id,
                 item.input_storage_object_id
+            )
+            .execute(&mut *tx)
+            .await?;
+            // The rerun item inherits the source item's references in the same
+            // transaction, while the source task row lock is still held, so a
+            // concurrent delete can never leave the new item pointing at
+            // released bytes or lose the source payload's sections.
+            sqlx::query_file!(
+                "src/sql/db/tasks/copy_task_item_artifacts.sql",
+                item.id,
+                item_id,
+                new_task_id
             )
             .execute(&mut *tx)
             .await?;

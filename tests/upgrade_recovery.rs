@@ -11,8 +11,9 @@
 //!   persisted Docling remote id against a deterministic local fake, which
 //!   keeps the conversion pending so the migration guard stays set;
 //! - once the fake reports a terminal failure, the recovery writers quiesce, the
-//!   unchanged retirement migration applies exactly once, and the normal
-//!   application rebinds the same port with ordinary readiness;
+//!   unchanged retirement migration applies exactly once together with the later
+//!   pending migrations, and the normal application rebinds the same port with
+//!   ordinary readiness;
 //! - SIGTERM then stops that normal application under the bounded budget.
 //!
 //! Registered as the opt-in `upgrade_recovery` class; it is ignored unless the
@@ -34,13 +35,16 @@ use axum::{
 };
 use context69::{
     config::Config,
-    db::{Database, RETIREMENT_VERSION, UPGRADE_PRIOR_VERSION},
+    db::{Database, MIGRATOR, RETIREMENT_VERSION, UPGRADE_PRIOR_VERSION},
     services::app::UpgradeRecoveryApp,
 };
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use tokio::process::Child;
 use uuid::Uuid;
+
+#[path = "upgrade_recovery/object_cleanup.rs"]
+mod object_cleanup;
 
 const PRIOR_VERSION: i64 = UPGRADE_PRIOR_VERSION;
 const PINNED_RETIREMENT_VERSION: i64 = RETIREMENT_VERSION;
@@ -496,6 +500,14 @@ async fn ledger_versions(pool: &PgPool) -> Vec<i64> {
         .expect("read migration ledger")
 }
 
+/// The ordered ledger this build applies once every pending migration runs.
+///
+/// Derived from the compiled chain so a migration added after the pinned
+/// retirement never turns a correct startup into a stale expectation.
+fn compiled_ledger_versions() -> Vec<i64> {
+    MIGRATOR.iter().map(|migration| migration.version).collect()
+}
+
 async fn item_status(pool: &PgPool, item_id: Uuid) -> String {
     sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
         .bind(item_id)
@@ -604,6 +616,10 @@ async fn upgrade_recovery_waits_live_unready_adopts_the_remote_id_and_migrates_o
     let recovery_db = Database::connect(&database_url)
         .await
         .expect("connect the recovery database");
+    // Issue #975 P9: while the schema is still before the artifact migration,
+    // every object GC/staging statement must run its known-profile twin instead
+    // of failing on the absent artifact relation.
+    object_cleanup::exercise_known_profile_object_lifecycle(&recovery_db, &storage_root).await;
     let mut recovery = UpgradeRecoveryApp::with_database(
         recovery_config(&database_url, &storage_root, &collection),
         recovery_db,
@@ -790,14 +806,16 @@ async fn upgrade_recovery_waits_live_unready_adopts_the_remote_id_and_migrates_o
     assert_eq!(still_unready.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     // Terminal completion: the worker commits the failure, the guards clear,
-    // recovery writers quiesce, the unchanged migration applies once, and the
-    // normal application rebinds the same port.
+    // recovery writers quiesce, the unchanged migration applies once, the later
+    // pending migrations apply in version order, and the normal application
+    // rebinds the same port.
     docling.finish();
+    let expected_versions = compiled_ledger_versions();
     let mut migrated = false;
     for _ in 0..1800 {
         // The health listener is stopped before the normal app rebinds, so the
         // port is briefly closed; that is not a readiness answer.
-        if ledger_versions(&pool).await.last().copied() == Some(PINNED_RETIREMENT_VERSION)
+        if ledger_versions(&pool).await == expected_versions
             && let Ok(response) = server.try_get("/readyz").await
             && let Ok(body) = response.json::<Value>().await
             && body.get("upgrade_pending").is_none()
@@ -822,7 +840,10 @@ async fn upgrade_recovery_waits_live_unready_adopts_the_remote_id_and_migrates_o
         1,
         "the pinned retirement migration must apply exactly once"
     );
-    assert_eq!(versions.last().copied(), Some(PINNED_RETIREMENT_VERSION));
+    assert_eq!(
+        versions, expected_versions,
+        "the ordinary migrator must apply every compiled migration in version order"
+    );
 
     let job: (Uuid, String, String) = sqlx::query_as(
         "SELECT id, remote_task_id, status FROM context69.task_docling_remote_jobs \

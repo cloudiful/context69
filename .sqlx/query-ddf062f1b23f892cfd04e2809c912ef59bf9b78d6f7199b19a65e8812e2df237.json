@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_items\nSET input_storage_object_id = NULL\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ddf062f1b23f892cfd04e2809c912ef59bf9b78d6f7199b19a65e8812e2df237"
+}

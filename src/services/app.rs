@@ -235,6 +235,26 @@ impl UpgradeRecoveryApp {
     }
 }
 
+/// Resolve only the persisted runtime settings an operator maintenance tool
+/// needs, without bootstrapping the application.
+///
+/// This is the narrow seam for `task_artifact_backfill`: it builds the secret
+/// store from the deployment configuration, loads runtime settings read-only
+/// (no legacy rewrite write-back, no secret backfill, no settings write) and
+/// applies them to `config`. It starts no workers, writes no bootstrap rows and
+/// touches no remote provider.
+pub async fn hydrate_runtime_settings_for_maintenance(
+    db: &Database,
+    config: &mut Config,
+) -> Result<Option<crate::db::StoredRuntimeSettings>> {
+    let secrets = secret_store::build(db, config)?;
+    let runtime = runtime_settings::load_runtime_settings_readonly(db, &secrets).await?;
+    if let Some(runtime) = runtime.as_ref() {
+        runtime_settings::apply_runtime_settings(config, runtime);
+    }
+    Ok(runtime)
+}
+
 async fn hydrate_upgrade_recovery(
     db: &Database,
     config: &mut Config,

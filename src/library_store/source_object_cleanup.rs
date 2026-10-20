@@ -123,6 +123,17 @@ impl LibraryStore {
         connection: &mut PgConnection,
         object_id: Uuid,
     ) -> Result<Option<String>> {
+        // The pre-artifact recovery profile has no artifact relation, so its
+        // twin keeps the file and task-input guards only. Every other database
+        // uses the artifact-aware statement and propagates its errors.
+        if self.db.pending_upgrade().is_some() {
+            return Ok(sqlx::query_file_scalar!(
+                "src/sql/library_store/source_object_cleanup/delete_cleanup_storage_object_before_artifacts.sql",
+                object_id
+            )
+            .fetch_optional(connection)
+            .await?);
+        }
         Ok(sqlx::query_file_scalar!(
             "src/sql/library_store/source_object_cleanup/delete_cleanup_storage_object.sql",
             object_id
@@ -168,13 +179,23 @@ impl LibraryStore {
         struct ReferenceCountRow {
             references: i64,
         }
-        let row = sqlx::query_file_as!(
-            ReferenceCountRow,
-            "src/sql/library_store/objects/count_storage_object_references.sql",
-            object_id
-        )
-        .fetch_one(connection)
-        .await?;
+        let row = if self.db.pending_upgrade().is_some() {
+            sqlx::query_file_as!(
+                ReferenceCountRow,
+                "src/sql/library_store/objects/count_storage_object_references_before_artifacts.sql",
+                object_id
+            )
+            .fetch_one(connection)
+            .await?
+        } else {
+            sqlx::query_file_as!(
+                ReferenceCountRow,
+                "src/sql/library_store/objects/count_storage_object_references.sql",
+                object_id
+            )
+            .fetch_one(connection)
+            .await?
+        };
         Ok(row.references)
     }
 }

@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use super::TaskService;
 use super::item_processors::{
-    ProcessResult, persisted_section_payload, process_error, save_sections, set_file,
+    ProcessResult, process_error, resolved_section_payload, save_sections, set_file,
     waiting_for_error,
 };
 use super::pipeline_progress::record_stage;
@@ -31,7 +31,11 @@ pub(super) async fn process_text(
         // rejects as an unknown field. A resumed item whose storage already
         // persisted sections therefore cannot be re-parsed as the initial
         // request; skip the duplicate upsert and index what is already stored.
-        if let Some(next) = text_storage_resume_stage(&item.payload) {
+        let sections = match resolved_section_payload(service, item).await {
+            Ok(sections) => sections,
+            Err(error) => return Ok(process_error(stage, error)),
+        };
+        if let Some(next) = text_storage_resume_stage(sections.as_ref()) {
             return Ok(ProcessResult::Progressed { next });
         }
         let request: UpsertLibraryTextRequest = match deserialize_worker_input(&item.payload) {
@@ -52,20 +56,20 @@ pub(super) async fn process_text(
         set_file(service.db(), task.id, item, file.file_id).await?;
         // The storage stage saved the sections; the shared snapshot carries
         // them so the indexing stage does not re-derive them.
-        save_sections(service.db(), item, section_payload).await?;
+        save_sections(service, item, section_payload).await?;
         return Ok(ProcessResult::Progressed { next: "indexing" });
     }
     process_file_stage(service, group.id, item, stage).await
 }
 
 /// Where a TextBatch item resumes when its storage stage already persisted the
-/// sections. `save_sections` writes them into the item payload as
-/// `section_payload`, which is not part of the canonical
-/// `UpsertLibraryTextRequest` (`deny_unknown_fields`), so re-parsing the stored
-/// request would fail with `unknown field section_payload` and loop retries.
-/// Only a non-null persisted section payload counts as completed storage.
-fn text_storage_resume_stage(payload: &Value) -> Option<&'static str> {
-    persisted_section_payload(payload).map(|_| "indexing")
+/// sections. `save_sections` stores them in the item payload (or an attached
+/// artifact), which is not part of the canonical `UpsertLibraryTextRequest`
+/// (`deny_unknown_fields`), so re-parsing the stored request would fail with
+/// `unknown field section_payload` and loop retries. Only a non-null resolved
+/// section payload counts as completed storage.
+fn text_storage_resume_stage(sections: Option<&Value>) -> Option<&'static str> {
+    sections.map(|_| "indexing")
 }
 
 pub(super) async fn process_file(
@@ -204,7 +208,11 @@ pub(super) async fn process_file_stage(
     ))?;
     match stage {
         "docling" => {
-            if persisted_section_payload(&item.payload).is_some() {
+            let sections = match resolved_section_payload(service, item).await {
+                Ok(sections) => sections,
+                Err(error) => return Ok(process_error(stage, error)),
+            };
+            if sections.is_some() {
                 detach_unused_remote(service, item).await?;
                 return Ok(ProcessResult::Progressed { next: "embedding" });
             }
@@ -231,10 +239,14 @@ pub(super) async fn process_file_stage(
             .await;
         }
         "embedding" => {
-            if persisted_section_payload(&item.payload).is_some() {
+            let sections = match resolved_section_payload(service, item).await {
+                Ok(sections) => sections,
+                Err(error) => return Ok(process_error(stage, error)),
+            };
+            if sections.is_some() {
                 detach_unused_remote(service, item).await?;
             }
-            if persisted_section_payload(&item.payload).is_none() {
+            if sections.is_none() {
                 // Recovery: without a section payload the file still needs
                 // conversion. Docling files advance back to the blocking
                 // `docling` stage instead of converting while holding worker
@@ -261,7 +273,7 @@ pub(super) async fn process_file_stage(
                     Ok(sections) => sections,
                     Err(error) => return ingest_error_result(service, item, file_id, error).await,
                 };
-                save_sections(service.db(), item, sections).await?;
+                save_sections(service, item, sections).await?;
             }
             Ok(ProcessResult::Progressed { next: "indexing" })
         }
@@ -276,9 +288,10 @@ pub(super) async fn process_file_stage(
                     next: "translation",
                 });
             }
-            let sections = match persisted_section_payload(&item.payload) {
-                Some(sections) => sections,
-                None => {
+            let sections = match resolved_section_payload(service, item).await {
+                Ok(Some(sections)) => sections,
+                Err(error) => return Ok(process_error(stage, error)),
+                Ok(None) => {
                     // Same recovery as the embedding stage: a Docling file
                     // without sections goes back to the blocking `docling`
                     // stage instead of converting inline. An undetectable
@@ -302,7 +315,7 @@ pub(super) async fn process_file_stage(
                         .await
                     {
                         Ok(sections) => {
-                            save_sections(service.db(), item, sections.clone()).await?;
+                            save_sections(service, item, sections.clone()).await?;
                             sections
                         }
                         Err(error) => {
@@ -486,7 +499,14 @@ mod tests {
             serde_json::from_value::<UpsertLibraryTextRequest>(persisted.clone()).is_err(),
             "the persisted payload must not parse as the initial upsert request"
         );
-        assert_eq!(text_storage_resume_stage(&persisted), Some("indexing"));
+        assert_eq!(
+            text_storage_resume_stage(
+                persisted
+                    .get("section_payload")
+                    .filter(|value| !value.is_null())
+            ),
+            Some("indexing")
+        );
 
         // A null section payload is not a completed storage stage.
         let not_stored = serde_json::json!({
@@ -495,7 +515,14 @@ mod tests {
             "content": "body",
             "section_payload": null,
         });
-        assert_eq!(text_storage_resume_stage(&not_stored), None);
+        assert_eq!(
+            text_storage_resume_stage(
+                not_stored
+                    .get("section_payload")
+                    .filter(|value| !value.is_null())
+            ),
+            None
+        );
     }
 
     /// The recovery guard must not weaken the initial storage contract: a
@@ -508,7 +535,10 @@ mod tests {
             "title": "Fresh text",
             "content": "body",
         });
-        assert_eq!(text_storage_resume_stage(&fresh), None);
+        assert_eq!(
+            text_storage_resume_stage(fresh.get("section_payload")),
+            None
+        );
         let request: UpsertLibraryTextRequest = serde_json::from_value(fresh)
             .expect("a fresh payload still parses as the initial upsert request");
         assert_eq!(request.external_id, "text-3");

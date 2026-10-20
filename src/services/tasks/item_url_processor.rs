@@ -9,8 +9,8 @@ use uuid::Uuid;
 
 use super::TaskService;
 use super::item_processors::{ProcessResult, process_error, save_payload, set_file};
-use crate::db::ClaimedItem;
-use crate::services::library::UploadedLibraryFile;
+use crate::db::{ClaimedItem, TaskItemArtifactKind};
+use crate::services::library::{MAX_TASK_ITEM_ARTIFACT_BYTES, UploadedLibraryFile};
 
 pub(super) async fn process_url(
     service: &TaskService,
@@ -179,13 +179,22 @@ struct DownloadArtifact {
 enum UrlByteSource {
     /// Streamed bytes, already recorded as the item's staged object.
     Staged(Uuid),
+    /// Verified `download` artifact, externalized by an earlier phase.
+    Artifact,
     /// Legacy payload bytes, still inlined in the task item.
     Legacy(String),
 }
 
-fn url_byte_source(item: &ClaimedItem, artifact: &DownloadArtifact) -> Result<UrlByteSource> {
+fn url_byte_source(
+    item: &ClaimedItem,
+    artifact: &DownloadArtifact,
+    artifact_available: bool,
+) -> Result<UrlByteSource> {
     if let Some(object_id) = item.input_storage_object_id {
         return Ok(UrlByteSource::Staged(object_id));
+    }
+    if artifact_available {
+        return Ok(UrlByteSource::Artifact);
     }
     match artifact.content_base64.as_deref().map(str::trim) {
         Some(encoded) if !encoded.is_empty() => Ok(UrlByteSource::Legacy(encoded.to_string())),
@@ -199,13 +208,35 @@ async fn url_source_bytes(
     item: &ClaimedItem,
     artifact: &DownloadArtifact,
 ) -> Result<(Bytes, Option<Uuid>)> {
-    match url_byte_source(item, artifact)? {
+    let artifact_available = service
+        .library()
+        .load_task_item_artifact(item.id, TaskItemArtifactKind::Download)
+        .await?
+        .is_some();
+    match url_byte_source(item, artifact, artifact_available)? {
         UrlByteSource::Staged(object_id) => {
             let bytes = service
                 .library()
                 .read_task_input_for_task(group_id, object_id, item.lease_token)
                 .await?;
             Ok((bytes, Some(object_id)))
+        }
+        UrlByteSource::Artifact => {
+            // A present reference must read back verified and complete; a
+            // missing or corrupt object is an error, never a silent fallback
+            // to inline bytes or a new download.
+            let bytes = service
+                .library()
+                .read_task_item_artifact(
+                    item.id,
+                    TaskItemArtifactKind::Download,
+                    MAX_TASK_ITEM_ARTIFACT_BYTES,
+                )
+                .await?
+                .ok_or_else(|| {
+                    DomainError::conflict("URL task download artifact disappeared while storing")
+                })?;
+            Ok((bytes, None))
         }
         UrlByteSource::Legacy(encoded) => Ok((
             STANDARD
@@ -305,8 +336,25 @@ mod tests {
         let item = claimed_item(Some(object_id));
 
         assert!(matches!(
-            url_byte_source(&item, &artifact(None)).expect("staged source"),
+            url_byte_source(&item, &artifact(None), false).expect("staged source"),
             UrlByteSource::Staged(id) if id == object_id
+        ));
+    }
+
+    /// A verified download artifact outranks legacy inline bytes, so a
+    /// backfilled reference is used even while the old inline copy exists.
+    #[test]
+    fn a_verified_download_artifact_outranks_legacy_inline_bytes() {
+        let item = claimed_item(None);
+
+        let source =
+            url_byte_source(&item, &artifact(Some("Zm9v")), true).expect("artifact source");
+        assert!(matches!(source, UrlByteSource::Artifact));
+
+        let staged = claimed_item(Some(Uuid::new_v4()));
+        assert!(matches!(
+            url_byte_source(&staged, &artifact(Some("Zm9v")), true).expect("staged wins"),
+            UrlByteSource::Staged(_)
         ));
     }
 
@@ -314,7 +362,8 @@ mod tests {
     fn in_flight_legacy_payload_without_object_reference_reads_inline_bytes() {
         let item = claimed_item(None);
 
-        let source = url_byte_source(&item, &artifact(Some(" Zm9v "))).expect("legacy source");
+        let source =
+            url_byte_source(&item, &artifact(Some(" Zm9v ")), false).expect("legacy source");
         assert!(matches!(source, UrlByteSource::Legacy(encoded) if encoded == "Zm9v"));
     }
 
@@ -324,12 +373,12 @@ mod tests {
     fn storage_without_bytes_or_object_reference_is_a_missing_source() {
         let item = claimed_item(None);
 
-        let error = url_byte_source(&item, &artifact(None)).expect_err("missing source");
+        let error = url_byte_source(&item, &artifact(None), false).expect_err("missing source");
         assert_eq!(
             error.to_string(),
             "URL task storage is missing its downloaded bytes"
         );
-        assert!(url_byte_source(&item, &artifact(Some("   "))).is_err());
+        assert!(url_byte_source(&item, &artifact(Some("   ")), false).is_err());
     }
 
     #[test]

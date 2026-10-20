@@ -144,6 +144,38 @@ impl LibraryObjectStorage {
         }
     }
 
+    /// Open an incremental reader over one stored object.
+    ///
+    /// The caller consumes [`ObjectReadStream`] chunk by chunk, so a digest and
+    /// byte cap are enforced while the bytes arrive instead of after the whole
+    /// object was materialized. A missing object is `None`; any other failure
+    /// keeps the storage error.
+    pub(super) async fn open_read_stream(&self, key: &str) -> Result<Option<ObjectReadStream>> {
+        let reader = if self.backend == "s3" {
+            let key = key.to_string();
+            bounded_s3_operation("reader", || {
+                let key = key.clone();
+                async move { self.operator.reader(&key).await }
+            })
+            .await
+        } else {
+            self.operator.reader(key).await.map_err(anyhow::Error::from)
+        };
+        let reader = match reader {
+            Ok(reader) => reader,
+            Err(error) if is_not_found_error(&error) => return Ok(None),
+            Err(error) => {
+                return Err(error).with_context(|| {
+                    DomainError::internal(format!("failed to open stored object {key}"))
+                });
+            }
+        };
+        let stream = reader.into_bytes_stream(..).await.with_context(|| {
+            DomainError::internal(format!("failed to stream stored object {key}"))
+        })?;
+        Ok(Some(ObjectReadStream { stream }))
+    }
+
     pub(super) async fn exists(&self, key: &str) -> Result<bool> {
         if self.backend == "s3" {
             let key = key.to_string();
@@ -262,6 +294,25 @@ pub(super) struct StagingEntry {
     pub key: String,
     pub size_bytes: u64,
     pub modified: Option<SystemTime>,
+}
+
+/// Incremental reader over one stored object.
+///
+/// Yields the installed backend's own chunks; the consumer owns the byte cap
+/// and the digest.
+pub(super) struct ObjectReadStream {
+    stream: opendal::FuturesBytesStream,
+}
+
+#[async_trait::async_trait]
+impl super::streaming::ChunkSource for ObjectReadStream {
+    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
+        match self.stream.try_next().await {
+            Ok(chunk) => Ok(chunk),
+            Err(error) => Err(anyhow::Error::from(error)
+                .context(DomainError::internal("failed to read stored object"))),
+        }
+    }
 }
 
 fn path_text(path: &Path) -> Result<&str> {

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.library_storage_object_cleanup\n    (object_id, group_id, sha256, object_key, storage_backend)\nVALUES ($1, $2, $3, $4, $5)\nON CONFLICT DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "590cf1070fa0d554112838aeddbd2e792f8b5d2fcfef69f1e2909e0495dacaea"
+}

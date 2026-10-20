@@ -42,7 +42,12 @@ pub(super) async fn seed_group(db: &Database) -> GroupRecord {
 pub(super) async fn cleanup(db: &Database, group_id: i64, user_id: i64) {
     // `library_files`/`library_folders` are group-restricted, so clear them
     // before the group; tasks/items/idempotency keys cascade from the user.
+    // Task items and their artifact references go first: the artifact
+    // reference guards the storage-object row, so an object cannot be deleted
+    // while an item still points at it.
     for sql in [
+        "DELETE FROM context69.tasks WHERE group_id = $1",
+        "DELETE FROM context69.library_storage_object_cleanup WHERE group_id = $1",
         "DELETE FROM context69.library_files WHERE group_id = $1",
         "DELETE FROM context69.library_storage_objects WHERE group_id = $1",
         "DELETE FROM context69.library_folders WHERE group_id = $1",

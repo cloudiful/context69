@@ -465,6 +465,30 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::a_corrupt_sections_artifact_errors_instead_of_reporting_no_sections",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::a_later_progress_save_never_reintroduces_the_externalized_sections",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::a_backfilled_download_artifact_feeds_the_url_storage_stage_without_a_second_upload",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::artifact_sections_resolve_to_the_identical_json_without_an_inline_copy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::item_pipeline_tests::source_materialization::duplicate::duplicate_staged_contents_share_one_content_addressed_object",
       "class": "db"
     },
@@ -1856,6 +1880,252 @@
     },
     {
       "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_concurrent_reclaim_while_attach_waits_leaves_the_payload_untouched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_lost_lease_or_changed_status_never_strips_or_references",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_mismatched_intent_never_deletes_another_groups_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_new_artifact_reference_waits_for_the_cleanup_identity_lock",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_concurrent_source_task_delete_cannot_produce_a_partial_rerun",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_retarget_enqueues_only_the_replaced_object",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_shared_library_file_object_survives_an_artifact_release",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_staged_object_deletion_defers_to_the_existing_staging_sweep",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_task_cascade_enqueues_the_old_object_and_rolls_back_with_the_delete",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_wrong_group_object_is_refused_without_touching_the_payload",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "an_artifact_only_reference_survives_both_guarded_delete_paths_and_is_counted",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "an_artifact_reference_blocks_the_staged_sweep_and_staging_lease_clear",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "an_item_without_inline_bytes_still_attaches_and_keeps_its_payload",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "an_ordinary_database_is_not_the_pinned_recovery_artifact_profile",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "attaching_download_strips_only_the_inline_bytes_and_keeps_the_identity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "attaching_sections_preserves_the_indexing_checkpoint_and_other_keys",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "both_kinds_coexist_on_one_item_and_read_back_verified",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "corrupt_or_missing_bytes_never_strip_the_inline_value",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "deleting_artifacts_enqueues_the_exact_old_identity_and_dedupes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "file_task_input_and_artifact_references_share_one_object_safely",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "promotion_requires_a_reference_and_preserves_a_shared_input_lease",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "rerun_copies_the_source_item_references_in_the_same_transaction",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "staging_an_artifact_registers_verified_content_addressed_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "the_cleanup_identity_lock_blocks_attach_until_the_reference_can_commit",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "the_cleanup_worker_retains_bytes_until_the_last_artifact_reference_is_gone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "the_database_guards_refuse_a_wrong_digest_size_or_group",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "the_read_cap_is_enforced_before_and_during_the_stream",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "the_release_identity_comes_from_the_registry_not_the_task_group",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "preview_reports_metadata_only_and_does_not_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "terminal_apply_strips_only_the_verified_download_field_and_is_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "terminal_apply_leaves_inline_bytes_on_digest_mismatch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "preview_and_apply_skip_active_and_null_group_items",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "terminal_apply_rejects_corrupt_sections_without_touching_inline",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "terminal_apply_stops_on_storage_failure_without_touching_inline",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "operator_preview_pool_rejects_writes_by_construction",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "restore_roundtrips_both_kinds_after_forward_apply",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "restore_leaves_inline_and_reference_untouched_on_corrupt_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "restore_skips_an_item_that_already_has_inline_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "inverse_cas_refuses_changed_identity_without_mutation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "restore_keeps_an_object_that_a_library_file_still_owns",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "task_lease_invariant",
       "test": "a_finished_attempt_does_not_hide_the_item_finish_from_the_parent",
       "class": "db"
@@ -2357,6 +2627,60 @@
       "target": "upgrade_recovery",
       "test": "upgrade_recovery_waits_live_unready_adopts_the_remote_id_and_migrates_once",
       "class": "upgrade_recovery"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "shared_artifact_bytes_survive_a_staging_discard",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "orphan_under_lock_guard_refuses_an_artifact_attached_after_enumeration",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "capped_field_fetch_refuses_growth_between_scan_and_fetch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "remaining_reference_total_includes_soft_deleted_parents",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::an_unusable_sections_reference_errors_instead_of_reconverting",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_reference_committed_during_a_discard_lock_wait_keeps_the_checkpoint_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_reference_committed_during_a_sweep_lock_wait_keeps_the_checkpoint_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_reference_free_discard_still_releases_the_staged_bytes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_item_artifacts",
+      "test": "a_reference_free_expired_object_is_still_reclaimed_by_the_sweep",
+      "class": "db"
     }
   ]
 }
