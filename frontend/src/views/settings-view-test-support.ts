@@ -95,12 +95,12 @@ const doclingResponse = {
     max_inflight: 2,
   },
   vlm: {
-    openai_base_url: "https://openrouter.ai/api/v1",
-    has_api_key: true,
-    vlm_pipeline_model: "gemini-3-flash",
-    picture_description_model: "gpt-4o-mini",
+    openai_base_url: null,
+    has_api_key: false,
+    vlm_pipeline_model: null,
+    picture_description_model: null,
     picture_description_preset: "granite_vision",
-    code_formula_model: "gpt-4o-mini",
+    code_formula_model: null,
   },
 };
 
@@ -115,6 +115,8 @@ const searchSettingsResponse = {
   vector_weight: 0.55,
   keyword_weight: 0.35,
 };
+
+export { doclingResponse, searchSettingsResponse };
 
 const personalAccessTokensResponse = [
   {

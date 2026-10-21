@@ -6,6 +6,7 @@ import {
   FALLBACK_TIME_ZONES,
   TIME_ZONE_STORAGE_KEY,
   UTC_TIME_ZONE,
+  applyTimeZoneSelection,
   browserTimeZone,
   effectiveTimeZone,
   getTimeZonePreference,
@@ -152,6 +153,25 @@ describe("time zone preference", () => {
       installMockStorage();
       setTimeZonePreference(AUTOMATIC_TIME_ZONE);
     }
+  });
+
+  it("separates the validity contract from the persistence outcome", () => {
+    expect(setTimeZonePreference("Asia/Tokyo")).toBe(true);
+    expect(applyTimeZoneSelection("Europe/Paris")).toEqual({ applied: true, stored: true });
+    expect(getTimeZonePreference()).toBe("Europe/Paris");
+
+    const storage = installMockStorage();
+    storage.setItem = () => {
+      throw new DOMException("Storage denied", "SecurityError");
+    };
+
+    expect(applyTimeZoneSelection("Asia/Seoul")).toEqual({ applied: true, stored: false });
+    expect(getTimeZonePreference()).toBe("Asia/Seoul");
+    expect(setTimeZonePreference("Asia/Seoul")).toBe(true);
+    expect(applyTimeZoneSelection("+08:00")).toEqual({ applied: false, stored: false });
+
+    installMockStorage();
+    setTimeZonePreference(AUTOMATIC_TIME_ZONE);
   });
 
   it("persists the explicit selection and keeps auto available", () => {

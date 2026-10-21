@@ -42,14 +42,28 @@ export function resolveInitialLocale(storage: Storage | null | undefined = getSt
 }
 
 export function persistLocale(locale: AppLocale, storage: Storage | null | undefined = getStorage()) {
+  persistLocaleOutcome(locale, storage);
+}
+
+/**
+ * Persist the language choice and report whether the browser actually stored
+ * it, so an aggregate Save can distinguish a stored preference from an
+ * in-memory-only one.
+ */
+export function persistLocaleOutcome(
+  locale: AppLocale,
+  storage: Storage | null | undefined = getStorage(),
+): boolean {
   if (!storage) {
-    return;
+    return false;
   }
 
   try {
     storage.setItem(LOCALE_STORAGE_KEY, locale);
+    return true;
   } catch {
     // A browser that denies storage keeps the language for this page only.
+    return false;
   }
 }
 

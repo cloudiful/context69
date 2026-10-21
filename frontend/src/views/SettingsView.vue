@@ -12,9 +12,7 @@ import UPageBody from "@nuxt/ui/components/PageBody.vue";
 import AsyncStateBlock from "../components/AsyncStateBlock.vue";
 import { authSessionState } from "../services/auth/session";
 import { settingsPageStateKey } from "../composables/settings-page-context";
-import { useUiPreferences } from "../composables/use-ui-preferences";
 import { useSettingsPage } from "../composables/use-settings-page";
-import { normalizeAppLocale, persistLocale, type AppLocale } from "../i18n/locale";
 import { resolveSettingsSectionNav, type SettingsSectionKey } from "../settings/navigation";
 import SettingsAccessTokensPage from "./settings/SettingsAccessTokensPage.vue";
 import SettingsAdminUsersPage from "./settings/SettingsAdminUsersPage.vue";
@@ -24,10 +22,9 @@ import SettingsRuntimePage from "./settings/SettingsRuntimePage.vue";
 import SettingsSearchPage from "./settings/SettingsSearchPage.vue";
 import SettingsTranslationPage from "./settings/SettingsTranslationPage.vue";
 
-const { t, locale } = useI18n({ useScope: "global" });
+const { t } = useI18n({ useScope: "global" });
 const route = useRoute();
 const router = useRouter();
-const preferences = useUiPreferences();
 const state = useSettingsPage();
 
 provide(settingsPageStateKey, state);
@@ -56,8 +53,6 @@ const hasChanges = computed(() => unref(state.hasChanges));
 const loading = computed(() => unref(state.loading));
 const saveMessage = computed(() => unref(state.saveMessage));
 const saving = computed(() => unref(state.saving));
-const currentLocale = computed<AppLocale>(() => normalizeAppLocale(String(locale.value)) ?? "en");
-const timeZone = computed(() => preferences.state.timeZone);
 
 const sectionItems = computed(() =>
   resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true).map((section) => ({
@@ -85,15 +80,6 @@ onBeforeRouteLeave(() => {
   const confirmed = window.confirm(t("settings.unsavedChanges"));
   return confirmed;
 });
-
-function switchLocale(nextLocale: AppLocale) {
-  if (currentLocale.value === nextLocale) {
-    return;
-  }
-
-  locale.value = nextLocale;
-  persistLocale(nextLocale);
-}
 </script>
 
 <template>
@@ -130,12 +116,12 @@ function switchLocale(nextLocale: AppLocale) {
             <div class="grid gap-4">
               <SettingsAppearancePage
                 v-if="currentSection === 'appearance'"
-                :locale="currentLocale"
-                :theme="preferences.state.theme"
-                :time-zone="timeZone"
-                @update:locale="switchLocale"
-                @update:theme="preferences.setTheme"
-                @update:time-zone="preferences.setTimeZone"
+                :locale="state.appearanceDraft.locale"
+                :theme="state.appearanceDraft.theme"
+                :time-zone="state.appearanceDraft.timeZone"
+                @update:locale="state.updateAppearanceLocale"
+                @update:theme="state.updateAppearanceTheme"
+                @update:time-zone="state.updateAppearanceTimeZone"
               />
               <SettingsAccessTokensPage v-else-if="currentSection === 'access-tokens'" />
               <SettingsSearchPage v-else-if="currentSection === 'search'" />

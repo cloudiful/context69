@@ -12,6 +12,13 @@ type TaskPageResponse = components["schemas"]["TaskPageResponse"];
 export const TIME_ZONE_BASE_URL = "http://127.0.0.1:5199";
 export const FIXED_INSTANT = "2026-03-01T00:00:00.000Z";
 
+export interface TimeZoneMockOptions {
+  runtimePutStatus?: number;
+  doclingPutStatus?: number;
+  searchPutStatus?: number;
+  translationPutStatus?: number;
+}
+
 export function makeAuthMeResponse(): AuthMeResponse {
   return {
     user: {
@@ -115,6 +122,12 @@ export function makePersonalAccessTokenPage(): PersonalAccessTokenPageResponse {
 export class TimeZoneMockTransport {
   readonly unmatchedApiRequests: string[] = [];
   readonly blockedExternalRequests: string[] = [];
+  readonly putRequests: Array<{ path: string; body: unknown }> = [];
+  private readonly options: TimeZoneMockOptions;
+
+  constructor(options: TimeZoneMockOptions = {}) {
+    this.options = options;
+  }
 
   async install(context: BrowserContext, baseURL: string): Promise<void> {
     const localOrigin = new URL(baseURL).origin;
@@ -168,8 +181,51 @@ export class TimeZoneMockTransport {
       await this.fulfill(route, makePersonalAccessTokenPage());
       return true;
     }
+    if (method === "GET" && url.pathname === "/v1/admin/docling/tasks") {
+      await this.fulfill(route, {
+        items: [{
+          created_at: FIXED_INSTANT,
+          task_id: "time-zone-remote-task",
+          task_status: "started",
+          task_type: "convert",
+        }],
+        cleanup: [],
+        has_more: false,
+        remote_error: null,
+      } satisfies components["schemas"]["DoclingRemoteTasksResponse"]);
+      return true;
+    }
+    if (method === "PUT" && url.pathname === "/v1/settings/runtime") {
+      await this.handlePut(route, url.pathname, makeRuntimeSettings(), this.options.runtimePutStatus);
+      return true;
+    }
+    if (method === "PUT" && url.pathname === "/v1/settings/docling") {
+      await this.handlePut(route, url.pathname, makeDoclingSettings(), this.options.doclingPutStatus);
+      return true;
+    }
+    if (method === "PUT" && url.pathname === "/v1/settings/search") {
+      await this.handlePut(route, url.pathname, makeSearchSettings(), this.options.searchPutStatus);
+      return true;
+    }
+    if (method === "PUT" && url.pathname === "/v1/settings/translation") {
+      await this.handlePut(route, url.pathname, { providers: [] }, this.options.translationPutStatus);
+      return true;
+    }
 
     return false;
+  }
+
+  private async handlePut(route: Route, path: string, body: unknown, status = 200): Promise<void> {
+    this.putRequests.push({ path, body: route.request().postDataJSON() });
+    if (status >= 400) {
+      await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify({ code: "mock_failure", message: `Synthetic ${path} rejection` }),
+      });
+      return;
+    }
+    await this.fulfill(route, body);
   }
 
   private async fulfill(route: Route, body: unknown): Promise<void> {

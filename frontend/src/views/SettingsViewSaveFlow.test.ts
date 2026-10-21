@@ -8,17 +8,27 @@
  * without saving it.
  */
 import { flushPromises } from "@vue/test-utils";
+import USelectMenu from "@nuxt/ui/components/SelectMenu.vue";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  doclingResponse,
   installSettingsViewSpies,
   mountSettingsView,
   runtimeResponse,
+  searchSettingsResponse,
   surfacedReasons,
   type SettingsApiSpies,
 } from "./settings-view-test-support";
 import AppNumberField from "../components/AppNumberField.vue";
+import AppSelectField from "../components/AppSelectField.vue";
 import { apiClient } from "../services/api";
+import { createTestI18n } from "../test-utils/i18n";
+import { installMockStorage } from "../test-utils/storage";
+import { LOCALE_STORAGE_KEY } from "../i18n/locale";
+import { AUTOMATIC_TIME_ZONE, setTimeZonePreference } from "../utils/time-zone";
+import { useUiPreferences } from "../composables/use-ui-preferences";
+import type { VueWrapper } from "@vue/test-utils";
 import * as nuxtUiComposables from "@nuxt/ui/composables";
 
 let apiSpies: SettingsApiSpies;
@@ -121,7 +131,6 @@ describe("SettingsView save flow", () => {
     apiSpies.updateRuntimeSettings.mockImplementation(
       (() => runtimeGate.then(() => runtimeResponse)) as never,
     );
-
     await wrapper.get("#runtime-embedding-api-key").setValue("rotated-secret");
     await router.push("/settings/docling");
     await flushPromises();
@@ -162,9 +171,8 @@ describe("SettingsView save flow", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const pending = () => gate.then(() => undefined) as never;
-    apiSpies.updateDoclingSettings.mockImplementation(pending);
-    apiSpies.updateSearchSettings.mockImplementation(pending);
+    apiSpies.updateDoclingSettings.mockImplementation((() => gate.then(() => doclingResponse)) as never);
+    apiSpies.updateSearchSettings.mockImplementation((() => gate.then(() => searchSettingsResponse)) as never);
 
     await wrapper.get("#runtime-embedding-api-key").setValue("rotated-secret");
     await router.push("/settings/docling");
@@ -202,9 +210,8 @@ describe("SettingsView save flow", () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const pending = () => gate.then(() => undefined) as never;
-    apiSpies.updateDoclingSettings.mockImplementation(pending);
-    apiSpies.updateSearchSettings.mockImplementation(pending);
+    apiSpies.updateDoclingSettings.mockImplementation((() => gate.then(() => doclingResponse)) as never);
+    apiSpies.updateSearchSettings.mockImplementation((() => gate.then(() => searchSettingsResponse)) as never);
 
     await router.push("/settings/docling");
     await flushPromises();
@@ -590,5 +597,378 @@ describe("SettingsView save flow", () => {
     } finally {
       qdrantSpy.mockRestore();
     }
+  });
+
+  function appearanceControls(wrapper: VueWrapper) {
+    const selects = wrapper.findAllComponents(AppSelectField).filter((component) =>
+      ["settings-locale-select", "settings-theme-select"].includes(component.props("testId") ?? ""),
+    );
+
+    return {
+      locale: selects[0],
+      theme: selects[1],
+      timeZone: wrapper.getComponent(USelectMenu),
+    };
+  }
+
+  function resetAppliedAppearance() {
+    setTimeZonePreference(AUTOMATIC_TIME_ZONE);
+    useUiPreferences().setTheme("dark");
+    window.localStorage.clear();
+  }
+
+  async function editAppearance(wrapper: VueWrapper) {
+    const controls = appearanceControls(wrapper);
+    controls.locale.vm.$emit("update:modelValue", "zh-CN");
+    controls.theme.vm.$emit("update:modelValue", "light");
+    controls.timeZone.vm.$emit("update:modelValue", "Asia/Shanghai");
+    await flushPromises();
+  }
+
+  it("keeps appearance edits local until Save, then commits the same snapshot", async () => {
+    resetAppliedAppearance();
+    const i18n = createTestI18n("en");
+    const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
+
+    await editAppearance(wrapper);
+
+    // The selects and picker show the draft, while the applied app appearance
+    // and the browser stores are untouched.
+    expect(appearanceControls(wrapper).locale.props("modelValue")).toBe("zh-CN");
+    expect(appearanceControls(wrapper).theme.props("modelValue")).toBe("light");
+    expect((appearanceControls(wrapper).timeZone.props() as { modelValue?: string }).modelValue).toBe("Asia/Shanghai");
+    expect(i18n.global.locale.value).toBe("en");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem("context69.theme")).toBeNull();
+    expect(window.localStorage.getItem("context69.timeZone")).toBeNull();
+
+    expect(wrapper.text()).toContain("Unsaved changes");
+    expect(wrapper.get('[data-testid="settings-save"]').attributes("disabled")).toBeUndefined();
+    expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+    expect(apiSpies.updateDoclingSettings).not.toHaveBeenCalled();
+    expect(apiSpies.updateSearchSettings).not.toHaveBeenCalled();
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(i18n.global.locale.value).toBe("zh-CN");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
+    expect(window.localStorage.getItem("context69.theme")).toBe("light");
+    expect(window.localStorage.getItem("context69.timeZone")).toBe("Asia/Shanghai");
+    expect(wrapper.text()).toContain(i18n.global.t("settings.saveSuccess"));
+    expect(wrapper.text()).not.toContain(i18n.global.t("settings.status.pending"));
+    expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+  });
+
+  it("discards unsaved appearance edits on a fresh mount", async () => {
+    resetAppliedAppearance();
+    const first = await mountSettingsView("/settings/appearance");
+    await editAppearance(first.wrapper);
+    first.wrapper.unmount();
+
+    const second = await mountSettingsView("/settings/appearance");
+
+    expect(appearanceControls(second.wrapper).locale.props("modelValue")).toBe("en");
+    expect(appearanceControls(second.wrapper).theme.props("modelValue")).not.toBe("light");
+    expect((appearanceControls(second.wrapper).timeZone.props() as { modelValue?: string }).modelValue).not.toBe("Asia/Shanghai");
+    expect(second.wrapper.text()).not.toContain("Unsaved changes");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+  });
+
+  it("commits no appearance when the runtime admission save is rejected", async () => {
+    resetAppliedAppearance();
+    apiSpies.updateRuntimeSettings.mockRejectedValue(new Error("admission rejected"));
+    const i18n = createTestI18n("en");
+    const { wrapper, router } = await mountSettingsView("/settings/appearance", i18n);
+
+    await editAppearance(wrapper);
+    await router.push("/settings/runtime");
+    await flushPromises();
+    await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledTimes(1);
+    expect(apiSpies.updateDoclingSettings).not.toHaveBeenCalled();
+    expect(i18n.global.locale.value).toBe("en");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem("context69.timeZone")).toBeNull();
+    expect(wrapper.text()).toContain("Unsaved changes");
+    expect(wrapper.text()).not.toContain("Settings saved");
+  });
+
+  it("adopts successful peers, keeps failed and appearance groups dirty, and claims no save", async () => {
+    resetAppliedAppearance();
+    const doclingError = new Error("docling refused");
+    apiSpies.updateDoclingSettings.mockRejectedValue(doclingError);
+    const i18n = createTestI18n("en");
+    const { wrapper, router } = await mountSettingsView("/settings/appearance", i18n);
+
+    await editAppearance(wrapper);
+    await router.push("/settings/docling");
+    await flushPromises();
+    await wrapper.get("#docling-base-url").setValue("http://docling.internal:5001");
+    await router.push("/settings/search");
+    await flushPromises();
+    const vectorWeightField = wrapper
+      .findAllComponents(AppNumberField)
+      .find((component) => component.props("inputId") === "search-vector-weight");
+    await vectorWeightField!.vm.$emit("update:modelValue", 0.65);
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(surfacedReasons()).toContain(doclingError.message);
+    expect(wrapper.text()).not.toContain("Settings saved");
+    expect(wrapper.text()).toContain("Unsaved changes");
+
+    // The search peer was adopted, the rejected docling draft stays dirty and
+    // the appearance snapshot was not committed.
+    expect(apiSpies.updateSearchSettings).toHaveBeenCalledTimes(1);
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+    expect(i18n.global.locale.value).toBe("en");
+
+    // Retrying only resends the still-dirty groups.
+    apiSpies.updateDoclingSettings.mockResolvedValue(doclingResponse as never);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    expect(apiSpies.updateDoclingSettings).toHaveBeenCalledTimes(2);
+    expect(apiSpies.updateSearchSettings).toHaveBeenCalledTimes(1);
+    expect(apiSpies.updateRuntimeSettings).not.toHaveBeenCalled();
+  });
+
+  it("sends the click-time snapshot and preserves edits made while Save is in flight", async () => {
+    let releaseDocling = () => {};
+    const doclingGate = new Promise<void>((resolve) => {
+      releaseDocling = resolve;
+    });
+    apiSpies.updateDoclingSettings.mockImplementation(
+      (() => doclingGate.then(() => doclingResponse)) as never,
+    );
+
+    const { wrapper, router } = await mountSettingsView("/settings/docling");
+    await wrapper.get("#docling-base-url").setValue("http://docling.initial:5001");
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(apiSpies.updateDoclingSettings).toHaveBeenCalledTimes(1);
+    expect(apiSpies.updateDoclingSettings.mock.calls[0][0].connection.base_url).toBe("http://docling.initial:5001");
+
+    // A later edit during the flight is neither sent nor overwritten.
+    await wrapper.get("#docling-base-url").setValue("http://docling.later:5001");
+    releaseDocling();
+    await flushPromises();
+
+    expect(apiSpies.updateDoclingSettings).toHaveBeenCalledTimes(1);
+    expect(apiSpies.updateDoclingSettings.mock.calls[0][0].connection.base_url).toBe("http://docling.initial:5001");
+    expect(wrapper.get<HTMLInputElement>("#docling-base-url").element.value).toBe("http://docling.later:5001");
+    expect(wrapper.text()).toContain("Unsaved changes");
+    expect(wrapper.text()).not.toContain("Settings saved");
+  });
+
+  it("applies appearance in memory but warns and stays dirty when the browser store is denied", async () => {
+    resetAppliedAppearance();
+    const addToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: vi.fn() } as never);
+
+    try {
+      const i18n = createTestI18n("en");
+      const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
+      await editAppearance(wrapper);
+
+      const storage = window.localStorage;
+      storage.setItem = () => {
+        throw new DOMException("Storage denied", "SecurityError");
+      };
+
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+
+      expect(i18n.global.locale.value).toBe("zh-CN");
+      expect(addToast.mock.calls.some(([toast]) => (toast as { color?: string }).color === "warning")).toBe(true);
+      expect(addToast.mock.calls.some(([toast]) => (toast as { color?: string }).color === "success")).toBe(false);
+      expect(wrapper.text()).toContain(i18n.global.t("settings.status.pending"));
+      expect(wrapper.text()).not.toContain(i18n.global.t("settings.saveSuccess"));
+    } finally {
+      toastSpy.mockRestore();
+    }
+  });
+
+  it("keeps Save actionable when a denied appearance save is reverted to the saved baseline", async () => {
+    resetAppliedAppearance();
+    setTimeZonePreference("Asia/Shanghai");
+    const addToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: vi.fn() } as never);
+
+    try {
+      const i18n = createTestI18n("en");
+      const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
+
+      // Saved baseline is Asia/Shanghai; commit the draft to UTC while every
+      // browser write is denied.
+      appearanceControls(wrapper).timeZone.vm.$emit("update:modelValue", "UTC");
+      await flushPromises();
+
+      window.localStorage.setItem = () => {
+        throw new DOMException("Storage denied", "SecurityError");
+      };
+
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+
+      expect(useUiPreferences().state.timeZone).toBe("UTC");
+      expect(addToast.mock.calls.some(([toast]) => (toast as { color?: string }).color === "warning")).toBe(true);
+
+      // Returning the draft to the saved baseline must not disable Save or drop
+      // the pending state, because the applied UTC zone is still unstored.
+      appearanceControls(wrapper).timeZone.vm.$emit("update:modelValue", "Asia/Shanghai");
+      await flushPromises();
+      expect(wrapper.text()).toContain(i18n.global.t("settings.status.pending"));
+      expect(wrapper.get('[data-testid="settings-save"]').attributes("disabled")).toBeUndefined();
+
+      // An explicit Save re-applies the current draft in memory and still warns.
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+      expect(useUiPreferences().state.timeZone).toBe("Asia/Shanghai");
+      expect(wrapper.text()).toContain(i18n.global.t("settings.status.pending"));
+
+      // Once writes work again the same Save completes and clears the pending
+      // state with a matching applied value.
+      installMockStorage();
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+      expect(window.localStorage.getItem("context69.timeZone")).toBe("Asia/Shanghai");
+      expect(useUiPreferences().state.timeZone).toBe("Asia/Shanghai");
+      expect(wrapper.text()).not.toContain(i18n.global.t("settings.status.pending"));
+      expect(wrapper.text()).toContain(i18n.global.t("settings.saveSuccess"));
+    } finally {
+      toastSpy.mockRestore();
+      resetAppliedAppearance();
+    }
+  });
+
+  it("keeps the failed appearance commit pending when the draft changes during a deferred service save", async () => {
+    resetAppliedAppearance();
+    setTimeZonePreference("Asia/Shanghai");
+    let releaseRuntime = () => {};
+    const runtimeGate = new Promise<void>((resolve) => {
+      releaseRuntime = resolve;
+    });
+    apiSpies.updateRuntimeSettings.mockImplementation(
+      (() => runtimeGate.then(() => runtimeResponse)) as never,
+    );
+    const addToast = vi.fn();
+    const toastSpy = vi
+      .spyOn(nuxtUiComposables, "useToast")
+      .mockReturnValue({ add: addToast, remove: vi.fn() } as never);
+
+    try {
+      const i18n = createTestI18n("en");
+      const { wrapper, router } = await mountSettingsView("/settings/appearance", i18n);
+
+      // Click-time snapshot: UTC appearance plus a runtime edit.
+      appearanceControls(wrapper).timeZone.vm.$emit("update:modelValue", "UTC");
+      await router.push("/settings/runtime");
+      await flushPromises();
+      await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+      expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledTimes(1);
+
+      // While the runtime admission is deferred, the user returns the draft to
+      // the old baseline.
+      await router.push("/settings/appearance");
+      await flushPromises();
+      appearanceControls(wrapper).timeZone.vm.$emit("update:modelValue", "Asia/Shanghai");
+      await flushPromises();
+
+      // The deferred service save then succeeds, but the appearance write is
+      // denied: the applied UTC snapshot must stay pending.
+      installMockStorage();
+      window.localStorage.setItem = () => {
+        throw new DOMException("Storage denied", "SecurityError");
+      };
+      releaseRuntime();
+      await flushPromises();
+
+      expect(useUiPreferences().state.timeZone).toBe("UTC");
+      expect(addToast.mock.calls.some(([toast]) => (toast as { color?: string }).color === "warning")).toBe(true);
+      expect(wrapper.text()).toContain(i18n.global.t("settings.status.pending"));
+      expect(wrapper.text()).not.toContain(i18n.global.t("settings.saveSuccess"));
+      expect(appearanceControls(wrapper).timeZone.props()).toMatchObject({ modelValue: "Asia/Shanghai" });
+
+      // The next Save applies the current draft and reconciles persistence.
+      installMockStorage();
+      await wrapper.get("form").trigger("submit");
+      await flushPromises();
+      expect(window.localStorage.getItem("context69.timeZone")).toBe("Asia/Shanghai");
+      expect(useUiPreferences().state.timeZone).toBe("Asia/Shanghai");
+      expect(wrapper.text()).not.toContain(i18n.global.t("settings.status.pending"));
+    } finally {
+      toastSpy.mockRestore();
+      resetAppliedAppearance();
+    }
+  });
+
+  it("snapshots every payload at click time and dispatches a duplicate submission once", async () => {
+    resetAppliedAppearance();
+    let releaseRuntime = () => {};
+    const runtimeGate = new Promise<void>((resolve) => {
+      releaseRuntime = resolve;
+    });
+    apiSpies.updateRuntimeSettings.mockImplementation(
+      (() => runtimeGate.then(() => runtimeResponse)) as never,
+    );
+    let releaseDocling = () => {};
+    const doclingGate = new Promise<void>((resolve) => {
+      releaseDocling = resolve;
+    });
+    apiSpies.updateDoclingSettings.mockImplementation(
+      (() => doclingGate.then(() => doclingResponse)) as never,
+    );
+
+    const i18n = createTestI18n("en");
+    const { wrapper, router } = await mountSettingsView("/settings/appearance", i18n);
+
+    appearanceControls(wrapper).timeZone.vm.$emit("update:modelValue", "Asia/Shanghai");
+    await router.push("/settings/runtime");
+    await flushPromises();
+    await wrapper.get("#runtime-embedding-model").setValue("text-embedding-3-small");
+    await router.push("/settings/docling");
+    await flushPromises();
+    await wrapper.get("#docling-base-url").setValue("http://docling.snapshot:5001");
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+
+    // A second submission while the first is in flight is ignored.
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledTimes(1);
+
+    // Later edits while the runtime admission is deferred never reach a body.
+    await wrapper.get("#docling-base-url").setValue("http://docling.later:5001");
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(apiSpies.updateRuntimeSettings).toHaveBeenCalledTimes(1);
+
+    releaseRuntime();
+    await flushPromises();
+    expect(apiSpies.updateDoclingSettings).toHaveBeenCalledTimes(1);
+    expect(apiSpies.updateDoclingSettings.mock.calls[0][0].connection.base_url).toBe("http://docling.snapshot:5001");
+
+    releaseDocling();
+    await flushPromises();
+
+    // The click-time appearance snapshot was committed, not the later draft.
+    expect(useUiPreferences().state.timeZone).toBe("Asia/Shanghai");
+    expect(apiSpies.updateRuntimeSettings.mock.calls[0][0].embedding.model).toBe("text-embedding-3-small");
+    expect(wrapper.get<HTMLInputElement>("#docling-base-url").element.value).toBe("http://docling.later:5001");
   });
 });

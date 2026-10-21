@@ -6,6 +6,7 @@ import {
   LOCALE_STORAGE_KEY,
   normalizeAppLocale,
   persistLocale,
+  persistLocaleOutcome,
   readStoredLocale,
   resolveInitialLocale,
 } from "./locale";
@@ -99,5 +100,14 @@ describe("locale initialization", () => {
 
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
     expect(readStoredLocale(window.localStorage)).toBe("zh-CN");
+    expect(persistLocaleOutcome("en", window.localStorage)).toBe(true);
+  });
+
+  it("reports the persistence outcome separately from the applied locale", () => {
+    installDeniedStorage("setItem");
+
+    expect(persistLocaleOutcome("zh-CN")).toBe(false);
+    expect(persistLocaleOutcome("zh-CN", null)).toBe(false);
+    expect(persistLocale("zh-CN")).toBeUndefined();
   });
 });

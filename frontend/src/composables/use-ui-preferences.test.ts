@@ -77,10 +77,18 @@ describe("ui preferences under browser storage denial", () => {
     const preferences = useUiPreferences();
 
     expect(preferences.state.theme).toBe("dark");
-    expect(() => preferences.setTheme("light")).not.toThrow();
+    expect(preferences.setTheme("light")).toBe(false);
     expect(preferences.state.theme).toBe("light");
     expect(() => preferences.hydrate()).not.toThrow();
     expect(preferences.hydrate).toBeTypeOf("function");
+  });
+
+  it("reports a stored theme write as successful", async () => {
+    const { useUiPreferences } = await importPreferences();
+    const preferences = useUiPreferences();
+
+    expect(preferences.setTheme("light")).toBe(true);
+    expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe("light");
   });
 
   it("hydrates once and leaves the selected theme untouched", async () => {

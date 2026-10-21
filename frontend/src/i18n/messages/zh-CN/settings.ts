@@ -27,6 +27,7 @@ export const settings = {
     title: "界面",
     timeZoneLabel: "时区",
     timeZoneAutomatic: "自动（{zone}）",
+    notStoredWarning: "已在当前页面应用，但浏览器未能完整保存外观设置，刷新后可能丢失。",
   },
   personalAccessTokens: {
     title: "访问令牌",

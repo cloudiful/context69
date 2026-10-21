@@ -27,6 +27,7 @@ export const settings = {
     title: "Appearance",
     timeZoneLabel: "Time zone",
     timeZoneAutomatic: "Automatic ({zone})",
+    notStoredWarning: "Applied on this page, but the browser could not store the appearance completely; it may be lost on reload.",
   },
   personalAccessTokens: {
     title: "Access Tokens",

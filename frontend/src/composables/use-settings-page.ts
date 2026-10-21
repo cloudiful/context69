@@ -30,6 +30,7 @@ import {
   searchResponseToPayload,
 } from "../utils/settings";
 import { useSettingsAdminUsers } from "./use-settings-admin-users";
+import { useAppearanceDraft } from "./use-appearance-draft";
 import { useSettingsPersonalAccessTokens } from "./use-settings-personal-access-tokens";
 import { useSettingsVectorRebuild } from "./use-settings-vector-rebuild";
 import { useDoclingRemoteTasks } from "./use-docling-remote-tasks";
@@ -58,6 +59,7 @@ export function useSettingsPage() {
   const adminUsersState = useSettingsAdminUsers();
   const vectorRebuildState = useSettingsVectorRebuild();
   const doclingRemoteTasks = useDoclingRemoteTasks();
+  const appearance = useAppearanceDraft();
 
   const loading = ref(false);
   const saving = ref(false);
@@ -90,6 +92,20 @@ export function useSettingsPage() {
   const runtimeDraft = reactive<DraftRuntimeSettings>(createRuntimeDraft());
   const doclingDraft = reactive<DraftDoclingSettings>(createDoclingDraft());
   const searchDraft = reactive<DraftSearchSettings>(createSearchDraft());
+
+  /** Per-group edit counters: a save only adopts a response over an unedited draft. */
+  const runtimeRevision = ref(0);
+  const doclingRevision = ref(0);
+  const searchRevision = ref(0);
+  const translationRevision = ref(0);
+
+  // Synchronous so a click-time snapshot always observes the revision of the
+  // latest edit, even before the next render flush.
+  watch(runtimeDraft, () => { runtimeRevision.value += 1; }, { deep: true, flush: "sync" });
+  watch(doclingDraft, () => { doclingRevision.value += 1; }, { deep: true, flush: "sync" });
+  watch(searchDraft, () => { searchRevision.value += 1; }, { deep: true, flush: "sync" });
+  watch(rerankApiKeyDraft, () => { searchRevision.value += 1; }, { flush: "sync" });
+  watch(translationProviders, () => { translationRevision.value += 1; }, { deep: true, flush: "sync" });
 
   const searchModeOptions = computed(() => [
     { label: t("settings.search.modeHybrid"), value: "hybrid" },
@@ -150,7 +166,9 @@ export function useSettingsPage() {
       || doclingHasChanges.value
       || searchHasChanges.value
       || translationHasChanges.value
+      || appearance.hasChanges.value
   ));
+  const appearanceHasChanges = computed(() => appearance.hasChanges.value);
 
   watch(hasChanges, (value) => {
     if (value) {
@@ -221,7 +239,7 @@ export function useSettingsPage() {
   }
 
   async function saveSettings() {
-    if (!hasChanges.value) {
+    if (saving.value || !hasChanges.value) {
       return;
     }
 
@@ -229,56 +247,124 @@ export function useSettingsPage() {
 
     try {
       saveMessage.value = "";
-      // The runtime request is the authoritative save admission step: the
-      // backend guard rejects an embedding identity change while a fixed vector
-      // index is live. Send it first so its rejection surfaces accurately and
-      // no other section is dispatched; after it succeeds, the remaining
-      // independent section saves keep their existing parallel behavior.
-      if (runtimeHasChanges.value) {
-        const runtime = await apiClient.updateRuntimeSettings(buildRuntimePayload(runtimeDraft));
-        runtimeSettings.value = runtime;
-        assignRuntimeDraft(runtime);
+
+      // Click-time snapshot: later edits must neither change a dispatched body
+      // nor be overwritten by a late response.
+      const runtimeSubmission = runtimeHasChanges.value
+        ? { payload: buildRuntimePayload(runtimeDraft), revision: runtimeRevision.value }
+        : null;
+      const doclingSubmission = doclingHasChanges.value
+        ? { payload: buildDoclingPayload(doclingDraft), revision: doclingRevision.value }
+        : null;
+      const searchSubmission = searchHasChanges.value
+        ? {
+          payload: buildSearchSettingsPayload(searchDraft, rerankApiKeyDraft.value, false),
+          revision: searchRevision.value,
+        }
+        : null;
+      const translationSubmission = translationHasChanges.value
+        ? { payload: translationPayload(), revision: translationRevision.value }
+        : null;
+      const appearanceSubmission = appearance.hasChanges.value
+        ? appearance.captureSnapshot()
+        : null;
+
+      // Runtime stays the authoritative admission step: its rejection stops
+      // every other PUT and the appearance commit.
+      if (runtimeSubmission) {
+        try {
+          const runtime = await apiClient.updateRuntimeSettings(runtimeSubmission.payload);
+          runtimeSettings.value = runtime;
+          if (runtimeRevision.value === runtimeSubmission.revision) {
+            assignRuntimeDraft(runtime);
+          }
+        } catch (error) {
+          showErrorToast(error, t("settings.saveFailed"));
+          return;
+        }
       }
 
-      const [docling, search, translation] = await Promise.all([
-        doclingHasChanges.value
-          ? apiClient.updateDoclingSettings(buildDoclingPayload(doclingDraft))
-          : Promise.resolve(doclingSettings.value),
-        searchHasChanges.value
-          ? apiClient.updateSearchSettings(
-            buildSearchSettingsPayload(
-              searchDraft,
-              rerankApiKeyDraft.value,
-              false,
-            ),
-          )
-          : Promise.resolve(searchSettings.value),
-        translationHasChanges.value
-          ? apiClient.updateTranslationSettings(translationPayload())
-          : Promise.resolve(translationSettings.value),
-      ]);
+      const [doclingResult, searchResult, translationResult] = await Promise.allSettled([
+        doclingSubmission
+          ? apiClient.updateDoclingSettings(doclingSubmission.payload)
+          : Promise.resolve(null),
+        searchSubmission
+          ? apiClient.updateSearchSettings(searchSubmission.payload)
+          : Promise.resolve(null),
+        translationSubmission
+          ? apiClient.updateTranslationSettings(translationSubmission.payload)
+          : Promise.resolve(null),
+      ] as const);
 
-      if (docling) {
-        doclingSettings.value = docling;
-        assignDoclingDraft(docling);
-      }
-      if (search) {
-        searchSettings.value = search;
-        assignSearchDraft(search);
-      }
-      if (translation) {
-        translationSettings.value = translation;
-        assignTranslationDraft(translation);
+      // Every fulfilled peer is adopted, so one rejected group cannot hide the
+      // others' committed results.
+      const rejections: unknown[] = [];
+
+      if (doclingResult.status === "fulfilled") {
+        if (doclingResult.value) {
+          doclingSettings.value = doclingResult.value;
+          if (doclingSubmission && doclingRevision.value === doclingSubmission.revision) {
+            assignDoclingDraft(doclingResult.value);
+          }
+        }
+      } else {
+        rejections.push(doclingResult.reason);
       }
 
-      saveMessage.value = t("settings.saveSuccess");
-      toast.add({
-        color: "success",
-        title: t("settings.saveSuccess"),
-        duration: 2500,
-      });
-    } catch (error) {
-      showErrorToast(error, t("settings.saveFailed"));
+      if (searchResult.status === "fulfilled") {
+        if (searchResult.value) {
+          searchSettings.value = searchResult.value;
+          if (searchSubmission && searchRevision.value === searchSubmission.revision) {
+            assignSearchDraft(searchResult.value);
+          }
+        }
+      } else {
+        rejections.push(searchResult.reason);
+      }
+
+      if (translationResult.status === "fulfilled") {
+        if (translationResult.value) {
+          translationSettings.value = translationResult.value;
+          if (translationSubmission && translationRevision.value === translationSubmission.revision) {
+            assignTranslationDraft(translationResult.value);
+          }
+        }
+      } else {
+        rejections.push(translationResult.reason);
+      }
+
+      if (rejections.length > 0) {
+        for (const reason of rejections) {
+          showErrorToast(reason, t("settings.saveFailed"));
+        }
+        return;
+      }
+
+      // Appearance follows only a completely successful service save, and uses
+      // the submitted snapshot rather than the live draft.
+      if (appearanceSubmission) {
+        const result = appearance.commit(appearanceSubmission);
+        if (!result.stored) {
+          toast.add({
+            color: "warning",
+            title: t("settings.appearance.title"),
+            description: t("settings.appearance.notStoredWarning"),
+            duration: 6000,
+          });
+          return;
+        }
+      }
+
+      // A newer unsaved edit keeps the page pending, so no global success is
+      // claimed for it.
+      if (!hasChanges.value) {
+        saveMessage.value = t("settings.saveSuccess");
+        toast.add({
+          color: "success",
+          title: t("settings.saveSuccess"),
+          duration: 2500,
+        });
+      }
     } finally {
       saving.value = false;
     }
@@ -467,6 +553,8 @@ export function useSettingsPage() {
   return {
     ...adminUsersState,
     ...doclingRemoteTasks,
+    appearanceDraft: appearance.draft,
+    appearanceHasChanges,
     doclingDraft,
     doclingTesting,
     hasChanges,
@@ -488,6 +576,9 @@ export function useSettingsPage() {
     testEmbeddingConnection,
     testQdrantConnection,
     testDoclingConnection,
+    updateAppearanceLocale: appearance.updateLocale,
+    updateAppearanceTheme: appearance.updateTheme,
+    updateAppearanceTimeZone: appearance.updateTimeZone,
     embeddingTesting,
     qdrantTesting,
     translationProviders,

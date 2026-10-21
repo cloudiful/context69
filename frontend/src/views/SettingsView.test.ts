@@ -143,23 +143,42 @@ describe("SettingsView", () => {
     expect(router.currentRoute.value.name).toBe("settings-search");
   });
 
-  it("switches locale and theme from the settings page", async () => {
+  it("keeps locale and theme edits in the draft until the shared Save applies them", async () => {
     const i18n = createTestI18n("en");
     const { wrapper } = await mountSettingsView("/settings/appearance", i18n);
 
-    const selects = wrapper.findAllComponents(AppSelectField).filter((component) =>
+    const selects = () => wrapper.findAllComponents(AppSelectField).filter((component) =>
       ["settings-locale-select", "settings-theme-select"].includes(component.props("testId") ?? ""),
     );
 
-    expect(selects).toHaveLength(2);
+    expect(selects()).toHaveLength(2);
 
-    await selects[0].vm.$emit("update:modelValue", "zh-CN");
-    await selects[1].vm.$emit("update:modelValue", "light");
+    const appliedLocale = i18n.global.locale.value;
+    const appliedTheme = document.documentElement.dataset.theme;
+
+    await selects()[0].vm.$emit("update:modelValue", "zh-CN");
+    await selects()[1].vm.$emit("update:modelValue", "light");
+    await flushPromises();
+
+    // The selects show the unsaved draft, while the applied appearance and the
+    // browser store keep the last saved values until the shared Save runs.
+    expect(selects()[0].props("modelValue")).toBe("zh-CN");
+    expect(selects()[1].props("modelValue")).toBe("light");
+    expect(i18n.global.locale.value).toBe(appliedLocale);
+    expect(document.documentElement.dataset.theme).toBe(appliedTheme);
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBeNull();
+    expect(window.localStorage.getItem("context69.theme")).toBeNull();
+    expect(wrapper.text()).toContain("Unsaved changes");
+    expect(wrapper.get('[data-testid="settings-save"]').attributes("disabled")).toBeUndefined();
+
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
 
     expect(i18n.global.locale.value).toBe("zh-CN");
+    expect(document.documentElement.dataset.theme).toBe("light");
     expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
     expect(window.localStorage.getItem("context69.theme")).toBe("light");
-    expect(document.documentElement.dataset.theme).toBe("light");
+    expect(wrapper.text()).not.toContain("Unsaved changes");
   });
 
   it("saves direct embedding credentials through the single page save action", async () => {

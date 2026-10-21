@@ -35,11 +35,18 @@ function resolveInitialTheme(): AppTheme {
   }
 }
 
-function persistTheme(theme: AppTheme) {
+function persistTheme(theme: AppTheme): boolean {
+  const storage = getStorage();
+  if (!storage) {
+    return false;
+  }
+
   try {
-    getStorage()?.setItem(THEME_STORAGE_KEY, theme);
+    storage.setItem(THEME_STORAGE_KEY, theme);
+    return true;
   } catch {
     // A browser that denies storage keeps the theme for this page only.
+    return false;
   }
 }
 
@@ -62,10 +69,11 @@ function hydrate() {
   applyTheme(state.theme);
 }
 
-function setTheme(theme: AppTheme) {
+/** Apply a theme immediately and report whether the browser stored it. */
+function setTheme(theme: AppTheme): boolean {
   state.theme = theme;
-  persistTheme(theme);
   applyTheme(theme);
+  return persistTheme(theme);
 }
 
 function getStorage(): Storage | null {

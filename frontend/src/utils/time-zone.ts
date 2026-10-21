@@ -90,19 +90,6 @@ export function resolveInitialTimeZone(storage: Storage | null | undefined = get
   return readStoredTimeZone(storage) ?? AUTOMATIC_TIME_ZONE;
 }
 
-function persistTimeZone(preference: string) {
-  const storage = getStorage();
-  if (!storage) {
-    return;
-  }
-
-  try {
-    storage.setItem(TIME_ZONE_STORAGE_KEY, preference);
-  } catch {
-    // A browser that denies storage keeps the selection for this page only.
-  }
-}
-
 function getStorage(): Storage | null {
   if (typeof window === "undefined") {
     return null;
@@ -146,14 +133,43 @@ export function getTimeZonePreference(): TimeZonePreference {
   return timeZonePreference.value;
 }
 
-export function setTimeZonePreference(value: string): boolean {
+export interface TimeZoneSelectionResult {
+  /** The selection passed validation and is now the applied preference. */
+  applied: boolean;
+  /** The browser stored the selection; false for a denied or unavailable store. */
+  stored: boolean;
+}
+
+/**
+ * Apply a validated selection in memory and persist it, reporting both parts
+ * separately. `setTimeZonePreference` keeps its validity-only boolean contract.
+ */
+export function applyTimeZoneSelection(value: string): TimeZoneSelectionResult {
   if (value !== AUTOMATIC_TIME_ZONE && !isValidTimeZone(value)) {
-    return false;
+    return { applied: false, stored: false };
   }
 
   timeZonePreference.value = value;
-  persistTimeZone(value);
-  return true;
+  return { applied: true, stored: persistTimeZone(value) };
+}
+
+export function setTimeZonePreference(value: string): boolean {
+  return applyTimeZoneSelection(value).applied;
+}
+
+function persistTimeZone(preference: string): boolean {
+  const storage = getStorage();
+  if (!storage) {
+    return false;
+  }
+
+  try {
+    storage.setItem(TIME_ZONE_STORAGE_KEY, preference);
+    return true;
+  } catch {
+    // A browser that denies storage keeps the selection for this page only.
+    return false;
+  }
 }
 
 export function listSupportedTimeZones(): string[] {

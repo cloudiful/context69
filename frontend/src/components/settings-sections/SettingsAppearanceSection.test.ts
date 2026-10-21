@@ -1,4 +1,4 @@
-import { mount } from "@vue/test-utils";
+import { flushPromises, mount } from "@vue/test-utils";
 import USelectMenu from "@nuxt/ui/components/SelectMenu.vue";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -26,6 +26,7 @@ describe("SettingsAppearanceSection", () => {
   beforeEach(() => {
     installMockStorage();
     setTimeZonePreference(AUTOMATIC_TIME_ZONE);
+    window.localStorage.clear();
   });
 
   afterEach(() => {
@@ -91,15 +92,18 @@ describe("SettingsAppearanceSection", () => {
     expect(wrapper.emitted("update:timeZone")).toEqual([["Asia/Shanghai"], [AUTOMATIC_TIME_ZONE]]);
   });
 
-  it("persists a selected zone through the shared preference setter", async () => {
+  it("shows the selected zone from its prop without persisting on selection", async () => {
     const wrapper = mountSection();
     const menu = wrapper.getComponent(USelectMenu);
 
     menu.vm.$emit("update:modelValue", "Asia/Shanghai");
-    setTimeZonePreference("Asia/Shanghai");
-    await wrapper.setProps({ timeZone: "Asia/Shanghai" });
+    await flushPromises();
+    expect(wrapper.emitted("update:timeZone")).toEqual([["Asia/Shanghai"]]);
+    expect((wrapper.getComponent(USelectMenu).props() as { modelValue?: string }).modelValue).toBe(AUTOMATIC_TIME_ZONE);
+    expect(window.localStorage.getItem(TIME_ZONE_STORAGE_KEY)).toBeNull();
 
+    await wrapper.setProps({ timeZone: "Asia/Shanghai" });
     expect((wrapper.getComponent(USelectMenu).props() as { modelValue?: string }).modelValue).toBe("Asia/Shanghai");
-    expect(window.localStorage.getItem(TIME_ZONE_STORAGE_KEY)).toBe("Asia/Shanghai");
+    expect(window.localStorage.getItem(TIME_ZONE_STORAGE_KEY)).toBeNull();
   });
 });
