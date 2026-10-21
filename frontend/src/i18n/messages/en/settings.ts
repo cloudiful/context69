@@ -25,6 +25,8 @@ export const settings = {
   },
   appearance: {
     title: "Appearance",
+    timeZoneLabel: "Time zone",
+    timeZoneAutomatic: "Automatic ({zone})",
   },
   personalAccessTokens: {
     title: "Access Tokens",

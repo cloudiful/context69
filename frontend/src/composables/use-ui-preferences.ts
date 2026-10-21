@@ -1,28 +1,46 @@
 import { reactive } from "vue";
 
 import type { AppTheme } from "../types/ui";
+import {
+  browserTimeZone,
+  effectiveTimeZone,
+  getTimeZonePreference,
+  setTimeZonePreference,
+} from "../utils/time-zone";
 
 const THEME_STORAGE_KEY = "context69.theme";
 
 interface UiPreferencesState {
   theme: AppTheme;
   sidebarCollapsed: boolean;
+  readonly timeZone: string;
 }
 
 const state = reactive<UiPreferencesState>({
   theme: resolveInitialTheme(),
   sidebarCollapsed: false,
+  get timeZone() {
+    return getTimeZonePreference();
+  },
 });
 
 let hydrated = false;
 
 function resolveInitialTheme(): AppTheme {
-  const stored = getStorage()?.getItem(THEME_STORAGE_KEY);
-  return stored === "light" || stored === "dark" ? stored : "dark";
+  try {
+    const stored = getStorage()?.getItem(THEME_STORAGE_KEY);
+    return stored === "light" || stored === "dark" ? stored : "dark";
+  } catch {
+    return "dark";
+  }
 }
 
 function persistTheme(theme: AppTheme) {
-  getStorage()?.setItem(THEME_STORAGE_KEY, theme);
+  try {
+    getStorage()?.setItem(THEME_STORAGE_KEY, theme);
+  } catch {
+    // A browser that denies storage keeps the theme for this page only.
+  }
 }
 
 function applyTheme(theme: AppTheme) {
@@ -55,10 +73,14 @@ function getStorage(): Storage | null {
     return null;
   }
 
-  const storage = window.localStorage;
-  return storage && typeof storage.getItem === "function" && typeof storage.setItem === "function"
-    ? storage
-    : null;
+  try {
+    const storage = window.localStorage;
+    return storage && typeof storage.getItem === "function" && typeof storage.setItem === "function"
+      ? storage
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 export function useUiPreferences() {
@@ -66,5 +88,8 @@ export function useUiPreferences() {
     state,
     hydrate,
     setTheme,
+    browserTimeZone,
+    effectiveTimeZone,
+    setTimeZone: setTimeZonePreference,
   };
 }

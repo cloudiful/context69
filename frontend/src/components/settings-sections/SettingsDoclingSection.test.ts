@@ -1,10 +1,12 @@
 import { mount } from "@vue/test-utils";
 import { nextTick, reactive } from "vue";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createTestI18n } from "../../test-utils/i18n";
 import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
+import { installMockStorage } from "../../test-utils/storage";
 import { createDoclingDraft, type DraftDoclingSettings } from "../../utils/settings";
+import { AUTOMATIC_TIME_ZONE, setTimeZonePreference } from "../../utils/time-zone";
 import AppSelectField from "../AppSelectField.vue";
 import AppNumberField from "../AppNumberField.vue";
 
@@ -42,6 +44,15 @@ function mountSection(
 }
 
 describe("SettingsDoclingSection", () => {
+  beforeEach(() => {
+    installMockStorage();
+    setTimeZonePreference(AUTOMATIC_TIME_ZONE);
+  });
+
+  afterEach(() => {
+    setTimeZonePreference(AUTOMATIC_TIME_ZONE);
+  });
+
   it("shows scoped cleanup copy and emits an identity-free action", async () => {
     const wrapper = mountSection();
     expect(wrapper.text()).toContain("does not stop active Context69 work");
@@ -189,6 +200,22 @@ describe("SettingsDoclingSection", () => {
     expect(wrapper.get('[data-testid="docling-remote-empty"]').text()).toContain(
       "No active remote tasks",
     );
+  });
+
+  it("renders remote created_at in the selected display zone", () => {
+    setTimeZonePreference("Asia/Shanghai");
+    const wrapper = mountSection(createDraft(), false, {
+      remoteLoadedOnce: true,
+      remoteItems: [{
+        task_id: "task-zone",
+        task_type: "convert",
+        task_status: "started",
+        created_at: "2026-03-01T00:00:00Z",
+      }],
+    });
+
+    expect(wrapper.text()).toContain("2026-03-01 08:00");
+    expect(wrapper.text()).not.toContain("2026-03-01T00:00:00Z");
   });
 
   it("renders remote identities verbatim, including unknown statuses", () => {

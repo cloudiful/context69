@@ -2,7 +2,36 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { createAppI18n } from ".";
 import { installMockStorage } from "../test-utils/storage";
-import { LOCALE_STORAGE_KEY, normalizeAppLocale, resolveInitialLocale } from "./locale";
+import {
+  LOCALE_STORAGE_KEY,
+  normalizeAppLocale,
+  persistLocale,
+  readStoredLocale,
+  resolveInitialLocale,
+} from "./locale";
+
+type DenialMode = "getter" | "getItem" | "setItem";
+
+function installDeniedStorage(mode: DenialMode) {
+  const denied = () => {
+    throw new DOMException("Storage denied", "SecurityError");
+  };
+
+  if (mode === "getter") {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get: denied,
+    });
+    return;
+  }
+
+  const storage = installMockStorage();
+  if (mode === "getItem") {
+    storage.getItem = denied;
+  } else {
+    storage.setItem = denied;
+  }
+}
 
 describe("locale initialization", () => {
   beforeEach(() => {
@@ -36,5 +65,39 @@ describe("locale initialization", () => {
     expect(normalizeAppLocale("zh_CN")).toBe("zh-CN");
     expect(normalizeAppLocale("zh-Hans")).toBe("zh-CN");
     expect(normalizeAppLocale("en-US")).toBe("en");
+  });
+
+  it("keeps the default locale when the storage getter throws", () => {
+    installDeniedStorage("getter");
+
+    expect(readStoredLocale()).toBeNull();
+    expect(resolveInitialLocale()).toBe("en");
+    expect(createAppI18n().global.locale.value).toBe("en");
+    expect(() => persistLocale("zh-CN")).not.toThrow();
+  });
+
+  it("keeps the default locale when a stored read throws", () => {
+    installDeniedStorage("getItem");
+
+    expect(readStoredLocale()).toBeNull();
+    expect(resolveInitialLocale()).toBe("en");
+    expect(createAppI18n().global.locale.value).toBe("en");
+    expect(() => persistLocale("zh-CN")).not.toThrow();
+  });
+
+  it("keeps a locale change in memory when a storage write throws", () => {
+    installDeniedStorage("setItem");
+    const i18n = createAppI18n();
+
+    i18n.global.locale.value = "zh-CN";
+    expect(() => persistLocale("zh-CN")).not.toThrow();
+    expect(i18n.global.locale.value).toBe("zh-CN");
+  });
+
+  it("keeps normal storage persistence unchanged", () => {
+    persistLocale("zh-CN", window.localStorage);
+
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("zh-CN");
+    expect(readStoredLocale(window.localStorage)).toBe("zh-CN");
   });
 });

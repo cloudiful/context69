@@ -1,20 +1,62 @@
+import { effectiveTimeZone } from "./time-zone";
+
+const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+interface ZonedDateParts {
+  year: string;
+  month: string;
+  day: string;
+  hour: string;
+  minute: string;
+}
+
+function readZonedDateParts(value: string | null | undefined, includeTime: boolean): ZonedDateParts | null {
+  if (!value || DATE_ONLY_PATTERN.test(value)) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: effectiveTimeZone.value,
+    calendar: "gregory",
+    numberingSystem: "latn",
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(includeTime ? { hour: "2-digit", minute: "2-digit" } : {}),
+  }).formatToParts(date);
+
+  const pick = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? "";
+
+  return {
+    year: pick("year"),
+    month: pick("month"),
+    day: pick("day"),
+    hour: includeTime ? pick("hour") : "00",
+    minute: includeTime ? pick("minute") : "00",
+  };
+}
+
 export function formatTimestamp(value: string | null | undefined): string {
   if (!value) {
     return "--";
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  if (DATE_ONLY_PATTERN.test(value)) {
     return value;
   }
 
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  const hour = String(date.getHours()).padStart(2, "0");
-  const minute = String(date.getMinutes()).padStart(2, "0");
+  const parts = readZonedDateParts(value, true);
+  if (!parts) {
+    return value;
+  }
 
-  return `${year}-${month}-${day} ${hour}:${minute}`;
+  return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
 export function formatDate(value: string | null | undefined): string {
@@ -22,16 +64,16 @@ export function formatDate(value: string | null | undefined): string {
     return "--";
   }
 
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
+  if (DATE_ONLY_PATTERN.test(value)) {
     return value;
   }
 
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(date);
+  const parts = readZonedDateParts(value, false);
+  if (!parts) {
+    return value;
+  }
+
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 export function formatBytes(value: number | null | undefined): string {

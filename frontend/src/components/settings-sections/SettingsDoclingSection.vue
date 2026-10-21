@@ -11,6 +11,7 @@ import AppTextField from "../AppTextField.vue";
 import AppNumberField from "../AppNumberField.vue";
 import SettingsTestButton from "./SettingsTestButton.vue";
 import type { DraftDoclingSettings, DraftDoclingVlmMode } from "../../utils/settings";
+import { formatTimestamp } from "../../utils/format";
 import type { DoclingRemoteTask, DoclingCleanupTask } from "../../services/api/api-types";
 
 const props = withDefaults(
@@ -72,11 +73,18 @@ const vlmModeInfo = computed(() => {
 
 const vlmModeInfoLabel = computed(() => t("settings.docling.vlmModeInfoLabel"));
 
-const remoteColumns = computed<TableColumn<DoclingRemoteTask>[]>(() => [
+const remoteRows = computed(() => props.remoteItems.map((task) => ({
+  ...task,
+  createdLabel: formatTimestamp(task.created_at),
+})));
+
+type RemoteTaskRow = DoclingRemoteTask & { createdLabel: string };
+
+const remoteColumns = computed<TableColumn<RemoteTaskRow>[]>(() => [
   { accessorKey: "task_id", header: t("settings.docling.remoteTasks.taskId") },
   { accessorKey: "task_type", header: t("settings.docling.remoteTasks.taskType") },
   { id: "task_status", header: t("settings.docling.remoteTasks.taskStatus") },
-  { accessorKey: "created_at", header: t("settings.docling.remoteTasks.createdAt") },
+  { accessorKey: "createdLabel", header: t("settings.docling.remoteTasks.createdAt") },
 ]);
 
 const cleanupColumns = computed<TableColumn<DoclingCleanupTask>[]>(() => [
@@ -352,7 +360,7 @@ const canNext = computed(() => props.remoteHasMore && !props.remoteLoading);
           <UTable
             class="min-w-0 max-w-full"
             :ui="{ th: 'whitespace-nowrap' }"
-            :data="remoteItems"
+            :data="remoteRows"
             :columns="remoteColumns"
             :loading="remoteLoading"
             :empty="t('settings.docling.remoteTasks.empty')"

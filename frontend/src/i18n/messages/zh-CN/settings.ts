@@ -25,6 +25,8 @@ export const settings = {
   },
   appearance: {
     title: "界面",
+    timeZoneLabel: "时区",
+    timeZoneAutomatic: "自动（{zone}）",
   },
   personalAccessTokens: {
     title: "访问令牌",

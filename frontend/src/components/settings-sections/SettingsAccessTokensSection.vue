@@ -14,6 +14,7 @@ import type {
   PersonalAccessTokenResponse,
   Pagination,
 } from "../../services/api";
+import { formatTimestamp } from "../../utils/format";
 
 const props = defineProps<{
   createPersonalAccessToken: () => Promise<void>;
@@ -42,19 +43,16 @@ const emit = defineEmits<{
   "page-size": [number];
 }>();
 
-const { t, locale } = useI18n();
+const { t } = useI18n();
 
 const tokenRows = computed(() => props.personalAccessTokens.map((token) => ({
   ...token,
   scopeSummary: token.scopes.map((scope) => t(`settings.personalAccessTokens.scopeLabel.${scope}`)).join(", "),
-  expiresLabel: formatDate(token.expires_at),
-  createdLabel: formatDate(token.created_at),
-  lastUsedLabel: token.last_used_at ? formatDate(token.last_used_at) : t("settings.personalAccessTokens.neverUsed"),
+  expiresLabel: formatTimestamp(token.expires_at),
+  createdLabel: formatTimestamp(token.created_at),
+  lastUsedLabel: token.last_used_at ? formatTimestamp(token.last_used_at) : t("settings.personalAccessTokens.neverUsed"),
   status: resolveStatus(token),
 })));
-function formatDate(value: string) {
-  return new Date(value).toLocaleString(locale.value);
-}
 
 function resolveStatus(token: PersonalAccessTokenResponse) {
   if (token.revoked_at) {

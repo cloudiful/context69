@@ -26,8 +26,15 @@ export function isAppLocale(value: string | null | undefined): value is AppLocal
 }
 
 export function readStoredLocale(storage: Storage | null | undefined = getStorage()): AppLocale | null {
-  const locale = storage?.getItem(LOCALE_STORAGE_KEY);
-  return normalizeAppLocale(locale);
+  if (!storage) {
+    return null;
+  }
+
+  try {
+    return normalizeAppLocale(storage.getItem(LOCALE_STORAGE_KEY));
+  } catch {
+    return null;
+  }
 }
 
 export function resolveInitialLocale(storage: Storage | null | undefined = getStorage()): AppLocale {
@@ -35,7 +42,15 @@ export function resolveInitialLocale(storage: Storage | null | undefined = getSt
 }
 
 export function persistLocale(locale: AppLocale, storage: Storage | null | undefined = getStorage()) {
-  storage?.setItem(LOCALE_STORAGE_KEY, locale);
+  if (!storage) {
+    return;
+  }
+
+  try {
+    storage.setItem(LOCALE_STORAGE_KEY, locale);
+  } catch {
+    // A browser that denies storage keeps the language for this page only.
+  }
 }
 
 function getStorage(): Storage | null {
@@ -43,8 +58,12 @@ function getStorage(): Storage | null {
     return null;
   }
 
-  const storage = window.localStorage;
-  return storage && typeof storage.getItem === "function" && typeof storage.setItem === "function"
-    ? storage
-    : null;
+  try {
+    const storage = window.localStorage;
+    return storage && typeof storage.getItem === "function" && typeof storage.setItem === "function"
+      ? storage
+      : null;
+  } catch {
+    return null;
+  }
 }

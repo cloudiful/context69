@@ -57,6 +57,7 @@ const loading = computed(() => unref(state.loading));
 const saveMessage = computed(() => unref(state.saveMessage));
 const saving = computed(() => unref(state.saving));
 const currentLocale = computed<AppLocale>(() => normalizeAppLocale(String(locale.value)) ?? "en");
+const timeZone = computed(() => preferences.state.timeZone);
 
 const sectionItems = computed(() =>
   resolveSettingsSectionNav(t, authSessionState.user?.is_admin === true).map((section) => ({
@@ -131,8 +132,10 @@ function switchLocale(nextLocale: AppLocale) {
                 v-if="currentSection === 'appearance'"
                 :locale="currentLocale"
                 :theme="preferences.state.theme"
+                :time-zone="timeZone"
                 @update:locale="switchLocale"
                 @update:theme="preferences.setTheme"
+                @update:time-zone="preferences.setTimeZone"
               />
               <SettingsAccessTokensPage v-else-if="currentSection === 'access-tokens'" />
               <SettingsSearchPage v-else-if="currentSection === 'search'" />

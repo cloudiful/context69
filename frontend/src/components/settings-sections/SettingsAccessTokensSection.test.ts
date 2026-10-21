@@ -1,8 +1,11 @@
 import { mount } from "@vue/test-utils";
-import { describe, expect, it, vi } from "vitest";
+import { nextTick } from "vue";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createTestI18n } from "../../test-utils/i18n";
 import { testNuxtUiPlugin } from "../../test-utils/nuxt-ui";
+import { installMockStorage } from "../../test-utils/storage";
+import { AUTOMATIC_TIME_ZONE, setTimeZonePreference } from "../../utils/time-zone";
 import AppSelectField from "../AppSelectField.vue";
 import AppToggleField from "../AppToggleField.vue";
 import AppToggleGroup from "../AppToggleGroup.vue";
@@ -45,6 +48,15 @@ function createSection(overrides: Record<string, unknown> = {}) {
 }
 
 describe("SettingsAccessTokensSection", () => {
+  beforeEach(() => {
+    installMockStorage();
+    setTimeZonePreference(AUTOMATIC_TIME_ZONE);
+  });
+
+  afterEach(() => {
+    setTimeZonePreference(AUTOMATIC_TIME_ZONE);
+  });
+
   it("names the token draft fields after their draft paths", () => {
     const { wrapper } = createSection();
 
@@ -133,5 +145,31 @@ describe("SettingsAccessTokensSection", () => {
       expect.objectContaining({ token_id: activeToken.token_id }),
     );
     expect(handlers.createPersonalAccessToken).not.toHaveBeenCalled();
+  });
+
+  it("renders token timestamps in the selected zone and reacts to a change", async () => {
+    setTimeZonePreference("UTC");
+    const { wrapper } = createSection({
+      personalAccessTokens: [{
+        token_id: "00000000-0000-0000-0000-000000000004",
+        name: "Zone",
+        display_prefix: "ctx_pat_zone",
+        scopes: ["search"],
+        expires_at: "2027-01-01T00:00:00Z",
+        last_used_at: null,
+        revoked_at: null,
+        created_at: "2026-03-01T00:00:00Z",
+        updated_at: "2026-03-01T00:00:00Z",
+      }],
+      personalAccessTokensPagination: { page: 1, page_size: 50, total: 1, total_pages: 1 },
+    });
+
+    expect(wrapper.text()).toContain("2026-03-01 00:00");
+
+    setTimeZonePreference("Asia/Shanghai");
+    await nextTick();
+
+    expect(wrapper.text()).toContain("2026-03-01 08:00");
+    expect(wrapper.text()).not.toContain("2026-03-01 00:00");
   });
 });
