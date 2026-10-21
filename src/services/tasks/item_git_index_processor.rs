@@ -199,18 +199,18 @@ fn index_failure(stage: &str, error: &anyhow::Error) -> ProcessResult {
     }
 }
 
+/// The shared retry policy, with the indexer's own rule for an inconsistent
+/// repository snapshot.
+///
+/// A repository manifest that cannot be read is a terminal inconsistency of
+/// the snapshot, not a transport failure, so an internal error stays terminal
+/// here even though the shared policy treats an unknown internal failure as
+/// transient everywhere else.
 fn is_bounded_retry(error: &anyhow::Error) -> bool {
-    match find_domain_error(error) {
-        Some(
-            DomainError::UpstreamError(_)
-            | DomainError::UpstreamTimeout(_)
-            | DomainError::RateLimited(_)
-            | DomainError::Unavailable(_)
-            | DomainError::Conflict(_),
-        ) => true,
-        Some(_) => false,
-        None => true,
+    if matches!(find_domain_error(error), Some(DomainError::Internal(_))) {
+        return false;
     }
+    crate::retry_policy::is_transient(error)
 }
 
 fn bounded(message: String) -> String {

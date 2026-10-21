@@ -15,6 +15,7 @@ pub mod normalize;
 pub(crate) mod pagination;
 pub mod qdrant_index;
 pub(crate) mod retry;
+mod retry_policy;
 pub mod serde_helpers;
 pub mod services;
 pub mod source_store;

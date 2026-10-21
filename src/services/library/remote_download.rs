@@ -9,6 +9,47 @@ use crate::domain_errors::DomainError;
 
 const MAX_REDIRECTS: usize = 3;
 
+/// The bounded size error for a remote body that is larger than the configured
+/// download limit.
+///
+/// The message keeps the `remote_file_too_large` identity the API and the UI
+/// already show and adds the numbers an operator needs: the configured limit
+/// and what was observed. It carries no URL, filename or credential.
+pub(crate) fn content_length_limit_error(limit_bytes: usize, observed_bytes: u64) -> anyhow::Error {
+    DomainError::payload_too_large(format!(
+        "remote_file_too_large: limit_bytes={limit_bytes} observed_bytes={observed_bytes} source=content_length"
+    ))
+    .into()
+}
+
+/// The bounded size error for a streamed remote body that grew past the
+/// configured download limit.
+///
+/// The observed size is a lower bound: the transfer stops at the first chunk
+/// that crossed the limit, so the real body may be larger.
+pub(crate) fn streamed_limit_error(
+    limit_bytes: usize,
+    observed_bytes_at_least: u64,
+) -> anyhow::Error {
+    DomainError::payload_too_large(format!(
+        "remote_file_too_large: limit_bytes={limit_bytes} observed_bytes_at_least={observed_bytes_at_least} source=stream"
+    ))
+    .into()
+}
+
+/// The typed failure for a remote response that is not a success.
+///
+/// The upstream error code and message stay exactly as they were, so the API
+/// answer and its status do not change. The owned `reqwest` status error is
+/// kept in the chain without its URL, so the retry policy can read the status
+/// without leaking the requested address.
+fn remote_status_error(status: StatusCode, typed: reqwest::Error) -> anyhow::Error {
+    anyhow::Error::new(typed.without_url()).context(DomainError::upstream_error(format!(
+        "remote_http_status_{}",
+        status.as_u16()
+    )))
+}
+
 /// An opened remote response whose body has not been consumed yet.
 ///
 /// Opening performs every URL/SSRF/size/type check the buffered download used
@@ -63,33 +104,45 @@ pub(crate) async fn open(
         transport.validate_peer(response.remote_addr())?;
         if response.status().is_redirection() {
             if redirect_count == MAX_REDIRECTS {
-                return Err(DomainError::upstream_error("remote_redirect_limit").into());
+                // A redirect chain that never ends is deterministic, but its
+                // upstream error code and message stay the ones the API
+                // already returns.
+                return Err(crate::retry_policy::mark_deterministic(
+                    DomainError::upstream_error("remote_redirect_limit"),
+                ));
             }
             let location = response
                 .headers()
                 .get(header::LOCATION)
-                .ok_or_else(|| DomainError::upstream_error("remote_redirect_missing_location"))?
+                .ok_or_else(|| {
+                    crate::retry_policy::mark_deterministic(DomainError::upstream_error(
+                        "remote_redirect_missing_location",
+                    ))
+                })?
                 .to_str()
                 .map_err(|error| {
-                    DomainError::upstream_error(format!(
+                    crate::retry_policy::mark_deterministic(DomainError::upstream_error(format!(
                         "remote_redirect_missing_location: {error}"
-                    ))
+                    )))
                 })?;
             url = validate_url(url.join(location)?.as_str()).await?;
             continue;
         }
         if response.status() != StatusCode::OK {
+            let status = response.status();
+            if let Err(typed) = response.error_for_status_ref() {
+                return Err(remote_status_error(status, typed));
+            }
             return Err(DomainError::upstream_error(format!(
                 "remote_http_status_{}",
-                response.status().as_u16()
+                status.as_u16()
             ))
             .into());
         }
-        if response
-            .content_length()
-            .is_some_and(|length| length > max_bytes as u64)
+        if let Some(length) = response.content_length()
+            && length > max_bytes as u64
         {
-            return Err(DomainError::payload_too_large("remote_file_too_large").into());
+            return Err(content_length_limit_error(max_bytes, length));
         }
         let filename = resolve_filename(filename, &url, response.headers())?;
         let media_type = media_type
@@ -259,8 +312,147 @@ fn validate_type_match(filename: &str, media_type: &str) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{origin_key, resolve_filename, validate_type_match, validate_url};
-    use reqwest::{Url, header};
+    use super::{
+        content_length_limit_error, origin_key, remote_status_error, resolve_filename,
+        streamed_limit_error, validate_type_match, validate_url,
+    };
+    use crate::domain_errors::DomainError;
+    use reqwest::{StatusCode, Url, header};
+
+    /// A local HTTP fake that answers with one status code.
+    async fn status_error(status: StatusCode) -> anyhow::Error {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the local fake");
+        let address = listener.local_addr().expect("address");
+        let server = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.expect("accept");
+            let reason = status.canonical_reason().unwrap_or("Status");
+            let response = format!(
+                "HTTP/1.1 {} {reason}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
+                status.as_u16()
+            );
+            use tokio::io::AsyncWriteExt;
+            let _ = socket.write_all(response.as_bytes()).await;
+        });
+        let response = reqwest::Client::new()
+            .get(format!("http://{address}/report.pdf"))
+            .send()
+            .await
+            .expect("the local fake answers");
+        let typed = response
+            .error_for_status_ref()
+            .expect_err("the local fake answers with a failure status");
+        let _ = server.await;
+        remote_status_error(status, typed)
+    }
+
+    /// The upstream error code and message stay exactly as they were, so the
+    /// API answer does not change, while the typed status travels with the
+    /// failure.
+    #[tokio::test]
+    async fn a_remote_status_keeps_its_wire_identity_and_its_typed_status() {
+        let error = status_error(StatusCode::NOT_FOUND).await;
+
+        assert_eq!(error.to_string(), "remote_http_status_404");
+        assert!(
+            matches!(
+                crate::domain_errors::find_domain_error(&error),
+                Some(DomainError::UpstreamError(_))
+            ),
+            "the upstream error code stays the one the API already returns"
+        );
+        let typed = error
+            .chain()
+            .find_map(|cause| cause.downcast_ref::<reqwest::Error>());
+        assert_eq!(
+            typed.and_then(|typed| typed.status()),
+            Some(StatusCode::NOT_FOUND),
+            "the typed status travels with the failure"
+        );
+        assert!(
+            !error.to_string().contains("127.0.0.1"),
+            "the chain must not leak the requested address"
+        );
+    }
+
+    /// A refused request is deterministic; a temporary failure is not.
+    #[tokio::test]
+    async fn a_remote_status_follows_the_shared_retry_policy() {
+        for status in [
+            StatusCode::BAD_REQUEST,
+            StatusCode::UNAUTHORIZED,
+            StatusCode::FORBIDDEN,
+            StatusCode::NOT_FOUND,
+            StatusCode::PAYLOAD_TOO_LARGE,
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ] {
+            let error = status_error(status).await;
+            assert!(
+                !crate::retry_policy::is_transient(&error),
+                "HTTP {status} must not be retried automatically"
+            );
+        }
+        for status in [
+            StatusCode::REQUEST_TIMEOUT,
+            StatusCode::TOO_EARLY,
+            StatusCode::TOO_MANY_REQUESTS,
+            StatusCode::CONFLICT,
+            StatusCode::INTERNAL_SERVER_ERROR,
+            StatusCode::SERVICE_UNAVAILABLE,
+        ] {
+            let error = status_error(status).await;
+            assert!(
+                crate::retry_policy::is_transient(&error),
+                "HTTP {status} must stay retryable"
+            );
+        }
+    }
+
+    /// The size failure names the configured limit and the observed size, and
+    /// carries no address, filename or credential.
+    #[test]
+    fn a_size_failure_names_the_limit_and_the_observed_size() {
+        let header = content_length_limit_error(134217728, 157347023);
+        assert_eq!(
+            header.to_string(),
+            "remote_file_too_large: limit_bytes=134217728 observed_bytes=157347023 source=content_length"
+        );
+        assert!(!crate::retry_policy::is_transient(&header));
+
+        let streamed = streamed_limit_error(1024, 2048);
+        assert_eq!(
+            streamed.to_string(),
+            "remote_file_too_large: limit_bytes=1024 observed_bytes_at_least=2048 source=stream"
+        );
+        assert!(!crate::retry_policy::is_transient(&streamed));
+        assert!(
+            matches!(
+                crate::domain_errors::find_domain_error(&header),
+                Some(DomainError::PayloadTooLarge(_))
+            ),
+            "the size failure keeps its payload-too-large identity"
+        );
+    }
+
+    /// A redirect chain that never ends is deterministic, but its upstream
+    /// error code and message stay the ones the API already returns.
+    #[test]
+    fn a_redirect_failure_is_deterministic_and_keeps_its_identity() {
+        for message in ["remote_redirect_limit", "remote_redirect_missing_location"] {
+            let error =
+                crate::retry_policy::mark_deterministic(DomainError::upstream_error(message));
+            assert_eq!(error.to_string(), message);
+            assert!(!crate::retry_policy::is_transient(&error));
+            assert!(
+                matches!(
+                    crate::domain_errors::find_domain_error(&error),
+                    Some(DomainError::UpstreamError(_))
+                ),
+                "the upstream error code stays the one the API already returns"
+            );
+        }
+    }
 
     #[test]
     fn origin_key_normalizes_effective_port() {

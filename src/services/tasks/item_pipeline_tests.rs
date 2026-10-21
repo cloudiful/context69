@@ -20,10 +20,19 @@ use sqlx::Row;
 use uuid::Uuid;
 
 use crate::db::{CreateTaskSubmissionRequest, Database, FinishTaskItemRequest};
+use crate::domain::GroupRecord;
+use crate::services::library::UploadedLibraryFile;
+use crate::services::tasks::TaskService;
+use crate::services::tasks::inline_waits::{backoff_until, inline_wait_until};
 use crate::services::tasks::item_file_processors::process_text;
-use crate::services::tasks::item_processors::{ProcessResult, drive_item};
+use crate::services::tasks::item_processors::{
+    ItemStageRunner, ProcessResult, drive_item, process_error, set_file,
+};
+use crate::services::tasks::runtime_driver::{
+    AttemptFailure, route_failed_attempt, route_succeeded_attempt,
+};
 
-use fixtures::{cleanup, payload, seed_group, seed_user};
+use fixtures::{add_group_maintainer, cleanup, payload, seed_group, seed_user, url_payload};
 use support::{PIPELINE_CASE_LOCK, RealStorageRunner, build_service};
 
 /// Runs one kind from its entry stage to terminal success and asserts the task
@@ -695,6 +704,428 @@ fn base64_sha(bytes: &[u8]) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// The download stage of a URL item, with the network replaced by a local
+/// body.
+///
+/// The production download cannot run here: the SSRF guard refuses a loopback
+/// address, so a test server is not an option. The stage therefore asks the
+/// production size check for its answer and hands the body to the production
+/// storage path once it fits. Everything the policy owns — the failure
+/// classification, the item transition, the attempt bookkeeping and the manual
+/// retry — is the production path.
+struct LocalDownloadRunner<'a> {
+    service: &'a TaskService,
+    db: &'a Database,
+    group: &'a GroupRecord,
+    task: &'a crate::db::StoredTask,
+    body: &'a [u8],
+    limit_bytes: usize,
+    transient: bool,
+}
+
+#[async_trait::async_trait]
+impl ItemStageRunner for LocalDownloadRunner<'_> {
+    async fn run(
+        &self,
+        item: &mut crate::db::ClaimedItem,
+        stage: &'static str,
+    ) -> anyhow::Result<ProcessResult> {
+        match stage {
+            "download" => {
+                if self.transient {
+                    let error: anyhow::Error = crate::domain_errors::DomainError::upstream_timeout(
+                        "remote_download_failed: connection reset",
+                    )
+                    .into();
+                    return Ok(process_error("download", error));
+                }
+                if self.body.len() > self.limit_bytes {
+                    let error =
+                        crate::services::library::remote_download::content_length_limit_error(
+                            self.limit_bytes,
+                            self.body.len() as u64,
+                        );
+                    return Ok(process_error("download", error));
+                }
+                let options: context69_contracts::IngestOptions =
+                    serde_json::from_value(serde_json::json!({
+                        "metadata": { "external_id": format!("issue-1002-{}", Uuid::new_v4()) },
+                        "source_policy": "retain"
+                    }))
+                    .expect("ingest options");
+                let file = self
+                    .service
+                    .library()
+                    .prepare_file_for_task(
+                        self.group.id,
+                        UploadedLibraryFile {
+                            folder_id: None,
+                            filename: "issue-1002-report.pdf".to_string(),
+                            media_type: "application/pdf".to_string(),
+                            bytes: bytes::Bytes::copy_from_slice(self.body),
+                            declared_sha256: None,
+                            options,
+                            staged_storage_object_id: None,
+                        },
+                        item.lease_token,
+                    )
+                    .await?;
+                set_file(self.db, self.task.id, item, file.file_id).await?;
+                Ok(ProcessResult::Progressed { next: "finalize" })
+            }
+            "finalize" => Ok(ProcessResult::Succeeded(Some(
+                item.file_id
+                    .expect("the download stage stored the file")
+                    .to_string(),
+            ))),
+            other => panic!("unexpected stage {other}"),
+        }
+    }
+}
+
+/// Issue 1002: a deterministic failure never schedules an inline wait.
+///
+/// The worker sleeps inline for a retryable outcome and re-drives the item
+/// while it holds the admitted lease. A deterministic failure must not take
+/// that path: it is committed as a terminal failure instead.
+#[test]
+fn a_deterministic_failure_never_schedules_an_inline_wait() {
+    let error: anyhow::Error =
+        crate::services::library::remote_download::content_length_limit_error(1024, 4096);
+    let outcome = process_error("download", error);
+    let ProcessResult::Failed { retryable, .. } = &outcome else {
+        panic!("a size failure must fail the item");
+    };
+    assert!(!retryable, "a size failure must not be retried");
+    assert!(
+        inline_wait_until(&outcome, 1, 0).is_none(),
+        "a deterministic failure must not wait inline"
+    );
+
+    // A transient failure keeps the inline wait, so the failures that may
+    // succeed later still retry.
+    let transient = process_error(
+        "download",
+        crate::domain_errors::DomainError::upstream_timeout("remote_download_failed").into(),
+    );
+    assert!(
+        inline_wait_until(&transient, 1, 0).is_some(),
+        "a transient failure keeps its inline wait"
+    );
+}
+
+/// Issue 1002: a download that exceeds the configured limit is deterministic.
+///
+/// The item fails on its first attempt with the download stage and the
+/// actionable size message, the attempt is closed, nothing is submitted to
+/// Docling and the source stays intact. After the limit is raised, one
+/// authorized manual retry succeeds with the same source.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_oversized_download_fails_the_item_and_a_manual_retry_succeeds() {
+    let url = context69_test_support::accessor::database_url();
+    let _guard = PIPELINE_CASE_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_user(&db).await;
+    let group = seed_group(&db).await;
+    add_group_maintainer(&db, group.id, user_id).await;
+    let source_url = "https://example.com/issue-1002-report.pdf";
+    let (task_id, _reused, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: Some(group.id),
+            kind: "url_batch",
+            group_path: Some("test/issue-1002"),
+            source_key: None,
+            payloads: std::slice::from_ref(&url_payload(source_url)),
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("issue-1002-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create task");
+    let mut item = db
+        .claim_items(50)
+        .await
+        .expect("claim item")
+        .into_iter()
+        .find(|item| item.id == item_ids[0])
+        .expect("claim our item");
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    let (service, storage_root) = build_service(&db).await;
+    let body = vec![b'x'; 4096];
+
+    // First attempt: the local download limit is smaller than the source.
+    let runner = LocalDownloadRunner {
+        service: &service,
+        db: &db,
+        group: &group,
+        task: &task,
+        body: &body,
+        limit_bytes: 1024,
+        transient: false,
+    };
+    let result = drive_item(&mut item, "download", &runner)
+        .await
+        .expect("drive the download stage");
+    let ProcessResult::Failed {
+        stage,
+        message,
+        retryable,
+    } = result
+    else {
+        panic!("an oversized download must fail the item");
+    };
+    assert_eq!(stage, "download");
+    assert!(
+        !retryable,
+        "a size failure must not schedule an automatic retry"
+    );
+    assert!(
+        message.contains("remote_file_too_large"),
+        "the failure keeps its identity, got: {message}"
+    );
+    assert!(message.contains("limit_bytes=1024"), "got: {message}");
+    assert!(
+        message.contains("observed_bytes=4096"),
+        "the failure names the observed size, got: {message}"
+    );
+
+    // The worker routes the failure exactly as the runtime driver does.
+    route_failed_attempt(
+        &service,
+        &item,
+        AttemptFailure::stage_result(&stage, &message, retryable),
+    )
+    .await
+    .expect("route the failed attempt");
+    db.recompute_task(task_id).await.expect("recompute task");
+
+    let row = sqlx::query_file!("tests/task_retry_policy/read_failed_item.sql", item.id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the failed item");
+    assert_eq!(row.status, "failed");
+    assert_eq!(row.failure_stage.as_deref(), Some("download"));
+    assert!(!row.retryable);
+    let recorded = row.error_message.unwrap_or_default();
+    assert!(
+        recorded.contains("remote_file_too_large"),
+        "the recorded failure keeps its identity, got: {recorded}"
+    );
+    assert_eq!(
+        row.payload["url"],
+        Value::String(source_url.to_string()),
+        "the failed attempt keeps the source"
+    );
+
+    let finished_attempts: i64 = sqlx::query_file_scalar!(
+        "tests/task_retry_policy/count_finished_attempts.sql",
+        item.id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count the finished attempts");
+    assert_eq!(
+        finished_attempts, 1,
+        "the deterministic failure closes exactly one attempt"
+    );
+    let docling_jobs: i64 =
+        sqlx::query_file_scalar!("tests/task_retry_policy/count_docling_jobs.sql", item.id)
+            .fetch_one(db.pool())
+            .await
+            .expect("count the docling jobs");
+    assert_eq!(
+        docling_jobs, 0,
+        "a failed download submits nothing to Docling"
+    );
+
+    // The operator raises the local limit and retries the item by hand.
+    let reopened = db
+        .retry_task_items(task_id, user_id)
+        .await
+        .expect("retry the failed item");
+    assert_eq!(reopened, vec![item.id]);
+    let mut retried = db
+        .claim_items(50)
+        .await
+        .expect("claim the retried item")
+        .into_iter()
+        .find(|item| item.id == item_ids[0])
+        .expect("claim our item");
+    let runner = LocalDownloadRunner {
+        service: &service,
+        db: &db,
+        group: &group,
+        task: &task,
+        body: &body,
+        limit_bytes: 8192,
+        transient: false,
+    };
+    let result = drive_item(&mut retried, "download", &runner)
+        .await
+        .expect("drive the retried download stage");
+    let ProcessResult::Succeeded(resource_id) = result else {
+        panic!("the retried download must succeed");
+    };
+    let file_id = retried
+        .file_id
+        .expect("the retried download stores the file");
+    assert_eq!(
+        resource_id.as_deref(),
+        Some(file_id.to_string().as_str()),
+        "the retried item completes with the stored file"
+    );
+
+    assert!(
+        route_succeeded_attempt(&service, &retried, resource_id.as_deref())
+            .await
+            .expect("commit the retried item"),
+        "the retried item must reach its terminal state"
+    );
+    db.recompute_task(task_id).await.expect("recompute task");
+
+    let size: i64 = sqlx::query_file_scalar!("tests/task_retry_policy/read_file_size.sql", file_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the stored file");
+    assert_eq!(
+        size,
+        body.len() as i64,
+        "the retried source is the same body"
+    );
+    let payload: Value =
+        sqlx::query_file_scalar!("tests/task_retry_policy/read_item_payload.sql", item.id)
+            .fetch_one(db.pool())
+            .await
+            .expect("read the retried payload");
+    assert_eq!(
+        payload["url"],
+        Value::String(source_url.to_string()),
+        "the manual retry keeps the same source"
+    );
+
+    cleanup(&db, group.id, user_id).await;
+    let _ = std::fs::remove_dir_all(storage_root);
+}
+
+/// Issue 1002: a transient failure still enters the backoff.
+///
+/// The deterministic policy must not swallow the transient failures: the item
+/// waits for its next attempt instead of failing, and no attempt is closed.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_transient_download_failure_schedules_the_backoff() {
+    let url = context69_test_support::accessor::database_url();
+    let _guard = PIPELINE_CASE_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    let user_id = seed_user(&db).await;
+    let group = seed_group(&db).await;
+    let source_url = "https://example.com/issue-1002-transient.pdf";
+    let (task_id, _reused, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: Some(group.id),
+            kind: "url_batch",
+            group_path: Some("test/issue-1002"),
+            source_key: None,
+            payloads: std::slice::from_ref(&url_payload(source_url)),
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("issue-1002-transient-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create task");
+    let mut item = db
+        .claim_items(50)
+        .await
+        .expect("claim item")
+        .into_iter()
+        .find(|item| item.id == item_ids[0])
+        .expect("claim our item");
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    let (service, storage_root) = build_service(&db).await;
+
+    let runner = LocalDownloadRunner {
+        service: &service,
+        db: &db,
+        group: &group,
+        task: &task,
+        body: &[],
+        limit_bytes: 1024,
+        transient: true,
+    };
+    let result = drive_item(&mut item, "download", &runner)
+        .await
+        .expect("drive the download stage");
+    let ProcessResult::Failed {
+        stage,
+        message,
+        retryable,
+    } = result
+    else {
+        panic!("a transient download must fail the attempt");
+    };
+    assert!(
+        retryable,
+        "a transient failure must schedule the automatic retry"
+    );
+
+    // The worker parks the item on the backoff, exactly as the runtime driver
+    // does: the same routing, the same backoff schedule, the same message.
+    route_failed_attempt(
+        &service,
+        &item,
+        AttemptFailure::stage_result(&stage, &message, retryable),
+    )
+    .await
+    .expect("route the transient attempt");
+
+    let row = sqlx::query_file!("tests/task_retry_policy/read_waiting_item.sql", item.id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the waiting item");
+    assert_eq!(row.status, "waiting");
+    assert_eq!(row.waiting_reason.as_deref(), Some("backoff"));
+    let next_attempt_at = row
+        .next_attempt_at
+        .expect("the waiting attempt keeps its schedule");
+    // The schedule is the production backoff, not a copy of its formula.
+    let expected = backoff_until(item.attempt_count);
+    assert!(
+        (next_attempt_at - expected).num_milliseconds().abs() < 5_000,
+        "the wait must use the production backoff schedule"
+    );
+    let attempt_status: String = sqlx::query_file_scalar!(
+        "tests/task_retry_policy/read_last_attempt_status.sql",
+        item.id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the attempt status");
+    assert_eq!(
+        attempt_status, "waiting",
+        "a transient failure parks its attempt for the next try instead of failing it"
+    );
+
+    cleanup(&db, group.id, user_id).await;
+    let _ = std::fs::remove_dir_all(storage_root);
 }
 
 /// Issue #975 P8: an existing but unusable `sections` reference is an error,

@@ -117,7 +117,12 @@ impl StreamAccumulator {
     fn accept(&mut self, chunk: &[u8]) -> Result<()> {
         let size = self.size.saturating_add(chunk.len() as u64);
         if size > self.max_bytes as u64 {
-            return Err(DomainError::payload_too_large("remote_file_too_large").into());
+            // The transfer stops at the first chunk that crossed the limit, so
+            // the observed size is a lower bound and not a claimed total.
+            return Err(super::remote_download::streamed_limit_error(
+                self.max_bytes,
+                size,
+            ));
         }
         self.size = size;
         self.hasher.update(chunk);
@@ -311,9 +316,46 @@ mod tests {
             .await
             .expect_err("the body exceeds the limit");
 
-        assert_eq!(error.to_string(), "remote_file_too_large");
+        // The message names the configured limit and the observed lower bound,
+        // and carries no URL, filename or credential.
+        let message = error.to_string();
+        assert!(
+            message.starts_with("remote_file_too_large"),
+            "the size failure keeps its identity, got: {message}"
+        );
+        assert!(message.contains("limit_bytes=5"), "got: {message}");
+        assert!(
+            message.contains("observed_bytes_at_least=6"),
+            "the observed size is the lower bound that crossed the limit, got: {message}"
+        );
+        assert!(message.contains("source=stream"), "got: {message}");
+        assert!(!message.contains("http"), "got: {message}");
         // The chunk that crossed the limit is never written to the sink.
         assert_eq!(sink.written, b"1234");
+    }
+
+    /// The size failure is deterministic for the task worker: the same body
+    /// fails the same way, so the item must not be resubmitted.
+    #[tokio::test]
+    async fn a_streamed_size_failure_is_deterministic_for_the_task_worker() {
+        let mut chunks = source(&[b"1234", b"56"]);
+        let mut sink = sink(None);
+
+        let error = transfer(&mut chunks, &mut sink, 5)
+            .await
+            .expect_err("the body exceeds the limit");
+
+        assert!(
+            !crate::retry_policy::is_transient(&error),
+            "an oversized body must not be retried automatically"
+        );
+        assert!(
+            matches!(
+                crate::domain_errors::find_domain_error(&error),
+                Some(crate::domain_errors::DomainError::PayloadTooLarge(_))
+            ),
+            "the size failure keeps its typed payload-too-large identity"
+        );
     }
 
     #[tokio::test]

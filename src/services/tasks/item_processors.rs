@@ -329,7 +329,7 @@ pub(super) fn process_error(stage: &str, error: anyhow::Error) -> ProcessResult 
     let message = error.to_string();
     ProcessResult::Failed {
         stage: stage.to_string(),
-        retryable: is_retryable_error(&error),
+        retryable: crate::retry_policy::is_transient(&error),
         message,
     }
 }
@@ -356,20 +356,10 @@ pub(super) fn process_source_sync_error(
     process_error("sync", error)
 }
 
-fn is_retryable_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    !message.contains("invalid")
-        && !message.contains("missing")
-        && !message.contains("requires")
-        && !message.contains("unsupported")
-        && !message.contains("unknown file")
-        && !message.contains("not found")
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_ITEM_STAGES, ProcessResult, entry_stage, process_source_sync_error,
+        MAX_ITEM_STAGES, ProcessResult, entry_stage, process_error, process_source_sync_error,
         resolve_entry_stage, resume_stage,
     };
     use context69_contracts::TaskKind;
@@ -432,7 +422,45 @@ mod tests {
         let error = anyhow::anyhow!("source returns an unsupported schema");
 
         match process_source_sync_error(&item, error) {
-            ProcessResult::Failed { retryable, .. } => assert!(!retryable),
+            // The message no longer decides: an untyped failure stays transient
+            // and keeps the existing backoff, whatever words it carries.
+            ProcessResult::Failed { retryable, .. } => assert!(retryable),
+            _ => panic!("expected a failure"),
+        }
+    }
+
+    /// A deterministic failure stops the item on its first attempt: the stage
+    /// is recorded, the message is the actionable one, and no automatic retry
+    /// is scheduled.
+    #[test]
+    fn a_deterministic_failure_stops_the_item_without_a_retry() {
+        let error: anyhow::Error = crate::domain_errors::DomainError::payload_too_large(
+            "remote_file_too_large: limit_bytes=1024 observed_bytes=4096 source=content_length",
+        )
+        .into();
+
+        match process_error("download", error) {
+            ProcessResult::Failed {
+                stage,
+                message,
+                retryable,
+            } => {
+                assert_eq!(stage, "download");
+                assert!(!retryable, "a size failure must not be retried");
+                assert!(message.contains("limit_bytes=1024"));
+                assert!(message.contains("observed_bytes=4096"));
+            }
+            _ => panic!("expected a failure"),
+        }
+    }
+
+    /// A transient failure keeps the automatic retry.
+    #[test]
+    fn a_transient_failure_keeps_the_automatic_retry() {
+        let error: anyhow::Error = anyhow::anyhow!("database connection reset");
+
+        match process_error("storage", error) {
+            ProcessResult::Failed { retryable, .. } => assert!(retryable),
             _ => panic!("expected a failure"),
         }
     }

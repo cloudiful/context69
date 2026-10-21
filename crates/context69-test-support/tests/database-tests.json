@@ -2660,6 +2660,18 @@
     },
     {
       "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::an_oversized_download_fails_the_item_and_a_manual_retry_succeeds",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::a_transient_download_failure_schedules_the_backoff",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "task_item_artifacts",
       "test": "a_reference_committed_during_a_discard_lock_wait_keeps_the_checkpoint_bytes",
       "class": "db"

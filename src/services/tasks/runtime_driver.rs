@@ -10,6 +10,7 @@ use crate::domain_errors::DomainError;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
+use std::borrow::Cow;
 use tracing::{Instrument, info, warn};
 use uuid::Uuid;
 
@@ -22,6 +23,121 @@ use super::lifecycle_logging::{
 };
 use super::responses::parse_kind;
 use super::runtime::spawn_item_heartbeat;
+
+/// The failure bookkeeping of one claimed attempt.
+///
+/// A failed stage result and a worker error reach the queue differently: the
+/// stage result names its stage, the worker error reports the error alone.
+/// Everything else — the lease, the status, the recorded messages and the
+/// backoff schedule — is the same.
+pub(super) struct AttemptFailure<'a> {
+    stage: &'a str,
+    message: &'a str,
+    wait_message: Cow<'a, str>,
+    retryable: bool,
+}
+
+impl<'a> AttemptFailure<'a> {
+    /// A failed stage result: the waiting attempt records the stage with its
+    /// message.
+    pub(super) fn stage_result(stage: &'a str, message: &'a str, retryable: bool) -> Self {
+        Self {
+            stage,
+            message,
+            wait_message: Cow::Owned(format!("{stage}: {message}")),
+            retryable,
+        }
+    }
+
+    /// A worker error that escaped the stage: the waiting attempt records the
+    /// error alone.
+    pub(super) fn worker_error(stage: &'a str, message: &'a str, retryable: bool) -> Self {
+        Self {
+            stage,
+            message,
+            wait_message: Cow::Borrowed(message),
+            retryable,
+        }
+    }
+}
+
+/// Route one failed attempt onto the queue.
+///
+/// A retryable failure parks the item on the backoff, a terminal failure
+/// finishes it. The worker and the task regressions share this routing, so the
+/// queue state they observe is the production state.
+pub(super) async fn route_failed_attempt(
+    service: &TaskService,
+    item: &crate::db::ClaimedItem,
+    failure: AttemptFailure<'_>,
+) -> Result<()> {
+    if failure.retryable {
+        let next_attempt_at = backoff_until(item.attempt_count);
+        if !service
+            .db()
+            .wait_task_item(crate::db::WaitTaskItemRequest {
+                task_id: item.task_id,
+                item_id: item.id,
+                lease_token: item.lease_token,
+                waiting_reason: "backoff",
+                dependency_key: None,
+                next_attempt_at,
+                error_message: Some(failure.wait_message.as_ref()),
+            })
+            .await?
+        {
+            return Ok(());
+        }
+        log_attempt("retry_scheduled");
+        log_retry_scheduled(next_attempt_at);
+        return Ok(());
+    }
+    if !service
+        .db()
+        .finish_task_item(crate::db::FinishTaskItemRequest {
+            task_id: item.task_id,
+            item_id: item.id,
+            status: "failed",
+            resource_id: None,
+            failure_stage: Some(failure.stage),
+            error_message: Some(failure.message),
+            retryable: false,
+            lease_token: item.lease_token,
+            attempt_id: item.attempt_id,
+        })
+        .await?
+    {
+        return Ok(());
+    }
+    log_attempt("failed");
+    log_item_finished("failed");
+    Ok(())
+}
+
+/// Commit one succeeded attempt.
+///
+/// The worker and the task regressions share this commit, so the terminal state
+/// they observe is the production state.
+pub(super) async fn route_succeeded_attempt(
+    service: &TaskService,
+    item: &crate::db::ClaimedItem,
+    resource_id: Option<&str>,
+) -> Result<bool> {
+    service
+        .db()
+        .finish_task_item(crate::db::FinishTaskItemRequest {
+            task_id: item.task_id,
+            item_id: item.id,
+            status: "succeeded",
+            resource_id,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            lease_token: item.lease_token,
+            attempt_id: item.attempt_id,
+        })
+        .await
+}
 
 pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
     let task = service.task(item.task_id).await?;
@@ -75,21 +191,7 @@ async fn drive_claimed_item(
 
     match result {
         Ok(ProcessResult::Succeeded(resource_id)) => {
-            if !service
-                .db()
-                .finish_task_item(crate::db::FinishTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    status: "succeeded",
-                    resource_id: resource_id.as_deref(),
-                    failure_stage: None,
-                    error_message: None,
-                    retryable: true,
-                    lease_token: item.lease_token,
-                    attempt_id: item.attempt_id,
-                })
-                .await?
-            {
+            if !route_succeeded_attempt(service, &item, resource_id.as_deref()).await? {
                 return Ok(());
             }
             log_attempt("succeeded");
@@ -184,45 +286,12 @@ async fn drive_claimed_item(
                 error = %message,
                 "task item processing failed"
             );
-            if retryable {
-                let next_attempt_at = backoff_until(item.attempt_count);
-                if !service
-                    .db()
-                    .wait_task_item(crate::db::WaitTaskItemRequest {
-                        task_id: item.task_id,
-                        item_id: item.id,
-                        lease_token: item.lease_token,
-                        waiting_reason: "backoff",
-                        dependency_key: None,
-                        next_attempt_at,
-                        error_message: Some(&format!("{stage}: {message}")),
-                    })
-                    .await?
-                {
-                    return Ok(());
-                }
-                log_attempt("retry_scheduled");
-                log_retry_scheduled(next_attempt_at);
-            } else if !service
-                .db()
-                .finish_task_item(crate::db::FinishTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    status: "failed",
-                    resource_id: None,
-                    failure_stage: Some(&stage),
-                    error_message: Some(&message),
-                    retryable: false,
-                    lease_token: item.lease_token,
-                    attempt_id: item.attempt_id,
-                })
-                .await?
-            {
-                return Ok(());
-            } else {
-                log_attempt("failed");
-                log_item_finished("failed");
-            }
+            route_failed_attempt(
+                service,
+                &item,
+                AttemptFailure::stage_result(&stage, &message, retryable),
+            )
+            .await?;
         }
         Err(error) => {
             let message = error.to_string();
@@ -237,45 +306,16 @@ async fn drive_claimed_item(
                 error = %message,
                 "task item worker error"
             );
-            if is_retryable_error(&error) {
-                let next_attempt_at = backoff_until(item.attempt_count);
-                if !service
-                    .db()
-                    .wait_task_item(crate::db::WaitTaskItemRequest {
-                        task_id: item.task_id,
-                        item_id: item.id,
-                        lease_token: item.lease_token,
-                        waiting_reason: "backoff",
-                        dependency_key: None,
-                        next_attempt_at,
-                        error_message: Some(&message),
-                    })
-                    .await?
-                {
-                    return Ok(());
-                }
-                log_attempt("retry_scheduled");
-                log_retry_scheduled(next_attempt_at);
-            } else if !service
-                .db()
-                .finish_task_item(crate::db::FinishTaskItemRequest {
-                    task_id: item.task_id,
-                    item_id: item.id,
-                    status: "failed",
-                    resource_id: None,
-                    failure_stage: item.stage.as_deref().or(Some("worker")),
-                    error_message: Some(&message),
-                    retryable: false,
-                    lease_token: item.lease_token,
-                    attempt_id: item.attempt_id,
-                })
-                .await?
-            {
-                return Ok(());
-            } else {
-                log_attempt("failed");
-                log_item_finished("failed");
-            }
+            route_failed_attempt(
+                service,
+                &item,
+                AttemptFailure::worker_error(
+                    item.stage.as_deref().unwrap_or("worker"),
+                    &message,
+                    crate::retry_policy::is_transient(&error),
+                ),
+            )
+            .await?;
         }
     }
 
@@ -295,16 +335,6 @@ async fn drive_claimed_item(
         log_task_finished(&task);
     }
     Ok(())
-}
-
-fn is_retryable_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    !message.contains("invalid")
-        && !message.contains("missing")
-        && !message.contains("requires")
-        && !message.contains("unsupported")
-        && !message.contains("unknown file")
-        && !message.contains("not found")
 }
 
 #[cfg(test)]
