@@ -25,7 +25,7 @@ export default defineConfig({
     video: "off",
   },
   webServer: {
-    command: "bunx vite preview --host 127.0.0.1 --port 5188 --strictPort",
+    command: "bun x vite preview --host 127.0.0.1 --port 5188 --strictPort",
     url: QUEUE_PERF_BASE_URL,
     reuseExistingServer: false,
     timeout: 120_000,

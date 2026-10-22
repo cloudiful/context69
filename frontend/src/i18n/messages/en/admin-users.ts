@@ -1,7 +1,5 @@
 export const adminUsers = {
-  navGroup: "Admin",
   title: "Users",
-  description: "Manage system accounts and administrator privileges.",
   loadFailed: "Failed to load users.",
   createFailed: "Failed to create user.",
   updateFailed: "Failed to update user.",

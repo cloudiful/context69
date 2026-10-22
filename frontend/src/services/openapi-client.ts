@@ -1,14 +1,10 @@
 import createClient from "openapi-fetch";
 
 import type { paths } from "../generated/openapi";
-import { handleUnauthorized } from "./auth/session";
+import { API_BASE_URL, resolveApiUrl } from "../lib/api-base";
+import { handleUnauthorized } from "../lib/auth-store";
 
-export const API_BASE_URL = resolveApiBaseUrl();
-
-/** Prefixes a request path with the configured API base, matching the client. */
-export function resolveApiUrl(path: string): string {
-  return API_BASE_URL ? `${API_BASE_URL}${path}` : path;
-}
+export { API_BASE_URL, resolveApiUrl };
 
 export const openapiClient = createClient<paths>({
   baseUrl: API_BASE_URL || undefined,
@@ -21,16 +17,3 @@ openapiClient.use({
     return response;
   },
 });
-
-function resolveApiBaseUrl(): string {
-  const configured = (import.meta.env.VITE_API_BASE_URL || "").replace(/\/$/, "");
-  if (configured) {
-    return configured;
-  }
-
-  if (typeof window !== "undefined" && window.location?.origin) {
-    return window.location.origin.replace(/\/$/, "");
-  }
-
-  return "";
-}

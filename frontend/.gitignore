@@ -1,7 +1,5 @@
 /node_modules/
 /dist/
 /coverage/
-/bun.lock
 /playwright-report/
 /test-results/
-/e2e/.auth/

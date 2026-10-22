@@ -1,5 +1,4 @@
 export const groups = {
-  title: "Browser",
   groupKey: "Group Key",
   groupPath: "Group Path",
   groupName: "Group Name",
@@ -14,6 +13,11 @@ export const groups = {
     shared: "Shared",
     personal: "Personal",
   },
+  roleOptions: {
+    owner: "Owner",
+    maintainer: "Maintainer",
+    viewer: "Viewer",
+  },
   create: "Create Group",
   editGroup: "Edit Group",
   createFailed: "Failed to create group.",
@@ -21,12 +25,12 @@ export const groups = {
   deleteFailed: "Failed to delete group.",
   moveFailed: "Failed to move group.",
   loadFailed: "Failed to load groups.",
-  emptyTitle: "No Groups",
   emptyMessage: "No visible groups yet.",
-  emptyChildren: "No child groups yet.",
-  childrenTitle: "Child Groups",
+  searchChildren: "Search child groups",
   overviewTitle: "Overview",
   membersTitle: "Members",
+  settingsTitle: "Settings",
+  noParentGroup: "No parent group",
   createChild: "Create Child Group",
   editChild: "Edit Child Group",
   moveGroup: "Move Group",
@@ -41,9 +45,6 @@ export const groups = {
   deleteConfirm: "Delete group {name}?",
   childDeleteConfirm: "Delete child group {name}?",
   memberRemoveConfirm: "Remove member {loginName}?",
-  tabs: {
-    overview: "Overview",
-  },
   translation: {
     title: "Translation defaults",
     enabled: "Translate newly ingested documents",

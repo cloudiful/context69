@@ -6,4 +6,6 @@ export const members = {
   addTitle: "添加成员",
   editTitle: "编辑成员",
   searchUserPlaceholder: "按登录名或显示名搜索用户",
+  empty: "暂无成员。",
+  noCandidates: "没有匹配的用户。",
 } as const;

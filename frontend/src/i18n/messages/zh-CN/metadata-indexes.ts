@@ -7,4 +7,6 @@ export const metadataIndexes = {
   kind: "值类型",
   status: "状态",
   sortable: "允许排序",
+  loadFailed: "加载 metadata 索引失败",
+  addDescription: "为 {source} 建立 metadata 字段索引。",
 } as const;

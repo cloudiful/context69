@@ -1,38 +1,41 @@
 import { defineConfig, devices } from "@playwright/test";
 
-import { E2E_BASE_URL, E2E_STORAGE_STATE } from "./e2e/support/env";
+/** Owned preview port so the suite never touches the dev stack on 5173. */
+export const E2E_PORT = 5199;
+export const E2E_BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
 
 /**
- * Standalone Playwright Test harness for full-browser smoke coverage.
+ * The default browser suite.
  *
- * Targets an already-running disposable local stack (`./scripts/dev.sh full`);
- * the global setup verifies readiness with actionable output. Vitest stays the
- * component/composable runner and Rust stays the API/integration runner.
+ * It serves a built production preview with local, generated-contract API
+ * mocks and a fixed UTC browser, so it needs no backend, database or
+ * production access. Vitest stays the component/unit runner and Rust stays the
+ * API/integration runner.
  */
 export default defineConfig({
-  testDir: "./e2e",
-  globalSetup: "./e2e/global-setup.ts",
+  testDir: "./e2e/react",
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 1 : 0,
-  workers: process.env.CI ? 1 : undefined,
+  retries: 0,
+  workers: 1,
   reporter: process.env.CI ? "github" : "list",
   use: {
     baseURL: E2E_BASE_URL,
-    trace: "on-first-retry",
+    timezoneId: "UTC",
+    locale: "en-US",
+    serviceWorkers: "block",
+    trace: "retain-on-failure",
+  },
+  webServer: {
+    command: `bun x vite preview --host 127.0.0.1 --port ${E2E_PORT} --strictPort`,
+    url: E2E_BASE_URL,
+    reuseExistingServer: false,
+    timeout: 120_000,
   },
   projects: [
     {
-      name: "setup",
-      testMatch: /auth\.setup\.ts/,
-    },
-    {
       name: "chromium",
-      use: {
-        ...devices["Desktop Chrome"],
-        storageState: E2E_STORAGE_STATE,
-      },
-      dependencies: ["setup"],
+      use: { ...devices["Desktop Chrome"] },
     },
   ],
 });

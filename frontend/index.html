@@ -7,14 +7,21 @@
     <title>Context69 Console</title>
     <script>
       (function () {
-        var theme = null;
+        var stored = null;
         try {
-          theme = localStorage.getItem("context69.theme");
+          stored = localStorage.getItem("context69.theme");
         } catch (e) {
-          theme = null;
+          stored = null;
         }
-        if (theme !== "light" && theme !== "dark") {
-          theme = "dark";
+        var theme = stored === "light" || stored === "dark" ? stored : null;
+        if (!theme) {
+          var dark = false;
+          try {
+            dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          } catch (e) {
+            dark = false;
+          }
+          theme = dark ? "dark" : "light";
         }
         document.documentElement.dataset.theme = theme;
         document.documentElement.classList.toggle("dark", theme === "dark");
@@ -24,6 +31,6 @@
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

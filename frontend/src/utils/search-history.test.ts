@@ -188,4 +188,59 @@ describe("search history utils", () => {
     const [entry] = readSearchHistory(storage);
     expect(entry.sort).toBe("relevance");
   });
+
+  it("returns no history and keeps writing usable when reads and writes are denied", () => {
+    const denied: Storage = {
+      length: 0,
+      clear: () => undefined,
+      getItem: () => {
+        throw new DOMException("Storage denied", "SecurityError");
+      },
+      key: () => null,
+      removeItem: () => undefined,
+      setItem: () => {
+        throw new DOMException("Storage denied", "SecurityError");
+      },
+    };
+
+    expect(readSearchHistory(denied)).toEqual([]);
+    expect(() => addSearchHistoryEntry({
+      query: "policy",
+      sourceKey: "",
+      publishedAfter: "",
+      publishedBefore: "",
+      limit: 8,
+      groupPath: "",
+      sort: "relevance",
+    }, denied)).not.toThrow();
+  });
+
+  it("survives a denied localStorage getter", () => {
+    const original = Object.getOwnPropertyDescriptor(window, "localStorage");
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      get: () => {
+        throw new DOMException("Storage denied", "SecurityError");
+      },
+    });
+
+    try {
+      expect(readSearchHistory()).toEqual([]);
+      const entries = addSearchHistoryEntry({
+        query: "policy",
+        sourceKey: "",
+        publishedAfter: "",
+        publishedBefore: "",
+        limit: 8,
+        groupPath: "",
+        sort: "relevance",
+      });
+      expect(entries).toHaveLength(1);
+      expect(entries[0].query).toBe("policy");
+    } finally {
+      if (original) {
+        Object.defineProperty(window, "localStorage", original);
+      }
+    }
+  });
 });

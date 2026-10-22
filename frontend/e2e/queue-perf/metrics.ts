@@ -4,7 +4,7 @@ import { dirname, isAbsolute, join, resolve, sep } from "node:path";
 import type { Page } from "@playwright/test";
 import type { QueueMockTransport } from "./transport";
 
-const APPROVED_ROOT = resolve(homedir(), ".cache/opencode/context69-queue-perf/58");
+const APPROVED_ROOT = resolve(homedir(), ".cache/opencode/context69-queue-perf/1014");
 export const QUEUE_PERF_BASE_URL = "http://127.0.0.1:5188";
 
 export interface QueuePerfSettings {
@@ -154,7 +154,7 @@ export async function collectScenarioMetrics(
         cells: table?.querySelectorAll("td").length ?? 0,
         expandedRows: document.querySelectorAll('[data-testid="task-items-count"]').length,
         expandedItems: document.querySelectorAll('[data-testid="task-item-row"]').length,
-        renderedSourceProse: body.includes("// This row action is task-scoped too"),
+        renderedInvalidValues: body.includes("undefined") || body.includes("NaN"),
       };
     }),
     page.evaluate(() => {
