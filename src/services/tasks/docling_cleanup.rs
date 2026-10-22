@@ -6,9 +6,9 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::TaskService;
-use crate::services::library::docling_remote_ops::{
-    DoclingRemoteCancelObservation as Cancel, DoclingRemoteStatusObservation as Status,
-    fetch_remote_status, post_remote_cancel,
+use crate::docling::DoclingClient;
+use crate::docling::client::{
+    REMOTE_OP_TIMEOUT, RemoteCancelOutcome as Cancel, RemoteStatusOutcome as Status,
 };
 
 const CLAIM_LIMIT: i64 = 16;
@@ -40,7 +40,7 @@ impl Settlement {
 
 fn cancel_result(observation: Cancel) -> Settlement {
     match observation {
-        Cancel::Cancelled { observed_status } => {
+        Cancel::Terminal { observed_status } => {
             Settlement::new("done", Some(observed_status), None)
         }
         Cancel::AwaitingTerminal | Cancel::NotFound => {
@@ -106,17 +106,23 @@ async fn observe(
         );
     };
     if status == "awaiting_terminal" {
-        return status_result(
-            fetch_remote_status(endpoint, remote_id)
+        let outcome = match DoclingClient::with_timeout(endpoint, REMOTE_OP_TIMEOUT) {
+            Ok(client) => client
+                .immediate_status(remote_id)
                 .await
                 .unwrap_or(Status::Retryable),
-        );
+            Err(_) => Status::Retryable,
+        };
+        return status_result(outcome);
     }
-    cancel_result(
-        post_remote_cancel(endpoint, remote_id)
+    let outcome = match DoclingClient::with_timeout(endpoint, REMOTE_OP_TIMEOUT) {
+        Ok(client) => client
+            .cancel_task(remote_id)
             .await
             .unwrap_or(Cancel::Retryable),
-    )
+        Err(_) => Cancel::Retryable,
+    };
+    cancel_result(outcome)
 }
 
 async fn process_pairs<I, F>(work: I) -> Result<()>
@@ -272,7 +278,7 @@ mod tests {
         assert_eq!(cancel_result(Cancel::NotFound).status, "awaiting_terminal");
         assert_eq!(cancel_result(Cancel::Unsupported).status, "unsupported");
         assert_eq!(cancel_result(Cancel::Failed).status, "pending");
-        let actual = cancel_result(Cancel::Cancelled {
+        let actual = cancel_result(Cancel::Terminal {
             observed_status: "success".into(),
         });
         assert_eq!(actual.outcome.as_deref(), Some("success"));

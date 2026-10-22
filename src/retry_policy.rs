@@ -113,27 +113,26 @@ pub(crate) fn classify(error: &Error) -> FailureClass {
         }
     }
 
-    // Typed provider failures: a rejected parameter and a missing
-    // configuration value never become valid on their own. A parse error
-    // keeps its provenance erased — the installed client maps every unreadable
-    // response body to it, so an interrupted body collection and an invalid
-    // answer are indistinguishable — and an unknown operation failure says
-    // nothing about the next attempt. Both stay transient.
+    // Typed Docling failures: a rejected parameter, a missing configuration
+    // value, an oversized answer, and a terminal remote failure never become
+    // valid on their own. A parse failure keeps its provenance erased — the
+    // client maps every unreadable response body to it, so an interrupted
+    // body collection and an invalid answer are indistinguishable — and an
+    // unknown transport failure says nothing about the next attempt. Both
+    // stay transient.
     for cause in &causes {
-        if let Some(provider) = cause.downcast_ref::<docling_convert::PdfConvertError>() {
-            match provider {
-                docling_convert::PdfConvertError::ValidationError { .. }
-                | docling_convert::PdfConvertError::EnvError { .. } => {
-                    return FailureClass::Deterministic;
-                }
-                docling_convert::PdfConvertError::ParseError { .. }
-                | docling_convert::PdfConvertError::ApiError { .. }
-                | docling_convert::PdfConvertError::OperationError { .. } => {
-                    return FailureClass::Transient;
-                }
-                // The wrapped I/O failure decides this variant.
-                docling_convert::PdfConvertError::IoError { .. } => break,
-            }
+        if let Some(provider) = cause.downcast_ref::<crate::docling::DoclingError>() {
+            return match provider {
+                crate::docling::DoclingError::Configuration { .. }
+                | crate::docling::DoclingError::Validation { .. }
+                | crate::docling::DoclingError::ResultTooLarge { .. }
+                | crate::docling::DoclingError::TaskFailed { .. }
+                | crate::docling::DoclingError::IdentityMismatch => FailureClass::Deterministic,
+                crate::docling::DoclingError::Http { status } => status_class(*status),
+                crate::docling::DoclingError::Transport { .. }
+                | crate::docling::DoclingError::Timeout
+                | crate::docling::DoclingError::Parse { .. } => FailureClass::Transient,
+            };
         }
     }
 
@@ -176,11 +175,6 @@ fn http_status(causes: &[&(dyn std::error::Error + 'static)]) -> Option<u16> {
             && let Some(status) = error.status()
         {
             return Some(status.as_u16());
-        }
-        if let Some(error) = cause.downcast_ref::<docling_convert::PdfConvertError>()
-            && let Some(status) = error.status_code()
-        {
-            return Some(status);
         }
     }
     None
@@ -351,35 +345,61 @@ mod tests {
     /// A provider failure follows its own variant.
     #[test]
     fn provider_failures_follow_their_variant() {
-        assert_deterministic(Error::from(
-            docling_convert::PdfConvertError::validation_error("file", "unsupported"),
-        ));
-        assert_deterministic(Error::from(docling_convert::PdfConvertError::env_error(
-            "DOCLING_URL",
-            "not set",
-        )));
-        assert_transient(Error::from(
-            docling_convert::PdfConvertError::operation_error("poll task", "unknown failure"),
-        ));
-        assert_transient(Error::from(docling_convert::PdfConvertError::api_error(
-            None,
-            "transport failed",
-        )));
+        assert_deterministic(Error::from(crate::docling::DoclingError::Validation {
+            parameter: "file".to_string(),
+            reason: "unsupported".to_string(),
+        }));
+        assert_deterministic(Error::from(crate::docling::DoclingError::Configuration {
+            message: "the docling endpoint is not configured".to_string(),
+        }));
+        assert_transient(Error::from(crate::docling::DoclingError::Transport {
+            message: "the docling request failed".to_string(),
+        }));
+        assert_transient(Error::from(crate::docling::DoclingError::Timeout));
+    }
+
+    /// A terminal remote failure never becomes valid on its own.
+    ///
+    /// The remote task reached `failure`, `skipped`, or `cancelled`, so the
+    /// item fails without an automatic retry instead of resubmitting a
+    /// document the remote already rejected.
+    #[test]
+    fn a_terminal_remote_failure_is_deterministic() {
+        assert_deterministic(Error::from(crate::docling::DoclingError::TaskFailed {
+            status: "failure".to_string(),
+            message: "the document could not be converted".to_string(),
+        }));
+        assert_deterministic(Error::from(crate::docling::DoclingError::TaskFailed {
+            status: "skipped".to_string(),
+            message: "the document was skipped".to_string(),
+        }));
+        assert_deterministic(Error::from(crate::docling::DoclingError::TaskFailed {
+            status: "cancelled".to_string(),
+            message: "the task was cancelled".to_string(),
+        }));
+    }
+
+    /// An oversized answer and a mismatched identity never fix themselves.
+    #[test]
+    fn an_oversized_answer_and_a_mismatched_identity_are_deterministic() {
+        assert_deterministic(Error::from(crate::docling::DoclingError::ResultTooLarge {
+            limit: 1024,
+        }));
+        assert_deterministic(Error::from(crate::docling::DoclingError::IdentityMismatch));
     }
 
     /// A parse error keeps its provenance erased, so it stays transient.
     ///
-    /// The installed client maps every unreadable response body to a parse
-    /// error: an interrupted body collection and an invalid answer arrive the
-    /// same way. Guessing that such a failure is permanent would stop a
-    /// submission that a later attempt can complete, so the ambiguous failure
-    /// keeps the transient default.
+    /// The client maps every unreadable response body to it, so an
+    /// interrupted body collection and an invalid answer arrive the same way.
+    /// Guessing that such a failure is permanent would stop a submission that
+    /// a later attempt can complete, so the ambiguous failure keeps the
+    /// transient default.
     #[test]
     fn a_parse_error_stays_transient() {
-        assert_transient(Error::from(docling_convert::PdfConvertError::parse_error(
-            "Docling async submission response",
-            "error decoding response body",
-        )));
+        assert_transient(Error::from(crate::docling::DoclingError::Parse {
+            message: "the task status response is not valid".to_string(),
+        }));
     }
 
     /// The explicit retry override wins over a hard domain variant.
@@ -396,12 +416,9 @@ mod tests {
     fn a_hard_domain_variant_wins_over_a_nested_transient_status() {
         // The request itself is wrong, so the failure stays deterministic even
         // though the chain carries a temporary provider status.
-        let error: Error = Error::from(docling_convert::PdfConvertError::api_error(
-            Some(503),
-            "provider failed temporarily",
-        ))
-        .context("docling submit")
-        .context(DomainError::payload_too_large("remote_file_too_large"));
+        let error: Error = Error::from(crate::docling::DoclingError::Http { status: 503 })
+            .context("docling submit")
+            .context(DomainError::payload_too_large("remote_file_too_large"));
         assert_deterministic(error);
     }
 
@@ -409,17 +426,11 @@ mod tests {
     #[test]
     fn provider_statuses_follow_the_status_matrix() {
         for status in [400u16, 401, 403, 404, 413, 422] {
-            let error = Error::from(docling_convert::PdfConvertError::api_error(
-                Some(status),
-                "provider refused the request",
-            ));
+            let error = Error::from(crate::docling::DoclingError::Http { status });
             assert_deterministic(error);
         }
         for status in [408u16, 409, 425, 429, 500, 503] {
-            let error = Error::from(docling_convert::PdfConvertError::api_error(
-                Some(status),
-                "provider failed temporarily",
-            ));
+            let error = Error::from(crate::docling::DoclingError::Http { status });
             assert_transient(error);
         }
     }
@@ -428,18 +439,12 @@ mod tests {
     /// decision.
     #[test]
     fn a_nested_provider_cause_keeps_its_status_decision() {
-        let refused: Error = Error::from(docling_convert::PdfConvertError::api_error(
-            Some(404),
-            "provider refused the request",
-        ))
-        .context("docling submit");
+        let refused: Error = Error::from(crate::docling::DoclingError::Http { status: 404 })
+            .context("docling submit");
         assert_deterministic(refused);
 
-        let temporary: Error = Error::from(docling_convert::PdfConvertError::api_error(
-            Some(503),
-            "provider failed temporarily",
-        ))
-        .context("docling submit");
+        let temporary: Error = Error::from(crate::docling::DoclingError::Http { status: 503 })
+            .context("docling submit");
         assert_transient(temporary);
     }
 }
