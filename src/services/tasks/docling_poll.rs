@@ -6,6 +6,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::{Database, StoredDoclingRemoteJob};
+use crate::domain_errors::DomainError;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
 use super::docling_finalize::payload_with_sections;
@@ -307,11 +308,14 @@ pub(super) async fn run_docling_stage_blocking(
             }
         };
         let payload = payload_with_sections(owned.payload, sections.clone());
+        let execution = item.execution_context().ok_or_else(|| {
+            anyhow::Error::from(DomainError::conflict("task item has no captured execution"))
+        })?;
         match db
             .finish_docling_remote_job_with_sections(
                 job.id,
                 item.id,
-                item.lease_token,
+                &execution,
                 &payload,
                 &status_name,
             )
@@ -472,6 +476,7 @@ mod tests {
     #[ignore = "requires configured reusable PostgreSQL"]
     async fn blocking_success_updates_the_worker_snapshot() {
         let db = test_db().await;
+        let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
         let (user_id, task_id, mut item, file_id) = seed_running_item(&db).await;
         let job = db
             .create_docling_remote_job(
@@ -512,9 +517,13 @@ mod tests {
     async fn test_db() -> crate::db::Database {
         let url = context69_test_support::accessor::database_url();
 
-        crate::db::Database::connect(&url)
+        let db = crate::db::Database::connect(&url)
             .await
-            .expect("connect test database")
+            .expect("connect test database");
+        context69_db_schema::bootstrap_library_schema(db.pool())
+            .await
+            .expect("bootstrap the library schema");
+        db
     }
 
     /// Seeds a running item under a lease and returns the snapshot the worker
@@ -556,33 +565,17 @@ mod tests {
             .await
             .expect("create task");
         let item_id = items[0];
-        let lease = uuid::Uuid::new_v4();
         let file_id = uuid::Uuid::new_v4();
-        sqlx::query(
-            "UPDATE context69.task_items SET status = 'running', lease_token = $2, \
-             lease_until = now() + interval '5 minutes', attempt_count = 1 WHERE id = $1",
-        )
-        .bind(item_id)
-        .bind(lease)
-        .execute(db.pool())
-        .await
-        .expect("claim-like setup");
-        let item = crate::db::ClaimedItem {
-            id: item_id,
-            task_id,
-            ordinal: 0,
-            attempt_count: 1,
-            lease_token: lease,
-            attempt_id: 1,
-            payload: json!({"external_id": "a"}),
-            file_id: None,
-            stage: Some("processing".to_string()),
-            input_storage_object_id: None,
-            kind: "text_batch".to_string(),
-            group_id: None,
-            group_path: Some("test/docling-stage".to_string()),
-            source_key: None,
-        };
+        // The item is claimed through the library, so the stage runs against the
+        // very attempt the claim holds.
+        let claimed = db
+            .claim_items_fast(10)
+            .await
+            .expect("claim the item")
+            .into_iter()
+            .find(|item| item.id == item_id)
+            .expect("the item is claimed");
+        let item = claimed;
         (user_id, task_id, item, file_id)
     }
 

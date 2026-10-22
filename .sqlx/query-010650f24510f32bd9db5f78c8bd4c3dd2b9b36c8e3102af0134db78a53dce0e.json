@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The documents of one library file, deleted inside the guarded write of a\n-- running task item (issue 1020 P3B).\n--\n-- The delete runs on the connection of the guarded transaction, so the\n-- documents and the grant that authorized the cleanup commit together and a\n-- worker that lost its segment removes nothing.\nDELETE FROM context69.documents\nWHERE metadata_json->>'library_file_id' = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "010650f24510f32bd9db5f78c8bd4c3dd2b9b36c8e3102af0134db78a53dce0e"
+}

@@ -3,6 +3,8 @@ use db_init::{DbInitOptions, connect_pool, run_migrations};
 use sqlx::PgPool;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
 use std::str::FromStr;
+use std::sync::Arc;
+use tokio::sync::OnceCell;
 use uuid::Uuid;
 
 use crate::contracts::{SearchMode, SyncOutcome};
@@ -56,10 +58,11 @@ pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,
     ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow, DoclingRecoverySummary,
-    FinishTaskItemRequest, RemainingArtifactReferences, RestoreTaskItemArtifactInlineRequest,
-    StoredDoclingRemoteJob, StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow,
-    TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef, TaskItemArtifactRow,
-    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
+    ExecutionContext, FinishTaskItemRequest, RemainingArtifactReferences,
+    RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
+    StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
+    TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,
+    WaitTaskItemRequest,
 };
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
@@ -74,6 +77,10 @@ pub struct Database {
     /// retirement migration may run. A database in this state has deliberately
     /// not been migrated.
     pending_upgrade: Option<UpgradeGuardCounts>,
+    /// The library-backed execution queue of the item execution. It is opened
+    /// on first use and shared by every clone of this handle, so the queue of
+    /// one process is opened once.
+    execution: Arc<OnceCell<cloudiful_tasks::Queue>>,
 }
 
 #[derive(Debug, Clone)]
@@ -282,7 +289,30 @@ impl Database {
         Ok(Self {
             pool,
             pending_upgrade,
+            execution: Arc::new(OnceCell::new()),
         })
+    }
+
+    /// The library-backed execution queue of the item execution.
+    ///
+    /// The queue is opened once per database handle. Opening it never creates
+    /// the schema of the library: a database whose schema is not owned by the
+    /// library is refused when the queue is opened, and the operator creates
+    /// that schema with the explicit bootstrap of the database schema crate.
+    pub async fn execution_queue(&self) -> Result<&cloudiful_tasks::Queue> {
+        let queue = self
+            .execution
+            .get_or_try_init(|| async {
+                cloudiful_tasks::Queue::open(
+                    self.pool.clone(),
+                    tasks::execution::EXECUTION_NAMESPACE,
+                    tasks::execution::EXECUTION_QUEUE,
+                    &tasks::execution::execution_config(),
+                )
+                .await
+            })
+            .await?;
+        Ok(queue)
     }
 
     /// Whether this database is waiting for recovery before its migration may
@@ -306,6 +336,7 @@ impl Database {
         Ok(Self {
             pool,
             pending_upgrade: None,
+            execution: Arc::new(OnceCell::new()),
         })
     }
 
@@ -330,6 +361,7 @@ impl Database {
         Ok(Self {
             pool,
             pending_upgrade: None,
+            execution: Arc::new(OnceCell::new()),
         })
     }
 

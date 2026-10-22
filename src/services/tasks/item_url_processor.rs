@@ -47,11 +47,14 @@ pub(super) async fn process_url(
             "media_type": materialized.media_type,
             "sha256": materialized.sha256,
         });
+        let execution = item.execution_context().ok_or_else(|| {
+            anyhow::Error::from(DomainError::conflict("task item has no captured execution"))
+        })?;
         if !service
             .db()
             .set_task_item_input_storage_object(
                 item.id,
-                item.lease_token,
+                &execution,
                 materialized.object_id,
                 &payload,
             )
@@ -283,6 +286,11 @@ mod tests {
             group_id: Some(1),
             group_path: None,
             source_key: None,
+            // The fake was never claimed through the library, so it carries no
+            // captured execution and may not write through a fenced method.
+            execution: None,
+            execution_task_id: None,
+            execution_generation: 0,
         }
     }
 

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, failed_count FROM context69.tasks WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "failed_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "failed_count"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "0255e9a5e7bfa248189f3749df8ccc7838a9f7c035083f144b26e211ce7eacbc"
+}

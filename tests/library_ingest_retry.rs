@@ -236,9 +236,13 @@ mod integration {
     async fn connect_db() -> Database {
         let url = context69_test_support::accessor::database_url();
 
-        Database::connect(&url)
+        let db = Database::connect(&url)
             .await
-            .expect("connect test database")
+            .expect("connect test database");
+        context69_db_schema::bootstrap_library_schema(db.pool())
+            .await
+            .expect("bootstrap the library schema");
+        db
     }
     static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 

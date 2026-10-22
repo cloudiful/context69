@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_attempts SET status = 'interrupted', finished_at = now() WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "76f65443c049e7c524d6958aec1b86ef567263b4d4715827ec54819d893bdbfb"
+}

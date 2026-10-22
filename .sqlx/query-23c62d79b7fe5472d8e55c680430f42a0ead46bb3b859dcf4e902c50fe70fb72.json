@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.task_attempts (task_id, item_id, attempt, status)\n         VALUES ($1, $2, 1, 'running') RETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "23c62d79b7fe5472d8e55c680430f42a0ead46bb3b859dcf4e902c50fe70fb72"
+}

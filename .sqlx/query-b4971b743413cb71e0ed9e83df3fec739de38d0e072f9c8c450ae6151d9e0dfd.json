@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.document_chunks WHERE document_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4971b743413cb71e0ed9e83df3fec739de38d0e072f9c8c450ae6151d9e0dfd"
+}

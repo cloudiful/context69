@@ -82,11 +82,13 @@ invented. A `sections` field must parse as the existing ingest-section array and
 keeps the rest of the payload untouched.
 
 The restore statement locks the parent task before the item, rechecks the
-terminal item and parent, the absent lease, the group, the exact reference
-identity and the missing field, then writes the field and deletes exactly that
-reference in one statement. A new claim, a changed reference, a group change or
-an inline value that appeared in the meantime yields no mutation and a reported
-skip. Restored bytes are never overwritten.
+terminal item and parent, the absent mirror lease, the group, the exact
+reference identity and the missing field, then writes the field and deletes
+exactly that reference in one statement. The execution lease belongs to the
+item's library segment and the domain row only mirrors it, so the two lease
+columns being empty is what makes the item unclaimed. A new claim, a changed
+reference, a group change or an inline value that appeared in the meantime
+yields no mutation and a reported skip. Restored bytes are never overwritten.
 
 Restoring inline data grows PostgreSQL. The report counts restored encoded
 bytes, and the byte caps and the total budget are checked before allocating the

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT execution_task_id, execution_generation FROM context69.task_items WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      false
+    ]
+  },
+  "hash": "e084216daa54f577eeadb81a682bb4588e2a985f60cdb74a2641d6a05cc432fc"
+}

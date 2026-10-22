@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.group_memberships (group_id, user_id, role) VALUES ($1, $2, 'owner')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "61049636e0a025d72507b143f263b6213aabc62c825a17b1ffe1c38ef9a830c6"
+}

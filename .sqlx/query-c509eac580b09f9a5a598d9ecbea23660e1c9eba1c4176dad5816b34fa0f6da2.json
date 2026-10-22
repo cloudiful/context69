@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT remote_task_id, endpoint_base_url, reason FROM context69.task_docling_remote_cleanup WHERE remote_job_id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "endpoint_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "endpoint_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_cleanup",
+            "name": "reason"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "c509eac580b09f9a5a598d9ecbea23660e1c9eba1c4176dad5816b34fa0f6da2"
+}

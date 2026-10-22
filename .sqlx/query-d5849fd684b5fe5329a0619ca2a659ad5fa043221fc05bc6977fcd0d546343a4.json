@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- A savepoint around the chunk insert of one guarded batch (issue 1020 P3C).\n--\n-- The chunk insert is idempotent under deterministic chunk ids, so a batch that\n-- an earlier partial ingest already wrote raises a duplicate key. The\n-- savepoint keeps that one statement from poisoning the guarded transaction,\n-- so the duplicate can be rolled back to the savepoint and the transaction can\n-- still commit the rest of the batch.\nSAVEPOINT task_chunk_insert\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d5849fd684b5fe5329a0619ca2a659ad5fa043221fc05bc6977fcd0d546343a4"
+}

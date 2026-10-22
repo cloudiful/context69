@@ -71,6 +71,9 @@ async fn claiming_an_item_moves_the_parent_counters_in_the_same_transaction() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(
         &db,
@@ -130,7 +133,9 @@ async fn claiming_an_item_moves_the_parent_counters_in_the_same_transaction() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: claimed.lease_token,
+            execution: claimed
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: claimed.attempt_id,
         })
         .await
@@ -157,6 +162,9 @@ async fn head_of_line_waiting_drives_the_parent_and_blocks_later_items() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(
         &db,
@@ -178,7 +186,9 @@ async fn head_of_line_waiting_drives_the_parent_and_blocks_later_items() {
         db.wait_task_item(WaitTaskItemRequest {
             task_id,
             item_id: item_ids[0],
-            lease_token: first.lease_token,
+            execution: first
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             waiting_reason: "backoff",
             dependency_key: Some("s3"),
             next_attempt_at,
@@ -229,6 +239,9 @@ async fn maintenance_releases_a_parent_slot_no_claim_can_serve() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(
         &db,
@@ -286,6 +299,9 @@ async fn maintenance_keeps_a_parent_slot_for_a_scheduled_retry() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) =
         seed_task(&db, user_id, &[json!({"external_id": "keep"})], "keep-slot").await;
@@ -332,6 +348,9 @@ async fn a_new_git_index_task_starts_in_the_indexing_stage() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, _reused, _items) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {

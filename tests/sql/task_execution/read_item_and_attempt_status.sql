@@ -1,0 +1,1 @@
+SELECT item.status AS item_status, attempt.status AS attempt_status FROM context69.task_items item JOIN context69.task_attempts attempt ON attempt.item_id = item.id WHERE item.id = $1 AND attempt.id = $2

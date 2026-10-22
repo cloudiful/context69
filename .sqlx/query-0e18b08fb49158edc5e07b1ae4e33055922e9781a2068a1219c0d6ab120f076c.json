@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.task_items WHERE task_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0e18b08fb49158edc5e07b1ae4e33055922e9781a2068a1219c0d6ab120f076c"
+}

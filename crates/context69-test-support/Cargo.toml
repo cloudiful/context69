@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 context69-db-schema = { workspace = true }
+cloudiful-tasks.workspace = true
 dotenvy.workspace = true
 libc.workspace = true
 serde = { workspace = true, features = ["derive"] }

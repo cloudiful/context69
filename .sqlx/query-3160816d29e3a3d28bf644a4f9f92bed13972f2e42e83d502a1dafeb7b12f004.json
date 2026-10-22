@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.tasks SET status = 'waiting', next_attempt_at = now() - interval '1 minute' WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3160816d29e3a3d28bf644a4f9f92bed13972f2e42e83d502a1dafeb7b12f004"
+}

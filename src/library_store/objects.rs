@@ -294,11 +294,27 @@ impl LibraryStore {
     /// an object that any task input still stages, so a shared input keeps its
     /// 24-hour protection. Returns whether the lease was cleared.
     pub async fn promote_task_item_artifact_object(&self, object_id: Uuid) -> Result<bool> {
+        let mut connection = self.db.pool().acquire().await?;
+        self.promote_task_item_artifact_object_in(&mut connection, object_id)
+            .await
+    }
+
+    /// Drops the staging lease of a task artifact object on a borrowed
+    /// connection.
+    ///
+    /// A task-owned promotion runs on the connection of its fenced write
+    /// transaction, so the reference and the staging-lease drop commit
+    /// together.
+    pub async fn promote_task_item_artifact_object_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        object_id: Uuid,
+    ) -> Result<bool> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/library_store/objects/promote_task_item_artifact_object.sql",
             object_id
         )
-        .fetch_optional(self.db.pool())
+        .fetch_optional(connection)
         .await?
         .is_some())
     }

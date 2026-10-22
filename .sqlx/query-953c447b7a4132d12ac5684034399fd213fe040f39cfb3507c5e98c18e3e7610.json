@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT generation FROM context69.search_generations WHERE scope = 'global'\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_generations",
+            "name": "generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "953c447b7a4132d12ac5684034399fd213fe040f39cfb3507c5e98c18e3e7610"
+}

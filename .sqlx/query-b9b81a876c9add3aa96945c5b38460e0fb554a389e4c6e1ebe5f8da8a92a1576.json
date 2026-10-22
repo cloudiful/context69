@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT lease_token FROM context69.tasks WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "lease_token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "b9b81a876c9add3aa96945c5b38460e0fb554a389e4c6e1ebe5f8da8a92a1576"
+}

@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The candidate row of one adoption (issue 1020 P4A).\n--\n-- Only an item the engine has not started is a candidate: a queued or waiting\n-- item. The row is locked by `lock_items.sql` before this read, so the status\n-- cannot change under the handover. A running or terminal item is not a\n-- candidate at all, and an item that already carries a segment is reported as\n-- such so a repeated adoption is a no-op instead of a second segment.\nSELECT task_id,\n       execution_task_id\nFROM context69.task_items\nWHERE id = $1\n  AND status IN ('queued', 'waiting')\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "a2282fb006266dfdf3d767dd8f5c903bc20cea29b84153260e53e92d99498d41"
+}

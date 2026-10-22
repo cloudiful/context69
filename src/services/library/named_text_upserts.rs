@@ -1,13 +1,34 @@
 use super::*;
 use crate::domain_errors::DomainError;
 
+/// Who authorizes the write of a named text file.
+///
+/// An operator request writes the file row directly. A task item writes it
+/// inside the guarded transaction of its captured grant, so a worker that lost
+/// its segment changes nothing.
+#[derive(Debug, Clone, Copy)]
+enum NamedTextWrite {
+    Operator,
+    Fenced(crate::library_store::TaskWriteFence),
+}
+
+impl NamedTextWrite {
+    /// The lease that guards the staging writes of the file.
+    fn lease_token(self) -> Option<Uuid> {
+        match self {
+            Self::Operator => None,
+            Self::Fenced(fence) => Some(fence.token()),
+        }
+    }
+}
+
 impl LibraryService {
     pub(crate) async fn upsert_named_text_file_in_project(
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertNamedTextFileRequest,
     ) -> Result<LibraryFileSummary> {
-        self.upsert_named_text_file_in_project_inner(project, request, None)
+        self.upsert_named_text_file_in_project_inner(project, request, NamedTextWrite::Operator)
             .await
     }
 
@@ -15,8 +36,9 @@ impl LibraryService {
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertNamedTextFileRequest,
-        lease_token: Option<Uuid>,
+        write: NamedTextWrite,
     ) -> Result<LibraryFileSummary> {
+        let lease_token = write.lease_token();
         let external_id = request.external_id.trim();
         if external_id.is_empty() {
             return Err(DomainError::invalid_argument("external_id must not be empty").into());
@@ -95,61 +117,105 @@ impl LibraryService {
             lease_token,
         };
 
+        let file_update = crate::library_store::UpdateLibraryFileContent {
+            folder_id: request.folder_id,
+            external_id: Some(external_id.to_string()),
+            filename: filename.to_string(),
+            media_type: request.media_type.clone(),
+            size_bytes: bytes.len() as i64,
+            sha256: sha256.clone(),
+            storage_rel_path: storage_rel_path.clone(),
+            storage_object_id: Some(object.id),
+        };
         if let Some(existing_file) = existing.as_ref() {
-            let update_result = self
-                .store
-                .update_file_content_in_project(
-                    project.id,
-                    existing_file.id,
-                    &crate::library_store::UpdateLibraryFileContent {
-                        folder_id: request.folder_id,
-                        external_id: Some(external_id.to_string()),
-                        filename: filename.to_string(),
-                        media_type: request.media_type.clone(),
-                        size_bytes: bytes.len() as i64,
-                        sha256: sha256.clone(),
-                        storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: Some(object.id),
-                    },
-                )
-                .await;
-            match update_result {
-                Ok(Some(_)) => {}
-                Ok(None) => {
-                    self.rollback_project_file_change(rollback_request).await;
-                    return Err(DomainError::not_found(format!(
-                        "unknown file {}",
+            // The file row is written inside the guarded transaction of the
+            // captured grant, so a worker that lost its segment cannot replace
+            // the content of a file it no longer owns.
+            let updated = match write {
+                NamedTextWrite::Operator => self
+                    .store
+                    .update_file_content_in_project(project.id, existing_file.id, &file_update)
+                    .await
+                    .map(|record| record.is_some())?,
+                NamedTextWrite::Fenced(fence) => self
+                    .store
+                    .update_file_content_in_project_fenced(
+                        fence,
+                        project.id,
+                        existing_file.id,
+                        &file_update,
+                    )
+                    .await?
+                    .is_some(),
+            };
+            if !updated {
+                match write {
+                    NamedTextWrite::Fenced(fence) => {
+                        // The compensation of a task runs under the original
+                        // grant and refuses when the grant is gone; the pooled
+                        // rollback is never reached from a task.
+                        self.rollback_project_file_change_for_task(fence, rollback_request)
+                            .await;
+                    }
+                    NamedTextWrite::Operator => {
+                        self.rollback_project_file_change(rollback_request).await;
+                    }
+                }
+                return Err(match write {
+                    NamedTextWrite::Fenced(_) => DomainError::conflict(format!(
+                        "task item lease was lost while replacing file {}",
                         existing_file.id
                     ))
-                    .into());
-                }
-                Err(error) => {
-                    self.rollback_project_file_change(rollback_request).await;
-                    return Err(error);
-                }
+                    .into(),
+                    NamedTextWrite::Operator => {
+                        DomainError::not_found(format!("unknown file {}", existing_file.id)).into()
+                    }
+                });
             }
         } else {
-            let create_result = self
-                .store
-                .create_file_in_project(
-                    project.id,
-                    &NewLibraryFile {
-                        id: file_id,
-                        folder_id: request.folder_id,
-                        external_id: Some(external_id.to_string()),
-                        filename: filename.to_string(),
-                        media_type: request.media_type.clone(),
-                        size_bytes: bytes.len() as i64,
-                        sha256: sha256.clone(),
-                        storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: Some(object.id),
-                        delete_source_after_processing: false,
-                    },
-                )
-                .await;
-            if let Err(error) = create_result {
-                self.rollback_project_file_change(rollback_request).await;
-                return Err(error);
+            let new_file = NewLibraryFile {
+                id: file_id,
+                folder_id: request.folder_id,
+                external_id: Some(external_id.to_string()),
+                filename: filename.to_string(),
+                media_type: request.media_type.clone(),
+                size_bytes: bytes.len() as i64,
+                sha256: sha256.clone(),
+                storage_rel_path: storage_rel_path.clone(),
+                storage_object_id: Some(object.id),
+                delete_source_after_processing: false,
+            };
+            let created = match write {
+                NamedTextWrite::Operator => self
+                    .store
+                    .create_file_in_project(project.id, &new_file)
+                    .await
+                    .map(|_record| true)?,
+                NamedTextWrite::Fenced(fence) => self
+                    .store
+                    .create_file_in_project_fenced(fence, project.id, &new_file)
+                    .await?
+                    .is_some(),
+            };
+            if !created {
+                match write {
+                    NamedTextWrite::Fenced(fence) => {
+                        self.rollback_project_file_change_for_task(fence, rollback_request)
+                            .await;
+                    }
+                    NamedTextWrite::Operator => {
+                        self.rollback_project_file_change(rollback_request).await;
+                    }
+                }
+                return Err(match write {
+                    NamedTextWrite::Fenced(_) => {
+                        DomainError::conflict("task item lease was lost while creating the file")
+                            .into()
+                    }
+                    NamedTextWrite::Operator => {
+                        DomainError::not_found(format!("unknown file {file_id}")).into()
+                    }
+                });
             }
         }
         if let Err(error) = serde_json::to_value(vec![IngestSection {
@@ -163,7 +229,18 @@ impl LibraryService {
             published_at: None,
             metadata_json: json!({}),
         }]) {
-            self.rollback_project_file_change(rollback_request).await;
+            // The staging failed before the payload was built, so the grant can
+            // still be valid here: the compensation restores the previous
+            // snapshot and the counter together, and refuses when it is not.
+            match write {
+                NamedTextWrite::Fenced(fence) => {
+                    self.rollback_project_file_change_for_task(fence, rollback_request)
+                        .await;
+                }
+                NamedTextWrite::Operator => {
+                    self.rollback_project_file_change(rollback_request).await;
+                }
+            }
             return Err(error.into());
         }
         if let Some(previous_file) = previous_file.as_ref() {
@@ -214,14 +291,22 @@ impl LibraryService {
         Ok(file_to_summary(&file))
     }
 
+    /// Upsert a named text file under the captured grant of a running item.
+    ///
+    /// The storage object is staged before the write, and the file row itself
+    /// is written inside the guarded transaction of the grant.
     pub(crate) async fn upsert_named_text_file_for_task(
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertNamedTextFileRequest,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<(LibraryFileSummary, Value)> {
         let summary = self
-            .upsert_named_text_file_in_project_inner(project, request, Some(lease_token))
+            .upsert_named_text_file_in_project_inner(
+                project,
+                request,
+                NamedTextWrite::Fenced(fence),
+            )
             .await?;
         let section_payload = serde_json::to_value(vec![IngestSection {
             section_key: "document".to_string(),

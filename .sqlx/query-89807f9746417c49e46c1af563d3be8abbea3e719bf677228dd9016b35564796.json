@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Unlinked non-terminal task items (issue 1020 P4A).\n--\n-- An item that the library does not execute yet, and that is neither terminal\n-- nor linked to an execution segment, is work the pre-cutover engine may still\n-- own. The startup latch counts them: while any exists, the task engine must\n-- not start, because starting would run a second execution authority beside the\n-- abandoned rows.\nSELECT count(*) AS \"count!\"\nFROM context69.task_items item\nWHERE item.execution_task_id IS NULL\n  AND item.status IN ('queued', 'waiting', 'running')\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "89807f9746417c49e46c1af563d3be8abbea3e719bf677228dd9016b35564796"
+}

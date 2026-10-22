@@ -42,29 +42,67 @@ fn is_docling_park(row: &DoclingRecoveryRow) -> bool {
 }
 
 impl Database {
-    /// Atomically commits one inline success: marks the remote job
-    /// `succeeded` and persists the fetched sections into its running item's
-    /// payload in a single statement. Returns `Some(item_id)` on commit and
-    /// `None` when either fence fails (row already terminal, or the item
-    /// moved/lost its lease) with no partial write.
+    /// Commits one inline Docling success inside the guarded write of the item.
+    ///
+    /// The library attempt is locked first (a renewal, the same order the
+    /// heartbeat takes), the item mirror takes the returned deadline, and then
+    /// the remote job and the fetched sections are written on the same
+    /// transaction. A false fence - an expired lease, a cancelled item or a
+    /// superseded generation - rolls every one of those writes back, so no
+    /// produced output is ever committed by a worker that lost its authority.
     pub async fn finish_docling_remote_job_with_sections(
         &self,
         job_id: Uuid,
         item_id: Uuid,
-        item_lease: Uuid,
+        execution: &crate::db::ExecutionContext,
         sections_payload: &Value,
         remote_status: &str,
     ) -> Result<Option<Uuid>> {
-        Ok(sqlx::query_file_scalar!(
+        let mut transaction = self.pool().begin().await?;
+        let queue = self.execution_queue().await?;
+        let lease_until = match queue.renew_in(&mut transaction, &execution.attempt).await {
+            Ok(lease_until) => lease_until,
+            Err(cloudiful_tasks::Error::LeaseLost { .. })
+            | Err(cloudiful_tasks::Error::InvalidTaskState { .. }) => {
+                transaction.rollback().await.ok();
+                return Ok(None);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let still_owned = sqlx::query_file!(
+            "src/sql/db/tasks/heartbeat_item.sql",
+            item_id,
+            execution.fencing_token(),
+            lease_until,
+            execution.task_id(),
+            execution.generation
+        )
+        .execute(&mut *transaction)
+        .await?
+        .rows_affected()
+            > 0;
+        if !still_owned {
+            transaction.rollback().await.ok();
+            return Ok(None);
+        }
+        let committed = sqlx::query_file_scalar!(
             "src/sql/db/tasks/docling_remote_jobs/finish_with_sections.sql",
             job_id,
             item_id,
             sections_payload,
             remote_status,
-            item_lease,
+            execution.fencing_token(),
+            execution.task_id(),
+            execution.generation,
         )
-        .fetch_optional(self.pool())
-        .await?)
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some(committed) = committed else {
+            transaction.rollback().await.ok();
+            return Ok(None);
+        };
+        transaction.commit().await?;
+        Ok(Some(committed))
     }
 
     /// Requeues one legacy parked Docling item with unchanged content so the

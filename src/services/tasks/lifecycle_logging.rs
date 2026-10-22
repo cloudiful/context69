@@ -257,6 +257,11 @@ mod tests {
             group_id: None,
             group_path: None,
             source_key: None,
+            // The fake was never claimed through the library, so it carries no
+            // captured execution and may not write through a fenced method.
+            execution: None,
+            execution_task_id: None,
+            execution_generation: 0,
         }
     }
 

@@ -3,7 +3,6 @@ use std::time::Duration;
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use context69_contracts::TaskKind;
-use uuid::Uuid;
 
 use super::TaskService;
 use super::item_processors::{ProcessResult, process_item_blocking};
@@ -76,7 +75,7 @@ pub(super) async fn drive_with_inline_waits(
             until = %until,
             "task item retryable wait stays inline keeping the admitted lease"
         );
-        if !sleep_keep_lease(service.db(), item.id, item.lease_token, until).await? {
+        if !sleep_keep_lease(service.db(), item, until).await? {
             break;
         }
         rounds_used += 1;
@@ -92,10 +91,14 @@ pub(super) async fn drive_with_inline_waits(
 /// new owner's state.
 pub(super) async fn sleep_keep_lease(
     db: &Database,
-    item_id: Uuid,
-    lease_token: Uuid,
+    item: &crate::db::ClaimedItem,
     until: DateTime<Utc>,
 ) -> Result<bool> {
+    // The renewal goes through the library, so the wait keeps the very lease
+    // the item was claimed with.
+    let Some(execution) = item.execution_context() else {
+        return Ok(false);
+    };
     while Utc::now() < until {
         let chunk = (until - Utc::now())
             .to_std()
@@ -105,7 +108,7 @@ pub(super) async fn sleep_keep_lease(
             break;
         }
         tokio::time::sleep(chunk).await;
-        if !db.heartbeat_task_item(item_id, lease_token).await? {
+        if !db.heartbeat_task_item(&execution).await? {
             return Ok(false);
         }
     }
@@ -195,12 +198,13 @@ mod tests {
     #[ignore = "requires configured reusable PostgreSQL"]
     async fn inline_sleep_keeps_a_live_lease_and_releases_nothing() {
         let db = test_db().await;
-        let (user_id, task_id, item_id, lease) = seed_running_item(&db).await;
+        let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
+        let (user_id, task_id, item) = seed_running_item(&db).await;
+        let item_id = item.id;
         let before: chrono::DateTime<Utc> = lease_until(&db, item_id).await;
-        let done =
-            super::sleep_keep_lease(&db, item_id, lease, Utc::now() + ChronoDuration::seconds(2))
-                .await
-                .expect("sleep");
+        let done = super::sleep_keep_lease(&db, &item, Utc::now() + ChronoDuration::seconds(2))
+            .await
+            .expect("sleep");
         assert!(done, "a live lease survives the inline wait");
         let after: chrono::DateTime<Utc> = lease_until(&db, item_id).await;
         assert!(after > before, "the inline wait must renew the item lease");
@@ -214,11 +218,11 @@ mod tests {
     #[ignore = "requires configured reusable PostgreSQL"]
     async fn inline_sleep_with_a_past_deadline_returns_immediately() {
         let db = test_db().await;
-        let (user_id, task_id, item_id, lease) = seed_running_item(&db).await;
-        let done =
-            super::sleep_keep_lease(&db, item_id, lease, Utc::now() - ChronoDuration::seconds(1))
-                .await
-                .expect("sleep");
+        let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
+        let (user_id, task_id, item) = seed_running_item(&db).await;
+        let done = super::sleep_keep_lease(&db, &item, Utc::now() - ChronoDuration::seconds(1))
+            .await
+            .expect("sleep");
         assert!(done);
         cleanup(&db, task_id, user_id).await;
     }
@@ -229,7 +233,9 @@ mod tests {
     #[ignore = "requires configured reusable PostgreSQL"]
     async fn inline_sleep_aborts_when_the_lease_is_gone() {
         let db = test_db().await;
-        let (user_id, task_id, item_id, lease) = seed_running_item(&db).await;
+        let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
+        let (user_id, task_id, item) = seed_running_item(&db).await;
+        let item_id = item.id;
         sqlx::query(
             "UPDATE context69.task_items SET status = 'cancelled', lease_token = NULL, \
              lease_until = NULL, finished_at = now(), updated_at = now() WHERE id = $1",
@@ -239,14 +245,9 @@ mod tests {
         .await
         .expect("cancel item");
         let started = std::time::Instant::now();
-        let done = super::sleep_keep_lease(
-            &db,
-            item_id,
-            lease,
-            Utc::now() + ChronoDuration::seconds(25),
-        )
-        .await
-        .expect("sleep");
+        let done = super::sleep_keep_lease(&db, &item, Utc::now() + ChronoDuration::seconds(25))
+            .await
+            .expect("sleep");
         assert!(!done, "a lost lease must abort the inline wait");
         assert!(
             started.elapsed() < std::time::Duration::from_secs(25),
@@ -258,14 +259,18 @@ mod tests {
     async fn test_db() -> crate::db::Database {
         let url = context69_test_support::accessor::database_url();
 
-        crate::db::Database::connect(&url)
+        let db = crate::db::Database::connect(&url)
             .await
-            .expect("connect test database")
+            .expect("connect test database");
+        context69_db_schema::bootstrap_library_schema(db.pool())
+            .await
+            .expect("bootstrap the library schema");
+        db
     }
 
     async fn seed_running_item(
         db: &crate::db::Database,
-    ) -> (i64, uuid::Uuid, uuid::Uuid, uuid::Uuid) {
+    ) -> (i64, uuid::Uuid, crate::db::ClaimedItem) {
         use serde_json::json;
         use sqlx::Row;
 
@@ -283,33 +288,28 @@ mod tests {
         .expect("seed user")
         .get("id");
         let task_id = uuid::Uuid::new_v4();
-        let (_, _, items) = db
-            .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
-                task_id,
-                user_id,
-                group_id: None,
-                kind: "text_batch",
-                group_path: Some("test/inline-waits"),
-                source_key: None,
-                payloads: &[json!({"external_id": "a"})],
-                input_storage_object_ids: None,
-                idempotency_key: None,
-                request_hash: &format!("inline-waits-{}", uuid::Uuid::new_v4()),
-            })
-            .await
-            .expect("create task");
-        let item_id = items[0];
-        let lease = uuid::Uuid::new_v4();
-        sqlx::query(
-            "UPDATE context69.task_items SET status = 'running', lease_token = $2, \
-             lease_until = now() + interval '5 minutes', attempt_count = 1 WHERE id = $1",
-        )
-        .bind(item_id)
-        .bind(lease)
-        .execute(db.pool())
+        db.create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/inline-waits"),
+            source_key: None,
+            payloads: &[json!({"external_id": "a"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("inline-waits-{}", uuid::Uuid::new_v4()),
+        })
         .await
-        .expect("claim-like setup");
-        (user_id, task_id, item_id, lease)
+        .expect("create task");
+        // The item is claimed through the library, so the wait renews the very
+        // lease the claim holds.
+        let claimed = db.claim_items_fast(10).await.expect("claim the item");
+        let item = claimed
+            .into_iter()
+            .find(|item| item.task_id == task_id)
+            .expect("the item is claimed");
+        (user_id, task_id, item)
     }
 
     async fn lease_until(db: &crate::db::Database, item_id: uuid::Uuid) -> chrono::DateTime<Utc> {

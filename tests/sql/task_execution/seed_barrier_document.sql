@@ -1,0 +1,1 @@
+INSERT INTO context69.documents (id, group_id, visibility, source_key, external_id, title, source_uri, updated_at_source, metadata_json, record_hash) VALUES (42, $1, 'public', 'file_library', 'p3c-barrier', 'p3c barrier', 'context69://library/files/p3c-barrier', now(), '{}'::jsonb, 'p3c-barrier-hash') RETURNING id

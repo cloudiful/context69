@@ -5,6 +5,7 @@ use crate::db::Database;
 use crate::db::task_file_dedup::{FileDedupDecision, declared_file_id, resolve_file_dedup};
 
 use super::INITIAL_ITEM_STAGE;
+use super::execution::FIRST_GENERATION;
 use super::types::{CreateTaskSubmissionRequest, StoredIdempotencyKey, StoredInputStorageObject};
 
 impl Database {
@@ -137,10 +138,19 @@ impl Database {
             .await?;
         }
         let mut item_ids = Vec::with_capacity(retained_indices.len());
+        let queue = self.execution_queue().await?;
         for (ordinal, index) in retained_indices.iter().enumerate() {
             let payload = &payloads[*index];
             let item_id = Uuid::new_v4();
             item_ids.push(item_id);
+            // The segment of the item is produced in the same transaction as the
+            // item, so a visible item always has the segment that runs it.
+            let segment = super::execution::produce_segment(
+                queue,
+                &mut tx,
+                super::execution::SegmentPayload::new(item_id, task_id, FIRST_GENERATION),
+            )
+            .await?;
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
                 item_id,
@@ -149,7 +159,9 @@ impl Database {
                 payload,
                 INITIAL_ITEM_STAGE,
                 declared_file_id(payload),
-                input_storage_object_ids[*index]
+                input_storage_object_ids[*index],
+                segment.as_uuid(),
+                FIRST_GENERATION
             )
             .execute(&mut *tx)
             .await?;
@@ -190,39 +202,5 @@ impl Database {
         }
         tx.commit().await?;
         Ok((task_id, false, item_ids))
-    }
-
-    pub async fn get_task_idempotency_key(
-        &self,
-        user_id: i64,
-        key: &str,
-    ) -> Result<Option<StoredIdempotencyKey>> {
-        Ok(sqlx::query_file_as!(
-            StoredIdempotencyKey,
-            "src/sql/db/tasks/idempotency_get.sql",
-            user_id,
-            key
-        )
-        .fetch_optional(self.pool())
-        .await?)
-    }
-
-    pub async fn put_task_idempotency_key(
-        &self,
-        user_id: i64,
-        key: &str,
-        request_hash: &str,
-        task_id: Uuid,
-    ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/tasks/idempotency_put.sql",
-            user_id,
-            key,
-            request_hash,
-            task_id
-        )
-        .execute(self.pool())
-        .await?;
-        Ok(())
     }
 }

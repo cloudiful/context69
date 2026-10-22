@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The domain projection of one sealed execution segment (issue 1020 P2).\n--\n-- The library sealed the segment of an expired attempt. The domain attempt is\n-- interrupted, the mirror of the lease is cleared, and the item is requeued\n-- right away under the remaining domain attempt budget - a crashed worker is\n-- not a provider failure, so it carries no backoff. The guard is the segment\n-- itself: the library task and the execution generation, so a sealed segment of\n-- an older generation never touches the item that replaced it.\n--\n-- `$1` is the item, `$2` the library task of the segment, `$3` the execution\n-- generation of the segment and `$4` the domain parent task the segment was\n-- produced for.\nWITH target AS (\n    SELECT item.id, item.task_id, item.attempt_count\n    FROM context69.task_items item\n    WHERE item.id = $1\n      AND item.execution_task_id = $2\n      AND item.execution_generation = $3\n      AND item.task_id = $4\n      AND item.status = 'running'\n    FOR UPDATE\n),\ninterrupted AS (\n    UPDATE context69.task_attempts attempt\n    SET status = 'interrupted',\n        failure_stage = 'lease',\n        error_message = 'worker lease expired before completion',\n        finished_at = now()\n    FROM target\n    WHERE attempt.item_id = target.id\n      AND attempt.finished_at IS NULL\n    RETURNING attempt.id\n),\nrequeued AS (\n    UPDATE context69.task_items item\n    SET status = CASE WHEN target.attempt_count < 5 THEN 'queued' ELSE 'failed' END,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        waiting_since = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        updated_at = now()\n    FROM target\n    WHERE item.id = target.id\n    RETURNING item.task_id\n),\nreleased_parent AS (\n    -- The worker of the crashed item is gone, so the slot the parent held is\n    -- released: the parent slot is a projection of the items that run.\n    UPDATE context69.tasks task\n    SET lease_token = NULL,\n        lease_until = NULL,\n        updated_at = now()\n    WHERE task.id = (SELECT task_id FROM requeued)\n      AND task.lease_token IS NOT NULL\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n      AND (\n          task.status IN ('queued', 'running')\n          OR (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())\n      )\n      AND NOT EXISTS (\n          SELECT 1\n          FROM context69.task_items item\n          WHERE item.task_id = task.id\n            AND item.status = 'running'\n            AND item.lease_until > clock_timestamp()\n      )\n    RETURNING task.id\n)\nSELECT task_id, (SELECT count(*) FROM released_parent) AS released_parent_leases\nFROM requeued\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "released_parent_leases",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null
+    ]
+  },
+  "hash": "9f3ff6c4f07dbc4636b3bd68c251d4497ff43006f7d886269997b9cc882beeb7"
+}

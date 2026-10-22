@@ -1,18 +1,18 @@
--- Finish one item and close its attempt as one unit.
+-- The terminal transition of one task item (issue 1020 P2).
 --
--- The statement reports `updated` from the item transition, never from the
--- `task_attempts` row count. An attempt is append-only forensics: maintenance
--- may have interrupted it, or the worker may hold a stale attempt id, and
--- neither changes the fact that the item reached a terminal status. Deciding
--- the parent recompute from the attempt rows instead made a successful finish
--- look like a lost lease and skipped the parent projection.
+-- The guard is the captured execution of the item: the fencing token of the
+-- library attempt, the library task, and the execution generation. The lease
+-- deadline is compared against the clock of the database, and the row lock of
+-- the update is taken before the comparison, so a worker that lost its lease
+-- while it waited for the lock cannot write.
+--
+-- `$1` is the item, `$2` the status, `$3` the resource, `$4` the failure
+-- stage, `$5` the error message, `$6` the retryable flag, `$7` the fencing
+-- token of the library attempt, `$8` the domain attempt, `$9` the library task
+-- and `$10` the execution generation.
 WITH finished AS (
     UPDATE context69.task_items
     SET status = $2,
-        -- The collapsed worker finishes an item at the end of its inline
-        -- pipeline, so a succeeded item lands on the terminal `finalize` stage.
-        -- A failed item keeps the `processing` stage and reports the precise
-        -- `failure_stage` instead.
         stage = CASE WHEN $2 = 'succeeded' THEN 'finalize' ELSE stage END,
         resource_id = $3,
         failure_stage = $4,
@@ -26,9 +26,15 @@ WITH finished AS (
         lease_until = NULL,
         finished_at = now(),
         updated_at = now()
-    WHERE id = $1 AND lease_token = $7 AND status = 'running'
+    WHERE id = $1
+      AND lease_token = $7
+      AND status = 'running'
+      AND lease_until > clock_timestamp()
+      AND execution_task_id = $9
+      AND execution_generation = $10
     RETURNING id
-), attempt_finished AS (
+),
+attempt_finished AS (
     UPDATE context69.task_attempts
     SET status = $2,
         retryable = $6,

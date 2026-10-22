@@ -1,14 +1,13 @@
 //! Lease-conditional publication of one pipeline progress record.
 //!
 //! Progress moves while a batch is still embedding, which the indexing
-//! checkpoint deliberately refuses to record, so it needs its own write. It
-//! reuses the same `set_task_item_payload` primitive — gated by
-//! `lease_token` + `status='running'` — so a worker that lost its lease, or
-//! never held it, cannot publish progress into someone else's item, and the
+//! checkpoint deliberately refuses to record, so it needs its own write. The
+//! write is the item payload primitive under the captured grant of the running
+//! item, so a worker that lost its lease - or whose segment was superseded by a
+//! new generation - cannot publish progress into someone else's item, and the
 //! persisted stage column stays untouched.
 
 use serde_json::Value;
-use uuid::Uuid;
 
 use crate::services::library::UnifiedIngestError;
 
@@ -20,15 +19,13 @@ use super::task_ingest::task_failure;
 /// caller keeps publishing from the snapshot the database now holds.
 pub async fn write_pipeline_progress(
     db: &crate::db::Database,
-    item_id: Uuid,
-    lease_token: Uuid,
+    fence: crate::library_store::TaskWriteFence,
     current_payload: &Value,
     progress: &PipelineProgress,
 ) -> Result<Value, UnifiedIngestError> {
     let next_payload = payload_with_progress(current_payload, progress)
         .map_err(|error| task_failure("indexing", error, false))?;
-    let ok = db
-        .set_task_item_payload(item_id, lease_token, &next_payload)
+    let ok = crate::library_store::write_task_item_payload(db, fence, &next_payload)
         .await
         .map_err(|error| task_failure("indexing", error, true))?;
     if !ok {

@@ -75,6 +75,30 @@ impl Database {
         Ok(StoredSourceConnection::from(row))
     }
 
+    /// The registry row of one source connection, on a borrowed connection.
+    ///
+    /// A task-owned write saves the row on the connection of its guarded
+    /// transaction, so the registry row and the grant that authorized it commit
+    /// together. Sharing a registry row with another task does not authorize a
+    /// stale task to write it.
+    pub async fn save_source_connection_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        source: &NewSourceConnection,
+    ) -> Result<StoredSourceConnection> {
+        let row = sqlx::query_file_as!(
+            SourceConnectionRow,
+            "src/sql/db/source_connections/save_source_connection.sql",
+            source.connection_key,
+            source.name,
+            source.database_url_secret_key
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+
+        Ok(StoredSourceConnection::from(row))
+    }
+
     /// Removes the connection record, reporting whether one existed.
     ///
     /// Clearing the connection's sealed database URL is the caller's step and

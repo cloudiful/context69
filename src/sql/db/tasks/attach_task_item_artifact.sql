@@ -15,6 +15,10 @@
 -- conflicts with the cleanup worker's FOR UPDATE identity lock, so bytes can
 -- never be released between this attach and its reference commit. A retarget
 -- fires the P1 old-object release trigger; an unchanged object is a no-op.
+--
+-- The lease of the item fences the attach: the fencing token of the library
+-- attempt and the deadline of that lease, compared against the clock of the
+-- database.
 WITH attached_item AS (
     UPDATE context69.task_items AS item
     SET payload = CASE WHEN $7::text = 'download'
@@ -26,6 +30,7 @@ WITH attached_item AS (
     WHERE item.id = $1
       AND item.lease_token = $2
       AND item.status = 'running'
+      AND item.lease_until > clock_timestamp()
       AND task.id = item.task_id
       AND task.group_id IS NOT NULL
       AND EXISTS (

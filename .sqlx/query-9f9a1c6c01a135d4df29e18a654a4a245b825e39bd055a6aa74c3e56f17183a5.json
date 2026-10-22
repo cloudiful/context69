@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The database name the server actually reports (issue 1020 P4A).\n--\n-- The handover tool compares this with the name configured in the connection\n-- string and with --expect-database before it reads or writes anything, so a\n-- tool pointed at the wrong database is refused instead of acting on it.\nSELECT current_database() AS \"name!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "name!",
+        "type_info": "Name",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9f9a1c6c01a135d4df29e18a654a4a245b825e39bd055a6aa74c3e56f17183a5"
+}

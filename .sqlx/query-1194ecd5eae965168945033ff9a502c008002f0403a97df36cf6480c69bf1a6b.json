@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.library_storage_objects WHERE group_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1194ecd5eae965168945033ff9a502c008002f0403a97df36cf6480c69bf1a6b"
+}

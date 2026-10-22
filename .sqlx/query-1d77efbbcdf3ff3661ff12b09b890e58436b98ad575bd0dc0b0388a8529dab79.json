@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.task_idempotency_keys WHERE user_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1d77efbbcdf3ff3661ff12b09b890e58436b98ad575bd0dc0b0388a8529dab79"
+}

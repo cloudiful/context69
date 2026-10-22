@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The parked transition of one task item (issue 1020 P2).\n--\n-- The guard is the captured execution of the item, like the terminal\n-- transition: the fencing token of the library attempt, the library task and\n-- the execution generation, compared after the row lock was taken and against\n-- the clock of the database.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the waiting reason, `$4` the\n-- dependency key, `$5` the retry time, `$6` the error message, `$7` the\n-- library task and `$8` the execution generation.\nWITH waiting AS (\n    UPDATE context69.task_items\n    SET status = 'waiting',\n        waiting_reason = $3,\n        dependency_key = $4,\n        next_attempt_at = $5,\n        lease_token = NULL,\n        lease_until = NULL,\n        error_message = $6,\n        waiting_since = COALESCE(waiting_since, now()),\n        updated_at = now()\n    WHERE id = $1\n      AND lease_token = $2\n      AND status = 'running'\n      AND lease_until > clock_timestamp()\n      AND execution_task_id = $7\n      AND execution_generation = $8\n    RETURNING id\n),\nattempt_waited AS (\n    UPDATE context69.task_attempts\n    SET status = 'waiting',\n        error_message = $6,\n        finished_at = now()\n    WHERE item_id = $1\n      AND finished_at IS NULL\n      AND EXISTS (SELECT 1 FROM waiting)\n    RETURNING id\n)\nSELECT EXISTS (SELECT 1 FROM waiting) AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4d44d972b1a5e6b0a285b9824a807a047e911ed7e08f488b23cf09756a5d987b"
+}

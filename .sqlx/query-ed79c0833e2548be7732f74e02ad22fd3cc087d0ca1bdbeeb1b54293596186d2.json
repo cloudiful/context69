@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.group_memberships WHERE group_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ed79c0833e2548be7732f74e02ad22fd3cc087d0ca1bdbeeb1b54293596186d2"
+}

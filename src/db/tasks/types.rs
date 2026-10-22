@@ -1,7 +1,10 @@
 use chrono::{DateTime, Utc};
+use cloudiful_tasks::Attempt;
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
+
+use super::execution::ExecutionContext;
 
 /// Counts of rows each step of `maintain_claim_state` touched. Returned
 /// to the dispatcher so startup/recovery logs can surface exhausted or
@@ -111,6 +114,30 @@ pub struct ClaimedItem {
     pub group_id: Option<i64>,
     pub group_path: Option<String>,
     pub source_key: Option<String>,
+    /// The library attempt that holds the lease of this item.
+    ///
+    /// The field is never read from a row: it is the captured attempt of the
+    /// claim. A running item without it may not write through a fenced
+    /// lifecycle method, because a pre-claim row is not an authority.
+    #[sqlx(skip)]
+    pub execution: Option<Attempt>,
+    /// The library task that owns the current execution segment of the item.
+    pub execution_task_id: Option<Uuid>,
+    /// The execution generation the current segment of the item belongs to.
+    pub execution_generation: i64,
+}
+
+impl ClaimedItem {
+    /// The captured execution of the claimed item.
+    ///
+    /// `None` for a row that was never claimed through the library, which is
+    /// not an authority for a lifecycle transition.
+    #[must_use]
+    pub fn execution_context(&self) -> Option<ExecutionContext> {
+        self.execution.as_ref().map(|attempt| {
+            ExecutionContext::new(attempt.clone(), self.execution_generation, self.id)
+        })
+    }
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -287,7 +314,11 @@ pub struct TaskCountFilter<'a> {
 }
 
 /// Grouped arguments for finishing a task item.
-#[derive(Debug, Clone, Copy)]
+///
+/// The request carries the captured execution of the item. The captured attempt
+/// is the authority of the transition: the domain mirrors its fencing token and
+/// its generation, and the library seals the attempt in the same transaction.
+#[derive(Debug, Clone)]
 pub struct FinishTaskItemRequest<'a> {
     pub task_id: Uuid,
     pub item_id: Uuid,
@@ -296,16 +327,23 @@ pub struct FinishTaskItemRequest<'a> {
     pub failure_stage: Option<&'a str>,
     pub error_message: Option<&'a str>,
     pub retryable: bool,
-    pub lease_token: Uuid,
+    /// The captured execution of the item. A request without it is refused.
+    pub execution: ExecutionContext,
+    /// The domain attempt the finish closes.
     pub attempt_id: i64,
 }
 
 /// Grouped arguments for parking a task item as waiting.
-#[derive(Debug, Clone, Copy)]
+///
+/// The request carries the captured execution of the item, like the finish
+/// request: a parked item ends its library segment, so the segment and the
+/// domain transition commit together.
+#[derive(Debug, Clone)]
 pub struct WaitTaskItemRequest<'a> {
     pub task_id: Uuid,
     pub item_id: Uuid,
-    pub lease_token: Uuid,
+    /// The captured execution of the item. A request without it is refused.
+    pub execution: ExecutionContext,
     pub waiting_reason: &'a str,
     pub dependency_key: Option<&'a str>,
     pub next_attempt_at: DateTime<Utc>,
@@ -397,6 +435,11 @@ impl TaskItemArtifactRef {
 }
 
 /// Grouped arguments for the lease-fenced artifact attach.
+///
+/// The attach is fenced by the lease of the item: the fencing token of the
+/// library attempt and the deadline of that lease. The execution generation is
+/// not carried by every call site of this primitive, so the lease itself is
+/// what fences the write.
 #[derive(Debug, Clone, Copy)]
 pub struct AttachTaskItemArtifactRequest<'a> {
     pub item_id: Uuid,

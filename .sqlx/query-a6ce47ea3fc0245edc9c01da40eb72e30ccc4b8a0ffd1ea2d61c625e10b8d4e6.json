@@ -1,0 +1,127 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Read-only inventory of one page of unlinked non-terminal task items\n-- (issue 1020 P4A).\n--\n-- The page is bounded by the caller. Only execution metadata is selected: the\n-- status, the parent kind, the ordinal, the execution generation and link, the\n-- retry deadline and whether the item waits on the Docling dependency that\n-- admission still excludes. The item payload, the user identity and every\n-- resource name stay out of the tool.\nSELECT item.id AS item_id,\n       item.task_id,\n       item.status,\n       task.kind,\n       item.ordinal,\n       (task.deleted_at IS NOT NULL) AS \"parent_retired!\",\n       item.execution_generation,\n       item.execution_task_id,\n       item.next_attempt_at,\n       (item.status = 'waiting'\n        AND COALESCE(item.waiting_reason, '') = 'docling') AS \"docling_waiting!\"\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.execution_task_id IS NULL\n  AND item.status IN ('queued', 'waiting', 'running')\nORDER BY item.created_at, item.id\nLIMIT $1 OFFSET $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "ordinal",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "ordinal"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "parent_retired!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "next_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "docling_waiting!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      true,
+      true,
+      null
+    ]
+  },
+  "hash": "a6ce47ea3fc0245edc9c01da40eb72e30ccc4b8a0ffd1ea2d61c625e10b8d4e6"
+}

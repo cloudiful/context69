@@ -14,6 +14,9 @@ async fn permanent_delete_requires_a_trashed_task() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, _items) = create_task(&db, user_id, "delete").await;
     finish_task(&db, task_id, "cancelled").await;

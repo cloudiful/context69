@@ -22,6 +22,22 @@ impl Database {
         Ok(generation)
     }
 
+    /// The search generation, advanced on a borrowed connection.
+    ///
+    /// A task-owned increment runs on the connection of its guarded
+    /// transaction, so the counter and the authority that advanced it commit
+    /// together. The statement is the one the pooled accessor runs.
+    pub async fn bump_search_generation_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<i64> {
+        let generation =
+            sqlx::query_file_scalar!("src/sql/db/search_cache/bump_search_generation.sql")
+                .fetch_one(connection)
+                .await?;
+        Ok(generation)
+    }
+
     pub async fn list_rerank_item_scores(
         &self,
         rerank_model: &str,

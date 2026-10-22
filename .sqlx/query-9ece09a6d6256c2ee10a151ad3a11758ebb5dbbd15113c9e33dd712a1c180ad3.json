@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Atomic inline success commit for the blocking Docling stage (issue 650 P3).\n--\n-- Marks one active remote job `succeeded` and persists the fetched sections\n-- into its running item's payload in a single statement. Both writes are\n-- gated on the captured execution of the worker (the fencing token of the\n-- library attempt, the running status, the deadline of the lease and the\n-- current execution generation) via the `owned` guard, so a worker that lost\n-- its lease (task cancel, crash reclaim by another worker) changes nothing at\n-- all: the row stays active for the rightful owner and the payload is left\n-- alone. The remote write only transitions ('pending','running') rows, so a\n-- concurrent recovery cancel that already moved the row yields no row either.\nWITH owned AS (\n    SELECT item.id AS item_id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.lease_token = $5\n      AND item.status = 'running'\n      AND item.lease_until > clock_timestamp()\n      AND item.execution_task_id = $6\n      AND item.execution_generation = $7\n),\nfinished AS (\n    UPDATE context69.task_docling_remote_jobs AS job\n    SET status = 'succeeded',\n        remote_status = $4,\n        last_polled_at = now(),\n        finished_at = now(),\n        lease_token = NULL,\n        lease_until = NULL,\n        updated_at = now()\n    WHERE job.id = $1\n      AND job.status IN ('pending', 'running')\n      AND EXISTS (SELECT 1 FROM owned)\n    RETURNING job.id\n)\nUPDATE context69.task_items AS item\nSET payload = $3,\n    updated_at = now()\nFROM finished\nWHERE item.id = $2\n  AND item.lease_token = $5\n  AND item.status = 'running'\n  AND item.lease_until > clock_timestamp()\n  AND item.execution_task_id = $6\n  AND item.execution_generation = $7\nRETURNING item.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9ece09a6d6256c2ee10a151ad3a11758ebb5dbbd15113c9e33dd712a1c180ad3"
+}

@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The payload of one running task item, guarded by the captured grant (issue\n-- 1020 P3B).\n--\n-- The guard is the whole grant, not only its token: the fencing token of the\n-- library attempt, the running status, the deadline of the lease, the library\n-- task and the execution generation. A checkpoint of a superseded generation\n-- never overwrites the checkpoint of the generation that replaced it, and the\n-- deadline is compared against the clock of the database after the row lock.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the library task, `$4` the\n-- execution generation and `$5` the payload.\nUPDATE context69.task_items\nSET payload = $5,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n  AND execution_task_id = $3\n  AND execution_generation = $4\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fc4015804250d651c2aa8f2271d02764fd34dd4fe3d7528b834c60b02d2e3770"
+}

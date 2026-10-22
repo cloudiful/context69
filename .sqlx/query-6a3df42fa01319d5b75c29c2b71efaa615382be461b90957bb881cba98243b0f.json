@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Locks a bounded, explicitly named set of task items (issue 1020 P4A).\n--\n-- The ids arrive as one array, and the lock is taken in a deterministic order\n-- so two handover commands never deadlock against each other. The statement is\n-- run inside the handover transaction, after the admission lock, so the\n-- handover of one batch is serialized with every other handover.\nSELECT id\nFROM context69.task_items\nWHERE id = ANY($1)\nORDER BY id\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "6a3df42fa01319d5b75c29c2b71efaa615382be461b90957bb881cba98243b0f"
+}

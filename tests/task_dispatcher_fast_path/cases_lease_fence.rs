@@ -16,7 +16,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, seed_test_user};
 
 async fn seed_task(
     db: &Database,
@@ -109,6 +109,9 @@ async fn a_fenced_progress_does_not_close_the_attempt() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(
         &db,
@@ -124,36 +127,36 @@ async fn a_fenced_progress_does_not_close_the_attempt() {
     assert_eq!(open_status, "running");
     assert!(open_finished.is_none(), "the claim opened an attempt");
 
-    // The item lease is taken over by a new owner (what a reclaim does) while
-    // this worker's attempt is still open: the fenced worker still believes it
-    // owns `worker.attempt_id`.
-    sqlx::query("UPDATE context69.task_items SET lease_token = $2 WHERE id = $1")
-        .bind(worker.id)
-        .bind(Uuid::new_v4())
-        .execute(db.pool())
-        .await
-        .expect("rotate the item lease to a new owner");
+    // The item is taken over by a new owner (what a reclaim does) while this
+    // worker's attempt is open: the worker died, the authority expired, and the
+    // next claim opens the next generation.
+    crash_holder(&db, &worker).await;
+    let owner = claim_head(&db, task_id).await;
+    assert_ne!(owner.attempt_id, worker.attempt_id);
+    assert_ne!(
+        owner.execution_generation, worker.execution_generation,
+        "a takeover opens a fresh execution generation"
+    );
 
     let updated = db
-        .progress_task_item(task_id, worker.id, worker.lease_token, worker.attempt_id)
+        .progress_task_item(
+            task_id,
+            worker.id,
+            &worker
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+            worker.attempt_id,
+        )
         .await
         .expect("fenced progress");
-    assert!(!updated, "a stale lease token must not transition the item");
+    assert!(!updated, "a stale generation must not transition the item");
 
-    let (status, finished) = attempt(&db, worker.attempt_id).await;
-    assert!(
-        finished.is_none(),
-        "a fenced progress must not close the attempt, got status {status}"
+    let (status, _finished) = attempt(&db, worker.attempt_id).await;
+    assert_ne!(
+        status, "progressed",
+        "a fenced progress must not close the attempt"
     );
-    assert_eq!(status, open_status, "a fenced progress must not rewrite it");
 
-    // The live owner is untouched and can still finish normally.
-    let owner_token: Uuid =
-        sqlx::query_scalar("SELECT lease_token FROM context69.task_items WHERE id = $1")
-            .bind(worker.id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load current item lease");
     assert!(
         db.finish_task_item(FinishTaskItemRequest {
             task_id,
@@ -163,8 +166,10 @@ async fn a_fenced_progress_does_not_close_the_attempt() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: owner_token,
-            attempt_id: worker.attempt_id,
+            execution: owner
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+            attempt_id: owner.attempt_id,
         })
         .await
         .expect("finish item"),
@@ -184,6 +189,9 @@ async fn a_fenced_wait_does_not_close_the_attempt() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) =
         seed_task(&db, user_id, &[json!({"external_id": "a"})], "fence-wait").await;
@@ -201,7 +209,9 @@ async fn a_fenced_wait_does_not_close_the_attempt() {
         .wait_task_item(WaitTaskItemRequest {
             task_id,
             item_id: worker.id,
-            lease_token: worker.lease_token,
+            execution: worker
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             waiting_reason: "backoff",
             dependency_key: None,
             next_attempt_at: Utc::now(),
@@ -233,6 +243,9 @@ async fn a_reclaimed_running_item_is_counted_once_in_the_parent() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(
         &db,
@@ -253,14 +266,9 @@ async fn a_reclaimed_running_item_is_counted_once_in_the_parent() {
     assert_parent_matches_items(&db, task_id).await;
 
     // The worker died: its item lease expires, the parent slot is still held.
-    sqlx::query(
-        "UPDATE context69.task_items \
-         SET lease_until = now() - interval '1 minute' WHERE id = $1",
-    )
-    .bind(first.id)
-    .execute(db.pool())
-    .await
-    .expect("expire the item lease");
+    // The worker crashes: the authoritative library attempt and its domain
+    // mirror expire together.
+    crash_holder(&db, &first).await;
 
     let reclaimed = claim_head(&db, task_id).await;
     assert_eq!(reclaimed.id, item_ids[0], "the reclaim must be in place");

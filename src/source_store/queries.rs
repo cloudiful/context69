@@ -251,48 +251,95 @@ impl SourceStore {
         group_id: Option<i64>,
         source_key: &str,
     ) -> Result<bool> {
-        let exists = sqlx::query_file_scalar!(
-            "src/sql/source_store/source_exists_in_project.sql",
-            source_key,
-            group_id
-        )
-        .fetch_one(self.db.pool())
-        .await?;
+        let exists = self.source_exists_in_group(group_id, source_key).await?;
 
         if !exists {
             return Ok(false);
         }
 
         let mut tx = self.db.pool().begin().await?;
-        sqlx::query_file!(
-            "src/sql/source_store/delete_source_sync_runs.sql",
-            source_key,
-            group_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query_file!(
-            "src/sql/source_store/delete_source_checkpoints.sql",
-            source_key,
-            group_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query_file!(
-            "src/sql/source_store/delete_source_documents.sql",
-            source_key,
-            group_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        sqlx::query_file!(
-            "src/sql/source_store/delete_source_configs.sql",
-            source_key,
-            group_id
-        )
-        .execute(&mut *tx)
-        .await?;
+        delete_source_rows_on(&mut tx, group_id, source_key).await?;
         tx.commit().await?;
         Ok(true)
     }
+
+    /// Whether one group scope holds the source.
+    pub async fn source_exists_in_group(
+        &self,
+        group_id: Option<i64>,
+        source_key: &str,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/source_store/source_exists_in_project.sql",
+            source_key,
+            group_id
+        )
+        .fetch_one(self.db.pool())
+        .await?)
+    }
+
+    /// Removes the legacy source and everything it owns on a borrowed
+    /// connection.
+    ///
+    /// A task-owned delete runs the four statements in one guarded transaction
+    /// of its captured grant, so a worker that lost its segment removes nothing
+    /// and a partial failure leaves no half-deleted source.
+    pub async fn delete_source_in_group_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: Option<i64>,
+        source_key: &str,
+    ) -> Result<bool> {
+        let exists = sqlx::query_file_scalar!(
+            "src/sql/source_store/source_exists_in_project.sql",
+            source_key,
+            group_id
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+
+        if !exists {
+            return Ok(false);
+        }
+
+        delete_source_rows_on(connection, group_id, source_key).await?;
+        Ok(true)
+    }
+}
+
+/// The four statements that remove one legacy source and everything it owns.
+async fn delete_source_rows_on(
+    connection: &mut sqlx::PgConnection,
+    group_id: Option<i64>,
+    source_key: &str,
+) -> Result<()> {
+    sqlx::query_file!(
+        "src/sql/source_store/delete_source_sync_runs.sql",
+        source_key,
+        group_id
+    )
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query_file!(
+        "src/sql/source_store/delete_source_checkpoints.sql",
+        source_key,
+        group_id
+    )
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query_file!(
+        "src/sql/source_store/delete_source_documents.sql",
+        source_key,
+        group_id
+    )
+    .execute(&mut *connection)
+    .await?;
+    sqlx::query_file!(
+        "src/sql/source_store/delete_source_configs.sql",
+        source_key,
+        group_id
+    )
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
 }

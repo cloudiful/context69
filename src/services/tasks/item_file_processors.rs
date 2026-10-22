@@ -47,7 +47,11 @@ pub(super) async fn process_text(
         record_stage(service.db(), item, PipelineProgressStage::Parsing).await?;
         let (file, section_payload) = match service
             .library()
-            .upsert_text_file_for_task(group, &request, item.lease_token)
+            .upsert_text_file_for_task(
+                group,
+                &request,
+                crate::library_store::TaskWriteFence::from_claimed_item(item)?,
+            )
             .await
         {
             Ok(result) => result,
@@ -189,9 +193,12 @@ async fn detach_unused_remote(service: &TaskService, item: &crate::db::ClaimedIt
         .get_active_docling_remote_job_for_item(item.id)
         .await?
     {
+        let execution = item.execution_context().ok_or_else(|| {
+            anyhow::Error::from(DomainError::conflict("task item has no captured execution"))
+        })?;
         service
             .db()
-            .detach_unused_owned_docling_job(job.id, item.id, item.lease_token)
+            .detach_unused_owned_docling_job(job.id, item.id, &execution)
             .await?;
     }
     Ok(())
@@ -326,11 +333,10 @@ pub(super) async fn process_file_stage(
             };
             let payload = match service
                 .library()
-                .persist_file_sections_for_task_with_checkpoint(
+                .persist_file_sections_for_task_with_checkpoint_fenced(
                     file_id,
                     &sections,
-                    item.id,
-                    item.lease_token,
+                    crate::library_store::TaskWriteFence::from_claimed_item(item)?,
                     &item.payload,
                     item.attempt_count,
                 )
@@ -371,7 +377,7 @@ async fn ingest_error_result(
         .library()
         .handle_task_ingest_failure_with_payload(
             file_id,
-            item.lease_token,
+            crate::library_store::TaskWriteFence::from_claimed_item(item)?,
             error,
             Some(&item.payload),
         )
@@ -424,6 +430,11 @@ mod tests {
             group_id: None,
             group_path: None,
             source_key: None,
+            // The fake was never claimed through the library, so it carries no
+            // captured execution and may not write through a fenced method.
+            execution: None,
+            execution_task_id: None,
+            execution_generation: 0,
         }
     }
 
@@ -711,9 +722,13 @@ mod tests {
 
         async fn connect_db() -> Database {
             let url = context69_test_support::accessor::database_url();
-            Database::connect(&url)
+            let db = Database::connect(&url)
                 .await
-                .expect("connect test database")
+                .expect("connect test database");
+            context69_db_schema::bootstrap_library_schema(db.pool())
+                .await
+                .expect("bootstrap the library schema");
+            db
         }
 
         async fn build_task_service(
@@ -1065,7 +1080,8 @@ mod tests {
                 .library()
                 .handle_task_ingest_failure_with_payload(
                     file_id,
-                    item.lease_token,
+                    crate::library_store::TaskWriteFence::from_claimed_item(&item)
+                        .expect("the claimed item carries its captured execution"),
                     UnifiedIngestError {
                         stage: "indexing".to_string(),
                         dependency_key: None,

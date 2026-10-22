@@ -23,6 +23,9 @@ async fn duplicate_staged_contents_share_one_content_addressed_object() {
     let db = Database::connect(&database_url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (service, storage_root) = build_service(&db).await;

@@ -1,8 +1,11 @@
--- Requeue one running item as progress and record the attempt outcome.
+-- The progress transition of one task item (issue 1020 P2).
 --
--- `updated` reports the item transition, not the `task_attempts` row count: the
--- parent projection must follow the item even when no attempt row was open
--- (already interrupted by maintenance, or never inserted by a fenced claim).
+-- The guard is the captured execution of the item: the fencing token of the
+-- library attempt, the library task and the execution generation, compared
+-- after the row lock was taken and against the clock of the database.
+--
+-- `$1` is the item, `$2` the fencing token, `$3` the domain attempt, `$4` the
+-- library task and `$5` the execution generation.
 WITH progressed AS (
     UPDATE context69.task_items
     SET status = 'queued',
@@ -17,18 +20,18 @@ WITH progressed AS (
     WHERE id = $1
       AND lease_token = $2
       AND status = 'running'
+      AND lease_until > clock_timestamp()
+      AND execution_task_id = $4
+      AND execution_generation = $5
     RETURNING id
-), attempt_progressed AS (
+),
+attempt_progressed AS (
     UPDATE context69.task_attempts
     SET status = 'progressed',
         finished_at = now()
     WHERE id = $3
       AND item_id = $1
       AND finished_at IS NULL
-      -- Lease fence: only a worker that actually moved the item out of
-      -- `running` may close the attempt. Without this, a worker whose item
-      -- lease was rotated to a new owner still rewrites its own open attempt
-      -- as `progressed`, stealing the forensics row from the live owner.
       AND EXISTS (SELECT 1 FROM progressed)
     RETURNING id
 )

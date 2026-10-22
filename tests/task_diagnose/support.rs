@@ -30,6 +30,9 @@ pub(crate) async fn locked_database() -> (Database, tokio::sync::MutexGuard<'sta
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     (db, guard)
 }
 

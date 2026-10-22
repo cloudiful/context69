@@ -1,11 +1,11 @@
 //! SQL contract for the parent projection shared by the task recompute paths.
 //!
 //! Three statements write `tasks` counters/summary fields from `task_items`:
-//! `claim_items.sql`, `recompute.sql`, and `maintain_claim_state.sql`, and the
-//! read-only `task_consistency.sql` oracle reports whether the three agree. They
-//! are separate files because they run in different transactions, so the
-//! invariants that keep them consistent cannot be expressed in the type system
-//! and are pinned here instead:
+//! `recompute.sql`, `maintain_claim_state.sql`, and the parent projection the
+//! claim path shares with them, and the read-only `task_consistency.sql` oracle
+//! reports whether the three agree. They are separate files because they run in
+//! different transactions, so the invariants that keep them consistent cannot
+//! be expressed in the type system and are pinned here instead:
 //!
 //!   * one current-item ordering (head-of-line) in every path,
 //!   * the parent write driven by the items that actually exist,
@@ -17,7 +17,7 @@
 //! The P5 task SQL reference guard has its own integration test,
 //! `tests/task_sql_reference_guard.rs`.
 
-const CLAIM_ITEMS: &str = include_str!("../../src/sql/db/tasks/claim_items.sql");
+const CLAIM_CANDIDATES: &str = include_str!("../../src/sql/db/tasks/claim_candidates.sql");
 const RECOMPUTE: &str = include_str!("../../src/sql/db/tasks/recompute.sql");
 const MAINTAIN: &str = include_str!("../../src/sql/db/tasks/maintain_claim_state.sql");
 const TASK_CONSISTENCY: &str = include_str!("../../src/sql/db/tasks/task_consistency.sql");
@@ -54,15 +54,15 @@ fn cte_body(sql: &str, name: &str) -> String {
 
 #[test]
 fn every_current_item_path_selects_the_same_head_of_line_row() {
-    // `recompute.sql`, `maintain_claim_state.sql`, `claim_items.sql`, and the
-    // `task_consistency.sql` oracle must all describe the same parent: the
+    // `recompute.sql`, `maintain_claim_state.sql`, `claim_candidates.sql`, and
+    // the `task_consistency.sql` oracle must all describe the same parent: the
     // current item is the lowest-ordinal non-terminal row. Ranking running
     // above queued above waiting (the old `prio` ordering) let the writers and
     // the oracle disagree, so a healthy parent read as mismatched.
     for (name, sql, ordering) in [
         (
-            "claim_items.sql",
-            CLAIM_ITEMS,
+            "claim_candidates.sql",
+            CLAIM_CANDIDATES,
             "ORDER BY item.task_id, item.ordinal",
         ),
         ("recompute.sql", RECOMPUTE, "ORDER BY ordinal\n    LIMIT 1"),
@@ -95,7 +95,7 @@ fn every_current_item_path_selects_the_same_head_of_line_row() {
     // `DISTINCT ON`; recompute and maintenance use the equivalent lateral
     // `LIMIT 1`. The shared ordering token above is the contract either way.
     assert!(
-        code(CLAIM_ITEMS).contains("SELECT DISTINCT ON (item.task_id)")
+        code(CLAIM_CANDIDATES).contains("SELECT DISTINCT ON (item.task_id)")
             && code(TASK_CONSISTENCY).contains("SELECT DISTINCT ON (item.task_id)"),
         "claim and diagnose must select one head-of-line item per parent"
     );
@@ -120,27 +120,41 @@ fn parent_status_follows_the_current_item_not_a_count_priority() {
 }
 
 #[test]
-fn the_claim_writes_the_parent_only_for_items_it_claimed() {
-    let code = code(CLAIM_ITEMS);
+fn the_parent_projection_is_driven_by_the_items_that_exist() {
+    // The claim path projects the parent through `recompute.sql`, and the
+    // admission candidate is chosen by `claim_candidates.sql`; neither mints a
+    // lease of its own. The projection is derived from the item rows alone, so
+    // a parent can never disagree with its items once it has run.
+    let projection = code(RECOMPUTE);
     assert!(
-        code.contains("FROM claim_counts counts"),
-        "the parent UPDATE must be driven by the rows the claim produced"
+        projection.contains("FROM context69.task_items")
+            && projection.contains("WHERE task_id = $1")
+            && projection.contains("GROUP BY task_id"),
+        "the parent projection must be driven by the items that exist"
     );
     assert!(
-        !code.contains("SELECT candidate.id, NULL::uuid AS lease_token"),
-        "the lease grant must no longer be issued to admission candidates alone"
+        !projection.contains("gen_random_uuid()"),
+        "the projection must not mint a lease token: the slot belongs to          admission"
     );
-    // The projection the claim writes has to be the item-derived one.
     for column in [
         "queued_count = counts.queued_count",
         "running_count = counts.running_count",
         "waiting_count = counts.waiting_count",
     ] {
         assert!(
-            code.contains(column),
-            "the claim must project {column} in the same transaction"
+            projection.contains(column),
+            "the projection must write {column} from the item rows"
         );
     }
+    let candidates = code(CLAIM_CANDIDATES);
+    assert!(
+        candidates.contains("attempt_count < 5"),
+        "the admission candidate must carry the attempt cap the projection          counts exhaustion by"
+    );
+    assert!(
+        !candidates.contains("NULL::uuid AS lease_token"),
+        "an admission candidate must never be granted a lease of its own"
+    );
 }
 
 #[test]

@@ -114,15 +114,6 @@ impl Database {
         .await?)
     }
 
-    /// Counts rows currently due for remote work.
-    pub async fn count_due_docling_cleanup(&self) -> Result<i64> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/docling_remote_cleanup/count_due.sql",)
-                .fetch_one(self.pool())
-                .await?,
-        )
-    }
-
     /// Bounded recent rows for the admin list (safe projection, newest first).
     pub async fn list_recent_docling_cleanup(&self, limit: i64) -> Result<Vec<DoclingCleanupView>> {
         Ok(sqlx::query_file_as!(
@@ -164,13 +155,15 @@ impl Database {
         &self,
         job_id: Uuid,
         item_id: Uuid,
-        item_lease: Uuid,
+        execution: &crate::db::ExecutionContext,
     ) -> Result<bool> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/db/tasks/docling_remote_cleanup/detach_unused_owned_job.sql",
             job_id,
             item_id,
-            item_lease,
+            execution.fencing_token(),
+            execution.task_id(),
+            execution.generation,
         )
         .fetch_optional(self.pool())
         .await?

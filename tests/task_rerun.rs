@@ -136,6 +136,9 @@ async fn rerun_creates_a_fresh_task_with_only_unfinished_items() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
 
     let (task_id, _, item_ids) = db
@@ -249,6 +252,9 @@ async fn rerun_of_translation_task_drops_stale_job_ids() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
 
     let (task_id, _, item_ids) = db
@@ -334,6 +340,9 @@ async fn the_public_rerun_resumes_cancelled_and_forks_failed() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let service = Arc::new(build_task_service(&db).await);
     let user_id = seed_test_user(&db).await;
 

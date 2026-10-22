@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.users WHERE login_name LIKE 'p3e-%'\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "8f8f86ffaedc89a320188c7c4680865dbbe56de376061a20b583bdb162623ebc"
+}

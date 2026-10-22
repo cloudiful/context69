@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE cloudiful_tasks.attempts SET lease_expires_at = now() - interval '1 minute' WHERE status = 'running' AND task_id IN (SELECT execution_task_id FROM context69.task_items WHERE id = $1)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3cff1358493a30c2b2f7dd8f7a7a73b7a7e7c97f71449e4c28e7bbfb0ad7759d"
+}

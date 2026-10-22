@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The progress transition of one task item (issue 1020 P2).\n--\n-- The guard is the captured execution of the item: the fencing token of the\n-- library attempt, the library task and the execution generation, compared\n-- after the row lock was taken and against the clock of the database.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the domain attempt, `$4` the\n-- library task and `$5` the execution generation.\nWITH progressed AS (\n    UPDATE context69.task_items\n    SET status = 'queued',\n        attempt_count = 0,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = now(),\n        waiting_since = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        updated_at = now()\n    WHERE id = $1\n      AND lease_token = $2\n      AND status = 'running'\n      AND lease_until > clock_timestamp()\n      AND execution_task_id = $4\n      AND execution_generation = $5\n    RETURNING id\n),\nattempt_progressed AS (\n    UPDATE context69.task_attempts\n    SET status = 'progressed',\n        finished_at = now()\n    WHERE id = $3\n      AND item_id = $1\n      AND finished_at IS NULL\n      AND EXISTS (SELECT 1 FROM progressed)\n    RETURNING id\n)\nSELECT EXISTS (SELECT 1 FROM progressed) AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8220cad8d519ab1998a1915c63b26e63746f0b3d09893493bacafd0103c76bea"
+}

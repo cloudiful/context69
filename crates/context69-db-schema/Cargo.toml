@@ -7,4 +7,5 @@ publish = false
 
 [dependencies]
 anyhow.workspace = true
+cloudiful-tasks.workspace = true
 sqlx = { workspace = true, features = ["migrate", "postgres", "runtime-tokio"] }

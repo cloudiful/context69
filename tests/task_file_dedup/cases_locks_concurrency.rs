@@ -72,6 +72,9 @@ async fn concurrent_creates_for_one_file_converge_on_one_task() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     let payloads = [json!({ "file_id": file_id })];
@@ -130,6 +133,9 @@ async fn concurrent_create_and_retry_keep_single_active_item() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "failed").await;
     add_group_maintainer(&db, group_id, user_id).await;
@@ -173,6 +179,9 @@ async fn retry_and_rerun_wait_for_the_shared_file_lock() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let group_id = seed_group(&db).await;
     add_group_maintainer(&db, group_id, user_id).await;

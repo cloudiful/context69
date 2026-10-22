@@ -271,12 +271,8 @@ async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
-    // Acceptance criterion: the health payload carries a near-exhaustion
-    // signal. It is only actionable if it fires while a claim could still
-    // succeed, so the boundary matters: `claim_items.sql` admits
-    // `attempt_count < 5`, so attempt 4 is the last claimable attempt and must
-    // already read as near exhaustion, while attempt 5 is the cap itself and
-    // belongs to the orphan signal instead.
+    // claim_candidates.sql admits attempt_count < 5: attempt 4 is near
+    // exhaustion, while attempt 5 belongs to the orphan signal.
     let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _item_ids) = seed_task(&db, user_id).await;

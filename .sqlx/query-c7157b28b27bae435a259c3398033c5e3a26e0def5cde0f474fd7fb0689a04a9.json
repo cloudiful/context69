@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The staged input object of one running task item (issue 1020 P2).\n--\n-- The guard is the captured execution of the item: the fencing token of the\n-- library attempt, the library task and the execution generation, compared\n-- after the row lock was taken and against the clock of the database.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the object, `$4` the payload,\n-- `$5` the library task and `$6` the execution generation.\nUPDATE context69.task_items\nSET input_storage_object_id = $3,\n    payload = $4,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n  AND execution_task_id = $5\n  AND execution_generation = $6\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Jsonb",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c7157b28b27bae435a259c3398033c5e3a26e0def5cde0f474fd7fb0689a04a9"
+}

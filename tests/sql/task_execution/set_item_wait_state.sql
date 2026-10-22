@@ -1,0 +1,1 @@
+UPDATE context69.task_items SET status = $2, waiting_reason = $3::text, dependency_key = CASE WHEN $3 IS NULL THEN NULL ELSE 'docling' END, next_attempt_at = CASE WHEN $3 IS NULL THEN NULL ELSE now() + interval '1 hour' END, attempt_count = CASE WHEN $3 IS NULL THEN attempt_count ELSE 2 END WHERE id = $1

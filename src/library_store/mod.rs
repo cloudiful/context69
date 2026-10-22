@@ -20,9 +20,14 @@ pub(crate) mod objects;
 mod resources;
 mod source_object_cleanup;
 mod source_release;
+mod task_write_fence;
 pub use resources::ResourceListQuery;
 pub use source_object_cleanup::SourceObjectCleanupIntent;
 pub use source_release::{FileSourceLifecycleRow, PendingAutoReleaseFile};
+pub use task_write_fence::{
+    TaskWriteDenied, TaskWriteFence, TaskWriteTx, begin_task_write, task_write_granted,
+    write_task_item_payload,
+};
 
 pub use dependency_gates::{DependencyGateRecord, DependencyGateTransition};
 pub(crate) use files::LegacyDirectPathFileRow;

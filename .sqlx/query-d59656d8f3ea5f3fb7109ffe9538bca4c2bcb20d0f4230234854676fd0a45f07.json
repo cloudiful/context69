@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, result FROM cloudiful_tasks.tasks WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "result",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "result"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "d59656d8f3ea5f3fb7109ffe9538bca4c2bcb20d0f4230234854676fd0a45f07"
+}

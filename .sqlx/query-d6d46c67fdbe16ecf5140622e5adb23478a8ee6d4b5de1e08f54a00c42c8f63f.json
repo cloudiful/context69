@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The file of one running task item (issue 1020 P2).\n--\n-- The guard is the captured execution of the item: the fencing token of the\n-- library attempt, the library task and the execution generation, compared\n-- after the row lock was taken and against the clock of the database.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the file, `$4` the library\n-- task and `$5` the execution generation.\nUPDATE context69.task_items\nSET file_id = $3,\n    resource_id = $3::uuid::text,\n    input_storage_object_id = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n  AND execution_task_id = $4\n  AND execution_generation = $5\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d6d46c67fdbe16ecf5140622e5adb23478a8ee6d4b5de1e08f54a00c42c8f63f"
+}

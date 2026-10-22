@@ -13,13 +13,17 @@ impl LibraryService {
         Ok(file)
     }
 
+    /// Upsert a text file under the captured grant of a running task item.
+    ///
+    /// The library row is written inside the guarded write of the grant, so a
+    /// worker that lost its segment cannot create or replace the file.
     pub(crate) async fn upsert_text_file_for_task(
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertLibraryTextRequest,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<(LibraryFileSummary, Value)> {
-        self.upsert_text_file_in_project_inner(project, request, Some(lease_token))
+        self.upsert_text_file_in_project_inner(project, request, Some(fence))
             .await
     }
 
@@ -27,8 +31,11 @@ impl LibraryService {
         &self,
         project: &crate::domain::GroupRecord,
         request: &UpsertLibraryTextRequest,
-        lease_token: Option<Uuid>,
+        fence: Option<crate::library_store::TaskWriteFence>,
     ) -> Result<(LibraryFileSummary, Value)> {
+        // The lease of the storage dependency gate is the captured token; the
+        // item authority itself travels as the fence.
+        let lease_token = fence.map(|fence| fence.token());
         let title = normalize_whitespace(&request.title);
         if title.is_empty() {
             return Err(DomainError::invalid_argument("text title must not be empty").into());
@@ -136,23 +143,33 @@ impl LibraryService {
         };
 
         if let Some(existing_file) = existing.as_ref() {
-            let update_result = self
-                .store
-                .update_file_content_in_project(
-                    project.id,
-                    existing_file.id,
-                    &crate::library_store::UpdateLibraryFileContent {
-                        folder_id: target_folder_id,
-                        external_id: Some(external_id.to_string()),
-                        filename: filename.clone(),
-                        media_type: storage::text_media_type(content_format).to_string(),
-                        size_bytes: bytes.len() as i64,
-                        sha256: sha256.clone(),
-                        storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: Some(object.id),
-                    },
-                )
-                .await;
+            let update = crate::library_store::UpdateLibraryFileContent {
+                folder_id: target_folder_id,
+                external_id: Some(external_id.to_string()),
+                filename: filename.clone(),
+                media_type: storage::text_media_type(content_format).to_string(),
+                size_bytes: bytes.len() as i64,
+                sha256: sha256.clone(),
+                storage_rel_path: storage_rel_path.clone(),
+                storage_object_id: Some(object.id),
+            };
+            let update_result = match fence {
+                Some(fence) => {
+                    self.store
+                        .update_file_content_in_project_fenced(
+                            fence,
+                            project.id,
+                            existing_file.id,
+                            &update,
+                        )
+                        .await
+                }
+                None => {
+                    self.store
+                        .update_file_content_in_project(project.id, existing_file.id, &update)
+                        .await
+                }
+            };
             match update_result {
                 Ok(Some(_)) => {}
                 Ok(None) => {
@@ -169,24 +186,30 @@ impl LibraryService {
                 }
             }
         } else {
-            let create_result = self
-                .store
-                .create_file_in_project(
-                    project.id,
-                    &NewLibraryFile {
-                        id: file_id,
-                        folder_id: target_folder_id,
-                        external_id: Some(external_id.to_string()),
-                        filename: filename.clone(),
-                        media_type: storage::text_media_type(content_format).to_string(),
-                        size_bytes: bytes.len() as i64,
-                        sha256: sha256.clone(),
-                        storage_rel_path: storage_rel_path.clone(),
-                        storage_object_id: Some(object.id),
-                        delete_source_after_processing: false,
-                    },
-                )
-                .await;
+            let new_file = NewLibraryFile {
+                id: file_id,
+                folder_id: target_folder_id,
+                external_id: Some(external_id.to_string()),
+                filename: filename.clone(),
+                media_type: storage::text_media_type(content_format).to_string(),
+                size_bytes: bytes.len() as i64,
+                sha256: sha256.clone(),
+                storage_rel_path: storage_rel_path.clone(),
+                storage_object_id: Some(object.id),
+                delete_source_after_processing: false,
+            };
+            let create_result = match fence {
+                Some(fence) => {
+                    self.store
+                        .create_file_in_project_fenced(fence, project.id, &new_file)
+                        .await
+                }
+                None => self
+                    .store
+                    .create_file_in_project(project.id, &new_file)
+                    .await
+                    .map(Some),
+            };
             if let Err(error) = create_result {
                 self.rollback_project_file_change(rollback_request).await;
                 return Err(error);

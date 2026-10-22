@@ -240,88 +240,7 @@ impl Database {
     }
     pub async fn upsert_document(&self, payload: &ChunkPayload) -> Result<UpsertedDocument> {
         let mut tx = self.pool.begin().await?;
-        let existing = sqlx::query_file_as!(
-            ExistingDocumentRow,
-            "src/sql/db/documents/get_existing_document.sql",
-            payload.group_id,
-            payload.source_key,
-            payload.external_id
-        )
-        .fetch_optional(&mut *tx)
-        .await?;
-
-        let (document_id, changed) = match existing {
-            Some(existing) if existing.record_hash == payload.record_hash => {
-                sqlx::query_file!(
-                    "src/sql/db/documents/update_document_unchanged.sql",
-                    payload.group_id,
-                    payload.source_key,
-                    payload.title,
-                    payload.summary,
-                    payload.source_uri,
-                    payload.published_at,
-                    payload.updated_at_source,
-                    payload.metadata_json,
-                    payload.external_id
-                )
-                .execute(&mut *tx)
-                .await?;
-                (existing.id, false)
-            }
-            Some(existing) => {
-                sqlx::query_file!(
-                    "src/sql/db/documents/update_document_changed.sql",
-                    payload.group_id,
-                    payload.source_key,
-                    payload.title,
-                    payload.summary,
-                    payload.source_uri,
-                    payload.published_at,
-                    payload.updated_at_source,
-                    payload.metadata_json,
-                    payload.record_hash,
-                    payload.external_id
-                )
-                .execute(&mut *tx)
-                .await?;
-                (existing.id, true)
-            }
-            None => {
-                let id = sqlx::query_file_scalar!(
-                    "src/sql/db/documents/insert_document.sql",
-                    payload.group_id,
-                    payload.visibility.as_str(),
-                    payload.source_key,
-                    payload.external_id,
-                    payload.title,
-                    payload.summary,
-                    payload.source_uri,
-                    payload.published_at,
-                    payload.updated_at_source,
-                    payload.metadata_json,
-                    payload.record_hash
-                )
-                .fetch_one(&mut *tx)
-                .await?;
-                (id, true)
-            }
-        };
-
-        if changed {
-            sqlx::query_file!(
-                "src/sql/db/documents/insert_document_version.sql",
-                document_id,
-                payload.record_hash,
-                payload.title,
-                payload.summary,
-                payload.chunk_text,
-                payload.source_uri,
-                payload.published_at,
-                payload.metadata_json
-            )
-            .execute(&mut *tx)
-            .await?;
-        }
+        let (document_id, changed) = upsert_document_row_in(&mut tx, payload).await?;
 
         tx.commit().await?;
         let mut metadata_keys = Vec::new();
@@ -345,6 +264,53 @@ impl Database {
         }
         self.replace_metadata_values_bulk(&metadata_keys, &metadata_values)
             .await?;
+        Ok(UpsertedDocument {
+            document_id,
+            changed,
+        })
+    }
+
+    /// The document, its version and its metadata values, on a borrowed
+    /// connection.
+    ///
+    /// A task-owned write runs the three statements on the connection of its
+    /// guarded transaction, so the document, the version that describes it and
+    /// the metadata values that index it commit together.
+    pub async fn upsert_document_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        payload: &ChunkPayload,
+    ) -> Result<UpsertedDocument> {
+        let (document_id, changed) = upsert_document_row_in(connection, payload).await?;
+        let definitions = crate::db::metadata_indexes::list_metadata_indexes_in(
+            connection,
+            payload.group_id,
+            &payload.source_key,
+        )
+        .await?;
+        let mut metadata_keys = Vec::new();
+        let mut metadata_values = Vec::new();
+        for definition in definitions
+            .into_iter()
+            .filter(|definition| definition.status == "ready")
+        {
+            metadata_keys.push((definition.index_id, document_id));
+            let values = crate::services::document_store::metadata::extract_values(
+                &definition,
+                &payload.metadata_json,
+            )?;
+            metadata_values.extend(crate::db::metadata_indexes::metadata_value_rows(
+                definition.index_id,
+                document_id,
+                &values,
+            ));
+        }
+        crate::db::metadata_indexes::replace_metadata_values_in_connection(
+            connection,
+            &metadata_keys,
+            &metadata_values,
+        )
+        .await?;
         Ok(UpsertedDocument {
             document_id,
             changed,
@@ -452,6 +418,36 @@ impl Database {
         let mut tx = self.pool.begin().await?;
         insert_document_chunks_in_transaction(&mut tx, document_id, record_hash, chunks).await?;
         tx.commit().await?;
+        Ok(())
+    }
+
+    /// The chunks of one document, inserted on a borrowed connection.
+    ///
+    /// A task-owned write inserts the chunks on the connection of its guarded
+    /// transaction, so the chunks and the grant that authorized them commit
+    /// together.
+    pub async fn insert_document_chunks_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+        record_hash: &str,
+        chunks: &[DocumentChunk],
+    ) -> Result<()> {
+        insert_document_chunks_on(connection, document_id, record_hash, chunks).await
+    }
+
+    /// The chunks of one document, removed on a borrowed connection.
+    pub async fn delete_document_chunks_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/documents/delete_document_chunks.sql",
+            document_id
+        )
+        .execute(connection)
+        .await?;
         Ok(())
     }
 
@@ -686,8 +682,111 @@ fn reindex_payload_from_row(row: ReindexChunkRow) -> ChunkPayload {
     })
 }
 
+/// The document row and its version, on a borrowed connection.
+///
+/// The version is written only when the record changed, exactly as the pooled
+/// write does, so an unchanged document keeps its version history.
+async fn upsert_document_row_in(
+    connection: &mut sqlx::PgConnection,
+    payload: &ChunkPayload,
+) -> Result<(i64, bool)> {
+    let existing = sqlx::query_file_as!(
+        ExistingDocumentRow,
+        "src/sql/db/documents/get_existing_document.sql",
+        payload.group_id,
+        payload.source_key,
+        payload.external_id
+    )
+    .fetch_optional(&mut *connection)
+    .await?;
+
+    let (document_id, changed) = match existing {
+        Some(existing) if existing.record_hash == payload.record_hash => {
+            sqlx::query_file!(
+                "src/sql/db/documents/update_document_unchanged.sql",
+                payload.group_id,
+                payload.source_key,
+                payload.title,
+                payload.summary,
+                payload.source_uri,
+                payload.published_at,
+                payload.updated_at_source,
+                payload.metadata_json,
+                payload.external_id
+            )
+            .execute(&mut *connection)
+            .await?;
+            (existing.id, false)
+        }
+        Some(existing) => {
+            sqlx::query_file!(
+                "src/sql/db/documents/update_document_changed.sql",
+                payload.group_id,
+                payload.source_key,
+                payload.title,
+                payload.summary,
+                payload.source_uri,
+                payload.published_at,
+                payload.updated_at_source,
+                payload.metadata_json,
+                payload.record_hash,
+                payload.external_id
+            )
+            .execute(&mut *connection)
+            .await?;
+            (existing.id, true)
+        }
+        None => {
+            let id = sqlx::query_file_scalar!(
+                "src/sql/db/documents/insert_document.sql",
+                payload.group_id,
+                payload.visibility.as_str(),
+                payload.source_key,
+                payload.external_id,
+                payload.title,
+                payload.summary,
+                payload.source_uri,
+                payload.published_at,
+                payload.updated_at_source,
+                payload.metadata_json,
+                payload.record_hash
+            )
+            .fetch_one(&mut *connection)
+            .await?;
+            (id, true)
+        }
+    };
+
+    if changed {
+        sqlx::query_file!(
+            "src/sql/db/documents/insert_document_version.sql",
+            document_id,
+            payload.record_hash,
+            payload.title,
+            payload.summary,
+            payload.chunk_text,
+            payload.source_uri,
+            payload.published_at,
+            payload.metadata_json
+        )
+        .execute(&mut *connection)
+        .await?;
+    }
+
+    Ok((document_id, changed))
+}
+
 async fn insert_document_chunks_in_transaction(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    document_id: i64,
+    record_hash: &str,
+    chunks: &[DocumentChunk],
+) -> Result<()> {
+    insert_document_chunks_on(tx, document_id, record_hash, chunks).await
+}
+
+async fn insert_document_chunks_on(
+    connection: &mut sqlx::PgConnection,
     document_id: i64,
     record_hash: &str,
     chunks: &[DocumentChunk],
@@ -712,7 +811,7 @@ async fn insert_document_chunks_in_transaction(
         &chunk_indexes,
         &chunk_texts
     )
-    .execute(&mut **tx)
+    .execute(connection)
     .await?;
     Ok(())
 }

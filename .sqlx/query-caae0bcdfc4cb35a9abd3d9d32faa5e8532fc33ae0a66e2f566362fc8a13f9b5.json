@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE cloudiful_tasks.attempts SET lease_expires_at = now() - interval '1 minute' WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "caae0bcdfc4cb35a9abd3d9d32faa5e8532fc33ae0a66e2f566362fc8a13f9b5"
+}

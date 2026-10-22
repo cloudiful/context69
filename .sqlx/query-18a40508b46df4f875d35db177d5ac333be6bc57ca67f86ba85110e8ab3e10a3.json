@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_items SET file_id = $2 WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "18a40508b46df4f875d35db177d5ac333be6bc57ca67f86ba85110e8ab3e10a3"
+}

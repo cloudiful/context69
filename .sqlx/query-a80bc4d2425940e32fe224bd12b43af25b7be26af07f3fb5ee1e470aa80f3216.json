@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Locks the item row of a captured task grant and verifies that grant.\n--\n-- The row is locked BEFORE the grant is compared, so the decision is taken on\n-- the row as it is after any concurrent transition waited for. A revoke, a\n-- finish, a cancel or a reclaim that already moved the row therefore refuses\n-- this write instead of racing it. The lease deadline is compared against the\n-- clock of the database, never against the worker's clock.\n--\n-- `$1` is the item, `$2` the fencing token of the library attempt, `$3` the\n-- library task of the segment and `$4` the execution generation.\nSELECT item.id\nFROM context69.task_items item\nWHERE item.id = $1\n  AND item.lease_token = $2\n  AND item.status = 'running'\n  AND item.lease_until > clock_timestamp()\n  AND item.execution_task_id = $3\n  AND item.execution_generation = $4\nFOR UPDATE OF item\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a80bc4d2425940e32fe224bd12b43af25b7be26af07f3fb5ee1e470aa80f3216"
+}

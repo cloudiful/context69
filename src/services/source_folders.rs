@@ -169,12 +169,18 @@ impl SourceFoldersService {
         })
     }
 
+    /// Sync one source folder under the captured grant of a running task item.
+    ///
+    /// The library writes of the sync (the named text files of the source
+    /// records and the removal of the files that vanished from the source) are
+    /// fenced by the grant, so a worker that lost its segment changes nothing.
     pub async fn sync_source_folder_in_project(
         &self,
         project: &GroupRecord,
         folder_id: Uuid,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<SyncOutcome> {
+        let lease_token = fence.token();
         let descriptor = self.describe_source_folder(project, folder_id).await?;
         let config_text = self
             .library
@@ -182,15 +188,17 @@ impl SourceFoldersService {
             .await?;
         let input: SourceConfigInput =
             serde_json::from_str(&config_text).context("failed to parse source.json content")?;
+        // The registry row of the source connection is a task-owned write: it
+        // runs inside the guarded transaction of the captured grant.
         self.sync
-            .upsert_source_connection_for_source_folder(&input)
+            .upsert_source_connection_for_source_folder_task(fence, &input)
             .await?;
         let validated = SourceStore::validate_source_input(
             &input,
             &self.sync.connection_names_for_source_folders().await?,
         )?;
         let source_id = self
-            .persist_source_id_for_sync(project, &descriptor, &input, lease_token)
+            .persist_source_id_for_sync(project, &descriptor, &input, fence)
             .await?;
         self.sync
             .sync_project_source_folder(
@@ -202,7 +210,7 @@ impl SourceFoldersService {
                     records_folder_id: descriptor.records_folder.id,
                     source: &validated,
                     library: &self.library,
-                    lease_token,
+                    fence,
                 },
             )
             .await
@@ -215,7 +223,7 @@ impl SourceFoldersService {
         project: &GroupRecord,
         descriptor: &SourceFolderDescriptor,
         input: &SourceConfigInput,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<Uuid> {
         let Some(source_id) = input.source_id else {
             let source_id = Uuid::new_v4();
@@ -231,7 +239,7 @@ impl SourceFoldersService {
                         media_type: "application/json".to_string(),
                         content: serialize_source_config(&next)?,
                     },
-                    lease_token,
+                    fence,
                 )
                 .await?;
             return Ok(source_id);
@@ -304,13 +312,54 @@ impl SourceFoldersService {
             .await
     }
 
+    /// Delete a source folder under the captured grant of a running task item.
+    ///
+    /// The folder row and the file rows it owns are removed inside the guarded
+    /// write of the grant, so a worker that lost its segment deletes nothing.
     pub(crate) async fn delete_source_aware_folder_in_project_for_task(
         &self,
         project: &GroupRecord,
         folder_id: Uuid,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<()> {
-        self.delete_source_aware_folder_in_project_with_lease(project, folder_id, Some(lease_token))
+        self.delete_source_aware_folder_in_project_fenced(project, folder_id, fence)
+            .await
+    }
+
+    /// Delete a source folder and the rows it owns inside the guarded write of
+    /// the captured grant.
+    ///
+    /// The library rows are removed under the grant. The sync state of the
+    /// folder is deleted through the unchanged sync service: that service is
+    /// outside this phase's write allowlist.
+    async fn delete_source_aware_folder_in_project_fenced(
+        &self,
+        project: &GroupRecord,
+        folder_id: Uuid,
+        fence: crate::library_store::TaskWriteFence,
+    ) -> Result<()> {
+        let descriptors = self
+            .describe_source_folder_subtree(project, folder_id)
+            .await?;
+        for descriptor in descriptors {
+            let input = self
+                .read_source_config_input_with_lease(&descriptor, Some(fence.token()))
+                .await?;
+            let identity = match input.as_ref().and_then(|input| input.source_id) {
+                Some(source_id) => source_folder_sync_identity(project.id, source_id),
+                None => source_folder_identity(project.id, &descriptor.path),
+            };
+            self.sync
+                .delete_project_source_folder_state_fenced(
+                    fence,
+                    project.id,
+                    &identity,
+                    input.as_ref().map(|input| input.source_key.as_str()),
+                )
+                .await?;
+        }
+        self.library
+            .delete_folder_in_project_for_task_fenced(project, folder_id, fence)
             .await
     }
 
@@ -340,9 +389,9 @@ impl SourceFoldersService {
                 .await?;
         }
         match lease_token {
-            Some(lease_token) => {
+            Some(_lease_token) => {
                 self.library
-                    .delete_folder_in_project_for_task(project, folder_id, lease_token)
+                    .delete_folder_in_project_for_task(project, folder_id, _lease_token)
                     .await
             }
             None => {

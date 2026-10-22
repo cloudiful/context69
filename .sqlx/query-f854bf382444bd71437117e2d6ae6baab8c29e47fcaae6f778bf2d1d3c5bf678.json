@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT attempt_count, dependency_key, next_attempt_at, waiting_reason FROM context69.task_items WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "next_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "next_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "waiting_reason"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "f854bf382444bd71437117e2d6ae6baab8c29e47fcaae6f778bf2d1d3c5bf678"
+}

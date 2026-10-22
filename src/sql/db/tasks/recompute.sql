@@ -4,7 +4,7 @@
 -- summary field on the parent is derived from it here, so a parent can never
 -- disagree with its own items once this statement runs.
 --
--- One current-item ordering, shared with `claim_items.sql` and
+-- One current-item ordering, shared with `claim_candidates.sql` and
 -- `maintain_claim_state.sql`: the parent's current item is the lowest-ordinal
 -- non-terminal item, full stop. There is no running/queued/waiting ranking.
 --

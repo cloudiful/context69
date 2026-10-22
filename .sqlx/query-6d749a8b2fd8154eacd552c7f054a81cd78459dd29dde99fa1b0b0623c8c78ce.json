@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT sha256, storage_rel_path, size_bytes, external_id FROM context69.library_files WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "storage_rel_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_rel_path"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "size_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "size_bytes"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "external_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6d749a8b2fd8154eacd552c7f054a81cd78459dd29dde99fa1b0b0623c8c78ce"
+}

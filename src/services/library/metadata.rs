@@ -90,6 +90,43 @@ impl LibraryService {
     }
 
     pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
+        self.cleanup_ingest_vector_artifacts(file_id).await?;
+        self.store
+            .delete_documents_for_library_file(file_id)
+            .await?;
+        Ok(())
+    }
+
+    /// The cleanup of a partial ingest under the captured grant of a running
+    /// item.
+    ///
+    /// The vector points are removed before the transaction, and the documents
+    /// are deleted inside the guarded write of the grant, so a worker that lost
+    /// its segment removes nothing.
+    pub(super) async fn cleanup_ingest_artifacts_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        file_id: Uuid,
+    ) -> Result<()> {
+        // The vector points are removed outside any transaction and cannot be
+        // rolled back, so the grant is checked again right before them: a
+        // segment that lost its claim must not remove points of a file it no
+        // longer owns.
+        if !crate::library_store::task_write_granted(&self.db, fence).await? {
+            return Err(crate::library_store::TaskWriteDenied::new(fence).into());
+        }
+        self.cleanup_ingest_vector_artifacts(file_id).await?;
+        if !self
+            .store
+            .delete_documents_for_library_file_fenced(fence, file_id)
+            .await?
+        {
+            return Err(crate::library_store::TaskWriteDenied::new(fence).into());
+        }
+        Ok(())
+    }
+
+    async fn cleanup_ingest_vector_artifacts(&self, file_id: Uuid) -> Result<()> {
         let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
         if !chunk_ids.is_empty() {
             let runtime = self.vector.snapshot().ok_or_else(|| {
@@ -121,9 +158,6 @@ impl LibraryService {
         // caller (persist_sections / handle_task_ingest_failure) maps the error
         // to a retryable IngestFailure routed to `qdrant`, leaving
         // document_chunks/documents and the library_files row intact for retry.
-        self.store
-            .delete_documents_for_library_file(file_id)
-            .await?;
         Ok(())
     }
 
@@ -232,6 +266,37 @@ impl LibraryService {
 
     pub(super) async fn bump_search_generation(&self, reason: &str) -> Result<()> {
         let generation = self.db.bump_search_generation().await?;
+        info!(reason, generation, "search generation bumped");
+        Ok(())
+    }
+
+    /// Advances the search generation under the captured grant of a running
+    /// item.
+    ///
+    /// The increment runs inside the guarded transaction of the grant, so a
+    /// worker that lost its segment does not invalidate the search cache of a
+    /// file it no longer owns. An operator write keeps the pooled accessor.
+    pub(super) async fn bump_search_generation_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        reason: &str,
+    ) -> Result<()> {
+        let mut write = crate::library_store::begin_task_write(&self.db, fence)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the {reason} counter: {error}"
+                )
+            })?;
+        let generation = self
+            .db
+            .bump_search_generation_in(write.connection())
+            .await?;
+        if !write.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the {reason} counter"
+            ));
+        }
         info!(reason, generation, "search generation bumped");
         Ok(())
     }

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One task item with the library segment that executes it (issue 1020 P2).\n--\n-- The segment of a new item is produced in the same transaction as the item\n-- itself, so an item is never visible without the segment that runs it and a\n-- segment is never visible without its item.\nINSERT INTO context69.task_items (\n    id,\n    task_id,\n    ordinal,\n    payload,\n    stage,\n    file_id,\n    input_storage_object_id,\n    execution_task_id,\n    execution_generation\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int4",
+        "Jsonb",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6d081fd21e6f299cd54a6a3dc48f8cdb62ad889f9691b7c8cdd779ca5b09eae9"
+}

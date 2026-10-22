@@ -339,6 +339,198 @@ impl SyncService {
     ) -> Result<()> {
         self.upsert_source_connection_for_source(input).await
     }
+
+    /// The registry row of one source connection, under the captured grant of a
+    /// running task item.
+    ///
+    /// The database URL is sealed before the row is written, and the grant is
+    /// checked again right before that external write, because a sealed value
+    /// cannot be rolled back. The registry row itself is written inside the
+    /// guarded transaction of the grant.
+    pub(crate) async fn upsert_source_connection_for_source_folder_task(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        input: &SourceConfigInput,
+    ) -> Result<()> {
+        let pending = self
+            .resolve_source_connection(&input.connection, input.database_url.clone())
+            .await?;
+        if !crate::library_store::task_write_granted(&self.db, fence).await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the source connection upsert"
+            ));
+        }
+        let connection_key = self
+            .db
+            .get_source_connection(&pending.name)
+            .await?
+            .map_or_else(uuid::Uuid::new_v4, |existing| existing.connection_key);
+        let secret_key = secret_keys::source_connection_database_url_key(connection_key)?;
+        self.store
+            .write(
+                crate::services::secret_store::SecretPurpose::SourceConnectionDatabaseUrl,
+                secret_key.as_str(),
+                pending.database_url.as_bytes(),
+            )
+            .await
+            .map_err(|error| {
+                crate::services::settings::secrets::secret_error(
+                    crate::services::secret_store::SecretPurpose::SourceConnectionDatabaseUrl,
+                    error,
+                )
+            })?;
+        let mut guarded = crate::library_store::begin_task_write(&self.db, fence)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the source connection upsert: {error}"
+                )
+            })?;
+        self.db
+            .save_source_connection_in(
+                guarded.connection(),
+                &crate::db::NewSourceConnection {
+                    connection_key,
+                    name: pending.name.clone(),
+                    database_url_secret_key: secret_key.as_str().to_string(),
+                },
+            )
+            .await?;
+        if !guarded.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the source connection upsert"
+            ));
+        }
+        self.reload_sources().await?;
+        Ok(())
+    }
+
+    /// Starts the run of one scoped sync inside the guarded write of the
+    /// captured grant.
+    ///
+    /// The run row is written on the connection of the guarded transaction, and
+    /// the grant is verified again before the commit, so a task that lost its
+    /// claim starts no run.
+    pub(crate) async fn start_run_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        group_id: i64,
+        visibility: crate::contracts::Visibility,
+        source_key: &str,
+        trigger_type: &str,
+    ) -> Result<crate::db::RunHandle> {
+        let mut guarded = crate::library_store::begin_task_write(&self.db, fence)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the sync run: {error}"
+                )
+            })?;
+        let run = self
+            .db
+            .start_run_in_scope_in(
+                guarded.connection(),
+                group_id,
+                visibility,
+                source_key,
+                trigger_type,
+            )
+            .await?;
+        if !guarded.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the sync run"
+            ));
+        }
+        Ok(run)
+    }
+
+    /// Records the outcome of one run inside the guarded write of the captured
+    /// grant.
+    pub(crate) async fn finish_run_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        run: &crate::db::RunHandle,
+        status: &str,
+        outcome: &crate::contracts::SyncOutcome,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        let mut guarded = crate::library_store::begin_task_write(&self.db, fence)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the sync run: {error}"
+                )
+            })?;
+        self.db
+            .finish_run_in(guarded.connection(), run, status, outcome, error_message)
+            .await?;
+        if !guarded.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the sync run"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Saves the checkpoint of one scoped sync inside the guarded write of the
+    /// captured grant.
+    pub(crate) async fn save_checkpoint_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        group_id: i64,
+        visibility: crate::contracts::Visibility,
+        source_key: &str,
+        checkpoint: &crate::domain::SyncCheckpoint,
+    ) -> Result<()> {
+        let mut guarded = crate::library_store::begin_task_write(&self.db, fence)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the sync checkpoint: {error}"
+                )
+            })?;
+        self.db
+            .save_checkpoint_in_scope_in(
+                guarded.connection(),
+                group_id,
+                visibility,
+                source_key,
+                checkpoint,
+            )
+            .await?;
+        if !guarded.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the sync checkpoint"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Removes the sync state of one project inside the guarded write of the
+    /// captured grant.
+    pub(crate) async fn delete_sync_state_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        project_id: i64,
+        source_key: &str,
+    ) -> Result<()> {
+        let mut guarded = crate::library_store::begin_task_write(&self.db, fence)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the sync state: {error}"
+                )
+            })?;
+        self.db
+            .delete_sync_state_in_project_in(guarded.connection(), project_id, source_key)
+            .await?;
+        if !guarded.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the captured grant of the task item no longer authorizes the sync state"
+            ));
+        }
+        Ok(())
+    }
 }
 
 fn sync_runtime_unavailable() -> anyhow::Error {

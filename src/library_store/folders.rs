@@ -2,7 +2,7 @@ use anyhow::Result;
 use uuid::Uuid;
 
 use super::mappers::folder_from_row;
-use super::{FolderRow, LibraryFolderRecord, LibraryStore};
+use super::{FolderRow, LibraryFolderRecord, LibraryStore, TaskWriteDenied, TaskWriteFence};
 
 impl LibraryStore {
     pub async fn list_folders(&self) -> Result<Vec<LibraryFolderRecord>> {
@@ -132,6 +132,36 @@ impl LibraryStore {
         .await?;
 
         row.map(folder_from_row).transpose()
+    }
+
+    /// Delete one folder row under the captured grant of a running task item.
+    ///
+    /// The folder row is removed in the guarded transaction, so a worker that
+    /// lost its segment cannot delete the folder even when it already removed
+    /// the file rows it enumerated.
+    pub async fn delete_folder_record_fenced(
+        &self,
+        fence: TaskWriteFence,
+        folder_id: Uuid,
+    ) -> Result<bool> {
+        let mut write = match self.begin_task_write(fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let deleted = sqlx::query_file!(
+            "src/sql/library_store/folders/delete_folder_record.sql",
+            folder_id
+        )
+        .execute(write.connection())
+        .await?
+        .rows_affected()
+            > 0;
+        if !deleted {
+            write.rollback().await;
+            return Ok(false);
+        }
+        write.commit().await
     }
 
     pub async fn delete_folder_record(&self, folder_id: Uuid) -> Result<bool> {

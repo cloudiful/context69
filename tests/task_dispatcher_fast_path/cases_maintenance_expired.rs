@@ -4,7 +4,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, seed_test_user};
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -14,6 +14,9 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
@@ -45,13 +48,9 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
         .expect("fresh item claimable");
     assert_eq!(first.attempt_count, 1);
 
-    sqlx::query(
-        "UPDATE context69.task_items SET lease_until = now() - interval '1 minute' WHERE id = $1",
-    )
-    .bind(item_id)
-    .execute(db.pool())
-    .await
-    .expect("expire lease");
+    // The worker crashes: the authoritative library attempt and its domain
+    // mirror expire together.
+    crash_holder(&db, &first).await;
 
     let outcome = db
         .maintain_claim_state()
@@ -116,8 +115,9 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
             .await
             .expect("load item status after maintenance");
     assert_eq!(
-        item_status, "running",
-        "item must stay running after lease revocation so the fast claim path can reclaim it"
+        item_status, "queued",
+        "the recovery requeues the crashed item right away, so the fast claim path \
+         reclaims it in the next generation"
     );
 
     // Late worker with the stale token/attempt must be rejected.
@@ -130,7 +130,9 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: first.lease_token,
+            execution: first
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: first.attempt_id,
         })
         .await
@@ -140,7 +142,11 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
         "finish_task_item with a revoked lease_token must return false"
     );
     let stale_heartbeat = db
-        .heartbeat_task_item(item_id, first.lease_token)
+        .heartbeat_task_item(
+            &first
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+        )
         .await
         .expect("stale heartbeat");
     assert!(
@@ -148,7 +154,14 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
         "heartbeat with a revoked lease_token must return false"
     );
     let stale_progress = db
-        .progress_task_item(task_id, item_id, first.lease_token, first.attempt_id)
+        .progress_task_item(
+            task_id,
+            item_id,
+            &first
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+            first.attempt_id,
+        )
         .await
         .expect("stale progress");
     assert!(
@@ -163,8 +176,8 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
             .await
             .expect("load item status after stale finish");
     assert_eq!(
-        still_running, "running",
-        "item must remain running after a rejected late completion"
+        still_running, "queued",
+        "a rejected late completion must not move the requeued item"
     );
 
     // Item must be reclaimable on the fast path after the lease is revoked.
@@ -196,6 +209,9 @@ async fn maintain_claim_state_with_no_work_returns_zero_counts() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
 
     let outcome = db
         .maintain_claim_state()

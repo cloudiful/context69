@@ -1,4 +1,4 @@
-use crate::support::{LOCK, cleanup, connect, seed_task, seed_user};
+use crate::support::{LOCK, claim_item, cleanup, connect, crash_holder, seed_task, seed_user};
 use uuid::Uuid;
 
 #[tokio::test]
@@ -21,8 +21,22 @@ async fn due_remote_owners_are_claimed_once_with_identity_retained() {
             )
             .await
             .unwrap();
-        sqlx::query("UPDATE context69.task_items SET status = $2, waiting_reason = NULL, next_attempt_at = now() - interval '1 second', lease_until = now() - interval '1 second' WHERE id = $1")
-            .bind(item).bind(status).execute(db.pool()).await.unwrap();
+        if status == "running" {
+            // A running owner is a claimed item whose worker died: the
+            // authoritative library attempt and its domain mirror expire
+            // together, so the claim may take the item over.
+            let holder = claim_item(&db, item).await;
+            crash_holder(&db, &holder).await;
+        } else {
+            sqlx::query_file!(
+                "tests/sql/task_execution/release_item_to_due.sql",
+                item,
+                status
+            )
+            .execute(db.pool())
+            .await
+            .unwrap();
+        }
         let (first, second) = tokio::join!(db.claim_items_fast(10), db.claim_items_fast(10));
         let claims = first
             .unwrap()
@@ -69,23 +83,33 @@ async fn unused_detach_is_exact_job_and_live_lease_fenced() {
         .into_iter()
         .find(|row| row.id == item)
         .unwrap();
+    let execution = owner
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    // The captured execution of an earlier generation belongs to a segment the
+    // item does not hold any more, so the detach is refused.
+    let stale = context69::db::ExecutionContext {
+        attempt: execution.attempt.clone(),
+        generation: execution.generation + 1,
+        item_id: execution.item_id,
+    };
     assert!(
-        !db.detach_unused_owned_docling_job(job.id, item, Uuid::new_v4())
+        !db.detach_unused_owned_docling_job(job.id, item, &stale)
             .await
             .unwrap()
     );
     assert!(
-        !db.detach_unused_owned_docling_job(Uuid::new_v4(), item, owner.lease_token)
+        !db.detach_unused_owned_docling_job(Uuid::new_v4(), item, &execution)
             .await
             .unwrap()
     );
     assert!(
-        db.detach_unused_owned_docling_job(job.id, item, owner.lease_token)
+        db.detach_unused_owned_docling_job(job.id, item, &execution)
             .await
             .unwrap()
     );
     assert!(
-        !db.detach_unused_owned_docling_job(job.id, item, owner.lease_token)
+        !db.detach_unused_owned_docling_job(job.id, item, &execution)
             .await
             .unwrap()
     );
@@ -95,11 +119,24 @@ async fn unused_detach_is_exact_job_and_live_lease_fenced() {
             .unwrap()
             .is_none()
     );
-    let captured: (String, Option<String>, String) = sqlx::query_as("SELECT remote_task_id, endpoint_base_url, reason FROM context69.task_docling_remote_cleanup WHERE remote_job_id = $1")
-        .bind(job.id).fetch_one(db.pool()).await.unwrap();
+    let captured = sqlx::query_file!(
+        "tests/sql/task_execution/read_docling_cleanup_row.sql",
+        job.id
+    )
+    .fetch_one(db.pool())
+    .await
+    .unwrap();
     assert_eq!(
-        captured,
-        (job.remote_task_id, job.endpoint_base_url, "orphan".into())
+        (
+            captured.remote_task_id,
+            captured.endpoint_base_url,
+            captured.reason
+        ),
+        (
+            job.remote_task_id,
+            job.endpoint_base_url,
+            "orphan".to_string()
+        )
     );
     let replacement = db
         .create_docling_remote_job(
@@ -114,7 +151,7 @@ async fn unused_detach_is_exact_job_and_live_lease_fenced() {
         .await
         .unwrap();
     assert!(
-        !db.detach_unused_owned_docling_job(job.id, item, owner.lease_token)
+        !db.detach_unused_owned_docling_job(job.id, item, &execution)
             .await
             .unwrap()
     );
@@ -126,10 +163,12 @@ async fn unused_detach_is_exact_job_and_live_lease_fenced() {
             .id,
         replacement.id
     );
-    sqlx::query("DELETE FROM context69.task_docling_remote_cleanup WHERE remote_job_id = $1")
-        .bind(job.id)
-        .execute(db.pool())
-        .await
-        .unwrap();
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_docling_cleanup_row.sql",
+        job.id
+    )
+    .execute(db.pool())
+    .await
+    .unwrap();
     cleanup(&db, task, user).await;
 }

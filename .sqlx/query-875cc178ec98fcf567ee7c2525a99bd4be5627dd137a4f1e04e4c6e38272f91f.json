@@ -1,0 +1,88 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, failure_stage, error_message, lease_token, lease_until, finished_at FROM context69.task_items WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_until"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "finished_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "875cc178ec98fcf567ee7c2525a99bd4be5627dd137a4f1e04e4c6e38272f91f"
+}

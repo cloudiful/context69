@@ -44,6 +44,7 @@ bytes = "1.12.1"
 base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
+cloudiful-tasks = { git = "https://github.com/cloudiful/tasks", rev = "739cad5822e2208e9a4424eead9f79653a7e02d7" }
 config = { package = "cloudiful-config", version = "0.6.3" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.24.0" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
@@ -133,6 +134,7 @@ axum-login.workspace = true
 bytes.workspace = true
 base64.workspace = true
 chrono = { workspace = true, features = ["serde"] }
+cloudiful-tasks.workspace = true
 config.workspace = true
 context69-contracts.workspace = true
 context69-db-schema.workspace = true

@@ -15,9 +15,13 @@ use uuid::Uuid;
 pub async fn connect_scratch() -> Database {
     let url = context69_test_support::accessor::database_url();
 
-    Database::connect(&url)
+    let db = Database::connect(&url)
         .await
-        .expect("connect test database")
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    db
 }
 
 pub async fn seed_test_user(db: &Database) -> i64 {
@@ -163,6 +167,11 @@ pub async fn create_raw_active_file_task(
     .execute(db.pool())
     .await
     .expect("insert raw task item");
+    // The item of a raw task owns its library segment, so the dispatcher can
+    // claim it: a raw row is never adopted implicitly.
+    db.produce_item_segment(item_id)
+        .await
+        .expect("produce the execution segment");
     (task_id, item_id)
 }
 

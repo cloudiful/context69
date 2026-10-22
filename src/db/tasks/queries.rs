@@ -120,9 +120,9 @@ impl Database {
     /// The ordinal of exactly one item, for a lifecycle log that must report
     /// item position (issue 702 P3).
     ///
-    /// `claim_items.sql` returns no ordinal, and it is P1 SQL this phase must
-    /// not edit, so the dispatcher and the worker resolve it here instead. This
-    /// is a `LIMIT 1` lookup on `idx_task_items_task_status (task_id, ...)`.
+    /// A caller that holds only the item id resolves the position here instead
+    /// of reading the whole parent. This is a `LIMIT 1` lookup on
+    /// `idx_task_items_task_status (task_id, ...)`.
     /// Returns `None` when the item does not belong to the task, so a log can
     /// never report an ordinal for a row outside its own parent.
     pub async fn task_item_ordinal(&self, task_id: Uuid, item_id: Uuid) -> Result<Option<i32>> {

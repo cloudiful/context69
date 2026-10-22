@@ -26,6 +26,9 @@ async fn url_batch_resumes_from_a_committed_staged_input_object() {
     let db = Database::connect(&database_url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (service, storage_root) = build_service(&db).await;
@@ -128,7 +131,9 @@ async fn url_batch_resumes_from_a_committed_staged_input_object() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: item.lease_token,
+            execution: item
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: item.attempt_id,
         })
         .await

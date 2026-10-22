@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'docling', dependency_key = 'docling', next_attempt_at = now() + interval '1 hour', waiting_since = COALESCE(waiting_since, now()), updated_at = now() WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "99068b6ddca3859be21075fc20fda23ec35a0cfdeea975be9461cd2d6325184a"
+}

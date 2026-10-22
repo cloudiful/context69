@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The payload of one running task item (issue 1020 P2).\n--\n-- The guard is the lease of the item: the fencing token of the library\n-- attempt, the running status and the deadline of the lease, compared against\n-- the clock of the database after the row lock was taken. The execution\n-- generation is not available at every call site of this primitive, so the\n-- lease itself is what fences the write.\n--\n-- `$1` is the item, `$2` the fencing token and `$3` the payload.\nUPDATE context69.task_items\nSET payload = $3,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d9f7deb81bdb4d793b22692fa38faad0a921e5cc659aff8b09c1f6dcfc33bb11"
+}

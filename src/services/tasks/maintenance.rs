@@ -61,6 +61,12 @@ pub(super) fn start_with_shutdown_owned(
     let release_service = service.clone();
     let release_shutdown = shutdown.clone();
     let source_cleanup = tokio::spawn(async move {
+        // Fail-closed startup gate: no source-cleanup write runs while the
+        // execution latch reports abandoned legacy work or an unusable library
+        // schema. The latch logs the blocker once and never re-evaluates.
+        if !release_service.execution_readiness().await.is_ready() {
+            return;
+        }
         let dispatcher = release_service
             .library()
             .source_cleanup_dispatcher()
@@ -74,6 +80,11 @@ pub(super) fn start_with_shutdown_owned(
     // dispatch drain, then the periodic pass. Shutdown-aware for tests.
     let recovery_service = service.clone();
     let docling_recovery = tokio::spawn(async move {
+        // Same fail-closed startup gate as the source-cleanup loop: no Docling
+        // recovery, adoption or cleanup runs while the latch is blocked.
+        if !recovery_service.execution_readiness().await.is_ready() {
+            return;
+        }
         run_docling_recovery(&recovery_service, shutdown).await;
     });
     MaintenanceHandles {

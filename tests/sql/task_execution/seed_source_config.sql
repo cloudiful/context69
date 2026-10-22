@@ -1,0 +1,1 @@
+INSERT INTO context69.source_configs (group_id, visibility, source_key, display_name, description, example_queries, connection, sync_strategy, connector_type, base_query, batch_size, created_at, updated_at) VALUES ($1, 'public', $2, 'P3D', '', '[]'::jsonb, 'p3d', 'cursor', 'postgres_sql', 'select 1', 10, now(), now())

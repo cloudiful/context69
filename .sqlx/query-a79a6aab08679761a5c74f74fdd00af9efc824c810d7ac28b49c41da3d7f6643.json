@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.tasks SET lease_until = now() - interval '1 minute' WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a79a6aab08679761a5c74f74fdd00af9efc824c810d7ac28b49c41da3d7f6643"
+}

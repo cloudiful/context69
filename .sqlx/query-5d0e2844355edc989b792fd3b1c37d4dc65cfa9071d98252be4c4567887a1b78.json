@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.users (login_name, display_name, password_hash)\n         VALUES ($1, $1, $1)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5d0e2844355edc989b792fd3b1c37d4dc65cfa9071d98252be4c4567887a1b78"
+}

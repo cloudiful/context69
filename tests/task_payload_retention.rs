@@ -223,6 +223,9 @@ async fn terminal_payload_retention_strips_only_guarded_keys() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let mut conn = db.pool().begin().await.expect("begin transaction");
 
     let user_id = seed_user(&mut conn).await;
@@ -300,6 +303,9 @@ async fn terminal_payload_retention_is_idempotent_and_applied() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let mut conn = db.pool().begin().await.expect("begin transaction");
 
     // The normal SQLx migrator must have applied this migration.

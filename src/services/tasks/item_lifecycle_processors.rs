@@ -37,7 +37,11 @@ pub(super) async fn process_delete(
     {
         service
             .source_folders()
-            .delete_source_aware_folder_in_project_for_task(group, folder_id, item.lease_token)
+            .delete_source_aware_folder_in_project_for_task(
+                group,
+                folder_id,
+                crate::library_store::TaskWriteFence::from_claimed_item(item)?,
+            )
             .await
             .map(|_| Some(folder_id.to_string()))
     } else if let Some(file_id) = item
@@ -48,7 +52,11 @@ pub(super) async fn process_delete(
     {
         service
             .library()
-            .delete_file_in_project_for_task(group, file_id, item.lease_token)
+            .delete_file_in_project_for_task_fenced(
+                group,
+                file_id,
+                crate::library_store::TaskWriteFence::from_claimed_item(item)?,
+            )
             .await
             .map(|_| Some(file_id.to_string()))
     } else {
@@ -58,7 +66,11 @@ pub(super) async fn process_delete(
         };
         service
             .document_store()
-            .delete_by_key_for_task(group, &key, item.lease_token)
+            .delete_by_key_for_task(
+                group,
+                &key,
+                crate::library_store::TaskWriteFence::from_claimed_item(item)?,
+            )
             .await
             .map(|_| Some(format!("{}:{}", key.source_key, key.external_id)))
     };
@@ -103,7 +115,11 @@ pub(super) async fn process_sync(
         ))?;
         service
             .source_folders()
-            .sync_source_folder_in_project(group, folder_id, item.lease_token)
+            .sync_source_folder_in_project(
+                group,
+                folder_id,
+                crate::library_store::TaskWriteFence::from_claimed_item(item)?,
+            )
             .await
             .map(|_| folder_id.to_string())
     } else {

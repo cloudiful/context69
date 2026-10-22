@@ -4,14 +4,14 @@
 -- and summary field is its projection, so this statement compares the two and
 -- reports the disagreement instead of rewriting anything. It is read-only and
 -- never mutates a row: repair stays in the transitions themselves
--- (`recompute.sql`, `claim_items.sql`, `maintain_claim_state.sql`).
+-- (`recompute.sql`, `mirror_claim.sql`, `maintain_claim_state.sql`).
 --
 -- `$1` scopes the statement to one task. `/healthz` passes NULL to get the
 -- whole-queue gauges; `GET /v1/tasks/{task_id}/diagnose` passes the task id to
 -- get that task's verdict plus its per-item attempt and lease forensics. Both
 -- consumers therefore share one consistency definition and one current-item
 -- ordering: the lowest-ordinal non-terminal item, exactly like
--- `recompute.sql` and `claim_items.sql`. The per-item diagnostics branch is
+-- `recompute.sql` and `claim_candidates.sql`. The per-item diagnostics branch is
 -- guarded on the scope filter, so the health snapshot never pays for it.
 WITH scoped_parent AS (
     SELECT task.id,
@@ -56,8 +56,8 @@ item_counts AS (
                  AND item.attempt_count >= 4
            )::bigint AS near_exhaustion_count,
            -- Whether any item of this parent could still be served by a claim.
-           -- `claim_items.sql` excludes `attempt_count >= 5`, so this is the
-           -- exact eligibility shape the P1 reclaim predicate tests.
+           -- `claim_candidates.sql` excludes `attempt_count >= 5`, so this is
+           -- the exact eligibility shape the P1 reclaim predicate tests.
            EXISTS (
                SELECT 1
                FROM context69.task_items candidate
@@ -291,9 +291,9 @@ SELECT
     -- reclaim predicate of `maintain_claim_state.sql` exactly, so the gauge
     -- never counts a legitimate wait:
     --   * a parent whose current item is claimable (queued/running/waiting with
-    --     `attempt_count < 5`, which is what `claim_items.sql` admits) keeps its
-    --     slot across a scheduled retry or dependency wait, and is not an
-    --     orphan;
+    --     `attempt_count < 5`, which is what `claim_candidates.sql` admits)
+    --     keeps its slot across a scheduled retry or dependency wait, and is not
+    --     an orphan;
     --   * a parent whose only `running` item has a lapsed lease is the crashed
     --     -worker shape maintenance reclaims on its next tick.
     -- Reading `lease_until` alone would flag every backoff or dependency wait

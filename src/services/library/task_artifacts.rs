@@ -23,6 +23,7 @@ use crate::db::{
     AttachTaskItemArtifactRequest, TaskItemArtifactKind, TaskItemArtifactRef, TaskItemArtifactRow,
 };
 use crate::domain_errors::DomainError;
+use crate::library_store::{TaskWriteDenied, TaskWriteFence};
 
 use super::LibraryService;
 use super::object_storage;
@@ -151,42 +152,58 @@ impl LibraryService {
         Ok(())
     }
 
-    /// Attach a verified artifact to a running, leased item.
+    /// Attach a verified artifact to a running item under its captured grant.
     ///
     /// The object is re-verified immediately before the database handoff, then
-    /// one fenced statement commits the reference and removes only that kind's
-    /// inline bytes. A lost lease or a changed identity leaves the payload
-    /// untouched, and the provisional object is handed back to the existing
-    /// staging rollback. On success the staging lease is dropped only when no
-    /// task input still shares the object.
+    /// one guarded transaction commits the reference, removes only that kind's
+    /// inline bytes and drops the staging lease of the object. A refused grant
+    /// rolls the whole transaction back, so the payload, the reference and the
+    /// object lease are exactly what they were, and the provisional object is
+    /// handed back to the existing staging rollback.
     #[doc(hidden)]
     pub async fn attach_task_item_artifact(
         &self,
-        item_id: Uuid,
-        lease_token: Uuid,
+        fence: &TaskWriteFence,
         kind: TaskItemArtifactKind,
         staged: &StagedTaskItemArtifact,
     ) -> Result<bool> {
         self.verify_staged_artifact(staged).await?;
+        let mut write = match self.store.begin_task_write(*fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => {
+                // The grant is gone: the attach is refused, not failed.
+                self.discard_staged_artifact(staged).await;
+                return Ok(false);
+            }
+            Err(error) => return Err(error),
+        };
         let attached = self
             .db
-            .attach_task_item_artifact(AttachTaskItemArtifactRequest {
-                item_id,
-                lease_token,
-                kind,
-                storage_object_id: staged.object_id,
-                sha256: &staged.sha256,
-                size_bytes: staged.size_bytes,
-                storage_backend: self.storage.backend(),
-            })
+            .attach_task_item_artifact_in(
+                write.connection(),
+                AttachTaskItemArtifactRequest {
+                    item_id: fence.item_id(),
+                    lease_token: fence.token(),
+                    kind,
+                    storage_object_id: staged.object_id,
+                    sha256: &staged.sha256,
+                    size_bytes: staged.size_bytes,
+                    storage_backend: self.storage.backend(),
+                },
+            )
             .await?;
         if !attached {
+            write.rollback().await;
             self.discard_staged_artifact(staged).await;
             return Ok(false);
         }
         self.store
-            .promote_task_item_artifact_object(staged.object_id)
+            .promote_task_item_artifact_object_in(write.connection(), staged.object_id)
             .await?;
+        if !write.commit().await? {
+            self.discard_staged_artifact(staged).await;
+            return Ok(false);
+        }
         Ok(true)
     }
 
@@ -365,13 +382,9 @@ impl LibraryService {
         let staged = self
             .stage_task_item_artifact(group_id, Bytes::from(encoded), item.lease_token)
             .await?;
+        let fence = TaskWriteFence::from_claimed_item(item)?;
         let attached = self
-            .attach_task_item_artifact(
-                item.id,
-                item.lease_token,
-                TaskItemArtifactKind::Sections,
-                &staged,
-            )
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Sections, &staged)
             .await?;
         if !attached {
             return Err(DomainError::conflict(

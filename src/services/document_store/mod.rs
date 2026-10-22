@@ -261,21 +261,25 @@ impl DocumentStoreService {
         self.delete_by_key_with_lease(group, key, None).await
     }
 
+    /// Delete the document of a running task item under its captured grant.
+    ///
+    /// When the document owns a library file, the file and its documents are
+    /// removed inside the guarded write of the grant, so a worker that lost its
+    /// segment deletes nothing.
     pub(crate) async fn delete_by_key_for_task(
         &self,
         group: &crate::domain::GroupRecord,
         key: &DocumentKey,
-        lease_token: uuid::Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<()> {
-        self.delete_by_key_with_lease(group, key, Some(lease_token))
-            .await
+        self.delete_by_key_with_lease(group, key, Some(fence)).await
     }
 
     async fn delete_by_key_with_lease(
         &self,
         group: &crate::domain::GroupRecord,
         key: &DocumentKey,
-        lease_token: Option<uuid::Uuid>,
+        fence: Option<crate::library_store::TaskWriteFence>,
     ) -> Result<()> {
         let id = self
             .db
@@ -295,10 +299,10 @@ impl DocumentStoreService {
             .await?
             .ok_or_else(|| DomainError::not_found("document not found"))?;
         if let Some(file_id) = document.library_file_id {
-            return match lease_token {
-                Some(lease_token) => {
+            return match fence {
+                Some(fence) => {
                     self.library
-                        .delete_file_in_project_for_task(group, file_id, lease_token)
+                        .delete_file_in_project_for_task_fenced(group, file_id, fence)
                         .await
                 }
                 None => self.library.delete_file_in_project(group, file_id).await,

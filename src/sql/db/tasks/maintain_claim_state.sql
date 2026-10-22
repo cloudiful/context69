@@ -16,11 +16,12 @@
 -- the recovery dispatch so the two statements do not race for the same
 -- attempt rows inside one recovery cycle, but concurrent callers remain
 -- safe to retry because all predicates remain valid if run again. The
--- exhausted CTEs match the predicates that previously lived inside
--- claim_items.sql; splitting them out lets the fast claim path skip the
--- maintenance UPDATE/RETURNING work when the queue is empty and lets the
--- recovery tick keep converging exhausted-only queues toward terminal
--- state.
+-- exhausted CTEs match the predicates the admission candidate applies:
+-- `claim_candidates.sql` admits only `attempt_count < 5` items, and this
+-- statement carries the same exhaustion to the file and parent levels. Keeping
+-- that work here lets the fast claim path skip the maintenance
+-- UPDATE/RETURNING work when the queue is empty and lets the recovery tick
+-- keep converging exhausted-only queues toward terminal state.
 --
 -- This file also owns the two parent-task admission leases (issue 650 P2)
 -- that must converge outside the claim path:
@@ -106,7 +107,7 @@ WITH to_exhaust AS (
     RETURNING file.id
 ), renewed_parent_leases AS (
     -- An admitted parent keeps its global slot while a worker is running one of
-    -- its items. `claim_items.sql` renews the same lease on the claim path, but
+    -- its items. `mirror_claim.sql` renews the same lease on the claim path, but
     -- a replica whose local worker pool is full never reaches that statement,
     -- so the recovery tick must keep the slot alive here. A task whose only
     -- owner died has no live item lease, so nothing renews it and it expires.
@@ -208,7 +209,8 @@ WITH to_exhaust AS (
         FROM (SELECT DISTINCT task_id FROM to_exhaust) agg
     ) counts
     LEFT JOIN LATERAL (
-        -- Same current-item ordering as `recompute.sql` and `claim_items.sql`:
+        -- Same current-item ordering as `recompute.sql` and
+        -- `claim_candidates.sql`:
         -- lowest ordinal non-terminal item, no running/queued/waiting ranking.
         SELECT ti.status, ti.stage, ti.waiting_reason, ti.dependency_key, ti.next_attempt_at
         FROM context69.task_items ti
@@ -220,15 +222,21 @@ WITH to_exhaust AS (
     ) current_item ON TRUE
     WHERE t.id = counts.task_id
     RETURNING t.id
-), expired_items AS (
-    UPDATE context69.task_items AS item
-    SET lease_token = NULL,
-        lease_until = NULL,
-        updated_at = now()
-    FROM context69.tasks AS task
-    WHERE item.task_id = task.id
-      AND item.status = 'running'
-      AND (item.lease_until IS NULL OR item.lease_until < now())
+), expired_workers AS (
+    -- The workers whose item lease is gone. The library owns the item lease
+    -- and the recovery that seals an expired segment, so this statement only
+    -- reads the expired rows: it never clears a lease the library still owns,
+    -- and it never interrupts an attempt the library has not sealed.
+    SELECT item.id, item.task_id
+    FROM context69.task_items item
+    JOIN context69.tasks task ON task.id = item.task_id
+    WHERE (
+            (item.status = 'running'
+                AND (item.lease_until IS NULL OR item.lease_until < now()))
+            -- A segment the recovery sealed parks the item with this reason:
+            -- the worker is gone, so the slot the parent held is released.
+            OR (item.status = 'waiting' AND item.waiting_reason = 'lease_expired')
+        )
       AND (
           task.status IN ('queued', 'running')
           OR (
@@ -236,7 +244,6 @@ WITH to_exhaust AS (
               AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
           )
       )
-    RETURNING item.id, item.task_id
 ), revoked_parent_leases AS (
     -- No live worker item lease remains for these tasks: the slot they held is
     -- no longer owned by anything, so release it now instead of letting it idle
@@ -263,10 +270,10 @@ WITH to_exhaust AS (
           WHERE item.task_id = task.id
             AND item.status = 'running'
             AND item.lease_until > now()
-            AND NOT EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.id = item.id)
+            AND NOT EXISTS (SELECT 1 FROM expired_workers revoked WHERE revoked.id = item.id)
       )
       AND (
-          EXISTS (SELECT 1 FROM expired_items revoked WHERE revoked.task_id = task.id)
+          EXISTS (SELECT 1 FROM expired_workers revoked WHERE revoked.task_id = task.id)
           OR NOT EXISTS (
               SELECT 1
               FROM context69.task_items item
@@ -276,21 +283,11 @@ WITH to_exhaust AS (
           )
       )
     RETURNING task.id
-), expired AS (
-    UPDATE context69.task_attempts AS attempt
-    SET status = 'interrupted',
-        failure_stage = 'lease',
-        error_message = 'worker lease expired before completion',
-        finished_at = now()
-    FROM expired_items
-    WHERE attempt.item_id = expired_items.id
-      AND attempt.finished_at IS NULL
-    RETURNING attempt.id
 )
 SELECT
     (SELECT count(*) FROM exhausted) AS "exhausted_items!",
     (SELECT count(*) FROM exhausted_files) AS "exhausted_files!",
     (SELECT count(*) FROM recomputed) AS "exhausted_tasks!",
-    (SELECT count(*) FROM expired) AS "expired_attempts!",
+    0::bigint AS "expired_attempts!",
     (SELECT count(*) FROM renewed_parent_leases) AS "renewed_parent_leases!",
     (SELECT count(*) FROM revoked_parent_leases) AS "revoked_parent_leases!"

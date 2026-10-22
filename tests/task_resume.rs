@@ -21,9 +21,13 @@ use uuid::Uuid;
 async fn scratch_db() -> Database {
     let url = context69_test_support::accessor::database_url();
 
-    Database::connect(&url)
+    let db = Database::connect(&url)
         .await
-        .expect("connect test database")
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    db
 }
 
 async fn seed_test_user(db: &Database) -> i64 {

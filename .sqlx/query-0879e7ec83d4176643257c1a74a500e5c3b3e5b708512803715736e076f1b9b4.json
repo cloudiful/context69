@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The distinct library segments of the items one cancellation covers\n-- (issue 1020 P4B).\n--\n-- `$1` is the parent task, or NULL when the cancellation covers every\n-- active task. The domain cancellation and the cancellation of the\n-- segments of these items commit in one transaction.\nSELECT DISTINCT execution_task_id FROM context69.task_items WHERE execution_task_id IS NOT NULL AND ($1::uuid IS NULL OR task_id = $1)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "0879e7ec83d4176643257c1a74a500e5c3b3e5b708512803715736e076f1b9b4"
+}

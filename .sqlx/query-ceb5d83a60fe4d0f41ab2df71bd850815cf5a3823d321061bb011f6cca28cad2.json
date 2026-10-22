@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lease-fenced artifact attach (issue #975 P3).\n--\n-- One statement owns the whole handoff:\n--   1. the UPDATE locks and guards the running item under the caller's lease,\n--      so a reclaim, cancel or finish that already happened cannot be stripped;\n--   2. the same branch verifies the registry object is the caller's declared\n--      identity in the item's own task group and on the active backend;\n--   3. it removes ONLY the migrated inline bytes for that kind, leaving every\n--      other payload key untouched (`#-`/`-` on a missing key are no-ops);\n--   4. the INSERT upserts the artifact reference from the UPDATE's RETURNING,\n--      so no reference without the matching strip and no strip without a\n--      reference can commit.\n--\n-- The insert's foreign key takes FOR KEY SHARE on the storage-object row, which\n-- conflicts with the cleanup worker's FOR UPDATE identity lock, so bytes can\n-- never be released between this attach and its reference commit. A retarget\n-- fires the P1 old-object release trigger; an unchanged object is a no-op.\n--\n-- The lease of the item fences the attach: the fencing token of the library\n-- attempt and the deadline of that lease, compared against the clock of the\n-- database.\nWITH attached_item AS (\n    UPDATE context69.task_items AS item\n    SET payload = CASE WHEN $7::text = 'download'\n                       THEN item.payload #- '{download_artifact,content_base64}'\n                       ELSE item.payload - 'section_payload'\n                  END,\n        updated_at = now()\n    FROM context69.tasks AS task\n    WHERE item.id = $1\n      AND item.lease_token = $2\n      AND item.status = 'running'\n      AND item.lease_until > clock_timestamp()\n      AND task.id = item.task_id\n      AND task.group_id IS NOT NULL\n      AND EXISTS (\n          SELECT 1\n          FROM context69.library_storage_objects AS object\n          WHERE object.id = $3\n            AND object.group_id = task.group_id\n            AND object.sha256 = $4\n            AND object.size_bytes = $5\n            AND object.storage_backend = $6\n      )\n    RETURNING item.id\n), attached_ref AS (\n    INSERT INTO context69.task_item_artifacts\n        (item_id, kind, storage_object_id, encoding)\n    SELECT attached_item.id, $7::text, $3, $8::text\n    FROM attached_item\n    ON CONFLICT (item_id, kind) DO UPDATE\n    SET storage_object_id = EXCLUDED.storage_object_id\n    RETURNING item_id\n)\nSELECT count(*)::bigint AS \"attached!\"\nFROM attached_ref\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "attached!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ceb5d83a60fe4d0f41ab2df71bd850815cf5a3823d321061bb011f6cca28cad2"
+}

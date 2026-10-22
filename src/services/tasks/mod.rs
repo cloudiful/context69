@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod actions;
+pub mod cutover;
 mod dispatcher;
 mod docling_cleanup;
 mod docling_finalize;
@@ -33,6 +34,11 @@ mod item_git_index_processor;
 mod item_lifecycle_processors;
 #[cfg(test)]
 mod item_pipeline_tests;
+
+/// The claim is a global primitive over the shared scratch database, so every
+/// case that claims an item serializes on this lock.
+#[cfg(test)]
+pub(crate) static TASK_CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 mod item_processors;
 mod item_translation_processors;
 mod item_url_processor;
@@ -71,6 +77,7 @@ pub struct TaskService {
     dispatcher_started: Arc<AtomicBool>,
     dispatch_stop: Arc<DispatchStop>,
     task_event_bus: tokio::sync::broadcast::Sender<TaskEvent>,
+    execution_latch: Arc<cutover::ExecutionLatch>,
 }
 
 #[derive(Debug, Clone)]
@@ -135,6 +142,7 @@ impl TaskService {
             dispatcher_started: Arc::new(AtomicBool::new(false)),
             dispatch_stop: Arc::new(DispatchStop::new()),
             task_event_bus,
+            execution_latch: cutover::ExecutionLatch::new(),
         }
     }
 
@@ -226,6 +234,17 @@ impl TaskService {
         self.dispatcher_started
             .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
             .is_ok()
+    }
+
+    /// The readiness of the execution engine, decided once per process.
+    pub async fn execution_readiness(&self) -> cutover::ExecutionReadiness {
+        self.execution_latch.readiness(&self.db).await
+    }
+
+    /// The decided readiness, once the decision was taken.
+    #[must_use]
+    pub fn execution_readiness_decided(&self) -> Option<cutover::ExecutionReadiness> {
+        self.execution_latch.decided()
     }
 
     pub(super) fn dispatcher_shutdown(&self) -> CancellationToken {

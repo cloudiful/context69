@@ -118,13 +118,8 @@ async fn a_claim_reports_the_item_position_the_row_already_has() {
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn the_logged_ordinal_matches_the_item_the_claim_actually_produced() {
-    // Finding 1, the join between the two halves. `claim_items.sql` returns no
-    // ordinal (P1 SQL this phase must not edit), so the dispatcher resolves the
-    // claimed item's position with a second lookup. Those halves are only
-    // correct together if the lookup names the item the claim flipped to
-    // `running` — not the head ordinal by coincidence, and not a sibling. This
-    // seeds a claim on the *second* item, where "always 0" and "the real
-    // position" disagree.
+    // A claim on the second item distinguishes its actual ordinal from the
+    // parent's head or a sibling's position.
     let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;

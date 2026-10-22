@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Links a fresh execution segment to one unlinked queued or waiting item\n-- (issue 1020 P4A).\n--\n-- The handover only ever links an item the library does not execute yet and\n-- that the engine has not started: `queued` or `waiting`. A running item is\n-- never adopted, and a terminal one is never resurrected. The domain status is\n-- preserved exactly - a waiting item stays waiting, so a new library segment\n-- alone never bypasses the domain admission of its parent, and the eligibility\n-- rules still exclude a Docling wait until the existing reconciliation makes it\n-- eligible. The retry deadline, attempt count, dependency key, resource, stage\n-- and Docling reference all stay untouched.\n--\n-- `$1` is the item, `$2` the fresh library task and `$3` the generation.\nUPDATE context69.task_items item\nSET execution_task_id = $2,\n    execution_generation = $3,\n    updated_at = now()\nWHERE item.id = $1\n  AND item.execution_task_id IS NULL\n  AND item.status IN ('queued', 'waiting')\nRETURNING item.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1085c2fc1a4269231af1921cf1c419131a8c52859777c939e1477b3b7e87b306"
+}

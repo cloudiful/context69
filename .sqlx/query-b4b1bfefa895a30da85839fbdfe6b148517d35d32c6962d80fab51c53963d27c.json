@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The lease mirror of one running task item (issue 1020 P2).\n--\n-- The deadline is the one the library returned for the renewed attempt, so\n-- the domain never extends a lease on its own clock. The guard is the\n-- captured execution of the item: the fencing token of the library attempt,\n-- the library task and the execution generation.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the deadline the library\n-- returned, `$4` the library task and `$5` the execution generation.\nUPDATE context69.task_items\nSET lease_until = $3,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n  AND execution_task_id = $4\n  AND execution_generation = $5\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "b4b1bfefa895a30da85839fbdfe6b148517d35d32c6962d80fab51c53963d27c"
+}

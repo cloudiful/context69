@@ -48,8 +48,8 @@ struct FileTranslationDirectiveRow {
 
 use super::mappers::file_from_row;
 use super::{
-    FileRow, LibraryFileRecord, LibraryIngestStatus, LibraryStore, NewLibraryFile,
-    UpdateLibraryFileContent,
+    FileRow, LibraryFileRecord, LibraryIngestStatus, LibraryStore, NewLibraryFile, TaskWriteDenied,
+    TaskWriteFence, UpdateLibraryFileContent,
 };
 
 impl LibraryStore {
@@ -364,6 +364,90 @@ impl LibraryStore {
         file_from_row(row)
     }
 
+    /// The create statement inside the fenced write of a running task item.
+    ///
+    /// The library row is written on the connection of the guarded transaction,
+    /// so the file and the grant that authorized it commit together. A refused
+    /// grant returns `None` and nothing is written.
+    pub async fn create_file_in_project_fenced(
+        &self,
+        fence: TaskWriteFence,
+        project_id: i64,
+        file: &NewLibraryFile,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let mut write = match self.begin_task_write(fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/create_file_in_project.sql",
+            file.id,
+            file.folder_id,
+            file.external_id,
+            file.filename,
+            file.media_type,
+            file.size_bytes,
+            file.sha256,
+            file.storage_rel_path,
+            project_id,
+            file.storage_object_id,
+            file.delete_source_after_processing
+        )
+        .fetch_optional(write.connection())
+        .await?;
+        let Some(row) = row else {
+            write.rollback().await;
+            return Ok(None);
+        };
+        let record = file_from_row(row)?;
+        if !write.commit().await? {
+            return Ok(None);
+        }
+        Ok(Some(record))
+    }
+
+    /// The content update inside the fenced write of a running task item.
+    pub async fn update_file_content_in_project_fenced(
+        &self,
+        fence: TaskWriteFence,
+        project_id: i64,
+        file_id: Uuid,
+        update: &UpdateLibraryFileContent,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let mut write = match self.begin_task_write(fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/update_file_content_in_project.sql",
+            project_id,
+            file_id,
+            update.folder_id,
+            update.external_id,
+            update.filename,
+            update.media_type,
+            update.size_bytes,
+            update.sha256,
+            update.storage_rel_path,
+            update.storage_object_id
+        )
+        .fetch_optional(write.connection())
+        .await?;
+        let Some(row) = row else {
+            write.rollback().await;
+            return Ok(None);
+        };
+        let record = file_from_row(row)?;
+        if !write.commit().await? {
+            return Ok(None);
+        }
+        Ok(Some(record))
+    }
+
     pub async fn update_file_content_in_project(
         &self,
         project_id: i64,
@@ -420,6 +504,103 @@ impl LibraryStore {
         row.map(file_from_row).transpose()
     }
 
+    /// The compensation of one failed task upload, in one guarded write.
+    ///
+    /// The previous snapshot of the file, its business metadata, its
+    /// translation directive and the search generation counter are restored on
+    /// the connection of the guarded transaction of the *original* captured
+    /// grant, and the grant is checked again before the commit. `false` means
+    /// the grant is gone: nothing is restored, and the caller must not fall back
+    /// to the pooled helpers, because the row may already belong to a newer
+    /// owner.
+    pub async fn restore_file_snapshot_for_task_fenced(
+        &self,
+        fence: TaskWriteFence,
+        file: &crate::domain::LibraryFileRecord,
+        storage_object_id: Option<Uuid>,
+        source_released_at: Option<DateTime<Utc>>,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
+        translation: Option<&crate::contracts::TranslationDirective>,
+    ) -> Result<bool> {
+        let mut write = match self.begin_task_write(fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        let metadata_json = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
+        let restored = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/restore_file_snapshot_in_project.sql",
+            file.group_id,
+            file.id,
+            file.folder_id,
+            file.external_id,
+            file.filename,
+            file.media_type,
+            file.size_bytes,
+            file.sha256,
+            file.storage_rel_path,
+            storage_object_id,
+            file.ingest_status.as_str(),
+            file.error_message,
+            file.ingested_at,
+            source_released_at
+        )
+        .fetch_optional(write.connection())
+        .await?;
+        if restored.is_none() {
+            write.rollback().await;
+            return Ok(false);
+        }
+        let updated = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/update_business_metadata.sql",
+            file.group_id,
+            file.id,
+            metadata.external_id,
+            metadata.source_uri,
+            metadata.published_at,
+            metadata_json
+        )
+        .fetch_optional(write.connection())
+        .await?;
+        if updated.is_none() {
+            write.rollback().await;
+            return Ok(false);
+        }
+        sqlx::query_file!(
+            "src/sql/library_store/files/set_translation_directive.sql",
+            file.id,
+            translation.is_some(),
+            translation.and_then(|value| value.source_locale.as_deref()),
+            translation
+                .map(|value| value.target_locales.as_slice())
+                .unwrap_or_default()
+        )
+        .execute(write.connection())
+        .await?;
+        // The counter is advanced on the guarded connection with the existing
+        // checked statement, so the restored snapshot and the cache
+        // invalidation it implies commit together.
+        sqlx::query_file_scalar!("src/sql/db/search_cache/bump_search_generation.sql")
+            .fetch_one(write.connection())
+            .await?;
+        write.commit().await
+    }
+
+    /// Removes the file record of one failed task upload under its grant.
+    ///
+    /// `false` means the grant is gone and nothing was removed.
+    pub async fn rollback_file_record_for_task_fenced(
+        &self,
+        fence: TaskWriteFence,
+        project_id: i64,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        self.delete_file_in_project_fenced(fence, project_id, file_id)
+            .await
+    }
+
     pub async fn move_file(
         &self,
         file_id: Uuid,
@@ -456,6 +637,51 @@ impl LibraryStore {
         row.map(file_from_row).transpose()
     }
 
+    /// The status projection of one file, written inside the guarded write of
+    /// a running task item.
+    ///
+    /// A worker that lost its segment projects nothing: the statement runs on
+    /// the connection of the guarded transaction, and the grant is rechecked
+    /// before the commit.
+    pub async fn update_file_status_fenced(
+        &self,
+        fence: TaskWriteFence,
+        file_id: Uuid,
+        status: LibraryIngestStatus,
+        error_message: Option<&str>,
+        mark_ingested_now: bool,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let ingested_at = if mark_ingested_now {
+            Some(Utc::now())
+        } else {
+            None
+        };
+        let mut write = match self.begin_task_write(fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(None),
+            Err(error) => return Err(error),
+        };
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/update_file_status.sql",
+            file_id,
+            status.as_str(),
+            error_message,
+            ingested_at
+        )
+        .fetch_optional(write.connection())
+        .await?;
+        let Some(row) = row else {
+            write.rollback().await;
+            return Ok(None);
+        };
+        let record = file_from_row(row)?;
+        if !write.commit().await? {
+            return Ok(None);
+        }
+        Ok(Some(record))
+    }
+
     pub async fn update_file_status(
         &self,
         file_id: Uuid,
@@ -490,6 +716,40 @@ impl LibraryStore {
         .execute(self.db.pool())
         .await?;
         Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete one file row under the captured grant of a running task item.
+    ///
+    /// The documents of the file and the file row are removed in one guarded
+    /// transaction, so a worker that lost its segment cannot delete anything and
+    /// a crash between the two deletes cannot leave a file without documents.
+    pub async fn delete_file_in_project_fenced(
+        &self,
+        fence: TaskWriteFence,
+        project_id: i64,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        let mut write = match self.begin_task_write(fence).await {
+            Ok(write) => write,
+            Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(false),
+            Err(error) => return Err(error),
+        };
+        self.delete_documents_for_files_in(write.connection(), &[file_id])
+            .await?;
+        let deleted = sqlx::query_file!(
+            "src/sql/library_store/files/delete_file_record_in_project.sql",
+            project_id,
+            file_id
+        )
+        .execute(write.connection())
+        .await?
+        .rows_affected()
+            > 0;
+        if !deleted {
+            write.rollback().await;
+            return Ok(false);
+        }
+        write.commit().await
     }
 
     pub async fn delete_file_record_in_project(

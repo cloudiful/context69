@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- A queued item, claimed through the library by the test fixture.\nINSERT INTO context69.task_items\n    (id, task_id, ordinal, payload, status, attempt_count)\nVALUES ($1, $2, 0, $3, 'queued', 0)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "05274dc2e0b73c14287eaa862d6ed0cfe230cc515bf556044f13ca61afe58985"
+}

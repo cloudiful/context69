@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The release of the savepoint around the chunk insert of one guarded batch\n-- (issue 1020 P3C).\nRELEASE SAVEPOINT task_chunk_insert\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "c77440f6b803467a8b9854be9c85e21289010f101c739615eb501eccd345cfc1"
+}

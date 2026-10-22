@@ -12,7 +12,7 @@
 
 mod fixtures;
 mod source_materialization;
-mod support;
+pub(crate) mod support;
 
 use context69_contracts::TaskKind;
 use serde_json::Value;
@@ -43,6 +43,9 @@ async fn run_path_case(
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (task_id, _reused, item_ids) = db
@@ -108,7 +111,9 @@ async fn run_path_case(
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: item.lease_token,
+            execution: item
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: item.attempt_id,
         })
         .await
@@ -172,6 +177,9 @@ async fn text_batch_resumes_at_indexing_after_persisted_sections() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (task_id, _reused, item_ids) = db
@@ -305,8 +313,8 @@ async fn attach_sections_artifact(
         service
             .library()
             .attach_task_item_artifact(
-                item.id,
-                item.lease_token,
+                &crate::library_store::TaskWriteFence::from_claimed_item(item)
+                    .expect("the claimed item carries its grant"),
                 crate::db::TaskItemArtifactKind::Sections,
                 &staged,
             )
@@ -341,6 +349,9 @@ async fn artifact_sections_resolve_to_the_identical_json_without_an_inline_copy(
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (task_id, _reused, item_ids) = db
@@ -427,6 +438,9 @@ async fn a_corrupt_sections_artifact_errors_instead_of_reporting_no_sections() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (task_id, _reused, item_ids) = db
@@ -491,6 +505,9 @@ async fn a_later_progress_save_never_reintroduces_the_externalized_sections() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (task_id, _reused, item_ids) = db
@@ -592,6 +609,9 @@ async fn a_backfilled_download_artifact_feeds_the_url_storage_stage_without_a_se
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let mut payload = payload("url_batch");
@@ -640,8 +660,8 @@ async fn a_backfilled_download_artifact_feeds_the_url_storage_stage_without_a_se
         service
             .library()
             .attach_task_item_artifact(
-                item.id,
-                item.lease_token,
+                &crate::library_store::TaskWriteFence::from_claimed_item(&item)
+                    .expect("the claimed item carries its grant"),
                 crate::db::TaskItemArtifactKind::Download,
                 &staged,
             )
@@ -708,6 +728,9 @@ async fn an_unusable_sections_reference_errors_instead_of_reconverting() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let other_group = seed_group(&db).await;

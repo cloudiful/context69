@@ -3,7 +3,7 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
+use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, seed_test_user};
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -13,6 +13,9 @@ async fn claim_items_compatibility_path_still_converges_exhausted_state() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
@@ -176,6 +179,9 @@ async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent()
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
@@ -315,6 +321,9 @@ async fn claim_items_compatibility_path_recycles_an_expired_attempt() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
@@ -343,13 +352,9 @@ async fn claim_items_compatibility_path_recycles_an_expired_attempt() {
         .expect("fresh item claimable");
     assert_eq!(first.attempt_count, 1);
 
-    sqlx::query(
-        "UPDATE context69.task_items SET lease_until = now() - interval '1 minute' WHERE id = $1",
-    )
-    .bind(item_id)
-    .execute(db.pool())
-    .await
-    .expect("expire lease");
+    // The worker crashes: the authoritative library attempt and its domain
+    // mirror expire together.
+    crash_holder(&db, &first).await;
 
     let second = db
         .claim_items(10)

@@ -14,6 +14,9 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (file_id, group_id) = insert_file(&db, "running").await;
     let task_id = Uuid::new_v4();
@@ -284,6 +287,9 @@ async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     // Two-item task: one will be exhausted, the other remains queued.
     let task_id = Uuid::new_v4();
@@ -397,6 +403,9 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
 
     // Every waiting item with a dependency/backoff reason is exhausted at

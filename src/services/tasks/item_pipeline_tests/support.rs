@@ -38,7 +38,7 @@ use crate::{
 /// database, so the cases must not claim each other's rows concurrently.
 /// Serialise the cases on this lock, matching `tests/task_dispatcher_fast_path`
 /// and `tests/task_lease_invariant`.
-pub(super) static PIPELINE_CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+pub(super) use crate::services::tasks::TASK_CASE_LOCK as PIPELINE_CASE_LOCK;
 
 /// Readiness only; the tests never run translation.
 struct NotReady;
@@ -52,7 +52,7 @@ impl TranslationReadiness for NotReady {
 
 /// Real service graph with local storage and no network runtimes; the tests
 /// never reach the docling/embedding/indexing hop.
-pub(super) async fn build_service(db: &Database) -> (TaskService, PathBuf) {
+pub(crate) async fn build_service(db: &Database) -> (TaskService, PathBuf) {
     let storage_root = std::env::temp_dir().join(format!("context69-592-{}", Uuid::new_v4()));
     let chunking = ChunkingConfig {
         max_chars: 1000,

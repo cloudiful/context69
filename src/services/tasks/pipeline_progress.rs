@@ -31,10 +31,10 @@ pub(super) async fn record_item_progress(
 ) -> Result<()> {
     let payload = payload_with_progress(&item.payload, &progress)
         .map_err(|error| DomainError::internal(format!("invalid pipeline progress: {error}")))?;
-    if !db
-        .set_task_item_payload(item.id, item.lease_token, &payload)
-        .await?
-    {
+    // The checkpoint runs under the captured grant of the item, so a worker
+    // whose segment was superseded cannot publish progress into the item.
+    let fence = crate::library_store::TaskWriteFence::from_claimed_item(item)?;
+    if !crate::library_store::write_task_item_payload(db, fence, &payload).await? {
         return Err(
             DomainError::conflict("task item lease was lost while recording progress").into(),
         );

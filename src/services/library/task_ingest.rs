@@ -74,6 +74,37 @@ impl LibraryService {
         section_payload: &Value,
         lease_token: Uuid,
     ) -> Result<(), UnifiedIngestError> {
+        self.persist_file_sections_for_task_inner(file_id, section_payload, None, lease_token)
+            .await
+    }
+
+    /// Persist the sections of a file under the captured grant of a running
+    /// item.
+    ///
+    /// The status projection of the file is written inside the guarded write of
+    /// the grant, so a worker that lost its segment marks nothing.
+    pub async fn persist_file_sections_for_task_fenced(
+        &self,
+        file_id: Uuid,
+        section_payload: &Value,
+        fence: crate::library_store::TaskWriteFence,
+    ) -> Result<(), UnifiedIngestError> {
+        self.persist_file_sections_for_task_inner(
+            file_id,
+            section_payload,
+            Some(fence),
+            fence.token(),
+        )
+        .await
+    }
+
+    async fn persist_file_sections_for_task_inner(
+        &self,
+        file_id: Uuid,
+        section_payload: &Value,
+        fence: Option<crate::library_store::TaskWriteFence>,
+        lease_token: Uuid,
+    ) -> Result<(), UnifiedIngestError> {
         let file = self.task_file(file_id).await?;
         let sections = serde_json::from_value::<Vec<IngestSection>>(section_payload.clone())
             .map_err(|error| task_failure("parsing", error, false))?;
@@ -81,9 +112,21 @@ impl LibraryService {
             .prepare_sections(&file, sections)
             .await
             .map_err(normalize_task_failure)?;
-        self.persist_sections(&file, prepared)
-            .await
-            .map_err(normalize_task_failure)?;
+        // The fenced content path projects the status of the file inside its
+        // own guarded write, together with the links it authorizes. The pooled
+        // path keeps the separate projection after the content is written.
+        let fenced = fence.is_some();
+        match fence {
+            Some(fence) => {
+                self.persist_sections_fenced(fence, &file, &prepared)
+                    .await?;
+            }
+            None => {
+                self.persist_sections(&file, prepared)
+                    .await
+                    .map_err(normalize_task_failure)?;
+            }
+        }
         // Persist succeeded, so both the embedding and qdrant gates have had a
         // successful probe. Mark them independently so a transient qdrant
         // outage does not keep the embedding gate open and vice versa.
@@ -91,34 +134,36 @@ impl LibraryService {
             .await;
         self.note_dependency_success(LibraryDependency::Qdrant, lease_token)
             .await;
-        self.store
-            .update_file_status(file_id, LibraryIngestStatus::Succeeded, None, true)
-            .await
-            .map_err(|error| task_failure("finalize", error, true))?
-            .context(DomainError::not_found(
-                "file disappeared while finalizing task ingest",
-            ))
-            .map_err(|error| task_failure("finalize", error, false))?;
+        if !fenced {
+            self.project_file_status(None, file_id, LibraryIngestStatus::Succeeded, None, true)
+                .await
+                .map_err(|error| task_failure("finalize", error, true))?
+                .context(DomainError::not_found(
+                    "file disappeared while finalizing task ingest",
+                ))
+                .map_err(|error| task_failure("finalize", error, false))?;
+        }
         Ok(())
     }
 
     pub(crate) async fn handle_task_ingest_failure(
         &self,
         file_id: Uuid,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
         failure: UnifiedIngestError,
     ) -> UnifiedIngestError {
-        self.handle_task_ingest_failure_with_payload(file_id, lease_token, failure, None)
+        self.handle_task_ingest_failure_with_payload(file_id, fence, failure, None)
             .await
     }
 
     pub(crate) async fn handle_task_ingest_failure_with_payload(
         &self,
         file_id: Uuid,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
         failure: UnifiedIngestError,
         payload: Option<&Value>,
     ) -> UnifiedIngestError {
+        let lease_token = fence.token();
         if failure.retryable {
             let should_cleanup = match payload {
                 Some(payload) => {
@@ -130,7 +175,9 @@ impl LibraryService {
                 }
                 None => true,
             };
-            if should_cleanup && let Err(error) = self.cleanup_ingest_artifacts(file_id).await {
+            if should_cleanup
+                && let Err(error) = self.cleanup_ingest_artifacts_fenced(fence, file_id).await
+            {
                 return task_failure_with_dependency("indexing", error, "qdrant");
             }
             if let Some(dependency) = failure.dependency_key.as_deref()
@@ -148,8 +195,8 @@ impl LibraryService {
             // projection once the retried task finishes.
         } else {
             let _ = self
-                .store
-                .update_file_status(
+                .project_file_status(
+                    Some(fence),
                     file_id,
                     LibraryIngestStatus::Failed,
                     Some(&failure.message),
@@ -158,6 +205,115 @@ impl LibraryService {
                 .await;
         }
         failure
+    }
+
+    /// The content of one file, under the captured grant of a running item.
+    ///
+    /// The document, its version and its metadata values are written in one
+    /// guarded write, the chunks are replaced in guarded writes around the
+    /// embedding, and the links of the file and its status are written in one
+    /// guarded write. No transaction is held while a provider is awaited.
+    async fn persist_sections_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        file: &crate::domain::LibraryFileRecord,
+        prepared: &[PreparedIngestSection],
+    ) -> Result<(), UnifiedIngestError> {
+        let runtime = self
+            .runtime()
+            .map_err(|error| task_failure("indexing", error, false))?
+            .clone();
+        // The cleanup of an earlier partial ingest is a task-owned write too.
+        self.cleanup_ingest_artifacts_fenced(fence, file.id)
+            .await
+            .map_err(|error| task_failure("indexing", error, true))?;
+        let mut mappings = Vec::with_capacity(prepared.len());
+        for (index, prepared_section) in prepared.iter().enumerate() {
+            let document_id = self
+                .upsert_section_document(Some(fence), file, prepared_section, index, &mut mappings)
+                .await?;
+            // The chunks of the document are replaced: the previous chunks are
+            // removed first, then every batch is embedded outside a
+            // transaction and written inside one.
+            let mut write = crate::library_store::begin_task_write(&self.db, fence)
+                .await
+                .map_err(|error| task_failure("indexing", error, true))?;
+            self.db
+                .delete_document_chunks_in(write.connection(), document_id)
+                .await
+                .map_err(|error| task_failure("indexing", error, true))?;
+            if !write
+                .commit()
+                .await
+                .map_err(|error| task_failure("indexing", error, true))?
+            {
+                return Err(task_failure(
+                    "indexing",
+                    anyhow!("task item lease was lost while replacing the chunks"),
+                    true,
+                ));
+            }
+            let chunks = crate::chunking::chunk_document_iter(
+                document_id,
+                super::FILE_LIBRARY_SOURCE_KEY,
+                &prepared_section.normalized,
+                &self.chunking,
+            );
+            for batch in super::ingest_batches::ChunkBatchIter::new(chunks) {
+                self.persist_batch_content(
+                    Some(fence),
+                    file,
+                    prepared_section,
+                    document_id,
+                    &batch,
+                    &runtime,
+                )
+                .await?;
+            }
+        }
+        self.replace_file_links_and_status(
+            Some(fence),
+            file.id,
+            &mappings,
+            crate::contracts::LibraryIngestStatus::Succeeded,
+        )
+        .await?;
+        self.bump_search_generation_fenced(fence, "library ingest")
+            .await
+            .map_err(|error| task_failure("indexing", error, true))?;
+        Ok(())
+    }
+
+    /// The status projection of one file.
+    ///
+    /// A task that holds a grant writes the projection inside the guarded write
+    /// of that grant; an operator write has no grant and writes directly.
+    pub(super) async fn project_file_status(
+        &self,
+        fence: Option<crate::library_store::TaskWriteFence>,
+        file_id: Uuid,
+        status: LibraryIngestStatus,
+        error_message: Option<&str>,
+        mark_ingested_now: bool,
+    ) -> Result<Option<crate::domain::LibraryFileRecord>> {
+        match fence {
+            Some(fence) => {
+                self.store
+                    .update_file_status_fenced(
+                        fence,
+                        file_id,
+                        status,
+                        error_message,
+                        mark_ingested_now,
+                    )
+                    .await
+            }
+            None => {
+                self.store
+                    .update_file_status(file_id, status, error_message, mark_ingested_now)
+                    .await
+            }
+        }
     }
 
     async fn task_file(

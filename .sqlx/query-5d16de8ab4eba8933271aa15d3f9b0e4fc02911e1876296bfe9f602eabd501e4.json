@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT count(*) AS \"count!\" FROM context69.tasks WHERE lease_token IS NOT NULL AND lease_until > now() AND status IN ('queued', 'running', 'waiting') AND deleted_at IS NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5d16de8ab4eba8933271aa15d3f9b0e4fc02911e1876296bfe9f602eabd501e4"
+}

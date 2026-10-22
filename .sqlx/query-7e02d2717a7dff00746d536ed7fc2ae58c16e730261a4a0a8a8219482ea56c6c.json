@@ -1,0 +1,126 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The items the dispatcher may claim now (issue 1020 P2).\n--\n-- The selection is the domain policy and nothing else: the lowest ordinal\n-- non-terminal item of a parent, the global parent capacity, the created\n-- ordering, the retry time, the Docling exclusion and the domain attempt\n-- budget. The statement selects the candidates and locks their rows; it never\n-- mints a lease, because the lease of an item is the fencing token of the\n-- library attempt that holds it.\n--\n-- `$1` is the global parent-task capacity (`scheduler.max_concurrency`). Every\n-- replica passes the same configured capacity and `held` counts the durable\n-- lease rows, so the global number of admitted parents stays bounded no matter\n-- how many dispatchers run. The cross-replica serialization that makes this\n-- broadcast-safe lives in `lock_task_admission.sql`, which the claim\n-- transaction runs as its own statement immediately before this one.\n--\n-- An item whose library segment is still running is not a candidate: the\n-- library owns the recovery of an expired segment, and the domain projection\n-- of that recovery reopens the item. A candidate whose segment already ended\n-- is claimed through a fresh segment, which the claim path produces.\n--\n-- The returned rows are the pre-claim state of the candidates. `needs_slot`\n-- says that the parent takes a new global slot, `parent_lease_until` carries\n-- the deadline of the slot the parent already holds.\nWITH current_items AS (\n    -- The one item of each parent that must finish before any later item of\n    -- the same parent can start.\n    SELECT DISTINCT ON (item.task_id) item.id, item.task_id, item.ordinal\n    FROM context69.task_items item\n    WHERE item.status IN ('queued', 'running', 'waiting')\n    ORDER BY item.task_id, item.ordinal\n),\neligible_items AS (\n    SELECT item.id, item.task_id, item.ordinal\n    FROM current_items item\n    JOIN context69.task_items ti ON ti.id = item.id\n    WHERE ti.status IN ('queued', 'waiting')\n      AND ti.attempt_count < 5\n      AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())\n      -- Active remote references survive handoff: the newly leased worker\n      -- adopts the recorded identity rather than submitting a replacement.\n      -- NULL-safe: only waiting/docling rows are excluded. A plain\n      -- `waiting_reason = 'docling'` comparison yields NULL (not true) for\n      -- ordinary waiting rows with a NULL reason, and `NOT NULL` would\n      -- wrongly filter them out of the dispatcher.\n      AND NOT (\n            ti.status = 'waiting'\n            AND COALESCE(ti.waiting_reason, '') = 'docling'\n        )\n),\nwork AS (\n    -- Parents that need the dispatcher now (a due item) or are already running\n    -- one (a live worker item lease). An admitted parent with neither has\n    -- nothing to claim and must not have its lease extended.\n    SELECT task_id FROM eligible_items\n    UNION\n    SELECT item.task_id\n    FROM context69.task_items item\n    WHERE item.status = 'running'\n      AND item.lease_until > now()\n),\nheld AS (\n    SELECT count(*)::bigint AS held_count\n    FROM context69.tasks task\n    WHERE task.lease_token IS NOT NULL\n      AND task.lease_until > now()\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n),\nslot_candidates AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE (task.lease_token IS NULL OR task.lease_until IS NULL OR task.lease_until <= now())\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n      AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())\n      AND task.id IN (SELECT task_id FROM work)\n    ORDER BY task.created_at, task.id\n    LIMIT GREATEST($1 - (SELECT held_count FROM held), 0)\n    FOR UPDATE OF task SKIP LOCKED\n),\nadmitted_work AS (\n    -- Parents that already hold a slot and have an item to claim. They are not\n    -- limited by capacity and not re-admitted; the slot simply continues.\n    SELECT task.id, task.lease_token, task.lease_until\n    FROM context69.tasks task\n    WHERE task.lease_token IS NOT NULL\n      AND task.lease_until > now()\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n      AND task.id IN (SELECT task_id FROM eligible_items)\n),\nclaim_targets AS (\n    SELECT id FROM slot_candidates\n    UNION\n    SELECT id FROM admitted_work\n),\nchosen AS (\n    -- One item per claimable parent; `eligible_items` already narrows each\n    -- parent to its current item, so the claim advances strictly in order.\n    SELECT item.id, item.task_id\n    FROM eligible_items item\n    JOIN claim_targets target ON target.id = item.task_id\n),\nlocked AS (\n    -- The candidate row is locked here, so the claim path holds it until the\n    -- transaction ends and no other claimer can take the same item.\n    SELECT item.id,\n           item.task_id,\n           item.execution_task_id,\n           item.execution_generation\n    FROM context69.task_items item\n    JOIN chosen ON chosen.id = item.id\n    FOR UPDATE OF item SKIP LOCKED\n)\nSELECT locked.id,\n       locked.task_id,\n       locked.execution_task_id,\n       locked.execution_generation,\n       task.kind,\n       task.group_id,\n       task.group_path,\n       task.source_key,\n       EXISTS (SELECT 1 FROM slot_candidates candidate WHERE candidate.id = locked.task_id)\n           AS \"needs_slot!\",\n       (SELECT admitted.lease_until\n          FROM admitted_work admitted\n         WHERE admitted.id = locked.task_id) AS parent_lease_until\nFROM locked\nJOIN context69.tasks task ON task.id = locked.task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_path"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "needs_slot!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "parent_lease_until",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "7e02d2717a7dff00746d536ed7fc2ae58c16e730261a4a0a8a8219482ea56c6c"
+}

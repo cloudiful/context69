@@ -202,36 +202,60 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         file_id: Uuid,
     ) -> Result<()> {
-        self.delete_file_in_project_with_lease(project, file_id, None)
+        self.delete_file_in_project_inner(project, file_id, None)
             .await
     }
 
-    pub(crate) async fn delete_file_in_project_for_task(
+    /// Delete a file under the captured grant of a running task item.
+    ///
+    /// The vector points are removed first, outside any transaction, and the
+    /// documents and file row are then removed in one guarded transaction: a
+    /// worker that lost its segment deletes nothing, and the refusal is an
+    /// ownership loss rather than a missing file.
+    pub(crate) async fn delete_file_in_project_for_task_fenced(
         &self,
         project: &crate::domain::GroupRecord,
         file_id: Uuid,
-        lease_token: Uuid,
+        fence: crate::library_store::TaskWriteFence,
     ) -> Result<()> {
-        self.delete_file_in_project_with_lease(project, file_id, Some(lease_token))
+        self.delete_file_in_project_inner(project, file_id, Some(fence))
             .await
     }
 
-    async fn delete_file_in_project_with_lease(
+    async fn delete_file_in_project_inner(
         &self,
         project: &crate::domain::GroupRecord,
         file_id: Uuid,
-        lease_token: Option<Uuid>,
+        fence: Option<crate::library_store::TaskWriteFence>,
     ) -> Result<()> {
         let paths = self.store.list_storage_paths_for_files(&[file_id]).await?;
-        self.delete_file_ids(&[file_id]).await?;
-        if !self
-            .store
-            .delete_file_record_in_project(project.id, file_id)
-            .await?
-        {
-            return Err(DomainError::not_found(format!("unknown file {file_id}")).into());
+        match fence {
+            Some(fence) => {
+                // Network work never runs inside the guarded transaction.
+                let chunk_ids = self.store.list_chunk_ids_for_files(&[file_id]).await?;
+                if let Some(runtime) = self.vector.snapshot() {
+                    runtime.index.delete_points(&chunk_ids).await?;
+                }
+                if !self
+                    .store
+                    .delete_file_in_project_fenced(fence, project.id, file_id)
+                    .await?
+                {
+                    return Err(crate::library_store::TaskWriteDenied::new(fence).into());
+                }
+            }
+            None => {
+                self.delete_file_ids(&[file_id]).await?;
+                if !self
+                    .store
+                    .delete_file_record_in_project(project.id, file_id)
+                    .await?
+                {
+                    return Err(DomainError::not_found(format!("unknown file {file_id}")).into());
+                }
+            }
         }
-        self.delete_unreferenced_objects_with_lease(paths, lease_token)
+        self.delete_unreferenced_objects_with_lease(paths, fence.map(|fence| fence.token()))
             .await?;
         self.bump_search_generation("library file delete").await?;
         Ok(())

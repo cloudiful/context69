@@ -19,29 +19,6 @@ impl Database {
         })
     }
 
-    pub async fn start_run_in_scope(
-        &self,
-        group_id: i64,
-        visibility: Visibility,
-        source_key: &str,
-        trigger_type: &str,
-    ) -> Result<RunHandle> {
-        let id = sqlx::query_file_scalar!(
-            "src/sql/db/sync_runs/start_run_in_scope.sql",
-            group_id,
-            visibility.as_str(),
-            source_key,
-            trigger_type
-        )
-        .fetch_one(&self.pool)
-        .await?;
-
-        Ok(RunHandle {
-            id,
-            source_key: source_key.to_string(),
-        })
-    }
-
     pub async fn finish_run(
         &self,
         run: &RunHandle,
@@ -59,6 +36,100 @@ impl Database {
             error_message
         )
         .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The run of one scoped sync, started on a borrowed connection.
+    pub async fn start_run_in_scope_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        visibility: Visibility,
+        source_key: &str,
+        trigger_type: &str,
+    ) -> Result<RunHandle> {
+        let id = sqlx::query_file_scalar!(
+            "src/sql/db/sync_runs/start_run_in_scope.sql",
+            group_id,
+            visibility.as_str(),
+            source_key,
+            trigger_type
+        )
+        .fetch_one(&mut *connection)
+        .await?;
+
+        Ok(RunHandle {
+            id,
+            source_key: source_key.to_string(),
+        })
+    }
+
+    /// The outcome of one run, recorded on a borrowed connection.
+    pub async fn finish_run_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        run: &RunHandle,
+        status: &str,
+        outcome: &SyncOutcome,
+        error_message: Option<&str>,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/finish_run.sql",
+            run.id,
+            status,
+            outcome.records_seen as i32,
+            outcome.records_changed as i32,
+            outcome.chunks_upserted as i32,
+            error_message
+        )
+        .execute(&mut *connection)
+        .await?;
+        Ok(())
+    }
+
+    /// The checkpoint of one scoped sync, saved on a borrowed connection.
+    pub async fn save_checkpoint_in_scope_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        visibility: Visibility,
+        source_key: &str,
+        checkpoint: &SyncCheckpoint,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/save_checkpoint_in_scope.sql",
+            group_id,
+            visibility.as_str(),
+            source_key,
+            checkpoint.updated_at,
+            checkpoint.external_id.as_deref()
+        )
+        .execute(&mut *connection)
+        .await?;
+        Ok(())
+    }
+
+    /// The sync state of one project, removed on a borrowed connection.
+    pub async fn delete_sync_state_in_project_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        source_key: &str,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/delete_checkpoint_in_project.sql",
+            project_id,
+            source_key
+        )
+        .execute(&mut *connection)
+        .await?;
+        sqlx::query_file!(
+            "src/sql/db/sync_runs/delete_runs_in_project.sql",
+            project_id,
+            source_key
+        )
+        .execute(&mut *connection)
         .await?;
         Ok(())
     }
@@ -90,26 +161,6 @@ impl Database {
     ) -> Result<()> {
         sqlx::query_file!(
             "src/sql/db/sync_runs/save_checkpoint.sql",
-            source_key,
-            checkpoint.updated_at,
-            checkpoint.external_id.as_deref()
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(())
-    }
-
-    pub async fn save_checkpoint_in_scope(
-        &self,
-        group_id: i64,
-        visibility: Visibility,
-        source_key: &str,
-        checkpoint: &SyncCheckpoint,
-    ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/sync_runs/save_checkpoint_in_scope.sql",
-            group_id,
-            visibility.as_str(),
             source_key,
             checkpoint.updated_at,
             checkpoint.external_id.as_deref()

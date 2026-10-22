@@ -3,8 +3,6 @@
 //!
 //! Runs only when CONTEXT69_TEST_DATABASE_URL points to a scratch database.
 
-use uuid::Uuid;
-
 use crate::support::{
     cleanup_file, cleanup_group, cleanup_task, cleanup_user, connect_scratch, create_file_task,
     file_status, insert_file, seed_test_user,
@@ -20,25 +18,17 @@ async fn terminal_item_status_projects_to_file() {
         let (task_id, item_ids) =
             create_file_task(&db, user_id, group_id, file_id, "project-status").await;
         let item_id = item_ids[0];
-        let lease_token = Uuid::new_v4();
-        sqlx::query(
-            "UPDATE context69.task_items \
-             SET status = 'running', lease_token = $2, attempt_count = 1 WHERE id = $1",
-        )
-        .bind(item_id)
-        .bind(lease_token)
-        .execute(db.pool())
-        .await
-        .expect("lease item");
-        let attempt_id: i64 = sqlx::query_scalar(
-            "INSERT INTO context69.task_attempts (task_id, item_id, attempt, status) \
-             VALUES ($1, $2, 1, 'running') RETURNING id",
-        )
-        .bind(task_id)
-        .bind(item_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("insert attempt");
+        // The item is claimed through the library, so the transition is fenced
+        // by the very attempt the claim holds.
+        let claimed = db.claim_items_fast(10).await.expect("claim the item");
+        let claimed = claimed
+            .into_iter()
+            .find(|item| item.id == item_id)
+            .expect("the item is claimed");
+        let execution = claimed
+            .execution_context()
+            .expect("the claimed item carries its captured execution");
+        let attempt_id = claimed.attempt_id;
 
         let failure_stage = (finish_status == "failed").then_some("storage");
         let error_message = (finish_status == "failed").then_some("boom");
@@ -51,7 +41,7 @@ async fn terminal_item_status_projects_to_file() {
                 failure_stage,
                 error_message,
                 retryable: false,
-                lease_token,
+                execution,
                 attempt_id,
             })
             .await

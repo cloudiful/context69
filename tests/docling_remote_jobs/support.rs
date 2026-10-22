@@ -1,22 +1,29 @@
 use chrono::{Duration, Utc};
 use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
-use sqlx::Row;
 use uuid::Uuid;
 
 pub static LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 pub async fn connect() -> Database {
     let url = context69_test_support::accessor::database_url();
-    Database::connect(&url).await.expect("connect test db")
+    let db = Database::connect(&url).await.expect("connect test db");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    db
 }
 
 pub async fn seed_user(db: &Database) -> i64 {
-    sqlx::query("INSERT INTO context69.users (login_name, display_name, password_hash) VALUES ($1,$2,$3) RETURNING id")
-        .bind(format!("docling-job-{}", Uuid::new_v4()))
-        .bind("Docling Job Test")
-        .bind("unused")
-        .fetch_one(db.pool()).await.expect("seed user").get("id")
+    sqlx::query_file_scalar!(
+        "tests/sql/task_execution/seed_user_compact.sql",
+        format!("docling-job-{}", Uuid::new_v4()),
+        "Docling Job Test",
+        "unused"
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("seed user")
 }
 
 pub async fn seed_task(db: &Database, user_id: i64) -> (Uuid, Uuid) {
@@ -44,33 +51,32 @@ pub async fn seed_task(db: &Database, user_id: i64) -> (Uuid, Uuid) {
 /// dispatcher-exclusion tests start from the same state production rows were
 /// left in before the blocking worker flow.
 pub async fn park_item_for_sweep(db: &Database, item_id: Uuid) {
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'docling', dependency_key = 'docling', next_attempt_at = now() + interval '1 hour', waiting_since = COALESCE(waiting_since, now()), updated_at = now() WHERE id = $1",
-    )
-    .bind(item_id)
-    .execute(db.pool())
-    .await
-    .expect("park item");
+    sqlx::query_file!("tests/sql/task_execution/park_item_on_docling.sql", item_id)
+        .execute(db.pool())
+        .await
+        .expect("park item");
 }
 
 pub async fn cleanup(db: &Database, task_id: Uuid, user_id: i64) {
-    sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
-        .bind(task_id)
-        .execute(db.pool())
-        .await
-        .expect("cleanup items");
-    sqlx::query("DELETE FROM context69.tasks WHERE id = $1")
-        .bind(task_id)
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_task_items_by_task.sql",
+        task_id
+    )
+    .execute(db.pool())
+    .await
+    .expect("cleanup items");
+    sqlx::query_file!("tests/sql/task_execution/delete_task_by_id.sql", task_id)
         .execute(db.pool())
         .await
         .expect("cleanup task");
-    sqlx::query("DELETE FROM context69.task_idempotency_keys WHERE user_id = $1")
-        .bind(user_id)
-        .execute(db.pool())
-        .await
-        .expect("cleanup idempotency");
-    sqlx::query("DELETE FROM context69.users WHERE id = $1")
-        .bind(user_id)
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_user_idempotency_keys.sql",
+        user_id
+    )
+    .execute(db.pool())
+    .await
+    .expect("cleanup idempotency");
+    sqlx::query_file!("tests/sql/task_execution/delete_user.sql", user_id)
         .execute(db.pool())
         .await
         .expect("cleanup user");
@@ -78,4 +84,37 @@ pub async fn cleanup(db: &Database, task_id: Uuid, user_id: i64) {
 
 pub fn past_poll_at() -> chrono::DateTime<Utc> {
     Utc::now() - Duration::seconds(5)
+}
+
+/// Claims the item through the library and returns the captured execution.
+pub async fn claim_item(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
+    db.claim_items_fast(50)
+        .await
+        .expect("claim the item")
+        .into_iter()
+        .find(|row| row.id == item_id)
+        .expect("the item is claimed")
+}
+
+/// Crashes the worker that holds the item.
+///
+/// The authoritative lease is the library attempt: the crash expires that
+/// attempt and the domain mirror of it expires with it. Backdating only the
+/// domain mirror would not be a library crash, so no takeover would be
+/// authorized by it.
+pub async fn crash_holder(db: &Database, item: &context69::db::ClaimedItem) {
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    sqlx::query_file!(
+        "tests/sql/task_execution/expire_library_attempt_by_id.sql",
+        execution.attempt_id()
+    )
+    .execute(db.pool())
+    .await
+    .expect("expire the library attempt");
+    sqlx::query_file!("tests/sql/task_execution/expire_item_lease.sql", item.id)
+        .execute(db.pool())
+        .await
+        .expect("expire the domain mirror");
 }

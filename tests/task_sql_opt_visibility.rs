@@ -196,6 +196,9 @@ async fn visibility_covers_owner_member_descendant_and_nonmember() {
     let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url).await.expect("connect");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let owner = seed_user(&db, "owner").await;
     let member = seed_user(&db, "member").await;
     let outsider = seed_user(&db, "outsider").await;
@@ -265,6 +268,9 @@ async fn overlapping_membership_never_duplicates_and_filters_paginate() {
     let url = context69_test_support::accessor::database_url();
     let _guard = TEST_LOCK.lock().await;
     let db = Database::connect(&url).await.expect("connect");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let owner = seed_user(&db, "overlap-owner").await;
     let viewer = seed_user(&db, "overlap-viewer").await;
     let (parent, parent_path) = seed_group(&db, None).await;

@@ -21,6 +21,13 @@ pub const PUBLIC_SCHEMA: &str = "public";
 /// Migration ledger table sqlx creates for the migrations this runner owns.
 pub const LEDGER_TABLE: &str = "_sqlx_migrations";
 
+/// Namespace the `cloudiful-tasks` library owns inside the target database.
+///
+/// The library keeps its own migration ledger in this schema and verifies the
+/// ownership of that schema itself. The runner never reads, writes, or drops
+/// it, so a ledger the library confirms is not one of the runner's own.
+pub const LIBRARY_SCHEMA: &str = cloudiful_tasks::migrate::SCHEMA_NAME;
+
 /// Application name the runner sets so its own pooled sessions are excluded
 /// from the "another backend is attached" guard.
 pub const RUNNER_APPLICATION_NAME: &str = "context69-test-runner";
@@ -45,6 +52,11 @@ impl OwnedObjectCounts {
 
 /// Where a `_sqlx_migrations` table was found and whether its shape is the one
 /// this build writes.
+///
+/// A ledger that the `cloudiful-tasks` library owns inside its own schema is
+/// not listed here: the library owns that schema, the library verifies its own
+/// ledger, and the runner never touches either. Every other ledger is listed,
+/// so an unknown or an unowned foreign ledger stays a refusal.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LedgerLocation {
     pub namespace: String,
@@ -109,6 +121,11 @@ pub struct PreflightObservation {
     pub foreign_schema_dependencies: Vec<String>,
     /// Extensions installed inside the owned schema.
     pub extensions_in_owned_schema: Vec<String>,
+    /// Migration ledgers this runner has to account for.
+    ///
+    /// The ledger of the `cloudiful-tasks` library is not one of them: the
+    /// library owns its own schema and its own ledger inside it, and the
+    /// runner neither reads nor writes either.
     pub ledgers: Vec<LedgerLocation>,
     /// Rows read from the `public` ledger, empty when it does not exist there.
     ///
@@ -240,15 +257,26 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
             .bind(OWNED_SCHEMA)
             .fetch_all(&pool)
             .await?;
-    let ledgers: Vec<(String, bool)> = sqlx::query_as(include_str!("../sql/ledger_locations.sql"))
-        .bind(LEDGER_TABLE)
-        .fetch_all(&pool)
-        .await?;
+    let ledgers: Vec<(String, bool, bool)> =
+        sqlx::query_as(include_str!("../sql/ledger_locations.sql"))
+            .bind(LEDGER_TABLE)
+            .bind(LIBRARY_SCHEMA)
+            .fetch_all(&pool)
+            .await?;
+    // The library keeps its own ledger inside the schema it owns. Its own
+    // read-only check decides whether that schema really is the library's, so
+    // a lookalike schema and an unknown foreign ledger both stay listed and
+    // stay a refusal.
+    let library_owns_its_ledger = ledgers
+        .iter()
+        .any(|(_, _, library_namespace)| *library_namespace)
+        && cloudiful_tasks::check_schema(&pool).await.is_ok();
+    let ledgers = runner_ledgers(ledgers, library_owns_its_ledger);
     // The shared ledger is only read once its existence is known, so the shape
     // check above can never be preceded by a query against a missing table.
     let public_ledger_rows: Vec<(i64, Vec<u8>, bool)> = if ledgers
         .iter()
-        .any(|(namespace, _)| namespace == PUBLIC_SCHEMA)
+        .any(|ledger| ledger.namespace == PUBLIC_SCHEMA)
     {
         sqlx::query_as(include_str!("../sql/ledger_rows.sql"))
             .fetch_all(&pool)
@@ -285,13 +313,7 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
         },
         foreign_schema_dependencies: dependencies.into_iter().map(|row| row.0).collect(),
         extensions_in_owned_schema: extensions.into_iter().map(|row| row.0).collect(),
-        ledgers: ledgers
-            .into_iter()
-            .map(|(namespace, owned_shape)| LedgerLocation {
-                namespace,
-                owned_shape,
-            })
-            .collect(),
+        ledgers,
         public_ledger_rows: public_ledger_rows
             .into_iter()
             .map(|(version, checksum, success)| LedgerRow {
@@ -314,6 +336,29 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
             )
             .collect(),
     })
+}
+
+/// The ledgers the runner has to account for.
+///
+/// Each observed ledger is a namespace, the shape of its table, and whether it
+/// sits in the namespace the `cloudiful-tasks` library owns. A ledger the
+/// library confirmed is left out: the runner neither reads nor writes that
+/// schema, so it is not a ledger the runner may decide about. Every other
+/// ledger stays, so an unknown foreign ledger and a schema that only looks
+/// like the library's own both remain a refusal.
+#[must_use]
+fn runner_ledgers(
+    observed: Vec<(String, bool, bool)>,
+    library_owns_its_ledger: bool,
+) -> Vec<LedgerLocation> {
+    observed
+        .into_iter()
+        .filter(|(_, _, library_namespace)| !(*library_namespace && library_owns_its_ledger))
+        .map(|(namespace, owned_shape, _)| LedgerLocation {
+            namespace,
+            owned_shape,
+        })
+        .collect()
 }
 
 /// Return the only namespace in which this observed session may place a ledger.
@@ -458,4 +503,79 @@ pub fn migration_connect_options(
 
 fn count(value: i64) -> usize {
     usize::try_from(value).unwrap_or_default()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn observation_with(ledgers: Vec<LedgerLocation>) -> PreflightObservation {
+        PreflightObservation {
+            connected_database: "synthetic_db".to_owned(),
+            search_path: PUBLIC_SCHEMA.to_owned(),
+            current_schema: Some(PUBLIC_SCHEMA.to_owned()),
+            effective_schemas: vec![PUBLIC_SCHEMA.to_owned()],
+            owned_schema_exists: true,
+            owned_objects: OwnedObjectCounts::default(),
+            foreign_schema_dependencies: Vec::new(),
+            extensions_in_owned_schema: Vec::new(),
+            ledgers,
+            public_ledger_rows: Vec::new(),
+            shadowed_relations: Vec::new(),
+            preserved_extension_count: 0,
+            foreign_backends: Vec::new(),
+        }
+    }
+
+    fn endpoint() -> Endpoint {
+        Endpoint::parse("postgres://synthetic-user:synthetic-secret@db.test:5433/synthetic_db")
+            .expect("synthetic fixture target")
+    }
+
+    #[test]
+    fn a_ledger_the_library_confirmed_is_not_one_of_the_runners_ledgers() {
+        let observed = vec![
+            (PUBLIC_SCHEMA.to_owned(), true, false),
+            (LIBRARY_SCHEMA.to_owned(), true, true),
+        ];
+
+        let ledgers = runner_ledgers(observed, true);
+
+        assert_eq!(
+            ledgers,
+            vec![LedgerLocation {
+                namespace: PUBLIC_SCHEMA.to_owned(),
+                owned_shape: true,
+            }]
+        );
+    }
+
+    #[test]
+    fn a_schema_that_only_looks_like_the_librarys_own_stays_a_refusal() {
+        let observed = vec![
+            (PUBLIC_SCHEMA.to_owned(), true, false),
+            (LIBRARY_SCHEMA.to_owned(), true, true),
+        ];
+
+        let ledgers = runner_ledgers(observed, false);
+        let decision = decide_reset(&observation_with(ledgers), &endpoint());
+
+        assert!(!decision.allowed);
+        assert_eq!(decision.refusals, vec![Refusal::AmbiguousLedgerNamespace]);
+    }
+
+    #[test]
+    fn an_unknown_foreign_ledger_stays_a_refusal() {
+        let ledgers = runner_ledgers(
+            vec![
+                (PUBLIC_SCHEMA.to_owned(), true, false),
+                ("tenant_a".to_owned(), true, false),
+            ],
+            false,
+        );
+        let decision = decide_reset(&observation_with(ledgers), &endpoint());
+
+        assert!(!decision.allowed);
+        assert_eq!(decision.refusals, vec![Refusal::AmbiguousLedgerNamespace]);
+    }
 }

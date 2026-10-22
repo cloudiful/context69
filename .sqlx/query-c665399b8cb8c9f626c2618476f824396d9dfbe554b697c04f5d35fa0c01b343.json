@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The terminal transition of one task item (issue 1020 P2).\n--\n-- The guard is the captured execution of the item: the fencing token of the\n-- library attempt, the library task, and the execution generation. The lease\n-- deadline is compared against the clock of the database, and the row lock of\n-- the update is taken before the comparison, so a worker that lost its lease\n-- while it waited for the lock cannot write.\n--\n-- `$1` is the item, `$2` the status, `$3` the resource, `$4` the failure\n-- stage, `$5` the error message, `$6` the retryable flag, `$7` the fencing\n-- token of the library attempt, `$8` the domain attempt, `$9` the library task\n-- and `$10` the execution generation.\nWITH finished AS (\n    UPDATE context69.task_items\n    SET status = $2,\n        stage = CASE WHEN $2 = 'succeeded' THEN 'finalize' ELSE stage END,\n        resource_id = $3,\n        failure_stage = $4,\n        error_message = $5,\n        retryable = $6,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        waiting_since = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        finished_at = now(),\n        updated_at = now()\n    WHERE id = $1\n      AND lease_token = $7\n      AND status = 'running'\n      AND lease_until > clock_timestamp()\n      AND execution_task_id = $9\n      AND execution_generation = $10\n    RETURNING id\n),\nattempt_finished AS (\n    UPDATE context69.task_attempts\n    SET status = $2,\n        retryable = $6,\n        failure_stage = $4,\n        error_message = $5,\n        finished_at = now()\n    WHERE id = $8\n      AND item_id = $1\n      AND finished_at IS NULL\n      AND EXISTS (SELECT 1 FROM finished)\n    RETURNING id\n)\nSELECT EXISTS (SELECT 1 FROM finished) AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Uuid",
+        "Int8",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "c665399b8cb8c9f626c2618476f824396d9dfbe554b697c04f5d35fa0c01b343"
+}

@@ -1,0 +1,1 @@
+SELECT count(*) AS "count!" FROM context69.source_checkpoints WHERE group_id = $1

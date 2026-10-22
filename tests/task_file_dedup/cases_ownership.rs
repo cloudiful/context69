@@ -85,25 +85,17 @@ async fn cross_group_item_does_not_project_status_onto_foreign_file() {
             .fetch_one(db.pool())
             .await
             .expect("load item");
-    let lease_token = Uuid::new_v4();
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'running', lease_token = $2, attempt_count = 1 \
-         WHERE id = $1",
-    )
-    .bind(item_id)
-    .bind(lease_token)
-    .execute(db.pool())
-    .await
-    .expect("lease item");
-    let attempt_id: i64 = sqlx::query_scalar(
-        "INSERT INTO context69.task_attempts (task_id, item_id, attempt, status) \
-         VALUES ($1, $2, 1, 'running') RETURNING id",
-    )
-    .bind(task_id)
-    .bind(item_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("insert attempt");
+    // The item is claimed through the library, so the transition is fenced by
+    // the very attempt the claim holds.
+    let claimed = db.claim_items_fast(10).await.expect("claim the item");
+    let claimed = claimed
+        .into_iter()
+        .find(|item| item.id == item_id)
+        .expect("the item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    let attempt_id = claimed.attempt_id;
 
     let updated = db
         .finish_task_item(context69::db::FinishTaskItemRequest {
@@ -114,7 +106,7 @@ async fn cross_group_item_does_not_project_status_onto_foreign_file() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token,
+            execution,
             attempt_id,
         })
         .await

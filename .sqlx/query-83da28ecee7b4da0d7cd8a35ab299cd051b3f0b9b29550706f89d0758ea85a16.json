@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT filename, sha256 FROM context69.library_files WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "filename",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "filename"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "83da28ecee7b4da0d7cd8a35ab299cd051b3f0b9b29550706f89d0758ea85a16"
+}

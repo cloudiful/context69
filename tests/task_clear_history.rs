@@ -85,6 +85,9 @@ async fn clear_completed_deletes_only_own_untrashed_succeeded() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let other_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
@@ -167,6 +170,9 @@ async fn clear_trash_deletes_only_own_trashed_terminal() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let other_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
@@ -252,6 +258,9 @@ async fn clear_with_unknown_view_deletes_nothing() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
     let succeeded = create_task(&db, user_id, &format!("{tag}-succeeded")).await;

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.documents WHERE metadata_json->>'library_file_id' = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "faf78865d894b7fb9aaec935064771083ab07d162eec503c3a78f6b8f8bdda08"
+}

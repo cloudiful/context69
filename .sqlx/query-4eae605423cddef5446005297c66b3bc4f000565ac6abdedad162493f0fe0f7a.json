@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, failure_stage, error_message, finished_at FROM context69.task_attempts WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "finished_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "4eae605423cddef5446005297c66b3bc4f000565ac6abdedad162493f0fe0f7a"
+}

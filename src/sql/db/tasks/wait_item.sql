@@ -1,8 +1,13 @@
--- Park one running item on a wait and record the attempt outcome.
+-- The parked transition of one task item (issue 1020 P2).
 --
--- `updated` reports the item transition, not the `task_attempts` row count: the
--- parent projection must follow the item even when no attempt row was open
--- (already interrupted by maintenance, or never inserted by a fenced claim).
+-- The guard is the captured execution of the item, like the terminal
+-- transition: the fencing token of the library attempt, the library task and
+-- the execution generation, compared after the row lock was taken and against
+-- the clock of the database.
+--
+-- `$1` is the item, `$2` the fencing token, `$3` the waiting reason, `$4` the
+-- dependency key, `$5` the retry time, `$6` the error message, `$7` the
+-- library task and `$8` the execution generation.
 WITH waiting AS (
     UPDATE context69.task_items
     SET status = 'waiting',
@@ -17,8 +22,12 @@ WITH waiting AS (
     WHERE id = $1
       AND lease_token = $2
       AND status = 'running'
+      AND lease_until > clock_timestamp()
+      AND execution_task_id = $7
+      AND execution_generation = $8
     RETURNING id
-), attempt_waited AS (
+),
+attempt_waited AS (
     UPDATE context69.task_attempts
     SET status = 'waiting',
         error_message = $6,

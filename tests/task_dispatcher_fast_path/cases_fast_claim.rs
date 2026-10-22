@@ -12,6 +12,9 @@ async fn claim_items_fast_claims_and_activates_a_fresh_task() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db

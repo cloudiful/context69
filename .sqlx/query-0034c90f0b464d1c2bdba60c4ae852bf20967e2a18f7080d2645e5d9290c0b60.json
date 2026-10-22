@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "0034c90f0b464d1c2bdba60c4ae852bf20967e2a18f7080d2645e5d9290c0b60"
+}

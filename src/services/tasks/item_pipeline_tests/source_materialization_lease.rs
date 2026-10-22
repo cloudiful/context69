@@ -22,6 +22,9 @@ async fn staged_input_reference_requires_the_running_lease_token() {
     let db = Database::connect(&database_url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_user(&db).await;
     let group = seed_group(&db).await;
     let (service, storage_root) = build_service(&db).await;
@@ -45,11 +48,20 @@ async fn staged_input_reference_requires_the_running_lease_token() {
     let item = claim_item(&db, item_ids[0]).await;
     let committed = staged_url_payload(&sha256, "issue-667-lease");
 
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    // A segment of an earlier generation is not the segment the item holds.
+    let stale = crate::db::ExecutionContext {
+        attempt: execution.attempt.clone(),
+        generation: execution.generation + 1,
+        item_id: execution.item_id,
+    };
     let stale = db
-        .set_task_item_input_storage_object(item.id, Uuid::new_v4(), object_id, &committed)
+        .set_task_item_input_storage_object(item.id, &stale, object_id, &committed)
         .await
         .expect("stale guarded update");
-    assert!(!stale, "a stale lease token must not commit the reference");
+    assert!(!stale, "a stale generation must not commit the reference");
 
     let row = sqlx::query(
         "SELECT input_storage_object_id, payload FROM context69.task_items WHERE id = $1",
@@ -62,7 +74,7 @@ async fn staged_input_reference_requires_the_running_lease_token() {
     assert_eq!(row.get::<Value, _>("payload"), original);
 
     let updated = db
-        .set_task_item_input_storage_object(item.id, item.lease_token, object_id, &committed)
+        .set_task_item_input_storage_object(item.id, &execution, object_id, &committed)
         .await
         .expect("current guarded update");
     assert!(updated, "the running lease must commit the reference");

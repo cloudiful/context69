@@ -3,18 +3,14 @@ use uuid::Uuid;
 
 use crate::support::{LOCK, cleanup, connect, past_poll_at, seed_task, seed_user};
 
-/// Puts the item in `running` under `lease`, mirroring a dispatcher claim
-/// without touching any other suite's rows on the shared scratch DB.
-async fn hold_item(db: &context69::db::Database, item_id: Uuid, lease: Uuid) {
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'running', lease_token = $2, \
-         lease_until = now() + interval '5 minutes', attempt_count = 1 WHERE id = $1",
-    )
-    .bind(item_id)
-    .bind(lease)
-    .execute(db.pool())
-    .await
-    .expect("hold item");
+/// The captured execution of an earlier generation: the item belongs to a
+/// newer segment, so the transition must be refused.
+fn stale_execution(execution: &context69::db::ExecutionContext) -> context69::db::ExecutionContext {
+    context69::db::ExecutionContext {
+        attempt: execution.attempt.clone(),
+        generation: execution.generation + 1,
+        item_id: execution.item_id,
+    }
 }
 
 async fn item_payload(db: &context69::db::Database, item_id: Uuid) -> serde_json::Value {
@@ -39,8 +35,10 @@ async fn finish_with_sections_commits_success_atomically() {
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
-    let lease = Uuid::new_v4();
-    hold_item(&db, item_id, lease).await;
+    let holder = crate::support::claim_item(&db, item_id).await;
+    let execution = holder
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
     let job = db
         .create_docling_remote_job(
             task_id,
@@ -56,7 +54,7 @@ async fn finish_with_sections_commits_success_atomically() {
     let sections = json!([{"section_key": "document", "body_text": "hello"}]);
     let payload = json!({"external_id": "a", "section_payload": sections.clone()});
     let committed = db
-        .finish_docling_remote_job_with_sections(job.id, item_id, lease, &payload, "success")
+        .finish_docling_remote_job_with_sections(job.id, item_id, &execution, &payload, "success")
         .await
         .expect("commit")
         .expect("fences pass");
@@ -81,8 +79,10 @@ async fn finish_with_sections_is_fenced_and_idempotent() {
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
-    let lease = Uuid::new_v4();
-    hold_item(&db, item_id, lease).await;
+    let holder = crate::support::claim_item(&db, item_id).await;
+    let execution = holder
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
     let job = db
         .create_docling_remote_job(
             task_id,
@@ -100,7 +100,7 @@ async fn finish_with_sections_is_fenced_and_idempotent() {
         db.finish_docling_remote_job_with_sections(
             job.id,
             item_id,
-            Uuid::new_v4(),
+            &stale_execution(&execution),
             &payload,
             "success"
         )
@@ -125,10 +125,12 @@ async fn finish_with_sections_is_fenced_and_idempotent() {
         .await
         .expect("cancel row");
     assert!(
-        db.finish_docling_remote_job_with_sections(job.id, item_id, lease, &payload, "success")
-            .await
-            .expect("cancelled row")
-            .is_none(),
+        db.finish_docling_remote_job_with_sections(
+            job.id, item_id, &execution, &payload, "success",
+        )
+        .await
+        .expect("cancelled row")
+        .is_none(),
         "a terminal row is never resurrected"
     );
     cleanup(&db, task_id, user_id).await;
@@ -144,8 +146,10 @@ async fn cancel_and_late_commit_paths() {
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
-    let lease = Uuid::new_v4();
-    hold_item(&db, item_id, lease).await;
+    let holder = crate::support::claim_item(&db, item_id).await;
+    let execution = holder
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
     let job = db
         .create_docling_remote_job(
             task_id,
@@ -168,7 +172,7 @@ async fn cancel_and_late_commit_paths() {
         db.finish_docling_remote_job_with_sections(
             job.id,
             item_id,
-            lease,
+            &execution,
             &json!({"section_payload": []}),
             "success"
         )
@@ -188,5 +192,60 @@ async fn cancel_and_late_commit_paths() {
     )
     .await
     .expect("new active after terminal");
+    cleanup(&db, task_id, user_id).await;
+}
+
+/// A crashed worker cannot commit the conversion: the unified transaction rolls
+/// the remote job, the payload and the section checkpoint back together.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_crashed_worker_commits_no_conversion_output() {
+    let db = connect().await;
+    let _guard = LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_id) = seed_task(&db, user_id).await;
+    let holder = crate::support::claim_item(&db, item_id).await;
+    let execution = holder
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    let job = db
+        .create_docling_remote_job(
+            task_id,
+            item_id,
+            &format!("docling-{}", Uuid::new_v4()),
+            Some("submitted"),
+            Some(past_poll_at()),
+            None,
+            None,
+        )
+        .await
+        .expect("remote job");
+    let before = item_payload(&db, item_id).await;
+
+    crate::support::crash_holder(&db, &holder).await;
+
+    let payload = json!({"external_id": "a", "section_payload": [{"section_key": "document"}]});
+    assert!(
+        db.finish_docling_remote_job_with_sections(
+            job.id, item_id, &execution, &payload, "success",
+        )
+        .await
+        .expect("a refused commit is not an error")
+        .is_none(),
+        "the expired segment commits no conversion output"
+    );
+    assert!(
+        db.get_active_docling_remote_job_for_item(item_id)
+            .await
+            .expect("active")
+            .is_some(),
+        "the remote job stays active for the owner that inherits it"
+    );
+    assert_eq!(
+        item_payload(&db, item_id).await,
+        before,
+        "no section checkpoint was committed"
+    );
+
     cleanup(&db, task_id, user_id).await;
 }

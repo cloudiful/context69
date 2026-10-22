@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
@@ -28,7 +29,8 @@ struct ProjectSourceFolderSync<'a> {
     source: &'a SourceConfig,
     connector: Arc<dyn SourceConnector>,
     library: &'a LibraryService,
-    lease_token: Uuid,
+    /// The captured grant of the running task item.
+    fence: crate::library_store::TaskWriteFence,
 }
 
 pub(crate) struct SyncProjectSourceFolderRequest<'a> {
@@ -39,7 +41,8 @@ pub(crate) struct SyncProjectSourceFolderRequest<'a> {
     pub records_folder_id: Uuid,
     pub source: &'a SourceConfig,
     pub library: &'a LibraryService,
-    pub lease_token: Uuid,
+    /// The captured grant of the running task item.
+    pub fence: crate::library_store::TaskWriteFence,
 }
 
 impl SyncService {
@@ -55,7 +58,7 @@ impl SyncService {
             records_folder_id,
             source,
             library,
-            lease_token,
+            fence,
         } = request;
         let path_identity = source_folder_identity(project.id, folder_path);
         let identity = source_id
@@ -71,26 +74,25 @@ impl SyncService {
                 // not restart from scratch.
                 let path_checkpoint = self.db.get_checkpoint(&path_identity).await?;
                 if path_checkpoint.updated_at.is_some() || path_checkpoint.external_id.is_some() {
-                    self.db
-                        .save_checkpoint_in_scope(
-                            project.id,
-                            project.visibility,
-                            &identity,
-                            &path_checkpoint,
-                        )
-                        .await?;
+                    self.save_checkpoint_fenced(
+                        fence,
+                        project.id,
+                        project.visibility,
+                        &identity,
+                        &path_checkpoint,
+                    )
+                    .await?;
                 }
             }
             if fresh {
-                self.try_migrate_legacy_checkpoint(project.id, &identity, &source.key)
+                self.try_migrate_legacy_checkpoint(fence, project.id, &identity, &source.key)
                     .await?;
             }
         }
 
         let connector = self.project_source_connector(source).await?;
         let run = self
-            .db
-            .start_run_in_scope(project.id, project.visibility, &identity, "api")
+            .start_run_fenced(fence, project.id, project.visibility, &identity, "api")
             .await?;
 
         match self
@@ -102,13 +104,12 @@ impl SyncService {
                 source,
                 connector,
                 library,
-                lease_token,
+                fence,
             })
             .await
         {
             Ok(outcome) => {
-                self.db
-                    .finish_run(&run, "completed", &outcome, None)
+                self.finish_run_fenced(fence, &run, "completed", &outcome, None)
                     .await?;
                 Ok(outcome)
             }
@@ -118,9 +119,25 @@ impl SyncService {
                     records_changed: 0,
                     chunks_upserted: 0,
                 };
-                self.db
-                    .finish_run(&run, "failed", &empty_outcome, Some(&error.to_string()))
-                    .await?;
+                // The run row is recorded under the same grant. A segment that
+                // lost its claim leaves the run open instead of masking the
+                // original failure.
+                if let Err(finish_error) = self
+                    .finish_run_fenced(
+                        fence,
+                        &run,
+                        "failed",
+                        &empty_outcome,
+                        Some(&error.to_string()),
+                    )
+                    .await
+                {
+                    warn!(
+                        run_id = run.id,
+                        %finish_error,
+                        "the failed sync run could not be recorded"
+                    );
+                }
                 Err(error)
             }
         }
@@ -143,6 +160,33 @@ impl SyncService {
                 .is_some()
         {
             self.delete_source_in_group(project_id, legacy_source_key)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Removes the sync state of one source folder under the captured grant of
+    /// a running item.
+    ///
+    /// The sync state and the legacy source are removed under the grant, and
+    /// the pooled operator helper above is never reached from a task.
+    pub(crate) async fn delete_project_source_folder_state_fenced(
+        &self,
+        fence: crate::library_store::TaskWriteFence,
+        project_id: i64,
+        identity: &str,
+        legacy_source_key: Option<&str>,
+    ) -> Result<()> {
+        self.delete_sync_state_fenced(fence, project_id, identity)
+            .await?;
+        if let Some(legacy_source_key) = legacy_source_key
+            && self
+                .source_store
+                .get_source_in_group(project_id, legacy_source_key)
+                .await?
+                .is_some()
+        {
+            self.delete_source_in_group_fenced(fence, project_id, legacy_source_key)
                 .await?;
         }
         Ok(())
@@ -171,7 +215,7 @@ impl SyncService {
             source,
             connector,
             library,
-            lease_token,
+            fence,
         } = context;
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(identity).await?
@@ -223,15 +267,19 @@ impl SyncService {
                             media_type: "application/json".to_string(),
                             content,
                         },
-                        lease_token,
+                        fence,
                     )
                     .await?;
                 if let Err(failure) = library
-                    .persist_file_sections_for_task(response.file_id, &section_payload, lease_token)
+                    .persist_file_sections_for_task_fenced(
+                        response.file_id,
+                        &section_payload,
+                        fence,
+                    )
                     .await
                 {
                     let failure = library
-                        .handle_task_ingest_failure(response.file_id, lease_token, failure)
+                        .handle_task_ingest_failure(response.file_id, fence, failure)
                         .await;
                     return Err(anyhow::Error::new(failure));
                 }
@@ -268,24 +316,23 @@ impl SyncService {
                 .collect::<Vec<_>>();
             for file in stale_files {
                 library
-                    .delete_file_in_project_for_task(project, file.id, lease_token)
+                    .delete_file_in_project_for_task_fenced(project, file.id, fence)
                     .await?;
                 outcome.records_changed += 1;
             }
         }
 
         if source.sync_strategy == SyncStrategy::Cursor {
-            self.db
-                .save_checkpoint_in_scope(
-                    project.id,
-                    project.visibility,
-                    identity,
-                    &local_checkpoint,
-                )
-                .await?;
+            self.save_checkpoint_fenced(
+                fence,
+                project.id,
+                project.visibility,
+                identity,
+                &local_checkpoint,
+            )
+            .await?;
         } else {
-            self.db
-                .delete_sync_state_in_project(project.id, identity)
+            self.delete_sync_state_fenced(fence, project.id, identity)
                 .await?;
         }
 
@@ -304,6 +351,7 @@ impl SyncService {
 
     async fn try_migrate_legacy_checkpoint(
         &self,
+        fence: crate::library_store::TaskWriteFence,
         project_id: i64,
         identity: &str,
         legacy_source_key: &str,
@@ -327,9 +375,14 @@ impl SyncService {
             .ok_or_else(|| {
                 DomainError::internal(format!("missing source scope for {legacy_source_key}"))
             })?;
-        self.db
-            .save_checkpoint_in_scope(scope.group_id, scope.visibility, identity, &checkpoint)
-            .await
+        self.save_checkpoint_fenced(
+            fence,
+            scope.group_id,
+            scope.visibility,
+            identity,
+            &checkpoint,
+        )
+        .await
     }
 
     async fn project_source_connector(

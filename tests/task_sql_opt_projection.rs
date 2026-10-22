@@ -54,27 +54,22 @@ fn optimized_projection_keeps_indexed_join_and_single_sibling_check() {
     );
 }
 
-async fn lease_running(db: &context69::db::Database, task_id: Uuid, item_id: Uuid) -> (Uuid, i64) {
-    let lease_token = Uuid::new_v4();
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'running', lease_token = $2, \
-         attempt_count = 1 WHERE id = $1",
-    )
-    .bind(item_id)
-    .bind(lease_token)
-    .execute(db.pool())
-    .await
-    .expect("lease item");
-    let attempt_id: i64 = sqlx::query_scalar(
-        "INSERT INTO context69.task_attempts (task_id, item_id, attempt, status) \
-         VALUES ($1, $2, 1, 'running') RETURNING id",
-    )
-    .bind(task_id)
-    .bind(item_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("insert attempt");
-    (lease_token, attempt_id)
+/// Claims the item through the library, so the transition that follows is
+/// fenced by the very attempt the claim holds.
+async fn lease_running(
+    db: &context69::db::Database,
+    _task_id: Uuid,
+    item_id: Uuid,
+) -> (context69::db::ExecutionContext, i64) {
+    let claimed = db.claim_items_fast(10).await.expect("claim the item");
+    let claimed = claimed
+        .into_iter()
+        .find(|item| item.id == item_id)
+        .expect("the item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    (execution, claimed.attempt_id)
 }
 
 #[tokio::test]
@@ -94,7 +89,7 @@ async fn terminal_status_projects_success_and_failure() {
             &format!("sql-opt-{expected}"),
         )
         .await;
-        let (lease_token, attempt_id) = lease_running(&db, task_id, item_ids[0]).await;
+        let (execution, attempt_id) = lease_running(&db, task_id, item_ids[0]).await;
         let updated = db
             .finish_task_item(context69::db::FinishTaskItemRequest {
                 task_id,
@@ -104,7 +99,7 @@ async fn terminal_status_projects_success_and_failure() {
                 failure_stage: (finish_status == "failed").then_some("storage"),
                 error_message: (finish_status == "failed").then_some("boom"),
                 retryable: false,
-                lease_token,
+                execution,
                 attempt_id,
             })
             .await
@@ -136,7 +131,7 @@ async fn succeeded_file_is_never_regressed() {
     add_group_maintainer(&db, group_id, user_id).await;
     let (task_id, item_ids) =
         create_file_task(&db, user_id, group_id, file_id, "sql-opt-succeeded-guard").await;
-    let (lease_token, attempt_id) = lease_running(&db, task_id, item_ids[0]).await;
+    let (execution, attempt_id) = lease_running(&db, task_id, item_ids[0]).await;
     let updated = db
         .finish_task_item(context69::db::FinishTaskItemRequest {
             task_id,
@@ -146,7 +141,7 @@ async fn succeeded_file_is_never_regressed() {
             failure_stage: Some("storage"),
             error_message: Some("boom"),
             retryable: false,
-            lease_token,
+            execution,
             attempt_id,
         })
         .await
@@ -171,7 +166,7 @@ async fn active_sibling_blocks_projection() {
     let (task_a, items_a) =
         create_file_task(&db, user_id, group_id, file_id, "sql-opt-sibling-a").await;
     let (task_b, _) = create_raw_active_file_task(&db, user_id, group_id, file_id, "queued").await;
-    let (lease_token, attempt_id) = lease_running(&db, task_a, items_a[0]).await;
+    let (execution, attempt_id) = lease_running(&db, task_a, items_a[0]).await;
     let updated = db
         .finish_task_item(context69::db::FinishTaskItemRequest {
             task_id: task_a,
@@ -181,7 +176,7 @@ async fn active_sibling_blocks_projection() {
             failure_stage: None,
             error_message: None,
             retryable: false,
-            lease_token,
+            execution,
             attempt_id,
         })
         .await
@@ -209,24 +204,17 @@ async fn foreign_group_file_is_never_projected() {
     let file_id = insert_file_in_group(&db, group_a, "failed").await;
     let (task_id, item_id) =
         create_raw_active_file_task(&db, user_id, group_b, file_id, "queued").await;
-    let lease_token = Uuid::new_v4();
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'running', lease_token = $2 WHERE id = $1",
-    )
-    .bind(item_id)
-    .bind(lease_token)
-    .execute(db.pool())
-    .await
-    .expect("lease foreign item");
-    let attempt_id: i64 = sqlx::query_scalar(
-        "INSERT INTO context69.task_attempts (task_id, item_id, attempt, status) \
-         VALUES ($1, $2, 1, 'running') RETURNING id",
-    )
-    .bind(task_id)
-    .bind(item_id)
-    .fetch_one(db.pool())
-    .await
-    .expect("insert attempt");
+    // The item is claimed through the library, so the transition is fenced by
+    // the very attempt the claim holds.
+    let claimed = db.claim_items_fast(10).await.expect("claim the item");
+    let claimed = claimed
+        .into_iter()
+        .find(|item| item.id == item_id)
+        .expect("the item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    let attempt_id = claimed.attempt_id;
     let updated = db
         .finish_task_item(context69::db::FinishTaskItemRequest {
             task_id,
@@ -236,7 +224,7 @@ async fn foreign_group_file_is_never_projected() {
             failure_stage: None,
             error_message: None,
             retryable: false,
-            lease_token,
+            execution,
             attempt_id,
         })
         .await

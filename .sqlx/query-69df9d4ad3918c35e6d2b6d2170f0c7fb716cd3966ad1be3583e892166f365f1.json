@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT status, execution_task_id, execution_generation FROM context69.task_items WHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "69df9d4ad3918c35e6d2b6d2170f0c7fb716cd3966ad1be3583e892166f365f1"
+}

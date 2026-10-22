@@ -78,6 +78,19 @@ pub(crate) async fn replace_metadata_values_in_transaction(
     keys: &[(Uuid, i64)],
     entries: &[MetadataValueRow],
 ) -> Result<()> {
+    replace_metadata_values_in_connection(tx, keys, entries).await
+}
+
+/// The metadata values of some documents, replaced on a borrowed connection.
+///
+/// A task-owned write replaces the values on the connection of its guarded
+/// transaction, so the values and the grant that authorized them commit
+/// together.
+pub(crate) async fn replace_metadata_values_in_connection(
+    connection: &mut sqlx::PgConnection,
+    keys: &[(Uuid, i64)],
+    entries: &[MetadataValueRow],
+) -> Result<()> {
     if keys.is_empty() {
         return Ok(());
     }
@@ -94,7 +107,7 @@ pub(crate) async fn replace_metadata_values_in_transaction(
         &index_ids,
         &document_ids
     )
-    .execute(&mut **tx)
+    .execute(&mut *connection)
     .await?;
 
     let keyword_entries = entries
@@ -125,7 +138,7 @@ pub(crate) async fn replace_metadata_values_in_transaction(
             &ordinals,
             &values
         )
-        .execute(&mut **tx)
+        .execute(&mut *connection)
         .await?;
     }
 
@@ -153,7 +166,7 @@ pub(crate) async fn replace_metadata_values_in_transaction(
                     .map(|(_, value)| *value)
                     .collect::<Vec<$value_type>>();
                 sqlx::query_file!($query_file, &index_ids, &document_ids, &ordinals, &values)
-                    .execute(&mut **tx)
+                    .execute(&mut *connection)
                     .await?;
             }
         }};
@@ -179,6 +192,23 @@ pub(crate) async fn replace_metadata_values_in_transaction(
         DateTime<Utc>
     );
     Ok(())
+}
+
+/// The metadata index definitions of one group and source, read on a
+/// borrowed connection.
+pub(crate) async fn list_metadata_indexes_in(
+    connection: &mut sqlx::PgConnection,
+    group_id: i64,
+    source_key: &str,
+) -> Result<Vec<StoredMetadataIndex>> {
+    Ok(sqlx::query_file_as!(
+        StoredMetadataIndex,
+        "src/sql/db/metadata_indexes/list.sql",
+        group_id,
+        source_key
+    )
+    .fetch_all(&mut *connection)
+    .await?)
 }
 
 impl Database {

@@ -79,9 +79,13 @@ impl TranslationReadiness for NoopCallbacks {
 async fn connect_scratch() -> Database {
     let url = context69_test_support::accessor::database_url();
 
-    Database::connect(&url)
+    let db = Database::connect(&url)
         .await
-        .expect("connect test database")
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    db
 }
 
 async fn prepare() -> (tokio::sync::MutexGuard<'static, ()>, Database) {
@@ -982,12 +986,17 @@ async fn a_new_artifact_reference_waits_for_the_cleanup_identity_lock() {
     let _ = std::fs::remove_dir_all(root);
 }
 
+/// Seed a queued item and claim it through the library.
+///
+/// The claim is the real one: it produces the item's execution segment, grants
+/// the item lease and captures the attempt, so the returned fence is the grant
+/// the item actually holds. A case that wants a stale grant rotates the item
+/// row (or opens a new generation) instead of inventing a token.
 async fn seed_running_item(
     db: &Database,
     owner: &Owner,
     payload: serde_json::Value,
-    lease_token: Uuid,
-) -> (Uuid, Uuid) {
+) -> (Uuid, Uuid, context69::library_store::TaskWriteFence) {
     let task_id = Uuid::new_v4();
     sqlx::query_file!(
         "tests/task_item_artifacts/seed_task.sql",
@@ -1000,16 +1009,27 @@ async fn seed_running_item(
     .expect("seed task");
     let item_id = Uuid::new_v4();
     sqlx::query_file!(
-        "tests/task_item_artifacts/seed_running_item.sql",
+        "tests/task_item_artifacts/seed_queued_item.sql",
         item_id,
         task_id,
-        payload,
-        lease_token
+        payload
     )
     .execute(db.pool())
     .await
-    .expect("seed running item");
-    (task_id, item_id)
+    .expect("seed queued item");
+    db.produce_item_segment(item_id)
+        .await
+        .expect("produce the execution segment");
+    let claimed = db
+        .claim_items_fast(50)
+        .await
+        .expect("claim the seeded item")
+        .into_iter()
+        .find(|item| item.id == item_id)
+        .expect("the seeded item is claimed");
+    let fence = context69::library_store::TaskWriteFence::from_claimed_item(&claimed)
+        .expect("the claimed item carries its grant");
+    (task_id, item_id, fence)
 }
 
 async fn item_payload(db: &Database, item_id: Uuid) -> serde_json::Value {
@@ -1099,7 +1119,7 @@ async fn staging_an_artifact_registers_verified_content_addressed_bytes() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"payload"), lease).await;
+    let (_, item, _fence) = seed_running_item(&db, &owner, download_payload(b"payload")).await;
     let service = build_service(&db, &root).await;
 
     let content = Bytes::from_static(b"artifact bytes that must round-trip");
@@ -1146,7 +1166,7 @@ async fn attaching_download_strips_only_the_inline_bytes_and_keeps_the_identity(
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
     let content = b"download bytes";
-    let (_, item) = seed_running_item(&db, &owner, download_payload(content), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(content)).await;
     let service = build_service(&db, &root).await;
 
     let staged = service
@@ -1155,7 +1175,7 @@ async fn attaching_download_strips_only_the_inline_bytes_and_keeps_the_identity(
         .expect("stage artifact");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach artifact"),
         "the running lease may attach"
@@ -1205,7 +1225,7 @@ async fn attaching_sections_preserves_the_indexing_checkpoint_and_other_keys() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, sections_payload(), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, sections_payload()).await;
     let service = build_service(&db, &root).await;
 
     let staged = service
@@ -1218,7 +1238,7 @@ async fn attaching_sections_preserves_the_indexing_checkpoint_and_other_keys() {
         .expect("stage artifact");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Sections, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Sections, &staged)
             .await
             .expect("attach sections")
     );
@@ -1247,7 +1267,7 @@ async fn an_item_without_inline_bytes_still_attaches_and_keeps_its_payload() {
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
     let payload = serde_json::json!({"url": "https://example.test/external"});
-    let (_, item) = seed_running_item(&db, &owner, payload.clone(), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, payload.clone()).await;
     let service = build_service(&db, &root).await;
 
     let staged = service
@@ -1256,7 +1276,7 @@ async fn an_item_without_inline_bytes_still_attaches_and_keeps_its_payload() {
         .expect("stage artifact");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach without an inline value")
     );
@@ -1274,7 +1294,7 @@ async fn a_lost_lease_or_changed_status_never_strips_or_references() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"retry me"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"retry me")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"retry me"), lease)
@@ -1291,7 +1311,7 @@ async fn a_lost_lease_or_changed_status_never_strips_or_references() {
     .expect("replace the lease");
     assert!(
         !service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach with a stale lease"),
         "a reclaim loses the attach"
@@ -1324,7 +1344,7 @@ async fn a_lost_lease_or_changed_status_never_strips_or_references() {
         .expect("stage another artifact");
     assert!(
         !service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach on a cancelled item")
     );
@@ -1341,7 +1361,7 @@ async fn a_concurrent_reclaim_while_attach_waits_leaves_the_payload_untouched() 
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"raced"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"raced")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"raced"), lease)
@@ -1358,7 +1378,7 @@ async fn a_concurrent_reclaim_while_attach_waits_leaves_the_payload_untouched() 
         let staged = staged.clone();
         async move {
             service
-                .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+                .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
                 .await
         }
     });
@@ -1403,7 +1423,7 @@ async fn the_cleanup_identity_lock_blocks_attach_until_the_reference_can_commit(
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"locked"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"locked")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"locked"), lease)
@@ -1422,7 +1442,7 @@ async fn the_cleanup_identity_lock_blocks_attach_until_the_reference_can_commit(
         let staged = staged.clone();
         async move {
             service
-                .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+                .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
                 .await
         }
     });
@@ -1461,7 +1481,7 @@ async fn a_wrong_group_object_is_refused_without_touching_the_payload() {
     let owner = seed_owner(&db).await;
     let foreign = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"cross group"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"cross group")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(foreign.group_id, Bytes::from_static(b"cross group"), lease)
@@ -1470,7 +1490,7 @@ async fn a_wrong_group_object_is_refused_without_touching_the_payload() {
 
     assert!(
         !service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach a foreign object"),
         "the task group must own the registry object"
@@ -1495,7 +1515,7 @@ async fn corrupt_or_missing_bytes_never_strip_the_inline_value() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"good bytes"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"good bytes")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"good bytes"), lease)
@@ -1506,7 +1526,7 @@ async fn corrupt_or_missing_bytes_never_strip_the_inline_value() {
     std::fs::write(root.join(&key), b"corrupted!!!").expect("corrupt the object");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .is_err(),
         "attach must fail closed on an integrity mismatch"
@@ -1539,7 +1559,7 @@ async fn corrupt_or_missing_bytes_never_strip_the_inline_value() {
     std::fs::remove_file(root.join(&key)).expect("remove the object bytes");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .is_err(),
         "attach must fail closed on a missing object"
@@ -1563,7 +1583,7 @@ async fn the_read_cap_is_enforced_before_and_during_the_stream() {
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
     let content = vec![b'x'; 4096];
-    let (_, item) = seed_running_item(&db, &owner, download_payload(&content), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(&content)).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from(content.clone()), lease)
@@ -1571,7 +1591,7 @@ async fn the_read_cap_is_enforced_before_and_during_the_stream() {
         .expect("stage artifact");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach artifact")
     );
@@ -1611,7 +1631,7 @@ async fn a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"first"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"first")).await;
     let service = build_service(&db, &root).await;
     let first = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"first"), lease)
@@ -1619,7 +1639,7 @@ async fn a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop() {
         .expect("stage first");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &first)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &first)
             .await
             .expect("attach first")
     );
@@ -1629,7 +1649,7 @@ async fn a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop() {
         .expect("stage second");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &second)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &second)
             .await
             .expect("retarget")
     );
@@ -1645,7 +1665,7 @@ async fn a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop() {
 
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &second)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &second)
             .await
             .expect("repeat the same attach")
     );
@@ -1666,7 +1686,7 @@ async fn promotion_requires_a_reference_and_preserves_a_shared_input_lease() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"shared"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"shared")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"shared"), lease)
@@ -1686,7 +1706,7 @@ async fn promotion_requires_a_reference_and_preserves_a_shared_input_lease() {
     seed_task_input_reference(&db, item, staged.object_id).await;
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach with a shared input")
     );
@@ -1726,7 +1746,7 @@ async fn both_kinds_coexist_on_one_item_and_read_back_verified() {
         "section_payload": [{"text": "body"}],
         "indexing_checkpoint": {"completed_chunks": 1},
     });
-    let (_, item) = seed_running_item(&db, &owner, payload, lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, payload).await;
     let service = build_service(&db, &root).await;
     let download = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"download"), lease)
@@ -1739,13 +1759,13 @@ async fn both_kinds_coexist_on_one_item_and_read_back_verified() {
 
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &download)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &download)
             .await
             .expect("attach download")
     );
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Sections, &sections)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Sections, &sections)
             .await
             .expect("attach sections")
     );
@@ -1794,7 +1814,7 @@ async fn the_database_guards_refuse_a_wrong_digest_size_or_group() {
     let owner = seed_owner(&db).await;
     let other = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"guards"), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, download_payload(b"guards")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"guards"), lease)
@@ -1803,7 +1823,7 @@ async fn the_database_guards_refuse_a_wrong_digest_size_or_group() {
 
     let base = context69::db::AttachTaskItemArtifactRequest {
         item_id: item,
-        lease_token: lease,
+        lease_token: fence.token(),
         kind: TaskItemArtifactKind::Download,
         storage_object_id: staged.object_id,
         sha256: &staged.sha256,
@@ -1841,13 +1861,12 @@ async fn the_database_guards_refuse_a_wrong_digest_size_or_group() {
         );
     }
 
-    let other_lease = Uuid::new_v4();
-    let (_, foreign_item) =
-        seed_running_item(&db, &other, download_payload(b"foreign"), other_lease).await;
+    let (_, foreign_item, foreign_fence) =
+        seed_running_item(&db, &other, download_payload(b"foreign")).await;
     assert!(
         !db.attach_task_item_artifact(context69::db::AttachTaskItemArtifactRequest {
             item_id: foreign_item,
-            lease_token: other_lease,
+            lease_token: foreign_fence.token(),
             ..base
         })
         .await
@@ -1925,22 +1944,24 @@ async fn rerun_copies_the_source_item_references_in_the_same_transaction() {
     let (_guard, db) = prepare().await;
     let root = storage_root();
     let owner = seed_owner(&db).await;
-    let lease = Uuid::new_v4();
-    let (task_id, item) = seed_running_item(
+    let (task_id, _item, fence) = seed_running_item(
         &db,
         &owner,
         serde_json::json!({"url": "https://example.test/rerun"}),
-        lease,
     )
     .await;
     let service = build_service(&db, &root).await;
     let staged = service
-        .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"rerun bytes"), lease)
+        .stage_task_item_artifact(
+            owner.group_id,
+            Bytes::from_static(b"rerun bytes"),
+            Uuid::new_v4(),
+        )
         .await
         .expect("stage artifact");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach artifact")
     );
@@ -1977,22 +1998,24 @@ async fn a_concurrent_source_task_delete_cannot_produce_a_partial_rerun() {
     let (_guard, db) = prepare().await;
     let root = storage_root();
     let owner = seed_owner(&db).await;
-    let lease = Uuid::new_v4();
-    let (task_id, item) = seed_running_item(
+    let (task_id, _item, fence) = seed_running_item(
         &db,
         &owner,
         serde_json::json!({"url": "https://example.test/race"}),
-        lease,
     )
     .await;
     let service = build_service(&db, &root).await;
     let staged = service
-        .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"race bytes"), lease)
+        .stage_task_item_artifact(
+            owner.group_id,
+            Bytes::from_static(b"race bytes"),
+            Uuid::new_v4(),
+        )
         .await
         .expect("stage artifact");
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach artifact")
     );
@@ -2044,7 +2067,7 @@ async fn a_shared_library_file_object_survives_an_artifact_release() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, serde_json::json!({}), lease).await;
+    let (_, item, fence) = seed_running_item(&db, &owner, serde_json::json!({})).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"shared life"), lease)
@@ -2055,7 +2078,7 @@ async fn a_shared_library_file_object_survives_an_artifact_release() {
     seed_file_reference(&db, owner.group_id, object, &key, &staged.sha256).await;
     assert!(
         service
-            .attach_task_item_artifact(item, lease, TaskItemArtifactKind::Download, &staged)
+            .attach_task_item_artifact(&fence, TaskItemArtifactKind::Download, &staged)
             .await
             .expect("attach artifact on a shared object")
     );
@@ -2898,16 +2921,15 @@ async fn shared_artifact_bytes_survive_a_staging_discard() {
     let service = build_service(&db, &root).await;
     let content = b"shared artifact bytes";
 
-    let artifact_lease = Uuid::new_v4();
-    let (_artifact_task, artifact_item) =
-        seed_running_item(&db, &owner, serde_json::json!({}), artifact_lease).await;
+    let (_artifact_task, artifact_item, _artifact_fence) =
+        seed_running_item(&db, &owner, serde_json::json!({})).await;
     let (object_id, sha) = seed_verified_object(&db, &root, owner.group_id, content).await;
     let key = object_key(&db, object_id).await;
     seed_artifact(&db, artifact_item, KIND_SECTIONS, object_id).await;
 
     let staging_token = Uuid::new_v4();
-    let (_staging_task, staging_item) =
-        seed_running_item(&db, &owner, serde_json::json!({}), staging_token).await;
+    let (_staging_task, staging_item, staging_fence) =
+        seed_running_item(&db, &owner, serde_json::json!({})).await;
     // The second stage reuses the same content-addressed row and resets its
     // shared 24-hour staging lease.
     let staged = service
@@ -2920,15 +2942,19 @@ async fn shared_artifact_bytes_survive_a_staging_discard() {
         "the staged object holds a lease"
     );
 
-    // The staged item loses its lease before the attach, so the attach refuses
-    // and the discard runs the reference-checked staging rollback.
+    // The staged item loses its lease before the attach: the row is taken over,
+    // so the captured grant no longer matches and the attach refuses, then the
+    // discard runs the reference-checked staging rollback.
+    sqlx::query_file!(
+        "tests/task_item_artifacts/change_item_lease.sql",
+        staging_item,
+        Uuid::new_v4()
+    )
+    .execute(db.pool())
+    .await
+    .expect("rotate the item lease");
     let lost = service
-        .attach_task_item_artifact(
-            staging_item,
-            Uuid::new_v4(),
-            TaskItemArtifactKind::Sections,
-            &staged,
-        )
+        .attach_task_item_artifact(&staging_fence, TaskItemArtifactKind::Sections, &staged)
         .await
         .expect("a refused attach is not an error");
     assert!(!lost, "a stale lease must not attach");
@@ -3130,8 +3156,8 @@ async fn a_reference_committed_during_a_discard_lock_wait_keeps_the_checkpoint_b
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) =
-        seed_running_item(&db, &owner, download_payload(b"waited discard"), lease).await;
+    let (_, item, _fence) =
+        seed_running_item(&db, &owner, download_payload(b"waited discard")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"waited discard"), lease)
@@ -3259,7 +3285,7 @@ async fn a_reference_free_discard_still_releases_the_staged_bytes() {
     let root = storage_root();
     let owner = seed_owner(&db).await;
     let lease = Uuid::new_v4();
-    let (_, item) = seed_running_item(&db, &owner, download_payload(b"released"), lease).await;
+    let (_, item, _fence) = seed_running_item(&db, &owner, download_payload(b"released")).await;
     let service = build_service(&db, &root).await;
     let staged = service
         .stage_task_item_artifact(owner.group_id, Bytes::from_static(b"released"), lease)

@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "ROLLBACK\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "3faad9faa0472bfb904bae84d6c020dbb4d9f3bd57ebc1b1d3f25abfd4369e5f"
+}

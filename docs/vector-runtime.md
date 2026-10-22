@@ -69,22 +69,33 @@ restart. A rebuild in progress keeps writers and readers stopped together until
 it completes, and a completion from a superseded generation cannot reopen
 readiness.
 
+The task engine additionally starts only after its own library readiness latch
+passes: the `cloudiful_tasks` schema exists and is owned by the library, and no
+live item is left without an execution segment. A blocked latch starts no claim
+dispatcher, claim maintenance, Docling adoption or cleanup and no source-cleanup
+dispatcher, while HTTP, manual task CRUD, and the independent services stay
+available; the operator resolves it explicitly and restarts the process.
+`docs/operations/task-execution-cutover.md` is the runbook.
+
 ## Shutdown
 
 `SIGTERM` from a container stop and `SIGINT` from an interactive stop go through
 one coordinator. On the first observed signal the process stops acquiring task
 work, stops the scheduler, the MCP server, and the rerank-cache cleanup, and
-begins the API server's graceful drain. A claim already issued by this replica
-when the signal is observed still gets its owned worker, so work the database
-already admitted is not silently abandoned.
+begins the API server's graceful drain. A claim the library already issued to
+this replica when the signal is observed still gets its owned worker, so work
+the database already admitted is not silently abandoned.
 
 Natural item completion and the HTTP drain share one five-second budget measured
 from the observed signal. They never run as two serial five-second waits, and a
 held request cannot extend the stop. When the budget expires the process logs
 that unfinished work was left behind and exits. It does not cancel a running
-item, write a synthetic terminal task or item state, or release a lease: those
-items keep their persisted identity, progress, and lease, and the existing
-expiry and recovery path reclaims them after the process is gone.
+item, write a synthetic terminal task or item state, or release a lease: the
+library owns the execution lease of the item's segment, the domain item only
+mirrors it, and that lease is left to expire. The process does not reach the
+asynchronous drop of its own runtime, so nothing releases the lease on its
+behalf; the ordinary expiry path then interrupts the library attempt and
+projects the failure onto the item.
 
 A container or orchestrator stop timeout must be greater than five seconds so it
 does not kill the process before this budget can finish.
@@ -103,8 +114,10 @@ Recovery starts only the dependencies and writers that finish already persisted
 work: task dispatch and maintenance, Docling remote-state recovery, dependency
 gates, the vector supervisor, and source cleanup. Normal startup sweeps, the
 metadata-index worker, the payload-mirror worker, startup sync, and the
-scheduler stay off. Existing expired claims are reclaimed by the normal lease
-rules, and a persisted Docling remote id is adopted instead of resubmitted.
+scheduler stay off. Existing expired library claims are reclaimed by the normal
+lease rules: the attempt lease expires, the attempt is interrupted, and the
+domain item follows, while a persisted Docling remote id is adopted instead of
+resubmitted.
 Slow remote work keeps the process live and unready with periodic guard-count
 and elapsed-time logs rather than a crash loop.
 

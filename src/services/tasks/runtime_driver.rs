@@ -23,6 +23,55 @@ use super::lifecycle_logging::{
 use super::responses::parse_kind;
 use super::runtime::spawn_item_heartbeat;
 
+/// Both handles of one claim.
+///
+/// The heartbeat aborts the work when the claim is gone; this value aborts both
+/// when the driver itself is dropped - an early return, a shutdown or a
+/// cancelled outer future - instead of detaching a task that would keep running
+/// on a lease it no longer holds. The join handle stays owned by `work` for the
+/// whole run, and `work_abort` is an independently owned handle of the same
+/// task: a cancellation while the driver awaits the work must still have a
+/// handle to abort it with.
+struct ClaimRun {
+    work: Option<tokio::task::JoinHandle<Result<ProcessResult>>>,
+    work_abort: tokio::task::AbortHandle,
+    heartbeat: super::runtime::HeartbeatGuard,
+}
+
+impl ClaimRun {
+    /// The outcome of the work, awaited through the handle the run keeps.
+    ///
+    /// The handle is awaited by mutable reference instead of being taken out, so
+    /// the run owns the running task until it finishes and `Drop` can always
+    /// abort it.
+    async fn work(&mut self) -> std::result::Result<Result<ProcessResult>, tokio::task::JoinError> {
+        self.work
+            .as_mut()
+            .expect("the claim run owns its work handle")
+            .await
+    }
+}
+
+impl Drop for ClaimRun {
+    fn drop(&mut self) {
+        self.work_abort.abort();
+        self.heartbeat.abort();
+    }
+}
+
+/// A test hook in front of the pipeline body.
+///
+/// The production build runs an async no-op. A test installs a gate so the
+/// cancellation of the real driver can be observed with its spawned work
+/// genuinely pending, instead of mocking the handles the driver owns.
+#[cfg(not(test))]
+async fn work_body_gate() {}
+
+#[cfg(test)]
+async fn work_body_gate() {
+    tests::work_gate::wait().await;
+}
+
 pub(super) async fn run_item(service: &TaskService, item: crate::db::ClaimedItem) -> Result<()> {
     let task = service.task(item.task_id).await?;
     if task.status == "cancelled" {
@@ -66,12 +115,59 @@ async fn drive_claimed_item(
         ),
         None => None,
     };
-    let item_heartbeat = spawn_item_heartbeat(service.clone(), item.id, item.lease_token);
+    // The captured execution is the authority of this run: without it the item
+    // was never claimed through the library, so the worker leaves it alone
+    // instead of writing with a lease it does not hold.
+    let Some(execution) = item.execution_context() else {
+        warn!(
+            target: "task_lifecycle",
+            task_id = %item.task_id,
+            item_id = %item.id,
+            status = "skipped",
+            "task item has no captured execution and is left to the library"
+        );
+        return Ok(());
+    };
     // Retryable waits stay inline (issue 650 P3): the driver sleeps keeping
     // the admitted parent/item lease and re-drives, so only a terminal
     // outcome or an over-budget wait reaches the commit path below.
-    let result = drive_with_inline_waits(service, kind, group.as_ref(), &task, &item).await;
-    item_heartbeat.abort();
+    //
+    // The work runs in its own task, so a heartbeat that loses the claim can
+    // drop the work instead of only stopping the renewal.
+    let work_service = service.clone();
+    let work_item = item.clone();
+    let work_task = task.clone();
+    let work_group = group.clone();
+    let work = tokio::spawn(async move {
+        work_body_gate().await;
+        drive_with_inline_waits(
+            &work_service,
+            kind,
+            work_group.as_ref(),
+            &work_task,
+            &work_item,
+        )
+        .await
+    });
+    // The run owns both handles: a heartbeat that loses the claim aborts the
+    // work, and dropping this value (an early return, a shutdown or a cancelled
+    // outer future) aborts both instead of detaching them.
+    let abort_work = work.abort_handle();
+    let mut run = ClaimRun {
+        work_abort: abort_work.clone(),
+        work: Some(work),
+        heartbeat: spawn_item_heartbeat(service.clone(), execution.clone(), abort_work),
+    };
+    let result = match run.work().await {
+        Ok(result) => result,
+        Err(join_error) if join_error.is_cancelled() => {
+            // The claim was lost while the work ran: the work was dropped with
+            // the lease, so there is no outcome to report.
+            return Ok(());
+        }
+        Err(join_error) => return Err(join_error.into()),
+    };
+    run.heartbeat.abort();
 
     match result {
         Ok(ProcessResult::Succeeded(resource_id)) => {
@@ -85,7 +181,7 @@ async fn drive_claimed_item(
                     failure_stage: None,
                     error_message: None,
                     retryable: true,
-                    lease_token: item.lease_token,
+                    execution: execution.clone(),
                     attempt_id: item.attempt_id,
                 })
                 .await?
@@ -129,7 +225,7 @@ async fn drive_claimed_item(
         Ok(ProcessResult::Progressed { .. }) => {
             if !service
                 .db()
-                .progress_task_item(item.task_id, item.id, item.lease_token, item.attempt_id)
+                .progress_task_item(item.task_id, item.id, &execution, item.attempt_id)
                 .await?
             {
                 return Ok(());
@@ -146,7 +242,7 @@ async fn drive_claimed_item(
                 .wait_task_item(crate::db::WaitTaskItemRequest {
                     task_id: item.task_id,
                     item_id: item.id,
-                    lease_token: item.lease_token,
+                    execution: execution.clone(),
                     waiting_reason: &reason,
                     dependency_key: dependency_key.as_deref(),
                     next_attempt_at,
@@ -191,7 +287,7 @@ async fn drive_claimed_item(
                     .wait_task_item(crate::db::WaitTaskItemRequest {
                         task_id: item.task_id,
                         item_id: item.id,
-                        lease_token: item.lease_token,
+                        execution: execution.clone(),
                         waiting_reason: "backoff",
                         dependency_key: None,
                         next_attempt_at,
@@ -213,7 +309,7 @@ async fn drive_claimed_item(
                     failure_stage: Some(&stage),
                     error_message: Some(&message),
                     retryable: false,
-                    lease_token: item.lease_token,
+                    execution: execution.clone(),
                     attempt_id: item.attempt_id,
                 })
                 .await?
@@ -244,7 +340,7 @@ async fn drive_claimed_item(
                     .wait_task_item(crate::db::WaitTaskItemRequest {
                         task_id: item.task_id,
                         item_id: item.id,
-                        lease_token: item.lease_token,
+                        execution: execution.clone(),
                         waiting_reason: "backoff",
                         dependency_key: None,
                         next_attempt_at,
@@ -266,7 +362,7 @@ async fn drive_claimed_item(
                     failure_stage: item.stage.as_deref().or(Some("worker")),
                     error_message: Some(&message),
                     retryable: false,
-                    lease_token: item.lease_token,
+                    execution: execution.clone(),
                     attempt_id: item.attempt_id,
                 })
                 .await?
@@ -308,19 +404,4 @@ fn is_retryable_error(error: &anyhow::Error) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::parse_kind;
-    use crate::domain_errors::{DomainError, find_domain_error};
-
-    #[test]
-    fn unknown_task_kind_is_typed_invalid_argument() {
-        let Err(error) = parse_kind("bogus") else {
-            panic!("expected unknown task kind to fail");
-        };
-        assert!(matches!(
-            find_domain_error(&error),
-            Some(DomainError::InvalidArgument(_))
-        ));
-        assert_eq!(error.to_string(), "unsupported task kind bogus");
-    }
-}
+mod tests;

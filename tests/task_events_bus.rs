@@ -154,6 +154,9 @@ async fn insert_receives_task_and_item_events() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let sender = spawn_bus_and_wait(&db).await;
     let mut receiver = sender.subscribe();
     let user_id = seed_test_user(&db).await;
@@ -196,6 +199,9 @@ async fn update_receives_item_event() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-update-hash", 1).await;
     // Subscribe after setup so only the UPDATE under test is observed.
@@ -237,6 +243,9 @@ async fn payload_is_four_fields_and_small() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
 
     let mut listener = sqlx::postgres::PgListener::connect(&url)
@@ -300,6 +309,9 @@ async fn heartbeat_update_is_throttled() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-heartbeat-hash", 1).await;
     let item_id = item_ids[0];
@@ -369,6 +381,9 @@ async fn cancel_path_emits_event() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, _items) = create_text_task(&db, user_id, "bus-cancel-hash", 1).await;
     let sender = spawn_bus_and_wait(&db).await;
@@ -401,6 +416,9 @@ async fn trash_path_emits_event() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-trash-hash", 1).await;
     // Drive to terminal so trash.sql matches (status succeeded).
@@ -436,6 +454,9 @@ async fn restore_path_emits_event() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-restore-hash", 1).await;
     sqlx::query(
@@ -471,6 +492,9 @@ async fn clear_path_emits_delete_event() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-clear-hash", 1).await;
     sqlx::query(
@@ -521,6 +545,9 @@ async fn maintain_claim_state_path_emits_event() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-maintain-hash", 1).await;
     let item_id = item_ids[0];
@@ -573,6 +600,9 @@ async fn listener_recovers_after_backend_terminate() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
 
     // Hub path (broadcast) must survive a terminated PG backend via

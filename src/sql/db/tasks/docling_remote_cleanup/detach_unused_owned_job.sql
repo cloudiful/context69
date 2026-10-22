@@ -6,7 +6,9 @@ WITH owned AS MATERIALIZED (
     WHERE job.id = $1 AND item.id = $2
       AND job.status IN ('pending', 'running')
       AND item.status = 'running' AND item.lease_token = $3
-      AND item.lease_until > now()
+      AND item.lease_until > clock_timestamp()
+      AND item.execution_task_id = $4
+      AND item.execution_generation = $5
       AND task.status IN ('queued', 'running', 'waiting')
     FOR UPDATE OF job, item, task
 ), enqueued AS (

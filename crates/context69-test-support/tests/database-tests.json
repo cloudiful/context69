@@ -363,6 +363,42 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "db::tasks::execution_bootstrap_tests::a_missing_library_schema_is_refused_by_the_read_only_check",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::tasks::execution_bootstrap_tests::a_schema_that_only_looks_like_the_librarys_own_is_refused",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::tasks::execution_bootstrap_tests::an_unknown_foreign_ledger_is_refused_by_the_preflight",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::tasks::execution_bootstrap_tests::the_explicit_bootstrap_creates_the_library_schema_and_is_idempotent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::tasks::execution_bootstrap_tests::the_linkage_columns_keep_the_defaults_of_the_rows_that_predate_them",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "db::tasks::execution_bootstrap_tests::the_preflight_recognises_the_ledger_the_library_owns",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "mcp::tools::code_get::tests::database_round_trips_cover_windows_and_refusals",
       "class": "db"
     },
@@ -2680,6 +2716,252 @@
       "package": "context69",
       "target": "task_item_artifacts",
       "test": "a_reference_free_expired_object_is_still_reclaimed_by_the_sweep",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "two_claimers_take_one_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "the_item_lease_mirrors_the_library_token_and_deadline",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_stale_generation_cannot_finish_progress_or_renew",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_parked_segment_succeeds_and_the_next_generation_starts_fresh",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_cancelled_item_reports_the_actual_domain_outcome",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_live_owner_commits_and_rolls_back_a_file_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_crashed_segment_cannot_create_or_replace_a_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_stale_generation_cannot_attach_an_artifact",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_cancelled_item_cannot_write_business_rows",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_staged_artifact_of_a_refused_grant_is_never_referenced",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_checkpoint_of_a_crashed_segment_is_refused",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_document_delete_under_a_crashed_grant_deletes_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_terminal::a_crashed_worker_commits_no_conversion_output",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::runtime::tests::runtime_abort::a_row_locked_renewal_times_out_and_drops_the_started_work",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::runtime::tests::runtime_abort::a_lost_lease_drops_the_started_work_without_a_late_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::runtime_driver::tests::outer_driver_cancellation::an_outer_driver_cancellation_drops_the_running_work",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "a_status_projection_and_a_cleanup_of_a_crashed_segment_change_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "ingest_content::a_live_owner_writes_the_ingest_content_and_a_crashed_segment_writes_none",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "ingest_content::a_stale_generation_cannot_overwrite_the_content_of_its_successor",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "ingest_content::an_injected_failure_rolls_the_document_write_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::library::ingest_checkpoint_batch::provider_barrier::the_provider_runs_outside_every_transaction",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "whole_ingest::the_whole_ingest_writes_every_row_of_the_file_under_the_grant",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "whole_ingest::a_stale_grant_writes_no_row_and_preserves_the_committed_content",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_effect_fence",
+      "test": "whole_ingest::a_loss_at_the_provider_barrier_publishes_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::sync::sources::task_source_delete::a_stale_grant_removes_no_source_state_and_a_live_grant_removes_all_of_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::library::upload_rollback::task_compensation::a_valid_grant_restores_the_previous_snapshot_and_the_counter",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::library::upload_rollback::task_compensation::a_superseded_grant_restores_nothing_over_the_successor",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::library::upload_rollback::task_compensation::the_task_upsert_path_compensates_nothing_when_the_grant_is_gone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "legacy_items_block_the_readiness_decision_until_they_are_handed_over",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "a_database_without_the_library_schema_blocks_as_a_library_problem",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "a_latched_service_stays_blocked_after_the_handover_until_it_restarts",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "a_blocked_service_starts_no_dispatcher_and_no_maintenance_effect",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "inventory_is_read_only_and_bounded",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_links_a_fresh_segment_and_repeats_idempotently",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_preserves_a_docling_wait_without_making_it_claimable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_refuses_a_running_item_and_leaves_no_segment_behind",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_refuses_the_whole_batch_when_one_item_is_ineligible",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "a_live_execution_lease_refuses_every_handover_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "finalize_interrupted_closes_an_abandoned_running_item_atomically",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "finalize_interrupted_refuses_a_linked_or_leased_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "the_tool_refuses_a_target_that_is_not_the_expected_database",
       "class": "db"
     }
   ]

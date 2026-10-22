@@ -6,6 +6,7 @@
 mod admin;
 mod artifact_backfill;
 mod claims;
+pub mod cutover;
 mod docling_cleanup;
 mod docling_remote_finalize;
 mod docling_remote_jobs;
@@ -14,6 +15,11 @@ mod queries;
 mod submission;
 mod types;
 
+pub mod execution;
+
+#[cfg(test)]
+mod execution_bootstrap_tests;
+
 pub use artifact_backfill::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTerminalTaskItemArtifactRequest, RemainingArtifactReferences,
@@ -21,6 +27,7 @@ pub use artifact_backfill::{
 };
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
+pub use execution::{ExecutionContext, SegmentPayload};
 pub use types::{
     AttachTaskItemArtifactRequest, ClaimMaintenanceOutcome, ClaimedItem,
     CreateTaskSubmissionRequest, FinishTaskItemRequest, StoredTask, StoredTaskAttempt,

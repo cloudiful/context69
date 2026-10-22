@@ -10,7 +10,6 @@
 
 use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
-use sqlx::Row;
 use uuid::Uuid;
 
 /// claim_items is a global dispatcher primitive over the shared scratch
@@ -18,37 +17,37 @@ use uuid::Uuid;
 static CLAIM_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn seed_test_user(db: &Database) -> i64 {
-    sqlx::query(
-        "INSERT INTO context69.users (login_name, display_name, password_hash) \
-         VALUES ($1, $2, $3) RETURNING id",
+    sqlx::query_file_scalar!(
+        "tests/sql/task_execution/seed_user.sql",
+        format!("lease-test-{}", Uuid::new_v4()),
+        "Lease Test",
+        "unused"
     )
-    .bind(format!("lease-test-{}", Uuid::new_v4()))
-    .bind("Lease Test")
-    .bind("unused")
     .fetch_one(db.pool())
     .await
     .expect("seed test user")
-    .get("id")
 }
 
 async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
-    sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
-        .bind(task_id)
-        .execute(db.pool())
-        .await
-        .expect("clean up task items");
-    sqlx::query("DELETE FROM context69.tasks WHERE id = $1")
-        .bind(task_id)
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_task_items_by_task.sql",
+        task_id
+    )
+    .execute(db.pool())
+    .await
+    .expect("clean up task items");
+    sqlx::query_file!("tests/sql/task_execution/delete_task_by_id.sql", task_id)
         .execute(db.pool())
         .await
         .expect("clean up task");
-    sqlx::query("DELETE FROM context69.task_idempotency_keys WHERE user_id = $1")
-        .bind(user_id)
-        .execute(db.pool())
-        .await
-        .expect("clean up idempotency keys");
-    sqlx::query("DELETE FROM context69.users WHERE id = $1")
-        .bind(user_id)
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_user_idempotency_keys.sql",
+        user_id
+    )
+    .execute(db.pool())
+    .await
+    .expect("clean up idempotency keys");
+    sqlx::query_file!("tests/sql/task_execution/delete_user.sql", user_id)
         .execute(db.pool())
         .await
         .expect("clean up user");
@@ -61,6 +60,9 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -101,14 +103,9 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
         "claiming an item must activate the parent task"
     );
 
-    // Simulate a worker crash: the lease expires without any finish call.
-    sqlx::query(
-        "UPDATE context69.task_items SET lease_until = now() - interval '1 minute' WHERE id = $1",
-    )
-    .bind(first.id)
-    .execute(db.pool())
-    .await
-    .expect("expire lease");
+    // Simulate a worker crash: the authoritative library attempt and its
+    // domain mirror expire without any finish call.
+    crash_holder(&db, &first).await;
 
     let second = db
         .claim_items(10)
@@ -126,15 +123,13 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
         "each claim must mint a fresh lease token"
     );
 
-    let orphaned_attempt: i64 = sqlx::query(
-        "SELECT count(*) FROM context69.task_attempts \
-         WHERE item_id = $1 AND status = 'interrupted' AND finished_at IS NOT NULL",
+    let orphaned_attempt: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/count_interrupted_item_attempts.sql",
+        first.id
     )
-    .bind(first.id)
     .fetch_one(db.pool())
     .await
-    .expect("count orphaned attempts")
-    .get("count");
+    .expect("count orphaned attempts");
     assert_eq!(
         orphaned_attempt, 1,
         "the crashed worker's attempt must be marked interrupted"
@@ -149,7 +144,9 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: second.lease_token,
+            execution: second
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: second.attempt_id,
         })
         .await
@@ -177,6 +174,9 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -199,11 +199,13 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
     assert_eq!(item_ids.len(), 1);
 
     // Simulate a task that has already burned its attempts.
-    sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
-        .bind(item_ids[0])
-        .execute(db.pool())
-        .await
-        .expect("set attempt count");
+    sqlx::query_file!(
+        "tests/sql/task_execution/exhaust_item_attempt_budget.sql",
+        item_ids[0]
+    )
+    .execute(db.pool())
+    .await
+    .expect("set attempt count");
 
     let claimed = db.claim_items(10).await.expect("claim items");
     assert!(
@@ -275,73 +277,72 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
         task.next_attempt_at, None,
         "terminal task must clear next_attempt_at"
     );
-    let (queued, running, waiting, succeeded, failed, cancelled): (i64, i64, i64, i64, i64, i64) =
-        sqlx::query_as(
-            "SELECT \
-             count(*) FILTER (WHERE status = 'queued')::bigint, \
-             count(*) FILTER (WHERE status = 'running')::bigint, \
-             count(*) FILTER (WHERE status = 'waiting')::bigint, \
-             count(*) FILTER (WHERE status = 'succeeded')::bigint, \
-             count(*) FILTER (WHERE status = 'failed')::bigint, \
-             count(*) FILTER (WHERE status = 'cancelled')::bigint \
-             FROM context69.task_items WHERE task_id = $1",
-        )
-        .bind(task_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("count task items");
-    assert_eq!(task.queued_count, queued, "queued_count must match items");
+    let counts = sqlx::query_file!(
+        "tests/sql/task_execution/read_item_status_counts.sql",
+        task_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count task items");
     assert_eq!(
-        task.running_count, running,
+        task.queued_count, counts.queued,
+        "queued_count must match items"
+    );
+    assert_eq!(
+        task.running_count, counts.running,
         "running_count must match items"
     );
     assert_eq!(
-        task.waiting_count, waiting,
+        task.waiting_count, counts.waiting,
         "waiting_count must match items"
     );
     assert_eq!(
-        task.succeeded_count, succeeded,
+        task.succeeded_count, counts.succeeded,
         "succeeded_count must match items"
     );
-    assert_eq!(task.failed_count, failed, "failed_count must match items");
     assert_eq!(
-        task.cancelled_count, cancelled,
+        task.failed_count, counts.failed,
+        "failed_count must match items"
+    );
+    assert_eq!(
+        task.cancelled_count, counts.cancelled,
         "cancelled_count must match items"
     );
-    let lease_token: Option<uuid::Uuid> =
-        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
-            .bind(task_id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load lease_token");
+    let lease_token: Option<uuid::Uuid> = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_parent_lease_token.sql",
+        task_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load lease_token");
     assert!(
         lease_token.is_none(),
         "terminal exhausted task must clear lease_token"
     );
-    let lease_until: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT lease_until FROM context69.tasks WHERE id = $1")
-            .bind(task_id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load lease_until");
+    let lease_until: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_parent_lease_until.sql",
+        task_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load lease_until");
     assert!(
         lease_until.is_none(),
         "terminal exhausted task must clear lease_until"
     );
-    let item_status: String = sqlx::query("SELECT status FROM context69.task_items WHERE id = $1")
-        .bind(item_ids[0])
-        .fetch_one(db.pool())
-        .await
-        .expect("load item status")
-        .get("status");
-    assert_eq!(item_status, "failed");
-    let item_stage: Option<String> =
-        sqlx::query("SELECT failure_stage FROM context69.task_items WHERE id = $1")
-            .bind(item_ids[0])
+    let item_status: String =
+        sqlx::query_file_scalar!("tests/sql/task_execution/read_item_status.sql", item_ids[0])
             .fetch_one(db.pool())
             .await
-            .expect("load item stage")
-            .get("failure_stage");
+            .expect("load item status");
+    assert_eq!(item_status, "failed");
+    let item_stage: Option<String> = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_item_failure_stage.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load item stage");
     assert_eq!(item_stage.as_deref(), Some("attempts"));
 
     // Idempotent second claim must keep counters stable and not resurrect.
@@ -369,6 +370,9 @@ async fn stage_progress_resets_the_attempt_count() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -402,9 +406,16 @@ async fn stage_progress_resets_the_attempt_count() {
     // Stage transitions are progress, not failures: they must not consume
     // the failure-attempt budget.
     assert!(
-        db.progress_task_item(task_id, first.id, first.lease_token, first.attempt_id)
-            .await
-            .expect("progress item")
+        db.progress_task_item(
+            task_id,
+            first.id,
+            &first
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+            first.attempt_id
+        )
+        .await
+        .expect("progress item")
     );
 
     let second = db
@@ -429,6 +440,9 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -460,10 +474,10 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
     // closed this attempt before the worker reported its outcome. The item
     // transition is the fact the parent projection follows, so the finish must
     // still take effect and still recompute the parent.
-    sqlx::query(
-        "UPDATE context69.task_attempts SET status = 'interrupted', finished_at = now() WHERE id = $1",
+    sqlx::query_file!(
+        "tests/sql/task_execution/interrupt_attempt.sql",
+        claimed.attempt_id
     )
-    .bind(claimed.attempt_id)
     .execute(db.pool())
     .await
     .expect("close the attempt before the worker finishes");
@@ -477,7 +491,9 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: claimed.lease_token,
+            execution: claimed
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: claimed.attempt_id,
         })
         .await
@@ -496,12 +512,13 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
     );
     assert_eq!(task.succeeded_count, 1, "the parent must count the item");
     assert_eq!(task.running_count, 0);
-    let lease_token: Option<Uuid> =
-        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
-            .bind(task_id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load lease_token");
+    let lease_token: Option<Uuid> = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_parent_lease_token.sql",
+        task_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load lease_token");
     assert!(
         lease_token.is_none(),
         "a terminal parent must release its slot"
@@ -517,6 +534,9 @@ async fn items_of_one_parent_are_claimed_one_at_a_time() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -561,14 +581,13 @@ async fn items_of_one_parent_are_claimed_one_at_a_time() {
         first[0].id, item_ids[0],
         "the parent advances its items in ordinal order"
     );
-    let running: i64 = sqlx::query(
-        "SELECT count(*) FROM context69.task_items WHERE task_id = $1 AND status = 'running'",
+    let running: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/count_running_task_items.sql",
+        task_id
     )
-    .bind(task_id)
     .fetch_one(db.pool())
     .await
-    .expect("count running items")
-    .get("count");
+    .expect("count running items");
     assert_eq!(running, 1, "the parent must not run several items at once");
 
     // Finishing that item lets the same parent advance to its next item inside
@@ -582,7 +601,9 @@ async fn items_of_one_parent_are_claimed_one_at_a_time() {
             failure_stage: None,
             error_message: None,
             retryable: true,
-            lease_token: first[0].lease_token,
+            execution: first[0]
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
             attempt_id: first[0].attempt_id,
         })
         .await
@@ -613,6 +634,9 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -666,37 +690,38 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
     };
 
     if let Some(claimed_task) = claimed_task {
-        let claimed_status: String =
-            sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
-                .bind(claimed_task)
-                .fetch_one(db.pool())
-                .await
-                .expect("load claimed task status")
-                .get("status");
+        let claimed_status: String = sqlx::query_file_scalar!(
+            "tests/sql/task_execution/read_parent_status.sql",
+            claimed_task
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("load claimed task status");
         assert_eq!(
             claimed_status, "running",
             "claiming an item must activate only its own parent task"
         );
     }
 
-    let unclaimed_status: String = sqlx::query("SELECT status FROM context69.tasks WHERE id = $1")
-        .bind(unclaimed_task)
-        .fetch_one(db.pool())
-        .await
-        .expect("load unclaimed task status")
-        .get("status");
+    let unclaimed_status: String = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_parent_status.sql",
+        unclaimed_task
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load unclaimed task status");
     assert_eq!(
         unclaimed_status, "queued",
         "an unclaimed parent task must stay queued instead of being pre-activated"
     );
 
-    let item_status: String =
-        sqlx::query("SELECT status FROM context69.task_items WHERE task_id = $1")
-            .bind(unclaimed_task)
-            .fetch_one(db.pool())
-            .await
-            .expect("load unclaimed item status")
-            .get("status");
+    let item_status: String = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_task_item_status.sql",
+        unclaimed_task
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load unclaimed item status");
     assert_eq!(
         item_status, "queued",
         "the unclaimed item must remain queued"
@@ -713,6 +738,9 @@ async fn claiming_a_due_waiting_item_activates_its_parent_task() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
@@ -734,19 +762,14 @@ async fn claiming_a_due_waiting_item_activates_its_parent_task() {
     assert_eq!(item_ids.len(), 1);
 
     // Park the task and its item on a dependency until a past deadline.
-    sqlx::query(
-        "UPDATE context69.tasks SET status = 'waiting', next_attempt_at = now() - interval '1 minute' \
-         WHERE id = $1",
+    sqlx::query_file!("tests/sql/task_execution/park_parent_waiting.sql", task_id)
+        .execute(db.pool())
+        .await
+        .expect("park task as waiting");
+    sqlx::query_file!(
+        "tests/sql/task_execution/park_item_waiting.sql",
+        item_ids[0]
     )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("park task as waiting");
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'waiting', next_attempt_at = now() - interval '1 minute', \
-         attempt_count = 0 WHERE id = $1",
-    )
-    .bind(item_ids[0])
     .execute(db.pool())
     .await
     .expect("park item as waiting");
@@ -771,4 +794,29 @@ async fn claiming_a_due_waiting_item_activates_its_parent_task() {
     );
 
     cleanup_task(&db, task_id, user_id).await;
+}
+
+/// Crashes the worker that holds the item.
+///
+/// The authoritative lease is the library attempt: the crash expires that
+/// attempt, and the domain mirror of it expires with it. Backdating only the
+/// domain mirror would not be a library crash, and no takeover would be
+/// authorized by it.
+async fn crash_holder(db: &Database, item: &context69::db::ClaimedItem) {
+    {
+        let execution = item
+            .execution_context()
+            .expect("the claimed item carries its captured execution");
+        sqlx::query_file!(
+            "tests/sql/task_execution/expire_library_attempt_by_id.sql",
+            execution.attempt_id()
+        )
+        .execute(db.pool())
+        .await
+        .expect("expire the library attempt");
+        sqlx::query_file!("tests/sql/task_execution/expire_item_lease.sql", item.id)
+            .execute(db.pool())
+            .await
+            .expect("expire the domain mirror");
+    }
 }

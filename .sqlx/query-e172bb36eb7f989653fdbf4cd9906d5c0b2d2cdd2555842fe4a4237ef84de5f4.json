@@ -1,0 +1,131 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The domain projection of one library claim (issue 1020 P2).\n--\n-- The lease of the item is the fencing token of the library attempt and its\n-- deadline is the deadline the library returned, so the domain never mints an\n-- authority of its own and never extends a lease on its own clock. The domain\n-- attempt records both library identities, so the domain history and the\n-- library history can be correlated without a lookup of the latest owner.\n--\n-- `$1` is the item, `$2` the fencing token of the library attempt, `$3` the\n-- lease deadline the library returned, `$4` the library task, `$5` the\n-- execution generation, `$6` the library attempt, `$7` says that the parent\n-- takes a new global slot, and `$8` is the deadline of the slot the parent\n-- already holds.\nWITH claimed AS (\n    UPDATE context69.task_items AS item\n    SET status = 'running',\n        attempt_count = item.attempt_count + 1,\n        lease_token = $2,\n        lease_until = $3,\n        execution_task_id = $4,\n        execution_generation = $5,\n        started_at = COALESCE(item.started_at, now()),\n        finished_at = NULL,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        waiting_since = NULL,\n        failure_stage = NULL,\n        error_message = NULL,\n        updated_at = now()\n    WHERE item.id = $1\n      AND item.status IN ('queued', 'waiting')\n    RETURNING item.id,\n              item.task_id,\n              item.ordinal,\n              item.attempt_count,\n              item.payload,\n              item.file_id,\n              item.stage,\n              item.input_storage_object_id\n),\nattempts AS (\n    INSERT INTO context69.task_attempts\n        (task_id, item_id, attempt, status, execution_task_id, execution_attempt_id)\n    SELECT task_id, id, attempt_count, 'running', $4, $6\n    FROM claimed\n    RETURNING item_id, id AS attempt_id\n),\nparent AS (\n    -- The single parent UPDATE: the global slot of the parent, granted when it\n    -- has none and renewed when the one it holds is close to expiring. A\n    -- still-fresh slot keeps its token and deadline.\n    UPDATE context69.tasks task\n    SET lease_token = CASE\n            WHEN $7 THEN gen_random_uuid()\n            ELSE task.lease_token\n        END,\n        lease_until = CASE\n            WHEN $7\n                 OR $8 < now() + interval '4 minutes'\n                THEN now() + interval '8 minutes'\n            ELSE task.lease_until\n        END,\n        status = 'running',\n        started_at = COALESCE(task.started_at, now()),\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = NULL,\n        updated_at = now()\n    WHERE task.id = (SELECT task_id FROM claimed)\n      AND task.status IN ('queued', 'running', 'waiting')\n    RETURNING task.id\n)\nSELECT claimed.id,\n       claimed.task_id,\n       claimed.ordinal,\n       claimed.attempt_count,\n       claimed.payload,\n       claimed.file_id,\n       claimed.stage,\n       claimed.input_storage_object_id,\n       attempts.attempt_id\nFROM claimed\nJOIN attempts ON attempts.item_id = claimed.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "ordinal",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "ordinal"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "payload"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "stage"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "input_storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "input_storage_object_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "attempt_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8",
+        "Uuid",
+        "Bool",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "e172bb36eb7f989653fdbf4cd9906d5c0b2d2cdd2555842fe4a4237ef84de5f4"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.library_file_documents WHERE file_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "da3df914c0ce47fadcf575ea972cec7da1d37f39fa14b6e311c19d25feb1d4d8"
+}

@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.task_docling_remote_cleanup WHERE remote_job_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f8d525ab4872e2baca1963e31665cf72f6bbb95cb8b125bacbe9a339800fe8ec"
+}

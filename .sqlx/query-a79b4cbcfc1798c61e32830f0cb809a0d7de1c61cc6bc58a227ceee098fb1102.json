@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The rollback to the savepoint around the chunk insert of one guarded batch\n-- (issue 1020 P3C).\n--\n-- The duplicate chunk ids of an earlier partial ingest are rolled back to the\n-- savepoint, so the guarded transaction stays usable and can still commit the\n-- rest of the batch.\nROLLBACK TO SAVEPOINT task_chunk_insert\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "a79b4cbcfc1798c61e32830f0cb809a0d7de1c61cc6bc58a227ceee098fb1102"
+}

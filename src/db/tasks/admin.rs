@@ -1,9 +1,43 @@
 use anyhow::Result;
+use cloudiful_tasks::TaskId;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::Database;
 
 impl Database {
+    /// Requests the cancellation of the library segments of the cancelled
+    /// items.
+    ///
+    /// The request runs in the transaction of the caller, so the domain
+    /// cancellation and the cancellation of the segment commit together. A
+    /// segment that already ended is left alone: the library refuses a
+    /// cancellation of a terminal segment, and the domain row is terminal
+    /// anyway.
+    async fn request_segment_cancellations(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        task_id: Option<Uuid>,
+    ) -> Result<()> {
+        let segments: Vec<Option<Uuid>> = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/request_segment_cancellations.sql",
+            task_id
+        )
+        .fetch_all(&mut **tx)
+        .await?;
+        let segments: Vec<Uuid> = segments.into_iter().flatten().collect();
+        if segments.is_empty() {
+            return Ok(());
+        }
+        let queue = self.execution_queue().await?;
+        for segment in segments {
+            let _ = queue
+                .request_cancel_in(tx, TaskId::from_uuid(segment))
+                .await;
+        }
+        Ok(())
+    }
+
     pub async fn cancel_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
         let updated = sqlx::query_file!("src/sql/db/tasks/cancel.sql", task_id, user_id)
@@ -26,6 +60,11 @@ impl Database {
         .await?;
         sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
             .execute(&mut *tx)
+            .await?;
+        // The library owns the execution of the cancelled items: their segments
+        // are cancelled in the same transaction, so the segment and the domain
+        // row never disagree about the cancellation.
+        self.request_segment_cancellations(&mut tx, Some(task_id))
             .await?;
         sqlx::query_file!(
             "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
@@ -132,6 +171,9 @@ impl Database {
             sqlx::query_file!("src/sql/db/tasks/cancel_active_items.sql")
                 .execute(&mut *tx)
                 .await?;
+            // The library owns the execution of the cancelled items: their
+            // segments are cancelled in the same transaction.
+            self.request_segment_cancellations(&mut tx, None).await?;
             sqlx::query_file!("src/sql/db/tasks/recompute_cancelled.sql")
                 .execute(&mut *tx)
                 .await?;

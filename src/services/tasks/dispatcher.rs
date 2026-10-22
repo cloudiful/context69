@@ -52,6 +52,14 @@ pub(super) fn start_with_shutdown(
 
     let service = service.clone();
     let completion = tokio::spawn(async move {
+        // The execution latch is the fail-closed startup gate: while abandoned
+        // legacy work or an unusable library schema is present, no dispatcher,
+        // no initial maintenance and no claim runs. The latch logs the blocker
+        // and its remediation once, and never re-evaluates, so a handover
+        // performed under a running process does not open the engine.
+        if !service.execution_readiness().await.is_ready() {
+            return;
+        }
         // Startup path: run maintenance once so any exhausted items or
         // expired attempts left by the previous process converge before
         // the first claim, then drain the available queue.

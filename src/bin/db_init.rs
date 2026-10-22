@@ -1,7 +1,9 @@
 use anyhow::Result;
 use context69::config::{DATABASE_URL_ENV_VAR, load_app_db_url};
+use context69_db_schema::LIBRARY_SCHEMA;
 use db_init::{
-    DatabaseUrlSource, DbInitOptions, init_database, load_dotenv_if_exists, resolve_database_url,
+    DatabaseUrlSource, DbInitOptions, init_database_with_hook, load_dotenv_if_exists,
+    resolve_database_url,
 };
 use sqlx::migrate::Migrator;
 
@@ -24,13 +26,25 @@ async fn run() -> Result<()> {
         "initializing database using {}",
         describe_database_url_source(&resolution.source)
     );
-    let _pool = init_database(
+    let _pool = init_database_with_hook(
         &resolution.database_url,
         &MIGRATOR,
         DbInitOptions::default(),
+        |pool: &sqlx::PgPool| {
+            let pool = pool.clone();
+            async move {
+                context69_db_schema::bootstrap_library_schema(&pool)
+                    .await
+                    .map(|_| ())
+                    .map_err(|error| {
+                        anyhow::anyhow!("failed to bootstrap the {LIBRARY_SCHEMA} schema: {error}")
+                    })
+            }
+        },
     )
     .await?;
     println!("database init completed");
+    println!("{LIBRARY_SCHEMA} schema is ready");
     Ok(())
 }
 

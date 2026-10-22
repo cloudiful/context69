@@ -147,16 +147,11 @@ async fn expired_lease_reclaim_adopts_the_same_remote_id() {
     let user_id = seed_user(&db).await;
     let (task_id, item_id) = seed_task(&db, user_id).await;
     let job_id = seed_job(&db, task_id, item_id).await;
-    let dead_lease = Uuid::new_v4();
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'running', lease_token = $2, \
-         lease_until = now() - interval '1 minute' WHERE id = $1",
-    )
-    .bind(item_id)
-    .bind(dead_lease)
-    .execute(db.pool())
-    .await
-    .expect("crashed worker state");
+    // The worker dies while it owns the item: the authoritative library
+    // attempt and its domain mirror expire together.
+    let holder = crate::support::claim_item(&db, item_id).await;
+    let dead_lease = holder.lease_token;
+    crate::support::crash_holder(&db, &holder).await;
     // Recovery runs first (as it does every 30s in production) and must leave
     // the row alone; the claim then reclaims the item with the row intact.
     let summary = db

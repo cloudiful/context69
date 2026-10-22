@@ -205,8 +205,13 @@ pub(super) async fn set_file(
     item: &mut crate::db::ClaimedItem,
     file_id: Uuid,
 ) -> Result<()> {
+    // The captured execution is the authority of the write: without it the
+    // item was never claimed through the library.
+    let execution = item.execution_context().ok_or_else(|| {
+        anyhow::Error::from(DomainError::conflict("task item has no captured execution"))
+    })?;
     if !db
-        .set_task_item_file(task_id, item.id, item.lease_token, file_id)
+        .set_task_item_file(task_id, item.id, &execution, file_id)
         .await?
     {
         return Err(DomainError::conflict("task item lease was lost while saving file_id").into());
@@ -230,11 +235,8 @@ pub(super) async fn save_sections(
         obj.remove("indexing_checkpoint");
     }
     let payload = payload_after_sections_saved(item, &payload)?;
-    if !service
-        .db()
-        .set_task_item_payload(item.id, item.lease_token, &payload)
-        .await?
-    {
+    let fence = crate::library_store::TaskWriteFence::from_claimed_item(item)?;
+    if !crate::library_store::write_task_item_payload(service.db(), fence, &payload).await? {
         return Err(DomainError::conflict("task item lease was lost while saving sections").into());
     }
     item.payload = payload;
@@ -290,10 +292,8 @@ pub(super) async fn save_payload(
     item: &mut crate::db::ClaimedItem,
     payload: Value,
 ) -> Result<()> {
-    if !db
-        .set_task_item_payload(item.id, item.lease_token, &payload)
-        .await?
-    {
+    let fence = crate::library_store::TaskWriteFence::from_claimed_item(item)?;
+    if !crate::library_store::write_task_item_payload(db, fence, &payload).await? {
         return Err(DomainError::conflict("task item lease was lost while saving payload").into());
     }
     item.payload = payload;
@@ -390,6 +390,11 @@ mod tests {
             group_id: None,
             group_path: None,
             source_key: None,
+            // The fake was never claimed through the library, so it carries no
+            // captured execution and may not write through a fenced method.
+            execution: None,
+            execution_task_id: None,
+            execution_generation: 0,
         }
     }
 

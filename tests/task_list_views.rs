@@ -179,6 +179,9 @@ async fn list_views_are_mutually_exclusive_and_counts_match() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
 
@@ -300,6 +303,9 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
 
@@ -389,6 +395,9 @@ async fn the_projection_falls_back_to_the_payload_and_the_linked_document() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
 
@@ -696,6 +705,9 @@ async fn status_filter_narrows_but_never_widens_a_view() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let tag = Uuid::new_v4().to_string();
 

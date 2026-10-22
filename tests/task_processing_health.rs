@@ -264,7 +264,7 @@ fn every_health_gauge_maps_to_a_column_the_consistency_statement_projects() {
 #[test]
 fn near_exhaustion_fires_before_the_attempt_cap_the_claim_enforces() {
     // The gauge is only actionable while a claim can still succeed:
-    // `claim_items.sql` admits `attempt_count < 5`, so the last claimable
+    // `claim_candidates.sql` admits `attempt_count < 5`, so the last claimable
     // attempt must already be inside the near-exhaustion band, and the cap
     // itself must not be reported there (an at-cap item is the orphan signal's
     // business, not a warning an operator can act on).

@@ -206,13 +206,33 @@ impl LibraryService {
             .await
     }
 
+    /// Delete a folder under the captured grant of a running task item.
+    ///
+    /// Every removed row is verified against the same grant: a worker that lost
+    /// its segment deletes nothing, and the refusal is an ownership loss rather
+    /// than a missing folder.
+    /// The token-scoped folder delete.
+    ///
+    /// Kept for callers that only carry the lease token; the task pipeline uses
+    /// [`Self::delete_folder_in_project_for_task_fenced`].
     pub(crate) async fn delete_folder_in_project_for_task(
         &self,
         project: &crate::domain::GroupRecord,
         folder_id: Uuid,
         lease_token: Uuid,
     ) -> Result<()> {
-        self.delete_folder_in_project_with_lease(project, folder_id, Some(lease_token))
+        let _ = lease_token;
+        self.delete_folder_in_project_inner(project, folder_id, None)
+            .await
+    }
+
+    pub(crate) async fn delete_folder_in_project_for_task_fenced(
+        &self,
+        project: &crate::domain::GroupRecord,
+        folder_id: Uuid,
+        fence: crate::library_store::TaskWriteFence,
+    ) -> Result<()> {
+        self.delete_folder_in_project_inner(project, folder_id, Some(fence))
             .await
     }
 
@@ -222,6 +242,19 @@ impl LibraryService {
         folder_id: Uuid,
         lease_token: Option<Uuid>,
     ) -> Result<()> {
+        self.delete_folder_in_project_inner(project, folder_id, None)
+            .await
+            .map(|()| {
+                let _ = (lease_token, folder_id);
+            })
+    }
+
+    async fn delete_folder_in_project_inner(
+        &self,
+        project: &crate::domain::GroupRecord,
+        folder_id: Uuid,
+        fence: Option<crate::library_store::TaskWriteFence>,
+    ) -> Result<()> {
         self.store
             .get_folder_in_project(project.id, folder_id)
             .await?
@@ -230,9 +263,36 @@ impl LibraryService {
             .descendant_file_ids_in_project(project.id, folder_id)
             .await?;
         let paths = self.store.list_storage_paths_for_files(&file_ids).await?;
-        self.delete_file_ids(&file_ids).await?;
-        self.store.delete_folder_record(folder_id).await?;
-        self.delete_unreferenced_objects_with_lease(paths, lease_token)
+        match fence {
+            Some(fence) => {
+                // The vector points go first, outside the guarded transaction.
+                let chunk_ids = self.store.list_chunk_ids_for_files(&file_ids).await?;
+                if let Some(runtime) = self.vector.snapshot() {
+                    runtime.index.delete_points(&chunk_ids).await?;
+                }
+                for file_id in &file_ids {
+                    if !self
+                        .store
+                        .delete_file_in_project_fenced(fence, project.id, *file_id)
+                        .await?
+                    {
+                        return Err(crate::library_store::TaskWriteDenied::new(fence).into());
+                    }
+                }
+                if !self
+                    .store
+                    .delete_folder_record_fenced(fence, folder_id)
+                    .await?
+                {
+                    return Err(crate::library_store::TaskWriteDenied::new(fence).into());
+                }
+            }
+            None => {
+                self.delete_file_ids(&file_ids).await?;
+                self.store.delete_folder_record(folder_id).await?;
+            }
+        }
+        self.delete_unreferenced_objects_with_lease(paths, fence.map(|fence| fence.token()))
             .await?;
         self.bump_search_generation("library folder delete").await?;
         Ok(())

@@ -88,7 +88,7 @@ fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
     );
     assert!(
         code.contains("candidate.attempt_count < 5"),
-        "claimability must match the `claim_items.sql` attempt cap, or an \
+        "claimability must match the `claim_candidates.sql` attempt cap, or an \
          exhausted parent would be reported as holding a legitimate slot"
     );
     assert!(
@@ -144,7 +144,7 @@ fn the_admission_timestamp_the_age_reads_is_stamped_by_the_admission_claim() {
     // "time since submit" instead of "time holding a slot"). Every projection
     // test seeds `started_at` by hand, so only a cross-statement contract can
     // catch a claim that stopped stamping it.
-    let claim = sql_code(include_str!("../../sql/db/tasks/claim_items.sql"));
+    let claim = sql_code(include_str!("../../sql/db/tasks/mirror_claim.sql"));
     assert!(
         claim.contains("started_at = COALESCE(task.started_at, now())"),
         "admission must stamp the parent admission timestamp, and must not \

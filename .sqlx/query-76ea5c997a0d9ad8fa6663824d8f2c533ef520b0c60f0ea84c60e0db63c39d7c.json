@@ -1,0 +1,62 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT table_name, column_name, is_nullable, column_default\n           FROM information_schema.columns\n          WHERE table_schema = 'context69'\n            AND table_name IN ('task_items', 'task_attempts')\n            AND column_name IN ('execution_task_id', 'execution_generation', 'execution_attempt_id')\n          ORDER BY table_name, column_name\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "table_name",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "information_schema.columns",
+            "name": "table_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "column_name",
+        "type_info": "Name",
+        "origin": {
+          "Table": {
+            "table": "information_schema.columns",
+            "name": "column_name"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "is_nullable",
+        "type_info": "Varchar",
+        "origin": {
+          "Table": {
+            "table": "information_schema.columns",
+            "name": "is_nullable"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "column_default",
+        "type_info": "Varchar",
+        "origin": {
+          "Table": {
+            "table": "information_schema.columns",
+            "name": "column_default"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "76ea5c997a0d9ad8fa6663824d8f2c533ef520b0c60f0ea84c60e0db63c39d7c"
+}

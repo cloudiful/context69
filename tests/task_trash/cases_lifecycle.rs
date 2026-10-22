@@ -13,6 +13,9 @@ async fn trash_and_restore_round_trip_is_idempotent() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
     let (task_id, _items) = create_task(&db, user_id, "round-trip").await;
     finish_task(&db, task_id, "succeeded").await;
@@ -141,6 +144,9 @@ async fn trashing_preserves_items_and_rejects_active_tasks() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
 
     let (active_task, _items) = create_task(&db, user_id, "active").await;
@@ -186,6 +192,9 @@ async fn trash_actions_respect_task_ownership() {
     let db = Database::connect(&url)
         .await
         .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
     let owner_id = seed_test_user(&db).await;
     let stranger_id = seed_test_user(&db).await;
     let (task_id, _items) = create_task(&db, owner_id, "owned").await;

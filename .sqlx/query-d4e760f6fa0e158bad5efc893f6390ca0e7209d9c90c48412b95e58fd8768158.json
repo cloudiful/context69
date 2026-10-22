@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Rechecks the captured task grant immediately before the commit.\n--\n-- A write can queue behind a lock for longer than the remaining lease, so the\n-- grant is verified again after the business statements ran: the clock is read\n-- afresh, and a lease that ran out while the write waited rolls the whole\n-- transaction back. The row is already locked by the caller, so no new lock is\n-- taken here.\n--\n-- `$1` is the item, `$2` the fencing token of the library attempt, `$3` the\n-- library task of the segment and `$4` the execution generation.\nSELECT item.id\nFROM context69.task_items item\nWHERE item.id = $1\n  AND item.lease_token = $2\n  AND item.status = 'running'\n  AND item.lease_until > clock_timestamp()\n  AND item.execution_task_id = $3\n  AND item.execution_generation = $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d4e760f6fa0e158bad5efc893f6390ca0e7209d9c90c48412b95e58fd8768158"
+}
