@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use anyhow::Result;
 
@@ -12,6 +13,12 @@ use crate::{
     pagination::PageBounds,
     services::{auth::AuthService, token_utils::hash_token},
 };
+
+mod last_used_recorder;
+#[cfg(test)]
+mod last_used_recorder_tests;
+
+pub use last_used_recorder::LastUsedRecorder;
 
 const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";
 const ALLOWED_EXPIRY_DAYS: [u16; 4] = [7, 30, 90, 365];
@@ -52,11 +59,12 @@ pub struct VerifiedPersonalAccessToken {
 pub struct PersonalAccessTokenService {
     db: Database,
     auth: AuthService,
+    usage: Arc<LastUsedRecorder>,
 }
 
 impl PersonalAccessTokenService {
-    pub fn new(db: Database, auth: AuthService) -> Self {
-        Self { db, auth }
+    pub fn new(db: Database, auth: AuthService, usage: Arc<LastUsedRecorder>) -> Self {
+        Self { db, auth, usage }
     }
 
     pub async fn create_for_user(
@@ -169,10 +177,13 @@ impl PersonalAccessTokenService {
         })
     }
 
-    pub async fn touch_last_used(&self, token_id: Uuid) -> Result<()> {
-        self.db
-            .touch_personal_access_token_last_used(token_id)
-            .await
+    /// Record that a token was used.
+    ///
+    /// The observation is approximate telemetry: it is coalesced with the other
+    /// observations of the same token and written later, so the caller never
+    /// waits for the write and never fails because of it.
+    pub fn record_last_used(&self, token_id: Uuid) {
+        self.usage.record(token_id);
     }
 }
 

@@ -6,10 +6,9 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::{
-    api::errors::internal_error_response,
-    contracts::{ApiErrorResponse, PersonalAccessTokenScope},
-};
+use uuid::Uuid;
+
+use crate::contracts::{ApiErrorResponse, PersonalAccessTokenScope};
 
 use super::{ApiState, AuthKind, RequestAuth};
 
@@ -79,8 +78,11 @@ async fn require_scope_middleware(
             .into_response();
     };
 
-    if let AuthKind::PersonalAccessToken { token_id, scopes } = authenticated.kind {
-        if !scopes.contains(&required_scope) {
+    match admit_personal_access_token(&authenticated.kind, required_scope) {
+        ScopeAdmission::Allowed(token_id) => {
+            state.app.personal_access_tokens.record_last_used(token_id);
+        }
+        ScopeAdmission::MissingScope => {
             return (
                 StatusCode::FORBIDDEN,
                 Json(ApiErrorResponse::new(
@@ -93,18 +95,38 @@ async fn require_scope_middleware(
             )
                 .into_response();
         }
-
-        if let Err(error) = state
-            .app
-            .personal_access_tokens
-            .touch_last_used(token_id)
-            .await
-        {
-            return internal_error_response(error);
-        }
+        ScopeAdmission::NotAPersonalAccessToken => {}
     }
 
     next.run(request).await
+}
+
+/// What a scope-gated request observed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScopeAdmission {
+    /// The request carried a personal access token with the required scope.
+    Allowed(Uuid),
+    /// The request carried a personal access token without the required scope.
+    MissingScope,
+    /// The request carried no personal access token.
+    NotAPersonalAccessToken,
+}
+
+/// The admission a scope-gated request earns.
+///
+/// The usage observation is admitted only with the scope, so a refused scope
+/// and a browser session record nothing.
+fn admit_personal_access_token(
+    kind: &AuthKind,
+    required_scope: PersonalAccessTokenScope,
+) -> ScopeAdmission {
+    match kind {
+        AuthKind::PersonalAccessToken { token_id, scopes } if scopes.contains(&required_scope) => {
+            ScopeAdmission::Allowed(*token_id)
+        }
+        AuthKind::PersonalAccessToken { .. } => ScopeAdmission::MissingScope,
+        AuthKind::BrowserSession => ScopeAdmission::NotAPersonalAccessToken,
+    }
 }
 
 fn scope_name(scope: PersonalAccessTokenScope) -> &'static str {
@@ -115,5 +137,42 @@ fn scope_name(scope: PersonalAccessTokenScope) -> &'static str {
         PersonalAccessTokenScope::Sources => "sources",
         PersonalAccessTokenScope::Settings => "settings",
         PersonalAccessTokenScope::Admin => "admin",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use uuid::Uuid;
+
+    use super::{AuthKind, ScopeAdmission, admit_personal_access_token};
+    use crate::contracts::PersonalAccessTokenScope;
+
+    #[test]
+    fn a_scope_gated_request_observes_usage_only_after_its_scope_passed() {
+        let token_id = Uuid::new_v4();
+        let permitted = AuthKind::PersonalAccessToken {
+            token_id,
+            scopes: BTreeSet::from([PersonalAccessTokenScope::Search]),
+        };
+        assert_eq!(
+            admit_personal_access_token(&permitted, PersonalAccessTokenScope::Search),
+            ScopeAdmission::Allowed(token_id)
+        );
+        assert_eq!(
+            admit_personal_access_token(&permitted, PersonalAccessTokenScope::Admin),
+            ScopeAdmission::MissingScope,
+            "a refused scope observes no usage"
+        );
+
+        assert_eq!(
+            admit_personal_access_token(
+                &AuthKind::BrowserSession,
+                PersonalAccessTokenScope::Search
+            ),
+            ScopeAdmission::NotAPersonalAccessToken,
+            "a browser session observes no usage"
+        );
     }
 }

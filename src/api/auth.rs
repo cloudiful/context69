@@ -17,8 +17,7 @@ use crate::{
     services::personal_access_tokens::is_personal_access_token,
 };
 
-use super::{ApiState, errors::internal_error_response};
-
+use super::ApiState;
 pub(crate) mod handlers;
 mod scopes;
 
@@ -187,20 +186,29 @@ pub(crate) async fn touch_personal_access_token_middleware(
     request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if let Some(RequestAuth(Some(AuthenticatedRequest {
-        kind: AuthKind::PersonalAccessToken { token_id, .. },
-        ..
-    }))) = request.extensions().get::<RequestAuth>()
-        && let Err(error) = state
-            .app
-            .personal_access_tokens
-            .touch_last_used(*token_id)
-            .await
+    if let Some(token_id) =
+        request
+            .extensions()
+            .get::<RequestAuth>()
+            .and_then(|auth| match &auth.0 {
+                Some(authenticated) => personal_access_token_id(&authenticated.kind),
+                None => None,
+            })
     {
-        return internal_error_response(error);
+        state.app.personal_access_tokens.record_last_used(token_id);
     }
 
     next.run(request).await
+}
+
+/// The token whose usage an authenticated request observed.
+///
+/// Only a personal access token has one; a browser session records nothing.
+fn personal_access_token_id(kind: &AuthKind) -> Option<Uuid> {
+    match kind {
+        AuthKind::PersonalAccessToken { token_id, .. } => Some(*token_id),
+        AuthKind::BrowserSession => None,
+    }
 }
 
 pub(crate) fn extract_bearer_token(
@@ -253,9 +261,13 @@ async fn authenticate_request(
 
 #[cfg(test)]
 mod tests {
-    use axum::http::{HeaderMap, HeaderValue, header};
+    use std::collections::BTreeSet;
 
-    use super::extract_bearer_token;
+    use axum::http::{HeaderMap, HeaderValue, header};
+    use uuid::Uuid;
+
+    use super::{AuthKind, extract_bearer_token, personal_access_token_id};
+    use crate::contracts::PersonalAccessTokenScope;
 
     #[test]
     fn bearer_extraction_preserves_pat_and_rejects_other_schemes() {
@@ -270,6 +282,22 @@ mod tests {
         assert_eq!(
             extract_bearer_token(&headers),
             Err("authorization header must use Bearer".to_string())
+        );
+    }
+
+    #[test]
+    fn only_a_personal_access_token_authentication_observes_usage() {
+        let token_id = Uuid::new_v4();
+        let token = AuthKind::PersonalAccessToken {
+            token_id,
+            scopes: BTreeSet::from([PersonalAccessTokenScope::Search]),
+        };
+        assert_eq!(personal_access_token_id(&token), Some(token_id));
+
+        assert_eq!(
+            personal_access_token_id(&AuthKind::BrowserSession),
+            None,
+            "a browser session has no token whose usage could be observed"
         );
     }
 }

@@ -7,10 +7,18 @@ use crate::{
     config::{Config, ConnectionConfig},
     db::{Database, UpgradeGuardCounts},
     services::{
-        auth::AuthService, document_store::DocumentStoreService, library::LibraryService,
-        namespace::NamespaceService, personal_access_tokens::PersonalAccessTokenService,
-        query::QueryService, secret_store, secret_store::SecretStore, settings::SettingsService,
-        source_folders::SourceFoldersService, sync::SyncService, tasks::TaskService,
+        auth::AuthService,
+        document_store::DocumentStoreService,
+        library::LibraryService,
+        namespace::NamespaceService,
+        personal_access_tokens::{LastUsedRecorder, PersonalAccessTokenService},
+        query::QueryService,
+        secret_store,
+        secret_store::SecretStore,
+        settings::SettingsService,
+        source_folders::SourceFoldersService,
+        sync::SyncService,
+        tasks::TaskService,
     },
 };
 
@@ -79,7 +87,11 @@ impl Context69App {
         }
         let namespace = NamespaceService::new(db.clone());
         let auth = AuthService::new(db.clone(), config.auth.clone())?;
-        let personal_access_tokens = PersonalAccessTokenService::new(db.clone(), auth.clone());
+        let personal_access_tokens = PersonalAccessTokenService::new(
+            db.clone(),
+            auth.clone(),
+            LastUsedRecorder::start(db.clone()),
+        );
         auth.ensure_bootstrap_admin().await?;
 
         let mut hydration = config_hydration::hydrate(&db, &mut config).await?;

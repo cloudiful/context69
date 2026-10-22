@@ -2693,6 +2693,30 @@
       "target": "task_item_artifacts",
       "test": "a_reference_free_expired_object_is_still_reclaimed_by_the_sweep",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "the_guarded_batch_updates_only_stale_active_tokens",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "an_empty_batch_and_a_second_flush_inside_the_window_write_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "two_concurrent_guarded_flushes_write_one_row_version",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "a_blocked_telemetry_write_leaves_the_authorization_path_fresh_and_free",
+      "class": "db"
     }
   ]
 }
