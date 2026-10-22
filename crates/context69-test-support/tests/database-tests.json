@@ -417,6 +417,24 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_result_without_a_document_never_becomes_an_empty_success",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_job_without_a_captured_endpoint_never_falls_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_persisted_conversion_never_follows_the_current_settings",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::inline_waits::tests::inline_sleep_aborts_when_the_lease_is_gone",
       "class": "db"
     },
