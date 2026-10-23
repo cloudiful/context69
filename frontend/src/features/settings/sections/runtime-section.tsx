@@ -1,3 +1,4 @@
+import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
@@ -5,6 +6,7 @@ import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
 import { ToggleField } from "@/components/common/toggle-field";
+import { Button } from "@/components/ui/button";
 import { SettingsGate } from "@/features/settings/settings-gate";
 import { useSettings } from "@/features/settings/settings-context";
 
@@ -114,15 +116,35 @@ export function RuntimeSection() {
                 draft.qdrant.collection_name = value;
               })}
             />
-            <ToggleField
-              id="runtime-qdrant-recreate"
-              testId="runtime-qdrant-recreate"
-              label={t("settings.runtime.recreateOnDimensionMismatch")}
-              checked={runtimeDraft.qdrant.recreate_on_dimension_mismatch}
-              onCheckedChange={(checked) => updateRuntimeDraft((draft) => {
-                draft.qdrant.recreate_on_dimension_mismatch = checked;
-              })}
-            />
+            {page.requiresRebuild ? (
+              <div
+                role="status"
+                data-testid="runtime-requires-rebuild"
+                className="grid gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3"
+              >
+                <div className="flex items-start gap-2 text-sm">
+                  <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <div className="grid gap-1">
+                    <p>{t("settings.runtime.requiresRebuild")}</p>
+                    <p className="text-muted-foreground">
+                      {t("settings.runtime.requiresRebuildDimensions")}
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    data-testid="runtime-requires-rebuild-action"
+                    disabled={vector.running}
+                    onClick={() => vector.setConfirmOpen(true)}
+                  >
+                    {t("settings.runtime.vectorRebuild")}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
             <VectorRebuildControl />
           </div>
         </SettingsBlock>

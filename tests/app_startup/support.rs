@@ -260,6 +260,7 @@ pub fn runtime_settings_request(
             dimensions: 128,
             timeout_secs: 5,
             api_key: None,
+            confirm_vector_space_unchanged: false,
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,

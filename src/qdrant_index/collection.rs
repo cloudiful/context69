@@ -1,3 +1,5 @@
+use super::{QdrantIndex, format_qdrant_error};
+use crate::config::QdrantConfig;
 use anyhow::{Context, Result, anyhow};
 use qdrant_client::{
     Qdrant,
@@ -6,10 +8,6 @@ use qdrant_client::{
         PayloadSchemaType, VectorParamsBuilder, vectors_config,
     },
 };
-use tracing::warn;
-
-use super::{QdrantIndex, format_qdrant_error};
-use crate::config::QdrantConfig;
 
 /// Payload fields the collection must be indexed on, with their exact Qdrant
 /// `FieldType`. Every entry is created with `create_field_index` during
@@ -94,7 +92,7 @@ impl QdrantIndex {
             dimensions,
         };
         let recreated = index
-            .ensure_collection(dimensions, config.recreate_on_dimension_mismatch)
+            .ensure_collection(dimensions)
             .await
             .with_context(|| {
                 format!(
@@ -128,6 +126,38 @@ impl QdrantIndex {
         };
         index.probe_collection().await?;
         Ok(index)
+    }
+
+    /// Read-only inspection of the configured collection.
+    ///
+    /// Returns `None` when the collection does not exist, and otherwise the
+    /// declared vector size and the current point count. Startup uses this to
+    /// distinguish an uninitialized installation (no collection, or a genuinely
+    /// empty one) from a populated collection that has no recorded identity, so
+    /// it never adopts unknown vectors as an empty space.
+    pub async fn inspect_existing(
+        config: &QdrantConfig,
+        dimensions: usize,
+    ) -> Result<Option<(u64, usize)>> {
+        let client = Qdrant::from_url(&config.url).build()?;
+        let index = Self {
+            client,
+            collection_name: config.collection_name.clone(),
+            dimensions,
+        };
+        if !index.collection_exists_checked().await? {
+            return Ok(None);
+        }
+        let collection = index
+            .client
+            .collection_info(&index.collection_name)
+            .await?
+            .result
+            .context("missing qdrant collection info")?;
+        let actual_dimensions = collection_vector_size(&collection)
+            .context("missing qdrant vector size in collection config")?;
+        let points = index.count_points().await?;
+        Ok(Some((points, actual_dimensions)))
     }
 
     /// Attaches to an existing collection, or creates it only when `allow_create`
@@ -210,11 +240,11 @@ impl QdrantIndex {
             .map_err(|error| anyhow::Error::new(error).context("qdrant collection_exists failed"))
     }
 
-    async fn ensure_collection(
-        &self,
-        dimensions: usize,
-        recreate_on_dimension_mismatch: bool,
-    ) -> Result<bool> {
+    /// Ensures the configured collection exists at `dimensions`, never deleting
+    /// or recreating one. A dimension mismatch is a configuration error: the
+    /// legacy `recreate_on_dimension_mismatch` flag is accepted on the wire and
+    /// in configuration but cannot authorize destruction.
+    async fn ensure_collection(&self, dimensions: usize) -> Result<bool> {
         if self.client.collection_exists(&self.collection_name).await? {
             let collection = self
                 .client
@@ -225,18 +255,9 @@ impl QdrantIndex {
             let actual_dimensions = collection_vector_size(&collection)
                 .context("missing qdrant vector size in collection config")?;
             if actual_dimensions != dimensions {
-                if recreate_on_dimension_mismatch {
-                    warn!(
-                        collection_name = self.collection_name,
-                        expected_dimensions = dimensions,
-                        actual_dimensions,
-                        "qdrant collection dimension mismatch detected, recreating collection"
-                    );
-                    self.recreate_collection().await?;
-                    return Ok(true);
-                }
                 return Err(anyhow!(
-                    "qdrant collection {} dimension mismatch: expected {}, found {}",
+                    "qdrant collection {} dimension mismatch: expected {}, found {}; a different \
+                     vector space requires an explicit migration",
                     self.collection_name,
                     dimensions,
                     actual_dimensions
@@ -247,13 +268,6 @@ impl QdrantIndex {
 
         self.create_collection(dimensions).await?;
         Ok(true)
-    }
-
-    pub async fn recreate_collection(&self) -> Result<()> {
-        if self.client.collection_exists(&self.collection_name).await? {
-            self.client.delete_collection(&self.collection_name).await?;
-        }
-        self.create_collection(self.dimensions).await
     }
 
     async fn create_collection(&self, dimensions: usize) -> Result<()> {

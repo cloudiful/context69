@@ -11,6 +11,7 @@ import type {
   SearchSettingsResponse,
   TranslationProviderInput,
   TranslationSettingsResponse,
+  UpdateRuntimeSettingsRequest,
 } from "@/services/api";
 import {
   buildDoclingPayload,
@@ -48,6 +49,63 @@ export const SETTINGS_QUERY_KEYS = {
 
 function cloneDraft<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/** The candidate vector-space identity a compatibility confirmation is bound to. */
+export interface EmbeddingCompatibilityCandidate {
+  base_url: string;
+  model: string;
+  dimensions: number;
+}
+
+function normalizeEndpoint(value: string) {
+  return value.trim().replace(/\/+$/, "");
+}
+
+function embeddingSignature(identity: {
+  base_url: string;
+  model: string;
+  dimensions: number;
+}) {
+  return JSON.stringify([
+    normalizeEndpoint(identity.base_url),
+    identity.model.trim(),
+    identity.dimensions,
+  ]);
+}
+
+/**
+ * Whether this save changes the embedding gateway/alias while keeping the
+ * dimension. Only that case may keep existing vectors, and only after the
+ * operator explicitly confirms both point at the same vector space. A dimension
+ * change is never confirmable, so no dialog is offered for it.
+ */
+function needsCompatibilityConfirmation(
+  candidate: { base_url: string; model: string; dimensions: number },
+  saved: { base_url: string; model: string; dimensions: number },
+) {
+  if (candidate.dimensions !== saved.dimensions) {
+    return false;
+  }
+  return normalizeEndpoint(candidate.base_url) !== normalizeEndpoint(saved.base_url)
+    || candidate.model.trim() !== saved.model.trim();
+}
+
+/**
+ * Marks the request as an explicit same-space assertion. The field is transient:
+ * the backend acknowledges the persisted identity but never stores it.
+ */
+function withVectorSpaceConfirmation(
+  payload: UpdateRuntimeSettingsRequest,
+  confirm: boolean,
+): UpdateRuntimeSettingsRequest {
+  if (!confirm) {
+    return payload;
+  }
+  return {
+    ...payload,
+    embedding: { ...payload.embedding, confirm_vector_space_unchanged: true },
+  };
 }
 
 function translationPayload(providers: TranslationProviderDraft[]) {
@@ -121,6 +179,12 @@ export function useSettingsPage() {
   const savingRef = useRef(false);
   const [saveMessage, setSaveMessage] = useState("");
 
+  // A gateway/model change keeps existing vectors only after an explicit
+  // confirmation bound to the candidate identity shown in the dialog.
+  const [compatibilityOpen, setCompatibilityOpen] = useState(false);
+  const [compatibilityCandidate, setCompatibilityCandidate] =
+    useState<EmbeddingCompatibilityCandidate | null>(null);
+
   const [s3Testing, setS3Testing] = useState(false);
   const [valkeyTesting, setValkeyTesting] = useState(false);
   const [embeddingTesting, setEmbeddingTesting] = useState(false);
@@ -174,6 +238,9 @@ export function useSettingsPage() {
   }, []);
 
   const runtimeData = runtimeQuery.data;
+  // Persisted vectors of a different identity need an explicit rebuild; the
+  // page reports it and never triggers one on its own.
+  const requiresRebuild = runtimeData?.requires_rebuild === true;
   const doclingData = doclingQuery.data;
   const searchData = searchQuery.data;
   const translationData = translationQuery.data;
@@ -213,6 +280,9 @@ export function useSettingsPage() {
   /** Applies an edit to a cloned draft and bumps its revision synchronously. */
   const updateRuntimeDraft = useCallback((mutate: (draft: DraftRuntimeSettings) => void) => {
     runtimeRevision.current += 1;
+    // Any further edit invalidates the candidate a pending confirmation named.
+    setCompatibilityOpen(false);
+    setCompatibilityCandidate(null);
     setRuntimeDraft((current) => {
       const next = cloneDraft(current);
       mutate(next);
@@ -330,7 +400,12 @@ export function useSettingsPage() {
     });
   }, [updateRuntimeDraft]);
 
-  const saveSettings = useCallback(async () => {
+  /**
+   * Dispatches one save. `confirmVectorSpace` is set only by the dialog accept
+   * handler, so a normal save can never acknowledge a changed gateway/alias on
+   * the operator's behalf.
+   */
+  const performSave = useCallback(async (confirmVectorSpace: boolean) => {
     if (savingRef.current || !hasChanges) {
       return;
     }
@@ -344,7 +419,13 @@ export function useSettingsPage() {
       // Click-time snapshot: later edits must neither change a dispatched body
       // nor be overwritten by a late response.
       const runtimeSubmission = runtimeHasChanges
-        ? { payload: buildRuntimePayload(runtimeDraft), revision: runtimeRevision.current }
+        ? {
+          payload: withVectorSpaceConfirmation(
+            buildRuntimePayload(runtimeDraft),
+            confirmVectorSpace,
+          ),
+          revision: runtimeRevision.current,
+        }
         : null;
       const doclingSubmission = doclingHasChanges
         ? { payload: buildDoclingPayload(doclingDraft), revision: doclingRevision.current }
@@ -370,6 +451,10 @@ export function useSettingsPage() {
             setRuntimeDraft(runtimeResponseToDraft(runtime));
             runtimeSeeded.current = runtimeRevision.current;
           }
+          // A committed identity acknowledgement is spent: a later change needs
+          // a fresh confirmation.
+          setCompatibilityOpen(false);
+          setCompatibilityCandidate(null);
         } catch (error) {
           showErrorToast(error, t("settings.saveFailed"));
           return;
@@ -488,6 +573,52 @@ export function useSettingsPage() {
     translationProviders,
   ]);
 
+  const saveSettings = useCallback(async () => {
+    if (savingRef.current || !hasChanges) {
+      return;
+    }
+    // Gate the whole save on the compatibility decision: a cancelled
+    // confirmation must write nothing, not even the other sections.
+    if (
+      runtimeHasChanges
+      && runtimeData
+      && needsCompatibilityConfirmation(
+        buildRuntimePayload(runtimeDraft).embedding,
+        runtimeResponseToPayload(runtimeData).embedding,
+      )
+    ) {
+      setCompatibilityCandidate({
+        base_url: runtimeDraft.embedding.base_url.trim(),
+        model: runtimeDraft.embedding.model.trim(),
+        dimensions: runtimeDraft.embedding.dimensions,
+      });
+      setCompatibilityOpen(true);
+      return;
+    }
+    await performSave(false);
+  }, [hasChanges, performSave, runtimeData, runtimeDraft, runtimeHasChanges]);
+
+  const confirmCompatibility = useCallback(() => {
+    const candidate = compatibilityCandidate;
+    setCompatibilityOpen(false);
+    setCompatibilityCandidate(null);
+    if (!candidate) {
+      return;
+    }
+    // Bound to the candidate the dialog named: an edit made in the meantime
+    // invalidates the confirmation instead of acknowledging the new value.
+    const live = buildRuntimePayload(runtimeDraft).embedding;
+    if (embeddingSignature(live) !== embeddingSignature(candidate)) {
+      return;
+    }
+    void performSave(true);
+  }, [compatibilityCandidate, performSave, runtimeDraft]);
+
+  const cancelCompatibility = useCallback(() => {
+    setCompatibilityOpen(false);
+    setCompatibilityCandidate(null);
+  }, []);
+
   const testS3Connection = useCallback(async () => {
     const s3 = buildRuntimePayload(runtimeDraft).file_library.s3;
     if (!s3) {
@@ -587,6 +718,10 @@ export function useSettingsPage() {
 
   return {
     appearance,
+    cancelCompatibility,
+    compatibilityCandidate,
+    compatibilityOpen,
+    confirmCompatibility,
     doclingDraft,
     doclingHasChanges,
     doclingQuery,
@@ -599,6 +734,7 @@ export function useSettingsPage() {
     qdrantTesting,
     reload,
     rerankApiKeyDraft,
+    requiresRebuild,
     runtimeDraft,
     runtimeQuery,
     saveMessage,

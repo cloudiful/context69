@@ -152,9 +152,17 @@ export const settings = {
     qdrantTest: "Test Connection",
     qdrantTestSuccess: "Qdrant connection succeeded",
     qdrantTestFailed: "Qdrant connection failed",
-    recreateOnDimensionMismatch: "Recreate collection on dimension mismatch",
+    requiresRebuild:
+      "Existing vectors were built with a different embedding identity. Search and ingestion stay unavailable until the vector index is rebuilt.",
+    requiresRebuildDimensions:
+      "A rebuild re-embeds at the current dimensions. A different dimension is a separate migration and cannot reuse these vectors.",
+    compatibilityTitle: "Keep existing vectors?",
+    compatibilityConfirm:
+      "The embedding gateway URL or model changed. Keep the existing vectors only if the new gateway or alias serves the same underlying model and vector space. Nothing is re-embedded, and vectors cannot be verified automatically.",
+    compatibilityAccept: "Keep vectors and save",
     vectorRebuild: "Rebuild Vector Index",
-    vectorRebuildConfirm: "Recompute all document vectors with the currently loaded embedding model? Search results may be temporarily incomplete.",
+    vectorRebuildConfirm:
+      "Re-embed every stored chunk with the currently configured embedding model. This can take time and incur embedding cost. Existing vectors are replaced in place; the collection is not deleted or recreated.",
     vectorRebuildStarted: "Vector index rebuild started",
     vectorRebuildSucceeded: "Rebuilt {count} chunks",
     vectorRebuildFailed: "Vector index rebuild failed",

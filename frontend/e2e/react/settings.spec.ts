@@ -95,11 +95,22 @@ test.describe("react settings", () => {
 
     await page.getByLabel("Rerank Candidates").fill("55");
     await page.getByTestId("settings-save").click();
+
+    // A gateway/model change keeps existing vectors only after an explicit
+    // same-space confirmation; nothing is written before it is accepted.
+    const compatibility = page.getByRole("alertdialog");
+    await expect(compatibility).toContainText("Keep existing vectors?");
+    expect(transport.calls.filter((call) => call.method === "PUT")).toEqual([]);
+    await compatibility.getByRole("button", { name: "Keep vectors and save" }).click();
     await expect(page.getByText("Settings saved").first()).toBeVisible();
 
     const runtimePut = transport.calls.find((call) => call.method === "PUT" && call.path === "/v1/settings/runtime");
     const searchPut = transport.calls.find((call) => call.method === "PUT" && call.path === "/v1/settings/search");
-    expect((runtimePut?.body as { embedding: { model: string } }).embedding.model).toBe("embed-2");
+    const runtimeBody = runtimePut?.body as {
+      embedding: { model: string; confirm_vector_space_unchanged?: boolean };
+    };
+    expect(runtimeBody.embedding.model).toBe("embed-2");
+    expect(runtimeBody.embedding.confirm_vector_space_unchanged).toBe(true);
     expect((searchPut?.body as { candidate_limit: number }).candidate_limit).toBe(55);
     await expect(page.getByTestId("settings-save")).toBeDisabled();
   });

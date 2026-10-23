@@ -77,6 +77,44 @@ dispatcher, while HTTP, manual task CRUD, and the independent services stay
 available; the operator resolves it explicitly and restarts the process.
 `docs/operations/task-execution-cutover.md` is the runbook.
 
+## Embedding identity changes and rebuilds
+
+The embedding identity is the base URL, model, and dimension of the configured
+provider. The API key and timeout are not part of it: changing only those
+applies live and leaves the collection untouched.
+
+Saving a runtime settings change that alters the base URL or model while
+keeping the dimension requires an explicit confirmation that the new gateway,
+alias, or model still produces the same vector space. With that confirmation the
+save acknowledges the persisted vector identity in the same transaction as the
+settings and hot-swaps the provider without re-embedding anything; without it
+the save is rejected before any secret or settings write. A confirmation is
+transient, applies only to the identity shown when it was given, and never
+claims that equal dimensions prove equivalent vectors.
+
+A dimension change is never confirmable. Reusing existing vectors across a
+different dimension is not supported here; it needs a separate migration, and
+the save fails with an actionable error instead.
+
+Startup never rebuilds or recreates implicitly. When the persisted identity does
+not match the configured one, readiness stays off and the runtime reports
+`requires_rebuild` through the settings response; no embedding request is made
+and the collection is neither deleted nor recreated. A collection that exists
+with points but has no recorded identity is never adopted as an empty space. A
+genuinely absent collection is created once, and an existing empty collection at
+the configured dimension is adopted and recorded as zero chunks, so first-time
+setup still works.
+
+The manual rebuild is the only path that re-embeds existing data. It uses the
+current provider and collection, runs behind the shared rebuild fence so
+duplicate starts and concurrent identity changes are rejected, and replaces
+vectors in place without deleting or recreating the collection. Success records
+the identity it actually used and restores readiness; failure leaves the runtime
+unready and never reports a stale success. The legacy
+`recreate_on_dimension_mismatch` setting is still accepted for wire and
+configuration compatibility but cannot authorize deletion, recreation, or an
+implicit rebuild.
+
 ## Shutdown
 
 `SIGTERM` from a container stop and `SIGINT` from an interactive stop go through

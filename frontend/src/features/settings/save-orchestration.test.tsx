@@ -33,6 +33,12 @@ function setup(options: FakeBackendOptions = {}) {
   return installFakeBackend(options);
 }
 
+/** Accept the gateway/model compatibility prompt a runtime identity change opens. */
+async function acceptCompatibility() {
+  const dialog = await screen.findByRole("alertdialog");
+  await userEvent.click(within(dialog).getByRole("button", { name: "Keep vectors and save" }));
+}
+
 describe("settings save orchestration", () => {
   beforeAll(() => installDomPolyfills());
 
@@ -60,6 +66,7 @@ describe("settings save orchestration", () => {
     await userEvent.type(screen.getByLabelText("Rerank Candidates"), "55");
 
     await userEvent.click(screen.getByTestId("settings-save"));
+    await acceptCompatibility();
 
     await waitFor(() => {
       expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
@@ -93,6 +100,7 @@ describe("settings save orchestration", () => {
     await userEvent.click(await screen.findByRole("option", { name: "Dark" }));
 
     await userEvent.click(screen.getByTestId("settings-save"));
+    await acceptCompatibility();
 
     await waitFor(() => {
       expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
@@ -171,6 +179,7 @@ describe("settings save orchestration", () => {
     await userEvent.clear(screen.getByLabelText("Embedding Model"));
     await userEvent.type(screen.getByLabelText("Embedding Model"), "embed-2");
     await userEvent.click(screen.getByTestId("settings-save"));
+    await acceptCompatibility();
 
     await waitFor(() => {
       expect(screen.getByTestId("settings-save")).toBeDisabled();

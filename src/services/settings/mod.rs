@@ -1,8 +1,25 @@
-use std::sync::Arc;
+use std::{
+    future::Future,
+    pin::Pin,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use anyhow::Result;
+use tokio::sync::Mutex;
 
-use crate::domain_errors::DomainError;
+use crate::{
+    db::StoredRuntimeSettings,
+    domain_errors::DomainError,
+    embedding::{
+        EmbeddingIdentity, EmbeddingProvider, build_provider,
+        embedding_runtime::vector_identity_fingerprint,
+    },
+    vector_runtime::VectorIdentityAck,
+};
 
 mod docling_probe;
 mod embedding_probe;
@@ -44,6 +61,111 @@ use crate::{
 type RuntimeEmbeddingGuard =
     Arc<dyn Fn(&UpdateRuntimeEmbeddingSettings) -> Result<()> + Send + Sync>;
 
+/// Applies a committed, confirmed same-space identity transition to the live
+/// runtime before the save reports success. The provider is already built, so a
+/// failure here is a runtime reconciliation failure, not a settings validation
+/// failure.
+pub type RuntimeEmbeddingApplier = Arc<
+    dyn Fn(
+            Arc<dyn EmbeddingProvider>,
+            EmbeddingIdentity,
+            StoredRuntimeSettings,
+            Option<String>,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// The outcome of one authoritative runtime-configuration refresh.
+///
+/// A deferred refresh is distinguishable from an applied one, so a caller never
+/// reports "not now" as "done".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ConfigRefreshOutcome {
+    /// Applied and the vector-relevant configuration advanced the generation.
+    Applied,
+    /// Applied without changing the vector-relevant configuration.
+    AppliedUnchanged,
+    /// A rebuild or another transition owns the runtime; retry later.
+    Deferred,
+    /// The authoritative configuration itself cannot be built; retrying cannot
+    /// help until it is saved again.
+    Rejected,
+}
+
+/// Loads the authoritative persisted configuration and applies it to the live
+/// runtime. It runs while the settings save lock and the shared runtime
+/// transition are held, so it always observes and installs one committed state.
+pub(crate) type RuntimeConfigRefresher = Arc<
+    dyn Fn() -> Pin<Box<dyn Future<Output = Result<ConfigRefreshOutcome>> + Send>> + Send + Sync,
+>;
+
+/// The shared identity-transition exclusion. Beginning it returns `false` when
+/// a reload, rebuild, or another identity save already owns it, so the save is
+/// rejected before any secret or settings write.
+#[derive(Clone)]
+pub struct RuntimeEmbeddingTransition {
+    begin: Arc<dyn Fn() -> bool + Send + Sync>,
+    end: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl RuntimeEmbeddingTransition {
+    pub fn new(
+        begin: impl Fn() -> bool + Send + Sync + 'static,
+        end: impl Fn() + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            begin: Arc::new(begin),
+            end: Arc::new(end),
+        }
+    }
+
+    fn begin(&self) -> bool {
+        (self.begin)()
+    }
+
+    fn end(&self) {
+        (self.end)()
+    }
+}
+
+struct TransitionHold(RuntimeEmbeddingTransition);
+
+impl Drop for TransitionHold {
+    fn drop(&mut self) {
+        self.0.end();
+    }
+}
+
+/// The persisted identity a confirmed same-space save would acknowledge.
+struct PlannedAck {
+    collection_name: String,
+    expected_fingerprint: String,
+    expected_dimensions: usize,
+    candidate_fingerprint: String,
+    embedding_base_url: String,
+    embedding_model: String,
+}
+
+impl PlannedAck {
+    fn as_ack(&self) -> VectorIdentityAck<'_> {
+        VectorIdentityAck {
+            collection_name: &self.collection_name,
+            expected_fingerprint: &self.expected_fingerprint,
+            expected_dimensions: self.expected_dimensions,
+            candidate_fingerprint: &self.candidate_fingerprint,
+            embedding_base_url: &self.embedding_base_url,
+            embedding_model: &self.embedding_model,
+        }
+    }
+}
+
+/// The destination part of a Qdrant URL that must stay fixed while existing
+/// vectors are acknowledged. Trailing slashes are not a different destination.
+fn normalize_endpoint(value: &str) -> &str {
+    value.trim().trim_end_matches('/')
+}
+
 #[derive(Clone)]
 pub struct SettingsService {
     db: Database,
@@ -59,6 +181,27 @@ pub struct SettingsService {
     /// only by the running application, so an unconfigured service keeps the
     /// contract its callers already exercise.
     runtime_embedding_guard: Option<RuntimeEmbeddingGuard>,
+    /// Applies a confirmed same-space identity transition to the live runtime.
+    runtime_embedding_applier: Option<RuntimeEmbeddingApplier>,
+    /// The shared exclusion an identity transition takes for the whole save.
+    runtime_embedding_transition: Option<RuntimeEmbeddingTransition>,
+    /// Reports a runtime-side rebuild requirement (populated vectors with no
+    /// recorded identity) that the persisted row alone cannot express.
+    runtime_requires_rebuild: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Reports an active explicit rebuild, so a destination change is refused
+    /// while it owns a collection.
+    runtime_rebuild_in_progress: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    /// Serializes runtime settings saves across clones, so two saves cannot
+    /// interleave their secret, settings, and runtime application steps. A
+    /// deferred observer refresh takes the same lock, so it can never cross a
+    /// save or acknowledgement.
+    runtime_save_lock: Arc<Mutex<()>>,
+    /// Loads and applies the authoritative runtime configuration for an observer
+    /// notification. Installed only by the running application.
+    runtime_config_refresher: Option<RuntimeConfigRefresher>,
+    /// Set when a notification needs an authoritative refresh; cleared when the
+    /// refresh runs. A request that lands mid-refresh keeps it pending.
+    runtime_refresh_requested: Arc<AtomicBool>,
 }
 
 impl SettingsService {
@@ -94,6 +237,13 @@ impl SettingsService {
             docling_settings_observer: None,
             runtime_settings_observer: None,
             runtime_embedding_guard: None,
+            runtime_embedding_applier: None,
+            runtime_embedding_transition: None,
+            runtime_requires_rebuild: None,
+            runtime_rebuild_in_progress: None,
+            runtime_save_lock: Arc::new(Mutex::new(())),
+            runtime_config_refresher: None,
+            runtime_refresh_requested: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -119,6 +269,90 @@ impl SettingsService {
         self.runtime_embedding_guard = guard;
     }
 
+    /// Installs the awaited hot-apply hook for a confirmed same-space identity
+    /// transition. The settings row is already committed when it runs, so its
+    /// failure is reported to the caller as a runtime reconciliation failure.
+    pub fn set_runtime_embedding_applier(&mut self, applier: Option<RuntimeEmbeddingApplier>) {
+        self.runtime_embedding_applier = applier;
+    }
+
+    /// Installs the shared exclusion that keeps an identity transition, a live
+    /// reload, and a manual rebuild start from overlapping.
+    pub fn set_runtime_embedding_transition(
+        &mut self,
+        transition: Option<RuntimeEmbeddingTransition>,
+    ) {
+        self.runtime_embedding_transition = transition;
+    }
+
+    /// Installs the authoritative-configuration refresher used when a runtime
+    /// settings observer requests a reconfiguration.
+    pub(crate) fn set_runtime_config_refresher(
+        &mut self,
+        refresher: Option<RuntimeConfigRefresher>,
+    ) {
+        self.runtime_config_refresher = refresher;
+    }
+
+    /// Requests an authoritative runtime-configuration refresh. It carries no
+    /// captured configuration: the refresh re-reads the committed row under the
+    /// shared save lock.
+    pub(crate) fn request_runtime_refresh(&self) {
+        self.runtime_refresh_requested
+            .store(true, Ordering::Release);
+    }
+
+    /// Applies the newest committed configuration to the live runtime.
+    ///
+    /// The settings save lock is taken first, then the shared runtime
+    /// transition, then the authoritative row is read and applied. A save and a
+    /// refresh therefore cannot cross: either the refresh completes before the
+    /// save obtains the lock, or it observes the newer committed state. If the
+    /// runtime is busy the locks are released and the refresh defers, so a
+    /// rebuild never blocks credential repair behind a long-running operation.
+    pub(crate) async fn refresh_runtime_configuration(&self) -> Result<ConfigRefreshOutcome> {
+        refresh_runtime_configuration_under_lock(
+            &self.runtime_save_lock,
+            self.runtime_embedding_transition.as_ref(),
+            self.runtime_config_refresher.as_ref(),
+        )
+        .await
+    }
+
+    /// Runs the refresh loop for observer notifications until shutdown.
+    pub(crate) async fn run_runtime_refresh_loop(
+        &self,
+        notify: Arc<tokio::sync::Notify>,
+        shutdown: tokio_util::sync::CancellationToken,
+    ) {
+        let requested = self.runtime_refresh_requested.clone();
+        let service = self.clone();
+        reconcile_runtime_refreshes(&requested, &notify, &shutdown, move || {
+            let service = service.clone();
+            Box::pin(async move { service.refresh_runtime_configuration().await })
+        })
+        .await;
+    }
+
+    /// Installs the runtime-side rebuild requirement, so a response stays
+    /// truthful when the live runtime knows about a mismatch the persisted row
+    /// cannot express.
+    pub fn set_runtime_requires_rebuild(
+        &mut self,
+        resolver: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    ) {
+        self.runtime_requires_rebuild = resolver;
+    }
+
+    /// Installs the active-rebuild probe, so a vector destination change is
+    /// refused while a rebuild owns the admitted collection.
+    pub fn set_runtime_rebuild_in_progress(
+        &mut self,
+        resolver: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
+    ) {
+        self.runtime_rebuild_in_progress = resolver;
+    }
+
     pub async fn get_runtime_settings(&self) -> Result<RuntimeSettingsResponse> {
         let Some(stored) = self.db.get_runtime_settings().await? else {
             return Ok(default_runtime_settings_response());
@@ -130,7 +364,13 @@ impl SettingsService {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
-        Ok(runtime_settings_response(stored, has, has_s3_secret_key))
+        let requires_rebuild = self.requires_rebuild(&stored).await?;
+        Ok(runtime_settings_response(
+            stored,
+            has,
+            has_s3_secret_key,
+            requires_rebuild,
+        ))
     }
 
     pub async fn trusted_proxy_enabled(&self) -> Result<bool> {
@@ -147,6 +387,10 @@ impl SettingsService {
     ) -> Result<RuntimeSettingsResponse> {
         settings_validate::runtime_settings_request(request)?;
 
+        // Saves are serialized across clones, so the identity decision, the
+        // settings transaction, and the hot apply are one ordered operation.
+        let _save = self.runtime_save_lock.lock().await;
+
         // Rejected before any write when the live runtime cannot apply it (a
         // model/dimension/endpoint identity change against a live vector index),
         // so a save never reports success while leaving the old runtime in
@@ -159,7 +403,52 @@ impl SettingsService {
         // Resolved before anything is written even though the value is not part
         // of the row: a save must fail closed on a sealed key this deployment
         // cannot open, exactly as a read does.
-        self.embedding_secrets.resolve_and_merge(&patch).await?;
+        let embedding_api_key = self.embedding_secrets.resolve_and_merge(&patch).await?;
+        let candidate_identity = EmbeddingIdentity::from_update(&request.embedding);
+
+        let existing = self.db.get_runtime_settings().await?;
+        // A rebuild owns the vectors of the collection it admitted. Changing the
+        // Qdrant destination while it runs would make its completion describe a
+        // different collection, even when the embedding identity is unchanged,
+        // so the save is rejected before any secret or settings write.
+        if let Some(in_progress) = &self.runtime_rebuild_in_progress
+            && in_progress()
+            && let Some(existing) = existing.as_ref()
+        {
+            let destination_changed = normalize_endpoint(&request.qdrant.url)
+                != normalize_endpoint(&existing.qdrant.url)
+                || request.qdrant.collection_name.trim() != existing.qdrant.collection_name.trim();
+            if destination_changed {
+                return Err(DomainError::conflict(
+                    "runtime.qdrant destination cannot change while a vector index rebuild is in \
+                     progress; retry after it completes",
+                )
+                .into());
+            }
+        }
+        let planned_ack = self
+            .plan_identity_acknowledgment(existing.as_ref(), &candidate_identity, request)
+            .await?;
+        if planned_ack.is_some() && self.runtime_embedding_applier.is_none() {
+            return Err(DomainError::invalid_argument(
+                "runtime.embedding identity cannot change without a running runtime to apply the \
+                 acknowledged vector space",
+            )
+            .into());
+        }
+        // Build the candidate provider before the settings transaction and
+        // before any secret write. Construction performs no network I/O, so a
+        // confirmed transition never reaches the gateway while still deciding.
+        let candidate_provider = match &planned_ack {
+            Some(_) => Some(build_provider(&crate::config::EmbeddingConfig {
+                base_url: request.embedding.base_url.trim().to_string(),
+                api_key: embedding_api_key.clone(),
+                model: request.embedding.model.trim().to_string(),
+                dimensions: request.embedding.dimensions,
+                timeout: std::time::Duration::from_secs(request.embedding.timeout_secs),
+            })?),
+            None => None,
+        };
 
         // The S3 secret key follows the same contract as the API keys, and it is
         // the only way this request learns whether a key is in effect: a supplied
@@ -175,11 +464,63 @@ impl SettingsService {
             .into());
         }
 
+        // The identity transition owns the shared exclusion from here through
+        // the hot apply, so a reload or manual rebuild start cannot interleave.
+        let transition_hold = match (&planned_ack, &self.runtime_embedding_transition) {
+            (Some(_), Some(transition)) => {
+                if !transition.begin() {
+                    return Err(DomainError::conflict(
+                        "a runtime reload, rebuild, or identity transition is in progress; retry \
+                         after it completes",
+                    )
+                    .into());
+                }
+                Some(TransitionHold(transition.clone()))
+            }
+            (Some(_), None) => {
+                return Err(DomainError::invalid_argument(
+                    "runtime.embedding identity cannot change without a running transition \
+                     coordinator",
+                )
+                .into());
+            }
+            (None, _) => None,
+        };
+
         // Committed only once the candidate is known to be valid, so a rejected
         // request leaves the stored keys as they were.
         self.embedding_secrets.commit(&patch).await?;
         self.s3_secrets.commit(&s3_patch).await?;
-        let saved = self.db.save_runtime_settings(&stored).await?;
+        let saved = match &planned_ack {
+            Some(ack) => {
+                self.db
+                    .save_runtime_settings_with_identity_ack(&stored, Some(ack.as_ack()))
+                    .await?
+            }
+            None => self.db.save_runtime_settings(&stored).await?,
+        };
+
+        // A confirmed same-space transition reports success only once the live
+        // pair serves the acknowledged identity. A failure here withdraws
+        // readiness and blocks further identity saves until reconciliation.
+        if let (Some(_), Some(provider), Some(applier)) = (
+            planned_ack.as_ref(),
+            candidate_provider.clone(),
+            self.runtime_embedding_applier.as_ref(),
+        ) {
+            applier(
+                provider,
+                candidate_identity.clone(),
+                stored.clone(),
+                embedding_api_key.clone(),
+            )
+            .await?;
+        }
+
+        // The hot apply is complete; release the exclusion before notifying the
+        // observer so its dependency refresh is not mistaken for a racing
+        // transition.
+        drop(transition_hold);
         if let Some(observer) = &self.runtime_settings_observer {
             observer();
         }
@@ -188,7 +529,141 @@ impl SettingsService {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
-        Ok(runtime_settings_response(saved, has, has_s3_secret_key))
+        let requires_rebuild = self.requires_rebuild(&saved).await?;
+        Ok(runtime_settings_response(
+            saved,
+            has,
+            has_s3_secret_key,
+            requires_rebuild,
+        ))
+    }
+
+    /// Whether the persisted vector identity still matches the stored embedding
+    /// configuration. A missing persisted row is not a mismatch: it describes an
+    /// installation whose vectors have not been built yet, not a stale space.
+    async fn requires_rebuild(&self, stored: &StoredRuntimeSettings) -> Result<bool> {
+        let stored_fingerprint = self
+            .db
+            .get_vector_index_fingerprint(&stored.qdrant.collection_name)
+            .await?;
+        if self
+            .runtime_requires_rebuild
+            .as_ref()
+            .is_some_and(|resolver| resolver())
+        {
+            return Ok(true);
+        }
+        let Some(stored_fingerprint) = stored_fingerprint else {
+            return Ok(false);
+        };
+        Ok(stored_fingerprint
+            != vector_identity_fingerprint(
+                stored.qdrant.url.trim(),
+                stored.qdrant.collection_name.trim(),
+                stored.embedding.base_url.trim(),
+                stored.embedding.model.trim(),
+                stored.embedding.dimensions,
+            ))
+    }
+
+    /// Decides whether the request is a confirmed same-space identity
+    /// transition, and whether the persisted identity may be acknowledged.
+    ///
+    /// An unconfirmed identity change, a dimension change, a collection change,
+    /// or a missing/mismatched persisted identity is rejected here, before any
+    /// secret or settings write.
+    async fn plan_identity_acknowledgment(
+        &self,
+        existing: Option<&StoredRuntimeSettings>,
+        candidate: &EmbeddingIdentity,
+        request: &UpdateRuntimeSettingsRequest,
+    ) -> Result<Option<PlannedAck>> {
+        let Some(existing) = existing else {
+            // First configuration: there is no persisted vector space to
+            // acknowledge, so the existing bootstrap path applies.
+            return Ok(None);
+        };
+        let existing_identity = EmbeddingIdentity {
+            base_url: existing
+                .embedding
+                .base_url
+                .trim()
+                .trim_end_matches('/')
+                .to_string(),
+            model: existing.embedding.model.trim().to_string(),
+            dimensions: existing.embedding.dimensions,
+        };
+        if &existing_identity == candidate {
+            // Credential, timeout, or non-embedding settings only.
+            return Ok(None);
+        }
+
+        if candidate.dimensions != existing_identity.dimensions {
+            return Err(DomainError::invalid_argument(
+                "runtime.embedding.dimensions cannot change against existing vectors; a different \
+                 vector space requires an explicit dimension migration",
+            )
+            .into());
+        }
+        if !request.embedding.confirm_vector_space_unchanged {
+            return Err(DomainError::invalid_argument(
+                "runtime.embedding model/base URL changes require an explicit confirmation that \
+                 the new gateway/alias produces the same vector space",
+            )
+            .into());
+        }
+
+        // The acknowledgment names the vector destination as well as the
+        // provider identity: a confirmed alias may never also move the vectors
+        // to another Qdrant URL or collection.
+        let collection_name = request.qdrant.collection_name.trim();
+        if collection_name != existing.qdrant.collection_name.trim() {
+            return Err(DomainError::invalid_argument(
+                "runtime.qdrant.collection_name cannot change while acknowledging existing vectors",
+            )
+            .into());
+        }
+        if normalize_endpoint(&request.qdrant.url) != normalize_endpoint(&existing.qdrant.url) {
+            return Err(DomainError::invalid_argument(
+                "runtime.qdrant.url cannot change while acknowledging existing vectors; the \
+                 acknowledgement describes the existing collection, not a different destination",
+            )
+            .into());
+        }
+
+        let expected_fingerprint = vector_identity_fingerprint(
+            existing.qdrant.url.trim(),
+            existing.qdrant.collection_name.trim(),
+            &existing_identity.base_url,
+            &existing_identity.model,
+            existing_identity.dimensions,
+        );
+        let persisted = self
+            .db
+            .get_vector_index_fingerprint(collection_name)
+            .await?;
+        if persisted.as_deref() != Some(expected_fingerprint.as_str()) {
+            return Err(DomainError::invalid_argument(
+                "the persisted vector identity does not match the stored embedding settings; a \
+                 confirmed same-space transition cannot acknowledge it",
+            )
+            .into());
+        }
+
+        Ok(Some(PlannedAck {
+            collection_name: collection_name.to_string(),
+            expected_fingerprint,
+            expected_dimensions: existing_identity.dimensions,
+            candidate_fingerprint: vector_identity_fingerprint(
+                request.qdrant.url.trim(),
+                collection_name,
+                &candidate.base_url,
+                &candidate.model,
+                candidate.dimensions,
+            ),
+            embedding_base_url: candidate.base_url.clone(),
+            embedding_model: candidate.model.clone(),
+        }))
     }
 
     pub async fn test_s3_connection(
@@ -363,6 +838,70 @@ impl SettingsService {
     }
 }
 
+/// Applies one authoritative refresh under the shared save lock and the shared
+/// runtime transition.
+async fn refresh_runtime_configuration_under_lock(
+    save_lock: &Mutex<()>,
+    transition: Option<&RuntimeEmbeddingTransition>,
+    refresher: Option<&RuntimeConfigRefresher>,
+) -> Result<ConfigRefreshOutcome> {
+    let Some(transition) = transition else {
+        return Ok(ConfigRefreshOutcome::Deferred);
+    };
+    let Some(refresher) = refresher else {
+        return Ok(ConfigRefreshOutcome::Deferred);
+    };
+    // The same lock a settings save and a confirmed acknowledgement hold. Taking
+    // it before the transition means a refresh and a save are strictly ordered,
+    // and the refresh always reads the state that won that order.
+    let _save = save_lock.lock().await;
+    if !transition.begin() {
+        return Ok(ConfigRefreshOutcome::Deferred);
+    }
+    let _hold = TransitionHold(transition.clone());
+    refresher().await
+}
+
+/// Applies authoritative refreshes on notification until shutdown.
+///
+/// A deferred refresh releases both locks and retries with a bounded backoff,
+/// always re-reading the committed row, so it never replays a captured older
+/// configuration and never holds up a save for the lifetime of a rebuild.
+async fn reconcile_runtime_refreshes(
+    requested: &AtomicBool,
+    notify: &tokio::sync::Notify,
+    shutdown: &tokio_util::sync::CancellationToken,
+    mut refresh: impl FnMut() -> Pin<Box<dyn Future<Output = Result<ConfigRefreshOutcome>> + Send>>,
+) {
+    let mut backoff = Duration::from_millis(25);
+    loop {
+        if shutdown.is_cancelled() {
+            return;
+        }
+        if !requested.load(Ordering::Acquire) {
+            tokio::select! {
+                _ = shutdown.cancelled() => return,
+                _ = notify.notified() => {}
+            }
+            continue;
+        }
+        // Cleared before the refresh, so a request that lands while it runs is
+        // still pending and reloads the newer state afterwards.
+        requested.store(false, Ordering::Release);
+        match refresh().await {
+            Ok(ConfigRefreshOutcome::Deferred) => {
+                backoff = (backoff * 2).min(Duration::from_secs(2));
+                tokio::select! {
+                    _ = shutdown.cancelled() => return,
+                    _ = tokio::time::sleep(backoff) => {}
+                }
+                requested.store(true, Ordering::Release);
+            }
+            Ok(_) | Err(_) => backoff = Duration::from_millis(25),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -378,6 +917,17 @@ mod tests {
             stored_search_settings as validate_stored_search_settings,
         },
         validate_docling_vlm_shape,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+
+    use tokio::sync::Mutex;
+
+    use super::{
+        ConfigRefreshOutcome, RuntimeConfigRefresher, RuntimeEmbeddingTransition,
+        reconcile_runtime_refreshes, refresh_runtime_configuration_under_lock,
     };
     use crate::{
         contracts::{
@@ -441,6 +991,7 @@ mod tests {
                 dimensions: 3072,
                 timeout_secs: 30,
                 api_key: None,
+                confirm_vector_space_unchanged: false,
             },
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,
@@ -600,7 +1151,7 @@ mod tests {
         let stored = runtime_settings_from_request(&request);
         assert!(stored.file_library.trusted_proxy_enabled);
         assert!(
-            runtime_settings_response(stored, false, false)
+            runtime_settings_response(stored, false, false, false)
                 .file_library
                 .trusted_proxy_enabled
         );
@@ -643,11 +1194,11 @@ mod tests {
 
         // Presence is an input, not a fact about the value: a response can report
         // a sealed key it is deliberately not holding open.
-        let response = runtime_settings_response(stored.clone(), false, true);
+        let response = runtime_settings_response(stored.clone(), false, true, false);
         let response_s3 = response.file_library.s3.expect("s3 settings are projected");
         assert!(response_s3.has_secret_key);
         assert_eq!(response_s3.access_key, "AKIA");
-        let without_s3 = runtime_settings_response(stored, false, false);
+        let without_s3 = runtime_settings_response(stored, false, false, false);
         assert!(
             !without_s3
                 .file_library
@@ -943,5 +1494,445 @@ mod tests {
             "legacy API payloads must default to the single-worker ceiling"
         );
         validate_docling_request(&request).expect("defaulted request should be valid");
+    }
+
+    #[test]
+    fn an_embedding_update_defaults_to_no_vector_space_confirmation() {
+        let payload = serde_json::json!({
+            "base_url": "https://gateway.example/v1",
+            "model": "alias-model",
+            "dimensions": 8,
+            "timeout_secs": 30
+        });
+        let update: UpdateRuntimeEmbeddingSettings =
+            serde_json::from_value(payload).expect("legacy embedding update");
+        assert!(
+            !update.confirm_vector_space_unchanged,
+            "an omitted confirmation must never authorize keeping existing vectors"
+        );
+    }
+
+    #[test]
+    fn the_confirmation_is_transient_and_never_stored() {
+        let mut request = sample_runtime_request();
+        request.embedding.confirm_vector_space_unchanged = true;
+
+        let stored = runtime_settings_from_request(&request);
+        assert_eq!(
+            stored.embedding.model, request.embedding.model,
+            "the confirmation flag is not part of the stored embedding block"
+        );
+        assert_eq!(stored.embedding.api_key, None);
+        assert_eq!(
+            crate::embedding::EmbeddingIdentity::from_update(&request.embedding).model,
+            request.embedding.model,
+            "the confirmation does not change the candidate identity"
+        );
+    }
+
+    #[test]
+    fn the_response_reports_requires_rebuild_independently_of_credentials() {
+        let stored = runtime_settings_from_request(&sample_runtime_request());
+        assert!(!runtime_settings_response(stored.clone(), true, false, false).requires_rebuild);
+        assert!(
+            runtime_settings_response(stored, true, false, true).requires_rebuild,
+            "the flag is projected from the persisted identity check"
+        );
+    }
+
+    fn runtime_transition(
+        runtime: &crate::vector_runtime::VectorRuntime,
+    ) -> RuntimeEmbeddingTransition {
+        let begin = runtime.clone();
+        let end = runtime.clone();
+        RuntimeEmbeddingTransition::new(
+            move || begin.try_begin_identity_transition(),
+            move || end.end_identity_transition(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_refresh_cannot_cross_the_settings_save_lock() {
+        let save = Arc::new(Mutex::new(()));
+        let runtime =
+            crate::vector_runtime::VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+        let transition = runtime_transition(&runtime);
+        let applied = Arc::new(AtomicBool::new(false));
+        let refresher: RuntimeConfigRefresher = Arc::new({
+            let applied = applied.clone();
+            move || {
+                applied.store(true, Ordering::SeqCst);
+                Box::pin(async { Ok(ConfigRefreshOutcome::Applied) })
+            }
+        });
+
+        // A save holds the shared lock: the observer refresh must wait for it
+        // rather than install a configuration the save is replacing.
+        let guard = save.lock().await;
+        let handle = tokio::spawn({
+            let save = save.clone();
+            let refresher = refresher.clone();
+            async move {
+                refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+                    .await
+            }
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        assert!(!applied.load(Ordering::SeqCst));
+        assert!(!handle.is_finished());
+        drop(guard);
+
+        let outcome = handle
+            .await
+            .expect("the refresh finishes")
+            .expect("no error");
+        assert_eq!(outcome, ConfigRefreshOutcome::Applied);
+        assert!(applied.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn an_in_flight_refresh_excludes_a_save_until_it_completes() {
+        let save = Arc::new(Mutex::new(()));
+        let runtime =
+            crate::vector_runtime::VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+        let transition = runtime_transition(&runtime);
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let refresher: RuntimeConfigRefresher = Arc::new({
+            let started = started.clone();
+            let release = release.clone();
+            move || {
+                let started = started.clone();
+                let release = release.clone();
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(ConfigRefreshOutcome::Applied)
+                })
+            }
+        });
+
+        let handle = tokio::spawn({
+            let save = save.clone();
+            async move {
+                refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+                    .await
+            }
+        });
+        started.notified().await;
+        assert!(
+            tokio::time::timeout(
+                std::time::Duration::from_millis(50),
+                save.clone().lock_owned()
+            )
+            .await
+            .is_err(),
+            "a save cannot obtain the shared lock while a refresh applies"
+        );
+        release.notify_one();
+        handle.await.expect("refresh joins").expect("no error");
+
+        // Once the refresh completes, the save proceeds and observes its state.
+        let guard = save.lock().await;
+        drop(guard);
+    }
+
+    #[tokio::test]
+    async fn a_deferred_refresh_never_replays_an_older_captured_configuration() {
+        let save = Arc::new(Mutex::new(()));
+        let runtime =
+            crate::vector_runtime::VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+        let transition = runtime_transition(&runtime);
+        let fence = runtime.begin_rebuild();
+        let authoritative = Arc::new(std::sync::Mutex::new("A".to_string()));
+        let applied = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let refresher: RuntimeConfigRefresher = Arc::new({
+            let authoritative = authoritative.clone();
+            let applied = applied.clone();
+            move || {
+                let value = authoritative.lock().expect("authoritative").clone();
+                applied.lock().expect("applied").push(value);
+                Box::pin(async { Ok(ConfigRefreshOutcome::Applied) })
+            }
+        });
+
+        // The runtime is rebuilding: the refresh defers without applying the
+        // older value it could have captured.
+        let outcome =
+            refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+                .await
+                .expect("no error");
+        assert_eq!(outcome, ConfigRefreshOutcome::Deferred);
+        assert!(applied.lock().expect("applied").is_empty());
+
+        // A newer save/acknowledgement commits B while the notification is still
+        // queued. Retrying loads B, the authoritative state, not A.
+        *authoritative.lock().expect("authoritative") = "B".to_string();
+        runtime.fail_rebuild(fence);
+        runtime.set_requires_rebuild(false);
+        let outcome =
+            refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+                .await
+                .expect("no error");
+        assert_eq!(outcome, ConfigRefreshOutcome::Applied);
+        assert_eq!(
+            applied.lock().expect("applied").as_slice(),
+            ["B".to_string()],
+            "a deferred notification reloads the newest committed configuration"
+        );
+
+        // A further queued notification still reads the newest state.
+        refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+            .await
+            .expect("no error");
+        assert_eq!(
+            applied.lock().expect("applied").as_slice(),
+            ["B".to_string(), "B".to_string()]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_deferred_refresh_retries_with_bounded_waiting_and_exits_on_shutdown() {
+        let requested = Arc::new(AtomicBool::new(true));
+        let notify = Arc::new(tokio::sync::Notify::new());
+        let shutdown = tokio_util::sync::CancellationToken::new();
+        let attempts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let loop_attempts = attempts.clone();
+        let handle = tokio::spawn({
+            let requested = requested.clone();
+            let notify = notify.clone();
+            let shutdown = shutdown.clone();
+            async move {
+                reconcile_runtime_refreshes(&requested, &notify, &shutdown, move || {
+                    let attempt =
+                        loop_attempts.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+                    Box::pin(async move {
+                        if attempt == 1 {
+                            Ok(ConfigRefreshOutcome::Deferred)
+                        } else {
+                            Ok(ConfigRefreshOutcome::Applied)
+                        }
+                    })
+                })
+                .await;
+            }
+        });
+
+        for _ in 0..200 {
+            if attempts.load(std::sync::atomic::Ordering::SeqCst) >= 2 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert!(
+            attempts.load(std::sync::atomic::Ordering::SeqCst) >= 2,
+            "a deferred refresh is retried automatically"
+        );
+
+        shutdown.cancel();
+        tokio::time::timeout(std::time::Duration::from_secs(2), handle)
+            .await
+            .expect("cancellation ends the loop")
+            .expect("the loop does not panic");
+    }
+
+    /// A runtime with a published, fingerprinted pair, exactly as recovery
+    /// publishes one, so the production admission API can admit a manual start.
+    fn published_runtime() -> crate::vector_runtime::VectorRuntime {
+        struct Provider;
+
+        #[async_trait::async_trait]
+        impl crate::embedding::EmbeddingProvider for Provider {
+            async fn embed_texts(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+                Ok(texts.iter().map(|_| vec![0.0; 4]).collect())
+            }
+        }
+
+        let runtime =
+            crate::vector_runtime::VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
+        let generation = runtime.generation();
+        assert!(runtime.publish(
+            generation,
+            crate::vector_runtime::VectorSnapshot {
+                embedding: Arc::new(Provider),
+                identity: Some(crate::embedding::EmbeddingIdentity {
+                    base_url: "https://embeddings.example/v1".to_string(),
+                    model: "model-a".to_string(),
+                    dimensions: 4,
+                }),
+                index: Arc::new(crate::qdrant_index::QdrantIndex::for_test(
+                    "collection-a",
+                    4
+                )),
+                collection: "collection-a".to_string(),
+                generation,
+            }
+        ));
+        runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
+        runtime
+    }
+
+    fn recording_refresher(
+        applied: Arc<AtomicBool>,
+        outcome: ConfigRefreshOutcome,
+    ) -> RuntimeConfigRefresher {
+        Arc::new(move || {
+            applied.store(true, Ordering::SeqCst);
+            Box::pin(async move { Ok(outcome) })
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_refresh_paused_before_its_reservation_cannot_take_a_manual_rebuilds_generation() {
+        let save = Arc::new(Mutex::new(()));
+        let runtime = published_runtime();
+        let transition = runtime_transition(&runtime);
+        let applied = Arc::new(AtomicBool::new(false));
+        let refresher = recording_refresher(applied.clone(), ConfigRefreshOutcome::Applied);
+
+        // Hold the refresh at the exact old check-then-CAS window: it has
+        // observed nothing yet and owns no reservation.
+        let (paused_tx, mut paused_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (release_tx, release_rx) = std::sync::mpsc::channel::<()>();
+        runtime.set_admission_pause(move || {
+            let _ = paused_tx.send(());
+            let _ = release_rx.recv();
+        });
+
+        let handle = tokio::spawn({
+            let save = save.clone();
+            let transition = transition.clone();
+            let refresher = refresher.clone();
+            async move {
+                refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+                    .await
+            }
+        });
+        paused_rx.recv().await.expect("the refresh is paused");
+
+        // The manual rebuild wins while the refresh has no authority. Under the
+        // old ordering the refresh would have observed `rebuilding == false`
+        // here and then reserved after the start released.
+        let admitted = runtime
+            .try_admit_rebuild()
+            .expect("the manual rebuild wins the runtime");
+        let _ = release_tx.send(());
+
+        let outcome = handle
+            .await
+            .expect("the refresh joins")
+            .expect("no refresh error");
+        assert_eq!(
+            outcome,
+            ConfigRefreshOutcome::Deferred,
+            "the reserve-then-inspect admission refuses the rebuild's generation"
+        );
+        assert!(
+            !applied.load(Ordering::SeqCst),
+            "no configuration was applied under the rebuild"
+        );
+        assert!(
+            runtime.is_rebuilding(),
+            "the manual rebuild still owns its fence"
+        );
+        assert_eq!(
+            runtime.generation(),
+            admitted.generation,
+            "the refused refresh advanced no generation"
+        );
+        assert!(!runtime.is_ready());
+
+        // The refused deferred notification left no stranded fence: the owned
+        // attempt settles, and a later credential refresh applies without
+        // advancing its generation.
+        runtime.set_requires_rebuild(false);
+        assert!(runtime.complete_rebuild_success(admitted.generation));
+        assert!(runtime.is_ready());
+        let settled_generation = runtime.generation();
+        let credential = recording_refresher(
+            Arc::new(AtomicBool::new(false)),
+            ConfigRefreshOutcome::AppliedUnchanged,
+        );
+        let outcome =
+            refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&credential))
+                .await
+                .expect("the credential refresh runs");
+        assert_eq!(outcome, ConfigRefreshOutcome::AppliedUnchanged);
+        assert_eq!(
+            runtime.generation(),
+            settled_generation,
+            "a credential-only refresh never advances the settled generation"
+        );
+        assert!(runtime.is_ready(), "the pair stays ready");
+        assert!(!runtime.is_rebuilding());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_manual_start_is_refused_while_a_refresh_owns_the_reservation() {
+        let save = Arc::new(Mutex::new(()));
+        let runtime = published_runtime();
+        let transition = runtime_transition(&runtime);
+
+        let started = Arc::new(tokio::sync::Notify::new());
+        let release = Arc::new(tokio::sync::Notify::new());
+        let refresher: RuntimeConfigRefresher = Arc::new({
+            let started = started.clone();
+            let release = release.clone();
+            move || {
+                let started = started.clone();
+                let release = release.clone();
+                Box::pin(async move {
+                    started.notify_one();
+                    release.notified().await;
+                    Ok(ConfigRefreshOutcome::Applied)
+                })
+            }
+        });
+
+        let handle = tokio::spawn({
+            let save = save.clone();
+            let transition = transition.clone();
+            let refresher = refresher.clone();
+            async move {
+                refresh_runtime_configuration_under_lock(&save, Some(&transition), Some(&refresher))
+                    .await
+            }
+        });
+        started.notified().await;
+        assert_eq!(
+            runtime.try_admit_rebuild().err(),
+            Some(crate::vector_runtime::RebuildAdmissionError::Busy),
+            "the manual start cannot interleave with a held reservation"
+        );
+        assert!(!runtime.is_rebuilding());
+
+        release.notify_one();
+        let outcome = handle
+            .await
+            .expect("the refresh joins")
+            .expect("no refresh error");
+        assert_eq!(outcome, ConfigRefreshOutcome::Applied);
+        assert!(!runtime.is_rebuilding());
+    }
+
+    #[test]
+    fn the_shared_transition_refuses_a_reservation_while_a_rebuild_owns_the_runtime() {
+        let runtime = published_runtime();
+        let admitted = runtime.try_admit_rebuild().expect("the fence opens");
+        assert!(
+            !runtime.try_begin_identity_transition(),
+            "reserve-then-inspect refuses while the fence is open"
+        );
+        assert!(
+            !runtime.is_transitioning(),
+            "the refused reservation releases the exclusion instead of holding it"
+        );
+        runtime.set_requires_rebuild(false);
+        assert!(runtime.complete_rebuild_success(admitted.generation));
+        assert!(
+            runtime.try_begin_identity_transition(),
+            "the same reservation succeeds once the rebuild settles"
+        );
+        runtime.end_identity_transition();
     }
 }

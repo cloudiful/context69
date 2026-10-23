@@ -92,6 +92,132 @@ impl SourceVectorIndex {
     }
 }
 
+/// Owns the public rebuild status together with the generation of the attempt
+/// that owns it.
+///
+/// Progress and completion only mutate the status for that generation, so a
+/// superseded attempt can never replace a newer Running, Succeeded, or Failed
+/// status. The public status contract and its serialization are unchanged.
+#[derive(Clone)]
+pub(crate) struct VectorRebuildTracker {
+    inner: Arc<std::sync::RwLock<TrackedRebuild>>,
+    start_gate: Arc<std::sync::atomic::AtomicBool>,
+}
+
+struct TrackedRebuild {
+    generation: Option<u64>,
+    status: VectorIndexRebuildStatus,
+}
+
+impl VectorRebuildTracker {
+    fn new() -> Self {
+        Self {
+            inner: Arc::new(std::sync::RwLock::new(TrackedRebuild {
+                generation: None,
+                status: VectorIndexRebuildStatus {
+                    state: VectorIndexRebuildState::Idle,
+                    processed_chunks: 0,
+                    total_chunks: 0,
+                    error_message: None,
+                    started_at: None,
+                    finished_at: None,
+                },
+            })),
+            start_gate: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        }
+    }
+
+    fn read(&self) -> std::sync::RwLockReadGuard<'_, TrackedRebuild> {
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn write(&self) -> std::sync::RwLockWriteGuard<'_, TrackedRebuild> {
+        self.inner
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// Reserves the single start slot, so two starts cannot both admit a fence.
+    fn claim_start(&self) -> bool {
+        if self.read().status.state == VectorIndexRebuildState::Running {
+            return false;
+        }
+        self.start_gate
+            .compare_exchange(
+                false,
+                true,
+                std::sync::atomic::Ordering::AcqRel,
+                std::sync::atomic::Ordering::Acquire,
+            )
+            .is_ok()
+    }
+
+    fn release_start(&self) {
+        self.start_gate
+            .store(false, std::sync::atomic::Ordering::Release);
+    }
+
+    /// Takes ownership of the status for the admitted generation.
+    fn begin(&self, generation: u64) {
+        let mut tracked = self.write();
+        tracked.generation = Some(generation);
+        tracked.status = VectorIndexRebuildStatus {
+            state: VectorIndexRebuildState::Running,
+            processed_chunks: 0,
+            total_chunks: 0,
+            error_message: None,
+            started_at: Some(chrono::Utc::now()),
+            finished_at: None,
+        };
+    }
+
+    fn status(&self) -> VectorIndexRebuildStatus {
+        self.read().status.clone()
+    }
+
+    fn progress(&self, generation: u64, processed_chunks: usize, total_chunks: usize) -> bool {
+        let mut tracked = self.write();
+        if tracked.generation != Some(generation)
+            || tracked.status.state != VectorIndexRebuildState::Running
+        {
+            return false;
+        }
+        tracked.status.processed_chunks = processed_chunks;
+        tracked.status.total_chunks = total_chunks;
+        true
+    }
+
+    fn succeed(&self, generation: u64, rebuilt_chunks: usize) -> bool {
+        let mut tracked = self.write();
+        if tracked.generation != Some(generation)
+            || tracked.status.state != VectorIndexRebuildState::Running
+        {
+            return false;
+        }
+        tracked.status.state = VectorIndexRebuildState::Succeeded;
+        tracked.status.processed_chunks = rebuilt_chunks;
+        tracked.status.total_chunks = rebuilt_chunks;
+        tracked.status.error_message = None;
+        tracked.status.finished_at = Some(chrono::Utc::now());
+        true
+    }
+
+    fn fail(&self, generation: u64, message: String) -> bool {
+        let mut tracked = self.write();
+        if tracked.generation != Some(generation)
+            || tracked.status.state != VectorIndexRebuildState::Running
+        {
+            return false;
+        }
+        tracked.status.state = VectorIndexRebuildState::Failed;
+        tracked.status.error_message = Some(message);
+        tracked.status.finished_at = Some(chrono::Utc::now());
+        true
+    }
+}
+
 #[derive(Clone)]
 pub struct SyncService {
     db: Database,
@@ -104,7 +230,7 @@ pub struct SyncService {
     registry: Arc<RwLock<SourceRegistry>>,
     source_store: SourceStore,
     source_connection_statuses: Arc<RwLock<HashMap<String, SourceConnectionHealth>>>,
-    vector_rebuild_status: Arc<RwLock<VectorIndexRebuildStatus>>,
+    vector_rebuild_status: VectorRebuildTracker,
     translation: TranslationService,
 }
 
@@ -187,14 +313,7 @@ impl SyncService {
             )),
             source_store: SourceStore::new(db),
             source_connection_statuses: Arc::new(RwLock::new(HashMap::new())),
-            vector_rebuild_status: Arc::new(RwLock::new(VectorIndexRebuildStatus {
-                state: VectorIndexRebuildState::Idle,
-                processed_chunks: 0,
-                total_chunks: 0,
-                error_message: None,
-                started_at: None,
-                finished_at: None,
-            })),
+            vector_rebuild_status: VectorRebuildTracker::new(),
             translation,
         }
     }

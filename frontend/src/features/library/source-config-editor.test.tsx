@@ -55,12 +55,17 @@ const monaco = vi.hoisted(() => {
     setModelLanguage: vi.fn(),
     setTheme: vi.fn(),
   };
-  return { instances, editorApi };
+  class EditorWorkerStub {}
+  class JsonWorkerStub {}
+  return { instances, editorApi, EditorWorkerStub, JsonWorkerStub };
 });
 
 vi.mock("monaco-editor", () => ({ editor: monaco.editorApi }));
 vi.mock("monaco-editor/editor/editor.worker?worker", () => ({
-  default: class WorkerStub {},
+  default: monaco.EditorWorkerStub,
+}));
+vi.mock("monaco-editor/language/json/json.worker?worker", () => ({
+  default: monaco.JsonWorkerStub,
 }));
 vi.mock("@/hooks/use-preferences", () => ({
   useResolvedTheme: () => "dark",
@@ -170,6 +175,15 @@ describe("monaco editor wrapper", () => {
 
     unmount();
     expect(monaco.instances[0].disposed).toBe(true);
+  });
+
+  it("routes JSON language services to their worker and keeps the editor worker as fallback", async () => {
+    render(<MonacoEditor value="{}" onChange={() => undefined} language="json" />);
+    await waitFor(() => expect(monaco.instances).toHaveLength(1));
+
+    expect(globalThis.MonacoEnvironment?.getWorker?.("", "json")).toBeInstanceOf(monaco.JsonWorkerStub);
+    expect(globalThis.MonacoEnvironment?.getWorker?.("", "plaintext")).toBeInstanceOf(monaco.EditorWorkerStub);
+    expect(globalThis.MonacoEnvironment?.getWorker?.("", "editorWorkerService")).toBeInstanceOf(monaco.EditorWorkerStub);
   });
 
   it("applies external value, read-only and language updates without recreating the editor", async () => {

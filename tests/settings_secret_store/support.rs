@@ -114,6 +114,11 @@ pub async fn reset(db: &Database) {
             .await
             .expect("clear the owned store row");
     }
+    sqlx::query("DELETE FROM context69.vector_index_state WHERE collection_name = $1")
+        .bind("context69-secret-store-test")
+        .execute(db.pool())
+        .await
+        .expect("clear the owned vector identity row");
     for sql in [
         "DELETE FROM context69.runtime_embedding_settings WHERE singleton",
         "DELETE FROM context69.search_settings WHERE singleton",
@@ -224,6 +229,7 @@ pub fn runtime_request(
             dimensions: 128,
             timeout_secs: 5,
             api_key: embedding_api_key.map(str::to_string),
+            confirm_vector_space_unchanged: false,
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,
@@ -264,6 +270,74 @@ pub fn s3_request(secret_key: Option<&str>) -> context69::contracts::UpdateRunti
         access_key: "AKIACONTEXT69TESTONLY".to_string(),
         secret_key: secret_key.map(str::to_string),
     }
+}
+
+/// The persisted vector-identity row this suite owns: fingerprint, chunks, and
+/// the timestamp a confirmed transition must preserve.
+pub async fn vector_identity_state(
+    db: &Database,
+) -> Option<(String, i64, chrono::DateTime<chrono::Utc>)> {
+    let row = sqlx::query(
+        "SELECT fingerprint, rebuilt_chunks, rebuilt_at
+         FROM context69.vector_index_state
+         WHERE collection_name = $1",
+    )
+    .bind("context69-secret-store-test")
+    .fetch_optional(db.pool())
+    .await
+    .expect("read the owned vector identity row");
+    row.map(|row| {
+        (
+            row.get::<String, _>("fingerprint"),
+            row.get::<i64, _>("rebuilt_chunks"),
+            row.get::<chrono::DateTime<chrono::Utc>, _>("rebuilt_at"),
+        )
+    })
+}
+
+/// Seeds the persisted identity of the owned test collection with a synthetic
+/// chunk count. Only the settings transaction may rewrite the fingerprint.
+pub async fn seed_vector_identity(
+    db: &Database,
+    fingerprint: &str,
+    dimensions: i64,
+) -> chrono::DateTime<chrono::Utc> {
+    sqlx::query(
+        "INSERT INTO context69.vector_index_state (
+             collection_name, fingerprint, embedding_base_url, embedding_model,
+             dimensions, rebuilt_chunks
+         )
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (collection_name) DO UPDATE
+         SET fingerprint = EXCLUDED.fingerprint,
+             embedding_base_url = EXCLUDED.embedding_base_url,
+             embedding_model = EXCLUDED.embedding_model,
+             dimensions = EXCLUDED.dimensions,
+             rebuilt_chunks = EXCLUDED.rebuilt_chunks,
+             rebuilt_at = NOW()
+         RETURNING rebuilt_at",
+    )
+    .bind("context69-secret-store-test")
+    .bind(fingerprint)
+    .bind("http://127.0.0.1:1/v1")
+    .bind("context69-secret-store-test")
+    .bind(dimensions)
+    .bind(7_i64)
+    .fetch_one(db.pool())
+    .await
+    .expect("seed the owned vector identity row")
+    .get("rebuilt_at")
+}
+
+/// The persisted fingerprint a test request's stored identity would produce.
+pub fn identity_fingerprint(base_url: &str, model: &str, dimensions: usize) -> String {
+    context69::embedding::embedding_runtime::vector_identity_fingerprint(
+        "http://127.0.0.1:1",
+        "context69-secret-store-test",
+        base_url,
+        model,
+        dimensions,
+    )
 }
 
 /// Asserts that a save failed rather than silently serving a stale credential.

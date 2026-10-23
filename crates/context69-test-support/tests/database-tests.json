@@ -1544,6 +1544,48 @@
     },
     {
       "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_confirmed_same_space_transition_acknowledges_identity_in_the_settings_transaction",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::an_unconfirmed_identity_change_is_rejected_before_any_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_confirmed_transition_without_a_matching_persisted_identity_fails_the_whole_save",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_dimension_change_is_rejected_even_when_confirmed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_confirmed_transition_is_refused_while_another_transition_owns_the_exclusion",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_confirmed_alias_cannot_acknowledge_a_changed_qdrant_destination",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_destination_change_is_refused_while_a_rebuild_is_running",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "source_cleanup_dispatcher",
       "test": "dispatcher_shutdown_exits_promptly",
       "class": "db"

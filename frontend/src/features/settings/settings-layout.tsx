@@ -135,6 +135,20 @@ function SettingsLayoutContent() {
           blocker.reset?.();
         }}
       />
+
+      {/*
+        The compatibility prompt belongs to the shared Save, not to the runtime
+        section: a save can start from any section, and cancelling must hold
+        back every group in that save plan.
+      */}
+      <ConfirmDialog
+        open={page.compatibilityOpen}
+        title={t("settings.runtime.compatibilityTitle")}
+        message={t("settings.runtime.compatibilityConfirm")}
+        acceptLabel={t("settings.runtime.compatibilityAccept")}
+        onAccept={page.confirmCompatibility}
+        onCancel={page.cancelCompatibility}
+      />
     </section>
   );
 }

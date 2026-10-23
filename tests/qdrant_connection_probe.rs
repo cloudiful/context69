@@ -83,6 +83,32 @@ async fn recovery_attach_is_read_only_and_validates_before_it_can_register_a_cli
 }
 
 #[tokio::test]
+async fn the_legacy_recreate_toggle_can_never_delete_or_recreate_a_collection() {
+    use context69::config::QdrantConfig;
+    use context69::qdrant_index::QdrantIndex;
+
+    let mock = QdrantMock::start(ListBehaviour::Succeeds).await;
+    // The legacy setting is still accepted for wire/config compatibility.
+    let config = QdrantConfig {
+        url: mock.url().to_string(),
+        collection_name: "legacy_recreate_collection".to_string(),
+        recreate_on_dimension_mismatch: true,
+    };
+
+    // The mock refuses collection reads, so attach cannot complete. The point is
+    // the attempted RPC set: enabling the legacy toggle must never authorize a
+    // delete or a replacement collection.
+    let _ = QdrantIndex::connect(&config, 8).await;
+    let calls = mock.observed_calls();
+    for destructive in ["create", "delete", "update"] {
+        assert!(
+            !calls.contains(destructive),
+            "the legacy recreate toggle must never reach {destructive}: {calls:?}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn a_reachable_endpoint_succeeds_with_one_read_only_call() {
     let mock = QdrantMock::start(ListBehaviour::Succeeds).await;
 
