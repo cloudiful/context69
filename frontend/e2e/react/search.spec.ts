@@ -19,6 +19,26 @@ const RERANKED_PAGE = searchPageFixture("policy", [
 ]);
 
 test.describe("react search", () => {
+  for (const locale of ["en", "zh-CN"]) {
+    test(`persistent failure retries committed filters (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width: locale === "en" ? 1280 : 600, height: 900 });
+      await page.addInitScript((value) => localStorage.setItem("context69.locale", value), locale);
+      const transport = await installAppTransport(page, { search: { stream: "http-error", postError: { status: 503, message: "search unavailable" }, postErrorReads: 1, post: LOCAL_PAGE } });
+      await page.goto("/search?q=policy&limit=16");
+      const alert = page.getByRole("alert");
+      await expect(alert).toContainText("search unavailable");
+      await page.getByTestId("search-query").fill("unsent");
+      const route = page.url();
+      await alert.getByRole("button", { name: locale === "en" ? "Retry" : "重试" }).click();
+      await expect(page.getByTestId("search-result-item")).toHaveCount(2);
+      await expect(alert).toHaveCount(0);
+      expect(page.url()).toBe(route);
+      await expect(page.getByTestId("search-query")).toHaveValue("unsent");
+      expect(transport.calls.filter((call) => call.path === "/v1/search").map((call) => call.body)).toEqual([expect.objectContaining({ query: "policy", limit: 16 }), expect.objectContaining({ query: "policy", limit: 16 })]);
+      expect(transport.unmocked).toEqual([]);
+    });
+  }
+
   test("streams a local page, reorders on reranked and ends with done", async ({ page }) => {
     const external = recordExternalRequests(page);
     const transport = await installAppTransport(page, {
@@ -254,7 +274,8 @@ test.describe("react search", () => {
 
     await page.goto("/search?q=policy");
 
-    await expect(page.getByText("search rejected")).toBeVisible();
+    await expect(page.getByRole("alert")).toContainText("search rejected");
+    await expect(page.getByRole("alert").getByRole("button", { name: "Retry" })).toBeEnabled();
   });
 
   test("renders consistently in Chinese, dark mode and a narrow viewport", async ({ page }) => {

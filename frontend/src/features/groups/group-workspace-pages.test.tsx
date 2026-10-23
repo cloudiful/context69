@@ -82,6 +82,51 @@ describe("group members", () => {
     vi.unstubAllGlobals();
   });
 
+  it("does not call a failed member read empty and retries the current search", async () => {
+    const options: GroupBackendOptions = { membersFailReads: 1 };
+    const backend = installGroupBackend(options);
+    await renderAt("/groups/stock%2Falpha/members");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to load members.");
+    expect(screen.queryByText("No members yet.")).not.toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("viewer")).toBeInTheDocument();
+    options.membersFailReads = 1;
+    await userEvent.type(screen.getByTestId("members-search"), "z");
+    const failedSearch = await screen.findByRole("alert");
+    expect(screen.queryByText("No matching members.")).not.toBeInTheDocument();
+    await userEvent.click(within(failedSearch).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("No matching members.")).toBeInTheDocument();
+    expect(backend.callsFor("GET", "/v1/groups/by-path/{group_path}/members").at(-1)?.params?.query).toMatchObject({ query: "z", page: 1, page_size: 50 });
+  });
+
+  it("shows a retryable child failure without a false empty folder", async () => {
+    const backend = installGroupBackend({ childrenFailReads: 1, children: [CHILD_ALPHA], tree: EMPTY_TREE });
+    await renderAt("/groups/stock%2Falpha");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Failed to load child groups.");
+    expect(screen.queryByTestId("library-empty")).not.toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("Alpha Child")).toBeInTheDocument();
+    expect(backend.callsFor("GET", "/v1/groups/by-path/{group_path}/children")).toHaveLength(2);
+  });
+
+  it("keeps child rows and a local error when their same-query refresh fails", async () => {
+    const options: GroupBackendOptions = { children: [CHILD_ALPHA], tree: EMPTY_TREE };
+    const backend = installGroupBackend(options);
+    await renderAt("/groups/stock%2Falpha");
+    const row = await screen.findByTestId("library-group-row");
+    await userEvent.click(within(row).getByRole("button", { name: "Actions" }));
+    await userEvent.click(await screen.findByRole("menuitem", { name: "Edit" }));
+    options.childrenFailReads = 1;
+    await userEvent.click(within(await screen.findByRole("dialog")).getByRole("button", { name: "Save" }));
+    const alert = await screen.findByRole("alert");
+    expect(screen.getByTestId("library-group-row")).toHaveTextContent("Alpha Child");
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(backend.callsFor("GET", "/v1/groups/by-path/{group_path}/children").at(-1)?.params?.query).toMatchObject({ page: 1, page_size: 50 });
+  });
+
   it("hides member administration from a viewer by default deny", async () => {
     await openMembers("viewer");
 
@@ -109,6 +154,21 @@ describe("group members", () => {
       expect(calls[0].params?.path).toEqual({ group_path: "stock/alpha" });
       expect(calls[0].body).toEqual({ login_name: "viewer", role: "maintainer" });
     });
+  });
+
+  it("keeps cached members marked failed when the post-command refresh fails", async () => {
+    const options: GroupBackendOptions = {};
+    installGroupBackend(options);
+    await renderAt("/groups/stock%2Falpha/members");
+    const row = (await screen.findAllByTestId("members-row"))[1];
+    options.membersFailReads = 1;
+    await userEvent.click(within(row).getByRole("button", { name: "Delete" }));
+    await userEvent.click(within(await screen.findByRole("alertdialog")).getByRole("button", { name: "Delete" }));
+    const alert = await screen.findByRole("alert");
+    expect(screen.getByText("viewer")).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByText("viewer")).not.toBeInTheDocument());
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 
   it("requires confirmation before removing a member", async () => {

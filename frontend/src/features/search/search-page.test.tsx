@@ -1,7 +1,9 @@
 import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { apiClient } from "@/services/api";
 import { installMockStorage } from "@/test-utils/storage";
 import { applyTimeZoneSelection, setLocale } from "@/lib/preferences-store";
 
@@ -68,6 +70,64 @@ describe("react search page", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     FakeEventSource.instances = [];
+  });
+
+  it("keeps failures after toast dismissal and retries the committed request instead of an unsent draft", async () => {
+    const backend = installSearchBackend({ post: [{ status: 503, message: "search unavailable" }, streamPage("policy", ["Recovered"])] });
+    const router = await openSearch("/search?q=policy&cursor=c1:failed&limit=16");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("search unavailable");
+    toast.dismiss();
+    await userEvent.clear(screen.getByTestId("search-query"));
+    await userEvent.type(screen.getByTestId("search-query"), "unsent");
+    const route = router.state.location.search;
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await expectResults(["Recovered"]);
+    expect(backend.callsFor("POST", "/v1/search")[1].body).toMatchObject({ query: "policy", cursor: "c1:failed", limit: 16 });
+    expect(router.state.location.search).toBe(route);
+    expect(screen.getByTestId("search-query")).toHaveValue("unsent");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it.each(["failure", "success"])("keeps the newest same-identity attempt when an older fallback settles with %s", async (outcome) => {
+    installSearchBackend();
+    let rejectOld: (error: Error) => void = () => {};
+    let resolveOld: (value: Awaited<ReturnType<typeof apiClient.search>>) => void = () => {};
+    vi.spyOn(apiClient, "search").mockImplementationOnce(() => new Promise((resolve, reject) => { rejectOld = reject; resolveOld = resolve; }));
+    await openSearch("/search?q=policy");
+    const source = await firstStream();
+    act(() => { source.emit("local", streamPage("policy", ["Cached"])); source.failNetwork(); });
+    await expectResults(["Cached"]);
+    await userEvent.click(screen.getByTestId("search-submit"));
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
+    act(() => {
+      FakeEventSource.instances[1].emit("local", streamPage("policy", ["Newest"]));
+      FakeEventSource.instances[1].emit("done", {});
+    });
+    await act(async () => {
+      if (outcome === "failure") rejectOld(new Error("obsolete failure"));
+      else resolveOld(streamPage("policy", ["Obsolete"]));
+    });
+    await expectResults(["Newest"]);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("keeps a committed same-query page visible with a persistent fallback error", async () => {
+    installSearchBackend({ postError: { status: 503, message: "refetch unavailable" } });
+    await openSearch("/search?q=policy");
+    const source = await firstStream();
+    act(() => { source.emit("local", streamPage("policy", ["Cached"])); source.failNetwork(); });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("refetch unavailable");
+    await expectResults(["Cached"]);
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(FakeEventSource.instances).toHaveLength(2));
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    act(() => {
+      FakeEventSource.instances[1].emit("local", streamPage("policy", ["Recovered"]));
+      FakeEventSource.instances[1].emit("done", {});
+    });
+    await expectResults(["Recovered"]);
   });
 
   it("stays empty before any search is submitted", async () => {

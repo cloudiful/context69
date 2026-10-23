@@ -25,6 +25,8 @@ export const groups = {
   deleteFailed: "删除群组失败。",
   moveFailed: "移动群组失败。",
   loadFailed: "加载群组失败。",
+  childrenLoadFailed: "加载子群组失败。",
+  membersLoadFailed: "加载成员失败。",
   emptyMessage: "当前还没有可见群组。",
   searchChildren: "搜索子群组",
   noMatchingChildren: "没有匹配的子群组。",

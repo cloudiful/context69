@@ -42,6 +42,8 @@ export interface FakeBackendOptions {
   translation?: TranslationSettingsResponse;
   tokens?: PersonalAccessTokenResponse[];
   users?: AdminUserResponse[];
+  adminUsersFailReads?: number;
+  runtimeGetFailReads?: number;
   vectorTask?: TaskResponse | null;
   remote?: DoclingRemoteTasksResponse;
   cleanup?: DoclingCleanupTask[];
@@ -356,6 +358,10 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
     const body = init?.body as Record<string, unknown> | undefined;
 
     if (path === "/v1/settings/runtime") {
+      if (method === "GET" && (options.runtimeGetFailReads ?? 0) > 0) {
+        options.runtimeGetFailReads! -= 1;
+        return failure(500, "runtime unavailable");
+      }
       if (method === "PUT" && body) {
         if (fail.runtimePut) {
           return failure(500, "runtime rejected");
@@ -675,14 +681,22 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
         state.users = [...state.users, created];
         return ok(created);
       }
+      if ((options.adminUsersFailReads ?? 0) > 0) {
+        options.adminUsersFailReads! -= 1;
+        return failure(500, "users unavailable");
+      }
       const pageNumber = Number(query.page ?? 1);
       const pageSize = Number(query.page_size ?? 50);
       const needle = String(query.query ?? "").toLowerCase();
       const filtered = state.users.filter((user) => (
         !needle || user.login_name.includes(needle) || user.display_name.toLowerCase().includes(needle)
       ));
+      const field = query.sort_by;
+      if (field === "login_name" || field === "display_name" || field === "created_at") {
+        filtered.sort((a, b) => a[field].localeCompare(b[field]) * (query.sort_direction === "desc" ? -1 : 1));
+      }
       const response: AdminUserPageResponse = {
-        items: filtered,
+        items: filtered.slice((pageNumber - 1) * pageSize, pageNumber * pageSize),
         pagination: page(pageNumber, pageSize, filtered.length),
       };
       return ok(response);

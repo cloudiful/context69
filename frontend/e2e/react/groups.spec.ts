@@ -26,6 +26,32 @@ const EMPTY_WORKSPACE_TREE: LibraryTreeFixture = {
 };
 
 test.describe("react group workspace", () => {
+  for (const locale of ["en", "zh-CN"]) {
+    test(`child and member read failures recover locally (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width: locale === "en" ? 1280 : 600, height: 900 });
+      await page.addInitScript((value) => localStorage.setItem("context69.locale", value), locale);
+      const workspace = { childrenFailReads: 1, membersFailReads: 0, tree: EMPTY_WORKSPACE_TREE };
+      const transport = await installAppTransport(page, { workspace });
+      await page.goto("/groups/stock%2Falpha");
+      const retry = locale === "en" ? "Retry" : "重试";
+      const alert = page.getByRole("alert");
+      await expect(alert).toContainText(locale === "en" ? "Failed to load child groups." : "加载子群组失败。");
+      await expect(page.getByTestId("library-empty")).toHaveCount(0);
+      await alert.getByRole("button", { name: retry }).click();
+      await expect(page.getByTestId("library-group-row")).toContainText("Beta Desk");
+      workspace.membersFailReads = 1;
+      await page.goto("/groups/stock%2Falpha/members");
+      await expect(alert).toContainText(locale === "en" ? "Failed to load members." : "加载成员失败。");
+      await alert.getByRole("button", { name: retry }).click();
+      await expect(page.getByTestId("members-row")).toHaveCount(2);
+      await page.getByTestId("members-search").fill("absent");
+      await expect(page.getByTestId("members-table")).toContainText(locale === "en" ? "No matching members." : "没有匹配的成员。");
+      await page.getByTestId("members-search").fill("");
+      await expect(page.getByTestId("members-row")).toHaveCount(2);
+      expect(transport.unmocked).toEqual([]);
+    });
+  }
+
   test("browses groups, folders, file preview and scoped search", async ({ page }) => {
     const external = recordExternalRequests(page);
     const transport = await installAppTransport(page, {

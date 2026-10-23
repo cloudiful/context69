@@ -49,6 +49,15 @@ export function GroupMembersPage() {
         ) : null}
       </div>
 
+      {state.membersError ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-3 text-sm">
+          <span>{t("groups.membersLoadFailed")}</span>
+          <Button size="sm" variant="outline" disabled={state.membersFetching} onClick={state.retryMembers}>
+            {t("common.retry")}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="min-w-0 overflow-x-auto">
         <Table data-testid="members-table">
           <TableHeader>
@@ -78,10 +87,10 @@ export function GroupMembersPage() {
                   {t("common.loading")}
                 </TableCell>
               </TableRow>
-            ) : state.members.length === 0 ? (
+            ) : state.members.length === 0 && !state.membersError ? (
               <TableRow>
                 <TableCell colSpan={state.canManage ? 4 : 3} className="py-8 text-sm text-muted-foreground">
-                  {t("members.empty")}
+                  {t(state.memberSearch.trim() ? "members.noMatches" : "members.empty")}
                 </TableCell>
               </TableRow>
             ) : state.members.map((member) => (

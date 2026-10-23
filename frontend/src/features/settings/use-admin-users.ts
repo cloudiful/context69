@@ -25,7 +25,10 @@ export function useAdminUsers(enabled: boolean) {
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [query, setQueryState] = useState("");
   const [sort, setSort] = useState<AdminUserSort | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [commandBusy, setCommandBusy] = useState(false);
+  const generation = useRef(0);
   const [createBusy, setCreateBusy] = useState(false);
   const queryRef = useRef(query);
   const sortRef = useRef(sort);
@@ -49,12 +52,18 @@ export function useAdminUsers(enabled: boolean) {
     requestQuery = queryRef.current,
     requestSort = sortRef.current,
   ) => {
+    const attempt = ++generation.current;
     if (!enabled) {
       setUsers([]);
+      setLoading(false);
+      setLoadError(null);
       return;
     }
 
-    setBusy(true);
+    pageRef.current = requestPage;
+    pageSizeRef.current = requestPageSize;
+    setLoading(true);
+    setLoadError(null);
     try {
       const response = await apiClient.listAdminUsers({
         page: requestPage,
@@ -63,34 +72,39 @@ export function useAdminUsers(enabled: boolean) {
         sort_by: requestSort?.field,
         sort_direction: requestSort?.direction,
       });
+      if (attempt !== generation.current) return;
       setPagination(response.pagination);
       setUsers(response.items);
       setPage(response.pagination.page);
       setPageSize(response.pagination.page_size);
     } catch (error) {
+      if (attempt !== generation.current) return;
+      setLoadError(errorMessage(error, t("adminUsers.loadFailed")));
       showErrorToast(error, t("adminUsers.loadFailed"));
     } finally {
-      setBusy(false);
+      if (attempt === generation.current) setLoading(false);
     }
   }, [enabled, showErrorToast, t]);
 
-  useEffect(() => {
-    void load(1, PAGE_SIZE, "", null);
-  }, []);
-
   const setQuery = useCallback((value: string) => {
+    ++generation.current;
+    queryRef.current = value;
+    pageRef.current = 1;
+    setPage(1);
     setQueryState(value);
+    setLoadError(null);
+    setLoading(true);
   }, []);
 
   // Debounced search: the field stays responsive while requests follow typing.
   useEffect(() => {
-    if (query === "") {
-      return;
-    }
     const timer = setTimeout(() => {
       void load(1, pageSizeRef.current, query, sortRef.current);
-    }, 250);
-    return () => clearTimeout(timer);
+    }, query === "" ? 0 : 250);
+    return () => {
+      clearTimeout(timer);
+      ++generation.current;
+    };
   }, [load, query]);
 
   const changePage = useCallback((next: number) => {
@@ -120,7 +134,7 @@ export function useAdminUsers(enabled: boolean) {
     if (create) {
       setCreateBusy(true);
     } else {
-      setBusy(true);
+      setCommandBusy(true);
     }
     try {
       await action();
@@ -129,7 +143,7 @@ export function useAdminUsers(enabled: boolean) {
       showErrorToast(error, fallback);
     } finally {
       setCreateBusy(false);
-      setBusy(false);
+      setCommandBusy(false);
     }
   }, [load, showErrorToast]);
 
@@ -172,7 +186,10 @@ export function useAdminUsers(enabled: boolean) {
   ), [runCommand, t]);
 
   return {
-    busy,
+    busy: loading || commandBusy,
+    loading,
+    loadError,
+    retry: () => { void load(); },
     changePage,
     changePageSize,
     changeSort,

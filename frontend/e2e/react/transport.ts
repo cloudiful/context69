@@ -62,7 +62,9 @@ export interface AppTransportOptions {
   settings?: boolean;
   embeddingTestFails?: boolean;
   /** Fails one settings group so a partial save is reachable. */
-  settingsFailures?: { doclingPut?: BackendFailure };
+  settingsFailures?: { doclingPut?: BackendFailure; runtimeGet?: BackendFailure; runtimeGetFailReads?: number };
+  adminUsers?: (typeof ADMIN_USER_ROW)[];
+  adminUsersFailReads?: number;
   /** Enables the search, document preview and stream endpoints. */
   search?: SearchMock;
   /** Enables group workspace, library, member, metadata and upload endpoints. */
@@ -124,6 +126,8 @@ export interface WorkspaceMock {
   group?: GroupFixture;
   children?: GroupFixture[];
   members?: GroupMemberFixture[];
+  childrenFailReads?: number;
+  membersFailReads?: number;
   tree?: LibraryTreeFixture;
   /** Folders prepended to the tree so the resource window has a second page. */
   extraRootFolders?: number;
@@ -164,6 +168,7 @@ export interface SearchMock {
   reranked?: SearchResponseFixture;
   post?: SearchResponseFixture | SearchResponseFixture[];
   postError?: BackendFailure;
+  postErrorReads?: number;
   document?: DocumentFixture;
   documentError?: BackendFailure;
   sources?: SourceStatusFixture[];
@@ -213,7 +218,7 @@ export async function installAppTransport(
     search: structuredClone(SEARCH_SETTINGS),
     translation: structuredClone(TRANSLATION_SETTINGS),
     tokens: [structuredClone(ACCESS_TOKEN)],
-    users: [structuredClone(ADMIN_USER_ROW)],
+    users: structuredClone(options.adminUsers ?? [ADMIN_USER_ROW]),
   };
   let signedIn = !options.guest;
   const itemRequests: Record<string, number> = {};
@@ -305,7 +310,8 @@ export async function installAppTransport(
     }
 
     if (url.pathname === "/v1/search" && method === "POST") {
-      if (search.postError) {
+      if (search.postError && (search.postErrorReads === undefined || search.postErrorReads > 0)) {
+        if (search.postErrorReads !== undefined) search.postErrorReads -= 1;
         await route.fulfill(json(search.postError.status, {
           code: "internal",
           message: search.postError.message,
@@ -683,6 +689,11 @@ export async function installAppTransport(
         return true;
       }
       if (rest === "/children") {
+        if ((workspace.childrenFailReads ?? 0) > 0) {
+          workspace.childrenFailReads! -= 1;
+          await route.fulfill(json(503, { message: "children unavailable" }));
+          return true;
+        }
         const search = (url.searchParams.get("query") ?? "").trim().toLowerCase();
         const items = search
           ? workspaceChildren.filter((child) => `${child.name} ${child.group_key} ${child.group_path}`.toLowerCase().includes(search))
@@ -690,16 +701,31 @@ export async function installAppTransport(
         if (workspace.childrenDelayMs) {
           await new Promise((resolve) => setTimeout(resolve, workspace.childrenDelayMs));
         }
+        const page = Number(url.searchParams.get("page") ?? 1);
+        const size = Number(url.searchParams.get("page_size") ?? 50);
         await route.fulfill(json(200, {
-          items,
-          pagination: pagination(1, 50, items.length),
+          items: items.slice((page - 1) * size, page * size),
+          pagination: pagination(page, size, items.length),
         }));
         return true;
       }
       if (rest === "/members" && method === "GET") {
+        if ((workspace.membersFailReads ?? 0) > 0) {
+          workspace.membersFailReads! -= 1;
+          await route.fulfill(json(503, { message: "members unavailable" }));
+          return true;
+        }
+        const search = (url.searchParams.get("query") ?? "").trim().toLowerCase();
+        const items = workspaceMembers.filter((member) => `${member.login_name} ${member.display_name}`.toLowerCase().includes(search));
+        const field = url.searchParams.get("sort_by");
+        if (field === "login_name" || field === "display_name" || field === "role") {
+          items.sort((a, b) => a[field].localeCompare(b[field]) * (url.searchParams.get("sort_direction") === "desc" ? -1 : 1));
+        }
+        const page = Number(url.searchParams.get("page") ?? 1);
+        const size = Number(url.searchParams.get("page_size") ?? 50);
         await route.fulfill(json(200, {
-          items: workspaceMembers,
-          pagination: pagination(1, 50, workspaceMembers.length),
+          items: items.slice((page - 1) * size, page * size),
+          pagination: pagination(page, size, items.length),
         }));
         return true;
       }
@@ -1038,6 +1064,12 @@ export async function installAppTransport(
     const path = url.pathname;
 
     if (path === "/v1/settings/runtime") {
+      const failure = options.settingsFailures;
+      if (method === "GET" && failure?.runtimeGet && (failure.runtimeGetFailReads === undefined || failure.runtimeGetFailReads > 0)) {
+        if (failure.runtimeGetFailReads !== undefined) failure.runtimeGetFailReads -= 1;
+        await route.fulfill(json(failure.runtimeGet.status, { message: failure.runtimeGet.message }));
+        return true;
+      }
       if (method === "PUT" && body) {
         saved.runtime = { ...saved.runtime, ...(body as object) } as typeof saved.runtime;
       }
@@ -1183,9 +1215,22 @@ export async function installAppTransport(
     }
 
     if (path === "/v1/admin/users" && method === "GET") {
+      if ((options.adminUsersFailReads ?? 0) > 0) {
+        options.adminUsersFailReads! -= 1;
+        await route.fulfill(json(503, { message: "users unavailable" }));
+        return true;
+      }
+      const search = (url.searchParams.get("query") ?? "").trim().toLowerCase();
+      const items = saved.users.filter((user) => `${user.login_name} ${user.display_name}`.toLowerCase().includes(search));
+      const field = url.searchParams.get("sort_by");
+      if (field === "login_name" || field === "display_name" || field === "created_at") {
+        items.sort((a, b) => a[field].localeCompare(b[field]) * (url.searchParams.get("sort_direction") === "desc" ? -1 : 1));
+      }
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const size = Number(url.searchParams.get("page_size") ?? 50);
       await route.fulfill(json(200, {
-        items: saved.users,
-        pagination: pagination(1, 50, saved.users.length),
+        items: items.slice((page - 1) * size, page * size),
+        pagination: pagination(page, size, items.length),
       }));
       return true;
     }
