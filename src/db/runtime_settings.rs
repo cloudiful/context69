@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 
+use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
+
 use super::{
     Database, RuntimeChunkingSettingsRow, RuntimeEmbeddingSettingsRow,
     RuntimeFileLibrarySettingsRow, RuntimeQdrantSettingsRow, RuntimeSchedulerSettingsRow,
@@ -132,6 +134,24 @@ impl Database {
         &self,
         settings: &StoredRuntimeSettings,
     ) -> Result<StoredRuntimeSettings> {
+        self.save_runtime_settings_with_identity_ack(settings, None)
+            .await
+    }
+
+    /// Saves the runtime settings family and, when `acknowledgment` is present,
+    /// rewrites the persisted vector identity in the same transaction.
+    ///
+    /// The acknowledgment is conditioned on the exact collection, the fingerprint
+    /// currently recorded, and its dimensions. A missing or mismatched row fails
+    /// the whole save, so settings never commit while the stored vectors still
+    /// claim a different identity. The update touches only the fingerprint,
+    /// endpoint, model, and dimensions, preserving `rebuilt_at` and
+    /// `rebuilt_chunks`.
+    pub async fn save_runtime_settings_with_identity_ack(
+        &self,
+        settings: &StoredRuntimeSettings,
+        acknowledgment: Option<VectorIdentityAck<'_>>,
+    ) -> Result<StoredRuntimeSettings> {
         let mut tx = self.pool.begin().await?;
         let embedding_dimensions = i64::try_from(settings.embedding.dimensions)
             .context("embedding dimensions too large")?;
@@ -241,6 +261,31 @@ impl Database {
         )
         .execute(&mut *tx)
         .await?;
+
+        if let Some(acknowledgment) = acknowledgment {
+            let acknowledged_dimensions = i64::try_from(acknowledgment.expected_dimensions)
+                .context("embedding dimensions too large")?;
+            let affected = sqlx::query_file!(
+                "src/sql/db/vector_index_state/acknowledge_identity.sql",
+                acknowledgment.candidate_fingerprint,
+                acknowledgment.embedding_base_url,
+                acknowledgment.embedding_model,
+                embedding_dimensions,
+                acknowledgment.collection_name,
+                acknowledgment.expected_fingerprint,
+                acknowledged_dimensions
+            )
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+            if affected != 1 {
+                return Err(DomainError::conflict(
+                    "the stored vector identity changed concurrently; the runtime settings were \
+                     not saved",
+                )
+                .into());
+            }
+        }
 
         tx.commit().await?;
         self.get_runtime_settings()

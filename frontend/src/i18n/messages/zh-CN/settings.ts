@@ -152,9 +152,17 @@ export const settings = {
     qdrantTest: "测试连接",
     qdrantTestSuccess: "Qdrant 连接成功",
     qdrantTestFailed: "Qdrant 连接失败",
-    recreateOnDimensionMismatch: "向量维度不匹配时重建集合",
+    requiresRebuild:
+      "现有向量由不同的 Embedding 身份生成。在重建向量索引之前，搜索和入库不可用。",
+    requiresRebuildDimensions:
+      "重建会按当前维度重新嵌入。维度不同属于独立的迁移，无法复用这些向量。",
+    compatibilityTitle: "保留现有向量？",
+    compatibilityConfirm:
+      "Embedding 网关地址或模型已更改。仅当新网关或别名指向相同的底层模型与向量空间时才保留现有向量。不会重新嵌入，也无法自动验证向量是否等价。",
+    compatibilityAccept: "保留向量并保存",
     vectorRebuild: "重建向量索引",
-    vectorRebuildConfirm: "使用当前已加载的 Embedding 模型重新计算全部文档向量？重建期间搜索结果可能暂时不完整。",
+    vectorRebuildConfirm:
+      "使用当前配置的 Embedding 模型重新嵌入全部已存储分块，可能耗时并产生 Embedding 费用。现有向量会被就地替换，不会删除或重建集合。",
     vectorRebuildStarted: "向量索引重建已开始",
     vectorRebuildSucceeded: "已重建 {count} 个分块",
     vectorRebuildFailed: "向量索引重建失败",

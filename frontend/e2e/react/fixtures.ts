@@ -78,6 +78,7 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     valkey_url: "redis://valkey:6379/0",
   },
   chunking: { max_chars: 1200, overlap_chars: 200 },
+  requires_rebuild: false,
   file_library: {
     storage_root: "/data/library",
     max_upload_size_mb: 128,

@@ -91,6 +91,7 @@ pub(super) fn runtime_settings_response(
     settings: StoredRuntimeSettings,
     has_embedding_api_key: bool,
     has_s3_secret_key: bool,
+    requires_rebuild: bool,
 ) -> RuntimeSettingsResponse {
     RuntimeSettingsResponse {
         qdrant: RuntimeQdrantSettings {
@@ -137,6 +138,7 @@ pub(super) fn runtime_settings_response(
                     has_secret_key: has_s3_secret_key,
                 }),
         },
+        requires_rebuild,
     }
 }
 
@@ -194,6 +196,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                     has_secret_key: !s3.secret_key.is_empty(),
                 }),
         },
+        requires_rebuild: false,
     }
 }
 

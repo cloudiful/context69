@@ -11,7 +11,7 @@ use crate::{
         library::LibraryService,
         metadata_payload_sync::MetadataPayloadSyncWorker,
         namespace::NamespaceService,
-        settings::SettingsService,
+        settings::{ConfigRefreshOutcome, SettingsService},
         tasks::{TaskService, TaskServiceDependencies},
     },
 };
@@ -19,12 +19,13 @@ use crate::{
 use super::{
     library_startup::LibraryStartup,
     services_init::ServicesInit,
-    task_worker_capacity, vector_rebuild,
+    task_worker_capacity,
     vector_runtime::{
         EmbeddingRuntimeReloader, EmbeddingRuntimeReloaderContext, EmbeddingSettingsGuard,
-        VectorRuntime,
+        EmbeddingTransitionApplier, VectorRuntime,
     },
 };
+use crate::services::settings::RuntimeEmbeddingTransition;
 
 pub struct BackgroundTasks {
     pub document_store: DocumentStoreService,
@@ -61,30 +62,55 @@ pub async fn start(
     // refused while a live reload or rebuild is in progress, so a racing save
     // can never report success while its identity remains unapplied.
     let embedding_reload_in_progress = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let embedding_reconciliation_required = Arc::new(std::sync::atomic::AtomicBool::new(false));
     settings.set_runtime_embedding_guard(Some(Arc::new({
         let guard = EmbeddingSettingsGuard::new(
             vector.embedding.clone(),
             vector.vector.clone(),
             embedding_reload_in_progress.clone(),
-        );
+        )
+        .with_reconciliation_required(embedding_reconciliation_required.clone());
         move |embedding| guard.check(embedding)
     })));
-    // Refreshes the dependency gates once a rebuild reopens reads, so the
-    // embedding/qdrant gates closed during the rebuild become available again.
-    let readiness_refresh: Arc<dyn Fn() + Send + Sync> = Arc::new({
-        let library = startup.library.clone();
-        move || {
-            let library = library.clone();
-            tokio::spawn(async move {
-                if let Err(error) = library.refresh_dependency_configuration().await {
-                    warn!(
-                        %error,
-                        "failed to refresh dependency gates after the vector index rebuild"
-                    );
-                }
-            });
-        }
-    });
+    // One exclusion shared by an identity transition, a live reload, and a
+    // manual rebuild start, so none of them can interleave their checks.
+    settings.set_runtime_embedding_transition(Some(RuntimeEmbeddingTransition::new(
+        {
+            let vector = vector.vector.clone();
+            move || vector.try_begin_identity_transition()
+        },
+        {
+            let vector = vector.vector.clone();
+            move || vector.end_identity_transition()
+        },
+    )));
+    // The live runtime is the only source for a populated collection that has
+    // no recorded identity, so the response consults it alongside the row.
+    settings.set_runtime_requires_rebuild(Some({
+        let vector = vector.vector.clone();
+        Arc::new(move || vector.requires_rebuild())
+    }));
+    // A destination change would make a running rebuild's completion describe a
+    // different collection, even with an unchanged embedding identity.
+    settings.set_runtime_rebuild_in_progress(Some({
+        let vector = vector.vector.clone();
+        Arc::new(move || vector.is_rebuilding())
+    }));
+    // A confirmed same-space transition applies only after its settings row is
+    // committed, and the save reports success only when this returns.
+    settings.set_runtime_embedding_applier(Some({
+        let applier = Arc::new(EmbeddingTransitionApplier::new(
+            vector.embedding.clone(),
+            vector.vector.clone(),
+            vector.recovery.clone(),
+            config.clone(),
+            embedding_reconciliation_required,
+        ));
+        Arc::new(move |provider, identity, stored, api_key| {
+            let applier = applier.clone();
+            Box::pin(async move { applier.apply(provider, identity, stored, api_key).await })
+        })
+    }));
     // A runtime settings save can change the S3 configuration, so refresh the
     // gates and re-probe the S3 backend through the same observer/probe path as
     // the periodic recovery loop. The probe never mutates stored objects. The
@@ -92,55 +118,57 @@ pub async fn start(
     // installs that (identity-preserving) change on the shared runtime.
     let embedding_reloader = Arc::new(EmbeddingRuntimeReloader::new(
         EmbeddingRuntimeReloaderContext {
-            db: db.clone(),
-            store: services.secrets.clone(),
             runtime: vector.embedding.clone(),
             vector: vector.vector.clone(),
             base_config: config.clone(),
             reload_in_progress: embedding_reload_in_progress.clone(),
         },
     ));
-    settings.set_runtime_settings_observer(Some(Arc::new({
-        let library = startup.library.clone();
-        let embedding_reloader = embedding_reloader.clone();
-        let settings_db = db.clone();
-        let settings_store = services.secrets.clone();
+    // One authoritative refresh path: a settings observer only requests a
+    // refresh, it never hands over a configuration it read earlier. The refresh
+    // re-reads the committed row under the settings save lock and the shared
+    // runtime transition, so a delayed observer can never install an older
+    // configuration over a newer save or acknowledgement, and a deferred retry
+    // always reloads the newest state instead of replaying a captured one.
+    settings.set_runtime_config_refresher(Some(Arc::new({
+        let db = db.clone();
+        let store = services.secrets.clone();
         let base_config = config.clone();
+        let embedding_reloader = embedding_reloader.clone();
         let recovery = Arc::clone(&vector.recovery);
         move || {
-            let library = library.clone();
-            let embedding_reloader = embedding_reloader.clone();
-            let settings_db = settings_db.clone();
-            let settings_store = settings_store.clone();
+            let db = db.clone();
+            let store = store.clone();
             let base_config = base_config.clone();
+            let embedding_reloader = embedding_reloader.clone();
             let recovery = recovery.clone();
-            tokio::spawn(async move {
-                if let Err(error) = embedding_reloader.reload().await {
-                    warn!(
-                        %error,
-                        "failed to reload the embedding runtime after runtime settings change"
-                    );
-                }
-                // A vector-relevant setting change starts a new generation, so
-                // an in-flight recovery attempt cannot publish the old pair and
-                // the supervisor reconnects with the committed configuration.
+            Box::pin(async move {
+                let Some(stored) =
+                    super::runtime_settings::load_runtime_settings_readonly(&db, &store).await?
+                else {
+                    return Ok(ConfigRefreshOutcome::AppliedUnchanged);
+                };
+                embedding_reloader.reload_reserved(&stored).await?;
                 let mut effective = base_config;
-                match super::runtime_settings::load_runtime_settings_readonly(
-                    &settings_db,
-                    &settings_store,
-                )
-                .await
-                {
-                    Ok(Some(stored)) => {
-                        super::runtime_settings::apply_runtime_settings(&mut effective, &stored);
-                        recovery.reconfigure(effective);
-                    }
-                    Ok(None) => {}
-                    Err(error) => warn!(
-                        %error,
-                        "failed to load runtime settings for vector runtime reconfiguration"
-                    ),
-                }
+                super::runtime_settings::apply_runtime_settings(&mut effective, &stored);
+                Ok(recovery.apply_reserved_reconfiguration(effective))
+            })
+        }
+    })));
+    let refresh_service = settings.clone();
+    let refresh_signal = Arc::new(tokio::sync::Notify::new());
+    // The same save can change the S3 configuration, so refresh the gates and
+    // re-probe the S3 backend through the same observer/probe path as the
+    // periodic recovery loop. The probe never mutates stored objects.
+    settings.set_runtime_settings_observer(Some(Arc::new({
+        let library = startup.library.clone();
+        let refresh_service = refresh_service.clone();
+        let refresh_signal = refresh_signal.clone();
+        move || {
+            let library = library.clone();
+            refresh_service.request_runtime_refresh();
+            refresh_signal.notify_one();
+            tokio::spawn(async move {
                 if let Err(error) = library.refresh_dependency_configuration().await {
                     warn!(
                         %error,
@@ -156,6 +184,14 @@ pub async fn start(
             });
         }
     })));
+    {
+        let shutdown = vector.recovery.shutdown_token();
+        tokio::spawn(async move {
+            refresh_service
+                .run_runtime_refresh_loop(refresh_signal, shutdown)
+                .await;
+        });
+    }
     // Bounded S3 gate recovery (issue 702 P2): reserve the half-open probe lease,
     // run one read-only backend check, and record the outcome. A no-op when S3
     // is not the active backend.
@@ -203,48 +239,16 @@ pub async fn start(
     if let Err(error) = db.delete_expired_rerank_item_scores(30).await {
         warn!(error = %error, "failed to prune expired rerank item scores during startup");
     }
-    if services.automatic_rebuild_needed
-        && !spawn_vector_rebuild(vector, &services.sync, db, config, &readiness_refresh)
-    {
-        // The pair is not published yet. Run the deferred initial rebuild
-        // exactly once when recovery publishes a safe client; a cancellation
-        // ends the wait.
-        let vector_handle = vector.vector.clone();
-        let gate = vector.gate.clone();
-        let sync = services.sync.clone();
-        let db = db.clone();
-        let config = config.clone();
-        let fingerprint = vector.fingerprint.clone();
-        let recreate = vector.fingerprint_changed && !vector.collection_needs_rebuild;
-        let readiness_refresh = readiness_refresh.clone();
-        let shutdown = vector.recovery.shutdown_token();
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    _ = shutdown.cancelled() => return,
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(500)) => {}
-                }
-                let Some(snapshot) = vector_handle.snapshot() else {
-                    continue;
-                };
-                let generation = vector_handle.begin_rebuild();
-                vector_rebuild::spawn(
-                    sync.clone(),
-                    db.clone(),
-                    vector_rebuild::RebuildTarget {
-                        runtime: vector_handle.clone(),
-                        index: snapshot.index,
-                        generation,
-                    },
-                    config.clone(),
-                    fingerprint.clone(),
-                    recreate,
-                    gate.rebuild_ticket()
-                        .with_on_settled(readiness_refresh.clone()),
-                );
-                return;
-            }
-        });
+    if services.startup_requires_rebuild {
+        // Reported, never repaired implicitly: startup performs zero embedding
+        // calls and never deletes or recreates the collection. Only an explicit
+        // manual rebuild (or a confirmed same-space acknowledgment) may clear
+        // this state.
+        warn!(
+            collection_name = config.qdrant.collection_name,
+            "persisted vectors do not match the configured embedding identity; vector work stays \
+             unavailable until an explicit rebuild completes"
+        );
     }
 
     Ok(BackgroundTasks {
@@ -374,37 +378,6 @@ async fn join_owned(slot: &mut Option<tokio::task::JoinHandle<()>>) {
         let _ = (&mut *task).await;
         *slot = None;
     }
-}
-
-/// Starts the automatic rebuild when a vector pair is already published.
-fn spawn_vector_rebuild(
-    vector: &VectorRuntime,
-    sync: &crate::services::sync::SyncService,
-    db: &Database,
-    config: &Config,
-    readiness_refresh: &Arc<dyn Fn() + Send + Sync>,
-) -> bool {
-    let Some(snapshot) = vector.vector.snapshot() else {
-        return false;
-    };
-    let generation = vector.vector.begin_rebuild();
-    vector_rebuild::spawn(
-        sync.clone(),
-        db.clone(),
-        vector_rebuild::RebuildTarget {
-            runtime: vector.vector.clone(),
-            index: snapshot.index,
-            generation,
-        },
-        config.clone(),
-        vector.fingerprint.clone(),
-        vector.fingerprint_changed && !vector.collection_needs_rebuild,
-        vector
-            .gate
-            .rebuild_ticket()
-            .with_on_settled(readiness_refresh.clone()),
-    );
-    true
 }
 
 #[cfg(test)]

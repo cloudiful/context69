@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.25.6"
+    "version": "0.25.7"
   },
   "paths": {
     "/healthz": {
@@ -11891,7 +11891,8 @@
           "embedding",
           "scheduler",
           "chunking",
-          "file_library"
+          "file_library",
+          "requires_rebuild"
         ],
         "properties": {
           "chunking": {
@@ -11905,6 +11906,10 @@
           },
           "qdrant": {
             "$ref": "#/components/schemas/RuntimeQdrantSettings"
+          },
+          "requires_rebuild": {
+            "type": "boolean",
+            "description": "True when the persisted vector identity does not match the stored\nembedding configuration, so existing vectors must be re-embedded through\nan explicit rebuild. Never inferred from connectivity alone."
           },
           "scheduler": {
             "$ref": "#/components/schemas/RuntimeSchedulerSettings"
@@ -14799,6 +14804,10 @@
           },
           "base_url": {
             "type": "string"
+          },
+          "confirm_vector_space_unchanged": {
+            "type": "boolean",
+            "description": "Operator assertion that a changed gateway/model alias still produces the\nsame vector space, so existing vectors may be kept. Transient: it is\nnever stored as a runtime setting."
           },
           "dimensions": {
             "type": "integer",

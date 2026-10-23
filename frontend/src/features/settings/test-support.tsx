@@ -82,6 +82,7 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     valkey_url: "redis://valkey:6379/0",
   },
   chunking: { max_chars: 1200, overlap_chars: 200 },
+  requires_rebuild: false,
   file_library: {
     ingest_concurrency: 2,
     max_upload_request_size_mb: 128,
@@ -309,7 +310,14 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
         }
         const payload = body as unknown as {
           qdrant: RuntimeSettingsResponse["qdrant"];
-          embedding: { base_url: string; model: string; dimensions: number; timeout_secs: number; api_key?: string };
+          embedding: {
+            base_url: string;
+            model: string;
+            dimensions: number;
+            timeout_secs: number;
+            api_key?: string;
+            confirm_vector_space_unchanged?: boolean;
+          };
           scheduler: RuntimeSettingsResponse["scheduler"];
           chunking: RuntimeSettingsResponse["chunking"];
           file_library: {
@@ -348,6 +356,11 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             valkey_url: payload.scheduler.valkey_url ?? null,
           },
           chunking: payload.chunking,
+          // Only an explicit same-space acknowledgement clears a pending
+          // rebuild; an ordinary save never does.
+          requires_rebuild: payload.embedding.confirm_vector_space_unchanged
+            ? false
+            : state.runtime.requires_rebuild,
           file_library: {
             storage_root: payload.file_library.storage_root,
             max_upload_size_mb: payload.file_library.max_upload_size_mb,

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.vector_index_state\nSET fingerprint = $1,\n    embedding_base_url = $2,\n    embedding_model = $3,\n    dimensions = $4\nWHERE collection_name = $5\n  AND fingerprint = $6\n  AND dimensions = $7\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a914e22f7a67d16797ad89d7e425a08ab0952c1ae1c21d15723a141b9eb91b3"
+}

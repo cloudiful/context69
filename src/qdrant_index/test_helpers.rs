@@ -12,10 +12,10 @@ use super::QdrantIndex;
 
 impl QdrantIndex {
     /// Builds a `QdrantIndex` against an arbitrary gRPC endpoint without
-    /// performing the `ensure_collection` round trip used by
-    /// `QdrantIndex::connect`. Production code MUST keep calling
-    /// `QdrantIndex::connect` so the collection boot path stays intact;
-    /// this constructor exists solely for the issue 43 phase 0
+    /// performing the collection bootstrap round trip production startup uses
+    /// (`QdrantIndex::bootstrap` / `QdrantIndex::attach_read_only`, driven by
+    /// `attach_unrecorded_collection`). Startup never deletes or recreates a
+    /// collection, so this constructor exists solely for the issue 43 phase 0
     /// reproduction fixture and any future test that needs a deterministic
     /// cleanup failure against an unreachable gRPC target.
     pub fn for_test_unreachable(

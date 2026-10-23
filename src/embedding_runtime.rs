@@ -223,6 +223,41 @@ impl From<Option<Arc<dyn EmbeddingProvider>>> for EmbeddingRuntime {
     }
 }
 
+/// The persisted vector-index fingerprint for one vector identity.
+///
+/// This is the same length-prefixed SHA-256 digest the application records in
+/// `vector_index_state`, kept here so settings code can compare a candidate
+/// identity with the persisted one without duplicating the format. It never
+/// changes existing persisted identities.
+pub fn vector_identity_fingerprint(
+    qdrant_url: &str,
+    collection_name: &str,
+    embedding_base_url: &str,
+    embedding_model: &str,
+    dimensions: usize,
+) -> String {
+    use sha2::{Digest, Sha256};
+
+    let parts = [
+        qdrant_url.trim_end_matches('/').to_string(),
+        collection_name.to_string(),
+        embedding_base_url.trim_end_matches('/').to_string(),
+        embedding_model.to_string(),
+        dimensions.to_string(),
+    ];
+    let mut digest = Sha256::new();
+    for part in parts {
+        digest.update((part.len() as u64).to_le_bytes());
+        digest.update(part.as_bytes());
+        digest.update([0]);
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// Builds a provider from configuration.
 ///
 /// Construction performs no network I/O, so a failed build leaves the caller's

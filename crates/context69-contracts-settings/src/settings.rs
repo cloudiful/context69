@@ -169,6 +169,10 @@ pub struct RuntimeSettingsResponse {
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: RuntimeFileLibrarySettings,
+    /// True when the persisted vector identity does not match the stored
+    /// embedding configuration, so existing vectors must be re-embedded through
+    /// an explicit rebuild. Never inferred from connectivity alone.
+    pub requires_rebuild: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -204,6 +208,11 @@ pub struct UpdateRuntimeEmbeddingSettings {
     pub timeout_secs: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// Operator assertion that a changed gateway/model alias still produces the
+    /// same vector space, so existing vectors may be kept. Transient: it is
+    /// never stored as a runtime setting.
+    #[serde(default)]
+    pub confirm_vector_space_unchanged: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

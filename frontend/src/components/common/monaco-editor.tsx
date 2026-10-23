@@ -40,17 +40,21 @@ let workerEnvironmentInstalled = false;
 
 /**
  * The editor bundle, its language workers and the editor worker stay out of the
- * initial application chunk: both modules load only once a wrapper mounts.
+ * initial application chunk: the modules load only once a wrapper mounts.
  */
 async function loadMonaco(): Promise<MonacoApi> {
-  const [module, workerModule] = await Promise.all([
+  const [module, workerModule, jsonWorkerModule] = await Promise.all([
     import("monaco-editor"),
     import("monaco-editor/editor/editor.worker?worker"),
+    import("monaco-editor/language/json/json.worker?worker"),
   ]);
   if (!workerEnvironmentInstalled) {
     const scope = typeof self === "undefined" ? globalThis : self;
-    const workerFactory = (workerModule as MonacoWorkerModule).default;
-    scope.MonacoEnvironment = { getWorker: () => new workerFactory() };
+    const EditorWorker = (workerModule as MonacoWorkerModule).default;
+    const JsonWorker = (jsonWorkerModule as MonacoWorkerModule).default;
+    scope.MonacoEnvironment = {
+      getWorker: (_workerId, label) => label === "json" ? new JsonWorker() : new EditorWorker(),
+    };
     workerEnvironmentInstalled = true;
   }
   return module as unknown as MonacoApi;

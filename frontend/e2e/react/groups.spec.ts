@@ -490,6 +490,11 @@ test.describe("react group workspace", () => {
     const errors: string[] = [];
     const workers: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
+    page.on("console", (message) => {
+      if (message.type() === "error" && /Missing requestHandler|doValidation|findDocumentColors/.test(message.text())) {
+        errors.push(message.text());
+      }
+    });
     page.on("worker", (worker) => workers.push(worker.url()));
     await installAppTransport(page, { user: ADMIN_USER, workspace: {} });
 
@@ -503,6 +508,12 @@ test.describe("react group workspace", () => {
     await expect(dialog.locator(".monaco-editor")).toBeVisible();
     await expect(dialog.locator(".monaco-editor .view-lines")).not.toHaveCount(0);
     await expect.poll(() => workers.length).toBeGreaterThan(0);
+    await expect.poll(() => workers.some((url) => /json\.worker/.test(url))).toBe(true);
+
+    await dialog.locator(".monaco-editor .view-lines").click();
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.type('{"source_key": }');
+    await expect(dialog.locator(".monaco-editor .squiggly-error").first()).toBeVisible();
     expect(errors).toEqual([]);
   });
 });

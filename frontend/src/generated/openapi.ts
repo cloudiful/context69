@@ -3675,6 +3675,12 @@ export interface components {
             embedding: components["schemas"]["RuntimeEmbeddingSettings"];
             file_library: components["schemas"]["RuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
+            /**
+             * @description True when the persisted vector identity does not match the stored
+             *     embedding configuration, so existing vectors must be re-embedded through
+             *     an explicit rebuild. Never inferred from connectivity alone.
+             */
+            requires_rebuild: boolean;
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
         };
         ScopeMetadataIndex: components["schemas"]["CreateMetadataIndexRequest"] & {
@@ -4676,6 +4682,12 @@ export interface components {
         UpdateRuntimeEmbeddingSettings: {
             api_key?: string | null;
             base_url: string;
+            /**
+             * @description Operator assertion that a changed gateway/model alias still produces the
+             *     same vector space, so existing vectors may be kept. Transient: it is
+             *     never stored as a runtime setting.
+             */
+            confirm_vector_space_unchanged?: boolean;
             dimensions: number;
             model: string;
             /** Format: int64 */

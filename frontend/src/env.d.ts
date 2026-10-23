@@ -11,12 +11,12 @@ interface ImportMeta {
 
 interface Window {
   MonacoEnvironment?: {
-    getWorker: () => Worker;
+    getWorker: (workerId: string, label: string) => Worker;
   };
 }
 
 interface GlobalThis {
   MonacoEnvironment?: {
-    getWorker: () => Worker;
+    getWorker: (workerId: string, label: string) => Worker;
   };
 }

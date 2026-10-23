@@ -23,7 +23,10 @@ pub struct ServicesInit {
     pub translation: TranslationService,
     pub sync: SyncService,
     pub query: QueryService,
-    pub automatic_rebuild_needed: bool,
+    /// The persisted vectors do not match the configured identity. Startup
+    /// reports this and schedules nothing: only an explicit rebuild (or a
+    /// confirmed same-space acknowledgment) may re-embed or clear it.
+    pub startup_requires_rebuild: bool,
     /// The shared secret store the application already built, reused by the
     /// live runtime-settings reload so it resolves keys the same way.
     pub secrets: SecretStore,
@@ -72,13 +75,14 @@ pub async fn initialize(
     if let Err(error) = sync.validate_sources().await {
         warn!(error = %error, "source validation failed during startup; continuing without blocking service startup");
     }
-    let automatic_rebuild_needed = sync.runtime_configured()
-        && (vector.collection_needs_rebuild || vector.fingerprint_changed);
+    // A persisted identity mismatch is reported, never repaired implicitly.
+    let startup_requires_rebuild = sync.runtime_configured() && vector.requires_rebuild;
     // One readiness truth for the process: a configured runtime with no
-    // published pair must not report ready, and a startup rebuild keeps the
-    // embedding handle, query service, and dependency gates stopped together.
+    // published pair, or with persisted vectors of a different identity, must
+    // not report ready, and that state keeps the embedding handle, query
+    // service, and dependency gates stopped together.
     let has_pair = vector.vector.snapshot().is_some();
-    vector.gate.set_ready(has_pair && !automatic_rebuild_needed);
+    vector.gate.set_ready(has_pair && !startup_requires_rebuild);
     let query = QueryService::with_vector_runtime(SharedQueryDeps {
         db: db.clone(),
         vector: vector.vector.clone(),
@@ -93,7 +97,7 @@ pub async fn initialize(
         translation,
         sync,
         query,
-        automatic_rebuild_needed,
+        startup_requires_rebuild,
         secrets: store,
     })
 }
