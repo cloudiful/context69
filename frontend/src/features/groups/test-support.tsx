@@ -169,6 +169,8 @@ export interface GroupBackendOptions {
   /** Children per group path, so a group switch is observable. */
   childrenByGroupPath?: Record<string, GroupResponse[]>;
   members?: GroupMemberResponse[];
+  childrenFailReads?: number;
+  membersFailReads?: number;
   tree?: LibraryTreeResponse;
   fileDetail?: (fileId: string) => LibraryFileDetailResponse;
   failedItems?: LibraryResourceItem[];
@@ -279,6 +281,10 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
       return ok({ ...group, parent_group_path: null });
     }
     if (path === "/v1/groups/by-path/{group_path}/children") {
+      if ((options.childrenFailReads ?? 0) > 0) {
+        options.childrenFailReads! -= 1;
+        return fail(500, "children unavailable");
+      }
       const source = options.childrenByGroupPath?.[groupPath ?? ""] ?? options.children ?? [];
       const search = typeof query.query === "string" ? query.query.trim().toLowerCase() : "";
       const items = search
@@ -287,10 +293,24 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
       if (heldChildren) {
         await heldChildren;
       }
-      return ok({ items, pagination: pagination(1, items.length) } satisfies GroupPageResponse);
+      const page = Number(query.page ?? 1);
+      const size = Number(query.page_size ?? 50);
+      return ok({ items: items.slice((page - 1) * size, page * size), pagination: pagination(page, items.length, size) } satisfies GroupPageResponse);
     }
     if (path === "/v1/groups/by-path/{group_path}/members" && method === "GET") {
-      return ok({ items: members, pagination: pagination(1, members.length) });
+      if ((options.membersFailReads ?? 0) > 0) {
+        options.membersFailReads! -= 1;
+        return fail(500, "members unavailable");
+      }
+      const search = String(query.query ?? "").trim().toLowerCase();
+      const filtered = members.filter((member) => `${member.login_name} ${member.display_name}`.toLowerCase().includes(search));
+      const field = query.sort_by;
+      if (field === "login_name" || field === "display_name" || field === "role") {
+        filtered.sort((a, b) => a[field].localeCompare(b[field]) * (query.sort_direction === "desc" ? -1 : 1));
+      }
+      const page = Number(query.page ?? 1);
+      const size = Number(query.page_size ?? 50);
+      return ok({ items: filtered.slice((page - 1) * size, page * size), pagination: pagination(page, filtered.length, size) });
     }
     if (path === "/v1/groups/by-path/{group_path}/members" && method === "POST") {
       const payload = init?.body as GroupMemberResponse;

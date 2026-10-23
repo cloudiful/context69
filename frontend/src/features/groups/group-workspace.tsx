@@ -37,6 +37,9 @@ interface GroupWorkspaceValue {
   children: GroupResponse[];
   childPage: { page: number; page_size: number; total: number; total_pages: number } | null;
   childrenLoading: boolean;
+  childrenError: unknown;
+  childrenFetching: boolean;
+  retryChildren: () => void;
   childSearch: string;
   setChildSearch: (value: string) => void;
   setChildPage: (page: number) => void;
@@ -44,6 +47,9 @@ interface GroupWorkspaceValue {
   members: GroupMemberResponse[];
   memberPage: { page: number; page_size: number; total: number; total_pages: number } | null;
   membersLoading: boolean;
+  membersError: unknown;
+  membersFetching: boolean;
+  retryMembers: () => void;
   memberSearch: string;
   setMemberSearch: (value: string) => void;
   setMemberPage: (page: number) => void;
@@ -448,6 +454,9 @@ export function GroupWorkspaceProvider({
     children: childrenQuery.data?.items ?? [],
     childPage: childrenQuery.data?.pagination ?? null,
     childrenLoading: childrenQuery.isLoading,
+    childrenError: childrenQuery.error,
+    childrenFetching: childrenQuery.isFetching,
+    retryChildren: () => { void childrenQuery.refetch(); },
     childSearch,
     setChildSearch: (next) => {
       setChildSearchState(next);
@@ -458,6 +467,9 @@ export function GroupWorkspaceProvider({
     members: membersQuery.data?.items ?? [],
     memberPage: membersQuery.data?.pagination ?? null,
     membersLoading: membersQuery.isLoading,
+    membersError: membersQuery.error,
+    membersFetching: membersQuery.isFetching,
+    retryMembers: () => { void membersQuery.refetch(); },
     memberSearch,
     setMemberSearch: (next) => {
       setMemberSearchState(next);
@@ -523,6 +535,9 @@ export function GroupWorkspaceProvider({
     childSearch,
     childrenQuery.data,
     childrenQuery.isLoading,
+    childrenQuery.error,
+    childrenQuery.isFetching,
+    childrenQuery.refetch,
     confirm,
     editGroupOpen,
     editingChild,
@@ -540,6 +555,9 @@ export function GroupWorkspaceProvider({
     memberSuggestions,
     membersQuery.data,
     membersQuery.isLoading,
+    membersQuery.error,
+    membersQuery.isFetching,
+    membersQuery.refetch,
     moveBusy,
     moveDialogOpen,
     moveSuggestions,

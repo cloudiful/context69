@@ -27,6 +27,17 @@ describe("search settings", () => {
     vi.restoreAllMocks();
   });
 
+  it("shows the real initial load reason and recovers through Retry", async () => {
+    installFakeBackend({ runtimeGetFailReads: 1 });
+    await openSettings("/settings/search");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("runtime unavailable");
+    expect(alert).not.toHaveTextContent("Loading settings");
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByLabelText("Rerank Candidates")).toHaveValue(40);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   it("saves the rerank fields and a write-only key", async () => {
     const backend = installFakeBackend();
     await openSettings("/settings/search");

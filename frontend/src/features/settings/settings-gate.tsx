@@ -6,6 +6,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 
 import { useSettings } from "./settings-context";
+import { errorMessage } from "./settings-error";
 
 /**
  * Holds a section's fields until the shared settings load has produced drafts,
@@ -20,7 +21,7 @@ export function SettingsGate({ children }: { children: ReactNode }) {
       <Alert variant="destructive">
         <AlertTitle>{t("settings.loadFailed")}</AlertTitle>
         <AlertDescription className="grid gap-2">
-          <span>{t("settings.loadingMessage")}</span>
+          <span>{errorMessage(page.loadError, t("settings.loadFailed"))}</span>
           <Button size="sm" variant="outline" className="w-fit" onClick={page.reload}>
             {t("common.retry")}
           </Button>

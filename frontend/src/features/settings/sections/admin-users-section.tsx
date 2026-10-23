@@ -76,6 +76,15 @@ export function AdminUsersSection() {
           </Button>
         </div>
 
+        {adminUsers.loadError ? (
+          <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-3 text-sm">
+            <span>{adminUsers.loadError}</span>
+            <Button size="sm" variant="outline" disabled={adminUsers.loading} onClick={adminUsers.retry}>
+              {t("common.retry")}
+            </Button>
+          </div>
+        ) : null}
+
         <Table>
           <TableHeader>
             <TableRow>
@@ -88,10 +97,10 @@ export function AdminUsersSection() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {adminUsers.users.length === 0 ? (
+            {adminUsers.users.length === 0 && !adminUsers.loadError ? (
               <TableRow>
                 <TableCell colSpan={6} className="text-sm text-muted-foreground">
-                  {adminUsers.busy ? t("common.loading") : t("adminUsers.loadFailed")}
+                  {adminUsers.loading ? t("common.loading") : t(adminUsers.query.trim() ? "adminUsers.noMatches" : "adminUsers.empty")}
                 </TableCell>
               </TableRow>
             ) : (

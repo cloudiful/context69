@@ -25,6 +25,8 @@ export const groups = {
   deleteFailed: "Failed to delete group.",
   moveFailed: "Failed to move group.",
   loadFailed: "Failed to load groups.",
+  childrenLoadFailed: "Failed to load child groups.",
+  membersLoadFailed: "Failed to load members.",
   emptyMessage: "No visible groups yet.",
   searchChildren: "Search child groups",
   noMatchingChildren: "No matching child groups.",

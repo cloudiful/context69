@@ -19,6 +19,38 @@ async function openSettingsTab(page: import("@playwright/test").Page, name: stri
 }
 
 test.describe("react settings", () => {
+  for (const locale of ["en", "zh-CN"]) {
+    test(`user read and settings gate failures recover (${locale})`, async ({ page }) => {
+      await page.setViewportSize({ width: locale === "en" ? 1280 : 600, height: 900 });
+      await page.addInitScript((value) => localStorage.setItem("context69.locale", value), locale);
+      const options = { settings: true, adminUsersFailReads: 1, settingsFailures: { runtimeGet: { status: 503, message: "runtime unavailable" }, runtimeGetFailReads: 1 } };
+      const transport = await installAppTransport(page, options);
+      await page.goto("/settings/admin-users");
+      const alert = page.getByRole("alert");
+      const retry = locale === "en" ? "Retry" : "重试";
+      await expect(alert).toContainText("runtime unavailable");
+      await expect(alert).not.toContainText(locale === "en" ? "Loading settings" : "正在加载");
+      await alert.getByRole("button", { name: retry }).click();
+      await expect(alert).toContainText("users unavailable");
+      await alert.getByRole("button", { name: retry }).click();
+      await expect(page.getByRole("cell", { name: "planner", exact: true })).toBeVisible();
+      const search = page.getByRole("textbox", { name: locale === "en" ? "Login Name" : "登录名", exact: true });
+      await search.fill("absent");
+      await expect(page.getByText(locale === "en" ? "No matching users." : "没有匹配的用户。", { exact: true })).toBeVisible();
+      await search.fill("");
+      await expect(page.getByRole("cell", { name: "planner", exact: true })).toBeVisible();
+      expect(transport.unmocked).toEqual([]);
+    });
+
+    test(`successful empty users are not a read failure (${locale})`, async ({ page }) => {
+      await page.addInitScript((value) => localStorage.setItem("context69.locale", value), locale);
+      await installAppTransport(page, { settings: true, adminUsers: [] });
+      await page.goto("/settings/admin-users");
+      await expect(page.getByText(locale === "en" ? "No users yet." : "暂无用户。", { exact: true })).toBeVisible();
+      await expect(page.getByRole("alert")).toHaveCount(0);
+    });
+  }
+
   test("saves appearance and keeps it after a reload", async ({ page }) => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
     const external = recordExternalRequests(page);

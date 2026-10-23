@@ -1,5 +1,7 @@
 export const adminUsers = {
   title: "用户",
+  empty: "暂无用户。",
+  noMatches: "没有匹配的用户。",
   loadFailed: "加载用户失败。",
   createFailed: "创建用户失败。",
   updateFailed: "更新用户失败。",

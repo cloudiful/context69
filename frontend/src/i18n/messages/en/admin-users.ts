@@ -1,5 +1,7 @@
 export const adminUsers = {
   title: "Users",
+  empty: "No users yet.",
+  noMatches: "No matching users.",
   loadFailed: "Failed to load users.",
   createFailed: "Failed to create user.",
   updateFailed: "Failed to update user.",

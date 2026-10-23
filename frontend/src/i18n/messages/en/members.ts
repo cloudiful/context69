@@ -7,5 +7,6 @@ export const members = {
   editTitle: "Edit Member",
   searchUserPlaceholder: "Search by login name or display name",
   empty: "No members yet.",
+  noMatches: "No matching members.",
   noCandidates: "No matching users.",
 } as const;

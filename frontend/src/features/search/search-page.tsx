@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { Button } from "@/components/ui/button";
 import { resolveSearchErrorMessage } from "@/utils/search-errors";
 import { replaySearchEntry, type SearchHistoryEntry } from "@/utils/search-history";
 import { apiClient } from "@/services/api";
@@ -74,6 +75,8 @@ export function SearchPage() {
   const [previewHit, setPreviewHit] = useState<SearchHit | null>(null);
   const searchHistory = useSearchHistory();
 
+  const [failure, setFailure] = useState<(ExecuteOptions & { message: string; identity: string }) | null>(null);
+  const attemptRef = useRef(0);
   const lastAppliedRef = useRef<string | null>(null);
   const activeIdentityRef = useRef<string | null>(null);
   const appliedNavigationRef = useRef<SearchNavigationState>({ page: 1 });
@@ -118,6 +121,8 @@ export function SearchPage() {
     }
 
     const runIdentity = searchIdentity(normalized, navigation);
+    const attempt = ++attemptRef.current;
+    setFailure(null);
     lastAppliedRef.current = runIdentity;
     activeIdentityRef.current = runIdentity;
     appliedNavigationRef.current = navigation;
@@ -134,6 +139,9 @@ export function SearchPage() {
     try {
       await runSearch(payload);
     } catch (error) {
+      if (attempt !== attemptRef.current || activeIdentityRef.current !== runIdentity) {
+        return;
+      }
       if (error instanceof Error && error.name === "AbortError") {
         return;
       }
@@ -145,7 +153,9 @@ export function SearchPage() {
         await execute({ filters: normalized, navigation: { page: 1 }, syncRoute: true });
         return;
       }
-      showError(resolveSearchErrorMessage(error, t));
+      const message = resolveSearchErrorMessage(error, t);
+      setFailure({ filters: normalized, navigation, message, identity: runIdentity });
+      showError(message);
     }
   }, [addHistory, runSearch, setSearchParams, showError, t]);
 
@@ -153,6 +163,11 @@ export function SearchPage() {
   // (deep link, back/forward, a paging link).
   useEffect(() => {
     if (!urlFilters.query) {
+      ++attemptRef.current;
+      activeIdentityRef.current = null;
+      lastAppliedRef.current = null;
+      abortSearch();
+      setFailure(null);
       setSelectedHit(null);
       setPreviewHit(null);
       return;
@@ -162,7 +177,7 @@ export function SearchPage() {
     }
     lastAppliedRef.current = identity;
     void execute({ filters: urlFilters, navigation: urlNavigation, syncRoute: false });
-  }, [execute, identity, urlFilters, urlNavigation]);
+  }, [abortSearch, execute, identity, urlFilters, urlNavigation]);
 
   // An external URL change is the applied state; mirror it into the form unless
   // the user is still editing a draft for the same identity.
@@ -277,6 +292,15 @@ export function SearchPage() {
         onHistorySelect={replayHistory}
         onReset={() => setDraft(createDefaultFilters())}
       />
+
+      {failure?.identity === identity ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-3 text-sm">
+          <span>{failure.message}</span>
+          <Button size="sm" variant="outline" disabled={loading || refining} onClick={() => void execute({ ...failure, syncRoute: false })}>
+            {t("common.retry")}
+          </Button>
+        </div>
+      ) : null}
 
       {showPanel ? (
         <SearchResults

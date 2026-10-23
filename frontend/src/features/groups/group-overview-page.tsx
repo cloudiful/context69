@@ -151,6 +151,15 @@ export function GroupOverviewPage() {
         </div>
       ) : null}
 
+      {state.childrenError ? (
+        <div role="alert" className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/40 p-3 text-sm">
+          <span>{t("groups.childrenLoadFailed")}</span>
+          <Button size="sm" variant="outline" disabled={state.childrenFetching} onClick={state.retryChildren}>
+            {t("common.retry")}
+          </Button>
+        </div>
+      ) : null}
+
       <div className="min-h-0 min-w-0 flex-1 overflow-y-auto">
         <LibraryTable
           groupPath={state.groupPath}
@@ -171,6 +180,7 @@ export function GroupOverviewPage() {
           resourceQuery={library.query}
           statusFilter={library.statusFilter}
           childSearchActive={childSearchActive}
+          childrenUnavailable={!!state.childrenError || state.childrenLoading}
           onToggleSelect={library.toggleSelect}
           onToggleFolder={library.toggleFolderExpansion}
           onOpenEntry={library.openEntry}

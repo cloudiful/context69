@@ -79,6 +79,7 @@ export interface LibraryTableProps {
   statusFilter: string | null;
   /** A child-group search is active, so an empty table means no child matched. */
   childSearchActive?: boolean;
+  childrenUnavailable?: boolean;
   onToggleSelect: (key: string) => void;
   onToggleFolder: (id: string | null) => void;
   onOpenEntry: (entry: ExplorerEntry) => void;
@@ -331,7 +332,7 @@ export function LibraryTable(props: LibraryTableProps) {
                   {t("common.loading")}
                 </TableCell>
               </TableRow>
-            ) : rows.length === 0 ? (
+            ) : rows.length === 0 && !props.childrenUnavailable ? (
               <TableRow>
                 <TableCell colSpan={7} className="py-8 text-sm text-muted-foreground" data-testid="library-empty">
                   {props.resourceQuery || props.statusFilter

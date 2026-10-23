@@ -1,7 +1,9 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { act, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { apiClient } from "@/services/api";
 import { setLocale } from "@/lib/preferences-store";
 import { installMockStorage } from "@/test-utils/storage";
 
@@ -222,6 +224,66 @@ describe("translation settings", () => {
 });
 
 describe("admin users settings", () => {
+  it("keeps a persistent read failure, retries, distinguishes no matches and reloads on clear", async () => {
+    const backend = installFakeBackend({ adminUsersFailReads: 1 });
+    await openSettings("/settings/admin-users");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("users unavailable");
+    expect(screen.queryByText("No users yet.")).not.toBeInTheDocument();
+    toast.dismiss();
+    expect(alert).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    expect(await screen.findByText("planner")).toBeInTheDocument();
+    const search = screen.getByRole("textbox", { name: "Login Name" });
+    await userEvent.type(search, "absent");
+    expect(await screen.findByText("No matching users.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    await userEvent.clear(search);
+    expect(await screen.findByText("planner")).toBeInTheDocument();
+    expect(backend.callsFor("GET", "/v1/admin/users").at(-1)?.params).toMatchObject({ query: { page: 1 } });
+  });
+
+  it("preserves stale rows on refetch failure and retries the selected sort", async () => {
+    const options = { adminUsersFailReads: 0 };
+    const backend = installFakeBackend(options);
+    await openSettings("/settings/admin-users");
+    await screen.findByText("planner");
+    options.adminUsersFailReads = 1;
+    await userEvent.click(screen.getByRole("button", { name: "Display Name" }));
+    const alert = await screen.findByRole("alert");
+    expect(screen.getByText("planner")).toBeInTheDocument();
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByRole("alert")).not.toBeInTheDocument());
+    expect(backend.callsFor("GET", "/v1/admin/users").at(-1)?.params).toMatchObject({ query: { sort_by: "display_name", sort_direction: "asc" } });
+  });
+
+  it.each(["failure", "success"])("ignores an outdated user load %s after the latest search succeeds", async (outcome) => {
+    installFakeBackend();
+    await openSettings("/settings/admin-users");
+    await screen.findByText("planner");
+    let rejectOld: (error: Error) => void = () => {};
+    let resolveOld: (value: Awaited<ReturnType<typeof apiClient.listAdminUsers>>) => void = () => {};
+    const spy = vi.spyOn(apiClient, "listAdminUsers").mockImplementationOnce(() => new Promise((resolve, reject) => { rejectOld = reject; resolveOld = resolve; }));
+    const search = screen.getByRole("textbox", { name: "Login Name" });
+    await userEvent.type(search, "old");
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(1));
+    await userEvent.clear(search);
+    await waitFor(() => expect(spy).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      if (outcome === "failure") rejectOld(new Error("old failure"));
+      else resolveOld({ items: [], pagination: { page: 9, page_size: 10, total: 0, total_pages: 0 } });
+    });
+    expect(screen.getByText("planner")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("shows successful empty users without a load failure", async () => {
+    installFakeBackend({ users: [] });
+    await openSettings("/settings/admin-users");
+    expect(await screen.findByText("No users yet.")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
   beforeAll(() => installDomPolyfills());
   beforeEach(() => {
     resetToasts();
