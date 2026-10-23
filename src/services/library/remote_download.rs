@@ -326,13 +326,35 @@ mod tests {
             .expect("bind the local fake");
         let address = listener.local_addr().expect("address");
         let server = tokio::spawn(async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let (mut socket, _) = listener.accept().await.expect("accept");
+            // The request head is consumed before the answer is written. A
+            // client whose request is still being written sees a closed
+            // connection when the fake answers without reading, and the
+            // request fails before the status ever arrives.
+            let mut head = Vec::new();
+            let mut chunk = [0_u8; 1024];
+            while head.len() < 64 * 1024 {
+                let read = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    socket.read(&mut chunk),
+                )
+                .await
+                .expect("the request head arrives in time")
+                .expect("read the request head");
+                if read == 0 {
+                    break;
+                }
+                head.extend_from_slice(&chunk[..read]);
+                if head.windows(4).any(|window| window == b"\r\n\r\n") {
+                    break;
+                }
+            }
             let reason = status.canonical_reason().unwrap_or("Status");
             let response = format!(
                 "HTTP/1.1 {} {reason}\r\ncontent-length: 0\r\nconnection: close\r\n\r\n",
                 status.as_u16()
             );
-            use tokio::io::AsyncWriteExt;
             let _ = socket.write_all(response.as_bytes()).await;
         });
         let response = reqwest::Client::new()

@@ -5,7 +5,7 @@ import { toast } from "sonner";
 
 import { TablePagination } from "@/components/common/table-pagination";
 import { FormField } from "@/components/common/form-field";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -37,14 +37,19 @@ const VALUE_KINDS: MetadataValueKind[] = ["scalar", "array"];
 const PAGE_SIZE = 50;
 const MAX_POLLS = 20;
 
-function statusVariant(status: MetadataIndexResponse["status"]): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "ready") {
-    return "default";
+function statusTone(status: MetadataIndexResponse["status"]): StatusTone {
+  switch (status) {
+    case "building":
+      return "active";
+    case "ready":
+      return "success";
+    case "failed":
+      return "failure";
+    case "deleting":
+      return "warning";
+    default:
+      return "neutral";
   }
-  if (status === "failed") {
-    return "destructive";
-  }
-  return "secondary";
 }
 
 export function MetadataIndexesSection({
@@ -209,9 +214,9 @@ export function MetadataIndexesSection({
                 <TableCell className="text-sm">{row.data_type}</TableCell>
                 <TableCell className="text-sm">{row.value_kind}</TableCell>
                 <TableCell>
-                  <Badge variant={statusVariant(row.status)} title={row.error_message ?? undefined}>
+                  <StatusBadge tone={statusTone(row.status)} title={row.error_message ?? undefined}>
                     {row.status}
-                  </Badge>
+                  </StatusBadge>
                 </TableCell>
                 {canManage ? (
                   <TableCell>

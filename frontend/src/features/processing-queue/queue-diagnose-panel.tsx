@@ -1,12 +1,31 @@
 import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { apiClient } from "@/services/api";
 import { formatTimestamp } from "@/lib/format";
 
 import { libraryDependencyLabel, queueStageLabel } from "./queue-helpers";
+
+function statusTone(status: string): StatusTone {
+  switch (status) {
+    case "queued":
+      return "info";
+    case "running":
+      return "active";
+    case "waiting":
+      return "warning";
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "failure";
+    case "cancelled":
+      return "neutral";
+    default:
+      return "neutral";
+  }
+}
 
 /**
  * Read-only troubleshooting for one task. Everything shown is a fact the server
@@ -42,11 +61,11 @@ export function QueueDiagnosePanel({ taskId }: { taskId: string }) {
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Badge variant={consistency.consistent ? "secondary" : "destructive"}>
+        <StatusBadge tone={consistency.consistent ? "success" : "failure"}>
           {consistency.consistent
             ? t("processingQueue.diagnose.consistent")
             : t("processingQueue.diagnose.inconsistent")}
-        </Badge>
+        </StatusBadge>
         <span className="text-muted-foreground">
           {t("processingQueue.diagnose.observedAt", { time: formatTimestamp(report.observed_at) })}
         </span>
@@ -71,9 +90,9 @@ export function QueueDiagnosePanel({ taskId }: { taskId: string }) {
                 {report.dependency_gates.map((gate) => (
                   <li key={gate.dependency_key} className="flex flex-wrap items-center gap-2">
                     <span className="font-medium">{libraryDependencyLabel(t, gate.dependency_key)}</span>
-                    <Badge variant={gate.state === "closed" ? "destructive" : "secondary"}>
+                    <StatusBadge tone={gate.state === "closed" ? "failure" : "neutral"}>
                       {t(`processingQueue.diagnose.gateStates.${gate.state}`, { defaultValue: gate.state })}
-                    </Badge>
+                    </StatusBadge>
                     {gate.next_probe_at
                       ? (
                           <span className="text-muted-foreground">
@@ -102,7 +121,7 @@ export function QueueDiagnosePanel({ taskId }: { taskId: string }) {
                       <span className="font-medium">
                         {t("processingQueue.diagnose.ordinal", { ordinal: item.ordinal })}
                       </span>
-                      <Badge variant="outline">{t(`processingQueue.statuses.${item.status}`)}</Badge>
+                      <StatusBadge tone={statusTone(item.status)}>{t(`processingQueue.statuses.${item.status}`)}</StatusBadge>
                       <span className="text-muted-foreground">
                         {queueStageLabel(t, item.stage)}
                       </span>

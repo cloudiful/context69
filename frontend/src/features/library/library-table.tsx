@@ -10,6 +10,7 @@ import {
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { TablePagination } from "@/components/common/table-pagination";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -48,14 +49,14 @@ const TYPE_KEYS: Record<LibraryBrowserEntry["kind"], string> = {
   file: "library.fileType",
 };
 
-function statusVariant(status: string): "default" | "secondary" | "destructive" {
+function statusTone(status: string): StatusTone {
   if (status === "succeeded") {
-    return "default";
+    return "success";
   }
   if (status === "failed") {
-    return "destructive";
+    return "failure";
   }
-  return "secondary";
+  return "neutral";
 }
 
 export interface LibraryTableProps {
@@ -447,12 +448,12 @@ export function LibraryTable(props: LibraryTableProps) {
                         </span>
                       ) : (
                         <span className="inline-flex items-center gap-1.5">
-                          <Badge
-                            variant={statusVariant(entry.ingestStatus)}
+                          <StatusBadge
+                            tone={statusTone(entry.ingestStatus)}
                             title={entry.errorMessage ?? undefined}
                           >
                             {libraryStatusLabel(t, entry.ingestStatus)}
-                          </Badge>
+                          </StatusBadge>
                           {props.unavailableFileIds.includes(entry.id) ? (
                             <Unlink aria-hidden="true" className="size-3.5 text-muted-foreground" />
                           ) : null}
