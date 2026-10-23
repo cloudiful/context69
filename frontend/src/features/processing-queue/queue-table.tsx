@@ -1,6 +1,7 @@
 import { ArrowDown, ArrowUp, Ban, ChevronRight, ChevronsUpDown, Play, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -49,17 +50,23 @@ export interface QueueTableProps {
   onDelete: (task: TaskResponse) => void;
 }
 
-function statusVariant(status: TaskStatus): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "succeeded") {
-    return "default";
+function statusTone(status: TaskStatus): StatusTone {
+  switch (status) {
+    case "queued":
+      return "info";
+    case "running":
+      return "active";
+    case "waiting":
+      return "warning";
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "failure";
+    case "cancelled":
+      return "neutral";
+    default:
+      return "neutral";
   }
-  if (status === "failed") {
-    return "destructive";
-  }
-  if (status === "cancelled") {
-    return "outline";
-  }
-  return "secondary";
 }
 
 /** One labeled primary action per display state, decided by task status. */
@@ -365,7 +372,7 @@ function TaskRow({
           ? null
           : (
               <TableCell>
-                <Badge variant={statusVariant(task.status)}>{t(`processingQueue.statuses.${task.status}`)}</Badge>
+                <StatusBadge tone={statusTone(task.status)}>{t(`processingQueue.statuses.${task.status}`)}</StatusBadge>
               </TableCell>
             )}
         {completed

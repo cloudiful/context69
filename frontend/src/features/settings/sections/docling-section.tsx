@@ -5,8 +5,8 @@ import { useTranslation } from "react-i18next";
 import { NumberField } from "@/components/common/number-field";
 import { FormField } from "@/components/common/form-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
+import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { TextField } from "@/components/common/text-field";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -245,14 +245,28 @@ export function doclingStatusLabel(
   }
 }
 
-function cleanupStatusVariant(status: string): "default" | "secondary" | "destructive" | "outline" {
+function cleanupStatusTone(status: string): StatusTone {
   switch (status) {
-    case "done": return "default";
-    case "failed": return "destructive";
-    case "pending": return "secondary";
-    case "cancelling":
-    case "awaiting_terminal": return "outline";
-    default: return "secondary";
+    case "done": return "success";
+    case "failed": return "failure";
+    case "pending": return "info";
+    case "cancelling": return "active";
+    case "awaiting_terminal": return "warning";
+    case "unsupported": return "neutral";
+    default: return "neutral";
+  }
+}
+
+function remoteTaskTone(status: string): StatusTone {
+  switch (status) {
+    case "pending": return "info";
+    case "started": return "active";
+    case "success": return "success";
+    case "partial_success": return "warning";
+    case "failure": return "failure";
+    case "skipped":
+    case "cancelled": return "neutral";
+    default: return "neutral";
   }
 }
 
@@ -370,7 +384,7 @@ function RemoteTasksBlock({
                   <TableCell className="font-mono text-xs">{row.task_id}</TableCell>
                   <TableCell>{row.task_type}</TableCell>
                   <TableCell>
-                    <Badge variant="secondary" className="whitespace-nowrap">{row.task_status}</Badge>
+                    <StatusBadge tone={remoteTaskTone(row.task_status)} className="whitespace-nowrap">{row.task_status}</StatusBadge>
                   </TableCell>
                   <TableCell className="whitespace-nowrap">{row.createdLabel}</TableCell>
                 </TableRow>
@@ -464,9 +478,9 @@ function CleanupBlock({
               <TableRow key={item.remote_task_id}>
                 <TableCell className="font-mono text-xs">{item.remote_task_id}</TableCell>
                 <TableCell>
-                  <Badge variant={cleanupStatusVariant(item.status)} className="whitespace-nowrap">
+                  <StatusBadge tone={cleanupStatusTone(item.status)} className="whitespace-nowrap">
                     {doclingStatusLabel(item.status, t)}
-                  </Badge>
+                  </StatusBadge>
                 </TableCell>
                 <TableCell>{cleanupOutcomeLabel(item.outcome, t)}</TableCell>
                 <TableCell className="grid gap-0.5">

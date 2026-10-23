@@ -2,7 +2,7 @@ import { RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { TaskItemResponse, TaskItemStatus, TaskResponse } from "@/services/api";
@@ -21,17 +21,23 @@ function itemSubject(item: TaskItemResponse): string | null {
     || null;
 }
 
-function itemStatusVariant(status: TaskItemStatus): "default" | "secondary" | "destructive" | "outline" {
-  if (status === "succeeded") {
-    return "default";
+function itemStatusTone(status: TaskItemStatus): StatusTone {
+  switch (status) {
+    case "queued":
+      return "info";
+    case "running":
+      return "active";
+    case "waiting":
+      return "warning";
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "failure";
+    case "cancelled":
+      return "neutral";
+    default:
+      return "neutral";
   }
-  if (status === "failed") {
-    return "destructive";
-  }
-  if (status === "cancelled") {
-    return "outline";
-  }
-  return "secondary";
 }
 
 /**
@@ -124,9 +130,9 @@ export function QueueExpandedRow({
                       <span className="truncate font-medium">
                         {itemSubject(item) ?? item.item_id.slice(0, 8)}
                       </span>
-                      <Badge variant={itemStatusVariant(item.status)}>
+                      <StatusBadge tone={itemStatusTone(item.status)}>
                         {taskItemStatusLabel(t, item.status)}
-                      </Badge>
+                      </StatusBadge>
                       {item.waiting_reason
                         ? (
                             <span className="text-xs text-muted-foreground">
