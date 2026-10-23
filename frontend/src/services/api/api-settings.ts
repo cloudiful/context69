@@ -13,6 +13,9 @@ import type {
   TestLlmProviderResponse,
   TaskRef,
   DoclingRemoteTasksResponse,
+  DoclingCleanupOutcome,
+  DoclingCleanupPageResponse,
+  DoclingCleanupStatus,
 } from "./api-types";
 
 type TestRuntimeEmbeddingRequest = components["schemas"]["TestRuntimeEmbeddingRequest"];
@@ -107,6 +110,29 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
         params: { query: { limit: params.limit, offset: params.offset } },
         signal: options?.signal,
       })) as Promise<DoclingRemoteTasksResponse>;
+    },
+    listDoclingCleanup(
+      params: {
+        page: number;
+        pageSize: number;
+        status?: DoclingCleanupStatus | null;
+        outcome?: DoclingCleanupOutcome | null;
+        remoteTaskId?: string | null;
+      },
+      options?: RequestOptions,
+    ) {
+      return unwrapResponse(openapiClient.GET("/v1/admin/docling/cleanup", {
+        params: {
+          query: {
+            page: params.page,
+            page_size: params.pageSize,
+            status: params.status ?? undefined,
+            outcome: params.outcome ?? undefined,
+            remote_task_id: params.remoteTaskId?.trim() || undefined,
+          },
+        },
+        signal: options?.signal,
+      })) as Promise<DoclingCleanupPageResponse>;
     },
     wakeDoclingCleanup(options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/admin/docling/cleanup", { signal: options?.signal }));

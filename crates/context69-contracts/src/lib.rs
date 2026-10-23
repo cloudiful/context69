@@ -112,7 +112,8 @@ pub use context69_contracts_sources::sources::{
 };
 pub use context69_contracts_tasks::docling::{
     DOCLING_REMOTE_LIST_LIMIT_DEFAULT, DOCLING_REMOTE_LIST_LIMIT_MAX,
-    DOCLING_REMOTE_LIST_LIMIT_MIN, DoclingCleanupReasonCode, DoclingCleanupResponse,
+    DOCLING_REMOTE_LIST_LIMIT_MIN, DoclingCleanupOutcome, DoclingCleanupPageResponse,
+    DoclingCleanupQuery, DoclingCleanupReasonCode, DoclingCleanupResponse, DoclingCleanupStatus,
     DoclingCleanupTask, DoclingRemoteTask, DoclingRemoteTasksQuery, DoclingRemoteTasksResponse,
 };
 pub use context69_contracts_tasks::tasks::{

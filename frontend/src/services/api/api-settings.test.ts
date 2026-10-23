@@ -56,6 +56,67 @@ describe("settings api docling remote tasks", () => {
       expect.objectContaining({ signal: controller.signal }),
     );
   });
+
+  it("pages and filters local cleanup rows on the server", async () => {
+    const data = {
+      items: [],
+      pagination: { page: 2, page_size: 50, total: 120, total_pages: 3 },
+    };
+    const get = vi.fn().mockResolvedValue({ data, response: { ok: true, status: 200 } });
+    const api = createApi(get);
+
+    const result = await api.listDoclingCleanup({
+      page: 2,
+      pageSize: 50,
+      status: "done",
+      outcome: "success",
+      remoteTaskId: "  cleanup-9  ",
+    });
+
+    expect(get).toHaveBeenCalledWith("/v1/admin/docling/cleanup", {
+      params: {
+        query: {
+          page: 2,
+          page_size: 50,
+          status: "done",
+          outcome: "success",
+          remote_task_id: "cleanup-9",
+        },
+      },
+      signal: undefined,
+    });
+    expect(result).toBe(data);
+  });
+
+  it("omits blank cleanup filters and forwards the abort signal", async () => {
+    const controller = new AbortController();
+    const get = vi.fn().mockResolvedValue({
+      data: { items: [], pagination: { page: 1, page_size: 20, total: 0, total_pages: 1 } },
+      response: { ok: true, status: 200 },
+    });
+    const api = createApi(get);
+
+    await api.listDoclingCleanup({
+      page: 1,
+      pageSize: 20,
+      status: null,
+      outcome: null,
+      remoteTaskId: "   ",
+    }, { signal: controller.signal });
+
+    expect(get).toHaveBeenCalledWith("/v1/admin/docling/cleanup", {
+      params: {
+        query: {
+          page: 1,
+          page_size: 20,
+          status: undefined,
+          outcome: undefined,
+          remote_task_id: undefined,
+        },
+      },
+      signal: controller.signal,
+    });
+  });
 });
 
 describe("settings api llm provider probe", () => {

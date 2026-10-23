@@ -3101,6 +3101,12 @@
       "target": "personal_access_token_usage",
       "test": "a_blocked_telemetry_write_leaves_the_authorization_path_fresh_and_free",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_cleanup::cleanup_page_reports_true_total_reaches_beyond_the_cap_and_filters_exactly",
+      "class": "db"
     }
   ]
 }

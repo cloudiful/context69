@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /** Owned preview port so the suite never touches the dev stack on 5173. */
-export const E2E_PORT = 5199;
+export const E2E_PORT = 5201;
 export const E2E_BASE_URL = `http://127.0.0.1:${E2E_PORT}`;
 
 /**

@@ -1,20 +1,27 @@
 import { Info, RefreshCw } from "lucide-react";
-import { useMemo } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { NumberField } from "@/components/common/number-field";
 import { FormField } from "@/components/common/form-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
+import { TableColumnHeader } from "@/components/common/table-column-header";
+import { TablePagination } from "@/components/common/table-pagination";
 import { TextField } from "@/components/common/text-field";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { useDoclingCleanup, DOCLING_CLEANUP_PAGE_SIZES } from "@/features/settings/use-docling-cleanup";
+import { DOCLING_REMOTE_TASKS_PAGE_SIZES } from "@/features/settings/use-docling-remote-tasks";
 import { SettingsGate } from "@/features/settings/settings-gate";
 import { useSettings } from "@/features/settings/settings-context";
 import { formatTimestamp } from "@/lib/format";
-import type { DoclingCleanupTask } from "@/services/api/api-types";
+import type { DoclingCleanupOutcome, DoclingCleanupStatus, DoclingCleanupTask } from "@/services/api/api-types";
 import type { DraftDoclingVlmMode } from "@/utils/settings";
 
 import { TestConnectionButton } from "./test-connection-button";
@@ -212,18 +219,14 @@ export function DoclingSection() {
           errorStatus={doclingRemote.errorStatus}
           items={doclingRemote.items}
           hasMore={doclingRemote.hasMore}
+          pageSize={doclingRemote.pageSize}
+          onPageSize={doclingRemote.setPageSize}
           onRefresh={() => void doclingRemote.refresh()}
           onPrev={doclingRemote.prevPage}
           onNext={doclingRemote.nextPage}
         />
 
-        <CleanupBlock
-          items={doclingRemote.cleanup}
-          woken={doclingRemote.cleanupWoken}
-          cleaning={doclingRemote.cleaning}
-          disabled={doclingRemote.errorStatus === 403 || doclingRemote.loading}
-          onClean={() => void doclingRemote.cleanStoppedTasks()}
-        />
+        <CleanupBlock />
       </div>
       </SettingsGate>
     </SettingsSection>
@@ -273,10 +276,12 @@ function remoteTaskTone(status: string): StatusTone {
 function cleanupOutcomeLabel(outcome: string | null | undefined, t: (key: string) => string): string {
   switch (outcome) {
     case "success": return t("settings.docling.remoteTasks.outcomeSuccess");
+    case "partial_success": return t("settings.docling.remoteTasks.outcomePartialSuccess");
     case "failure": return t("settings.docling.remoteTasks.outcomeFailure");
+    case "skipped": return t("settings.docling.remoteTasks.outcomeSkipped");
     case "cancelled": return t("settings.docling.remoteTasks.outcomeCancelled");
     case "not_found": return t("settings.docling.remoteTasks.outcomeNotFound");
-    default: return t("settings.docling.remoteTasks.outcomeUnknown");
+    default: return "--";
   }
 }
 
@@ -287,19 +292,44 @@ function cleanupReasonLabel(reason: CleanupReasonCode | null | undefined, t: (ke
     case "deadline_exceeded": return t("settings.docling.remoteTasks.reasonDeadlineExceeded");
     case "remote_not_found": return t("settings.docling.remoteTasks.reasonRemoteNotFound");
     case "awaiting_remote_terminal": return t("settings.docling.remoteTasks.reasonAwaitingRemoteTerminal");
-    default: return t("settings.docling.remoteTasks.reasonUnspecified");
+    default: return "--";
   }
 }
 
-function cleanupReasonDetail(reason: CleanupReasonCode | null | undefined, t: (key: string) => string): string {
-  switch (reason) {
-    case "missing_submit_endpoint": return t("settings.docling.remoteTasks.reasonMissingSubmitEndpointDetail");
-    case "authentication_failed": return t("settings.docling.remoteTasks.reasonAuthenticationFailedDetail");
-    case "deadline_exceeded": return t("settings.docling.remoteTasks.reasonDeadlineExceededDetail");
-    case "remote_not_found": return t("settings.docling.remoteTasks.reasonRemoteNotFoundDetail");
-    case "awaiting_remote_terminal": return t("settings.docling.remoteTasks.reasonAwaitingRemoteTerminalDetail");
-    default: return t("settings.docling.remoteTasks.reasonUnspecifiedDetail");
-  }
+function PageSizeSelect({
+  label,
+  value,
+  options,
+  testId,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  options: readonly number[];
+  testId: string;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <Select value={String(value)} onValueChange={(next) => onChange(Number(next))}>
+        <SelectTrigger
+          id={`${testId}-trigger`}
+          size="sm"
+          className="w-20"
+          aria-label={label}
+          data-testid={testId}
+        >
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((size) => (
+            <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
 }
 
 function RemoteTasksBlock({
@@ -309,6 +339,8 @@ function RemoteTasksBlock({
   errorStatus,
   items,
   hasMore,
+  pageSize,
+  onPageSize,
   onRefresh,
   onPrev,
   onNext,
@@ -319,15 +351,13 @@ function RemoteTasksBlock({
   errorStatus: number | null;
   items: { task_id: string; task_type: string; task_status: string; created_at: string }[];
   hasMore: boolean;
+  pageSize: number;
+  onPageSize: (value: number) => void;
   onRefresh: () => void;
   onPrev: () => void;
   onNext: () => void;
 }) {
   const { t } = useTranslation();
-  const rows = useMemo(() => items.map((task) => ({
-    ...task,
-    createdLabel: formatTimestamp(task.created_at),
-  })), [items]);
   const denied = errorStatus === 403;
 
   return (
@@ -335,19 +365,21 @@ function RemoteTasksBlock({
       id="settings-docling-remote-tasks"
       compact
       title={t("settings.docling.remoteTasks.title")}
-      description={t("settings.docling.remoteTasks.description")}
       actions={
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          data-testid="docling-remote-refresh"
-          disabled={loading}
-          onClick={onRefresh}
-        >
-          <RefreshCw aria-hidden="true" className={loading ? "animate-spin" : undefined} />
-          {t("settings.docling.remoteTasks.refresh")}
-        </Button>
+        <>
+          <Badge variant="secondary">{t("settings.docling.remoteTasks.readOnly")}</Badge>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="docling-remote-refresh"
+            disabled={loading}
+            onClick={onRefresh}
+          >
+            <RefreshCw aria-hidden="true" className={loading ? "animate-spin" : undefined} />
+            {t("settings.docling.remoteTasks.refresh")}
+          </Button>
+        </>
       }
     >
       {loading && !loadedOnce ? (
@@ -372,45 +404,54 @@ function RemoteTasksBlock({
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>{t("settings.docling.remoteTasks.taskId")}</TableHead>
-                <TableHead>{t("settings.docling.remoteTasks.taskType")}</TableHead>
-                <TableHead>{t("settings.docling.remoteTasks.taskStatus")}</TableHead>
-                <TableHead>{t("settings.docling.remoteTasks.createdAt")}</TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskId")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskType")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskStatus")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.createdAt")} /></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((row) => (
+              {items.map((row) => (
                 <TableRow key={row.task_id}>
                   <TableCell className="font-mono text-xs">{row.task_id}</TableCell>
                   <TableCell>{row.task_type}</TableCell>
                   <TableCell>
                     <StatusBadge tone={remoteTaskTone(row.task_status)} className="whitespace-nowrap">{row.task_status}</StatusBadge>
                   </TableCell>
-                  <TableCell className="whitespace-nowrap">{row.createdLabel}</TableCell>
+                  <TableCell className="whitespace-nowrap">{formatTimestamp(row.created_at)}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="docling-remote-prev"
-              onClick={onPrev}
-            >
-              {t("settings.docling.remoteTasks.previous")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              data-testid="docling-remote-next"
-              disabled={!hasMore}
-              onClick={onNext}
-            >
-              {t("settings.docling.remoteTasks.next")}
-            </Button>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <PageSizeSelect
+              label={t("common.itemsPerPage")}
+              value={pageSize}
+              options={DOCLING_REMOTE_TASKS_PAGE_SIZES}
+              testId="docling-remote-page-size"
+              onChange={onPageSize}
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="docling-remote-prev"
+                onClick={onPrev}
+              >
+                {t("settings.docling.remoteTasks.previous")}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="docling-remote-next"
+                disabled={!hasMore}
+                onClick={onNext}
+              >
+                {t("settings.docling.remoteTasks.next")}
+              </Button>
+            </div>
           </div>
         </>
       ) : (
@@ -422,76 +463,204 @@ function RemoteTasksBlock({
   );
 }
 
-function CleanupBlock({
-  items,
-  woken,
-  cleaning,
-  disabled,
-  onClean,
-}: {
-  items: DoclingCleanupTask[];
-  woken: number | null;
-  cleaning: boolean;
-  disabled: boolean;
-  onClean: () => void;
-}) {
+const CLEANUP_STATUS_VALUES: DoclingCleanupStatus[] = [
+  "pending",
+  "cancelling",
+  "awaiting_terminal",
+  "done",
+  "unsupported",
+  "failed",
+];
+
+const CLEANUP_OUTCOME_VALUES: DoclingCleanupOutcome[] = [
+  "success",
+  "partial_success",
+  "failure",
+  "skipped",
+  "cancelled",
+  "not_found",
+];
+
+function CleanupBlock() {
   const { t } = useTranslation();
+  const cleanup = useDoclingCleanup();
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const denied = cleanup.errorStatus === 403;
+  const allStatuses = "all";
+  const allOutcomes = "all";
 
   return (
     <SettingsBlock
+      id="settings-docling-cleanup"
+      compact
       title={t("settings.docling.remoteTasks.cleanupTitle")}
-      description={t("settings.docling.remoteTasks.cleanupDescription")}
-    >
-      <div className="grid gap-2">
-        <div>
-          <Button type="button" disabled={disabled || cleaning} onClick={onClean}>
+      actions={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            data-testid="docling-cleanup-refresh"
+            disabled={cleanup.loading}
+            onClick={() => void cleanup.refresh()}
+          >
+            <RefreshCw aria-hidden="true" className={cleanup.loading ? "animate-spin" : undefined} />
+            {t("settings.docling.remoteTasks.refresh")}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            disabled={denied || cleanup.cleaning}
+            onClick={() => setConfirmOpen(true)}
+          >
             {t("settings.docling.remoteTasks.cleanStopped")}
           </Button>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          {t("settings.docling.remoteTasks.cleanupEligibility")}
-        </p>
-        {woken !== null ? (
-          <p data-testid="docling-cleanup-woken" className="text-sm">
-            {t("settings.docling.remoteTasks.cleanupWoken", { count: woken })}
-          </p>
-        ) : null}
+        </>
+      }
+    >
+      <div className="flex flex-wrap items-end gap-2">
+        <FormField
+          label={t("settings.docling.remoteTasks.statusFilter")}
+          htmlFor="docling-cleanup-status"
+          className="w-40"
+        >
+          <Select
+            value={cleanup.status ?? allStatuses}
+            onValueChange={(value) => cleanup.setStatus(value === allStatuses ? null : value as DoclingCleanupStatus)}
+          >
+            <SelectTrigger id="docling-cleanup-status">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={allStatuses}>{t("settings.docling.remoteTasks.allStatuses")}</SelectItem>
+              {CLEANUP_STATUS_VALUES.map((value) => (
+                <SelectItem key={value} value={value}>{doclingStatusLabel(value, t)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+        <FormField
+          label={t("settings.docling.remoteTasks.outcome")}
+          htmlFor="docling-cleanup-outcome"
+          className="w-48"
+        >
+          <Select
+            value={cleanup.outcome ?? allOutcomes}
+            onValueChange={(value) => cleanup.setOutcome(value === allOutcomes ? null : value as DoclingCleanupOutcome)}
+          >
+            <SelectTrigger id="docling-cleanup-outcome">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={allOutcomes}>{t("settings.docling.remoteTasks.allOutcomes")}</SelectItem>
+              {CLEANUP_OUTCOME_VALUES.map((value) => (
+                <SelectItem key={value} value={value}>{cleanupOutcomeLabel(value, t)}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </FormField>
+        <FormField
+          label={t("settings.docling.remoteTasks.taskId")}
+          htmlFor="docling-cleanup-task-id"
+          className="w-56"
+        >
+          <Input
+            id="docling-cleanup-task-id"
+            value={cleanup.remoteTaskId}
+            placeholder={t("settings.docling.remoteTasks.taskIdPlaceholder")}
+            onChange={(event) => cleanup.setRemoteTaskId(event.target.value)}
+          />
+        </FormField>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={!cleanup.hasFilters}
+          onClick={cleanup.resetFilters}
+        >
+          {t("settings.docling.remoteTasks.clearFilters")}
+        </Button>
       </div>
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>{t("settings.docling.remoteTasks.taskId")}</TableHead>
-            <TableHead>{t("settings.docling.remoteTasks.taskStatus")}</TableHead>
-            <TableHead>{t("settings.docling.remoteTasks.outcome")}</TableHead>
-            <TableHead>{t("settings.docling.remoteTasks.reason")}</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {items.length === 0 ? (
-            <TableRow>
-              <TableCell colSpan={4} className="text-sm text-muted-foreground">
-                {t("settings.docling.remoteTasks.cleanupEmpty")}
-              </TableCell>
-            </TableRow>
-          ) : (
-            items.map((item) => (
-              <TableRow key={item.remote_task_id}>
-                <TableCell className="font-mono text-xs">{item.remote_task_id}</TableCell>
-                <TableCell>
-                  <StatusBadge tone={cleanupStatusTone(item.status)} className="whitespace-nowrap">
-                    {doclingStatusLabel(item.status, t)}
-                  </StatusBadge>
-                </TableCell>
-                <TableCell>{cleanupOutcomeLabel(item.outcome, t)}</TableCell>
-                <TableCell className="grid gap-0.5">
-                  <span>{cleanupReasonLabel(item.reason_code, t)}</span>
-                  <span className="text-xs text-muted-foreground">{cleanupReasonDetail(item.reason_code, t)}</span>
-                </TableCell>
+
+      {cleanup.woken !== null ? (
+        <p data-testid="docling-cleanup-woken" className="text-sm">
+          {t("settings.docling.remoteTasks.cleanupWoken", { count: cleanup.woken })}
+        </p>
+      ) : null}
+
+      {cleanup.loading && !cleanup.loadedOnce ? (
+        <p data-testid="docling-cleanup-loading" className="text-sm text-muted-foreground">
+          {t("settings.docling.remoteTasks.loading")}
+        </p>
+      ) : cleanup.error ? (
+        <div data-testid="docling-cleanup-error" role="alert" className="grid gap-0.5 text-sm">
+          <span>
+            {denied
+              ? t("settings.docling.remoteTasks.denied")
+              : `${t("settings.docling.remoteTasks.loadFailed")}: ${cleanup.error}`}
+          </span>
+          {cleanup.errorStatus !== null ? <span className="text-xs text-muted-foreground">{cleanup.errorStatus}</span> : null}
+        </div>
+      ) : cleanup.loadedOnce && cleanup.items.length === 0 ? (
+        <p data-testid="docling-cleanup-empty" className="text-sm text-muted-foreground">
+          {t("settings.docling.remoteTasks.cleanupEmpty")}
+        </p>
+      ) : cleanup.loadedOnce ? (
+        <>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskId")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.taskStatus")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.outcome")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.reason")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.createdAt")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.updatedAt")} /></TableHead>
+                <TableHead><TableColumnHeader label={t("settings.docling.remoteTasks.finishedAt")} /></TableHead>
               </TableRow>
-            ))
-          )}
-        </TableBody>
-      </Table>
+            </TableHeader>
+            <TableBody>
+              {cleanup.items.map((item) => (
+                <TableRow key={item.id}>
+                  <TableCell className="font-mono text-xs">{item.remote_task_id}</TableCell>
+                  <TableCell>
+                    <StatusBadge tone={cleanupStatusTone(item.status)} className="whitespace-nowrap">
+                      {doclingStatusLabel(item.status, t)}
+                    </StatusBadge>
+                  </TableCell>
+                  <TableCell className="whitespace-nowrap">{cleanupOutcomeLabel(item.outcome, t)}</TableCell>
+                  <TableCell className="whitespace-nowrap">{cleanupReasonLabel(item.reason_code, t)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">{formatTimestamp(item.created_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">{formatTimestamp(item.updated_at)}</TableCell>
+                  <TableCell className="whitespace-nowrap text-muted-foreground">
+                    {item.finished_at ? formatTimestamp(item.finished_at) : "--"}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+          {cleanup.pagination ? (
+            <TablePagination
+              pagination={cleanup.pagination}
+              onPage={cleanup.setPage}
+              onPageSize={cleanup.setPageSize}
+              pageSizeOptions={DOCLING_CLEANUP_PAGE_SIZES}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      <ConfirmDialog
+        open={confirmOpen}
+        title={t("settings.docling.remoteTasks.cleanupConfirmTitle")}
+        message={t("settings.docling.remoteTasks.cleanupConfirmMessage")}
+        acceptLabel={t("settings.docling.remoteTasks.cleanStopped")}
+        onCancel={() => setConfirmOpen(false)}
+        onAccept={() => {
+          setConfirmOpen(false);
+          void cleanup.wakeCleanup();
+        }}
+      />
     </SettingsBlock>
   );
 }

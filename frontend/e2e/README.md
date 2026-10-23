@@ -11,7 +11,7 @@ bun run test:e2e
 ```
 
 `playwright.config.ts` builds nothing itself: it serves the existing `dist/`
-through `vite preview` on the owned port `5199`, with a fixed UTC browser. Every
+through `vite preview` on the owned port `5201`, with a fixed UTC browser. Every
 `/v1` request is answered by the generated-contract mocks in
 `e2e/react/transport.ts`, so the suite needs no backend, database or external
 service. Run `bun run build` first when the preview would otherwise be stale.

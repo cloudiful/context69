@@ -34,16 +34,16 @@ use super::{
     enable_git_connection, forbid_personal_access_token_middleware, get_git_connection_readiness,
     get_git_repository, get_git_repository_file, get_git_repository_file_content,
     get_git_repository_webhook, get_translation_settings, healthz, index_git_repository,
-    list_admin_users, list_docling_remote_tasks, list_git_provider_connections,
-    list_git_repositories, list_git_repository_files, list_personal_access_tokens,
-    list_source_connections, list_sources, list_translation_providers, login, logout, me,
-    openapi_json, receive_git_webhook, register_git_repository, require_admin_scope_middleware,
-    require_search_scope_middleware, require_settings_scope_middleware,
-    require_sources_scope_middleware, require_workspace_scope_middleware,
-    reset_admin_user_password, revoke_personal_access_token, search_git_repository_code,
-    set_git_repository_connection, submit_vector_index_rebuild, sync_group_source_folder,
-    sync_source, touch_personal_access_token_middleware, update_admin_user,
-    update_group_source_folder_config, update_source, update_source_connection,
+    list_admin_users, list_docling_cleanup, list_docling_remote_tasks,
+    list_git_provider_connections, list_git_repositories, list_git_repository_files,
+    list_personal_access_tokens, list_source_connections, list_sources, list_translation_providers,
+    login, logout, me, openapi_json, receive_git_webhook, register_git_repository,
+    require_admin_scope_middleware, require_search_scope_middleware,
+    require_settings_scope_middleware, require_sources_scope_middleware,
+    require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
+    search_git_repository_code, set_git_repository_connection, submit_vector_index_rebuild,
+    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
+    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
     update_translation_settings,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
@@ -224,7 +224,7 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
         .route("/v1/admin/docling/tasks", get(list_docling_remote_tasks))
         .route(
             "/v1/admin/docling/cleanup",
-            post(super::wake_docling_cleanup),
+            get(list_docling_cleanup).post(super::wake_docling_cleanup),
         )
         .layer(from_fn_with_state(
             api_state,

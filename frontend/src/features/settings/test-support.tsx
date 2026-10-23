@@ -14,6 +14,7 @@ import type {
   AdminUserPageResponse,
   AdminUserResponse,
   CreatePersonalAccessTokenResponse,
+  DoclingCleanupTask,
   DoclingRemoteTasksResponse,
   DoclingSettingsResponse,
   PersonalAccessTokenPageResponse,
@@ -43,12 +44,14 @@ export interface FakeBackendOptions {
   users?: AdminUserResponse[];
   vectorTask?: TaskResponse | null;
   remote?: DoclingRemoteTasksResponse;
+  cleanup?: DoclingCleanupTask[];
   fail?: {
     runtimePut?: boolean;
     doclingPut?: boolean;
     searchPut?: boolean;
     translationPut?: boolean;
     testEmbedding?: boolean;
+    cleanupList?: boolean;
   };
 }
 
@@ -227,11 +230,59 @@ export const REMOTE_TASKS: DoclingRemoteTasksResponse = {
       next_attempt_at: "2026-10-10T08:05:00Z",
       outcome: null,
       reason_code: "unspecified",
+      created_at: "2026-10-10T08:00:00Z",
+      updated_at: "2026-10-10T08:01:00Z",
+      finished_at: null,
     },
   ],
   has_more: true,
   remote_error: null,
 };
+
+export const CLEANUP_TASKS: DoclingCleanupTask[] = [
+  {
+    id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    task_id: "11111111-1111-4111-8111-111111111111",
+    remote_task_id: "cleanup-1",
+    status: "pending",
+    attempt_count: 0,
+    cleanup_deadline_at: "2026-10-20T09:00:00Z",
+    next_attempt_at: "2026-10-20T08:05:00Z",
+    outcome: null,
+    reason_code: "unspecified",
+    created_at: "2026-10-20T08:00:00Z",
+    updated_at: "2026-10-20T08:01:00Z",
+    finished_at: null,
+  },
+  {
+    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    task_id: "22222222-2222-4222-8222-222222222222",
+    remote_task_id: "cleanup-2",
+    status: "done",
+    attempt_count: 1,
+    cleanup_deadline_at: "2026-10-20T09:00:00Z",
+    next_attempt_at: "2026-10-20T08:05:00Z",
+    outcome: "success",
+    reason_code: null,
+    created_at: "2026-10-20T07:00:00Z",
+    updated_at: "2026-10-20T07:10:00Z",
+    finished_at: "2026-10-20T07:10:00Z",
+  },
+  {
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    task_id: "33333333-3333-4333-8333-333333333333",
+    remote_task_id: "cleanup-3",
+    status: "failed",
+    attempt_count: 3,
+    cleanup_deadline_at: "2026-10-20T09:00:00Z",
+    next_attempt_at: "2026-10-20T08:05:00Z",
+    outcome: "failure",
+    reason_code: "authentication_failed",
+    created_at: "2026-10-20T06:00:00Z",
+    updated_at: "2026-10-20T06:10:00Z",
+    finished_at: "2026-10-20T06:10:00Z",
+  },
+];
 
 function ok<T>(data: T) {
   return Promise.resolve({ data, response: { ok: true, status: 200 } });
@@ -268,6 +319,7 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
     users: structuredClone(options.users ?? [ADMIN_USER_ROW]),
     vectorTask: options.vectorTask === undefined ? structuredClone(VECTOR_TASK) : options.vectorTask,
     remote: structuredClone(options.remote ?? REMOTE_TASKS),
+    cleanup: structuredClone(options.cleanup ?? CLEANUP_TASKS),
     isAdmin: options.isAdmin ?? true,
   };
   const calls: RecordedCall[] = [];
@@ -276,7 +328,7 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(
       typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url,
-      "http://127.0.0.1:5199",
+      "http://127.0.0.1:5201",
     );
     if (url.pathname === "/v1/auth/me") {
       return new Response(JSON.stringify({
@@ -549,7 +601,27 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
     }
 
     if (path === "/v1/admin/docling/cleanup") {
-      return ok({ woken: 2 });
+      if (method === "POST") {
+        return ok({ woken: 2 });
+      }
+      if (fail.cleanupList) {
+        return failure(500, "cleanup rejected");
+      }
+      const pageNumber = Number(query.page ?? 1);
+      const pageSize = Number(query.page_size ?? 20);
+      const status = typeof query.status === "string" ? query.status : null;
+      const outcome = typeof query.outcome === "string" ? query.outcome : null;
+      const remoteTaskId = typeof query.remote_task_id === "string" ? query.remote_task_id : null;
+      const filtered = state.cleanup.filter((row) => (
+        (status === null || row.status === status)
+        && (outcome === null || row.outcome === outcome)
+        && (remoteTaskId === null || row.remote_task_id === remoteTaskId)
+      ));
+      const start = (pageNumber - 1) * pageSize;
+      return ok({
+        items: filtered.slice(start, start + pageSize),
+        pagination: page(pageNumber, pageSize, filtered.length),
+      });
     }
 
     if (path === "/v1/auth/personal-access-tokens") {

@@ -24,7 +24,7 @@ test.describe("react processing queue", () => {
     await expect(page.getByTestId("queue-progress").first()).toContainText("2/4");
     await expect(page.getByTestId("queue-error").nth(1)).toContainText("Embedding provider timed out");
 
-    await page.getByRole("button", { name: "Task status" }).click();
+    await page.getByRole("button", { name: "Filter by Status" }).click();
     await page.getByRole("menuitem", { name: "Failed" }).click();
 
     await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
@@ -233,7 +233,7 @@ test.describe("react processing queue", () => {
     });
 
     await page.goto("/processing-queue");
-    await page.getByRole("button", { name: "Task status" }).click();
+    await page.getByRole("button", { name: "Filter by Status" }).click();
     await page.getByRole("menuitem", { name: "Failed" }).click();
     await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
 
@@ -243,7 +243,7 @@ test.describe("react processing queue", () => {
     await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
     await expect(page.getByText("policy-review.pdf")).toBeVisible();
     await expect(page.getByText("field-notes.pdf")).toHaveCount(0);
-    await expect(page.getByRole("button", { name: "Task status: Failed" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Filter by Status: Failed" })).toBeVisible();
   });
 
   test("keeps the refreshed progress when a buffered live frame flushes later", async ({ page }) => {
@@ -387,5 +387,41 @@ test.describe("react processing queue", () => {
     await expect(zhRow.getByText("Field Notes")).toBeVisible();
     await expect(zhRow.getByText("field-notes.pdf")).toBeVisible();
     await expect(page.getByRole("button", { name: "展开任务项" })).toHaveCount(2);
+  });
+
+  test("renders one header label with independent sort and filter actions at both widths", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    const table = page.getByTestId("processing-queue-table");
+    await expect(table.getByText("Type", { exact: true })).toHaveCount(1);
+    await expect(table.getByText("Status", { exact: true })).toHaveCount(1);
+    await expect(table.getByText("Stage", { exact: true })).toHaveCount(1);
+    await expect(table.getByText("Waiting", { exact: true })).toHaveCount(1);
+
+    const sortByType = table.getByRole("button", { name: "Sort by Type, not sorted" });
+    const filterByType = table.getByRole("button", { name: "Filter by Type" });
+    const listReads = () => transport.calls.filter((call) => call.method === "GET" && call.path === "/v1/tasks");
+
+    const readsBefore = listReads().length;
+    await filterByType.click();
+    await expect(page.getByRole("menu")).toBeVisible();
+    expect(listReads()).toHaveLength(readsBefore);
+    await page.keyboard.press("Escape");
+
+    await sortByType.click();
+    await expect.poll(() => listReads().at(-1)?.query).toContain("sort_by=kind");
+    await expect(table.getByRole("button", { name: "Sort by Type, sorted ascending" })).toHaveAttribute("data-sort", "asc");
+    await expect(table.getByRole("button", { name: "Filter by Type" })).toBeVisible();
+
+    for (const width of [1280, 600]) {
+      await page.setViewportSize({ width, height: 900 });
+      const heights = await table.locator("[data-slot='column-header']").evaluateAll(
+        (nodes) => nodes.map((node) => node.getBoundingClientRect().height),
+      );
+      expect(heights.length).toBeGreaterThan(0);
+      expect(heights.every((height) => Math.abs(height - 32) < 1)).toBe(true);
+    }
   });
 });

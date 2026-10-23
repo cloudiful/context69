@@ -85,6 +85,90 @@
       }
     },
     "/v1/admin/docling/cleanup": {
+      "get": {
+        "tags": [],
+        "operationId": "list_docling_cleanup",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 10000,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "maximum": 100,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DoclingCleanupStatus"
+            }
+          },
+          {
+            "name": "outcome",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/DoclingCleanupOutcome"
+            }
+          },
+          {
+            "name": "remote_task_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Filtered page of persisted local Docling cleanup rows",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoclingCleanupPageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid page, filter enum, or blank task id",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [],
         "operationId": "wake_docling_cleanup",
@@ -7975,6 +8059,82 @@
           }
         }
       },
+      "DoclingCleanupOutcome": {
+        "type": "string",
+        "description": "Persisted observed cleanup outcome: every terminal remote status the worker\nstores verbatim, plus `not_found` for a disappeared remote.",
+        "enum": [
+          "success",
+          "partial_success",
+          "failure",
+          "skipped",
+          "cancelled",
+          "not_found"
+        ]
+      },
+      "DoclingCleanupPageResponse": {
+        "type": "object",
+        "description": "One page of the persisted local cleanup outbox with the true total.",
+        "required": [
+          "items",
+          "pagination"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoclingCleanupTask"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/Pagination"
+          }
+        }
+      },
+      "DoclingCleanupQuery": {
+        "type": "object",
+        "description": "Query for `GET /v1/admin/docling/cleanup`.\n\nFilters are exact matches on the persisted columns. `page`/`page_size`\nfollow the shared offset contract; `page_size` defaults to 20 here and is\nbounded to `1..=100`. Unknown fields are rejected so a renamed parameter\nfails instead of silently changing meaning.",
+        "properties": {
+          "outcome": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DoclingCleanupOutcome"
+              }
+            ]
+          },
+          "page": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 10000,
+            "minimum": 1
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "remote_task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/DoclingCleanupStatus"
+              }
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
       "DoclingCleanupReasonCode": {
         "type": "string",
         "description": "Closed backend-owned cause for a cleanup row that needs an explanation.\n\nOnly exact worker-written diagnostics map to a specific variant (see\n`docling_cleanup_reason_code`); anything else is `Unspecified`, and\nhealthy rows carry `None` (serialized as absent). The frontend renders\nthis union only and never prints raw `last_error`/endpoint text.",
@@ -8000,6 +8160,18 @@
           }
         }
       },
+      "DoclingCleanupStatus": {
+        "type": "string",
+        "description": "Persisted cleanup status, mirroring the database check constraint.",
+        "enum": [
+          "pending",
+          "cancelling",
+          "awaiting_terminal",
+          "done",
+          "unsupported",
+          "failed"
+        ]
+      },
       "DoclingCleanupTask": {
         "type": "object",
         "required": [
@@ -8009,7 +8181,9 @@
           "status",
           "attempt_count",
           "next_attempt_at",
-          "cleanup_deadline_at"
+          "cleanup_deadline_at",
+          "created_at",
+          "updated_at"
         ],
         "properties": {
           "attempt_count": {
@@ -8019,6 +8193,19 @@
           "cleanup_deadline_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Existing persisted creation time, always present on the row."
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Existing persisted terminal time; absent while the row is not terminal."
           },
           "id": {
             "type": "string",
@@ -8053,6 +8240,11 @@
           "task_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Existing persisted last-write time, always present on the row."
           }
         }
       },

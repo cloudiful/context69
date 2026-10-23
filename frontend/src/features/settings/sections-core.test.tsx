@@ -218,6 +218,13 @@ describe("docling settings", () => {
 
     expect(await screen.findByText("remote-1")).toBeInTheDocument();
     expect(screen.getByText("convert")).toBeInTheDocument();
+    expect(screen.getByText("cleanup-1")).toBeInTheDocument();
+    const cleanupReads = backend.callsFor("GET", "/v1/admin/docling/cleanup");
+    expect(cleanupReads).toHaveLength(1);
+    expect((cleanupReads[0].params as { query: Record<string, unknown> }).query).toMatchObject({
+      page: 1,
+      page_size: 20,
+    });
 
     await userEvent.click(screen.getByTestId("docling-remote-next"));
     await waitFor(() => {
@@ -227,6 +234,10 @@ describe("docling settings", () => {
     expect((lastList.params as { query: { offset: number } }).query.offset).toBe(20);
 
     await userEvent.click(screen.getByRole("button", { name: "Clean up stopped tasks" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/not only this page/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Running work and started conversions are not stopped/)).toBeInTheDocument();
+    await userEvent.click(within(dialog).getByRole("button", { name: "Clean up stopped tasks" }));
     await waitFor(() => {
       expect(backend.callsFor("POST", "/v1/admin/docling/cleanup")).toHaveLength(1);
     });

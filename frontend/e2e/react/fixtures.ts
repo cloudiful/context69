@@ -11,6 +11,7 @@ export type TranslationSettingsFixture = Schemas["TranslationSettingsResponse"];
 export type PersonalAccessTokenFixture = Schemas["PersonalAccessTokenResponse"];
 export type AdminUserFixture = Schemas["AdminUserResponse"];
 export type DoclingRemoteTasksFixture = Schemas["DoclingRemoteTasksResponse"];
+export type DoclingCleanupTaskFixture = Schemas["DoclingCleanupTask"];
 export type PaginationFixture = Schemas["Pagination"];
 export type SearchHitFixture = Schemas["SearchHit"];
 export type SearchPaginationFixture = Schemas["SearchPagination"];
@@ -200,6 +201,30 @@ export const REMOTE_TASKS: DoclingRemoteTasksFixture = {
   has_more: false,
   remote_error: null,
 };
+
+function cleanupRow(index: number): DoclingCleanupTaskFixture {
+  const number = index + 1;
+  const minute = String(59 - index).padStart(2, "0");
+  const pending = index === 0;
+  const done = index % 3 === 1;
+  return {
+    id: `00000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
+    task_id: `10000000-0000-4000-8000-${String(number).padStart(12, "0")}`,
+    remote_task_id: `cleanup-${String(number).padStart(2, "0")}`,
+    status: pending ? "pending" : done ? "done" : "failed",
+    attempt_count: pending ? 0 : 1,
+    cleanup_deadline_at: "2026-10-20T10:30:00Z",
+    next_attempt_at: "2026-10-20T10:05:00Z",
+    outcome: pending ? null : done ? "success" : "failure",
+    reason_code: pending || done ? null : "authentication_failed",
+    created_at: `2026-10-20T10:${minute}:00Z`,
+    updated_at: `2026-10-20T10:${minute}:30Z`,
+    finished_at: pending ? null : `2026-10-20T10:${minute}:30Z`,
+  };
+}
+
+/** Newest first, matching the server's stable created_at DESC, id DESC order. */
+export const CLEANUP_TASKS: DoclingCleanupTaskFixture[] = Array.from({ length: 30 }, (_, index) => cleanupRow(index));
 
 export function pagination(page: number, pageSize: number, total: number): PaginationFixture {
   return {

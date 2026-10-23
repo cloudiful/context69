@@ -1,5 +1,18 @@
-use crate::support::{LOCK, cleanup, connect, seed_task, seed_user};
+use crate::support::{
+    CleanupRowSeed, LOCK, cleanup, connect, delete_cleanup_rows, seed_cleanup_row, seed_task,
+    seed_user,
+};
+use chrono::{DateTime, Duration, Timelike, Utc};
 use uuid::Uuid;
+
+/// PostgreSQL timestamps persist microseconds, so fixtures bound to that
+/// precision keep exact persisted-time assertions rather than comparing the
+/// host clock's nanoseconds with the truncated stored value.
+fn postgres_precision(value: DateTime<Utc>) -> DateTime<Utc> {
+    value
+        .with_nanosecond(value.nanosecond() / 1_000 * 1_000)
+        .expect("microsecond-aligned UTC timestamp")
+}
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -287,5 +300,230 @@ async fn claims_are_exclusive_and_stale_settle_cannot_overwrite() {
         .execute(db.pool())
         .await
         .unwrap();
+    cleanup(&db, task, user).await;
+}
+
+/// Seeds rows far in the future so paging assertions are unaffected by rows
+/// other suites left in the shared cleanup outbox; deltas keep counts exact.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn cleanup_page_reports_true_total_reaches_beyond_the_cap_and_filters_exactly() {
+    let db = connect().await;
+    let _guard = LOCK.lock().await;
+    let user = seed_user(&db).await;
+    let (task, item) = seed_task(&db, user).await;
+
+    let before_total = db.count_docling_cleanup(None, None, None).await.unwrap();
+    let before_done_success = db
+        .count_docling_cleanup(Some("done"), Some("success"), None)
+        .await
+        .unwrap();
+    let before_done_any = db
+        .count_docling_cleanup(Some("done"), None, None)
+        .await
+        .unwrap();
+    let before_skipped = db
+        .count_docling_cleanup(Some("done"), Some("skipped"), None)
+        .await
+        .unwrap();
+    let before_pending = db
+        .count_docling_cleanup(Some("pending"), None, None)
+        .await
+        .unwrap();
+
+    let base = postgres_precision(Utc::now() + Duration::days(3650));
+    for index in 0..120 {
+        let created = base + Duration::seconds(index);
+        seed_cleanup_row(
+            &db,
+            task,
+            item,
+            CleanupRowSeed {
+                remote_task_id: &format!("paging-bulk-{index:03}"),
+                status: "done",
+                outcome: Some("success"),
+                created_at: created,
+                updated_at: created,
+                finished_at: Some(created),
+            },
+        )
+        .await;
+    }
+
+    let older = postgres_precision(base - Duration::days(1));
+    seed_cleanup_row(
+        &db,
+        task,
+        item,
+        CleanupRowSeed {
+            remote_task_id: "paging-pending-null",
+            status: "pending",
+            outcome: None,
+            created_at: older,
+            updated_at: older,
+            finished_at: None,
+        },
+    )
+    .await;
+    seed_cleanup_row(
+        &db,
+        task,
+        item,
+        CleanupRowSeed {
+            remote_task_id: "paging-skipped",
+            status: "done",
+            outcome: Some("skipped"),
+            created_at: older,
+            updated_at: older,
+            finished_at: Some(older),
+        },
+    )
+    .await;
+    seed_cleanup_row(
+        &db,
+        task,
+        item,
+        CleanupRowSeed {
+            remote_task_id: "paging-partial",
+            status: "failed",
+            outcome: Some("partial_success"),
+            created_at: older,
+            updated_at: older,
+            finished_at: Some(older),
+        },
+    )
+    .await;
+
+    let timed_created = postgres_precision(older - Duration::hours(2));
+    let timed_updated = timed_created + Duration::minutes(5);
+    let timed_finished = timed_updated + Duration::seconds(1);
+    seed_cleanup_row(
+        &db,
+        task,
+        item,
+        CleanupRowSeed {
+            remote_task_id: "paging-timed",
+            status: "done",
+            outcome: None,
+            created_at: timed_created,
+            updated_at: timed_updated,
+            finished_at: Some(timed_finished),
+        },
+    )
+    .await;
+
+    let after_total = db.count_docling_cleanup(None, None, None).await.unwrap();
+    assert_eq!(after_total - before_total, 124);
+    assert_eq!(
+        db.count_docling_cleanup(Some("done"), Some("success"), None)
+            .await
+            .unwrap()
+            - before_done_success,
+        120
+    );
+    assert_eq!(
+        db.count_docling_cleanup(Some("done"), None, None)
+            .await
+            .unwrap()
+            - before_done_any,
+        122,
+        "an absent outcome filter keeps the null-outcome row"
+    );
+    assert_eq!(
+        db.count_docling_cleanup(Some("done"), Some("skipped"), None)
+            .await
+            .unwrap()
+            - before_skipped,
+        1
+    );
+    assert_eq!(
+        db.count_docling_cleanup(Some("pending"), None, None)
+            .await
+            .unwrap()
+            - before_pending,
+        1
+    );
+    assert_eq!(
+        db.count_docling_cleanup(None, None, Some("paging-bulk-000"))
+            .await
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        db.count_docling_cleanup(None, None, Some("paging-absent"))
+            .await
+            .unwrap(),
+        0
+    );
+    assert!(
+        db.list_docling_cleanup_page(None, None, Some("paging-absent"), 20, 0)
+            .await
+            .unwrap()
+            .is_empty(),
+        "an exact filter with no match is an empty page, not an error"
+    );
+
+    let page_six = db
+        .list_docling_cleanup_page(None, None, None, 20, 100)
+        .await
+        .unwrap();
+    assert_eq!(
+        page_six.len(),
+        20,
+        "page 6 at size 20 must reach past the legacy 100-row window"
+    );
+    assert_eq!(page_six[0].remote_task_id, "paging-bulk-019");
+    assert_eq!(page_six[19].remote_task_id, "paging-bulk-000");
+
+    let timed = db
+        .list_docling_cleanup_page(None, None, Some("paging-timed"), 20, 0)
+        .await
+        .unwrap();
+    assert_eq!(timed.len(), 1);
+    assert_eq!(timed[0].created_at, timed_created);
+    assert_eq!(timed[0].updated_at, timed_updated);
+    assert_eq!(timed[0].finished_at, Some(timed_finished));
+
+    let tie_at = postgres_precision(base + Duration::seconds(10_000));
+    for remote in ["paging-tie-a", "paging-tie-b", "paging-tie-c"] {
+        seed_cleanup_row(
+            &db,
+            task,
+            item,
+            CleanupRowSeed {
+                remote_task_id: remote,
+                status: "pending",
+                outcome: None,
+                created_at: tie_at,
+                updated_at: tie_at,
+                finished_at: None,
+            },
+        )
+        .await;
+    }
+    let mut tie_rows = Vec::new();
+    for page in 1..=3 {
+        let rows = db
+            .list_docling_cleanup_page(None, None, None, 1, i64::from(page - 1))
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        tie_rows.push(rows[0].clone());
+    }
+    let tie_ids = tie_rows.iter().map(|row| row.id).collect::<Vec<_>>();
+    let sorted_ids = {
+        let mut sorted = tie_ids.clone();
+        sorted.sort_by(|left, right| right.cmp(left));
+        sorted
+    };
+    assert_eq!(tie_ids, sorted_ids, "equal created_at ties descend by id");
+    for remote in ["paging-tie-a", "paging-tie-b", "paging-tie-c"] {
+        assert!(
+            tie_rows.iter().any(|row| row.remote_task_id == remote),
+            "the tied page must contain {remote}"
+        );
+    }
+
+    delete_cleanup_rows(&db, task).await;
     cleanup(&db, task, user).await;
 }

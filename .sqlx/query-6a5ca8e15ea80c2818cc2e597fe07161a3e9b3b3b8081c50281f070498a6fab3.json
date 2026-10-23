@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Removes only the rows a paging regression seeded for its own task.\nDELETE FROM context69.task_docling_remote_cleanup\nWHERE task_id = $1;\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "6a5ca8e15ea80c2818cc2e597fe07161a3e9b3b3b8081c50281f070498a6fab3"
+}

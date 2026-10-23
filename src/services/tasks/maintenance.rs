@@ -2,8 +2,10 @@ use std::time::Duration;
 
 use anyhow::Result;
 
+use context69_contracts::pagination::OffsetPageQuery;
 use context69_contracts::{
-    CancelActiveTasksResponse, DoclingRemoteTasksQuery, DoclingRemoteTasksResponse,
+    CancelActiveTasksResponse, DoclingCleanupPageResponse, DoclingCleanupQuery,
+    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, Pagination,
 };
 
 use super::TaskService;
@@ -151,6 +153,13 @@ fn validate_remote_query(query: &DoclingRemoteTasksQuery) -> Result<()> {
     Ok(())
 }
 
+fn validate_cleanup_query(query: &DoclingCleanupQuery) -> Result<()> {
+    query
+        .validate()
+        .map_err(|error| crate::domain_errors::DomainError::invalid_argument(error.to_string()))?;
+    Ok(())
+}
+
 /// Exact worker-written diagnostics that prove a cleanup cause.
 ///
 /// Only these constants (from `super::docling_cleanup`) may map to a
@@ -282,6 +291,62 @@ mod tests {
     }
 
     #[test]
+    fn invalid_cleanup_queries_are_http_400_before_io() {
+        use context69_contracts::DoclingCleanupQuery;
+        for query in [
+            DoclingCleanupQuery {
+                page: 0,
+                ..DoclingCleanupQuery::default()
+            },
+            DoclingCleanupQuery {
+                page_size: 0,
+                ..DoclingCleanupQuery::default()
+            },
+            DoclingCleanupQuery {
+                page_size: 101,
+                ..DoclingCleanupQuery::default()
+            },
+            DoclingCleanupQuery {
+                remote_task_id: Some("   ".into()),
+                ..DoclingCleanupQuery::default()
+            },
+        ] {
+            let error = validate_cleanup_query(&query).unwrap_err();
+            assert_eq!(
+                crate::domain_errors::status_for_error(&error),
+                axum::http::StatusCode::BAD_REQUEST
+            );
+        }
+        assert!(
+            validate_cleanup_query(&DoclingCleanupQuery {
+                page_size: 20,
+                remote_task_id: Some("owned".into()),
+                ..DoclingCleanupQuery::default()
+            })
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn non_admin_actor_is_forbidden_before_any_cleanup_read() {
+        let actor = UserRecord {
+            id: 1,
+            login_name: "plain".into(),
+            display_name: "Plain".into(),
+            password_hash: "unused".into(),
+            is_admin: false,
+            disabled_at: None,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        let error = crate::services::auth::require_admin(&actor).unwrap_err();
+        assert_eq!(
+            crate::domain_errors::status_for_error(&error),
+            axum::http::StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
     fn upstream_errors_cannot_hide_cleanup_or_disclose_details() {
         let entry = context69_contracts::DoclingCleanupTask {
             id: uuid::Uuid::new_v4(),
@@ -293,6 +358,9 @@ mod tests {
             attempt_count: 1,
             next_attempt_at: chrono::Utc::now(),
             cleanup_deadline_at: chrono::Utc::now(),
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+            finished_at: None,
         };
         let failed = remote_tasks_with_cleanup(
             Err(anyhow::anyhow!(
@@ -439,20 +507,13 @@ impl TaskService {
             .list_recent_docling_cleanup(100)
             .await?
             .into_iter()
-            .map(|row| context69_contracts::DoclingCleanupTask {
-                id: row.id,
-                task_id: row.task_id,
-                remote_task_id: row.remote_task_id,
-                status: row.status.clone(),
-                outcome: row.outcome.clone(),
-                reason_code: docling_cleanup_reason_code(
+            .map(|row| {
+                let reason_code = docling_cleanup_reason_code(
                     &row.status,
                     row.outcome.as_deref(),
                     row.last_error.as_deref(),
-                ),
-                attempt_count: row.attempt_count,
-                next_attempt_at: row.next_attempt_at,
-                cleanup_deadline_at: row.cleanup_deadline_at,
+                );
+                row.into_cleanup_task(reason_code)
             })
             .collect();
         let remote = self
@@ -460,6 +521,66 @@ impl TaskService {
             .list_docling_remote_tasks(query.limit, query.offset)
             .await;
         Ok(remote_tasks_with_cleanup(remote, cleanup))
+    }
+
+    /// Genuine admin page over the persisted local cleanup outbox.
+    ///
+    /// Non-admin callers are denied before any query. Filters are exact matches
+    /// on persisted columns and the pagination total is the real server total,
+    /// so a page beyond the legacy 100-row window stays reachable.
+    pub async fn admin_docling_cleanup_page(
+        &self,
+        actor: &UserRecord,
+        query: &DoclingCleanupQuery,
+    ) -> Result<DoclingCleanupPageResponse> {
+        crate::services::auth::require_admin(actor)?;
+        validate_cleanup_query(query)?;
+        let page = OffsetPageQuery {
+            page: query.page,
+            page_size: query.page_size,
+        };
+        let offset = page.offset().map_err(|error| {
+            crate::domain_errors::DomainError::invalid_argument(error.to_string())
+        })?;
+        let status = query.status.map(|value| value.as_str());
+        let outcome = query.outcome.map(|value| value.as_str());
+        let remote_task_id = query.normalized_remote_task_id();
+        let total = self
+            .db()
+            .count_docling_cleanup(status, outcome, remote_task_id)
+            .await?;
+        let rows = if total == 0 {
+            Vec::new()
+        } else {
+            self.db()
+                .list_docling_cleanup_page(
+                    status,
+                    outcome,
+                    remote_task_id,
+                    i64::from(query.page_size),
+                    offset,
+                )
+                .await?
+        };
+        let items = rows
+            .into_iter()
+            .map(|row| {
+                let reason_code = docling_cleanup_reason_code(
+                    &row.status,
+                    row.outcome.as_deref(),
+                    row.last_error.as_deref(),
+                );
+                row.into_cleanup_task(reason_code)
+            })
+            .collect();
+        let total = u64::try_from(total).map_err(|error| {
+            crate::domain_errors::DomainError::invalid_argument(error.to_string())
+        })?;
+        let pagination =
+            Pagination::try_new(query.page, query.page_size, total).map_err(|error| {
+                crate::domain_errors::DomainError::invalid_argument(error.to_string())
+            })?;
+        Ok(DoclingCleanupPageResponse { items, pagination })
     }
 
     pub async fn admin_docling_cleanup(
