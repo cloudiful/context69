@@ -112,6 +112,7 @@ async fn a_missing_library_schema_is_refused_by_the_read_only_check() {
     let _guard = LIBRARY_SCHEMA_LOCK.lock().await;
     let pool = pool().await;
     drop_moved_aside_schema(&pool).await;
+    let library_schema_present = library_schema_exists(&pool).await;
 
     let transactional = transactional_pool().await;
     move_library_schema_aside(&transactional).await;
@@ -124,11 +125,23 @@ async fn a_missing_library_schema_is_refused_by_the_read_only_check() {
         "the refusal names the missing schema, got {missing:?}"
     );
 
-    // The rollback restores the schema the library owns under its own name.
+    // The rollback restores the namespace exactly as it was before the check.
     transactional.close().await;
-    assert!(
+    assert_eq!(
         library_schema_exists(&pool).await,
-        "the schema the library owns is back under its own name"
+        library_schema_present,
+        "the library namespace is restored to its initial presence"
+    );
+    let moved_aside_present = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/library_schema_exists.sql",
+        MOVED_ASIDE_SCHEMA
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the moved-aside namespace is observable");
+    assert!(
+        !moved_aside_present,
+        "the moved-aside fixture namespace does not survive the check"
     );
 }
 
@@ -178,6 +191,7 @@ async fn a_schema_that_only_looks_like_the_librarys_own_is_refused() {
     let _guard = LIBRARY_SCHEMA_LOCK.lock().await;
     let pool = pool().await;
     drop_moved_aside_schema(&pool).await;
+    let library_schema_present = library_schema_exists(&pool).await;
 
     let transactional = transactional_pool().await;
     move_library_schema_aside(&transactional).await;
@@ -219,11 +233,23 @@ async fn a_schema_that_only_looks_like_the_librarys_own_is_refused() {
     );
 
     // The lookalike and the moved schema are undone with the transaction, so
-    // the schema the library owns is back under its own name.
+    // the library namespace returns to its initial presence.
     transactional.close().await;
-    assert!(
+    assert_eq!(
         library_schema_exists(&pool).await,
-        "the schema the library owns is back under its own name"
+        library_schema_present,
+        "the library namespace is restored to its initial presence"
+    );
+    let moved_aside_present = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/library_schema_exists.sql",
+        MOVED_ASIDE_SCHEMA
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the moved-aside namespace is observable");
+    assert!(
+        !moved_aside_present,
+        "the moved-aside fixture namespace does not survive the check"
     );
 }
 

@@ -20,7 +20,7 @@ import {
   isRecoverableTask,
   libraryDependencyLabel,
   queueStageLabel,
-  taskDocumentTitle,
+  taskFileName,
   taskSubject,
   PROCESSING_STATUS_FILTERS,
 } from "./queue-helpers";
@@ -328,7 +328,7 @@ function TaskRow({
 }) {
   const { t } = useTranslation();
   const subject = taskSubject(task);
-  const title = taskDocumentTitle(task);
+  const fileName = taskFileName(task);
 
   const waiting = task.waiting_reason
     ? `${t(`processingQueue.waitingReasons.${task.waiting_reason}`, { defaultValue: task.waiting_reason })}${
@@ -359,8 +359,8 @@ function TaskRow({
             <span className="block max-w-64 truncate" title={subject ?? undefined}>
               {subject ?? t("processingQueue.unnamedTask")}
             </span>
-            {title && title !== subject
-              ? <span className="block max-w-64 truncate text-xs text-muted-foreground" title={title}>{title}</span>
+            {fileName && fileName !== subject
+              ? <span className="block max-w-64 truncate text-xs text-muted-foreground" title={fileName}>{fileName}</span>
               : null}
           </div>
         </TableCell>

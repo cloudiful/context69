@@ -129,12 +129,13 @@ export function taskDocumentTitle(task: TaskResponse): string | null {
 }
 
 /**
- * Deterministic row subject: file name, then document title, then the group or
- * source the task belongs to. Identifiers stay out of the collapsed row.
+ * Deterministic row subject: document/task title, then file name, then the
+ * group or source the task belongs to. Identifiers stay out of the collapsed
+ * row.
  */
 export function taskSubject(task: TaskResponse): string | null {
-  return taskFileName(task)
-    ?? taskDocumentTitle(task)
+  return taskDocumentTitle(task)
+    ?? taskFileName(task)
     ?? task.group_path?.trim()
     ?? task.source_key?.trim()
     ?? null;

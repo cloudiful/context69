@@ -16,9 +16,13 @@ import { queueStageLabel } from "./queue-helpers";
 const ALL_ITEMS = "__all__";
 
 function itemSubject(item: TaskItemResponse): string | null {
-  return item.file_name?.trim()
-    || item.document_title?.trim()
+  return item.document_title?.trim()
+    || item.file_name?.trim()
     || null;
+}
+
+function itemFileName(item: TaskItemResponse): string | null {
+  return item.file_name?.trim() || null;
 }
 
 function itemStatusTone(status: TaskItemStatus): StatusTone {
@@ -122,14 +126,20 @@ export function QueueExpandedRow({
         ? <p className="text-xs text-muted-foreground">{t("processingQueue.noItems")}</p>
         : (
             <ul className="divide-y rounded-md border">
-              {items.items.map((item) => (
+              {items.items.map((item) => {
+                const subject = itemSubject(item);
+                const fileName = itemFileName(item);
+                return (
                 <li key={item.item_id} className="flex flex-wrap items-start justify-between gap-3 p-2" data-testid="task-item-row">
                   <div className="min-w-0 flex-1 space-y-1">
                     <div className="flex flex-wrap items-center gap-2 text-sm">
                       <span className="text-xs text-muted-foreground">#{item.ordinal}</span>
                       <span className="truncate font-medium">
-                        {itemSubject(item) ?? item.item_id.slice(0, 8)}
+                        {subject ?? item.item_id.slice(0, 8)}
                       </span>
+                      {fileName && fileName !== subject
+                        ? <span className="truncate text-xs text-muted-foreground">{fileName}</span>
+                        : null}
                       <StatusBadge tone={itemStatusTone(item.status)}>
                         {taskItemStatusLabel(t, item.status)}
                       </StatusBadge>
@@ -171,7 +181,8 @@ export function QueueExpandedRow({
                       )
                     : null}
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
 

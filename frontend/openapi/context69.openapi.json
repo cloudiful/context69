@@ -7,7 +7,7 @@
       "name": "Apache-2.0",
       "identifier": "Apache-2.0"
     },
-    "version": "0.25.5"
+    "version": "0.25.6"
   },
   "paths": {
     "/healthz": {
@@ -10317,6 +10317,13 @@
           },
           "options": {
             "$ref": "#/components/schemas/IngestOptions"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Display title for the task subject; it never renames the imported\ndocument or its library file. Whitespace is collapsed and a blank value\nis treated as absent."
           },
           "url": {
             "type": "string"

@@ -400,6 +400,15 @@ pub struct PrepareLibraryUploadResponse {
 #[serde(deny_unknown_fields)]
 pub struct ImportLibraryFileFromUrlRequest {
     pub url: String,
+    /// Display title for the task subject; it never renames the imported
+    /// document or its library file. Whitespace is collapsed and a blank value
+    /// is treated as absent.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "deserialize_optional_title"
+    )]
+    pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub folder_id: Option<Uuid>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -407,6 +416,17 @@ pub struct ImportLibraryFileFromUrlRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
     pub options: crate::ingest::IngestOptions,
+}
+
+fn deserialize_optional_title<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let title = Option::<String>::deserialize(deserializer)?;
+    Ok(title.and_then(|value| {
+        let collapsed = value.split_whitespace().collect::<Vec<_>>().join(" ");
+        (!collapsed.is_empty()).then_some(collapsed)
+    }))
 }
 
 fn default_preview_content_format() -> LibraryPreviewContentFormat {

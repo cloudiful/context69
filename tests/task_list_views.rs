@@ -315,6 +315,20 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
     let titled_only = create_task(&db, user_id, &format!("{tag}-titled")).await;
     set_payload_title(&db, titled_only, "Titled but not ingested").await;
     let bare = create_task(&db, user_id, &format!("{tag}-bare")).await;
+    let url_request: context69_contracts::ImportLibraryFileFromUrlRequest =
+        serde_json::from_value(json!({
+            "url": "https://static.example.com/reports/2026-10-15-0099.PDF?token=abc#page2",
+            "title": "  Quarterly   Filing \n 2026 ",
+            "options": { "metadata": {}, "source_policy": "retain" }
+        }))
+        .expect("URL import request with a title");
+    let url_titled = create_url_task_from_request(&db, user_id, &url_request).await;
+    let url_untitled = create_url_task(
+        &db,
+        user_id,
+        "https://static.example.com/reports/2026-10-16-0100.PDF",
+    )
+    .await;
 
     let rows = db
         .list_tasks(context69::db::TaskListFilter {
@@ -366,6 +380,67 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
         bare_row.document_title, None,
         "an item with neither source projects no title"
     );
+    let url_titled_row = rows
+        .iter()
+        .find(|task| task.id == url_titled)
+        .expect("titled URL row");
+    assert_eq!(
+        url_titled_row.file_name.as_deref(),
+        Some("2026-10-15-0099.PDF"),
+        "a URL item keeps its distinct numeric basename as the file name"
+    );
+    assert_eq!(
+        url_titled_row.document_title.as_deref(),
+        Some("Quarterly Filing 2026"),
+        "the submitted URL title is normalized and projected for the row"
+    );
+    let url_untitled_row = rows
+        .iter()
+        .find(|task| task.id == url_untitled)
+        .expect("untitled URL row");
+    assert_eq!(
+        url_untitled_row.file_name.as_deref(),
+        Some("2026-10-16-0100.PDF"),
+        "a URL item without a title still projects its basename"
+    );
+    assert_eq!(
+        url_untitled_row.document_title, None,
+        "a URL item without a title falls back without inventing one"
+    );
+
+    // A different canonical document title must never outrank the submitted
+    // task title, and neither stored title is rewritten by the projection.
+    let named_group = file_group_of(&db, named).await;
+    link_document(
+        &db,
+        named_group,
+        named,
+        "Stored file title",
+        "Canonical document title",
+    )
+    .await;
+    let named_with_document = db
+        .get_task_internal(named)
+        .await
+        .expect("load named task with its document")
+        .expect("named task exists");
+    assert_eq!(
+        named_with_document.document_title.as_deref(),
+        Some("Submitted title"),
+        "the submitted task title outranks the canonical document title"
+    );
+    assert_eq!(named_with_document.file_name.as_deref(), Some("report.pdf"));
+    let stored_document_title = sqlx::query_scalar::<_, String>(
+        "SELECT title FROM context69.documents WHERE group_id = $1",
+    )
+    .bind(named_group)
+    .fetch_one(db.pool())
+    .await
+    .expect("read the canonical document title");
+    assert_eq!(
+        stored_document_title, "Canonical document title",
+        "projecting the task title must not rename the canonical document"
+    );
 
     // The same projection reaches the item read, and the internal read agrees.
     let items = db
@@ -375,6 +450,19 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
     assert_eq!(items.len(), 1, "the file join must not multiply an item");
     assert_eq!(items[0].file_name.as_deref(), Some("report.pdf"));
     assert_eq!(items[0].document_title.as_deref(), Some("Submitted title"));
+    let url_items = db
+        .list_task_items(url_titled, 10, 0)
+        .await
+        .expect("list titled URL task items");
+    assert_eq!(url_items.len(), 1);
+    assert_eq!(
+        url_items[0].file_name.as_deref(),
+        Some("2026-10-15-0099.PDF")
+    );
+    assert_eq!(
+        url_items[0].document_title.as_deref(),
+        Some("Quarterly Filing 2026")
+    );
     let internal = db
         .get_task_internal(named)
         .await
@@ -382,6 +470,15 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
         .expect("task exists");
     assert_eq!(internal.file_name.as_deref(), Some("report.pdf"));
     assert_eq!(internal.document_title.as_deref(), Some("Submitted title"));
+    let internal_url = db
+        .get_task_internal(url_titled)
+        .await
+        .expect("load the titled URL task internally")
+        .expect("titled URL task exists");
+    assert_eq!(
+        internal_url.document_title.as_deref(),
+        Some("Quarterly Filing 2026")
+    );
 }
 
 /// A cancelled item that never materialized a library file is still named by
@@ -694,6 +791,32 @@ async fn create_url_task(db: &Database, user_id: i64, url: &str) -> Uuid {
         })
         .await
         .expect("create url task");
+    task_id
+}
+
+/// A `url_batch` task whose single item is the serialized URL import request,
+/// so its optional title survives exactly as the endpoint stores it.
+async fn create_url_task_from_request(
+    db: &Database,
+    user_id: i64,
+    request: &context69_contracts::ImportLibraryFileFromUrlRequest,
+) -> Uuid {
+    let payload = serde_json::to_value(request).expect("URL import request serializes");
+    let (task_id, _, _) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: None,
+            kind: "url_batch",
+            group_path: Some("test/list-views"),
+            source_key: None,
+            payloads: &[payload],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("list-view-hash-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create titled url task");
     task_id
 }
 

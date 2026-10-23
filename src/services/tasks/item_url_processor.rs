@@ -426,6 +426,7 @@ mod tests {
         let request: context69_contracts::ImportLibraryFileFromUrlRequest =
             super::url_storage_request(&json!({
                 "url": "https://example.com/file.pdf",
+                "title": "  Quarterly   Filing ",
                 "options": { "metadata": {}, "source_policy": "retain" },
                 "download_artifact": {
                     "source_url": "https://example.com/file.pdf",
@@ -437,5 +438,21 @@ mod tests {
             }))
             .expect("storage request must parse despite persisted download artifact");
         assert_eq!(request.url, "https://example.com/file.pdf");
+        assert_eq!(
+            request.title.as_deref(),
+            Some("Quarterly Filing"),
+            "the normalized task title survives stripping the download artifact"
+        );
+    }
+
+    #[test]
+    fn storage_request_keeps_an_absent_title_compatible() {
+        let request: context69_contracts::ImportLibraryFileFromUrlRequest =
+            super::url_storage_request(&json!({
+                "url": "https://example.com/file.pdf",
+                "options": { "metadata": {}, "source_policy": "retain" }
+            }))
+            .expect("storage request without a title parses");
+        assert_eq!(request.title, None);
     }
 }

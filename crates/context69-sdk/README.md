@@ -11,10 +11,10 @@ Add the SDK as a git dependency pinned to a product tag:
 
 ```toml
 [dependencies]
-context69-sdk = { git = "https://github.com/cloudiful/context69.git", tag = "v0.16.0" }
+context69-sdk = { git = "https://github.com/cloudiful/context69.git", tag = "v0.25.6" }
 ```
 
-Pin a tag (for example `v0.16.0`); path dependencies inside the checkout stay
+Pin a tag (for example `v0.25.6`); path dependencies inside the checkout stay
 consistent automatically.
 
 Note: no new versions are published to crates.io after `0.15.19`, and docs.rs
@@ -63,6 +63,33 @@ println!("{} file items failed", file_result.progress.failed);
 
 Use `submit_url_batch` for remote files. A one-item batch is the single-item form;
 there is no second single-write API to learn.
+
+```rust,no_run
+use context69_sdk::{Context69Client, IngestOptions, UrlBatchItem, UrlBatchRequest};
+
+# async fn example(client: &Context69Client, options: IngestOptions)
+#     -> Result<(), Box<dyn std::error::Error>> {
+let request = UrlBatchRequest {
+    items: vec![UrlBatchItem {
+        url: "https://example.com/reports/1225617179.PDF".into(),
+        title: Some("2026 Third-quarter Report".into()),
+        folder_id: None,
+        filename: None,
+        media_type: None,
+        options,
+    }],
+};
+let task = client.submit_url_batch("research/disclosures", &request).await?;
+# let _ = task;
+# Ok(())
+# }
+```
+
+`title` is an optional task display title. The queue shows it before the file name;
+it does not rename the shared file or document. Use `title: None` when constructing
+an item without a title in Rust. JSON callers may omit the field. The server
+collapses whitespace and treats blank titles as absent. See the
+[URL import title contract](../../docs/api/url-import-titles.md).
 
 Each batch receives a stable SDK-generated `Idempotency-Key` derived from its
 endpoint and request body. Repeating the same request returns the original

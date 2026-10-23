@@ -16,7 +16,11 @@ test.describe("react processing queue", () => {
 
     await expect(page.getByRole("heading", { name: "Processing Queue", level: 1 })).toBeVisible();
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
-    await expect(page.getByText("field-notes.pdf")).toBeVisible();
+    const activeRow = page.getByTestId("queue-task-row").first();
+    await expect(activeRow.getByText("Field Notes")).toBeVisible();
+    const activeFileName = activeRow.getByText("field-notes.pdf");
+    await expect(activeFileName).toBeVisible();
+    await expect(activeFileName).toHaveClass(/text-muted-foreground/);
     await expect(page.getByTestId("queue-progress").first()).toContainText("2/4");
     await expect(page.getByTestId("queue-error").nth(1)).toContainText("Embedding provider timed out");
 
@@ -187,6 +191,41 @@ test.describe("react processing queue", () => {
     expect(itemReads()).toBe(readsAfterTerminal);
   });
 
+  test("shows readable task and item titles with distinct filenames", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: {
+        processing: [QUEUE_ACTIVE_TASK],
+        itemSequences: {
+          [QUEUE_ACTIVE_TASK.task_id]: [{
+            items: [{
+              item_id: "queue-item-titled",
+              ordinal: 1,
+              status: "running",
+              attempt_count: 1,
+              retryable: false,
+              file_name: "2026-10-15-0099.PDF",
+              document_title: "Quarterly Filing",
+              created_at: "2026-01-01T08:00:00Z",
+            }],
+            next_cursor: null,
+          }],
+        },
+      },
+    });
+
+    await page.goto("/processing-queue");
+    const row = page.getByTestId("queue-task-row").first();
+    await expect(row.getByText("Field Notes")).toBeVisible();
+    await expect(row.getByText("field-notes.pdf")).toHaveClass(/text-muted-foreground/);
+
+    await page.getByRole("button", { name: "Expand task items" }).click();
+    const itemRow = page.getByTestId("task-item-row");
+    await expect(itemRow.getByText("Quarterly Filing")).toBeVisible();
+    await expect(itemRow.getByText("2026-10-15-0099.PDF")).toHaveClass(/text-muted-foreground/);
+    expect(transport.unmocked).toEqual([]);
+  });
+
   test("keeps a filtered window when the live snapshot arrives", async ({ page }) => {
     await installAppTransport(page, {
       user: ADMIN_USER,
@@ -344,6 +383,9 @@ test.describe("react processing queue", () => {
     await expect(page.getByRole("tab", { name: "回收站" })).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+    const zhRow = page.getByTestId("queue-task-row").first();
+    await expect(zhRow.getByText("Field Notes")).toBeVisible();
+    await expect(zhRow.getByText("field-notes.pdf")).toBeVisible();
     await expect(page.getByRole("button", { name: "展开任务项" })).toHaveCount(2);
   });
 });

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -129,6 +129,33 @@ describe("QueueExpandedRow", () => {
       expect.objectContaining({ limit: 100, cursor: "cursor-2" }),
       expect.anything(),
     );
+  });
+
+  it("shows an item title as primary with a distinct filename secondary", async () => {
+    vi.mocked(apiClient.getTaskItems).mockResolvedValue(itemsResponse([
+      item({
+        item_id: "item-1",
+        file_name: "2026-10-15-0099.pdf",
+        document_title: "Quarterly Filing",
+      }),
+    ]));
+    renderRow();
+
+    const row = await screen.findByTestId("task-item-row");
+    const primary = within(row).getByText("Quarterly Filing");
+    const secondary = within(row).getByText("2026-10-15-0099.pdf");
+    expect(secondary).toHaveClass("text-muted-foreground");
+    expect(primary.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not repeat an identical item title and filename", async () => {
+    vi.mocked(apiClient.getTaskItems).mockResolvedValue(itemsResponse([
+      item({ item_id: "item-1", file_name: "same.pdf", document_title: "same.pdf" }),
+    ]));
+    renderRow();
+
+    const row = await screen.findByTestId("task-item-row");
+    expect(within(row).getAllByText("same.pdf")).toHaveLength(1);
   });
 
   it("re-requests the first page with the item status filter", async () => {

@@ -3210,6 +3210,12 @@ export interface components {
             folder_id?: string | null;
             media_type?: string | null;
             options: components["schemas"]["IngestOptions"];
+            /**
+             * @description Display title for the task subject; it never renames the imported
+             *     document or its library file. Whitespace is collapsed and a blank value
+             *     is treated as absent.
+             */
+            title?: string | null;
             url: string;
         };
         IngestOptions: {

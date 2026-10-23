@@ -113,6 +113,43 @@ describe("ProcessingQueuePage", () => {
     await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledWith("task-1"));
   });
 
+  it("shows a task title as the primary subject and a distinct filename secondary", async () => {
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({
+        file_name: "2026-10-15-0099.pdf",
+        document_title: "Quarterly Filing",
+        kind: "url_batch",
+      }),
+    ]));
+    renderPage();
+
+    const cell = await screen.findByTestId("queue-task");
+    const primary = within(cell).getByText("Quarterly Filing");
+    const secondary = within(cell).getByText("2026-10-15-0099.pdf");
+    expect(primary).toBeInTheDocument();
+    expect(secondary).toHaveClass("text-muted-foreground");
+    expect(primary.compareDocumentPosition(secondary) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("does not repeat an identical title and filename", async () => {
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ file_name: "same.pdf", document_title: "same.pdf" }),
+    ]));
+    renderPage();
+
+    const cell = await screen.findByTestId("queue-task");
+    expect(within(cell).getAllByText("same.pdf")).toHaveLength(1);
+  });
+
+  it("falls back to the filename when no title is available", async () => {
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ file_name: "fallback.pdf" }),
+    ]));
+    renderPage();
+
+    expect(await screen.findByText("fallback.pdf")).toBeInTheDocument();
+  });
+
   it("expands a row into cursor-paged items", async () => {
     const user = userEvent.setup();
     vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task({ file_name: "alpha.pdf" })]));
@@ -125,6 +162,7 @@ describe("ProcessingQueuePage", () => {
         retryable: true,
         created_at: "2026-01-01T00:00:00Z",
         file_name: "chapter-1.pdf",
+        document_title: "Chapter One",
       }],
       next_cursor: null,
     });
@@ -132,7 +170,8 @@ describe("ProcessingQueuePage", () => {
     await screen.findByText("alpha.pdf");
 
     await user.click(screen.getByRole("button", { name: "Expand task items" }));
-    expect(await screen.findByText("chapter-1.pdf")).toBeInTheDocument();
+    expect(await screen.findByText("Chapter One")).toBeInTheDocument();
+    expect(screen.getByText("chapter-1.pdf")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Troubleshooting" })).toBeInTheDocument();
   });
 

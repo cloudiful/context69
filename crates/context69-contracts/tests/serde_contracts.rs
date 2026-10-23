@@ -7,7 +7,7 @@ use context69_contracts::{
     LibraryTextContentFormat, ListDocumentResultsQuery, ListDocumentResultsResponse,
     MetadataObject, OffsetPageQuery, OffsetPagination, Pagination, PersonalAccessTokenScope,
     PrepareLibraryUploadRequest, SearchRequest, SecretPatch, SortDirection, SortOrder,
-    SourcePolicy, TaskListQuery, TaskListView, UpsertLibraryTextRequest,
+    SourcePolicy, TaskListQuery, TaskListView, UpsertLibraryTextRequest, UrlBatchRequest,
 };
 use serde_json::{json, to_value};
 
@@ -41,6 +41,76 @@ fn legacy_requests_receive_current_defaults() {
     }))
     .expect("canonical URL import request");
     assert!(!import.options.is_release());
+}
+
+#[test]
+fn url_import_title_is_optional_and_whitespace_normalized() {
+    let base = json!({
+        "url": "https://files.example.test/report.pdf",
+        "options": { "metadata": {}, "source_policy": "retain" }
+    });
+
+    let absent: ImportLibraryFileFromUrlRequest =
+        serde_json::from_value(base.clone()).expect("title is optional");
+    assert_eq!(absent.title, None);
+    assert!(
+        !to_value(&absent)
+            .expect("serialize absent title")
+            .as_object()
+            .expect("object")
+            .contains_key("title"),
+        "an absent title must stay omitted"
+    );
+
+    for blank in [json!(null), json!(""), json!(" \t\n ")] {
+        let mut payload = base.clone();
+        payload["title"] = blank;
+        let request: ImportLibraryFileFromUrlRequest =
+            serde_json::from_value(payload).expect("blank title is accepted");
+        assert_eq!(request.title, None, "blank title must normalize to absent");
+        assert!(
+            !to_value(&request)
+                .expect("serialize blank title")
+                .as_object()
+                .expect("object")
+                .contains_key("title"),
+            "a normalized blank title must stay omitted"
+        );
+    }
+
+    let mut titled_payload = base.clone();
+    titled_payload["title"] = json!("  Annual   Report \n 2026 ");
+    let titled: ImportLibraryFileFromUrlRequest =
+        serde_json::from_value(titled_payload).expect("titled request");
+    assert_eq!(titled.title.as_deref(), Some("Annual Report 2026"));
+    let round_trip: ImportLibraryFileFromUrlRequest =
+        serde_json::from_value(to_value(&titled).expect("serialize titled"))
+            .expect("titled request round-trips");
+    assert_eq!(round_trip.title.as_deref(), Some("Annual Report 2026"));
+
+    let mut wrong_type = base.clone();
+    wrong_type["title"] = json!(42);
+    assert!(
+        serde_json::from_value::<ImportLibraryFileFromUrlRequest>(wrong_type).is_err(),
+        "a non-string title must be rejected"
+    );
+
+    let mut unknown = base;
+    unknown["unknown_title_source"] = json!("x");
+    assert!(
+        serde_json::from_value::<ImportLibraryFileFromUrlRequest>(unknown).is_err(),
+        "an unknown field beside a title must still be rejected"
+    );
+
+    let batch: UrlBatchRequest = serde_json::from_value(json!({
+        "items": [{
+            "url": "https://files.example.test/report.pdf",
+            "title": "  Batch   subject ",
+            "options": { "metadata": {}, "source_policy": "retain" }
+        }]
+    }))
+    .expect("url batch item accepts a title");
+    assert_eq!(batch.items[0].title.as_deref(), Some("Batch subject"));
 }
 
 #[test]
