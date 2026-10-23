@@ -561,7 +561,7 @@ dependencies = [
 [[package]]
 name = "cloudiful-tasks"
 version = "0.1.0"
-source = "git+https://github.com/cloudiful/tasks?rev=739cad5822e2208e9a4424eead9f79653a7e02d7#739cad5822e2208e9a4424eead9f79653a7e02d7"
+source = "git+https://github.com/cloudiful/tasks?rev=09ca2b383cd489f5a1d8eac697e6f093adbb40b4#09ca2b383cd489f5a1d8eac697e6f093adbb40b4"
 dependencies = [
  "async-trait",
  "chrono",
