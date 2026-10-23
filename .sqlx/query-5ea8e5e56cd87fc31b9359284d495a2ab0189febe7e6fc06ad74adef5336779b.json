@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Removes only the shared-ledger row this case injected, so a refusal case\n-- leaves the fixture as it found it.\nDELETE FROM public._sqlx_migrations WHERE version = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5ea8e5e56cd87fc31b9359284d495a2ab0189febe7e6fc06ad74adef5336779b"
+}

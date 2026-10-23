@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Whether one relation of the ordinary schema still exists, so a case can prove\n-- a preserved object survived the reset cycles. `$1` is the relation name.\nSELECT to_regclass('public.' || $1) IS NOT NULL AS \"present!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "present!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "305378a24cc296af0191d8c1d54c57db21620001fe889a5e5211f4b8fbb779cd"
+}

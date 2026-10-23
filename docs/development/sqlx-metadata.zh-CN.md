@@ -25,12 +25,17 @@ Context69 的 SQL 针对已提交的查询缓存编译。`sqlx::query_file*!` �
 ```sh
 DATABASE_URL=postgres://… \
   cargo sqlx --no-dotenv prepare --workspace --check -- \
-    --all-targets --features integration-test-helpers
+    --workspace --all-targets --features integration-test-helpers
 ```
 
 它需要在环境中显式提供 `DATABASE_URL`：`.env` 加载已由 CLI 自身的 `--no-dotenv`
 关闭，且 URL 绝不打印。该命令用真实数据库编译工作区，并把新描述的查询与已提交缓存
 比较。
+
+两处 `--workspace` 属于不同命令且都必需。第一处是 `cargo sqlx prepare` 的选项，
+使清单落在工作区根目录；`--` 之后的那一处传给 CLI 启动的 `cargo check`，让它构建所有
+工作区成员（含测试目标）。缺少后者时子命令只检查当前包，成员 crate 的测试目标语句便不会
+进入被比较的清单——这也正是下方离线构建使用的范围。
 
 SQLx 0.9 会把工作区外依赖的查询宏也描述进该清单。当依赖在同一次运行中被编译时，清单
 也包含它的语句，检查便会以如下信息失败：
@@ -83,8 +88,11 @@ cache 锁等待）作为 `metadata_stderr` 诊断保留，绝不会当作数据�
 ```sh
 DATABASE_URL=postgres://… \
   cargo sqlx --no-dotenv prepare --workspace -- \
-    --all-targets --features integration-test-helpers
+    --workspace --all-targets --features integration-test-helpers
 ```
+
+第二处 `--workspace` 即上文所述子 `cargo check` 的参数，使重新生成的清单覆盖与检查
+相同的成员与测试目标。
 
 之后 `check-sqlx-metadata.py` 就是“工作区缓存、固定库缓存与离线构建三者一致”的证明。
 仅凭原生检查不能构成该证明，因为它的退出码取决于依赖是否被重新编译。

@@ -7,4 +7,6 @@ export const metadataIndexes = {
   kind: "Value kind",
   status: "Status",
   sortable: "Sortable",
+  loadFailed: "Failed to load metadata indexes",
+  addDescription: "Index one metadata field for {source}.",
 } as const;

@@ -66,6 +66,33 @@ pub(super) async fn cleanup(db: &Database, group_id: i64, user_id: i64) {
         .expect("cleanup user");
 }
 
+/// Give the seeded user the maintainer role in the seeded group.
+///
+/// A manual retry is a group-scoped operation: the queue only reopens the
+/// items of a task whose group the user may maintain.
+pub(super) async fn add_group_maintainer(db: &Database, group_id: i64, user_id: i64) {
+    sqlx::query_file!(
+        "tests/task_retry_policy/add_group_maintainer.sql",
+        group_id,
+        user_id
+    )
+    .execute(db.pool())
+    .await
+    .expect("add group maintainer");
+}
+
+/// A URL task payload without a downloaded artifact, so the download stage
+/// really runs instead of resuming a stored artifact.
+pub(super) fn url_payload(url: &str) -> Value {
+    json!({
+        "url": url,
+        "options": {
+            "metadata": { "external_id": format!("issue-1002-url-{}", Uuid::new_v4()) },
+            "source_policy": "retain"
+        }
+    })
+}
+
 pub(super) fn payload(kind: &str) -> Value {
     match kind {
         "text_batch" => json!({

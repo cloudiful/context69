@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The attempts of one item that are already closed.\nSELECT count(*) AS \"count!\"\nFROM context69.task_attempts\nWHERE item_id = $1 AND finished_at IS NOT NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "40ee2b20f83192fcaba1c00db8b012a6c787f583f743fe1d7bd2db48b8bf665b"
+}

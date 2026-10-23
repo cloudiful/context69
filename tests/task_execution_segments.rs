@@ -383,3 +383,117 @@ async fn a_cancelled_item_reports_the_actual_domain_outcome() {
 
     cleanup(&db, task_id, user_id).await;
 }
+
+/// The merged deterministic-failure policy still rides on the captured segment
+/// (issue 1020 P8).
+///
+/// The worker classifies a failure from its typed error chain, so a
+/// deterministic failure finishes the item on its first attempt instead of
+/// scheduling a retry. That policy lives on the captured path: the terminal
+/// transition closes the attempt the claim holds, schedules nothing, and a stale
+/// generation can neither finish the item nor park it.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_deterministic_failure_closes_the_captured_segment_without_a_retry() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, _item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+
+    let item = claim_head(&db, task_id).await;
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    // A stale generation commits nothing, whatever the failure class is.
+    assert!(
+        !db.finish_task_item(FinishTaskItemRequest {
+            task_id,
+            item_id: item.id,
+            status: "failed",
+            resource_id: None,
+            failure_stage: Some("download"),
+            error_message: Some("remote_file_too_large: limit_bytes=1024"),
+            retryable: false,
+            execution: stale_execution(&execution),
+            attempt_id: item.attempt_id,
+        })
+        .await
+        .expect("a refused finish is not an error"),
+        "a stale generation cannot close the item"
+    );
+
+    // The captured segment closes the deterministic failure on its first attempt.
+    assert!(
+        db.finish_task_item(FinishTaskItemRequest {
+            task_id,
+            item_id: item.id,
+            status: "failed",
+            resource_id: None,
+            failure_stage: Some("download"),
+            error_message: Some("remote_file_too_large: limit_bytes=1024 observed_bytes=4096"),
+            retryable: false,
+            execution: execution.clone(),
+            attempt_id: item.attempt_id,
+        })
+        .await
+        .expect("the captured attempt closes the failure"),
+        "the captured segment closes the deterministic failure"
+    );
+
+    let row = sqlx::query_file!(
+        "tests/sql/task_execution/read_item_and_attempt_status.sql",
+        item.id,
+        item.attempt_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the domain state");
+    let item_status: String = row.item_status;
+    let attempt_status: String = row.attempt_status;
+    assert_eq!(item_status, "failed", "the item is terminal");
+    assert_eq!(
+        attempt_status, "failed",
+        "the captured attempt is closed with its item"
+    );
+
+    let retryable: bool =
+        sqlx::query_file_scalar!("tests/sql/task_execution/read_item_retryable.sql", item.id)
+            .fetch_one(db.pool())
+            .await
+            .expect("read the retry decision");
+    assert!(!retryable, "a deterministic failure is not retryable");
+    let failure_stage: Option<String> = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_item_failure_stage.sql",
+        item.id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the failure stage");
+    assert_eq!(failure_stage.as_deref(), Some("download"));
+
+    let wait = sqlx::query_file!("tests/sql/task_execution/read_item_wait_state.sql", item.id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the wait state");
+    assert!(
+        wait.next_attempt_at.is_none(),
+        "a deterministic failure schedules no next attempt"
+    );
+    assert!(
+        wait.waiting_reason.is_none(),
+        "a deterministic failure leaves no waiting reason"
+    );
+
+    let attempts: i64 =
+        sqlx::query_file_scalar!("tests/sql/task_execution/count_item_attempts.sql", item.id)
+            .fetch_one(db.pool())
+            .await
+            .expect("count attempts");
+    assert_eq!(
+        attempts, 1,
+        "the deterministic failure burns exactly one attempt"
+    );
+
+    cleanup(&db, task_id, user_id).await;
+}

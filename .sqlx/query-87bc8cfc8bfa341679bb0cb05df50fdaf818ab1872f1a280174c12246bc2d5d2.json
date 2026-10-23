@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Extensions installed in the database, which every reset must preserve because\n-- they live outside the owned schema.\nSELECT count(*)::bigint AS \"count!\" FROM pg_extension\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "87bc8cfc8bfa341679bb0cb05df50fdaf818ab1872f1a280174c12246bc2d5d2"
+}

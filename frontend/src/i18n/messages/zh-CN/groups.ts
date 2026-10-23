@@ -1,5 +1,4 @@
 export const groups = {
-  title: "浏览器",
   groupKey: "群组键",
   groupPath: "群组路径",
   groupName: "群组名称",
@@ -14,6 +13,11 @@ export const groups = {
     shared: "共享",
     personal: "个人",
   },
+  roleOptions: {
+    owner: "所有者",
+    maintainer: "维护者",
+    viewer: "查看者",
+  },
   create: "创建群组",
   editGroup: "编辑群组",
   createFailed: "创建群组失败。",
@@ -21,12 +25,12 @@ export const groups = {
   deleteFailed: "删除群组失败。",
   moveFailed: "移动群组失败。",
   loadFailed: "加载群组失败。",
-  emptyTitle: "暂无群组",
   emptyMessage: "当前还没有可见群组。",
-  emptyChildren: "暂无子群组。",
-  childrenTitle: "子群组",
+  searchChildren: "搜索子群组",
   overviewTitle: "概览",
   membersTitle: "成员",
+  settingsTitle: "设置",
+  noParentGroup: "无上级群组",
   createChild: "创建子群组",
   editChild: "编辑子群组",
   moveGroup: "移动群组",
@@ -41,9 +45,6 @@ export const groups = {
   deleteConfirm: "确认删除群组 {name}？",
   childDeleteConfirm: "确认删除子群组 {name}？",
   memberRemoveConfirm: "确认移除成员 {loginName}？",
-  tabs: {
-    overview: "概览",
-  },
   translation: {
     title: "翻译默认设置",
     enabled: "自动翻译新入库文档",

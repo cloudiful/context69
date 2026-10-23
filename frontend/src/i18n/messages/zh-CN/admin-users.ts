@@ -1,7 +1,5 @@
 export const adminUsers = {
-  navGroup: "管理员",
   title: "用户",
-  description: "管理系统账号与管理员权限。",
   loadFailed: "加载用户失败。",
   createFailed: "创建用户失败。",
   updateFailed: "更新用户失败。",

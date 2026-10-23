@@ -63,13 +63,15 @@ impl ResetAuthorization {
 /// goes away with the schema, while a verified `public` ledger keeps its rows.
 #[must_use]
 pub fn clears_ledger_separately(observation: &PreflightObservation) -> bool {
-    matches!(
-        observation.ledgers.as_slice(),
-        [ledger] if ledger.namespace == preflight::PUBLIC_SCHEMA
-    )
+    preflight::LedgerView::from_observation(observation).clears_public_ledger()
 }
 
 /// Drop, recreate, and clear the stale ledger on the configured target.
+///
+/// `ledgers` is the ledger view this reset faces. It is re-read immediately
+/// before the call: the run level observation is taken once, while the reset
+/// runs once per target, and the first target's migrate can create the `public`
+/// ledger a later reset has to clear.
 ///
 /// # Errors
 ///
@@ -78,7 +80,7 @@ pub fn clears_ledger_separately(observation: &PreflightObservation) -> bool {
 pub async fn reset_owned_schema(
     endpoint: &Endpoint,
     authorization: ResetAuthorization,
-    observation: &PreflightObservation,
+    ledgers: &preflight::LedgerView,
 ) -> Result<(), ResetError> {
     if !authorization.permits_reset() {
         return Err(ResetRefused {
@@ -92,8 +94,9 @@ pub async fn reset_owned_schema(
     sqlx::raw_sql(RESET_SQL).execute(&pool).await?;
 
     // A shared ledger is never emptied: only the pairs this build ships are
-    // removed, and the preflight has already refused if it found anything else.
-    if clears_ledger_separately(observation) {
+    // removed, and the guards that produced this view have already refused if it
+    // held anything else.
+    if ledgers.clears_public_ledger() {
         let migrations = preflight::repository_migrations();
         let versions = migrations
             .iter()
@@ -191,3 +194,7 @@ impl std::error::Error for ResetError {}
 
 /// The one schema this runner is allowed to drop and recreate.
 pub use preflight::OWNED_SCHEMA;
+
+#[cfg(test)]
+#[path = "reset/tests.rs"]
+mod tests;

@@ -216,7 +216,7 @@ fn unsafe_termination(outcome: &ChildOutcome) -> Option<String> {
 }
 
 /// Recreate the owned schema and apply every migration once.
-async fn reset_and_migrate(
+pub(crate) async fn reset_and_migrate(
     endpoint: &Endpoint,
     observation: &PreflightObservation,
     decision: &ResetDecision,
@@ -227,7 +227,21 @@ async fn reset_and_migrate(
         "the effective migration namespace was not verified".to_owned(),
     ))?;
     let authorization = ResetAuthorization::new(decision.clone(), true);
-    if let Err(error) = reset::reset_owned_schema(endpoint, authorization, observation).await {
+    // The run level observation is taken once, before any target runs, but the
+    // reset runs once per target and the first target's migrate can create the
+    // `public` ledger a later reset has to clear. The reset therefore decides on
+    // a fresh read of the same narrow ledger view, under the advisory lock the
+    // run already holds, and refuses before any write when that view no longer
+    // satisfies the ledger guards.
+    let ledgers = preflight::refresh_ledger_view(endpoint, observation)
+        .await
+        .map_err(|error| {
+            (
+                TargetStage::Reset,
+                format!("the owned-schema reset is refused: {error}"),
+            )
+        })?;
+    if let Err(error) = reset::reset_owned_schema(endpoint, authorization, &ledgers).await {
         return Err((
             TargetStage::Reset,
             format!("the owned-schema reset did not complete: {error}"),

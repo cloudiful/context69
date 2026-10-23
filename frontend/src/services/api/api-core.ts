@@ -1,6 +1,6 @@
 import type { Client } from "openapi-fetch";
 import type { paths } from "../../generated/openapi";
-import { handleUnauthorized } from "../auth/session";
+import { handleUnauthorized } from "../../lib/auth-store";
 import { openapiClient, resolveApiUrl } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";

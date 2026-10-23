@@ -18,5 +18,8 @@ export const common = {
   confirm: "Confirm",
   yes: "Yes",
   no: "No",
+  pageOf: "Page {page} of {totalPages}",
+  previous: "Previous",
+  next: "Next",
   itemsPerPage: "Items per page",
 } as const;

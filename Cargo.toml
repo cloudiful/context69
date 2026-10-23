@@ -30,7 +30,7 @@ members = [
 resolver = "3"
 
 [workspace.package]
-version = "0.24.0"
+version = "0.25.2"
 edition = "2024"
 license = "Apache-2.0"
 
@@ -46,7 +46,7 @@ chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
 cloudiful-tasks = { git = "https://github.com/cloudiful/tasks", rev = "739cad5822e2208e9a4424eead9f79653a7e02d7" }
 config = { package = "cloudiful-config", version = "0.6.3" }
-context69-contracts = { path = "crates/context69-contracts", version = "0.24.0" }
+context69-contracts = { path = "crates/context69-contracts", version = "0.25.2" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
 context69-contracts-core = { path = "crates/context69-contracts-core", version = "0.1.0" }
 context69-contracts-library = { path = "crates/context69-contracts-library", version = "0.1.0" }
@@ -65,13 +65,12 @@ context69-namespace = { path = "crates/context69-namespace", version = "0.1.0" }
 context69-namespace-http = { path = "crates/context69-namespace-http", version = "0.1.0" }
 context69-search = { path = "crates/context69-search", version = "0.1.0" }
 context69-search-http = { path = "crates/context69-search-http", version = "0.1.0" }
-context69-sdk = { path = "crates/context69-sdk", version = "0.24.0" }
+context69-sdk = { path = "crates/context69-sdk", version = "0.25.2" }
 context69-secret-crypto = { path = "crates/context69-secret-crypto", version = "0.1.0" }
 context69-secret-store = { path = "crates/context69-secret-store", version = "0.1.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.1.0" }
 context69-test-support = { path = "crates/context69-test-support", version = "0.1.0" }
 context69-translation = { path = "crates/context69-translation", version = "0.1.0" }
-docling-convert = { package = "cloudiful-docling-convert", version = "0.3.6" }
 futures = "0.3.34"
 getrandom = "0.4.3"
 hmac = "0.13.0"
@@ -149,7 +148,6 @@ context69-secret-store.workspace = true
 context69-settings-http.workspace = true
 context69-translation.workspace = true
 db-init.workspace = true
-docling-convert.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
@@ -180,6 +178,8 @@ uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 [dev-dependencies]
 context69-test-support = { workspace = true }
 sqlx = { workspace = true }
+# The upgrade recovery test spawns the built binary through tokio's async process API.
+tokio = { workspace = true, features = ["process"] }
 # Dev-only transport for the in-process Qdrant gRPC mock in
 # `tests/qdrant_connection_probe.rs`. `qdrant-client` already pins this exact
 # version in the dependency graph, so it adds no new version to the build and

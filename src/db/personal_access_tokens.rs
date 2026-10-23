@@ -143,14 +143,23 @@ impl Database {
         Ok(row.map(personal_access_token_from_row))
     }
 
-    pub async fn touch_personal_access_token_last_used(&self, token_id: Uuid) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/personal_access_tokens/touch_personal_access_token_last_used.sql",
-            token_id
+    /// Record approximate usage for a batch of tokens.
+    ///
+    /// The statement is guarded, so it writes only the tokens whose usage
+    /// timestamp is missing or stale, and only while the token is still active.
+    /// `updated_at` stays untouched: usage is telemetry, not a change to the
+    /// token's configuration.
+    pub async fn touch_personal_access_tokens_last_used(&self, token_ids: &[Uuid]) -> Result<u64> {
+        if token_ids.is_empty() {
+            return Ok(0);
+        }
+        let result = sqlx::query_file!(
+            "src/sql/db/personal_access_tokens/touch_personal_access_tokens_last_used.sql",
+            token_ids
         )
         .execute(self.pool())
         .await?;
-        Ok(())
+        Ok(result.rows_affected())
     }
 }
 

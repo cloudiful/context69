@@ -18,5 +18,8 @@ export const common = {
   confirm: "确定",
   yes: "是",
   no: "否",
+  pageOf: "第 {page} / {totalPages} 页",
+  previous: "上一页",
+  next: "下一页",
   itemsPerPage: "每页",
 } as const;

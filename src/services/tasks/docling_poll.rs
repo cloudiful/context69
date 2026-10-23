@@ -6,6 +6,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::{Database, StoredDoclingRemoteJob};
+use crate::docling::{ConversionStatus, ConvertedDocument, TaskStatus};
 use crate::domain_errors::DomainError;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
@@ -23,19 +24,23 @@ const POLL_SLEEP_CHUNK_SECS: i64 = 10;
 /// (including the in-memory snapshot commit) runs without a live converter.
 #[async_trait::async_trait]
 pub(super) trait DoclingRemoteOps: Send + Sync {
+    /// Polls one remote task at the service root the job was submitted to.
     async fn poll_remote(
         &self,
+        endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<docling_convert::TaskStatusResponse, UnifiedIngestError>;
+    ) -> Result<TaskStatus, UnifiedIngestError>;
+    /// Fetches the converted document at the service root the job was
+    /// submitted to.
     async fn fetch_remote(
         &self,
-        file_id: Uuid,
+        endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<docling_convert::ConvertedDocument, UnifiedIngestError>;
+    ) -> Result<ConvertedDocument, UnifiedIngestError>;
     async fn remote_sections(
         &self,
         file_id: Uuid,
-        converted: docling_convert::ConvertedDocument,
+        converted: ConvertedDocument,
     ) -> Result<Value, UnifiedIngestError>;
     async fn note_remote_failure(&self, error: &UnifiedIngestError);
     async fn note_remote_success(&self);
@@ -54,23 +59,26 @@ pub(super) trait DoclingRemoteOps: Send + Sync {
 impl DoclingRemoteOps for LibraryService {
     async fn poll_remote(
         &self,
+        endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<docling_convert::TaskStatusResponse, UnifiedIngestError> {
-        self.poll_docling_remote(remote_task_id).await
+    ) -> Result<TaskStatus, UnifiedIngestError> {
+        self.poll_docling_remote(endpoint_base_url, remote_task_id)
+            .await
     }
 
     async fn fetch_remote(
         &self,
-        file_id: Uuid,
+        endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<docling_convert::ConvertedDocument, UnifiedIngestError> {
-        self.fetch_docling_remote(file_id, remote_task_id).await
+    ) -> Result<ConvertedDocument, UnifiedIngestError> {
+        self.fetch_docling_remote(endpoint_base_url, remote_task_id)
+            .await
     }
 
     async fn remote_sections(
         &self,
         file_id: Uuid,
-        converted: docling_convert::ConvertedDocument,
+        converted: ConvertedDocument,
     ) -> Result<Value, UnifiedIngestError> {
         self.sections_for_remote_result(file_id, converted).await
     }
@@ -181,6 +189,15 @@ pub(super) async fn run_docling_stage_blocking(
     job: StoredDoclingRemoteJob,
 ) -> Result<ProcessResult> {
     let mut attempt: i32 = 0;
+    // The captured root is the endpoint the job was submitted to: a settings
+    // change never moves a persisted job to another service.
+    let Some(endpoint_base_url) = job.endpoint_base_url.as_deref() else {
+        return Ok(ProcessResult::Failed {
+            stage: "docling".to_string(),
+            message: "the remote job has no captured docling endpoint".to_string(),
+            retryable: false,
+        });
+    };
     loop {
         match owner_state(db, item.id, item.lease_token).await? {
             OwnerState::Gone => {
@@ -200,7 +217,10 @@ pub(super) async fn run_docling_stage_blocking(
                 retryable: false,
             });
         }
-        let status = match ops.poll_remote(&job.remote_task_id).await {
+        let status = match ops
+            .poll_remote(endpoint_base_url, &job.remote_task_id)
+            .await
+        {
             Ok(status) => status,
             Err(error) => {
                 ops.note_remote_failure(&error).await;
@@ -218,7 +238,7 @@ pub(super) async fn run_docling_stage_blocking(
                 continue;
             }
         };
-        let status_name = format!("{:?}", status.task_status).to_ascii_lowercase();
+        let status_name = status.task_status.wire_name().to_string();
         // Only a changed observation is progress: the Docling client exposes
         // only a task status (no page counts), and a repeated long-poll result
         // is not new work, so it must not move the progress timestamp.
@@ -232,15 +252,15 @@ pub(super) async fn run_docling_stage_blocking(
         }
         if !status.task_status.is_successful() {
             let message = status
-                .error_message
-                .clone()
-                .or_else(|| {
-                    status
-                        .failure
-                        .as_ref()
-                        .map(|failure| failure.message.clone())
-                })
-                .unwrap_or_else(|| format!("docling task {} failed", job.remote_task_id));
+                .failure_message()
+                .map(str::to_string)
+                .unwrap_or_else(|| {
+                    if status.task_status == ConversionStatus::Cancelled {
+                        format!("docling task {} was cancelled", job.remote_task_id)
+                    } else {
+                        format!("docling task {} failed", job.remote_task_id)
+                    }
+                });
             ops.note_remote_failure(&UnifiedIngestError {
                 stage: "docling".to_string(),
                 dependency_key: Some("docling".to_string()),
@@ -254,7 +274,10 @@ pub(super) async fn run_docling_stage_blocking(
                 retryable: false,
             });
         }
-        let converted = match ops.fetch_remote(file_id, &job.remote_task_id).await {
+        let converted = match ops
+            .fetch_remote(endpoint_base_url, &job.remote_task_id)
+            .await
+        {
             Ok(converted) => converted,
             Err(error) => {
                 ops.note_remote_failure(&error).await;
@@ -347,6 +370,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{DoclingRemoteOps, backoff_secs, is_expired, run_docling_stage_blocking};
+    use crate::docling::{ConversionStatus, ConvertedDocument, TaskStatus};
     use crate::services::library::UnifiedIngestError;
     use crate::services::tasks::item_processors::{ProcessResult, persisted_section_payload};
 
@@ -367,9 +391,11 @@ mod tests {
     /// Scripted remote double: polling/fetching/section answers are canned so
     /// the real blocking loop runs without a live converter.
     struct ScriptedRemote {
-        polls: Mutex<VecDeque<Result<docling_convert::TaskStatusResponse, UnifiedIngestError>>>,
-        fetch: Mutex<Option<Result<docling_convert::ConvertedDocument, UnifiedIngestError>>>,
+        polls: Mutex<VecDeque<Result<TaskStatus, UnifiedIngestError>>>,
+        fetch: Mutex<Option<Result<ConvertedDocument, UnifiedIngestError>>>,
         sections: Mutex<Option<Result<Value, UnifiedIngestError>>>,
+        /// The service roots the durable loop asked for.
+        roots: Mutex<Vec<String>>,
     }
 
     impl ScriptedRemote {
@@ -377,42 +403,31 @@ mod tests {
             Self {
                 polls: Mutex::new(
                     [
-                        Ok(status(docling_convert::ConversionStatus::Started)),
-                        Ok(status(docling_convert::ConversionStatus::Success)),
+                        Ok(status(ConversionStatus::Started)),
+                        Ok(status(ConversionStatus::Success)),
                     ]
                     .into(),
                 ),
-                fetch: Mutex::new(Some(Ok(docling_convert::ConvertedDocument {
-                    filename: "a.pdf".to_string(),
+                fetch: Mutex::new(Some(Ok(ConvertedDocument {
                     markdown: Some("# hi".to_string()),
                     text: None,
                     json: None,
-                    html: None,
-                    doctags: None,
-                    doclang: None,
-                    chunks: Vec::new(),
-                    chunk_response: None,
-                    archive: None,
-                    metadata: docling_convert::ConvertedDocumentMetadata {
-                        input_kind: docling_convert::InputKind::Pdf,
-                        media_type: "application/pdf".to_string(),
-                    },
-                    errors: Vec::new(),
                 }))),
                 sections: Mutex::new(Some(Ok(json!([{"section_key": "document"}])))),
+                roots: Mutex::new(Vec::new()),
             }
+        }
+
+        /// The service roots the durable loop asked for.
+        fn roots(&self) -> Vec<String> {
+            self.roots.lock().expect("root script").clone()
         }
     }
 
-    fn status(
-        task_status: docling_convert::ConversionStatus,
-    ) -> docling_convert::TaskStatusResponse {
-        docling_convert::TaskStatusResponse {
+    fn status(task_status: ConversionStatus) -> TaskStatus {
+        TaskStatus {
             task_id: "remote-1".to_string(),
-            task_type: None,
             task_status,
-            task_position: None,
-            task_meta: None,
             error_message: None,
             failure: None,
         }
@@ -422,8 +437,13 @@ mod tests {
     impl DoclingRemoteOps for ScriptedRemote {
         async fn poll_remote(
             &self,
+            endpoint_base_url: &str,
             _remote_task_id: &str,
-        ) -> Result<docling_convert::TaskStatusResponse, UnifiedIngestError> {
+        ) -> Result<TaskStatus, UnifiedIngestError> {
+            self.roots
+                .lock()
+                .expect("root script")
+                .push(endpoint_base_url.to_string());
             self.polls
                 .lock()
                 .expect("poll script")
@@ -433,9 +453,13 @@ mod tests {
 
         async fn fetch_remote(
             &self,
-            _file_id: Uuid,
+            endpoint_base_url: &str,
             _remote_task_id: &str,
-        ) -> Result<docling_convert::ConvertedDocument, UnifiedIngestError> {
+        ) -> Result<ConvertedDocument, UnifiedIngestError> {
+            self.roots
+                .lock()
+                .expect("root script")
+                .push(endpoint_base_url.to_string());
             self.fetch
                 .lock()
                 .expect("fetch script")
@@ -446,7 +470,7 @@ mod tests {
         async fn remote_sections(
             &self,
             _file_id: Uuid,
-            _converted: docling_convert::ConvertedDocument,
+            _converted: ConvertedDocument,
         ) -> Result<Value, UnifiedIngestError> {
             self.sections
                 .lock()
@@ -472,12 +496,16 @@ mod tests {
     /// terminal success and the SAME snapshot carries the sections, so the
     /// `embedding` pre-advance guard observes them and cannot route back to
     /// `docling` for a duplicate submit.
+    ///
+    /// The same case proves the durable stage keeps the endpoint the job was
+    /// submitted to: every poll and the result fetch carry the captured root.
     #[tokio::test]
     #[ignore = "requires configured reusable PostgreSQL"]
     async fn blocking_success_updates_the_worker_snapshot() {
         let db = test_db().await;
         let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
         let (user_id, task_id, mut item, file_id) = seed_running_item(&db).await;
+        let captured_root = "http://docling.captured.invalid/v1";
         let job = db
             .create_docling_remote_job(
                 task_id,
@@ -486,7 +514,7 @@ mod tests {
                 Some("submitted"),
                 Some(Utc::now() - chrono::Duration::seconds(1)),
                 Some(Utc::now() + chrono::Duration::hours(1)),
-                None,
+                Some(captured_root),
             )
             .await
             .expect("remote job");
@@ -501,6 +529,15 @@ mod tests {
         let sections = persisted_section_payload(&item.payload)
             .expect("the worker snapshot must carry the committed sections");
         assert_eq!(sections, json!([{"section_key": "document"}]));
+        let roots = ops.roots();
+        assert!(
+            !roots.is_empty(),
+            "the durable stage polls and fetches through the captured root"
+        );
+        assert!(
+            roots.iter().all(|root| root == captured_root),
+            "every remote call must carry the captured root, got {roots:?}"
+        );
         assert!(
             db.get_active_docling_remote_job_for_item(item.id)
                 .await
@@ -524,6 +561,472 @@ mod tests {
             .await
             .expect("bootstrap the library schema");
         db
+    }
+
+    /// One local Docling endpoint that counts the requests it receives.
+    struct MockEndpoint {
+        base_url: String,
+        requests: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl MockEndpoint {
+        fn requests(&self) -> usize {
+            self.requests.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    /// One local Docling endpoint that answers a poll and a result.
+    ///
+    /// The result carries `document_marker` as its markdown, so a test can tell
+    /// which service the served document actually came from.
+    async fn mock_docling_endpoint_returning(document_marker: &'static str) -> MockEndpoint {
+        let requests = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let poll_counter = requests.clone();
+        let result_counter = requests.clone();
+        let router = axum::Router::new()
+            .route(
+                "/v1/status/poll/{id}",
+                axum::routing::get(move || {
+                    let counter = poll_counter.clone();
+                    async move {
+                        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        axum::Json(json!({
+                            "task_id": "remote-1",
+                            "task_type": "convert",
+                            "task_status": "pending"
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/v1/result/{id}",
+                axum::routing::get(move || {
+                    let counter = result_counter.clone();
+                    async move {
+                        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        axum::Json(json!({
+                            "document": {
+                                "filename": "a.pdf",
+                                "md_content": document_marker
+                            },
+                            "status": "success"
+                        }))
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the local mock");
+        let address = listener.local_addr().expect("address");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        MockEndpoint {
+            base_url: format!("http://{address}/v1"),
+            requests,
+        }
+    }
+
+    /// Points the current Docling settings at one endpoint.
+    async fn point_current_settings_at(db: &crate::db::Database, base_url: &str) {
+        db.save_docling_settings(&crate::db::StoredDoclingSettings {
+            base_url: base_url.to_string(),
+            timeout_secs: 120,
+            poll_interval_secs: 2,
+            task_timeout_secs: 3600,
+            max_inflight: 1,
+            pdf_backend: None,
+            images_scale: None,
+            image_export_mode: None,
+            do_ocr: false,
+            force_ocr: false,
+            ocr_engine: None,
+            ocr_lang: Vec::new(),
+            do_code_enrichment: false,
+            do_formula_enrichment: false,
+            do_picture_description: false,
+            openai_base_url: None,
+            api_key: None,
+            vlm_pipeline_model: None,
+            picture_description_model: None,
+            code_formula_model: None,
+            picture_description_preset: None,
+        })
+        .await
+        .expect("save the current docling settings");
+    }
+
+    /// Removes the current Docling settings, so the case leaves nothing behind
+    /// and a persisted job has no current endpoint to fall back to.
+    async fn clear_current_settings(db: &crate::db::Database) {
+        sqlx::query("DELETE FROM context69.docling_settings WHERE singleton")
+            .execute(db.pool())
+            .await
+            .expect("clear the docling settings row");
+    }
+
+    /// The library service the durable conversion runs in.
+    async fn build_library_service(
+        db: &crate::db::Database,
+    ) -> crate::services::library::LibraryService {
+        use std::sync::Arc;
+
+        use crate::chunking::ChunkingConfig;
+        use crate::config::FileLibraryConfig;
+        use crate::embedding::EmbeddingRuntime;
+        use crate::services::library::{LibraryService, LibraryServiceConfig};
+        use crate::services::settings::SettingsService;
+        use crate::services::translation::TranslationPublisherAdapter;
+        use crate::vector_runtime::VectorRuntime;
+        use context69_translation::{TranslationDependencies, TranslationReadiness};
+
+        struct NotReady;
+
+        #[async_trait::async_trait]
+        impl TranslationReadiness for NotReady {
+            async fn is_ready(&self) -> anyhow::Result<bool> {
+                Ok(false)
+            }
+        }
+
+        let chunking = ChunkingConfig {
+            max_chars: 1000,
+            overlap_chars: 100,
+        };
+        let translation = context69_translation::TranslationService::new(TranslationDependencies {
+            pool: db.pool().clone(),
+            http_client: reqwest::Client::new(),
+            publisher: Arc::new(TranslationPublisherAdapter::new(
+                None,
+                None,
+                chunking.clone(),
+            )),
+            concurrency: 1,
+            readiness: Arc::new(NotReady),
+        });
+        let runtime = VectorRuntime::from_legacy(EmbeddingRuntime::new(None, None), None, "");
+        LibraryService::with_vector_runtime(
+            db.clone(),
+            runtime,
+            LibraryServiceConfig {
+                chunking: chunking.clone(),
+                file_library: FileLibraryConfig {
+                    storage_root: std::env::temp_dir()
+                        .join(format!("context69-docling-endpoint-{}", Uuid::new_v4())),
+                    max_upload_size_mb: 1,
+                    max_upload_request_size_mb: 1,
+                    ingest_concurrency: 1,
+                    url_import_concurrency: 1,
+                    url_import_min_interval_ms: 1000,
+                    trusted_proxy_enabled: false,
+                    s3: None,
+                },
+                valkey_url: None,
+                embedding_vector_configured: true,
+                embedding_vector_configuration_fingerprint: "docling-endpoint-test".to_string(),
+            },
+            SettingsService::new(db.clone()),
+            translation,
+        )
+        .await
+        .expect("build the library service")
+    }
+
+    /// The service polls and fetches at the endpoint the job was submitted to,
+    /// never at the endpoint the current settings name.
+    ///
+    /// The captured root survives a settings change and the removal of the
+    /// settings, so a persisted conversion never moves to another service: the
+    /// poll and the fetched document both come from A, and B is never asked.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_persisted_conversion_never_follows_the_current_settings() {
+        let db = test_db().await;
+        let captured = mock_docling_endpoint_returning("from-the-captured-endpoint").await;
+        let current = mock_docling_endpoint_returning("from-the-current-settings").await;
+        point_current_settings_at(&db, &current.base_url).await;
+        let service = build_library_service(&db).await;
+
+        let status = service
+            .poll_docling_remote(&captured.base_url, "remote-1")
+            .await
+            .expect("poll the captured endpoint");
+        assert_eq!(status.task_id, "remote-1");
+        assert_eq!(captured.requests(), 1, "the captured endpoint is polled");
+        assert_eq!(
+            current.requests(),
+            0,
+            "the current settings must never take a persisted conversion over"
+        );
+
+        // The result fetch is served by the same captured endpoint: the same
+        // remote id exists on B with a different document, and B is still
+        // never asked.
+        let document = service
+            .fetch_docling_remote(&captured.base_url, "remote-1")
+            .await
+            .expect("fetch the captured endpoint");
+        assert_eq!(
+            document.markdown.as_deref(),
+            Some("from-the-captured-endpoint"),
+            "the fetched document must come from the captured endpoint"
+        );
+        assert_eq!(
+            captured.requests(),
+            2,
+            "the captured endpoint serves the fetch"
+        );
+        assert_eq!(
+            current.requests(),
+            0,
+            "the fetch must never reach the endpoint the settings name"
+        );
+
+        // The captured root survives the settings being removed.
+        clear_current_settings(&db).await;
+        let document = service
+            .fetch_docling_remote(&captured.base_url, "remote-1")
+            .await
+            .expect("fetch the captured endpoint");
+        assert_eq!(
+            document.markdown.as_deref(),
+            Some("from-the-captured-endpoint"),
+            "the captured endpoint stays in use without any current settings"
+        );
+        service
+            .poll_docling_remote(&captured.base_url, "remote-1")
+            .await
+            .expect("poll the captured endpoint");
+        assert!(
+            captured.requests() >= 4,
+            "the captured endpoint stays in use"
+        );
+        assert_eq!(current.requests(), 0);
+        clear_current_settings(&db).await;
+    }
+
+    /// The service rejects a result that carries no document, so a malformed
+    /// answer can never be committed as an empty success.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_result_without_a_document_never_becomes_an_empty_success() {
+        let db = test_db().await;
+        point_current_settings_at(&db, "http://127.0.0.1:1/v1").await;
+        let service = build_library_service(&db).await;
+
+        for body in [
+            "{}",
+            r#"{"error": "boom"}"#,
+            r#"{"document": {}, "status": "success"}"#,
+            r##"{"document": {"md_content": "# hi"}, "status": "pending"}"##,
+        ] {
+            let router = axum::Router::new().route(
+                "/v1/result/task-1",
+                axum::routing::get(move || {
+                    let body = body.to_string();
+                    async move { ([("content-type", "application/json")], body) }
+                }),
+            );
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind the local mock");
+            let address = listener.local_addr().expect("address");
+            tokio::spawn(async move {
+                let _ = axum::serve(listener, router).await;
+            });
+            let root = format!("http://{address}/v1");
+            let error = service
+                .fetch_docling_remote(&root, "task-1")
+                .await
+                .expect_err("a result without a document must not succeed");
+            assert_eq!(error.stage, "docling");
+            assert!(
+                error.retryable,
+                "a malformed answer is retried, never committed as an empty success: {}",
+                error.message
+            );
+        }
+        clear_current_settings(&db).await;
+    }
+
+    /// A job without a captured endpoint never falls back to the current
+    /// settings or to a default endpoint.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_job_without_a_captured_endpoint_never_falls_back() {
+        let db = test_db().await;
+        let (user_id, task_id, mut item, file_id) = seed_running_item(&db).await;
+        let job = db
+            .create_docling_remote_job(
+                task_id,
+                item.id,
+                &format!("docling-{}", Uuid::new_v4()),
+                Some("submitted"),
+                Some(Utc::now() - chrono::Duration::seconds(1)),
+                Some(Utc::now() + chrono::Duration::hours(1)),
+                None,
+            )
+            .await
+            .expect("remote job");
+        let ops = ScriptedRemote::pending_then_success();
+        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job)
+            .await
+            .expect("blocking run");
+        match outcome {
+            ProcessResult::Failed {
+                message, retryable, ..
+            } => {
+                assert!(!retryable, "a missing endpoint never fixes itself");
+                assert!(message.contains("captured docling endpoint"), "{message}");
+            }
+            other => panic!(
+                "a job without an endpoint must not convert, got a non-failure outcome: {}",
+                match other {
+                    ProcessResult::Succeeded(_) => "succeeded".to_string(),
+                    ProcessResult::Progressed { next } => format!("progressed to {next}"),
+                    ProcessResult::Waiting { reason, .. } => format!("waiting on {reason}"),
+                    ProcessResult::Failed { message, .. } => {
+                        panic!("a job without an endpoint must not convert, got: {message}")
+                    }
+                }
+            ),
+        }
+        assert!(
+            ops.roots().is_empty(),
+            "no remote call may be made without a captured endpoint"
+        );
+        cleanup(&db, task_id, user_id).await;
+    }
+
+    /// The merged seam (issue 1020 P8): the direct Docling Serve transport of
+    /// this module and the captured-execution finalize of the task work.
+    ///
+    /// The transport serves the document from the endpoint the job was submitted
+    /// to and never from the endpoint the current settings name, and that
+    /// document is committed only by the attempt that holds the item. A stale
+    /// generation retrieves the same document and commits nothing: the remote
+    /// row stays active for the owner that inherits it and no section checkpoint
+    /// is written.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_served_document_commits_only_through_its_captured_attempt() {
+        let db = test_db().await;
+        let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
+        let (user_id, task_id, item, _file_id) = seed_running_item(&db).await;
+        let execution = item
+            .execution_context()
+            .expect("the claim carries its captured execution");
+        let captured = mock_docling_endpoint_returning("from-the-captured-endpoint").await;
+        let current = mock_docling_endpoint_returning("from-the-current-settings").await;
+        point_current_settings_at(&db, &current.base_url).await;
+        let service = build_library_service(&db).await;
+        let job = db
+            .create_docling_remote_job(
+                task_id,
+                item.id,
+                "remote-1",
+                Some("submitted"),
+                Some(Utc::now() - chrono::Duration::seconds(1)),
+                Some(Utc::now() + chrono::Duration::hours(1)),
+                Some(&captured.base_url),
+            )
+            .await
+            .expect("remote job");
+
+        let status = service
+            .poll_docling_remote(&captured.base_url, "remote-1")
+            .await
+            .expect("poll the captured endpoint");
+        assert_eq!(status.task_status.wire_name(), "pending");
+        assert_eq!(
+            captured.requests(),
+            1,
+            "the poll reaches the captured Serve endpoint"
+        );
+        let document = service
+            .fetch_docling_remote(&captured.base_url, "remote-1")
+            .await
+            .expect("fetch the captured endpoint");
+        assert_eq!(
+            document.markdown.as_deref(),
+            Some("from-the-captured-endpoint"),
+            "the served document comes from the captured endpoint"
+        );
+        assert_eq!(
+            current.requests(),
+            0,
+            "the endpoint the current settings name is never dialled"
+        );
+
+        let sections = json!([{
+            "section_key": "document",
+            "body_text": "from-the-captured-endpoint"
+        }]);
+        let payload = crate::services::tasks::docling_finalize::payload_with_sections(
+            item.payload.clone(),
+            sections,
+        );
+        let before = db
+            .get_docling_work_item(item.id)
+            .await
+            .expect("work row")
+            .expect("payload")
+            .payload;
+        let mut stale = execution.clone();
+        stale.generation += 1;
+        assert!(
+            db.finish_docling_remote_job_with_sections(
+                job.id, item.id, &stale, &payload, "success",
+            )
+            .await
+            .expect("a refused commit is not an error")
+            .is_none(),
+            "a stale generation commits nothing the transport served"
+        );
+        assert_eq!(
+            db.get_docling_work_item(item.id)
+                .await
+                .expect("work row")
+                .expect("payload")
+                .payload,
+            before,
+            "the refused commit writes no section checkpoint"
+        );
+        assert!(
+            db.get_active_docling_remote_job_for_item(item.id)
+                .await
+                .expect("active")
+                .is_some(),
+            "the remote row stays active for the owner that inherits it"
+        );
+
+        assert_eq!(
+            db.finish_docling_remote_job_with_sections(
+                job.id, item.id, &execution, &payload, "success",
+            )
+            .await
+            .expect("the captured attempt commits"),
+            Some(item.id),
+            "the captured attempt commits the document the transport served"
+        );
+        assert_eq!(
+            db.get_docling_work_item(item.id)
+                .await
+                .expect("work row")
+                .expect("payload")
+                .payload,
+            payload,
+            "the captured attempt's commit writes the section checkpoint"
+        );
+        assert!(
+            db.get_active_docling_remote_job_for_item(item.id)
+                .await
+                .expect("active")
+                .is_none(),
+            "the committed row leaves no active reference"
+        );
+        clear_current_settings(&db).await;
+        cleanup(&db, task_id, user_id).await;
     }
 
     /// Seeds a running item under a lease and returns the snapshot the worker

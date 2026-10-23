@@ -1,5 +1,3 @@
-import type { LocationQuery } from "vue-router";
-
 import type { SearchHit } from "../services/api";
 import type { SearchFilters } from "../types/ui";
 import { filtersToQuery } from "./search";
@@ -7,40 +5,30 @@ import { filtersToQuery } from "./search";
 export const SEARCH_RETURN_QUERY_KEY = "from";
 export const SEARCH_RETURN_QUERY_VALUE = "search";
 
-export function buildSearchTarget(hit: SearchHit) {
+/**
+ * The in-app target of one hit. A library file opens its group screen with the
+ * file selected; a document opens the document screen. Both carry the search
+ * return marker so the destination can offer the way back.
+ */
+export function buildSearchTarget(hit: SearchHit): string {
   if (hit.is_library_file && hit.library_file_id) {
-    return {
-      name: "group-overview",
-      params: {
-        groupPath: hit.group_path,
-      },
-      query: {
-        file: hit.library_file_id,
-        [SEARCH_RETURN_QUERY_KEY]: SEARCH_RETURN_QUERY_VALUE,
-      },
-    };
+    const params = new URLSearchParams();
+    params.set("file", hit.library_file_id);
+    params.set(SEARCH_RETURN_QUERY_KEY, SEARCH_RETURN_QUERY_VALUE);
+    return `/groups/${encodeURIComponent(hit.group_path)}?${params.toString()}`;
   }
 
-  return {
-    name: "document",
-    params: {
-      id: hit.document_id,
-    },
-    query: {
-      [SEARCH_RETURN_QUERY_KEY]: SEARCH_RETURN_QUERY_VALUE,
-    },
-  };
+  const params = new URLSearchParams();
+  params.set(SEARCH_RETURN_QUERY_KEY, SEARCH_RETURN_QUERY_VALUE);
+  return `/documents/${hit.document_id}?${params.toString()}`;
 }
 
-export function isSearchReturn(query: LocationQuery): boolean {
-  const raw = query[SEARCH_RETURN_QUERY_KEY];
-  const value = Array.isArray(raw) ? raw[0] : raw;
-  return value === SEARCH_RETURN_QUERY_VALUE;
+export function isSearchReturn(params: URLSearchParams): boolean {
+  return params.get(SEARCH_RETURN_QUERY_KEY) === SEARCH_RETURN_QUERY_VALUE;
 }
 
-export function buildSearchReturnLocation(filters: SearchFilters, page = 1) {
-  return {
-    name: "search",
-    query: filtersToQuery(filters, page),
-  };
+export function buildSearchReturnLocation(filters: SearchFilters, page = 1): string {
+  const params = filtersToQuery(filters, page);
+  const search = params.toString();
+  return search ? `/search?${search}` : "/search";
 }

@@ -514,21 +514,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cloudiful-docling-convert"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66ce355478bf653b17d7dff116846fb64852a452a33a9acc290dfa71c3b92a42"
-dependencies = [
- "bytes",
- "futures",
- "log",
- "reqwest",
- "serde",
- "serde_json",
- "tokio",
-]
-
-[[package]]
 name = "cloudiful-rate-limiter"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -663,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "context69"
-version = "0.24.0"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "argon2",
@@ -675,7 +660,6 @@ dependencies = [
  "chrono",
  "cloudiful-config",
  "cloudiful-db-init",
- "cloudiful-docling-convert",
  "cloudiful-rate-limiter",
  "cloudiful-scheduler",
  "cloudiful-server",
@@ -722,7 +706,7 @@ dependencies = [
 
 [[package]]
 name = "context69-contracts"
-version = "0.24.0"
+version = "0.25.2"
 dependencies = [
  "anyhow",
  "chrono",
@@ -962,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "context69-sdk"
-version = "0.24.0"
+version = "0.25.2"
 dependencies = [
  "axum",
  "chrono",
@@ -4559,7 +4543,6 @@ dependencies = [
  "bytes",
  "libc",
  "mio",
- "parking_lot",
  "pin-project-lite",
  "signal-hook-registry",
  "socket2 0.6.5",

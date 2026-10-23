@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Every row of the shared ledger with its checksum as hex, so a case can compare\n-- the applied set with the migrations this build ships.\nSELECT version AS \"version!\",\n       encode(checksum, 'hex') AS \"checksum!\",\n       success AS \"success!\"\n  FROM public._sqlx_migrations\n ORDER BY version\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "version"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "checksum!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "success!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "_sqlx_migrations",
+            "name": "success"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "0b4ef87600f218e2ab65162b234ce1f86e8abd67d4e48796991f00332c0929cf"
+}

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The connected database and the owner comment the parent put on it, so a case\n-- can prove it may recreate this fixture before anything is dropped.\nSELECT current_database()::text AS \"database!\",\n       coalesce((SELECT shobj_description(oid, 'pg_database')\n                   FROM pg_database\n                  WHERE datname = current_database()), '')::text AS \"comment!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "database!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "comment!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "2f6d444492a4fa8c162539bde93b9334dc452ca7dd996891a3ed2304924fce44"
+}

@@ -117,7 +117,7 @@ test("captures 100 updates at 5ms and a separate 1000-update stress burst", asyn
     await resetQueuePerformanceProbe(queue.page);
     const burst = emitUpdates(queue.page, queue.tasks, 100, 5);
     await queue.page.waitForTimeout(100);
-    await queue.page.getByTestId("queue-task").first().click();
+    await queue.page.getByPlaceholder("Search files, groups, or errors").click();
     const normalEmission = await burst;
     await queue.page.waitForTimeout(1_100);
     const normal = await recordScenario(queue, "100-updates-5ms", {
@@ -137,7 +137,7 @@ test("captures 100 updates at 5ms and a separate 1000-update stress burst", asyn
     const listRequestsBeforeStress = queue.transport.snapshot().listRequests;
     const stressBurst = emitUpdates(queue.page, queue.tasks, 1_000, 1);
     await queue.page.waitForTimeout(100);
-    await queue.page.getByTestId("queue-task").first().click();
+    await queue.page.getByPlaceholder("Search files, groups, or errors").click();
     const stressEmission = await stressBurst;
     await queue.page.waitForTimeout(1_100);
     const stress = await recordScenario(queue, "1000-updates-1ms-stress", {
@@ -160,7 +160,7 @@ test("captures 100 updates at 5ms and a separate 1000-update stress burst", asyn
 test("captures one and ten expanded rows after loading two item pages each", async ({ browser }) => {
   await runWithQueuePage(browser, () => "failed", {}, async (queue) => {
     await resetQueuePerformanceProbe(queue.page);
-    await queue.page.getByRole("button", { name: "Expand" }).first().click();
+    await queue.page.getByRole("button", { name: "Expand task items" }).first().click();
     await expect(queue.page.getByTestId("task-item-row")).toHaveCount(100);
     await queue.page.getByTestId("task-items-load-more").first().click();
     await expect(queue.page.getByTestId("task-item-row")).toHaveCount(200);
@@ -176,7 +176,7 @@ test("captures one and ten expanded rows after loading two item pages each", asy
 
     await resetQueuePerformanceProbe(queue.page);
     for (let index = 1; index < 10; index += 1) {
-      await queue.page.getByRole("button", { name: "Expand" }).first().click();
+      await queue.page.getByRole("button", { name: "Expand task items" }).first().click();
     }
     await expect(queue.page.getByTestId("task-items-count")).toHaveCount(10);
     await expect(queue.page.getByTestId("task-item-row")).toHaveCount(1_100);
@@ -226,6 +226,9 @@ test("records mocked 100-task bulk retry and rerun latency and summary", async (
       expect(measured.requests.actionRequests).toHaveLength(100);
       expect(measured.requests.retryRequests).toBe(50);
       expect(measured.requests.rerunRequests).toBe(50);
+      // The current-page runner is bounded to four in-flight submissions.
+      expect(measured.requests.maximumActionConcurrency).toBeGreaterThan(0);
+      expect(measured.requests.maximumActionConcurrency).toBeLessThanOrEqual(4);
     },
   );
 });

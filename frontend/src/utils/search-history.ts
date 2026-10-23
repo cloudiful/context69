@@ -12,10 +12,14 @@ function getStorage(): Storage | null {
     return null;
   }
 
-  const storage = window.localStorage;
-  return storage && typeof storage.getItem === "function" && typeof storage.setItem === "function"
-    ? storage
-    : null;
+  try {
+    const storage = window.localStorage;
+    return storage && typeof storage.getItem === "function" && typeof storage.setItem === "function"
+      ? storage
+      : null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeFilters(filters: SearchFilters): SearchFilters {
@@ -42,7 +46,12 @@ function sameFilters(left: SearchFilters, right: SearchFilters) {
 }
 
 export function readSearchHistory(storage: Storage | null | undefined = getStorage()): SearchHistoryEntry[] {
-  const raw = storage?.getItem(SEARCH_HISTORY_STORAGE_KEY);
+  let raw: string | null = null;
+  try {
+    raw = storage?.getItem(SEARCH_HISTORY_STORAGE_KEY) ?? null;
+  } catch {
+    return [];
+  }
   if (!raw) {
     return [];
   }
@@ -86,7 +95,11 @@ export function readSearchHistory(storage: Storage | null | undefined = getStora
 }
 
 export function writeSearchHistory(entries: SearchHistoryEntry[], storage: Storage | null | undefined = getStorage()) {
-  storage?.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_SEARCH_HISTORY_ITEMS)));
+  try {
+    storage?.setItem(SEARCH_HISTORY_STORAGE_KEY, JSON.stringify(entries.slice(0, MAX_SEARCH_HISTORY_ITEMS)));
+  } catch {
+    // A denied or unavailable store keeps the in-memory history usable.
+  }
 }
 
 export function addSearchHistoryEntry(

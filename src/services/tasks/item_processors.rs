@@ -325,11 +325,38 @@ pub(super) fn waiting_for_error(
     }
 }
 
+/// The captured-ownership refusal: the item was never claimed through the
+/// library, so neither the processors nor the write fence can build an
+/// authority for it.
+///
+/// The typed conflict carries this phrase and the write fence's own refusal is
+/// an untyped error with the same code-owned wording, so the retry decision
+/// recognises both without decoding a provider message.
+const MISSING_CAPTURED_EXECUTION: &str = "has no captured execution";
+
+/// Whether one escaped task failure may be retried automatically.
+///
+/// The typed retry policy decides, except that the captured-ownership refusal is
+/// terminal: no later attempt can give the item the execution authority the
+/// fence requires, so retrying only repeats the same refusal.
+pub(super) fn is_retryable_failure(error: &anyhow::Error) -> bool {
+    !captured_execution_is_missing(error) && crate::retry_policy::is_transient(error)
+}
+
+fn captured_execution_is_missing(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        matches!(
+            cause.downcast_ref::<DomainError>(),
+            Some(DomainError::Conflict(message)) if message.contains(MISSING_CAPTURED_EXECUTION)
+        ) || cause.to_string().contains(MISSING_CAPTURED_EXECUTION)
+    })
+}
+
 pub(super) fn process_error(stage: &str, error: anyhow::Error) -> ProcessResult {
     let message = error.to_string();
     ProcessResult::Failed {
         stage: stage.to_string(),
-        retryable: is_retryable_error(&error),
+        retryable: is_retryable_failure(&error),
         message,
     }
 }
@@ -356,21 +383,11 @@ pub(super) fn process_source_sync_error(
     process_error("sync", error)
 }
 
-fn is_retryable_error(error: &anyhow::Error) -> bool {
-    let message = error.to_string().to_ascii_lowercase();
-    !message.contains("invalid")
-        && !message.contains("missing")
-        && !message.contains("requires")
-        && !message.contains("unsupported")
-        && !message.contains("unknown file")
-        && !message.contains("not found")
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_ITEM_STAGES, ProcessResult, entry_stage, process_source_sync_error,
-        resolve_entry_stage, resume_stage,
+        MAX_ITEM_STAGES, ProcessResult, entry_stage, is_retryable_failure, process_error,
+        process_source_sync_error, resolve_entry_stage, resume_stage,
     };
     use context69_contracts::TaskKind;
 
@@ -437,7 +454,45 @@ mod tests {
         let error = anyhow::anyhow!("source returns an unsupported schema");
 
         match process_source_sync_error(&item, error) {
-            ProcessResult::Failed { retryable, .. } => assert!(!retryable),
+            // The message no longer decides: an untyped failure stays transient
+            // and keeps the existing backoff, whatever words it carries.
+            ProcessResult::Failed { retryable, .. } => assert!(retryable),
+            _ => panic!("expected a failure"),
+        }
+    }
+
+    /// A deterministic failure stops the item on its first attempt: the stage
+    /// is recorded, the message is the actionable one, and no automatic retry
+    /// is scheduled.
+    #[test]
+    fn a_deterministic_failure_stops_the_item_without_a_retry() {
+        let error: anyhow::Error = crate::domain_errors::DomainError::payload_too_large(
+            "remote_file_too_large: limit_bytes=1024 observed_bytes=4096 source=content_length",
+        )
+        .into();
+
+        match process_error("download", error) {
+            ProcessResult::Failed {
+                stage,
+                message,
+                retryable,
+            } => {
+                assert_eq!(stage, "download");
+                assert!(!retryable, "a size failure must not be retried");
+                assert!(message.contains("limit_bytes=1024"));
+                assert!(message.contains("observed_bytes=4096"));
+            }
+            _ => panic!("expected a failure"),
+        }
+    }
+
+    /// A transient failure keeps the automatic retry.
+    #[test]
+    fn a_transient_failure_keeps_the_automatic_retry() {
+        let error: anyhow::Error = anyhow::anyhow!("database connection reset");
+
+        match process_error("storage", error) {
+            ProcessResult::Failed { retryable, .. } => assert!(retryable),
             _ => panic!("expected a failure"),
         }
     }
@@ -517,5 +572,25 @@ mod tests {
             "finalize",
         ];
         assert!(MAX_ITEM_STAGES > longest_pipeline.len());
+    }
+
+    /// The captured-ownership refusal is terminal, whatever carries it.
+    #[test]
+    fn a_missing_captured_execution_never_keeps_the_automatic_retry() {
+        let typed: anyhow::Error =
+            crate::domain_errors::DomainError::conflict("task item has no captured execution")
+                .into();
+        assert!(!is_retryable_failure(&typed));
+
+        let fence = anyhow::anyhow!(
+            "task item {} has no captured execution and may not write",
+            uuid::Uuid::nil()
+        );
+        assert!(!is_retryable_failure(&fence));
+
+        // Every other conflict keeps the shared policy's transient default.
+        let stale: anyhow::Error =
+            crate::domain_errors::DomainError::conflict("stale target").into();
+        assert!(is_retryable_failure(&stale));
     }
 }

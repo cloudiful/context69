@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Whether the owned schema currently holds the base relation every migrated\n-- Context69 schema has, so a reset cycle can be observed end to end.\nSELECT to_regclass('context69.groups') IS NOT NULL AS \"present!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "present!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "bc20dbcbd42937f67264b2b9b4d41c7de6c2e091ead2c540e2990039df4430ef"
+}

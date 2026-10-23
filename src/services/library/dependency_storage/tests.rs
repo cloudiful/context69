@@ -104,6 +104,34 @@ fn remote_source_failures_are_never_attributed_to_the_s3_gate() {
     ));
 }
 
+/// The actionable size message must not reach the S3 gate either.
+///
+/// The message names the configured limit and the observed size, so it carries
+/// more text than the old bare marker. It is still a remote source failure,
+/// and the gate must stay untouched.
+#[test]
+fn the_actionable_size_message_never_reaches_the_s3_gate() {
+    use anyhow::anyhow;
+
+    use super::is_storage_gate_failure;
+
+    let message = "remote_file_too_large: limit_bytes=134217728 observed_bytes=157347023 \
+                   source=content_length";
+    assert!(!is_storage_gate_failure("s3", &anyhow!("{message}")));
+}
+
+/// The bounded, credential-free size message is what the task worker records.
+#[test]
+fn the_size_message_stays_bounded_and_free_of_sources() {
+    let error =
+        crate::services::library::remote_download::content_length_limit_error(134217728, 157347023);
+    let message = error.to_string();
+    assert!(message.contains("limit_bytes=134217728"));
+    assert!(message.contains("observed_bytes=157347023"));
+    assert!(!message.contains("http"));
+    assert!(!message.contains("@"));
+}
+
 /// The origin check must not narrow the existing storage classification:
 /// object-store failures keep tripping the gate exactly as before.
 #[test]

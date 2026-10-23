@@ -453,6 +453,30 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_result_without_a_document_never_becomes_an_empty_success",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_job_without_a_captured_endpoint_never_falls_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_persisted_conversion_never_follows_the_current_settings",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_served_document_commits_only_through_its_captured_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::inline_waits::tests::inline_sleep_aborts_when_the_lease_is_gone",
       "class": "db"
     },
@@ -2696,6 +2720,18 @@
     },
     {
       "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::an_oversized_download_fails_the_item_and_a_manual_retry_succeeds",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
+      "test": "services::tasks::item_pipeline_tests::a_transient_download_failure_schedules_the_backoff",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "task_item_artifacts",
       "test": "a_reference_committed_during_a_discard_lock_wait_keeps_the_checkpoint_bytes",
       "class": "db"
@@ -2746,6 +2782,12 @@
       "package": "context69",
       "target": "task_execution_segments",
       "test": "a_cancelled_item_reports_the_actual_domain_outcome",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_deterministic_failure_closes_the_captured_segment_without_a_retry",
       "class": "db"
     },
     {
@@ -2962,6 +3004,30 @@
       "package": "context69",
       "target": "task_execution_cutover",
       "test": "the_tool_refuses_a_target_that_is_not_the_expected_database",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "the_guarded_batch_updates_only_stale_active_tokens",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "an_empty_batch_and_a_second_flush_inside_the_window_write_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "two_concurrent_guarded_flushes_write_one_row_version",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "personal_access_token_usage",
+      "test": "a_blocked_telemetry_write_leaves_the_authorization_path_fresh_and_free",
       "class": "db"
     }
   ]

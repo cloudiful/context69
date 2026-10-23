@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One shared-ledger row this build does not ship. The fresh ledger guards must\n-- refuse the next reset before it writes anything, and the row must survive the\n-- refusal untouched.\nINSERT INTO public._sqlx_migrations\n    (version, description, installed_on, success, checksum, execution_time)\nVALUES\n    ($1, 'runner-ledger-refresh-foreign', now(), true, sha384('foreign'), 0)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "703ce94053e838579d2ca3e3e7f227863296fee5f4fcb03bfaa7ca6745d1e298"
+}

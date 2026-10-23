@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The maintainer role a manual retry needs in the item's group.\nINSERT INTO context69.group_memberships (group_id, user_id, role)\nVALUES ($1, $2, 'maintainer')\nON CONFLICT DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "cdb4a8ede746639cfb28fea3139daa9c68cfe8288945b163463786350fce9bd4"
+}

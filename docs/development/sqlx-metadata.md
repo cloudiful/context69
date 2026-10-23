@@ -29,13 +29,21 @@ reported as library metadata absorbed into the application.
 ```sh
 DATABASE_URL=postgres://… \
   cargo sqlx --no-dotenv prepare --workspace --check -- \
-    --all-targets --features integration-test-helpers
+    --workspace --all-targets --features integration-test-helpers
 ```
 
 It needs an explicit `DATABASE_URL` in the environment: `.env` loading is
 disabled with the CLI's own `--no-dotenv` flag, and the URL is never printed.
 The command compiles the workspace with the real database and compares the
 freshly described queries with the committed cache.
+
+The two `--workspace` occurrences belong to different commands and both are
+required. The first is an option of `cargo sqlx prepare` and keeps one inventory
+at the workspace root; the one after `--` is passed to the `cargo check` the CLI
+spawns and makes it build every workspace member, including the test targets.
+Without the second flag the child checks only the current package, so a member
+crate's test-target statements never reach the inventory the check compares —
+the same scope the locked offline build below uses.
 
 SQLx 0.9 describes the query macros of an out-of-workspace dependency into that
 inventory. When the dependency is compiled in the same run, the inventory
@@ -103,8 +111,12 @@ entries:
 ```sh
 DATABASE_URL=postgres://… \
   cargo sqlx --no-dotenv prepare --workspace -- \
-    --all-targets --features integration-test-helpers
+    --workspace --all-targets --features integration-test-helpers
 ```
+
+The second `--workspace` is the child `cargo check` argument described above, so
+the regenerated inventory covers the same members and test targets the check
+compares.
 
 `check-sqlx-metadata.py` is then the proof that the workspace cache, the pinned
 library's cache and the offline build agree. The native check alone is not that

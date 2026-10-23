@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Relations the library owns inside its own schema, so a case can prove the\n-- runner's reset never reaches them.\nSELECT count(*)::bigint AS \"count!\"\n  FROM pg_class class\n  JOIN pg_namespace namespace ON namespace.oid = class.relnamespace\n WHERE namespace.nspname = 'cloudiful_tasks'\n   AND class.relkind = 'r'\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "95dd4de7b21485cbd61b339e558346ad9aaa53a8e6e952d3608555d952e75de0"
+}

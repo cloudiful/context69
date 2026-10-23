@@ -1,9 +1,7 @@
 export const auth = {
   sessionUnavailable: "Authentication unavailable",
   sessionUnavailableMessage: "Unable to restore your session. Try again shortly.",
-  label: "Authentication",
   title: "Sign In",
-  description: "Use your Context69 account to restore access to search, library, sources, and settings.",
   loginName: "Login Name",
   loginNamePlaceholder: "Enter your login name",
   password: "Password",

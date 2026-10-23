@@ -68,10 +68,22 @@ EXPECTED_REV = "739cad5822e2208e9a4424eead9f79653a7e02d7"
 SCRATCH_DIR_NAME = "sqlx-prepare-check"
 
 # The documented native command, exactly as the runbook and the issue state it.
+#
+# Two `--workspace` flags have different owners and both are required: the first
+# belongs to `cargo sqlx prepare` (one inventory at the workspace root), the one
+# after the `--` separator belongs to the child `cargo check` it spawns (select
+# every workspace member and its test targets). Without the second, the child
+# builds only the current package, so a member crate's test-target queries are
+# missing from the inventory the check compares.
 NATIVE_SUBCOMMAND = ["prepare", "--workspace", "--check"]
-NATIVE_CARGO_ARGS = ["--all-targets", "--features", "integration-test-helpers"]
-# The independent offline build of A3, with the helper features enabled.
+# The child `cargo check` arguments. `--workspace` selects every member and its
+# test targets, matching the scope of the A3 offline build below.
+NATIVE_CHILD_ARGS = ["--workspace", "--all-targets", "--features", "integration-test-helpers"]
+# The independent offline build of A3, with the helper features enabled. Its own
+# `--workspace` already selects every member, so it takes only the target and
+# feature arguments.
 OFFLINE_BUILD_SUBCOMMAND = ["check", "--locked", "--offline", "--workspace"]
+OFFLINE_BUILD_ARGS = ["--all-targets", "--features", "integration-test-helpers"]
 
 # The one native failure the composed gate may accept: the specific
 # missing-query-set report, after a successful compile.
@@ -274,6 +286,26 @@ def metadata_source(metadata: dict, package_name: str = "cloudiful-tasks") -> di
     return None
 
 
+def native_command_scope_ok(command: list[str] | None) -> bool:
+    """Whether the native command checks every workspace member and test target.
+
+    The check needs both `--workspace` flags: the first belongs to
+    `cargo sqlx prepare` and places one inventory at the workspace root, the one
+    after the `--` separator belongs to the child `cargo check` and selects every
+    member and its test targets. Only the second decides whether a member crate's
+    test-target queries reach the inventory the check compares.
+    """
+    if not command or "--" not in command:
+        return False
+    before, child = command[: command.index("--")], command[command.index("--") + 1 :]
+    return (
+        "prepare" in before
+        and "--workspace" in before
+        and "--workspace" in child
+        and "--all-targets" in child
+    )
+
+
 def run(command: list[str], cwd: Path, env: dict, timeout: int = 3600) -> CommandResult:
     completed = subprocess.run(
         command,
@@ -366,7 +398,7 @@ def check_gate(
         [cargo, "sqlx", "--no-dotenv"]
         + NATIVE_SUBCOMMAND
         + ["--"]
-        + NATIVE_CARGO_ARGS
+        + NATIVE_CHILD_ARGS
     )
     native = runner(native_command, repo_root, environment)
     native_exit = native.exit_code
@@ -383,7 +415,7 @@ def check_gate(
     offline_environment = dict(environment)
     offline_environment["SQLX_OFFLINE"] = "true"
     offline = runner(
-        [cargo] + OFFLINE_BUILD_SUBCOMMAND + NATIVE_CARGO_ARGS,
+        [cargo] + OFFLINE_BUILD_SUBCOMMAND + OFFLINE_BUILD_ARGS,
         repo_root,
         offline_environment,
     )
@@ -727,6 +759,22 @@ def self_test() -> int:
         (
             "check_gate_metadata_diagnostics_are_sanitized",
             code == 0 and "secret" not in output and fake_url not in output,
+            True,
+        )
+    )
+
+    # The native command's two scopes: `cargo sqlx prepare --workspace` owns the
+    # inventory location, and the child `cargo check` needs its own `--workspace`
+    # after the separator to build every member and its test targets. The
+    # regression asserts the child argument, not only the CLI flag.
+    code, output, calls = orchestrate(consumer_a, dep_b, consumer_a)
+    native_call = next(
+        (call for call in calls if "--" in call and "prepare" in call), None
+    )
+    cases.append(
+        (
+            "native_command_checks_every_workspace_member_and_target",
+            native_command_scope_ok(native_call),
             True,
         )
     )

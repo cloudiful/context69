@@ -3,15 +3,29 @@ import { describe, expect, it } from "vitest";
 import { buildSearchPayload, buildSnippet, cursorFromQuery, filtersFromQuery, filtersToQuery, groupFolderOptions, loadSearchSession, normalizeSearchFilters, pageFromQuery, sameSearchFilters, saveSearchSession, stripTitlePrefix } from "./search";
 import { installMockStorage } from "../test-utils/storage";
 
+function params(entries: Record<string, string | string[]> = {}): URLSearchParams {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(entries)) {
+    for (const item of Array.isArray(value) ? value : [value]) {
+      search.append(key, item);
+    }
+  }
+  return search;
+}
+
+function serialized(value: URLSearchParams): Record<string, string> {
+  return Object.fromEntries(value.entries());
+}
+
 describe("search utilities", () => {
   it("hydrates filters from route query", () => {
-    const filters = filtersFromQuery({
+    const filters = filtersFromQuery(params({
       q: "regulation",
       source: "gov_documents",
       after: "2024-01-01",
       before: "2024-02-01",
       limit: "12",
-    });
+    }));
 
     expect(filters).toEqual({
       query: "regulation",
@@ -25,18 +39,18 @@ describe("search utilities", () => {
   });
 
   it("reads the sort URL parameter", () => {
-    const filters = filtersFromQuery({
+    const filters = filtersFromQuery(params({
       q: "regulation",
       sort: "date",
-    });
+    }));
     expect(filters.sort).toBe("date");
   });
 
   it("ignores an invalid sort URL parameter", () => {
-    const filters = filtersFromQuery({
+    const filters = filtersFromQuery(params({
       q: "regulation",
       sort: "garbage",
-    });
+    }));
     expect(filters.sort).toBe("relevance");
   });
 
@@ -60,15 +74,11 @@ describe("search utilities", () => {
       sort: undefined,
     });
 
-    expect(filtersToQuery(filters)).toEqual({
+    expect(serialized(filtersToQuery(filters))).toEqual({
       q: "  policy  ",
       source: "gov_documents",
-      after: undefined,
       before: "2025-01-31",
       limit: "99",
-      page: undefined,
-      group_path: undefined,
-      sort: undefined,
     });
   });
 
@@ -82,39 +92,29 @@ describe("search utilities", () => {
       sort: "date" as const,
     };
     expect(buildSearchPayload(filters).sort).toBe("date");
-    expect(filtersToQuery(filters).sort).toBe("date");
+    expect(filtersToQuery(filters).get("sort")).toBe("date");
     // relevance is the default and should be omitted from the URL.
     const relevance = { ...filters, sort: "relevance" as const };
-    expect(filtersToQuery(relevance).sort).toBeUndefined();
+    expect(filtersToQuery(relevance).get("sort")).toBeNull();
   });
 
   it("handles page param in query and filtersToQuery", () => {
-    expect(pageFromQuery({ page: "2" })).toBe(2);
-    expect(pageFromQuery({ page: "0" })).toBe(1);
-    expect(pageFromQuery({})).toBe(1);
-    expect(pageFromQuery({ page: ["3", "4"] })).toBe(3);
+    expect(pageFromQuery(params({ page: "2" }))).toBe(2);
+    expect(pageFromQuery(params({ page: "0" }))).toBe(1);
+    expect(pageFromQuery(params())).toBe(1);
+    expect(pageFromQuery(params({ page: ["3", "4"] }))).toBe(3);
     const filters = { query: "a", sourceKey: "", publishedAfter: "", publishedBefore: "", limit: 8, sort: "relevance" as const };
-    expect(filtersToQuery(filters, 1)).toEqual({ q: "a", source: undefined, after: undefined, before: undefined, limit: undefined, page: undefined, group_path: undefined, sort: undefined });
-    expect(filtersToQuery(filters, 3)).toEqual({ q: "a", source: undefined, after: undefined, before: undefined, limit: undefined, page: "3", group_path: undefined, sort: undefined });
-    expect(filtersToQuery({ ...filters, publishedAfter: "2025-01-01", publishedBefore: "2025-02-01" }, 2)).toEqual({
+    expect(serialized(filtersToQuery(filters, 1))).toEqual({ q: "a" });
+    expect(serialized(filtersToQuery(filters, 3))).toEqual({ q: "a", page: "3" });
+    expect(serialized(filtersToQuery({ ...filters, publishedAfter: "2025-01-01", publishedBefore: "2025-02-01" }, 2))).toEqual({
       q: "a",
-      source: undefined,
       after: "2025-01-01",
       before: "2025-02-01",
-      limit: undefined,
       page: "2",
-      group_path: undefined,
-      sort: undefined,
     });
-    expect(filtersToQuery({ ...filters, groupPath: "stock/sgs" }, 1)).toEqual({
+    expect(serialized(filtersToQuery({ ...filters, groupPath: "stock/sgs" }, 1))).toEqual({
       q: "a",
-      source: undefined,
-      after: undefined,
-      before: undefined,
-      limit: undefined,
-      page: undefined,
       group_path: "stock/sgs",
-      sort: undefined,
     });
   });
 
@@ -126,8 +126,8 @@ describe("search utilities", () => {
       { group_id: 3, group_key: "nopath", group_path: "", name: "NoPath", visibility: "private", kind: "shared", created_at: "x", updated_at: "x" },
     ]);
     expect(options).toEqual([
-      { value: "stock", label: "stock" },
-      { value: "stock/sgs-disclosures", label: "  stock / sgs-disclosures" },
+      { value: "stock", label: "stock", depth: 0 },
+      { value: "stock/sgs-disclosures", label: "stock / sgs-disclosures", depth: 1 },
     ]);
   });
 
@@ -171,37 +171,23 @@ describe("search utilities", () => {
   });
 
   it("round-trips the cursor URL parameter and keeps page out when a cursor is set", () => {
-    expect(cursorFromQuery({})).toBeNull();
-    expect(cursorFromQuery({ cursor: "c1:abc" })).toBe("c1:abc");
-    expect(cursorFromQuery({ cursor: ["c1:a", "c1:b"] })).toBe("c1:a");
+    expect(cursorFromQuery(params())).toBeNull();
+    expect(cursorFromQuery(params({ cursor: "c1:abc" }))).toBe("c1:abc");
+    expect(cursorFromQuery(params({ cursor: ["c1:a", "c1:b"] }))).toBe("c1:a");
 
     const filters = { query: "q", sourceKey: "", publishedAfter: "", publishedBefore: "", limit: 8, sort: "relevance" as const };
-    expect(filtersToQuery(filters, { cursor: "c1:abc" })).toEqual({
+    expect(serialized(filtersToQuery(filters, { cursor: "c1:abc" }))).toEqual({
       q: "q",
-      source: undefined,
-      after: undefined,
-      before: undefined,
-      limit: undefined,
-      page: undefined,
       cursor: "c1:abc",
-      group_path: undefined,
-      sort: undefined,
     });
-    expect(filtersToQuery(filters, 2)).toEqual({
+    expect(serialized(filtersToQuery(filters, 2))).toEqual({
       q: "q",
-      source: undefined,
-      after: undefined,
-      before: undefined,
-      limit: undefined,
       page: "2",
-      cursor: undefined,
-      group_path: undefined,
-      sort: undefined,
     });
     // Legacy number form stays compatible for callers that never navigate by cursor.
     const legacy = filtersToQuery(filters, 1);
-    expect(legacy.page).toBeUndefined();
-    expect(legacy.cursor).toBeUndefined();
+    expect(legacy.get("page")).toBeNull();
+    expect(legacy.get("cursor")).toBeNull();
   });
 
   it("builds cursor and legacy page payloads", () => {

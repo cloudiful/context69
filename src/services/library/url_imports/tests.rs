@@ -102,7 +102,16 @@ async fn a_size_limit_failure_is_not_attributed_to_the_object_store() {
         .await
         .expect_err("the body exceeds the limit");
 
-    assert_eq!(error.to_string(), "remote_file_too_large");
+    let message = error.to_string();
+    assert!(
+        message.starts_with("remote_file_too_large"),
+        "the size failure keeps its identity, got: {message}"
+    );
+    assert!(message.contains("limit_bytes=4"), "got: {message}");
+    assert!(
+        message.contains("observed_bytes_at_least=10"),
+        "the observed size is the lower bound that crossed the limit, got: {message}"
+    );
     assert!(!sink.storage_failed);
     assert!(!attributes_stream_failure(
         "s3",

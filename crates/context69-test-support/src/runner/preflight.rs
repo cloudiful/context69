@@ -76,6 +76,69 @@ pub struct LedgerRow {
     pub success: bool,
 }
 
+/// One moment's view of the migration ledgers the runner has to account for.
+///
+/// The run level decision is made from the pre-run observation, but the reset
+/// runs once per target and the first target's migrate can create the `public`
+/// ledger a later reset has to clear. A reset therefore re-reads this narrow
+/// view immediately before it writes and decides on the state it actually
+/// faces, with the same guards the run level decision applies.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerView {
+    /// Ledgers this runner has to account for, library-owned ones excluded.
+    pub ledgers: Vec<LedgerLocation>,
+    /// Rows of the `public` ledger, empty when it does not exist there.
+    pub public_ledger_rows: Vec<LedgerRow>,
+}
+
+impl LedgerView {
+    /// The view the run level observation recorded.
+    #[must_use]
+    pub fn from_observation(observation: &PreflightObservation) -> Self {
+        Self {
+            ledgers: observation.ledgers.clone(),
+            public_ledger_rows: observation.public_ledger_rows.clone(),
+        }
+    }
+
+    /// Whether exactly one accounted ledger exists and it is the ordinary
+    /// `public` one, so the reset has to clear the verified rows separately.
+    ///
+    /// A ledger inside the owned schema disappears with that schema and needs no
+    /// separate clear.
+    #[must_use]
+    pub fn clears_public_ledger(&self) -> bool {
+        matches!(self.ledgers.as_slice(), [ledger] if ledger.namespace == PUBLIC_SCHEMA)
+    }
+}
+
+/// Why a fresh ledger view cannot be used for a reset.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LedgerRefreshError {
+    /// The fresh view violates one of the ledger guards, so no reset may write.
+    Refused(Vec<Refusal>),
+    /// The fresh view could not be read, so no reset may write.
+    Unavailable(String),
+}
+
+impl std::fmt::Display for LedgerRefreshError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Refused(refusals) => {
+                f.write_str("the current migration ledger is refused: ")?;
+                for (index, refusal) in refusals.iter().enumerate() {
+                    if index > 0 {
+                        f.write_str("; ")?;
+                    }
+                    write!(f, "{refusal}")?;
+                }
+                Ok(())
+            }
+            Self::Unavailable(message) => f.write_str(message),
+        }
+    }
+}
+
 /// The `(version, checksum)` pairs this build's migrator owns.
 ///
 /// Reading the compiled-in migrations is not I/O, so this stays a pure input to
@@ -257,33 +320,7 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
             .bind(OWNED_SCHEMA)
             .fetch_all(&pool)
             .await?;
-    let ledgers: Vec<(String, bool, bool)> =
-        sqlx::query_as(include_str!("../sql/ledger_locations.sql"))
-            .bind(LEDGER_TABLE)
-            .bind(LIBRARY_SCHEMA)
-            .fetch_all(&pool)
-            .await?;
-    // The library keeps its own ledger inside the schema it owns. Its own
-    // read-only check decides whether that schema really is the library's, so
-    // a lookalike schema and an unknown foreign ledger both stay listed and
-    // stay a refusal.
-    let library_owns_its_ledger = ledgers
-        .iter()
-        .any(|(_, _, library_namespace)| *library_namespace)
-        && cloudiful_tasks::check_schema(&pool).await.is_ok();
-    let ledgers = runner_ledgers(ledgers, library_owns_its_ledger);
-    // The shared ledger is only read once its existence is known, so the shape
-    // check above can never be preceded by a query against a missing table.
-    let public_ledger_rows: Vec<(i64, Vec<u8>, bool)> = if ledgers
-        .iter()
-        .any(|ledger| ledger.namespace == PUBLIC_SCHEMA)
-    {
-        sqlx::query_as(include_str!("../sql/ledger_rows.sql"))
-            .fetch_all(&pool)
-            .await?
-    } else {
-        Vec::new()
-    };
+    let ledger_view = read_ledger_view(&pool).await?;
     let shadowed: Vec<(String,)> = sqlx::query_as(include_str!("../sql/shadowed_relations.sql"))
         .bind(OWNED_SCHEMA)
         .fetch_all(&pool)
@@ -313,15 +350,8 @@ pub async fn collect(endpoint: &Endpoint) -> Result<PreflightObservation, sqlx::
         },
         foreign_schema_dependencies: dependencies.into_iter().map(|row| row.0).collect(),
         extensions_in_owned_schema: extensions.into_iter().map(|row| row.0).collect(),
-        ledgers,
-        public_ledger_rows: public_ledger_rows
-            .into_iter()
-            .map(|(version, checksum, success)| LedgerRow {
-                version,
-                checksum,
-                success,
-            })
-            .collect(),
+        ledgers: ledger_view.ledgers,
+        public_ledger_rows: ledger_view.public_ledger_rows,
         shadowed_relations: shadowed.into_iter().map(|row| row.0).collect(),
         preserved_extension_count: count(preserved),
         foreign_backends: backends
@@ -361,6 +391,133 @@ fn runner_ledgers(
         .collect()
 }
 
+/// Read one moment's ledger view: the accounted ledgers and the `public` rows.
+///
+/// The library's own ledger is left out through [`runner_ledgers`] once the
+/// library's read-only schema check confirms the schema it sits in, so the
+/// runner never decides about a ledger it does not own.
+async fn read_ledger_view(pool: &PgPool) -> Result<LedgerView, sqlx::Error> {
+    let observed: Vec<(String, bool, bool)> =
+        sqlx::query_as(include_str!("../sql/ledger_locations.sql"))
+            .bind(LEDGER_TABLE)
+            .bind(LIBRARY_SCHEMA)
+            .fetch_all(pool)
+            .await?;
+    // The library keeps its own ledger inside the schema it owns. Its own
+    // read-only check decides whether that schema really is the library's, so
+    // a lookalike schema and an unknown foreign ledger both stay listed and
+    // stay a refusal.
+    let library_owns_its_ledger = observed
+        .iter()
+        .any(|(_, _, library_namespace)| *library_namespace)
+        && cloudiful_tasks::check_schema(pool).await.is_ok();
+    let ledgers = runner_ledgers(observed, library_owns_its_ledger);
+    // The shared ledger is only read once its existence is known, so the shape
+    // check above can never be preceded by a query against a missing table.
+    let rows: Vec<(i64, Vec<u8>, bool)> = if ledgers
+        .iter()
+        .any(|ledger| ledger.namespace == PUBLIC_SCHEMA)
+    {
+        sqlx::query_as(include_str!("../sql/ledger_rows.sql"))
+            .fetch_all(pool)
+            .await?
+    } else {
+        Vec::new()
+    };
+    Ok(LedgerView {
+        ledgers,
+        public_ledger_rows: rows
+            .into_iter()
+            .map(|(version, checksum, success)| LedgerRow {
+                version,
+                checksum,
+                success,
+            })
+            .collect(),
+    })
+}
+
+/// The ledger guards, applied to whichever ledger view is current.
+///
+/// The run level decision applies them to the pre-run observation and every
+/// reset applies them again to the view it actually faces, so a ledger that
+/// appeared, moved or changed between two targets is refused before any write.
+#[must_use]
+fn ledger_refusals(view: &LedgerView, migration_namespace: Option<&str>) -> Vec<Refusal> {
+    let mut refusals = Vec::new();
+    if view.ledgers.len() > 1
+        || view
+            .ledgers
+            .iter()
+            .any(|ledger| Some(ledger.namespace.as_str()) != migration_namespace)
+    {
+        refusals.push(Refusal::AmbiguousLedgerNamespace);
+    }
+    let public_ledger_present = view
+        .ledgers
+        .iter()
+        .any(|ledger| ledger.namespace == PUBLIC_SCHEMA);
+    if public_ledger_present
+        && view
+            .ledgers
+            .iter()
+            .any(|ledger| ledger.namespace == PUBLIC_SCHEMA && !ledger.owned_shape)
+    {
+        refusals.push(Refusal::UnverifiedLedgerShape);
+    }
+    // Ownership of a shared ledger is decided from its contents. A row this
+    // build does not ship belongs to something else, so the reset would have to
+    // choose which rows to clear; it refuses instead.
+    if public_ledger_present {
+        let owned = repository_migrations();
+        if view.public_ledger_rows.iter().any(|row| {
+            !owned
+                .iter()
+                .any(|(version, checksum)| *version == row.version && checksum == &row.checksum)
+        }) {
+            refusals.push(Refusal::UnverifiedLedgerRows);
+        }
+    }
+    refusals
+}
+
+/// Re-read the accounted ledger immediately before one reset.
+///
+/// The run level observation is taken once, before any target runs, but the
+/// reset runs once per target and the first target's migrate can create the
+/// `public` ledger a later reset has to clear. This re-reads the same narrow
+/// view under the run's already held advisory lock and re-applies the same
+/// guards, so a reset is decided on the state it faces rather than on a state
+/// that may no longer exist.
+///
+/// The library's own ledger stays excluded, and a view that violates any guard
+/// refuses the reset before it writes.
+///
+/// # Errors
+///
+/// Returns [`LedgerRefreshError::Refused`] when the fresh view violates a
+/// ledger guard and [`LedgerRefreshError::Unavailable`] when it cannot be read.
+pub async fn refresh_ledger_view(
+    endpoint: &Endpoint,
+    observation: &PreflightObservation,
+) -> Result<LedgerView, LedgerRefreshError> {
+    let unavailable = |error: String| LedgerRefreshError::Unavailable(error);
+    let options = connect_options(endpoint).map_err(|error| unavailable(error.to_string()))?;
+    let pool = PgPool::connect_with(options)
+        .await
+        .map_err(|error| unavailable(error.to_string()))?;
+    let view = read_ledger_view(&pool)
+        .await
+        .map_err(|error| unavailable(error.to_string()))?;
+    pool.close().await;
+
+    let refusals = ledger_refusals(&view, migration_namespace(observation));
+    if refusals.is_empty() {
+        Ok(view)
+    } else {
+        Err(LedgerRefreshError::Refused(refusals))
+    }
+}
 /// Return the only namespace in which this observed session may place a ledger.
 ///
 /// Search-path text is intentionally accepted in a narrow set of forms, and its
@@ -428,39 +585,10 @@ pub fn decide_reset_with_policy(
     if !observation.extensions_in_owned_schema.is_empty() {
         refusals.push(Refusal::ExtensionInsideOwnedSchema);
     }
-    if observation.ledgers.len() > 1
-        || observation
-            .ledgers
-            .iter()
-            .any(|ledger| Some(ledger.namespace.as_str()) != migration_namespace)
-    {
-        refusals.push(Refusal::AmbiguousLedgerNamespace);
-    }
-    let public_ledger_present = observation
-        .ledgers
-        .iter()
-        .any(|ledger| ledger.namespace == PUBLIC_SCHEMA);
-    if public_ledger_present
-        && observation
-            .ledgers
-            .iter()
-            .any(|ledger| ledger.namespace == PUBLIC_SCHEMA && !ledger.owned_shape)
-    {
-        refusals.push(Refusal::UnverifiedLedgerShape);
-    }
-    // Ownership of a shared ledger is decided from its contents. A row this
-    // build does not ship belongs to something else, so the reset would have to
-    // choose which rows to clear; it refuses instead.
-    if public_ledger_present {
-        let owned = repository_migrations();
-        if observation.public_ledger_rows.iter().any(|row| {
-            !owned
-                .iter()
-                .any(|(version, checksum)| *version == row.version && checksum == &row.checksum)
-        }) {
-            refusals.push(Refusal::UnverifiedLedgerRows);
-        }
-    }
+    refusals.extend(ledger_refusals(
+        &LedgerView::from_observation(observation),
+        migration_namespace,
+    ));
     if observation
         .foreign_backends
         .iter()
