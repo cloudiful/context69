@@ -62,6 +62,29 @@ pub struct DoclingCleanupView {
     pub last_error: Option<String>,
 }
 
+impl DoclingCleanupView {
+    /// One wire projection for both the legacy and the paginated admin lists.
+    pub fn into_cleanup_task(
+        self,
+        reason_code: Option<context69_contracts::DoclingCleanupReasonCode>,
+    ) -> context69_contracts::DoclingCleanupTask {
+        context69_contracts::DoclingCleanupTask {
+            id: self.id,
+            task_id: self.task_id,
+            remote_task_id: self.remote_task_id,
+            status: self.status,
+            outcome: self.outcome,
+            reason_code,
+            attempt_count: self.attempt_count,
+            next_attempt_at: self.next_attempt_at,
+            cleanup_deadline_at: self.cleanup_deadline_at,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+            finished_at: self.finished_at,
+        }
+    }
+}
+
 impl Database {
     /// Claims up to `limit` due rows with a 60s lease under `claim_token`.
     pub async fn claim_docling_cleanup(
@@ -125,6 +148,45 @@ impl Database {
         .await?)
     }
 
+    /// Exact count for the admin cleanup filters (NULL means no predicate).
+    pub async fn count_docling_cleanup(
+        &self,
+        status: Option<&str>,
+        outcome: Option<&str>,
+        remote_task_id: Option<&str>,
+    ) -> Result<i64> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_cleanup/count.sql",
+            status,
+            outcome,
+            remote_task_id,
+        )
+        .fetch_one(self.pool())
+        .await?)
+    }
+
+    /// One bounded filtered page of the admin cleanup outbox.
+    pub async fn list_docling_cleanup_page(
+        &self,
+        status: Option<&str>,
+        outcome: Option<&str>,
+        remote_task_id: Option<&str>,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<DoclingCleanupView>> {
+        Ok(sqlx::query_file_as!(
+            DoclingCleanupView,
+            "src/sql/db/tasks/docling_remote_cleanup/list_page.sql",
+            status,
+            outcome,
+            remote_task_id,
+            limit,
+            offset,
+        )
+        .fetch_all(self.pool())
+        .await?)
+    }
+
     /// Direct enqueue for a submitted-but-unpersisted orphan (synthetic job id).
     /// Idempotent; returns whether a row was inserted.
     pub async fn enqueue_direct_docling_cleanup(
@@ -177,5 +239,49 @@ impl Database {
                 .fetch_all(self.pool())
                 .await?,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use context69_contracts::DoclingCleanupReasonCode;
+
+    #[test]
+    fn contracts_projection_keeps_every_persisted_time() {
+        let created = chrono::Utc::now() - chrono::Duration::hours(3);
+        let updated = created + chrono::Duration::minutes(5);
+        let finished = updated + chrono::Duration::seconds(1);
+        let next = updated + chrono::Duration::minutes(1);
+        let deadline = created + chrono::Duration::hours(24);
+        let view = DoclingCleanupView {
+            id: Uuid::new_v4(),
+            remote_job_id: Uuid::new_v4(),
+            task_id: Uuid::new_v4(),
+            item_id: Uuid::new_v4(),
+            remote_task_id: "owned-remote".into(),
+            reason: "business_cancel".into(),
+            status: "done".into(),
+            outcome: Some("cancelled".into()),
+            attempt_count: 2,
+            next_attempt_at: next,
+            created_at: created,
+            updated_at: updated,
+            finished_at: Some(finished),
+            cleanup_deadline_at: deadline,
+            last_error: None,
+        };
+        let task = view.into_cleanup_task(Some(DoclingCleanupReasonCode::RemoteNotFound));
+        assert_eq!(task.created_at, created);
+        assert_eq!(task.updated_at, updated);
+        assert_eq!(task.finished_at, Some(finished));
+        assert_eq!(task.next_attempt_at, next);
+        assert_eq!(task.cleanup_deadline_at, deadline);
+        assert_eq!(task.remote_task_id, "owned-remote");
+        assert_eq!(task.outcome.as_deref(), Some("cancelled"));
+        assert_eq!(
+            task.reason_code,
+            Some(DoclingCleanupReasonCode::RemoteNotFound)
+        );
     }
 }

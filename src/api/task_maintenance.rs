@@ -57,6 +57,32 @@ pub(crate) async fn list_docling_remote_tasks(
 }
 
 #[utoipa::path(
+    get,
+    path = "/v1/admin/docling/cleanup",
+    params(crate::contracts::DoclingCleanupQuery),
+    responses(
+        (status = 200, description = "Filtered page of persisted local Docling cleanup rows", body = crate::contracts::DoclingCleanupPageResponse),
+        (status = 400, description = "Invalid page, filter enum, or blank task id", body = context69_contracts::ApiErrorResponse),
+        (status = 403, description = "Admin access required", body = context69_contracts::ApiErrorResponse)
+    )
+)]
+pub(crate) async fn list_docling_cleanup(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Query(query): Query<crate::contracts::DoclingCleanupQuery>,
+) -> Response {
+    match state
+        .app
+        .tasks
+        .admin_docling_cleanup_page(&session.user, &query)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => super::error_mapping::task_maintenance_error_response(error),
+    }
+}
+
+#[utoipa::path(
     post,
     path = "/v1/admin/docling/cleanup",
     responses(

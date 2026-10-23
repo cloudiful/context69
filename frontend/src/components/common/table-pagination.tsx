@@ -6,16 +6,18 @@ import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Pagination } from "@/services/api";
 
-const PAGE_SIZE_OPTIONS = [25, 50, 100];
+const DEFAULT_PAGE_SIZE_OPTIONS = [25, 50, 100];
 
 export function TablePagination({
   pagination,
   onPage,
   onPageSize,
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
 }: {
   pagination: Pagination;
   onPage: (page: number) => void;
   onPageSize: (pageSize: number) => void;
+  pageSizeOptions?: readonly number[];
 }) {
   const { t } = useTranslation();
   const pageSizeId = useId();
@@ -36,7 +38,7 @@ export function TablePagination({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {PAGE_SIZE_OPTIONS.map((size) => (
+          {pageSizeOptions.map((size) => (
             <SelectItem key={size} value={String(size)}>
               {size}
             </SelectItem>

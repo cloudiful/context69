@@ -66,7 +66,8 @@ use crate::api::{
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
     task_maintenance::{
-        __path_cancel_active_tasks, __path_list_docling_remote_tasks, __path_wake_docling_cleanup,
+        __path_cancel_active_tasks, __path_list_docling_cleanup, __path_list_docling_remote_tasks,
+        __path_wake_docling_cleanup,
     },
     tasks::{
         __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_diagnose_task,
@@ -93,7 +94,8 @@ use crate::contracts::{
     CreateDocumentResultRequest, CreateFolderRequest, CreateMetadataIndexRequest,
     CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse, CreateSourceFolderRequest,
     CreateTextRequest, CursorPageQuery, CursorPagination, DeeplPlan, DeleteBatchRequest,
-    DoclingCleanupReasonCode, DoclingRemoteTask, DoclingRemoteTasksQuery,
+    DoclingCleanupOutcome, DoclingCleanupPageResponse, DoclingCleanupQuery,
+    DoclingCleanupReasonCode, DoclingCleanupStatus, DoclingRemoteTask, DoclingRemoteTasksQuery,
     DoclingRemoteTasksResponse, DocumentKey, DocumentLookupQuery, DocumentQueryRequest,
     DocumentQueryResponse, DocumentResultProvenance, DocumentResultResponse, DocumentSort,
     DocumentSortField, EnsureScopeResponse, FileBatchItem, FileBatchRequest, GroupSortBy,
@@ -248,6 +250,7 @@ use crate::contracts::sources::{
         clear_task_history,
         cancel_active_tasks,
         list_docling_remote_tasks,
+        list_docling_cleanup,
         wake_docling_cleanup
     ),
     components(schemas(
@@ -419,6 +422,10 @@ use crate::contracts::sources::{
         TaskSortBy,
         CancelActiveTasksResponse,
         DoclingCleanupReasonCode,
+        DoclingCleanupOutcome,
+        DoclingCleanupStatus,
+        DoclingCleanupQuery,
+        DoclingCleanupPageResponse,
         DoclingRemoteTask,
         DoclingRemoteTasksQuery,
         DoclingRemoteTasksResponse,

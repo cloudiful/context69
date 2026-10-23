@@ -14,6 +14,8 @@ export const processingQueue = {
   stageFilter: "Task stage",
   waitingReasonFilter: "Waiting reason",
   dependencyFilter: "Library dependency",
+  dependency: "Dependency",
+  filterBy: "Filter by {column}",
   allStatuses: "All statuses",
   allKinds: "All task types",
   allStages: "All stages",

@@ -5,6 +5,7 @@ import {
   ADMIN_USER,
   ADMIN_USER_ROW,
   AUTH_ERROR,
+  CLEANUP_TASKS,
   DOCLING_SETTINGS,
   GROUP,
   PREVIEW_DOCUMENT,
@@ -47,7 +48,7 @@ import {
 } from "./fixtures";
 
 /** Origin of the preview app; cross-origin requests are refused, not mocked. */
-const ALLOWED_ORIGIN = "http://127.0.0.1:5199";
+const ALLOWED_ORIGIN = "http://127.0.0.1:5201";
 
 export interface AppTransportOptions {
   user?: AuthUserFixture;
@@ -997,10 +998,11 @@ export async function installAppTransport(
     return false;
   }
 
-  async function handleSettings(route: Route, path: string, method: string, body: unknown): Promise<boolean> {
+  async function handleSettings(route: Route, url: URL, method: string, body: unknown): Promise<boolean> {
     if (!options.settings) {
       return false;
     }
+    const path = url.pathname;
 
     if (path === "/v1/settings/runtime") {
       if (method === "PUT" && body) {
@@ -1093,6 +1095,25 @@ export async function installAppTransport(
 
     if (path === "/v1/admin/docling/tasks") {
       await route.fulfill(json(200, REMOTE_TASKS));
+      return true;
+    }
+
+    if (path === "/v1/admin/docling/cleanup" && method === "GET") {
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const pageSize = Number(url.searchParams.get("page_size") ?? 20);
+      const status = url.searchParams.get("status");
+      const outcome = url.searchParams.get("outcome");
+      const remoteTaskId = (url.searchParams.get("remote_task_id") ?? "").trim();
+      const filtered = CLEANUP_TASKS.filter((row) => (
+        (!status || row.status === status)
+        && (!outcome || row.outcome === outcome)
+        && (!remoteTaskId || row.remote_task_id === remoteTaskId)
+      ));
+      const start = (page - 1) * pageSize;
+      await route.fulfill(json(200, {
+        items: filtered.slice(start, start + pageSize),
+        pagination: pagination(page, pageSize, filtered.length),
+      }));
       return true;
     }
 
@@ -1229,7 +1250,7 @@ export async function installAppTransport(
         return;
       }
 
-      if (await handleSettings(route, url.pathname, method, body)) {
+      if (await handleSettings(route, url, method, body)) {
         return;
       }
 

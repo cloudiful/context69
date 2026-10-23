@@ -86,6 +86,52 @@ pub fn past_poll_at() -> chrono::DateTime<Utc> {
     Utc::now() - Duration::seconds(5)
 }
 
+/// Caller-controlled persisted cleanup row for paging/filter regressions.
+pub struct CleanupRowSeed<'a> {
+    pub remote_task_id: &'a str,
+    pub status: &'a str,
+    pub outcome: Option<&'a str>,
+    pub created_at: chrono::DateTime<Utc>,
+    pub updated_at: chrono::DateTime<Utc>,
+    pub finished_at: Option<chrono::DateTime<Utc>>,
+}
+
+/// Inserts one cleanup outbox row with caller-controlled persisted timestamps.
+pub async fn seed_cleanup_row(
+    db: &Database,
+    task_id: Uuid,
+    item_id: Uuid,
+    seed: CleanupRowSeed<'_>,
+) {
+    sqlx::query_file!(
+        "tests/docling_remote_jobs/cleanup_paging/insert_cleanup_row.sql",
+        Uuid::new_v4(),
+        task_id,
+        item_id,
+        seed.remote_task_id,
+        seed.status,
+        seed.outcome,
+        seed.updated_at,
+        seed.created_at,
+        seed.updated_at,
+        seed.finished_at,
+        seed.created_at + chrono::Duration::hours(24),
+    )
+    .execute(db.pool())
+    .await
+    .expect("seed cleanup row");
+}
+
+pub async fn delete_cleanup_rows(db: &Database, task_id: Uuid) {
+    sqlx::query_file!(
+        "tests/docling_remote_jobs/cleanup_paging/delete_cleanup_rows.sql",
+        task_id
+    )
+    .execute(db.pool())
+    .await
+    .expect("delete cleanup rows");
+}
+
 /// Claims the item through the library and returns the captured execution.
 pub async fn claim_item(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
     db.claim_items_fast(50)

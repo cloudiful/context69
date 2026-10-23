@@ -59,7 +59,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["list_docling_cleanup"];
         put?: never;
         post: operations["wake_docling_cleanup"];
         delete?: never;
@@ -2101,6 +2101,34 @@ export interface components {
             items: components["schemas"]["DocumentKey"][];
         };
         /**
+         * @description Persisted observed cleanup outcome: every terminal remote status the worker
+         *     stores verbatim, plus `not_found` for a disappeared remote.
+         * @enum {string}
+         */
+        DoclingCleanupOutcome: "success" | "partial_success" | "failure" | "skipped" | "cancelled" | "not_found";
+        /** @description One page of the persisted local cleanup outbox with the true total. */
+        DoclingCleanupPageResponse: {
+            items: components["schemas"]["DoclingCleanupTask"][];
+            pagination: components["schemas"]["Pagination"];
+        };
+        /**
+         * @description Query for `GET /v1/admin/docling/cleanup`.
+         *
+         *     Filters are exact matches on the persisted columns. `page`/`page_size`
+         *     follow the shared offset contract; `page_size` defaults to 20 here and is
+         *     bounded to `1..=100`. Unknown fields are rejected so a renamed parameter
+         *     fails instead of silently changing meaning.
+         */
+        DoclingCleanupQuery: {
+            outcome?: null | components["schemas"]["DoclingCleanupOutcome"];
+            /** Format: int32 */
+            page?: number;
+            /** Format: int32 */
+            page_size?: number;
+            remote_task_id?: string | null;
+            status?: null | components["schemas"]["DoclingCleanupStatus"];
+        };
+        /**
          * @description Closed backend-owned cause for a cleanup row that needs an explanation.
          *
          *     Only exact worker-written diagnostics map to a specific variant (see
@@ -2114,11 +2142,26 @@ export interface components {
             /** Format: int32 */
             woken: number;
         };
+        /**
+         * @description Persisted cleanup status, mirroring the database check constraint.
+         * @enum {string}
+         */
+        DoclingCleanupStatus: "pending" | "cancelling" | "awaiting_terminal" | "done" | "unsupported" | "failed";
         DoclingCleanupTask: {
             /** Format: int32 */
             attempt_count: number;
             /** Format: date-time */
             cleanup_deadline_at: string;
+            /**
+             * Format: date-time
+             * @description Existing persisted creation time, always present on the row.
+             */
+            created_at: string;
+            /**
+             * Format: date-time
+             * @description Existing persisted terminal time; absent while the row is not terminal.
+             */
+            finished_at?: string | null;
             /** Format: uuid */
             id: string;
             /** Format: date-time */
@@ -2129,6 +2172,11 @@ export interface components {
             status: string;
             /** Format: uuid */
             task_id: string;
+            /**
+             * Format: date-time
+             * @description Existing persisted last-write time, always present on the row.
+             */
+            updated_at: string;
         };
         DoclingConnectionSettingsResponse: {
             base_url?: string | null;
@@ -4843,6 +4891,50 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HealthResponse"];
+                };
+            };
+        };
+    };
+    list_docling_cleanup: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                status?: components["schemas"]["DoclingCleanupStatus"];
+                outcome?: components["schemas"]["DoclingCleanupOutcome"];
+                remote_task_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Filtered page of persisted local Docling cleanup rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DoclingCleanupPageResponse"];
+                };
+            };
+            /** @description Invalid page, filter enum, or blank task id */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
         };

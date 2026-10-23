@@ -374,4 +374,60 @@ test.describe("react settings", () => {
     await page.getByRole("tab", { name: "Access Tokens" }).click();
     await expect(page.getByText("2026-10-01 16:00", { exact: true })).toHaveCount(1);
   });
+
+  test("pages and filters local cleanup records with true server totals", async ({ page }) => {
+    const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
+    await page.goto("/settings/docling");
+
+    const cleanup = page.locator("#settings-docling-cleanup");
+    await expect(cleanup.getByText("cleanup-01")).toBeVisible();
+    await expect(cleanup.getByText("cleanup-21")).toHaveCount(0);
+    await expect(cleanup.getByText(/Page 1 of 2/)).toBeVisible();
+
+    await cleanup.getByRole("button", { name: "Next" }).click();
+    await expect(cleanup.getByText("cleanup-21")).toBeVisible();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/cleanup"
+    )).at(-1)?.query).toContain("page=2");
+
+    await cleanup.getByLabel("Items per page").click();
+    await page.getByRole("option", { name: "50" }).click();
+    await expect(cleanup.getByText("cleanup-01")).toBeVisible();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/cleanup"
+    )).at(-1)?.query).toContain("page_size=50");
+    const pageSizeQuery = transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/cleanup"
+    )).at(-1)?.query ?? "";
+    expect(pageSizeQuery).toContain("page=1");
+
+    await cleanup.getByLabel("Status").click();
+    await page.getByRole("option", { name: "Done" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/cleanup"
+    )).at(-1)?.query).toContain("status=done");
+    await expect(cleanup.getByText("cleanup-01")).toHaveCount(0);
+    await expect(cleanup.getByText("cleanup-02")).toBeVisible();
+
+    await cleanup.getByLabel("Task ID").fill("cleanup-05");
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/cleanup"
+    )).at(-1)?.query).toContain("remote_task_id=cleanup-05");
+    await expect(cleanup.getByText("cleanup-05")).toBeVisible();
+    await expect(cleanup.getByText("cleanup-02")).toHaveCount(0);
+    await expect(cleanup.getByText(/Page 1 of 1/)).toBeVisible();
+
+    await cleanup.getByRole("button", { name: "Clear filters" }).click();
+    await expect(cleanup.getByText("cleanup-01")).toBeVisible();
+
+    await page.getByTestId("docling-remote-page-size").click();
+    await page.getByRole("option", { name: "50" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/tasks"
+    )).at(-1)?.query).toContain("limit=50");
+    const remoteQuery = transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/admin/docling/tasks"
+    )).at(-1)?.query ?? "";
+    expect(remoteQuery).toContain("offset=0");
+  });
 });

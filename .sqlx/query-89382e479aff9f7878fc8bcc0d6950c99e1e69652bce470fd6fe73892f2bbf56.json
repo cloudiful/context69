@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Exact total for the same persisted-column predicates as list_page.sql.\nSELECT COUNT(*)::BIGINT AS \"count!\"\nFROM context69.task_docling_remote_cleanup\nWHERE ($1::text IS NULL OR status = $1)\n  AND ($2::text IS NULL OR outcome = $2)\n  AND ($3::text IS NULL OR remote_task_id = $3);\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "89382e479aff9f7878fc8bcc0d6950c99e1e69652bce470fd6fe73892f2bbf56"
+}

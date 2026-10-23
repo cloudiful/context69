@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, Ban, ChevronRight, ChevronsUpDown, Play, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Ban, ChevronRight, Play, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
+import { TableColumnHeader, type ColumnSortDirection } from "@/components/common/table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -143,44 +144,77 @@ export function QueueTable({
     onSort(null, null);
   }
 
-  function header(
-    field: TaskSortBy,
-    label: string,
-    filter?: { label: string; options: QueueFilterOption[]; selected: string | null; onSelect: (value: string | null) => void },
-  ) {
-    const state = scope.sort.field === field ? scope.sort.direction : "none";
+  type FilterSpec = {
+    label: string;
+    options: QueueFilterOption[];
+    selected: string | null;
+    active?: boolean;
+    onSelect: (value: string | null, group?: string | null) => void;
+  };
+
+  function sortState(field: TaskSortBy): ColumnSortDirection {
+    return scope.sort.field === field ? scope.sort.direction : "none";
+  }
+
+  function sortAriaLabel(field: TaskSortBy, label: string): string {
+    const state = sortState(field);
     const stateLabel = state === "asc"
       ? t("processingQueue.sortedAscending")
       : state === "desc"
         ? t("processingQueue.sortedDescending")
         : t("processingQueue.notSorted");
-    const Icon = state === "asc" ? ArrowUp : state === "desc" ? ArrowDown : ChevronsUpDown;
+    return `${t("processingQueue.sortBy", { column: label })}, ${stateLabel}`;
+  }
+
+  function sortableHead(field: TaskSortBy, label: string, filter?: FilterSpec) {
+    const state = sortState(field);
     return (
-      <div className="flex items-center gap-0.5">
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="-ml-2 h-7 gap-1 px-2 font-medium"
-          aria-label={`${t("processingQueue.sortBy", { column: label })}, ${stateLabel}`}
-          data-sort={state}
-          onClick={() => cycleSort(field)}
-        >
-          {label}
-          <Icon aria-hidden="true" className={cn("size-3", state === "none" ? "opacity-40" : "opacity-100")} />
-        </Button>
-        {filter
-          ? (
-              <QueueHeaderFilter
-                label={filter.label}
-                options={filter.options}
-                selected={filter.selected}
-                active={filter.selected !== null}
-                onSelect={filter.onSelect}
-              />
-            )
-          : null}
-      </div>
+      <TableHead
+        aria-sort={state === "asc" ? "ascending" : state === "desc" ? "descending" : "none"}
+      >
+        <TableColumnHeader
+          label={label}
+          sort={{ direction: state, onSort: () => cycleSort(field), ariaLabel: sortAriaLabel(field, label) }}
+          filter={filter
+            ? (
+                <QueueHeaderFilter
+                  label={filter.label}
+                  options={filter.options}
+                  selected={filter.selected}
+                  active={filter.active ?? filter.selected !== null}
+                  onSelect={filter.onSelect}
+                />
+              )
+            : undefined}
+        />
+      </TableHead>
+    );
+  }
+
+  function filterHead(label: string, filter: FilterSpec) {
+    return (
+      <TableHead>
+        <TableColumnHeader
+          label={label}
+          filter={(
+            <QueueHeaderFilter
+              label={filter.label}
+              options={filter.options}
+              selected={filter.selected}
+              active={filter.active ?? filter.selected !== null}
+              onSelect={filter.onSelect}
+            />
+          )}
+        />
+      </TableHead>
+    );
+  }
+
+  function plainHead(label: string) {
+    return (
+      <TableHead>
+        <TableColumnHeader label={label} />
+      </TableHead>
     );
   }
 
@@ -189,6 +223,7 @@ export function QueueTable({
     : trash
       ? t("processingQueue.tabs.noTrashedTasks")
       : t("processingQueue.noTasks");
+  const columnCount = completed ? 11 : trash ? 11 : 12;
 
   return (
     <div className="overflow-x-auto rounded-md border" data-testid="processing-queue-table">
@@ -196,77 +231,70 @@ export function QueueTable({
         <TableHeader>
           <TableRow>
             <TableHead className="w-10" />
-            <TableHead>{t("processingQueue.task")}</TableHead>
-            {header("kind", t("processingQueue.type"), {
-              label: t("processingQueue.kindFilter"),
+            {plainHead(t("processingQueue.task"))}
+            {sortableHead("kind", t("processingQueue.type"), {
+              label: t("processingQueue.filterBy", { column: t("processingQueue.type") }),
               options: [allOption(t("processingQueue.allKinds")), ...options(TASK_KIND_VALUES, "processingQueue.kinds")],
               selected: scope.kind,
               onSelect: (value) => onKindFilter(value as TaskKind | null),
             })}
-            <TableHead>{header("group_path", t("processingQueue.group"))}</TableHead>
-            {header("status", t("processingQueue.status"), scope.view === "processing"
+            {sortableHead("group_path", t("processingQueue.group"))}
+            {trash
+              ? null
+              : sortableHead("status", t("processingQueue.status"), scope.view === "processing"
                 ? {
-                    label: t("processingQueue.statusFilter"),
+                    label: t("processingQueue.filterBy", { column: t("processingQueue.status") }),
                     options: [allOption(t("processingQueue.allStatuses")), ...options(PROCESSING_STATUS_FILTERS, "processingQueue.statuses")],
                     selected: scope.status,
                     onSelect: (value) => onStatusFilter(value as TaskStatus | null),
                   }
                 : undefined)}
             {completed
-              ? (
-                  <TableHead>
-                    <QueueHeaderFilter
-                      label={t("processingQueue.dependencyFilter")}
-                      options={[allOption(t("processingQueue.allDependencies")), ...options(QUEUE_DEPENDENCY_VALUES, "processingQueue.dependencies")]}
-                      selected={scope.dependencyKey}
-                      active={scope.dependencyKey !== null}
-                      onSelect={onDependencyFilter}
-                    />
-                  </TableHead>
-                )
+              ? filterHead(t("processingQueue.dependency"), {
+                  label: t("processingQueue.filterBy", { column: t("processingQueue.dependency") }),
+                  options: [allOption(t("processingQueue.allDependencies")), ...options(QUEUE_DEPENDENCY_VALUES, "processingQueue.dependencies")],
+                  selected: scope.dependencyKey,
+                  onSelect: onDependencyFilter,
+                })
               : (
                   <>
-                    <TableHead>{header("stage", t("processingQueue.stage"), {
-                      label: t("processingQueue.stageFilter"),
+                    {sortableHead("stage", t("processingQueue.stage"), {
+                      label: t("processingQueue.filterBy", { column: t("processingQueue.stage") }),
                       options: [allOption(t("processingQueue.allStages")), ...options(QUEUE_STAGE_VALUES, "processingQueue.stages")],
                       selected: scope.stage,
                       onSelect: onStageFilter,
-                    })}</TableHead>
-                    <TableHead>
-                      <div className="flex items-center gap-0.5">
-                        <span className="px-1 font-medium">{t("processingQueue.waiting")}</span>
-                        <QueueHeaderFilter
-                          label={t("processingQueue.waitingReasonFilter")}
-                          options={waitingOptions}
-                          selected={scope.waitingReason}
-                          active={scope.waitingReason !== null || scope.dependencyKey !== null}
-                          onSelect={(value, group) => {
-                            if (group != null) {
-                              onWaitingReasonFilter(group, value);
-                              return;
-                            }
-                            onWaitingReasonFilter(value);
-                            if (value !== "dependency") {
-                              onDependencyFilter(null);
-                            }
-                          }}
-                        />
-                      </div>
-                    </TableHead>
-                    <TableHead>{t("processingQueue.progress")}</TableHead>
+                    })}
+                    {filterHead(t("processingQueue.waiting"), {
+                      label: t("processingQueue.filterBy", { column: t("processingQueue.waitingReasonFilter") }),
+                      options: waitingOptions,
+                      selected: scope.waitingReason,
+                      active: scope.waitingReason !== null || scope.dependencyKey !== null,
+                      onSelect: (value, group) => {
+                        if (group != null) {
+                          onWaitingReasonFilter(group, value);
+                          return;
+                        }
+                        onWaitingReasonFilter(value);
+                        if (value !== "dependency") {
+                          onDependencyFilter(null);
+                        }
+                      },
+                    })}
+                    {plainHead(t("processingQueue.progress"))}
                   </>
                 )}
-            <TableHead>{t("processingQueue.error")}</TableHead>
-            <TableHead>{header("created_at", t("processingQueue.createdAt"))}</TableHead>
-            <TableHead>{header("updated_at", completed ? t("processingQueue.completedAt") : t("processingQueue.updatedAt"))}</TableHead>
-            <TableHead>{t("processingQueue.actions")}</TableHead>
+            {plainHead(t("processingQueue.error"))}
+            {sortableHead("created_at", t("processingQueue.createdAt"))}
+            {sortableHead("updated_at", t("processingQueue.updatedAt"))}
+            {completed ? plainHead(t("processingQueue.completedAt")) : null}
+            {plainHead(t("processingQueue.actions"))}
           </TableRow>
         </TableHeader>
         <TableBody>
           {items.length === 0
             ? (
                 <TableRow>
-                  <TableCell colSpan={completed ? 10 : 12} className="py-12 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={columnCount} className="py-12 text-center text-sm text-muted-foreground">
                     {loading ? t("common.loading") : emptyLabel}
                   </TableCell>
                 </TableRow>
@@ -338,6 +366,7 @@ function TaskRow({
   const errorStage = task.failure_stage && KNOWN_STAGES.has(task.failure_stage)
     ? queueStageLabel(t, task.failure_stage)
     : null;
+  const columnCount = completed ? 11 : trash ? 11 : 12;
 
   return (
     <>
@@ -423,6 +452,15 @@ function TaskRow({
         </TableCell>
         <TableCell><span className="whitespace-nowrap text-muted-foreground">{formatTimestamp(task.created_at)}</span></TableCell>
         <TableCell><span className="whitespace-nowrap text-muted-foreground">{formatTimestamp(task.updated_at)}</span></TableCell>
+        {completed
+          ? (
+              <TableCell>
+                <span className="whitespace-nowrap text-muted-foreground">
+                  {task.finished_at ? formatTimestamp(task.finished_at) : "--"}
+                </span>
+              </TableCell>
+            )
+          : null}
         <TableCell>
           {trash
             ? (
@@ -474,7 +512,7 @@ function TaskRow({
       {open
         ? (
             <TableRow>
-              <TableCell colSpan={completed ? 10 : 12} className="p-0">
+              <TableCell colSpan={columnCount} className="p-0">
                 <QueueExpandedRow
                   task={task}
                   active={ACTIVE_STATUSES.includes(task.status)}

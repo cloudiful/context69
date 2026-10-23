@@ -14,6 +14,8 @@ export const processingQueue = {
   stageFilter: "任务阶段",
   waitingReasonFilter: "等待原因",
   dependencyFilter: "库依赖",
+  dependency: "依赖",
+  filterBy: "筛选 {column}",
   allStatuses: "全部状态",
   allKinds: "全部任务类型",
   allStages: "全部阶段",

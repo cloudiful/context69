@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One deterministic cleanup row for the admin pagination/filter regression.\n-- The caller controls every persisted timestamp so ordering and projection are\n-- asserted against known values instead of the host clock.\nINSERT INTO context69.task_docling_remote_cleanup (\n    remote_job_id,\n    task_id,\n    item_id,\n    remote_task_id,\n    reason,\n    status,\n    outcome,\n    attempt_count,\n    next_attempt_at,\n    created_at,\n    updated_at,\n    finished_at,\n    cleanup_deadline_at\n)\nVALUES (\n    $1,\n    $2,\n    $3,\n    $4,\n    'orphan',\n    $5,\n    $6,\n    0,\n    $7,\n    $8,\n    $9,\n    $10,\n    $11\n);\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "36c5019e48dcd6c596926072c173cbb42994b6cc1c3478053474f2853a65ca1b"
+}

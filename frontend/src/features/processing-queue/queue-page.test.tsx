@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProviders } from "@/app/providers";
 import { apiClient } from "@/services/api";
 import type { TaskPageResponse, TaskResponse } from "@/services/api";
+import { formatTimestamp } from "@/lib/format";
 import { installFakeEventSource } from "@/test-utils/event-source";
 
 import { ProcessingQueuePage } from "./queue-page";
@@ -189,5 +190,69 @@ describe("ProcessingQueuePage", () => {
     await waitFor(() => expect(screen.getByText("No tasks")).toBeInTheDocument());
     await user.click(screen.getByRole("tab", { name: "Trash" }));
     expect(await screen.findByText("Trash is empty")).toBeInTheDocument();
+  });
+
+  it("renders one visible label per column with independent sort and filter actions", async () => {
+    const user = userEvent.setup();
+    const list = vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task({ file_name: "alpha.pdf" })]));
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    const table = screen.getByTestId("processing-queue-table");
+    expect(within(table).getAllByText("Type", { exact: true })).toHaveLength(1);
+    expect(within(table).getAllByText("Status", { exact: true })).toHaveLength(1);
+    expect(within(table).getAllByText("Stage", { exact: true })).toHaveLength(1);
+    expect(within(table).getAllByText("Waiting", { exact: true })).toHaveLength(1);
+
+    const sortByType = within(table).getByRole("button", { name: "Sort by Type, not sorted" });
+    const filterByType = within(table).getByRole("button", { name: "Filter by Type" });
+    expect(sortByType).toHaveAttribute("data-sort", "none");
+    expect(filterByType).toHaveAttribute("data-filter-active", "false");
+
+    const callsBefore = list.mock.calls.length;
+    await user.click(filterByType);
+    expect(await screen.findByRole("menu")).toBeInTheDocument();
+    expect(list.mock.calls).toHaveLength(callsBefore);
+    await user.keyboard("{Escape}");
+
+    await user.click(sortByType);
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sortBy: "kind", sortDirection: "asc" }),
+      expect.anything(),
+    ));
+    expect(within(table).getByRole("button", { name: "Sort by Type, sorted ascending" })).toHaveAttribute("data-sort", "asc");
+  });
+
+  it("marks the sorted column for assistive technology", async () => {
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task({ file_name: "alpha.pdf" })]));
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    const createdHead = screen.getByText("Created", { exact: true }).closest("th");
+    expect(createdHead).toHaveAttribute("aria-sort", "descending");
+  });
+
+  it("shows the persisted finish time in the completed view without inventing a sort field", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockImplementation(async (params) => (
+      params.view === "completed"
+        ? page([task({
+            file_name: "done.pdf",
+            status: "succeeded",
+            updated_at: "2026-02-03T04:00:00Z",
+            finished_at: "2026-02-03T04:05:06Z",
+          })])
+        : page([task({ file_name: "alpha.pdf" })])
+    ));
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("tab", { name: "Completed" }));
+
+    expect(await screen.findByText(formatTimestamp("2026-02-03T04:05:06Z"))).toBeInTheDocument();
+    const table = screen.getByTestId("processing-queue-table");
+    const finishedHead = within(table).getByText("Completed", { exact: true }).closest("th");
+    expect(finishedHead).not.toHaveAttribute("aria-sort");
+    expect(within(finishedHead as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
   });
 });
