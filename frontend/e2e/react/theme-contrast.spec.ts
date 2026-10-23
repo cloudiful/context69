@@ -167,7 +167,20 @@ const INSTALL_CONTRAST_BRIDGE = () => {
     };
   }
 
-  (window as unknown as { __themeContrast: { measure: typeof measure } }).__themeContrast = { measure };
+  function compare(first: Element, second: Element): ContrastResult {
+    const firstSurface = effectiveBackground(first);
+    const secondSurface = effectiveBackground(second);
+    return {
+      ratio: contrast(firstSurface, secondSurface),
+      foreground: hex(firstSurface),
+      background: hex(secondSurface),
+    };
+  }
+
+  (window as unknown as { __themeContrast: { measure: typeof measure; compare: typeof compare } }).__themeContrast = {
+    measure,
+    compare,
+  };
 };
 
 async function measureLocator(
@@ -195,6 +208,78 @@ async function expectContrast(
 ): Promise<void> {
   const result = await measureLocator(locator, role, childSelector);
   expect(result.ratio, `${label} (${JSON.stringify(result)})`).toBeGreaterThanOrEqual(min);
+}
+
+/** Rendered gap between two surfaces; decorative separation is design judgement, not a WCAG claim. */
+async function compareSurfaces(
+  page: Page,
+  firstSelector: string,
+  secondSelector: string,
+  label: string,
+): Promise<ContrastResult> {
+  const result = await page.evaluate(
+    (args) => {
+      const bridge = (window as unknown as {
+        __themeContrast: {
+          compare: (first: Element, second: Element) => ContrastResult;
+        };
+      }).__themeContrast;
+      const first = document.querySelector(args.firstSelector);
+      const second = document.querySelector(args.secondSelector);
+      if (!first || !second) {
+        throw new Error(`${args.label}: missing rendered surface`);
+      }
+      return bridge.compare(first, second);
+    },
+    { firstSelector, secondSelector, label },
+  );
+  expect(result.foreground, `${label} surfaces must not be identical`).not.toBe(result.background);
+  return result;
+}
+
+async function surfaceColor(page: Page, selector: string, label: string): Promise<string> {
+  const result = await page.evaluate(
+    (args) => {
+      const bridge = (window as unknown as {
+        __themeContrast: {
+          compare: (first: Element, second: Element) => ContrastResult;
+        };
+      }).__themeContrast;
+      const element = document.querySelector(args.selector);
+      if (!element) {
+        throw new Error(`${args.label}: missing rendered element`);
+      }
+      return bridge.compare(element, element).foreground;
+    },
+    { selector, label },
+  );
+  return result;
+}
+
+function hexHue(hex: string): number {
+  const red = Number.parseInt(hex.slice(1, 3), 16) / 255;
+  const green = Number.parseInt(hex.slice(3, 5), 16) / 255;
+  const blue = Number.parseInt(hex.slice(5, 7), 16) / 255;
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  if (delta === 0) {
+    return 0;
+  }
+  let hue: number;
+  if (max === red) {
+    hue = ((green - blue) / delta) % 6;
+  } else if (max === green) {
+    hue = (blue - red) / delta + 2;
+  } else {
+    hue = (red - green) / delta + 4;
+  }
+  return (hue * 60 + 360) % 360;
+}
+
+function hueDistance(first: number, second: number): number {
+  const delta = Math.abs(first - second) % 360;
+  return delta > 180 ? 360 - delta : delta;
 }
 
 async function focusControl(locator: Locator): Promise<void> {
@@ -252,6 +337,52 @@ async function runContrastSuite(page: Page, theme: Theme): Promise<void> {
   await page.goto("/processing-queue");
   await expect(page.locator("html")).toHaveAttribute("data-theme", theme);
   await expect(page.getByTestId("queue-task-row")).toHaveCount(STATUS_TASKS.length);
+
+  const successSurface = await surfaceColor(
+    page,
+    '[data-slot="badge"][data-tone="success"]',
+    `${theme}: success badge`,
+  );
+  const queueSurface = await compareSurfaces(
+    page,
+    "body",
+    '[data-testid="processing-queue-table"]',
+    `${theme}: canvas vs queue surface`,
+  );
+  expect(
+    queueSurface.ratio,
+    `${theme}: queue surface must rise above the canvas (${JSON.stringify(queueSurface)})`,
+  ).toBeGreaterThanOrEqual(1.06);
+  const tableHeaderSurface = await compareSurfaces(
+    page,
+    '[data-testid="processing-queue-table"]',
+    '[data-slot="table-header"]',
+    `${theme}: queue surface vs table header`,
+  );
+  expect(
+    tableHeaderSurface.ratio,
+    `${theme}: table header must separate from its surface (${JSON.stringify(tableHeaderSurface)})`,
+  ).toBeGreaterThanOrEqual(1.08);
+  const sidebarSurface = await compareSurfaces(
+    page,
+    "body",
+    '[data-slot="sidebar-inner"]',
+    `${theme}: canvas vs sidebar`,
+  );
+  expect(
+    sidebarSurface.ratio,
+    `${theme}: sidebar must separate from the canvas (${JSON.stringify(sidebarSurface)})`,
+  ).toBeGreaterThanOrEqual(1.04);
+  const selectedSurface = await compareSurfaces(
+    page,
+    '[data-slot="sidebar-inner"]',
+    '[data-slot="sidebar-menu-button"][data-active="true"]',
+    `${theme}: sidebar vs selected navigation`,
+  );
+  expect(
+    selectedSurface.ratio,
+    `${theme}: selected navigation must separate from the sidebar (${JSON.stringify(selectedSurface)})`,
+  ).toBeGreaterThanOrEqual(1.08);
 
   for (const tone of TONES) {
     await expectContrast(
@@ -331,6 +462,11 @@ async function runContrastSuite(page: Page, theme: Theme): Promise<void> {
   await page.locator("#runtime-embedding-model").fill("embed-contrast");
   const save = page.getByTestId("settings-save");
   await expect(save).toBeEnabled();
+  const primarySurface = await surfaceColor(page, '[data-testid="settings-save"]', `${theme}: primary action`);
+  expect(
+    hueDistance(hexHue(primarySurface), hexHue(successSurface)),
+    `${theme}: primary action must stay distinct from the success tone (${primarySurface} vs ${successSurface})`,
+  ).toBeGreaterThanOrEqual(10);
   await expectContrast(save, "text", 4.5, `${theme}: default button label`);
   await save.hover();
   await expectContrast(save, "text", 4.5, `${theme}: default button label (hover)`);

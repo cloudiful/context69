@@ -44,7 +44,7 @@ export function SettingsBlock({
   className?: string;
 }) {
   return (
-    <section id={id} className={cn("grid gap-2 rounded-lg border p-3", className)}>
+    <section id={id} className={cn("grid gap-2 rounded-lg border bg-card p-3", className)}>
       {title || actions || description ? (
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="grid gap-0.5">
