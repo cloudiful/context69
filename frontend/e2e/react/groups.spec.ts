@@ -1,7 +1,29 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN_USER, MEMBER_USER, WORKSPACE_GROUP, WORKSPACE_METADATA } from "./fixtures";
+import {
+  ADMIN_USER,
+  MEMBER_USER,
+  WORKSPACE_CHILD_GROUP,
+  WORKSPACE_GROUP,
+  WORKSPACE_METADATA,
+  type LibraryTreeFixture,
+} from "./fixtures";
 import { installAppTransport, recordExternalRequests } from "./transport";
+
+const EMPTY_WORKSPACE_TREE: LibraryTreeFixture = {
+  root: {
+    group_key: "alpha",
+    group_path: "stock/alpha",
+    visibility: "private",
+    folder_id: null,
+    parent_folder_id: null,
+    name: "Alpha Research",
+    path: "Alpha Research",
+    processing_count: 0,
+    children: [],
+    files: [],
+  },
+};
 
 test.describe("react group workspace", () => {
   test("browses groups, folders, file preview and scoped search", async ({ page }) => {
@@ -484,6 +506,73 @@ test.describe("react group workspace", () => {
     await expect(page.getByRole("link", { name: "成员" })).toBeVisible();
     await expect(page.getByTestId("library-table")).toBeVisible();
     await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  });
+
+  test("keeps the child-group search usable through a result without a match", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      workspace: { children: [WORKSPACE_CHILD_GROUP], tree: EMPTY_WORKSPACE_TREE },
+    });
+
+    await page.goto("/groups/stock%2Falpha");
+    const search = page.getByTestId("child-group-search");
+    await expect(search).toBeVisible();
+    await expect(page.getByTestId("library-group-row")).toContainText("Beta Desk");
+
+    await search.fill("no-such-child");
+    await expect(search).toBeVisible();
+    await expect(search).toHaveValue("no-such-child");
+    await expect(search).toBeFocused();
+    await expect(page.getByTestId("library-empty")).toContainText("No matching child groups.");
+
+    await search.fill("");
+    await expect(page.getByTestId("library-group-row")).toContainText("Beta Desk");
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("keeps the translation defaults unwritten until the group loads them", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      workspace: { translationFailReads: 1 },
+    });
+
+    await page.goto("/groups/stock%2Falpha/settings");
+    await expect(page.getByTestId("group-translation-retry")).toBeVisible();
+    await expect(page.getByLabel("Target locales")).toBeDisabled();
+    await expect(page.getByLabel("Default source locale")).toBeDisabled();
+    await expect(page.getByTestId("group-translation-save")).toBeDisabled();
+    expect(transport.calls.filter((call) => call.method === "PUT" && call.path.endsWith("/translation-settings"))).toHaveLength(0);
+
+    await page.getByTestId("group-translation-retry").click();
+    await expect(page.getByLabel("Target locales")).toBeEnabled();
+    await expect(page.getByLabel("Target locales")).toHaveValue("zh-CN");
+    await expect(page.getByLabel("Default source locale")).toHaveValue("en-US");
+
+    await page.getByLabel("Default source locale").fill("en-GB");
+    await page.getByTestId("group-translation-save").click();
+
+    await expect.poll(() => transport.calls.filter((call) => call.method === "PUT" && call.path.endsWith("/translation-settings")).length).toBe(1);
+    const save = transport.calls.find((call) => call.method === "PUT" && call.path.endsWith("/translation-settings"));
+    expect(save?.body).toEqual({
+      enabled: true,
+      default_target_locales: ["zh-CN"],
+      source_locale: "en-GB",
+      glossary: [],
+    });
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("keeps the translation defaults read-only for a viewer", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: MEMBER_USER,
+      workspace: { group: { ...WORKSPACE_GROUP, current_role: "viewer" } },
+    });
+
+    await page.goto("/groups/stock%2Falpha/settings");
+    await expect(page.getByTestId("group-translation-settings")).toBeVisible();
+    await expect(page.getByLabel("Target locales")).toBeDisabled();
+    await expect(page.getByTestId("group-translation-save")).toHaveCount(0);
+    expect(transport.calls.filter((call) => call.method === "PUT")).toHaveLength(0);
   });
 
   test("opens the source configuration JSON in a real Monaco editor", async ({ page }) => {

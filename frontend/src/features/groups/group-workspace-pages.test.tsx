@@ -8,8 +8,9 @@ import { appRoutes } from "@/app/router";
 import { clearSession } from "@/lib/auth-store";
 import { setLocale } from "@/lib/preferences-store";
 import { installDomPolyfills } from "@/features/search/test-support";
+import type { GroupResponse, LibraryTreeResponse } from "@/services/api";
 
-import { authenticate, GROUP, installGroupBackend, TEST_USER } from "./test-support";
+import { authenticate, GROUP, installGroupBackend, TEST_USER, type GroupBackendOptions } from "./test-support";
 
 async function renderAt(path: string) {
   const router = createMemoryRouter(appRoutes, { initialEntries: [path] });
@@ -27,6 +28,41 @@ async function openMembers(role: "owner" | "viewer" | "maintainer") {
   await screen.findByTestId("group-shell");
   return backend;
 }
+
+const CHILD_ALPHA: GroupResponse = {
+  group_id: 11,
+  group_key: "alpha-child",
+  group_path: "stock/alpha/alpha-child",
+  name: "Alpha Child",
+  visibility: "private",
+  kind: "shared",
+  current_role: "owner",
+  created_at: "2026-01-01T00:00:00Z",
+  updated_at: "2026-01-01T00:00:00Z",
+};
+
+const CHILD_BETA: GroupResponse = {
+  ...CHILD_ALPHA,
+  group_id: 12,
+  group_key: "beta-child",
+  group_path: "stock/beta/beta-child",
+  name: "Beta Child",
+};
+
+const EMPTY_TREE: LibraryTreeResponse = {
+  root: {
+    group_key: "alpha",
+    group_path: "stock/alpha",
+    visibility: "private",
+    folder_id: null,
+    parent_folder_id: null,
+    name: "Alpha",
+    path: "Alpha",
+    processing_count: 0,
+    children: [],
+    files: [],
+  },
+};
 
 describe("group members", () => {
   beforeAll(() => installDomPolyfills());
@@ -254,6 +290,9 @@ describe("group settings", () => {
     const user = userEvent.setup();
 
     const glossary = await screen.findByLabelText("Glossary (source = target, one per line)");
+    await waitFor(() => {
+      expect(glossary).toBeEnabled();
+    });
     await user.type(glossary, "stock = 股票");
     const saveButtons = screen.getAllByRole("button", { name: "Save" });
     await user.click(saveButtons.at(-1) as HTMLElement);
@@ -268,5 +307,238 @@ describe("group settings", () => {
         glossary: [{ source: "stock", target: "股票" }],
       });
     });
+  });
+});
+
+describe("group child search", () => {
+  beforeAll(() => installDomPolyfills());
+
+  beforeEach(async () => {
+    clearSession(null);
+    setLocale("en");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ user: TEST_USER }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )));
+    await authenticate();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  async function openOverview(options: GroupBackendOptions = {}) {
+    const backend = installGroupBackend({ tree: EMPTY_TREE, ...options });
+    const router = await renderAt("/groups/stock%2Falpha");
+    await screen.findByTestId("group-shell");
+    return { backend, router };
+  }
+
+  it("keeps the search control focused while a search has no match", async () => {
+    const { backend } = await openOverview({ children: [CHILD_ALPHA] });
+    const user = userEvent.setup();
+
+    const search = await screen.findByTestId("child-group-search");
+    await user.type(search, "zzz");
+
+    await waitFor(() => {
+      const calls = backend.callsFor("GET", "/v1/groups/by-path/{group_path}/children");
+      expect(calls.at(-1)?.params?.query).toMatchObject({ query: "zzz" });
+    });
+    await waitFor(() => {
+      expect(screen.queryByTestId("library-group-row")).not.toBeInTheDocument();
+    });
+
+    const control = screen.getByTestId("child-group-search");
+    expect(control).toHaveValue("zzz");
+    expect(control).toHaveFocus();
+    expect(screen.getByTestId("library-empty")).toHaveTextContent("No matching child groups.");
+  });
+
+  it("keeps the control mounted while the next search loads and restores the rows when it is cleared", async () => {
+    const { backend } = await openOverview({ children: [CHILD_ALPHA] });
+    const user = userEvent.setup();
+
+    await screen.findByTestId("library-group-row");
+    const reads = backend.callsFor("GET", "/v1/groups/by-path/{group_path}/children").length;
+    backend.blockChildren();
+    await user.type(screen.getByTestId("child-group-search"), "beta");
+    await waitFor(() => {
+      const calls = backend.callsFor("GET", "/v1/groups/by-path/{group_path}/children");
+      expect(calls.length).toBeGreaterThan(reads);
+      expect(calls.at(-1)?.params?.query).toMatchObject({ query: "beta" });
+    });
+
+    expect(screen.getByTestId("library-group-row")).toHaveTextContent("Alpha Child");
+    expect(screen.getByTestId("child-group-search")).toHaveValue("beta");
+
+    backend.releaseChildren();
+    await waitFor(() => {
+      expect(screen.queryByTestId("library-group-row")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("child-group-search")).toHaveFocus();
+
+    await user.clear(screen.getByTestId("child-group-search"));
+    await waitFor(() => {
+      expect(screen.getByTestId("library-group-row")).toHaveTextContent("Alpha Child");
+    });
+  });
+
+  it("never carries the children of another group into a group switch", async () => {
+    const { backend, router } = await openOverview({
+      childrenByGroupPath: { "stock/alpha": [CHILD_ALPHA], "stock/beta": [CHILD_BETA] },
+    });
+
+    await screen.findByTestId("library-group-row");
+    backend.blockChildren();
+    await router.navigate("/groups/stock%2Fbeta");
+    await waitFor(() => {
+      const calls = backend.callsFor("GET", "/v1/groups/by-path/{group_path}/children");
+      expect(calls.at(-1)?.params?.path).toEqual({ group_path: "stock/beta" });
+    });
+
+    expect(screen.queryByText("Alpha Child")).not.toBeInTheDocument();
+    expect(screen.queryByText("Beta Child")).not.toBeInTheDocument();
+
+    backend.releaseChildren();
+    await waitFor(() => {
+      expect(screen.getByTestId("library-group-row")).toHaveTextContent("Beta Child");
+    });
+    expect(screen.queryByText("Alpha Child")).not.toBeInTheDocument();
+  });
+});
+
+describe("group translation defaults", () => {
+  beforeAll(() => installDomPolyfills());
+
+  beforeEach(async () => {
+    clearSession(null);
+    setLocale("en");
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(
+      JSON.stringify({ user: TEST_USER }),
+      { status: 200, headers: { "Content-Type": "application/json" } },
+    )));
+    await authenticate();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  const LOADED = {
+    enabled: true,
+    default_target_locales: ["zh-CN", "ja-JP"],
+    source_locale: "en-US",
+    glossary: [{ source: "stock", target: "股票" }],
+    queued_count: 0,
+    running_count: 0,
+    succeeded_count: 3,
+    failed_count: 0,
+  };
+
+  async function openTranslation(options: GroupBackendOptions = {}, role: "owner" | "viewer" = "owner") {
+    const backend = installGroupBackend({ group: { ...GROUP, current_role: role }, ...options });
+    const router = await renderAt("/groups/stock%2Falpha/settings");
+    await screen.findByTestId("group-translation-settings");
+    return { backend, router };
+  }
+
+  it("keeps every field and the save disabled when the first load fails", async () => {
+    const { backend } = await openTranslation({ translationFailReads: 1 });
+
+    await screen.findByTestId("group-translation-retry");
+    expect(screen.getByLabelText("Target locales")).toBeDisabled();
+    expect(screen.getByLabelText("Default source locale")).toBeDisabled();
+    expect(screen.getByLabelText("Glossary (source = target, one per line)")).toBeDisabled();
+    expect(screen.getByRole("switch", { name: "Translate newly ingested documents" })).toBeDisabled();
+    expect(screen.getByTestId("group-translation-save")).toBeDisabled();
+    expect(backend.callsFor("PUT", "/v1/groups/by-path/{group_path}/translation-settings")).toHaveLength(0);
+  });
+
+  it("recovers through the retry and saves the loaded values", async () => {
+    const { backend } = await openTranslation({ translationFailReads: 1, translation: LOADED });
+    const user = userEvent.setup();
+
+    await user.click(await screen.findByTestId("group-translation-retry"));
+
+    const source = await screen.findByLabelText("Default source locale");
+    await waitFor(() => {
+      expect(source).toBeEnabled();
+    });
+    expect(screen.getByLabelText("Target locales")).toHaveValue("zh-CN, ja-JP");
+    expect(source).toHaveValue("en-US");
+    expect(screen.getByLabelText("Glossary (source = target, one per line)")).toHaveValue("stock = 股票");
+
+    await user.clear(source);
+    await user.type(source, "en-GB");
+    await user.click(screen.getByTestId("group-translation-save"));
+
+    await waitFor(() => {
+      const calls = backend.callsFor("PUT", "/v1/groups/by-path/{group_path}/translation-settings");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].body).toEqual({
+        enabled: true,
+        default_target_locales: ["zh-CN", "ja-JP"],
+        source_locale: "en-GB",
+        glossary: [{ source: "stock", target: "股票" }],
+      });
+    });
+  });
+
+  it("keeps the edited values when the same group is read again", async () => {
+    const { backend } = await openTranslation({
+      translationSequence: [LOADED, { ...LOADED, source_locale: "fr-FR" }],
+    });
+    const user = userEvent.setup();
+
+    const source = await screen.findByLabelText("Default source locale");
+    await waitFor(() => {
+      expect(source).toBeEnabled();
+    });
+    await user.clear(source);
+    await user.type(source, "en-GB");
+    await user.click(screen.getByTestId("group-translation-save"));
+
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/groups/by-path/{group_path}/translation-settings")).toHaveLength(1);
+    });
+    await waitFor(() => {
+      expect(backend.callsFor("GET", "/v1/groups/by-path/{group_path}/translation-settings").length).toBeGreaterThanOrEqual(2);
+    });
+
+    expect(source).toHaveValue("en-GB");
+  });
+
+  it("keeps the translation form read-only for a viewer", async () => {
+    await openTranslation({ translation: LOADED }, "viewer");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Target locales")).toBeDisabled();
+    });
+    expect(screen.getByLabelText("Default source locale")).toBeDisabled();
+    expect(screen.queryByTestId("group-translation-save")).not.toBeInTheDocument();
+  });
+
+  it("loads the values of the group that is opened, never of the former one", async () => {
+    const { router } = await openTranslation({
+      translationByGroupPath: {
+        "stock/alpha": LOADED,
+        "stock/beta": { ...LOADED, enabled: false, default_target_locales: ["ja-JP"], source_locale: "de-DE" },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default source locale")).toHaveValue("en-US");
+    });
+
+    await router.navigate("/groups/stock%2Fbeta/settings");
+
+    await waitFor(() => {
+      expect(screen.getByLabelText("Default source locale")).toHaveValue("de-DE");
+    });
+    expect(screen.getByLabelText("Target locales")).toHaveValue("ja-JP");
+    expect(screen.getByRole("switch", { name: "Translate newly ingested documents" })).not.toBeChecked();
   });
 });

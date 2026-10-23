@@ -166,6 +166,8 @@ export interface GroupBackendOptions {
   group?: GroupResponse;
   groups?: GroupResponse[];
   children?: GroupResponse[];
+  /** Children per group path, so a group switch is observable. */
+  childrenByGroupPath?: Record<string, GroupResponse[]>;
   members?: GroupMemberResponse[];
   tree?: LibraryTreeResponse;
   fileDetail?: (fileId: string) => LibraryFileDetailResponse;
@@ -173,7 +175,26 @@ export interface GroupBackendOptions {
   searchHits?: SearchHit[];
   metadata?: MetadataIndexPageResponse;
   translation?: Record<string, unknown>;
+  /** Translation payloads per group path. */
+  translationByGroupPath?: Record<string, Record<string, unknown>>;
+  /** Translation payloads served per read; the last one repeats. */
+  translationSequence?: Record<string, unknown>[];
+  /** Fails that many translation reads before one succeeds. */
+  translationFailReads?: number;
+  /** Delays the translation read, so the loading window stays observable. */
+  translationDelayMs?: number;
 }
+
+const DEFAULT_TRANSLATION = {
+  enabled: true,
+  default_target_locales: ["zh-CN"],
+  source_locale: "en-US",
+  glossary: [],
+  queued_count: 0,
+  running_count: 0,
+  succeeded_count: 3,
+  failed_count: 0,
+};
 
 function jsonResponse(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -198,6 +219,10 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
   const group = options.group ?? GROUP;
   let tree: LibraryTreeResponse = options.tree ?? TREE;
   let members = [...(options.members ?? MEMBERS)];
+  let translationFailures = options.translationFailReads ?? 0;
+  let translationReads = 0;
+  let heldChildren: Promise<void> | null = null;
+  let releaseHeldChildren: (() => void) | null = null;
   const uploadRequests: Array<{ url: string; form: FormData }> = [];
 
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -216,10 +241,10 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
     if (folderId === "folder-reports") {
       return REPORTS_FOLDER.files.map((file) => fileResource(file, REPORTS_FOLDER));
     }
-    return ROOT.children.map(folderResource);
+    return tree.root.children.map(folderResource);
   }
 
-  function dispatch(method: string, path: string, init?: {
+  async function dispatch(method: string, path: string, init?: {
     body?: unknown;
     params?: RecordedCall["params"];
     signal?: AbortSignal;
@@ -254,7 +279,14 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
       return ok({ ...group, parent_group_path: null });
     }
     if (path === "/v1/groups/by-path/{group_path}/children") {
-      const items = options.children ?? [];
+      const source = options.childrenByGroupPath?.[groupPath ?? ""] ?? options.children ?? [];
+      const search = typeof query.query === "string" ? query.query.trim().toLowerCase() : "";
+      const items = search
+        ? source.filter((child) => `${child.name} ${child.group_key} ${child.group_path}`.toLowerCase().includes(search))
+        : source;
+      if (heldChildren) {
+        await heldChildren;
+      }
       return ok({ items, pagination: pagination(1, items.length) } satisfies GroupPageResponse);
     }
     if (path === "/v1/groups/by-path/{group_path}/members" && method === "GET") {
@@ -342,16 +374,20 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
       return ok(undefined);
     }
     if (path === "/v1/groups/by-path/{group_path}/translation-settings" && method === "GET") {
-      return ok(options.translation ?? {
-        enabled: true,
-        default_target_locales: ["zh-CN"],
-        source_locale: "en-US",
-        glossary: [],
-        queued_count: 0,
-        running_count: 0,
-        succeeded_count: 3,
-        failed_count: 0,
-      });
+      if (options.translationDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, options.translationDelayMs));
+      }
+      if (translationFailures > 0) {
+        translationFailures -= 1;
+        return fail(500, "translation settings unavailable");
+      }
+      const sequence = options.translationSequence;
+      const payload = sequence && sequence.length > 0
+        ? sequence[Math.min(translationReads, sequence.length - 1)]
+        : options.translationByGroupPath?.[groupPath ?? ""] ?? options.translation ?? DEFAULT_TRANSLATION;
+      translationReads += 1;
+      // A fresh object per read, so a later read is observable as a change.
+      return ok({ ...payload, glossary: [...((payload.glossary ?? []) as unknown[])] });
     }
     if (path === "/v1/groups/by-path/{group_path}/translation-settings" && method === "PUT") {
       return ok(init?.body);
@@ -378,6 +414,20 @@ export function installGroupBackend(options: GroupBackendOptions = {}) {
     uploadRequests,
     callsFor(method: string, path: string) {
       return calls.filter((call) => call.method === method && call.path === path);
+    },
+    /** Holds every following children read until it is released. */
+    blockChildren() {
+      releaseHeldChildren = () => {};
+      heldChildren = new Promise<void>((resolve) => {
+        releaseHeldChildren = resolve;
+      });
+    },
+    /** Releases the held children reads. */
+    releaseChildren() {
+      const release = releaseHeldChildren;
+      heldChildren = null;
+      releaseHeldChildren = null;
+      release?.();
     },
     spies,
   };

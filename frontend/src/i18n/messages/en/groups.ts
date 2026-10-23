@@ -27,6 +27,7 @@ export const groups = {
   loadFailed: "Failed to load groups.",
   emptyMessage: "No visible groups yet.",
   searchChildren: "Search child groups",
+  noMatchingChildren: "No matching child groups.",
   overviewTitle: "Overview",
   membersTitle: "Members",
   settingsTitle: "Settings",

@@ -165,6 +165,11 @@ export function GroupWorkspaceProvider({
     }, { signal }),
     enabled: !!groupQuery.data,
     retry: false,
+    // The previous window stays visible while the next one loads, but only
+    // inside the same group: a switch never shows the former group's children.
+    placeholderData: (previousData, previousQuery) => (
+      previousQuery?.queryKey[1] === groupPath ? previousData : undefined
+    ),
   });
 
   const membersQuery = useQuery({

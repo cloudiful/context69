@@ -139,6 +139,14 @@ export interface WorkspaceMock {
   fileDetail?: LibraryFileDetailFixture;
   metadata?: MetadataIndexFixture[];
   translation?: typeof WORKSPACE_TRANSLATION;
+  /** Translation payloads served per read; the last one repeats. */
+  translationSequence?: (typeof WORKSPACE_TRANSLATION)[];
+  /** Fails that many translation reads before one succeeds. */
+  translationFailReads?: number;
+  /** Delays the translation read, so the loading window stays observable. */
+  translationDelayMs?: number;
+  /** Delays the children read, so the pending window stays observable. */
+  childrenDelayMs?: number;
   /** File names whose prepare step reports an existing upload. */
   reuseFiles?: string[];
   /** Fails the scoped resource window so the error state is reachable. */
@@ -546,6 +554,8 @@ export async function installAppTransport(
   let workspaceSourceConfig = JSON.stringify(JSON.parse(SOURCE_CONFIG_TEXT), null, 2);
   let workspaceTranslation = { ...(workspace?.translation ?? WORKSPACE_TRANSLATION) };
   let workspaceChildren = [...(workspace?.children ?? [WORKSPACE_CHILD_GROUP])];
+  let workspaceTranslationReads = 0;
+  let workspaceTranslationFailures = workspace?.translationFailReads ?? 0;
   const taskRef = { task_id: "task-workspace-1" };
 
   async function fulfillDeletion(route: Route): Promise<void> {
@@ -673,9 +683,16 @@ export async function installAppTransport(
         return true;
       }
       if (rest === "/children") {
+        const search = (url.searchParams.get("query") ?? "").trim().toLowerCase();
+        const items = search
+          ? workspaceChildren.filter((child) => `${child.name} ${child.group_key} ${child.group_path}`.toLowerCase().includes(search))
+          : workspaceChildren;
+        if (workspace.childrenDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, workspace.childrenDelayMs));
+        }
         await route.fulfill(json(200, {
-          items: workspaceChildren,
-          pagination: pagination(1, 50, workspaceChildren.length),
+          items,
+          pagination: pagination(1, 50, items.length),
         }));
         return true;
       }
@@ -876,7 +893,23 @@ export async function installAppTransport(
         return true;
       }
       if (rest === "/translation-settings" && method === "GET") {
-        await route.fulfill(json(200, workspaceTranslation));
+        if (workspace.translationDelayMs) {
+          await new Promise((resolve) => setTimeout(resolve, workspace.translationDelayMs));
+        }
+        if (workspaceTranslationFailures > 0) {
+          workspaceTranslationFailures -= 1;
+          await route.fulfill(json(500, {
+            code: "internal",
+            message: "translation settings unavailable",
+          }));
+          return true;
+        }
+        const sequence = workspace.translationSequence;
+        const payload = sequence && sequence.length > 0
+          ? sequence[Math.min(workspaceTranslationReads, sequence.length - 1)]
+          : workspaceTranslation;
+        workspaceTranslationReads += 1;
+        await route.fulfill(json(200, payload));
         return true;
       }
       if (rest === "/translation-settings" && method === "PUT") {
