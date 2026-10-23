@@ -27,6 +27,7 @@ export const groups = {
   loadFailed: "加载群组失败。",
   emptyMessage: "当前还没有可见群组。",
   searchChildren: "搜索子群组",
+  noMatchingChildren: "没有匹配的子群组。",
   overviewTitle: "概览",
   membersTitle: "成员",
   settingsTitle: "设置",

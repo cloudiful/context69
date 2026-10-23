@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router";
 
@@ -41,6 +41,13 @@ export function GroupOverviewPage() {
     () => state.children.map(buildGroupExplorerEntry),
     [state.children],
   );
+
+  // The search control belongs to the group it was started in: a group switch
+  // drops the engagement instead of carrying the previous query over.
+  const [childSearchState, setChildSearchState] = useState({ groupPath: state.groupPath, engaged: false });
+  const childSearchEngaged = childSearchState.groupPath === state.groupPath && childSearchState.engaged;
+  const childSearchActive = state.childSearch.trim() !== "";
+  const showChildSearch = childSearchEngaged || childSearchActive || groupEntries.length > 0;
 
   const trail = useMemo(
     () => library.selectedFolderTrail.map((folder) => ({ id: folder.folder_id ?? null, name: folder.name })),
@@ -128,7 +135,7 @@ export function GroupOverviewPage() {
         }}
       />
 
-      {groupEntries.length > 0 ? (
+      {showChildSearch ? (
         <div className="relative w-full max-w-64">
           <Input
             className="h-8"
@@ -136,7 +143,10 @@ export function GroupOverviewPage() {
             aria-label={t("groups.searchChildren")}
             placeholder={t("groups.searchChildren")}
             data-testid="child-group-search"
-            onChange={(event) => state.setChildSearch(event.target.value)}
+            onChange={(event) => {
+              setChildSearchState({ groupPath: state.groupPath, engaged: true });
+              state.setChildSearch(event.target.value);
+            }}
           />
         </div>
       ) : null}
@@ -160,6 +170,7 @@ export function GroupOverviewPage() {
           sortDirection={library.sortDirection}
           resourceQuery={library.query}
           statusFilter={library.statusFilter}
+          childSearchActive={childSearchActive}
           onToggleSelect={library.toggleSelect}
           onToggleFolder={library.toggleFolderExpansion}
           onOpenEntry={library.openEntry}
