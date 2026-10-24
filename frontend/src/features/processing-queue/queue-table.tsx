@@ -226,9 +226,9 @@ export function QueueTable({
   const columnCount = completed ? 11 : trash ? 11 : 12;
 
   return (
-    <div className="overflow-x-auto rounded-md border" data-testid="processing-queue-table">
+    <div className="overflow-x-auto rounded-md border bg-card" data-testid="processing-queue-table">
       <Table className="min-w-[88rem]">
-        <TableHeader>
+        <TableHeader className="bg-muted">
           <TableRow>
             <TableHead className="w-10" />
             {plainHead(t("processingQueue.task"))}
