@@ -43,14 +43,22 @@ dispatch and before any maintenance write:
 When the decision is blocked, the task engine starts nothing: no claim
 dispatcher, no claim maintenance, no Docling recovery, adoption or cleanup, and
 no task source-cleanup dispatcher. HTTP, manual task CRUD and the independent
-services stay available. The readiness is logged once with its blocker code and
-the remediation hint; it is never re-evaluated, so a handover performed under a
-running process does not open the engine beneath it. Restart the process after
-the handover.
+services stay available. The readiness is logged once with its blocker code,
+unlinked count and remediation hint under the default `context69=info` filter;
+it is never re-evaluated, so a handover performed under a running process does
+not open the engine beneath it. Restart the process after the handover.
 
-The database schema check fails closed: an absent, foreign or incompatible
-library schema blocks the engine too. Run `db_init` first if that is the
-blocker; the engine never creates or adopts the schema itself.
+`/healthz` and `/readyz` report the same process latch through the existing
+`library_processing_ready` field and answer `503` while it is blocked. `/livez`
+is unaffected: the process is still alive even when the engine is off.
+
+Normal writable serving startup prepares the library schema through the
+library's own migrate API after the application migrations, and `db_init` runs
+the same preparation explicitly. A schema that is absent on a writable normal
+start is created there; recovery admission, read-only connections and operator
+connections never migrate or create it. The schema check fails closed: a
+foreign or incompatible library schema fails startup visibly instead of being
+adopted, and it blocks the engine rather than opening a second authority.
 
 ## The handover tool
 
@@ -90,8 +98,10 @@ task_execution_cutover inventory --expect-database context69 --limit 100 --offse
 ### `adopt`
 
 Links a fresh execution segment to explicitly named, unlinked `queued` or
-`waiting` items. `--item <uuid>` may repeat, up to 100 unique ids per call; there
-is no implicit "all". A contract:
+`waiting` items. `--item <uuid>` may repeat, up to 100 unique ids per call.
+`--all` selects one bounded batch of adoptable items from the blocking
+population instead of naming ids; it is mutually exclusive with `--item` and
+never selects a `running`, terminal, linked or retired-parent item. A contract:
 
 - One transaction per batch, under the existing admission lock and item locks
   taken in a deterministic order.
@@ -100,16 +110,31 @@ is no implicit "all". A contract:
   wait still has to be reconciled before it becomes eligible. The retry
   deadline, attempt count, dependency key, stage, resource and Docling remote
   reference are untouched.
-- Every named parent must be active and not retired.
+- Every named parent must be active and not retired. `--all` skips a selected
+  candidate that stopped being adoptable instead of refusing the batch; a named
+  `--item` still refuses the whole batch when it is not eligible.
 - Re-running an adoption on an item that already carries a segment is a no-op:
   no second segment, no new generation.
-- A `running`, terminal, retired-parent or otherwise ineligible item refuses the
-  whole batch atomically, and a link that cannot be taken rolls the segment back
-  rather than leaving one that no item points at.
+- A `running`, terminal, retired-parent or otherwise ineligible named item
+  refuses the whole batch atomically, and a link that cannot be taken rolls the
+  segment back rather than leaving one that no item points at.
+- `--all` selects eligible rows in SQL before applying the batch bound, so any
+  number of older ineligible rows cannot starve adoptable work. It reports
+  `remaining_adoptable` (unlinked `queued`/`waiting` items with an active
+  parent) and `total_blockers` (every unlinked non-terminal item). Repeat it
+  only while `remaining_adoptable` is non-zero. `total_blockers` also includes
+  running items, which require the explicit `finalize-interrupted --item`, and
+  rows of a retired parent, which neither command can resolve; report those
+  without claiming `adopt --all` can clear them. The command never loops to
+  exhaustion by itself.
 
 ```
 task_execution_cutover adopt --expect-database context69 --workers-stopped \
   --item 0f2c... --item 5b71...
+```
+
+```
+task_execution_cutover adopt --expect-database context69 --workers-stopped --all
 ```
 
 ### `finalize-interrupted`
@@ -139,7 +164,10 @@ task_execution_cutover finalize-interrupted --expect-database context69 \
 1. Stop every task worker.
 2. `inventory` and decide, per item, between `adopt` and
    `finalize-interrupted`.
-3. Run the chosen command with the exact item ids, in batches of at most 100.
-4. Repeat `inventory` until it returns no rows.
-5. Start the process again; the startup latch now reports ready and the task
-   engine takes over.
+3. Run the chosen command with the exact item ids, in batches of at most 100,
+   or run `adopt --all` to hand over one bounded adoptable batch.
+4. Repeat `inventory` (or `adopt --all` while its `remaining_adoptable` is
+   non-zero) until no adoptable rows are left; route `total_blockers` that
+   adoption cannot resolve through `finalize-interrupted` or report them.
+5. Start the process again; startup prepares the library schema, the startup
+   latch now reports ready and the task engine takes over.

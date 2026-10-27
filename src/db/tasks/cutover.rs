@@ -11,7 +11,8 @@
 //!   free of payloads and user data;
 //! - two explicitly bounded handover commands, `adopt` and
 //!   `finalize_interrupted`, which run under the existing admission lock and
-//!   sorted item locks, one transaction per batch.
+//!   sorted item locks, one transaction per batch. `adopt` accepts explicit ids
+//!   or one bounded `--all` selection of eligible queued/waiting items.
 //!
 //! Nothing here creates, drops or migrates anything, and the library tables are
 //! only ever read schema-qualified for a quiescence check.
@@ -139,6 +140,13 @@ pub struct CutoverAdoptOutcome {
     pub adopted: u64,
     /// The items that already carried a segment and were left alone.
     pub already_linked: u64,
+    /// The unlinked queued/waiting items with an active parent still adoptable
+    /// after a bounded `--all` batch.
+    pub remaining_adoptable: i64,
+    /// Every unlinked non-terminal item after a bounded `--all` batch,
+    /// including running items and rows of a retired parent that adoption
+    /// cannot resolve.
+    pub total_blockers: i64,
 }
 
 /// The outcome of one bounded finalize-interrupted batch.
@@ -206,6 +214,18 @@ impl Database {
         )
     }
 
+    /// The number of unlinked items the bounded adoption could still resolve.
+    ///
+    /// This excludes running items and rows of a retired parent, which adoption
+    /// never selects and therefore cannot clear.
+    pub async fn cutover_adoptable_count(&self) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/cutover/count_adoptable.sql")
+                .fetch_one(self.pool())
+                .await?,
+        )
+    }
+
     /// One bounded, read-only page of the abandoned items.
     pub async fn cutover_inventory(
         &self,
@@ -258,11 +278,61 @@ impl Database {
         if unique.len() != item_ids.len() {
             anyhow::bail!("adopt item ids must be unique");
         }
+        self.adopt_items(Some(unique)).await
+    }
 
+    /// Adopts one bounded batch selected from the adoptable population.
+    ///
+    /// The selection query filters unlinked `queued`/`waiting` items with an
+    /// active, non-retired parent before applying the batch bound, so older
+    /// running, terminal, linked or retired-parent rows can never starve
+    /// eligible work. A candidate that no longer takes a segment is skipped
+    /// instead of refusing the batch; running items are never selected and
+    /// never touched. The adoptable remainder and the total blocking population
+    /// are read after the batch commits, so the operator repeats only while
+    /// `remaining_adoptable` is non-zero and routes the other blockers
+    /// explicitly.
+    pub async fn cutover_adopt_all(&self) -> Result<CutoverAdoptOutcome> {
+        let mut outcome = self.adopt_items(None).await?;
+        outcome.remaining_adoptable = self.cutover_adoptable_count().await?;
+        outcome.total_blockers = self.cutover_unlinked_nonterminal_count().await?;
+        Ok(outcome)
+    }
+
+    /// Runs one adoption batch under the admission lock and item locks.
+    ///
+    /// An explicit selection keeps the whole-batch refusal contract; `None`
+    /// selects the bounded adoptable page inside the same transaction and skips
+    /// a candidate that stopped being adoptable between selection and locking.
+    async fn adopt_items(&self, explicit: Option<Vec<Uuid>>) -> Result<CutoverAdoptOutcome> {
+        let skip_ineligible = explicit.is_none();
         let mut tx = self.pool().begin().await?;
         sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
             .execute(&mut *tx)
             .await?;
+
+        let selected = match explicit {
+            Some(selected) => selected,
+            None => {
+                sqlx::query_file_scalar!(
+                    "src/sql/db/tasks/cutover/adoptable.sql",
+                    MAX_HANDOVER_ITEMS as i64
+                )
+                .fetch_all(&mut *tx)
+                .await?
+            }
+        };
+        let mut unique = selected;
+        unique.sort_unstable();
+        unique.dedup();
+        if unique.len() > MAX_HANDOVER_ITEMS {
+            anyhow::bail!("adopt needs at most {MAX_HANDOVER_ITEMS} items");
+        }
+        if unique.is_empty() {
+            tx.commit().await?;
+            return Ok(CutoverAdoptOutcome::default());
+        }
+
         sqlx::query_file!("src/sql/db/tasks/cutover/lock_items.sql", &unique)
             .fetch_all(&mut *tx)
             .await?;
@@ -287,6 +357,9 @@ impl Database {
             .fetch_optional(&mut *tx)
             .await?;
             let Some(current) = current else {
+                if skip_ineligible {
+                    continue;
+                }
                 anyhow::bail!("item {item_id} is not an unlinked queued or waiting item");
             };
             if current.execution_task_id.is_some() {
@@ -301,6 +374,9 @@ impl Database {
             .fetch_optional(&mut *tx)
             .await?;
             if parent.is_none() {
+                if skip_ineligible {
+                    continue;
+                }
                 anyhow::bail!("parent {} of item {item_id} is not active", current.task_id);
             }
             // The link is the only durable effect of the adoption, and it is

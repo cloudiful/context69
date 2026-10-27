@@ -7,9 +7,11 @@
 //! to one domain item and one execution generation, and the captured attempt a
 //! running item carries.
 //!
-//! The library is never asked to create its schema here. The schema is created
-//! by the explicit bootstrap of the database schema crate, and opening the
-//! queue only checks that the schema is owned by the library.
+//! The library is never asked to create its schema here. Normal writable
+//! application startup prepares it through the database schema crate's shared
+//! bootstrap, after the application migrations, and opening the queue only
+//! checks that the schema is owned by the library. Read-only and operator
+//! connections never prepare it.
 
 use std::sync::OnceLock;
 use std::time::Duration;

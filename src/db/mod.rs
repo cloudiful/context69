@@ -282,6 +282,9 @@ impl Database {
                 run_migrations(&pool, &MIGRATOR)
                     .await
                     .context("failed to run app_db migrations")?;
+                context69_db_schema::bootstrap_library_schema(&pool)
+                    .await
+                    .context("failed to initialize the cloudiful_tasks library schema")?;
                 None
             }
             UpgradeAdmission::Recovery { guards, .. } => Some(guards),
@@ -296,9 +299,11 @@ impl Database {
     /// The library-backed execution queue of the item execution.
     ///
     /// The queue is opened once per database handle. Opening it never creates
-    /// the schema of the library: a database whose schema is not owned by the
-    /// library is refused when the queue is opened, and the operator creates
-    /// that schema with the explicit bootstrap of the database schema crate.
+    /// the schema of the library: normal writable startup prepares it through
+    /// [`context69_db_schema::bootstrap_library_schema`], and a connection that
+    /// reaches the queue without that preparation is refused because the
+    /// library verifies its own schema. Read-only and operator connections
+    /// never create it.
     pub async fn execution_queue(&self) -> Result<&cloudiful_tasks::Queue> {
         let queue = self
             .execution

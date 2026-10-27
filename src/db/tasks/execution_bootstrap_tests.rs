@@ -1,15 +1,17 @@
-//! Database-gated checks for the explicit library bootstrap and for the
-//! linkage columns that connect a domain item to a library execution segment
+//! Database-gated checks for library schema preparation and for the linkage
+//! columns that connect a domain item to a library execution segment
 //! (issue #1020 P1).
 //!
 //! The `cloudiful-tasks` library owns one schema inside the application
-//! database. That schema is created only by an explicit bootstrap, it is never
-//! created by connecting the application, and the runner that resets the
-//! application schema never touches it. These tests cover that contract
-//! against the configured test database: the schema is missing until it is
-//! bootstrapped, the bootstrap is idempotent, a schema that only looks like
-//! the library's own is refused, and the read-only preflight recognizes the
-//! ledger the library owns while still refusing an unknown foreign ledger.
+//! database. Normal writable application startup and the database bootstrap
+//! entrypoint prepare it through the library's own migrate API, after the
+//! application migrations; read-only and operator connections never do, and the
+//! runner that resets the application schema never touches it. These tests
+//! cover that contract against the configured test database: an absent
+//! namespace is refused until preparation, preparation is idempotent, a schema
+//! that only looks like the library's own is refused, and the read-only
+//! preflight recognizes the ledger the library owns while still refusing an
+//! unknown foreign ledger.
 //!
 //! The checks that need the library namespace to be free run inside one
 //! transaction that is rolled back at the end, so the schema the library owns

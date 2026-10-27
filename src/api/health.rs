@@ -3,8 +3,10 @@
 //! `/livez` answers only whether the process is running and reads no dependency.
 //! `/healthz` and `/readyz` answer whether this instance can serve core work:
 //! the database answers, the current vector-runtime generation completes a real
-//! read, and library processing reports ready. They return `200` only when all
-//! three hold and `503` otherwise.
+//! read, and library processing reports ready. The library-processing verdict
+//! also reflects the process's one execution latch, so an engine the startup
+//! gate refused reports degraded instead of ready. They return `200` only when
+//! all conditions hold and `503` otherwise.
 //!
 //! Readiness is decided once, after every dependency read: a settings change or
 //! rebuild that starts while the request is in flight can therefore never
@@ -87,10 +89,15 @@ pub(crate) async fn readyz(State(state): State<ApiState>) -> impl IntoResponse {
 async fn readiness_response(state: ApiState) -> (StatusCode, Json<HealthResponse>) {
     let db_ok = state.app.db.ping().await.is_ok();
     let probe = probe_current_vector_generation(&state).await;
+    // The same process latch the dispatcher and maintenance loops read: a
+    // blocked engine can never be reported ready by a health route, and the
+    // first read decides the one latch value for the rest of the process.
+    let execution_ready = state.app.tasks.execution_readiness().await.is_ready();
     readiness_answer(
         &state.app.vector_runtime,
         db_ok,
         probe,
+        execution_ready,
         state.app.library.processing_health(),
     )
     .await
@@ -103,6 +110,7 @@ async fn readiness_answer(
     runtime: &VectorRuntime,
     db_ok: bool,
     probe: Option<VectorProbe>,
+    execution_ready: bool,
     library_processing: impl Future<
         Output = Result<(
             bool,
@@ -114,7 +122,7 @@ async fn readiness_answer(
     let library_processing = library_processing.await;
     let (library_processing_ready, library_dependency_gates, library_processing_queue) =
         match library_processing {
-            Ok((ready, gates, queue)) => (Some(ready), Some(gates), Some(queue)),
+            Ok((ready, gates, queue)) => (Some(ready && execution_ready), Some(gates), Some(queue)),
             Err(error) => {
                 tracing::warn!(%error, "failed to read library processing dependency gates");
                 (Some(false), None, None)
@@ -267,7 +275,7 @@ mod tests {
             points: 12,
         });
         let racing = runtime.clone();
-        let (status, body) = readiness_answer(&runtime, true, probe, async move {
+        let (status, body) = readiness_answer(&runtime, true, probe, true, async move {
             racing.begin_generation();
             processing_ready()
         })
@@ -288,7 +296,7 @@ mod tests {
             points: 12,
         });
         let racing = runtime.clone();
-        let (status, body) = readiness_answer(&runtime, true, probe, async move {
+        let (status, body) = readiness_answer(&runtime, true, probe, true, async move {
             racing.begin_rebuild();
             processing_ready()
         })
@@ -309,8 +317,24 @@ mod tests {
         });
 
         let (status, _) =
-            readiness_answer(&runtime, true, probe, async { processing_ready() }).await;
+            readiness_answer(&runtime, true, probe, true, async { processing_ready() }).await;
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    }
+
+    #[tokio::test]
+    async fn a_blocked_execution_latch_cannot_answer_200() {
+        let runtime = test_runtime();
+        let probe = Some(VectorProbe {
+            generation: runtime.generation(),
+            points: 12,
+        });
+
+        let (status, body) =
+            readiness_answer(&runtime, true, probe, false, async { processing_ready() }).await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body.0.library_processing_ready, Some(false));
+        assert_eq!(body.0.qdrant_ok, Some(true));
     }
 
     #[tokio::test]
@@ -322,7 +346,7 @@ mod tests {
         });
 
         let (status, body) =
-            readiness_answer(&runtime, true, probe, async { processing_ready() }).await;
+            readiness_answer(&runtime, true, probe, true, async { processing_ready() }).await;
         assert_eq!(status, StatusCode::OK);
         assert_eq!(body.0.indexed_chunks, Some(12));
     }
@@ -331,7 +355,7 @@ mod tests {
     async fn a_missing_vector_probe_is_not_ready() {
         let runtime = test_runtime();
         let (status, body) =
-            readiness_answer(&runtime, true, None, async { processing_ready() }).await;
+            readiness_answer(&runtime, true, None, true, async { processing_ready() }).await;
 
         assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
         assert_eq!(body.0.qdrant_ok, Some(false));

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The number of unlinked items `adopt --all` could still resolve (issue 116 P1).\n--\n-- This is deliberately narrower than the total unlinked non-terminal count: it\n-- only covers unlinked queued or waiting items with an active, non-retired\n-- parent, which is exactly the population the bounded adoption selects. Running\n-- items (finalize-interrupted) and rows of a retired parent are reported\n-- separately as blockers, never as adoptable work.\nSELECT count(*) AS \"count!\"\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.execution_task_id IS NULL\n  AND item.status IN ('queued', 'waiting')\n  AND task.deleted_at IS NULL\n  AND task.status IN ('queued', 'running', 'waiting')\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ad07f6860eb2336d72bde6a1af0b3f906ff2b9ca674162c390289579c47453ea"
+}
