@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Releases the database-owned lock of the startup handover (issue 1100 P1).\n--\n-- The release runs on the same session that took the lock, so the handover\n-- gives the lock back before its connection returns to the pool. A session that\n-- ends without this statement releases the lock as well, which is what makes a\n-- cancelled handover safe.\nSELECT pg_advisory_unlock(hashtextextended('context69.task_handover', 0)) AS \"released!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "released!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e85d36c5e348a40b5e38a55980928d7da1479c5b890d0a67a46cd37a7042931d"
+}

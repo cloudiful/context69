@@ -122,6 +122,34 @@ async fn item_row(
 
 /// Row count for one keyed read, so a case can assert that resume changed no
 /// rows beyond the items it reopened.
+/// The execution link of one item, so a case can assert that a reopened row
+/// carries a segment.
+async fn execution_state(db: &Database, item_id: Uuid) -> (String, Option<Uuid>, i64) {
+    let row = sqlx::query(
+        "SELECT status, execution_task_id, execution_generation \
+         FROM context69.task_items WHERE id = $1",
+    )
+    .bind(item_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("load the item execution state");
+    (
+        row.get("status"),
+        row.get("execution_task_id"),
+        row.get("execution_generation"),
+    )
+}
+
+/// The library tasks that carry one item, so a case can assert that an item
+/// never owns a second segment.
+async fn segment_count(db: &Database, item_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1")
+        .bind(item_id.to_string())
+        .fetch_one(db.pool())
+        .await
+        .expect("count the segments")
+}
+
 /// Run one keyed statement, so cleanup stays a short list instead of a
 /// repeated bind/execute/await block per table.
 async fn exec<'q, T>(db: &Database, sql: &'static str, id: T)
@@ -441,4 +469,101 @@ async fn resume_by_an_unauthorized_user_reopens_nothing() {
 
     exec(&db, "DELETE FROM context69.users WHERE id = $1", other_id).await;
     cleanup(&db, owner_id, task_id).await;
+}
+
+/// A pre-cutover item the library does not execute must take its own execution
+/// segment when the user resumes it: without one the reopened item stays
+/// unclaimable, because the claim path leaves an item the library does not
+/// execute alone.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn resume_of_a_legacy_item_opens_its_segment_and_the_item_is_claimable() {
+    let db = scratch_db().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = text_task(&db, user_id, 1).await;
+    let item_id = item_ids[0];
+
+    // Make the item a pre-cutover row: the library does not execute it and
+    // carries no segment for it.
+    sqlx::query(
+        "UPDATE context69.task_items \
+         SET execution_task_id = NULL, execution_generation = 0 WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("detach the segment");
+    exec(
+        &db,
+        "DELETE FROM cloudiful_tasks.attempts \
+         WHERE task_id IN (SELECT id FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1)",
+        item_id.to_string(),
+    )
+    .await;
+    exec(
+        &db,
+        "DELETE FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1",
+        item_id.to_string(),
+    )
+    .await;
+    cancel_items(&db, task_id, &item_ids).await;
+
+    let resumed = db
+        .resume_task_items(task_id, user_id)
+        .await
+        .expect("resume the legacy item");
+    assert_eq!(resumed, vec![item_id], "resume reopens the item in place");
+
+    let (status, linked, generation) = execution_state(&db, item_id).await;
+    assert_eq!(status, "queued", "resume must reopen the cancelled item");
+    assert!(
+        linked.is_some(),
+        "the resumed legacy item takes an execution segment"
+    );
+    assert_eq!(generation, 1);
+    assert_eq!(
+        segment_count(&db, item_id).await,
+        1,
+        "the resumed item carries exactly one segment"
+    );
+
+    // The reopened item is claimable right away.
+    let claimed = db
+        .claim_items_fast(50)
+        .await
+        .expect("claim the items")
+        .into_iter()
+        .find(|item| item.id == item_id)
+        .expect("the resumed legacy item is claimed");
+    assert!(claimed.execution_context().is_some());
+
+    // A repeated resume reopens nothing and opens no second segment.
+    let repeated = db
+        .resume_task_items(task_id, user_id)
+        .await
+        .expect("repeated resume");
+    assert!(
+        repeated.is_empty(),
+        "a repeated resume must reopen nothing, never the same item twice"
+    );
+    assert_eq!(
+        segment_count(&db, item_id).await,
+        1,
+        "a repeated resume must not open a second segment"
+    );
+
+    exec(
+        &db,
+        "DELETE FROM cloudiful_tasks.attempts \
+         WHERE task_id IN (SELECT id FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1)",
+        item_id.to_string(),
+    )
+    .await;
+    exec(
+        &db,
+        "DELETE FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1",
+        item_id.to_string(),
+    )
+    .await;
+    cleanup(&db, user_id, task_id).await;
 }

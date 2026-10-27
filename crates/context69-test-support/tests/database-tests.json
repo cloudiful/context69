@@ -3125,6 +3125,72 @@
       "target": "task_execution_cutover",
       "test": "adopt_all_filters_before_the_bound_so_older_ineligible_rows_cannot_starve_it",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "a_database_without_legacy_items_starts_unchanged",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "the_handover_adopts_every_queued_and_waiting_legacy_item_with_one_segment",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "an_expired_running_legacy_item_is_closed_and_can_be_retried_and_claimed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "the_handover_stops_at_its_batch_bound_and_reports_the_remainder",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "a_live_execution_lease_refuses_the_automatic_handover",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "a_retired_parent_keeps_the_legacy_item_blocked",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "two_concurrent_handovers_never_hand_the_same_item_over_twice",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "a_repeated_handover_is_a_no_op",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "a_retry_of_a_legacy_item_opens_its_segment",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "the_app_startup_hands_the_legacy_items_over",
+      "class": "app_startup"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "resume_of_a_legacy_item_opens_its_segment_and_the_item_is_claimable",
+      "class": "db"
     }
   ]
 }

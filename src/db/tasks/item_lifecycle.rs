@@ -41,6 +41,16 @@ async fn recompute_parent(tx: &mut Transaction<'_, Postgres>, task_id: Uuid) -> 
     Ok(())
 }
 
+/// The row of one requeued item.
+///
+/// The segment link is part of the row: a requeued item that the library does
+/// not execute yet needs a fresh segment before it can be claimed.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RequeuedItem {
+    id: Uuid,
+    execution_task_id: Option<Uuid>,
+}
+
 impl Database {
     /// Ends the segment of a running item and projects the outcome into the
     /// domain.
@@ -459,16 +469,27 @@ impl Database {
             .await?
             .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
         claim_failed_item_file_slots(&mut tx, task.group_id, task_id).await?;
-        let ids = sqlx::query_file_scalar!("src/sql/db/tasks/retry_items.sql", task_id, user_id)
-            .fetch_all(&mut *tx)
-            .await?;
-        if !ids.is_empty() {
+        let retried = sqlx::query_file_as!(
+            RequeuedItem,
+            "src/sql/db/tasks/retry_items.sql",
+            task_id,
+            user_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !retried.is_empty() {
+            // A requeued row without an execution segment stays unclaimable:
+            // the claim path leaves an item the library does not execute
+            // alone. The retry opens the segment in the same transaction as
+            // the requeue, so the item can be claimed right away and its
+            // history stays on the same row.
+            self.link_unlinked_rows(&mut tx, &retried).await?;
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
                 .execute(&mut *tx)
                 .await?;
         }
         tx.commit().await?;
-        Ok(ids)
+        Ok(retried.into_iter().map(|item| item.id).collect())
     }
 
     /// Reopen a cancelled (or partly failed) task's unfinished items in place.
@@ -490,6 +511,11 @@ impl Database {
     /// no recompute, so no `updated_at` bump and no task event. A losing
     /// concurrent or repeated caller must be invisible to the queue's SSE
     /// stream, not only to the item rows.
+    ///
+    /// A reopened row that the library does not execute yet takes its own
+    /// execution segment in this transaction, exactly as a retry does: without
+    /// it the reopened item stays unclaimable, because the claim path leaves an
+    /// item the library does not execute alone.
     pub async fn resume_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
         let mut tx = self.pool().begin().await?;
         let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
@@ -497,10 +523,16 @@ impl Database {
             .await?
             .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
         claim_unfinished_item_file_slots(&mut tx, task.group_id, task_id).await?;
-        let ids = sqlx::query_file_scalar!("src/sql/db/tasks/resume_items.sql", task_id, user_id)
-            .fetch_all(&mut *tx)
-            .await?;
-        if !ids.is_empty() {
+        let resumed = sqlx::query_file_as!(
+            RequeuedItem,
+            "src/sql/db/tasks/resume_items.sql",
+            task_id,
+            user_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !resumed.is_empty() {
+            self.link_unlinked_rows(&mut tx, &resumed).await?;
             // The parent leaves `cancelled`/`failed` through its own projection:
             // once an item is active again the recomputed status is that item's.
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
@@ -508,7 +540,41 @@ impl Database {
                 .await?;
         }
         tx.commit().await?;
-        Ok(ids)
+        Ok(resumed.into_iter().map(|item| item.id).collect())
+    }
+
+    /// Opens the execution segment of every requeued row the library does not
+    /// execute yet.
+    ///
+    /// The segment is produced in the caller's transaction, so the link and the
+    /// requeue commit together: a requeued row without a segment stays
+    /// unclaimable until the next start adopts it. A row that already carries a
+    /// segment keeps it, and a requeue that reopened nothing opens no segment
+    /// at all.
+    async fn link_unlinked_rows(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        rows: &[RequeuedItem],
+    ) -> Result<()> {
+        let unlinked = rows
+            .iter()
+            .filter(|row| row.execution_task_id.is_none())
+            .map(|row| row.id)
+            .collect::<Vec<_>>();
+        if unlinked.is_empty() {
+            return Ok(());
+        }
+        let queue = self.execution_queue().await?;
+        for item_id in unlinked {
+            super::execution::produce_and_link_item_segment(
+                queue,
+                tx,
+                item_id,
+                super::execution::SegmentLink::Queued,
+            )
+            .await?;
+        }
+        Ok(())
     }
 
     /// Forks a new task (new id, no idempotency-key binding) from a source
