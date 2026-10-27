@@ -293,9 +293,13 @@ async fn segment_count(db: &Database, item_id: Uuid) -> i64 {
 }
 
 async fn claim(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
-    db.claim_items_fast(50)
-        .await
-        .expect("claim the item")
+    let claimed = db.claim_items_fast(50).await.expect("claim the item");
+    assert_eq!(
+        claimed.len(),
+        1,
+        "the global claim must return exactly the fixture item, not a sibling fixture"
+    );
+    claimed
         .into_iter()
         .find(|item| item.id == item_id)
         .expect("the item is claimed")
@@ -583,6 +587,200 @@ async fn adopt_links_a_fresh_segment_and_repeats_idempotently() {
     );
 
     cleanup(&db, &fixture).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn adopt_all_selects_one_bounded_eligible_batch_and_reports_remaining() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let baseline_total = db
+        .cutover_unlinked_nonterminal_count()
+        .await
+        .expect("count the pre-existing legacy items");
+    let baseline_adoptable = db
+        .cutover_adoptable_count()
+        .await
+        .expect("count the pre-existing adoptable items");
+    let first = seed_task(&db, false).await;
+    detach_segment(&db, first.item_id).await;
+    set_item(&db, first.item_id, "queued", None).await;
+    let second = seed_task(&db, false).await;
+    detach_segment(&db, second.item_id).await;
+    set_item(&db, second.item_id, "waiting", None).await;
+    let running = seed_task(&db, false).await;
+    claim(&db, running.item_id).await;
+    detach_segment(&db, running.item_id).await;
+    set_item(&db, running.item_id, "running", None).await;
+    expire_leases(&db, running.item_id).await;
+    // Create the untouched linked fixture only after the claim above: a global
+    // claim must never consume a sibling fixture and leave its live lease
+    // behind for every later handover case in this binary.
+    let linked = seed_task(&db, false).await;
+
+    let before = db
+        .cutover_unlinked_nonterminal_count()
+        .await
+        .expect("count before the bounded batch");
+    assert_eq!(
+        before,
+        baseline_total + 3,
+        "two eligible items and one running item block the engine before the batch"
+    );
+    assert!(
+        !db.cutover_live_execution_leases()
+            .await
+            .expect("read the live execution leases")
+            .any(),
+        "the adopt-all fixture must not leave a live lease behind"
+    );
+
+    let outcome = db.cutover_adopt_all().await.expect("bounded adopt --all");
+    assert_eq!(outcome.adopted, 2, "only the queued and waiting items");
+    assert_eq!(outcome.already_linked, 0);
+    assert_eq!(
+        outcome.remaining_adoptable, baseline_adoptable,
+        "both adoptable rows were taken and none remain beyond the baseline"
+    );
+    assert_eq!(
+        outcome.total_blockers,
+        baseline_total + 1,
+        "the running item is never adopted and stays reported as a blocker"
+    );
+    assert_eq!(segment_count(&db, first.item_id).await, 1);
+    assert_eq!(segment_count(&db, second.item_id).await, 1);
+    assert_eq!(
+        segment_count(&db, running.item_id).await,
+        0,
+        "adopt --all never touches a running item"
+    );
+    assert_eq!(item_row(&db, running.item_id).await.0, "running");
+    assert_eq!(
+        segment_count(&db, linked.item_id).await,
+        1,
+        "an already linked item is not selected"
+    );
+
+    let repeated = db
+        .cutover_adopt_all()
+        .await
+        .expect("a repeated bounded adopt --all");
+    assert_eq!(repeated.adopted, 0, "a linked item is never adopted twice");
+    assert_eq!(repeated.already_linked, 0);
+    assert_eq!(repeated.remaining_adoptable, baseline_adoptable);
+    assert_eq!(repeated.total_blockers, baseline_total + 1);
+    assert_eq!(segment_count(&db, first.item_id).await, 1);
+    assert_eq!(segment_count(&db, second.item_id).await, 1);
+
+    cleanup(&db, &first).await;
+    cleanup(&db, &second).await;
+    cleanup(&db, &linked).await;
+    cleanup(&db, &running).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn adopt_all_filters_before_the_bound_so_older_ineligible_rows_cannot_starve_it() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let baseline_total = db
+        .cutover_unlinked_nonterminal_count()
+        .await
+        .expect("count the pre-existing legacy items");
+    let baseline_adoptable = db
+        .cutover_adoptable_count()
+        .await
+        .expect("count the pre-existing adoptable items");
+
+    // One task whose item is linked, plus 100 older unlinked running rows. They
+    // are ineligible for adoption and sort before the eligible queued item.
+    let older = seed_task(&db, false).await;
+    sqlx::query(
+        "INSERT INTO context69.task_items \
+             (id, task_id, ordinal, payload, status, created_at) \
+         SELECT gen_random_uuid(), $1, ordinal, '{}'::jsonb, 'running', \
+                now() - interval '1 day' \
+         FROM generate_series(1, 100) AS ordinal",
+    )
+    .bind(older.task_id)
+    .execute(db.pool())
+    .await
+    .expect("seed 100 older ineligible rows");
+
+    let eligible = seed_task(&db, false).await;
+    detach_segment(&db, eligible.item_id).await;
+    set_item(&db, eligible.item_id, "queued", None).await;
+    let retired = seed_task(&db, false).await;
+    detach_segment(&db, retired.item_id).await;
+    set_item(&db, retired.item_id, "queued", None).await;
+    sqlx::query("UPDATE context69.tasks SET deleted_at = now() WHERE id = $1")
+        .bind(retired.task_id)
+        .execute(db.pool())
+        .await
+        .expect("retire the parent of the queued item");
+
+    let outcome = db
+        .cutover_adopt_all()
+        .await
+        .expect("bounded adopt --all past the ineligible page");
+    assert_eq!(
+        outcome.adopted, 1,
+        "the eligible row after 100 older ineligible rows is still selected"
+    );
+    assert_eq!(
+        outcome.remaining_adoptable, baseline_adoptable,
+        "the retired-parent row is never adoptable work"
+    );
+    assert_eq!(
+        outcome.total_blockers,
+        baseline_total + 101,
+        "the running rows and the retired-parent row remain blockers"
+    );
+    assert_eq!(segment_count(&db, eligible.item_id).await, 1);
+    assert_eq!(
+        segment_count(&db, retired.item_id).await,
+        0,
+        "a retired-parent row is never adopted"
+    );
+
+    let running_unlinked: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM context69.task_items \
+         WHERE task_id = $1 AND status = 'running' AND execution_task_id IS NULL",
+    )
+    .bind(older.task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count the untouched running rows");
+    assert_eq!(running_unlinked, 100);
+
+    cleanup(&db, &older).await;
+    cleanup(&db, &eligible).await;
+    cleanup(&db, &retired).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn the_normal_connect_path_leaves_the_library_schema_ready() {
+    let url = context69_test_support::accessor::database_url();
+    let db = Database::connect(&url)
+        .await
+        .expect("normal connect prepares the application and library schemas");
+    assert!(
+        db.pending_upgrade().is_none(),
+        "the normal admission path, not recovery admission, prepared the schema"
+    );
+    assert!(
+        db.cutover_library_ready().await,
+        "normal admission leaves the library schema genuine and compatible"
+    );
+
+    let repeated = Database::connect(&url)
+        .await
+        .expect("a second normal connect is idempotent");
+    assert!(
+        repeated.cutover_library_ready().await,
+        "a repeated normal connect applies nothing and keeps the schema ready"
+    );
 }
 
 #[tokio::test]
@@ -993,6 +1191,51 @@ fn the_cutover_arguments_are_refused_before_any_connection() {
         ])
         .is_err()
     );
+    assert!(
+        parse(&[
+            "adopt",
+            "--expect-database",
+            "context69",
+            "--workers-stopped",
+            "--all",
+            "--item",
+            &uuid
+        ])
+        .is_err()
+    );
+    assert!(parse(&["adopt", "--expect-database", "context69", "--all"]).is_err());
+    assert!(
+        parse(&[
+            "adopt",
+            "--expect-database",
+            "context69",
+            "--workers-stopped",
+            "--all",
+            "--all"
+        ])
+        .is_err()
+    );
+    assert!(
+        parse(&[
+            "finalize-interrupted",
+            "--expect-database",
+            "context69",
+            "--workers-stopped",
+            "--all"
+        ])
+        .is_err()
+    );
+    assert!(parse(&["inventory", "--expect-database", "context69", "--all"]).is_err());
+
+    let adopt_all = parse(&[
+        "adopt",
+        "--expect-database",
+        "context69",
+        "--workers-stopped",
+        "--all",
+    ])
+    .expect("a valid bounded adopt --all invocation");
+    assert_eq!(adopt_all.command, CutoverCommand::AdoptAll);
 
     let parsed = parse(&[
         "finalize-interrupted",

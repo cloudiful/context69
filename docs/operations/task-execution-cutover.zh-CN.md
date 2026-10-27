@@ -31,11 +31,17 @@
 
 判定被阻塞时，任务引擎什么都不启动：没有认领调度器、没有认领维护、没有 Docling
 恢复、接管或清理，也没有任务源清理调度器。HTTP、手动任务 CRUD 和独立服务保持可用。
-就绪结果连同阻塞代码与修复提示只记录一次，绝不重新评估，因此在运行中的进程下执行的
-交接不会在其之下打开引擎。交接完成后重启进程。
+就绪结果连同阻塞代码、未关联数量与修复提示，在默认 `context69=info` 过滤下只记录
+一次；绝不重新评估，因此在运行中的进程下执行的交接不会在其之下打开引擎。交接完成后
+重启进程。
 
-数据库 schema 检查是失败关闭的：缺少、外来或不兼容的库 schema 同样阻塞引擎。如果这
-就是阻塞项，先运行 `db_init`；引擎绝不会自行创建或接管 schema。
+`/healthz` 与 `/readyz` 通过既有的 `library_processing_ready` 字段报告同一进程闩锁，
+被阻塞时返回 `503`。`/livez` 不受影响：即使引擎关闭，进程仍然存活。
+
+可写的常规启动会在应用迁移之后通过库自带的 migrate API 准备库 schema，`db_init`
+也显式执行同一准备。可写常规启动遇到缺失的 schema 会在此创建；升级恢复准入、只读
+连接与运维连接绝不迁移或创建它。schema 检查失败关闭：外来或不兼容的库 schema 会让
+启动显式失败，而不是被接管，也不会在阻塞引擎的情况下打开第二个权威。
 
 ## 交接工具
 
@@ -66,20 +72,34 @@ task_execution_cutover inventory --expect-database context69 --limit 100 --offse
 ### `adopt`
 
 为显式指定、尚未关联的 `queued` 或 `waiting` 条目关联一段全新的执行分段。
-`--item <uuid>` 可重复，每次调用至多 100 个唯一 id；没有隐式的“全部”语义。契约如下：
+`--item <uuid>` 可重复，每次调用至多 100 个唯一 id。`--all` 从阻塞集合中选择一批
+有界且可接管的条目，而不是显式点名；它与 `--item` 互斥，且绝不选择 `running`、
+终端、已关联或父任务已退役的条目。契约如下：
 
 - 每批一个事务，在既有准入锁和按确定顺序获取的条目锁下执行。
 - 条目的域内状态保持不变：`waiting` 条目保持等待，因此仅有新分段绝不会绕过其父任务
   的准入，Docling 等待仍需先完成对账才能变为可执行。重试截止时间、尝试次数、依赖
   键、阶段、资源与 Docling 远程引用均不变。
-- 每个被指定的父任务都必须是活动的且未退役。
+- 每个被指定的父任务都必须是活动的且未退役。`--all` 会跳过已不再合格的候选，而不是
+  让整批失败；显式 `--item` 仍会在条目不合格时让整批失败。
 - 对已携带分段的条目重复执行接管是空操作：不会产生第二段分段，也不会有新代次。
-- `running`、终端、父任务已退役或其他不合格的条目会让整批原子地失败；无法取得的
-  关联会回滚该分段，而不是留下没有任何条目指向的分段。
+- `running`、终端、父任务已退役或其他不合格的显式条目会让整批原子地失败；无法取得
+  的关联会回滚该分段，而不是留下没有任何条目指向的分段。
+- `--all` 在应用批次上限之前于 SQL 中选择合格行，因此任意数量的更早不合格行都不会
+  挤占可接管工作。它报告 `remaining_adoptable`（父任务活动的未关联 `queued`/
+  `waiting` 条目）与 `total_blockers`（全部未关联非终态条目）。仅当
+  `remaining_adoptable` 非零时重复执行。`total_blockers` 还包含需要显式
+  `finalize-interrupted --item` 的 `running` 条目，以及两个命令都无法解决的父任务
+  已退役条目；应报告这些阻塞项，而不要声称 `adopt --all` 能清除它们。命令自身不会
+  循环到耗尽。
 
 ```
 task_execution_cutover adopt --expect-database context69 --workers-stopped \
   --item 0f2c... --item 5b71...
+```
+
+```
+task_execution_cutover adopt --expect-database context69 --workers-stopped --all
 ```
 
 ### `finalize-interrupted`
@@ -104,6 +124,9 @@ task_execution_cutover finalize-interrupted --expect-database context69 \
 
 1. 停止所有任务 worker。
 2. 运行 `inventory`，逐条决定采用 `adopt` 还是 `finalize-interrupted`。
-3. 用确切的条目 id 运行所选命令，每批至多 100 个。
-4. 重复 `inventory`，直到不再返回任何行。
-5. 重新启动进程；启动闩锁此时报告就绪，任务引擎接管。
+3. 用确切的条目 id 运行所选命令，每批至多 100 个；或用 `adopt --all` 交接一批有界
+   的可接管条目。
+4. 重复 `inventory`（或在 `adopt --all` 的 `remaining_adoptable` 非零时重复它），直到
+   不再有可接管行；对 `adopt` 无法解决的 `total_blockers`，通过
+   `finalize-interrupted` 处理或明确报告。
+5. 重新启动进程；启动时准备库 schema，启动闩锁此时报告就绪，任务引擎接管。

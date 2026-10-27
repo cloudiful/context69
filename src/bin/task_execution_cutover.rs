@@ -1,7 +1,8 @@
 //! Standalone entry for the audited task execution cutover tool.
 //!
 //! The tool is read-only by default (`inventory`); the two handover commands
-//! require `--workers-stopped`, an explicit item list and a live-lease check.
+//! require `--workers-stopped`, either an explicit item list or the bounded
+//! `adopt --all`, and a live-lease check.
 //! It connects without running migrations and without upgrade admission, so it
 //! never performs DDL. The database is selected only through `DATABASE_URL`:
 //! there is no `.env` fallback and no URL argument, and both the configured and

@@ -10,7 +10,8 @@
 //!   handed over and restarted.
 //! - the domain-owned command surface of the handover binary: strict argument
 //!   parsing, the mandatory database target check, and the bounded execution of
-//!   `inventory`, `adopt` and `finalize-interrupted`.
+//!   `inventory`, `adopt --item`, the bounded `adopt --all`, and
+//!   `finalize-interrupted`.
 //!
 //! [`TaskService`]: super::TaskService
 
@@ -23,8 +24,11 @@ use uuid::Uuid;
 
 use crate::db::Database;
 
-/// How the operator resolves a blocked startup.
-pub const REMEDIATION_HINT: &str = "run db_init, hand every listed item over with task_execution_cutover, then restart the process";
+/// How the operator resolves a blocked startup caused by legacy items.
+pub const LEGACY_ITEMS_REMEDIATION_HINT: &str = "stop every task worker, hand the listed items over with task_execution_cutover (adopt --all, adopt --item or finalize-interrupted --item with --workers-stopped), then restart the process";
+
+/// How the operator resolves a blocked startup caused by the library schema.
+pub const LIBRARY_REMEDIATION_HINT: &str = "fix or remove a foreign library schema, or start the service once or run db_init to prepare a missing one, then restart the process";
 
 /// The largest inventory page the tool asks for.
 pub const MAX_INVENTORY_PAGE: i64 = 100;
@@ -118,7 +122,6 @@ impl ExecutionLatch {
                 match decision {
                     ExecutionReadiness::Ready => {
                         info!(
-                            target: "task_cutover",
                             event = "ready",
                             "task execution engine authorized to start",
                         );
@@ -127,12 +130,15 @@ impl ExecutionLatch {
                         code,
                         unlinked_items,
                     } => {
+                        let hint = match code {
+                            "legacy-items" => LEGACY_ITEMS_REMEDIATION_HINT,
+                            _ => LIBRARY_REMEDIATION_HINT,
+                        };
                         warn!(
-                            target: "task_cutover",
                             event = "blocked",
                             blocker = code,
                             unlinked_items,
-                            hint = REMEDIATION_HINT,
+                            hint,
                             "task execution engine refused to start: no dispatcher, no maintenance, no docling recovery",
                         );
                     }
@@ -164,6 +170,13 @@ pub enum CutoverCommand {
         /// The explicitly named items.
         item_ids: Vec<Uuid>,
     },
+    /// Links fresh execution segments to one bounded batch of eligible items.
+    ///
+    /// The selection is applied in SQL to unlinked `queued`/`waiting` items
+    /// with an active parent before the bound; running, terminal and
+    /// retired-parent items are never selected, and the operator repeats the
+    /// command only while the reported adoptable remainder is non-zero.
+    AdoptAll,
     /// Closes the named unlinked running items whose lease is gone.
     FinalizeInterrupted {
         /// The explicitly named items.
@@ -262,6 +275,7 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
     let mut limit: Option<i64> = None;
     let mut offset: Option<i64> = None;
     let mut item_ids: Vec<Uuid> = Vec::new();
+    let mut all = false;
     let mut command: Option<&str> = None;
 
     while let Some(argument) = args.next() {
@@ -279,6 +293,12 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
                 expect_database = Some(value.clone());
             }
             "--workers-stopped" => workers_stopped = true,
+            "--all" => {
+                if all {
+                    return Err(usage("--all may be given at most once"));
+                }
+                all = true;
+            }
             "--limit" => {
                 let value = args.next().ok_or_else(|| usage("--limit needs a value"))?;
                 limit = Some(
@@ -311,9 +331,9 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
     }
     let command = match command {
         "inventory" => {
-            if !item_ids.is_empty() || workers_stopped {
+            if !item_ids.is_empty() || workers_stopped || all {
                 return Err(usage(
-                    "inventory takes neither --item nor --workers-stopped",
+                    "inventory takes neither --item, --all nor --workers-stopped",
                 ));
             }
             let limit = limit.unwrap_or(MAX_INVENTORY_PAGE);
@@ -335,9 +355,15 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
                     "adopt and finalize-interrupted require --workers-stopped",
                 ));
             }
-            if item_ids.is_empty() {
+            if all && command == "finalize-interrupted" {
+                return Err(usage("--all is adopt-only"));
+            }
+            if all && !item_ids.is_empty() {
+                return Err(usage("--all and --item are mutually exclusive"));
+            }
+            if !all && item_ids.is_empty() {
                 return Err(usage(
-                    "at least one --item is required; there is no implicit all",
+                    "at least one --item or --all is required; there is no implicit all",
                 ));
             }
             if item_ids.len() > MAX_HANDOVER_ITEMS {
@@ -353,7 +379,11 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
                 return Err(usage("--item ids must be unique"));
             }
             if command == "adopt" {
-                CutoverCommand::Adopt { item_ids }
+                if all {
+                    CutoverCommand::AdoptAll
+                } else {
+                    CutoverCommand::Adopt { item_ids }
+                }
             } else {
                 CutoverCommand::FinalizeInterrupted { item_ids }
             }
@@ -430,7 +460,7 @@ pub async fn run_cutover(
     }
     if !db.cutover_library_ready().await {
         return Err(safety(
-            "the library schema is missing, foreign or incompatible; run db_init first",
+            "the library schema is missing, foreign or incompatible; start the service once or run db_init to prepare it",
         ));
     }
 
@@ -486,8 +516,31 @@ pub async fn run_cutover(
                 already_linked: outcome.already_linked,
                 metadata: serde_json::json!({
                     "command": "adopt",
+                    "all": false,
                     "adopted": outcome.adopted,
                     "already_linked": outcome.already_linked,
+                }),
+            })
+        }
+        CutoverCommand::AdoptAll => {
+            require_quiescence(db).await?;
+            let outcome = db.cutover_adopt_all().await.map_err(|error| {
+                safety(format!(
+                    "adopt --all refused: {}",
+                    Sanitized(&error.to_string())
+                ))
+            })?;
+            Ok(CutoverRunOutcome {
+                command: "adopt",
+                affected: outcome.adopted,
+                already_linked: outcome.already_linked,
+                metadata: serde_json::json!({
+                    "command": "adopt",
+                    "all": true,
+                    "adopted": outcome.adopted,
+                    "already_linked": outcome.already_linked,
+                    "remaining_adoptable": outcome.remaining_adoptable,
+                    "total_blockers": outcome.total_blockers,
                 }),
             })
         }

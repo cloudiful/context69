@@ -3107,6 +3107,24 @@
       "target": "docling_remote_jobs",
       "test": "cases_cleanup::cleanup_page_reports_true_total_reaches_beyond_the_cap_and_filters_exactly",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_all_selects_one_bounded_eligible_batch_and_reports_remaining",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "the_normal_connect_path_leaves_the_library_schema_ready",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_all_filters_before_the_bound_so_older_ineligible_rows_cannot_starve_it",
+      "class": "db"
     }
   ]
 }
