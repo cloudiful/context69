@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The bounded selection of the unlinked running items whose lease is gone\n-- (issue 1100 P1).\n--\n-- The filter is applied in SQL before the page bound, so any number of older\n-- linked, terminal or still-leased rows can never starve an eligible item out\n-- of the batch. The caller runs this inside the handover transaction under the\n-- admission lock, then locks the selected ids in its deterministic order and\n-- rechecks every row before it closes it: a running item the library does not\n-- execute, whose domain mirror lease is already gone.\n--\n-- A live lease is never selected here, and the batch refuses every write while\n-- either authority still holds one.\n--\n-- `$1` is the batch bound (at most MAX_HANDOVER_ITEMS).\nSELECT item.id\nFROM context69.task_items item\nWHERE item.execution_task_id IS NULL\n  AND item.status = 'running'\n  AND (item.lease_until IS NULL OR item.lease_until <= clock_timestamp())\nORDER BY item.created_at, item.id\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9a8c6c942b8df88b75a4b6413e916b9ba74bb4dded50d5e51e508694ce2e310a"
+}

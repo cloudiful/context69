@@ -1,0 +1,13 @@
+-- Takes the database-owned lock that serializes the startup handovers
+-- (issue 1100 P1).
+--
+-- The lock is a session-level advisory lock, so it spans the whole handover
+-- instead of one transaction: every batch of the handover runs in its own
+-- transaction, and the lock must still be held between them. It is taken on a
+-- dedicated connection of the pool, and that connection ends the session when
+-- the handover is done or cancelled, so the lock is never left behind on a
+-- pooled connection.
+--
+-- The try form never blocks: a process that finds the lock held waits and
+-- retries, so a competing startup never blocks a database connection on it.
+SELECT pg_try_advisory_lock(hashtextextended('context69.task_handover', 0)) AS "locked!"

@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The number of unlinked running items whose lease is gone (issue 1100 P1).\n--\n-- This is the population the bounded finalize-interrupted batch selects: a\n-- running item the library does not execute, whose domain mirror lease is\n-- already gone. The count is read before every batch, so the handover stops\n-- as soon as the population is exhausted and reports the remainder when it\n-- reaches its bound.\nSELECT count(*) AS \"count!\"\nFROM context69.task_items item\nWHERE item.execution_task_id IS NULL\n  AND item.status = 'running'\n  AND (item.lease_until IS NULL OR item.lease_until <= clock_timestamp())\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "977b6b8dc8f6c6778b63b9ddee11fe6c9a85cdd3bcb2f4526bbc4008726dbb96"
+}

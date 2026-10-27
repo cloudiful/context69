@@ -28,6 +28,7 @@ mod docling_finalize;
 mod docling_poll;
 mod docling_submit;
 pub mod events;
+pub mod handover;
 mod inline_waits;
 mod item_file_processors;
 mod item_git_index_processor;

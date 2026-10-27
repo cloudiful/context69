@@ -226,6 +226,20 @@ impl Database {
         )
     }
 
+    /// The number of unlinked running items whose lease is gone.
+    ///
+    /// This is the population the bounded finalize-interrupted batch selects: a
+    /// running item the library does not execute, whose domain mirror lease is
+    /// already gone. A still-leased item is never counted, because it is never
+    /// closed.
+    pub async fn cutover_finalizable_count(&self) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/tasks/cutover/count_finalizable.sql")
+                .fetch_one(self.pool())
+                .await?,
+        )
+    }
+
     /// One bounded, read-only page of the abandoned items.
     pub async fn cutover_inventory(
         &self,
@@ -278,7 +292,8 @@ impl Database {
         if unique.len() != item_ids.len() {
             anyhow::bail!("adopt item ids must be unique");
         }
-        self.adopt_items(Some(unique)).await
+        self.adopt_items(Some(unique), MAX_HANDOVER_ITEMS as i64)
+            .await
     }
 
     /// Adopts one bounded batch selected from the adoptable population.
@@ -293,10 +308,23 @@ impl Database {
     /// `remaining_adoptable` is non-zero and routes the other blockers
     /// explicitly.
     pub async fn cutover_adopt_all(&self) -> Result<CutoverAdoptOutcome> {
-        let mut outcome = self.adopt_items(None).await?;
+        let mut outcome = self.cutover_adopt_batch(MAX_HANDOVER_ITEMS as i64).await?;
         outcome.remaining_adoptable = self.cutover_adoptable_count().await?;
         outcome.total_blockers = self.cutover_unlinked_nonterminal_count().await?;
         Ok(outcome)
+    }
+
+    /// Adopts one bounded batch of at most `limit` eligible items.
+    ///
+    /// The selection and the refusal contract are the ones of
+    /// [`Self::cutover_adopt_all`]; only the page bound differs, so a caller
+    /// that runs several batches owns the progress check. The bound is at most
+    /// [`MAX_HANDOVER_ITEMS`].
+    pub async fn cutover_adopt_batch(&self, limit: i64) -> Result<CutoverAdoptOutcome> {
+        if !(1..=MAX_HANDOVER_ITEMS as i64).contains(&limit) {
+            anyhow::bail!("an adoption batch needs between 1 and {MAX_HANDOVER_ITEMS} items");
+        }
+        self.adopt_items(None, limit).await
     }
 
     /// Runs one adoption batch under the admission lock and item locks.
@@ -304,7 +332,11 @@ impl Database {
     /// An explicit selection keeps the whole-batch refusal contract; `None`
     /// selects the bounded adoptable page inside the same transaction and skips
     /// a candidate that stopped being adoptable between selection and locking.
-    async fn adopt_items(&self, explicit: Option<Vec<Uuid>>) -> Result<CutoverAdoptOutcome> {
+    async fn adopt_items(
+        &self,
+        explicit: Option<Vec<Uuid>>,
+        limit: i64,
+    ) -> Result<CutoverAdoptOutcome> {
         let skip_ineligible = explicit.is_none();
         let mut tx = self.pool().begin().await?;
         sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
@@ -314,19 +346,16 @@ impl Database {
         let selected = match explicit {
             Some(selected) => selected,
             None => {
-                sqlx::query_file_scalar!(
-                    "src/sql/db/tasks/cutover/adoptable.sql",
-                    MAX_HANDOVER_ITEMS as i64
-                )
-                .fetch_all(&mut *tx)
-                .await?
+                sqlx::query_file_scalar!("src/sql/db/tasks/cutover/adoptable.sql", limit)
+                    .fetch_all(&mut *tx)
+                    .await?
             }
         };
         let mut unique = selected;
         unique.sort_unstable();
         unique.dedup();
-        if unique.len() > MAX_HANDOVER_ITEMS {
-            anyhow::bail!("adopt needs at most {MAX_HANDOVER_ITEMS} items");
+        if unique.len() > limit as usize {
+            anyhow::bail!("adopt needs at most {limit} items");
         }
         if unique.is_empty() {
             tx.commit().await?;
@@ -417,11 +446,65 @@ impl Database {
         if unique.len() != item_ids.len() {
             anyhow::bail!("finalize-interrupted item ids must be unique");
         }
+        self.finalize_items(Some(unique), MAX_HANDOVER_ITEMS as i64)
+            .await
+    }
 
+    /// Closes one bounded batch of unlinked running items whose lease is gone.
+    ///
+    /// The selection is applied in SQL before the page bound, so older linked,
+    /// terminal or still-leased rows can never starve an eligible item out of
+    /// the batch. The batch runs under the same admission lock and item locks
+    /// as [`Self::cutover_finalize_interrupted`], and every selected row is
+    /// rechecked before it is closed: a candidate that stopped being eligible
+    /// between the selection and the lock is skipped instead of refusing the
+    /// batch. A live lease of either authority refuses the whole batch, so no
+    /// item is ever closed while a worker may still own it.
+    pub async fn cutover_finalize_interrupted_batch(
+        &self,
+        limit: i64,
+    ) -> Result<CutoverFinalizeOutcome> {
+        if !(1..=MAX_HANDOVER_ITEMS as i64).contains(&limit) {
+            anyhow::bail!("a finalize batch needs between 1 and {MAX_HANDOVER_ITEMS} items");
+        }
+        self.finalize_items(None, limit).await
+    }
+
+    /// Runs one finalize batch under the admission lock and item locks.
+    ///
+    /// An explicit selection keeps the whole-batch refusal contract; `None`
+    /// selects the bounded page inside the same transaction and skips a
+    /// candidate that stopped being eligible between selection and locking.
+    async fn finalize_items(
+        &self,
+        explicit: Option<Vec<Uuid>>,
+        limit: i64,
+    ) -> Result<CutoverFinalizeOutcome> {
+        let skip_ineligible = explicit.is_none();
         let mut tx = self.pool().begin().await?;
         sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
             .execute(&mut *tx)
             .await?;
+
+        let selected = match explicit {
+            Some(selected) => selected,
+            None => {
+                sqlx::query_file_scalar!("src/sql/db/tasks/cutover/finalizable.sql", limit)
+                    .fetch_all(&mut *tx)
+                    .await?
+            }
+        };
+        let mut unique = selected;
+        unique.sort_unstable();
+        unique.dedup();
+        if unique.len() > limit as usize {
+            anyhow::bail!("finalize-interrupted needs at most {limit} items");
+        }
+        if unique.is_empty() {
+            tx.commit().await?;
+            return Ok(CutoverFinalizeOutcome::default());
+        }
+
         sqlx::query_file!("src/sql/db/tasks/cutover/lock_items.sql", &unique)
             .fetch_all(&mut *tx)
             .await?;
@@ -447,6 +530,9 @@ impl Database {
             .fetch_optional(&mut *tx)
             .await?;
             let Some(finalized) = finalized else {
+                if skip_ineligible {
+                    continue;
+                }
                 anyhow::bail!(
                     "item {item_id} is not an unlinked running item with an expired lease"
                 );

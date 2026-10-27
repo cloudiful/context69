@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Takes the database-owned lock that serializes the startup handovers\n-- (issue 1100 P1).\n--\n-- The lock is a session-level advisory lock, so it spans the whole handover\n-- instead of one transaction: every batch of the handover runs in its own\n-- transaction, and the lock must still be held between them. It is taken on a\n-- dedicated connection of the pool, and that connection ends the session when\n-- the handover is done or cancelled, so the lock is never left behind on a\n-- pooled connection.\n--\n-- The try form never blocks: a process that finds the lock held waits and\n-- retries, so a competing startup never blocks a database connection on it.\nSELECT pg_try_advisory_lock(hashtextextended('context69.task_handover', 0)) AS \"locked!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locked!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d316dea57211d5828b4a7c7e32b230d75af7c93e829fbeea267440825364278a"
+}

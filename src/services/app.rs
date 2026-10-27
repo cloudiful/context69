@@ -18,7 +18,7 @@ use crate::{
         settings::SettingsService,
         source_folders::SourceFoldersService,
         sync::SyncService,
-        tasks::TaskService,
+        tasks::{TaskService, handover},
     },
 };
 
@@ -85,6 +85,12 @@ impl Context69App {
                  applies the migration, then retry this command"
             );
         }
+        // The legacy handover runs before the background tasks and before the
+        // startup latch, so the engine starts on a database whose legacy items
+        // already carry an execution segment. A handover that cannot finish
+        // leaves the latch closed: the process stays up, the engine does not.
+        let outcome = handover::run_legacy_handover(&db, handover::HandoverLimits::default()).await;
+        handover::log_handover_outcome(outcome);
         let namespace = NamespaceService::new(db.clone());
         let auth = AuthService::new(db.clone(), config.auth.clone())?;
         let personal_access_tokens = PersonalAccessTokenService::new(

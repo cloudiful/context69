@@ -25,7 +25,12 @@ use uuid::Uuid;
 use crate::db::Database;
 
 /// How the operator resolves a blocked startup caused by legacy items.
-pub const LEGACY_ITEMS_REMEDIATION_HINT: &str = "stop every task worker, hand the listed items over with task_execution_cutover (adopt --all, adopt --item or finalize-interrupted --item with --workers-stopped), then restart the process";
+///
+/// A live execution lease and a concurrent handover are both transient: they
+/// clear once the deployment precondition holds, and the next start hands the
+/// items over by itself. The explicit tool stays the way to hand over the rows
+/// the automatic handover cannot resolve.
+pub const LEGACY_ITEMS_REMEDIATION_HINT: &str = "stop every old instance and every task worker, then restart the process; the startup handover adopts the eligible legacy items and closes the abandoned running ones, and a live execution lease or a concurrent handover is transient: clear the precondition and restart, or hand the listed items over with task_execution_cutover (adopt --all, adopt --item or finalize-interrupted --item with --workers-stopped)";
 
 /// How the operator resolves a blocked startup caused by the library schema.
 pub const LIBRARY_REMEDIATION_HINT: &str = "fix or remove a foreign library schema, or start the service once or run db_init to prepare a missing one, then restart the process";

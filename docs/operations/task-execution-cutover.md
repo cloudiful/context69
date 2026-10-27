@@ -10,7 +10,9 @@ created before the library owned the execution has no segment at all.
 
 That missing segment is what this cutover resolves. Two authorities must never
 run the same item, so the task engine refuses to start while any item exists
-without a segment, and the operator hands those items over explicitly.
+without a segment, and the operator hands those items over explicitly. A
+supported upgrade hands them over by itself during startup; the explicit tool
+stays for everything the automatic handover refuses.
 
 ## What owns what
 
@@ -59,6 +61,86 @@ start is created there; recovery admission, read-only connections and operator
 connections never migrate or create it. The schema check fails closed: a
 foreign or incompatible library schema fails startup visibly instead of being
 adopted, and it blocks the engine rather than opening a second authority.
+
+## The automatic startup handover
+
+A supported upgrade hands the legacy items over without an operator. The
+process runs the handover itself during startup, after the application and the
+library migrations and after the normal upgrade admission, and before the
+background tasks and the startup latch take their readiness decision.
+
+The handover works in bounded transactional batches:
+
+- every unlinked `queued` or `waiting` item with an active parent takes a
+  fresh execution segment, exactly as `adopt --all` does it: the domain
+  status, the identity, the results and the history of the item stay exactly
+  as they were, and a `waiting` item keeps waiting;
+- every unlinked `running` item whose lease is gone is closed as interrupted,
+  exactly as `finalize-interrupted` does it: the item fails with the lease
+  stage, its open domain attempt becomes `interrupted`, and nothing is
+  replayed.
+
+A run is bounded: at most 100 batches of at most 100 items per class, so at
+most 10000 items are handed over per class. A run that reaches its bound with
+work left reports the remainder and leaves the engine closed; it never claims
+that the database is ready.
+
+Two processes that start at the same time are serialized by a database-owned
+lock, and the second one re-reads the population after it takes the lock, so
+an item is never handed over twice. A process that dies mid-handover loses at
+most its uncommitted batch: the next start resumes the remainder, and the
+library task of a committed batch is never produced twice.
+
+### The deployment precondition
+
+The automatic handover is authorized under one deployment requirement:
+
+> Every old Context69 instance must have fully stopped before the new one
+> starts.
+
+The database cannot prove that an old worker is idle, so this is a deployment
+requirement and not a database fence. A rolling overlap of the old and the new
+binary is unsupported for this upgrade: the old engine and the new engine can
+execute the same item, and the handover cannot rule that out. Stop every old
+instance, then start the new one.
+
+Rolling back to a binary that predates the library execution is unsupported for
+the same reason: that binary claims items without a segment, and the handover
+cannot detect it afterwards, because the rows carry a segment by then.
+
+While either authority holds a live execution lease the handover touches
+nothing: it refuses the whole run and the engine stays closed. The same
+happens for the rows that no step can resolve, such as an item of a retired
+parent: they stay reported, and the engine stays closed until an operator
+resolves them with the explicit tool.
+
+### The interrupted item and the retry
+
+An expired running item is closed, never replayed. The user retries it from
+the task center, and the retry requeues the item and opens its execution
+segment in the same transaction, so the item is claimable right away. A retry
+of an item that already carries a segment keeps that segment, and the ordinary
+retry semantics, the item history and the attempt budget are unchanged.
+
+The same holds for a resume: a reopened item that the library does not execute
+yet takes its own segment in the resume transaction, so a cancelled pre-cutover
+task is executable again instead of waiting for the next start.
+
+### A transient blocker
+
+A live execution lease and a handover another process is running are both
+transient. They clear once the deployment precondition holds, and the next
+start hands the items over by itself, so the operator clears the precondition
+and restarts the process. The startup latch is one decision per process: a
+handover under a running process never opens the engine beneath it.
+
+### The removal policy
+
+The automatic handover is an upgrade hook, and it is removed only after every
+supported old-version upgrade path and the old-backup restoration window have
+been retired. The applied SQLx migrations and the migration ledger stay
+immutable, and the fail-closed detection of the unlinked non-terminal items
+stays: a database that still carries one keeps its engine closed.
 
 ## The handover tool
 
@@ -161,13 +243,21 @@ task_execution_cutover finalize-interrupted --expect-database context69 \
 
 ## Procedure
 
-1. Stop every task worker.
-2. `inventory` and decide, per item, between `adopt` and
-   `finalize-interrupted`.
-3. Run the chosen command with the exact item ids, in batches of at most 100,
+The automatic handover covers the ordinary upgrade: stop every old instance,
+start the new one, and the legacy items are handed over before the engine
+starts. The explicit tool is the path for everything the automatic handover
+refuses.
+
+1. Stop every old task worker, and every old instance of the service.
+2. Start the new instance. The startup handover hands the eligible legacy
+   items over and closes the abandoned running ones.
+3. Run `inventory` for the rows the handover could not resolve: an item of a
+   retired parent, or anything a live execution lease still guards.
+4. Decide, per item, between `adopt` and `finalize-interrupted`.
+5. Run the chosen command with the exact item ids, in batches of at most 100,
    or run `adopt --all` to hand over one bounded adoptable batch.
-4. Repeat `inventory` (or `adopt --all` while its `remaining_adoptable` is
+6. Repeat `inventory` (or `adopt --all` while its `remaining_adoptable` is
    non-zero) until no adoptable rows are left; route `total_blockers` that
    adoption cannot resolve through `finalize-interrupted` or report them.
-5. Start the process again; startup prepares the library schema, the startup
+7. Restart the process; startup prepares the library schema, the startup
    latch now reports ready and the task engine takes over.

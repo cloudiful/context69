@@ -59,6 +59,6 @@ WITH RECURSIVE inherited_groups AS (
                 AND active.status IN ('queued', 'running', 'waiting')
           )
       )
-    RETURNING item.id
+    RETURNING item.id, item.execution_task_id
 )
-SELECT id FROM retried ORDER BY id
+SELECT id, execution_task_id FROM retried ORDER BY id
