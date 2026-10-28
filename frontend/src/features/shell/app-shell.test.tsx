@@ -85,6 +85,17 @@ describe("authenticated shell", () => {
     expect(await screen.findByRole("heading", { name: "Queue area" })).toBeInTheDocument();
   });
 
+  it("scopes a compact desktop sidebar width to the app shell", async () => {
+    await authenticate();
+    renderShell("/search");
+
+    const nav = await screen.findByRole("navigation", { name: "Content Search" });
+    const wrapper = nav.closest<HTMLElement>('[data-slot="sidebar-wrapper"]');
+    expect(wrapper).not.toBeNull();
+    expect(wrapper?.style.getPropertyValue("--sidebar-width")).toBe("13rem");
+    expect(within(nav).getAllByRole("link")).toHaveLength(4);
+  });
+
   it("switches the navigation labels when the locale changes", async () => {
     await authenticate();
     renderShell("/search");

@@ -98,6 +98,78 @@ test.describe("react foundation", () => {
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   });
 
+  test("keeps the desktop sidebar compact without truncating navigation labels", async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await installAuthTransport(page, { user: ADMIN_USER });
+
+    await page.goto("/search");
+    await expect(page.getByRole("heading", { name: "Search" })).toBeVisible();
+
+    const gap = page.locator('[data-slot="sidebar-gap"]');
+    await expect.poll(async () => (await gap.boundingBox())?.width ?? 0).toBe(208);
+
+    const labels = page.locator('[data-slot="sidebar-menu-button"] > span');
+    await expect(labels).toHaveCount(4);
+    expect(await labels.evaluateAll((nodes) => nodes
+      .filter((node) => node.scrollWidth > node.clientWidth)
+      .map((node) => node.textContent))).toEqual([]);
+    await expect(page.getByRole("link", { name: "Search", exact: true })).toHaveAttribute("aria-current", "page");
+    await expect(page.getByRole("link", { name: "Processing Queue" })).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await page.getByRole("button", { name: "Hide" }).click();
+    await expect.poll(async () => (await gap.boundingBox())?.width ?? 0).toBe(48);
+    await expect(page.getByRole("button", { name: "Show" })).toBeVisible();
+
+    await page.keyboard.press("ControlOrMeta+b");
+    await expect.poll(async () => (await gap.boundingBox())?.width ?? 0).toBe(208);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
+  test("keeps the compact sidebar readable in Chinese at 1024", async ({ page }) => {
+    await page.setViewportSize({ width: 1024, height: 900 });
+    await installAuthTransport(page, { user: ADMIN_USER });
+    await page.addInitScript(() => {
+      window.localStorage.setItem("context69.locale", "zh-CN");
+    });
+
+    await page.goto("/processing-queue");
+    await expect(page).toHaveURL(/\/processing-queue$/);
+    await expect(page.getByRole("link", { name: "处理队列" })).toBeVisible();
+
+    const gap = page.locator('[data-slot="sidebar-gap"]');
+    await expect.poll(async () => (await gap.boundingBox())?.width ?? 0).toBe(208);
+
+    const labels = page.locator('[data-slot="sidebar-menu-button"] > span');
+    await expect(labels).toHaveCount(4);
+    expect(await labels.evaluateAll((nodes) => nodes
+      .filter((node) => node.scrollWidth > node.clientWidth)
+      .map((node) => node.textContent))).toEqual([]);
+    await expect(page.getByRole("link", { name: "处理队列" })).toHaveAttribute("aria-current", "page");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
+  test("keeps the mobile navigation sheet at its measured width inside the page", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await installAuthTransport(page, { user: ADMIN_USER });
+
+    await page.goto("/search");
+    await page.getByRole("button", { name: "Show" }).click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog.getByRole("link", { name: "Settings" })).toBeVisible();
+    await expect.poll(async () => {
+      const width = (await dialog.boundingBox())?.width ?? 0;
+      return Math.abs(width - 292.5) <= 1;
+    }).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+
+    await dialog.getByRole("link", { name: "Settings" }).click();
+    await expect(page).toHaveURL(/\/settings\/appearance$/);
+    await expect(page.getByRole("dialog")).toHaveCount(0);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  });
+
   test("renders stored locale, theme and time zone choices", async ({ page }) => {
     await installAuthTransport(page, { user: ADMIN_USER });
 
