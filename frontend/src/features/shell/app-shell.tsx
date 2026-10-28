@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { Outlet } from "react-router";
 
@@ -7,9 +8,11 @@ import { SidebarInset, SidebarProvider, SidebarTrigger, useSidebar } from "@/com
 import { AppBreadcrumbs } from "./app-breadcrumbs";
 import { AppSidebar } from "./app-sidebar";
 
+const SHELL_SIDEBAR_STYLE = { "--sidebar-width": "13rem" } as CSSProperties;
+
 export function AppShell() {
   return (
-    <SidebarProvider>
+    <SidebarProvider style={SHELL_SIDEBAR_STYLE}>
       <AppSidebar />
       <SidebarInset className="min-w-0 overflow-hidden">
         <ShellHeader />
