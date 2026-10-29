@@ -33,6 +33,7 @@ fn request(openai_base_url: Option<&str>, api_key: Option<&str>) -> UpdateDoclin
             code_formula_model: Some("context69-secret-store-test".to_string()),
             picture_description_preset: None,
         },
+        ocr_preset: None,
     }
 }
 

@@ -73,6 +73,7 @@ async fn submit_frozen_config(
         output_formats: &output_formats,
         vlm: vlm.as_ref(),
         picture_description_preset: config.vlm.picture_description_preset.as_deref(),
+        ocr_preset: &config.ocr_preset,
     };
     let endpoint_base_url = crate::docling::api_base_url(&config.connection.base_url);
     let remote_task_id = client
@@ -292,6 +293,7 @@ mod tests {
             output_formats: &[crate::docling::OutputFormat::Md],
             vlm: None,
             picture_description_preset: None,
+            ocr_preset: crate::docling::DEFAULT_DOCLING_OCR_PRESET,
         };
 
         // The one local submission: the client reports the erased body as a
@@ -339,6 +341,9 @@ mod tests {
                     let body = String::from_utf8_lossy(&body);
                     assert!(body.contains("picture_description_preset"));
                     assert!(body.contains("test-preset"));
+                    assert!(body.contains("name=\"ocr_preset\""));
+                    assert!(body.contains("frozen-ocr"));
+                    assert!(!body.contains("ocr_engine"));
                     Json(serde_json::json!({"task_id": "frozen-job", "task_status": "pending"}))
                 }
             }),
@@ -351,6 +356,7 @@ mod tests {
         settings.connection.poll_interval = std::time::Duration::from_secs(7);
         settings.connection.task_timeout = std::time::Duration::from_secs(90);
         settings.vlm.picture_description_preset = Some("test-preset".into());
+        settings.ocr_preset = "frozen-ocr".into();
         let frozen = settings.clone();
         settings.connection.base_url = "http://127.0.0.1:1".into();
         settings.connection.task_timeout = std::time::Duration::from_secs(1);

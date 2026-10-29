@@ -109,6 +109,20 @@ export function DoclingSection() {
           </div>
         </SettingsBlock>
 
+        <SettingsBlock id="settings-ocr" compact title={t("settings.docling.ocrTitle")}>
+          <div className="grid max-w-2xl gap-3">
+            <TextField
+              id="docling-ocr-preset"
+              label={t("settings.docling.ocrPreset")}
+              placeholder={t("settings.docling.ocrPresetPlaceholder")}
+              value={draft.ocr_preset}
+              onChange={(value) => page.updateDoclingDraft((next) => {
+                next.ocr_preset = value;
+              })}
+            />
+          </div>
+        </SettingsBlock>
+
         <SettingsBlock id="settings-vlm" compact title={t("settings.docling.vlmTitle")}>
           <div className="flex max-w-2xl items-end gap-2">
             <FormField label={t("settings.docling.vlmModeLabel")} htmlFor="docling-vlm-mode" className="flex-1">

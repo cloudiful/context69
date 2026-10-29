@@ -13,6 +13,9 @@ use crate::docling::client::DoclingClient;
 use crate::docling::error::DoclingError;
 use crate::docling::models::{InputFormat, OutputFormat, SubmitRequest, VlmSettings};
 
+/// The OCR preset every submission of this file names explicitly.
+const OCR_PRESET: &str = crate::docling::DEFAULT_DOCLING_OCR_PRESET;
+
 fn settings(base_url: &str) -> crate::docling::DoclingConfig {
     let mut settings = crate::docling::DoclingConfig::default();
     settings.connection.base_url = base_url.to_string();
@@ -27,6 +30,7 @@ fn submission<'a>(
     output_formats: &'a [OutputFormat],
     vlm: Option<&'a VlmSettings>,
     picture_description_preset: Option<&'a str>,
+    ocr_preset: &'a str,
 ) -> SubmitRequest<'a> {
     SubmitRequest {
         filename,
@@ -36,6 +40,7 @@ fn submission<'a>(
         output_formats,
         vlm,
         picture_description_preset,
+        ocr_preset,
     }
 }
 
@@ -81,6 +86,7 @@ async fn a_pdf_submission_sends_the_pypdfium2_backend_and_the_requested_formats(
         &[OutputFormat::Md, OutputFormat::Text, OutputFormat::Json],
         None,
         None,
+        OCR_PRESET,
     );
 
     let task_id = client.submit(&request).await.expect("submit");
@@ -114,6 +120,7 @@ async fn a_pdf_submission_sends_the_file_name_media_type_and_bytes() {
         &[OutputFormat::Md],
         None,
         None,
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -141,6 +148,7 @@ async fn a_docx_submission_never_sends_the_pdf_backend() {
         &[OutputFormat::Md, OutputFormat::Text, OutputFormat::Json],
         None,
         None,
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -165,6 +173,7 @@ async fn an_xlsx_submission_requests_only_json_and_no_vlm_fields() {
         &[OutputFormat::Json],
         Some(&vlm),
         None,
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -175,6 +184,11 @@ async fn an_xlsx_submission_requests_only_json_and_no_vlm_fields() {
     assert_eq!(field(body, "pdf_backend"), None);
     assert_eq!(field(body, "vlm_pipeline_custom_config"), None);
     assert_eq!(field(body, "picture_description_custom_config"), None);
+    assert_eq!(
+        field(body, "ocr_preset"),
+        None,
+        "an XLSX conversion never carries an OCR preset"
+    );
 }
 
 #[tokio::test]
@@ -192,6 +206,7 @@ async fn the_provider_bundle_sends_the_vlm_fields_and_never_an_auth_header() {
         &[OutputFormat::Md],
         Some(&vlm),
         None,
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -213,7 +228,12 @@ async fn the_provider_bundle_sends_the_vlm_fields_and_never_an_auth_header() {
         field(body, "do_formula_enrichment").as_deref(),
         Some("true")
     );
-    assert_eq!(field(body, "ocr_engine").as_deref(), Some("rapidocr"));
+    assert_eq!(field(body, "ocr_preset").as_deref(), Some(OCR_PRESET));
+    assert_eq!(
+        field(body, "ocr_engine"),
+        None,
+        "the deprecated ocr_engine field must not be sent next to the preset"
+    );
     assert_eq!(
         field(body, "image_export_mode").as_deref(),
         Some("placeholder")
@@ -249,6 +269,7 @@ async fn a_preset_alone_sends_only_the_preset() {
         &[OutputFormat::Md],
         None,
         Some("granite_vision"),
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -278,6 +299,7 @@ async fn a_preset_suppresses_only_the_picture_description_configuration() {
         &[OutputFormat::Md],
         Some(&vlm),
         Some("granite_vision"),
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -312,6 +334,7 @@ async fn a_submission_with_a_malformed_task_id_is_rejected() {
         &[OutputFormat::Md],
         None,
         None,
+        OCR_PRESET,
     );
 
     let error = client
@@ -336,6 +359,7 @@ async fn the_vlm_payloads_keep_their_own_provider_timeouts() {
         &[OutputFormat::Md],
         Some(&vlm),
         None,
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -377,6 +401,7 @@ async fn a_configuration_without_a_vlm_bundle_sends_no_vlm_fields() {
         &[OutputFormat::Md],
         None,
         None,
+        OCR_PRESET,
     );
 
     client.submit(&request).await.expect("submit");
@@ -386,4 +411,83 @@ async fn a_configuration_without_a_vlm_bundle_sends_no_vlm_fields() {
     assert_eq!(field(body, "picture_description_custom_config"), None);
     assert_eq!(field(body, "code_formula_custom_config"), None);
     assert_eq!(field(body, "do_picture_description"), None);
+}
+
+/// The OCR preset is a conversion setting of its own: a PDF conversion names
+/// it even when no VLM bundle is configured.
+#[tokio::test]
+async fn a_pdf_submission_without_a_vlm_bundle_names_the_ocr_preset() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "application/pdf",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+
+    client.submit(&request).await.expect("submit");
+
+    let body = &bodies(&recorded)[0];
+    assert_eq!(field(body, "ocr_preset").as_deref(), Some(OCR_PRESET));
+    assert_eq!(field(body, "ocr_engine"), None);
+}
+
+/// A DOCX conversion names the OCR preset as well.
+#[tokio::test]
+async fn a_docx_submission_names_the_ocr_preset() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake docx");
+    let request = submission(
+        "test.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        &bytes,
+        InputFormat::Docx,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+
+    client.submit(&request).await.expect("submit");
+
+    let body = &bodies(&recorded)[0];
+    assert_eq!(field(body, "ocr_preset").as_deref(), Some(OCR_PRESET));
+}
+
+/// The selected preset reaches the remote service verbatim, so a custom
+/// server preset is not replaced by the default.
+#[tokio::test]
+async fn a_selected_ocr_preset_is_sent_verbatim() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "application/pdf",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        "custom.ocr-preset",
+    );
+
+    client.submit(&request).await.expect("submit");
+
+    let body = &bodies(&recorded)[0];
+    assert_eq!(
+        field(body, "ocr_preset").as_deref(),
+        Some("custom.ocr-preset")
+    );
+    assert_eq!(field_count(body, "ocr_preset"), 1);
 }

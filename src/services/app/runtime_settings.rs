@@ -122,7 +122,7 @@ pub async fn import_legacy_runtime_if_needed(
             image_export_mode: Some("placeholder".to_string()),
             do_ocr: true,
             force_ocr: false,
-            ocr_engine: Some("rapidocr".to_string()),
+            ocr_engine: Some(docling.ocr_preset.clone()),
             ocr_lang: Vec::new(),
             do_code_enrichment: true,
             do_formula_enrichment: true,

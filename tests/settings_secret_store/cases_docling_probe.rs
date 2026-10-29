@@ -230,6 +230,7 @@ fn a_docling_probe_writes_nothing_and_leaves_the_stored_endpoint_alone() {
                     code_formula_model: Some("context69-secret-store-test".to_string()),
                     picture_description_preset: None,
                 },
+                ocr_preset: None,
             })
             .await
             .expect("seed the stored Docling settings and the sealed key");

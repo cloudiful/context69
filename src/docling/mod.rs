@@ -34,10 +34,31 @@ pub const DEFAULT_DOCLING_TASK_TIMEOUT_SECS: u64 = 3600;
 /// which owns the authoritative bounds.
 pub const DEFAULT_DOCLING_MAX_INFLIGHT: usize =
     context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT;
+/// The OCR preset a fresh or unconfigured installation uses. Mirrors
+/// `context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT`, which owns the
+/// authoritative default.
+pub const DEFAULT_DOCLING_OCR_PRESET: &str =
+    context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT;
 pub(crate) const MAX_DOCLING_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
 
 fn default_docling_max_inflight() -> usize {
     DEFAULT_DOCLING_MAX_INFLIGHT
+}
+
+fn default_docling_ocr_preset() -> String {
+    DEFAULT_DOCLING_OCR_PRESET.to_string()
+}
+
+/// The effective OCR preset of a stored or configured value.
+///
+/// An absent or empty value is the unconfigured state and falls back to the
+/// default preset. Every other value is a real selection and is kept as it is:
+/// `auto` is a preset of its own and is never read as an unset value.
+pub(crate) fn effective_ocr_preset(value: Option<&str>) -> String {
+    match value.map(str::trim) {
+        Some(trimmed) if !trimmed.is_empty() => trimmed.to_string(),
+        _ => DEFAULT_DOCLING_OCR_PRESET.to_string(),
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -101,12 +122,25 @@ impl std::fmt::Debug for DoclingVlmConfig {
     }
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DoclingConfig {
     #[serde(flatten)]
     pub connection: DoclingConnectionConfig,
     pub vlm: DoclingVlmConfig,
+    /// The OCR preset every PDF and DOCX conversion requests explicitly.
+    #[serde(default = "default_docling_ocr_preset")]
+    pub ocr_preset: String,
+}
+
+impl Default for DoclingConfig {
+    fn default() -> Self {
+        Self {
+            connection: DoclingConnectionConfig::default(),
+            vlm: DoclingVlmConfig::default(),
+            ocr_preset: default_docling_ocr_preset(),
+        }
+    }
 }
 
 /// Normalizes the saved endpoint into the Docling Serve API root.

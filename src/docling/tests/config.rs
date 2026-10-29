@@ -4,8 +4,9 @@
 use std::time::Duration;
 
 use crate::docling::{
-    DEFAULT_DOCLING_MAX_INFLIGHT, DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig,
-    request_timeout, resolve_vlm_runtime_config,
+    DEFAULT_DOCLING_MAX_INFLIGHT, DEFAULT_DOCLING_OCR_PRESET, DoclingConfig,
+    DoclingConnectionConfig, DoclingVlmConfig, effective_ocr_preset, request_timeout,
+    resolve_vlm_runtime_config,
 };
 
 fn sample_config() -> DoclingConfig {
@@ -25,6 +26,7 @@ fn sample_config() -> DoclingConfig {
             code_formula_model: Some("code".to_string()),
             picture_description_preset: None,
         },
+        ocr_preset: DEFAULT_DOCLING_OCR_PRESET.to_string(),
     }
 }
 
@@ -92,6 +94,7 @@ fn a_configuration_without_a_vlm_bundle_resolves_to_no_provider() {
     let config = DoclingConfig {
         connection: sample_config().connection,
         vlm: DoclingVlmConfig::default(),
+        ocr_preset: DEFAULT_DOCLING_OCR_PRESET.to_string(),
     };
     assert!(
         resolve_vlm_runtime_config(&config.vlm)
@@ -186,4 +189,35 @@ fn a_legacy_configuration_without_max_inflight_defaults_to_the_single_worker() {
     let config: DoclingConfig =
         serde_json::from_str(json).expect("legacy config without max_inflight should deserialize");
     assert_eq!(config.connection.max_inflight, DEFAULT_DOCLING_MAX_INFLIGHT);
+}
+
+/// Baseline configuration assertion: a configuration file without an OCR
+/// preset uses the default preset.
+#[test]
+fn a_configuration_without_an_ocr_preset_uses_the_default_preset() {
+    let config = DoclingConfig::default();
+    assert_eq!(config.ocr_preset, DEFAULT_DOCLING_OCR_PRESET);
+
+    let json = r#"{
+        "connection": {
+            "base_url": "http://localhost:5001",
+            "timeout_secs": 120,
+            "poll_interval_secs": 2,
+            "task_timeout_secs": 3600
+        },
+        "vlm": {}
+    }"#;
+    let config: DoclingConfig =
+        serde_json::from_str(json).expect("legacy config without an ocr preset should deserialize");
+    assert_eq!(config.ocr_preset, DEFAULT_DOCLING_OCR_PRESET);
+}
+
+/// Baseline configuration assertion: an unset stored preset falls back to the
+/// default, and every stored value is a real selection that is kept as it is.
+#[test]
+fn an_unset_stored_preset_falls_back_to_the_default() {
+    assert_eq!(effective_ocr_preset(None), DEFAULT_DOCLING_OCR_PRESET);
+    assert_eq!(effective_ocr_preset(Some("  ")), DEFAULT_DOCLING_OCR_PRESET);
+    assert_eq!(effective_ocr_preset(Some("auto")), "auto");
+    assert_eq!(effective_ocr_preset(Some("tesseract")), "tesseract");
 }

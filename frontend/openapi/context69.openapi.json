@@ -8364,7 +8364,8 @@
           "configured",
           "source",
           "connection",
-          "vlm"
+          "vlm",
+          "ocr_preset"
         ],
         "properties": {
           "configured": {
@@ -8372,6 +8373,10 @@
           },
           "connection": {
             "$ref": "#/components/schemas/DoclingConnectionSettingsResponse"
+          },
+          "ocr_preset": {
+            "type": "string",
+            "description": "The selected Docling OCR preset. A fresh or unconfigured installation\nreports the default preset."
           },
           "source": {
             "$ref": "#/components/schemas/DoclingSettingsSource"
@@ -14864,6 +14869,10 @@
         "properties": {
           "connection": {
             "$ref": "#/components/schemas/UpdateDoclingConnectionSettings"
+          },
+          "ocr_preset": {
+            "type": "string",
+            "description": "The selected Docling OCR preset.\n\nAn absent field keeps the stored selection, so a client that does not\nknow the setting never resets it. An explicit `null` is rejected\ninstead of being read as an absent field.\n\nThe generated schema documents the property as a plain optional string:\nthe wire form keeps an explicit `null` distinguishable so it can be\nrejected, but `null` is not a value the API accepts, and the schema\nmust not advertise one."
           },
           "vlm": {
             "$ref": "#/components/schemas/UpdateDoclingVlmSettings"

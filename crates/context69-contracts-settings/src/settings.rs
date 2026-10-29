@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
 
 use context69_contracts_search::SearchMode;
@@ -319,6 +319,9 @@ pub struct DoclingSettingsResponse {
     pub source: DoclingSettingsSource,
     pub connection: DoclingConnectionSettingsResponse,
     pub vlm: DoclingVlmSettingsResponse,
+    /// The selected Docling OCR preset. A fresh or unconfigured installation
+    /// reports the default preset.
+    pub ocr_preset: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -326,7 +329,43 @@ pub struct UpdateDoclingSettingsRequest {
     pub connection: UpdateDoclingConnectionSettings,
     #[serde(default)]
     pub vlm: UpdateDoclingVlmSettings,
+    /// The selected Docling OCR preset.
+    ///
+    /// An absent field keeps the stored selection, so a client that does not
+    /// know the setting never resets it. An explicit `null` is rejected
+    /// instead of being read as an absent field.
+    ///
+    /// The generated schema documents the property as a plain optional string:
+    /// the wire form keeps an explicit `null` distinguishable so it can be
+    /// rejected, but `null` is not a value the API accepts, and the schema
+    /// must not advertise one.
+    #[serde(
+        default,
+        deserialize_with = "double_option",
+        skip_serializing_if = "Option::is_none"
+    )]
+    #[schema(nullable = false)]
+    pub ocr_preset: Option<Option<String>>,
 }
+
+/// Keeps an absent optional field distinguishable from an explicit `null`.
+///
+/// `Option<Option<T>>` alone collapses both into `None`, because serde maps a
+/// JSON `null` onto the outer `None`. This deserializer runs only for a field
+/// that is present, so an absent field keeps the `default` (`None`), an
+/// explicit `null` becomes `Some(None)`, and a value becomes `Some(Some(..))`.
+fn double_option<'de, T, D>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: Deserializer<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// The Docling OCR preset a fresh or unconfigured installation uses.
+pub const DOCLING_OCR_PRESET_DEFAULT: &str = "rapidocr";
+/// The longest accepted OCR preset identifier.
+pub const DOCLING_OCR_PRESET_MAX_LEN: usize = 128;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct DoclingConnectionSettingsResponse {
@@ -366,12 +405,129 @@ fn default_docling_max_inflight() -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{DOCLING_MAX_INFLIGHT_DEFAULT, default_docling_max_inflight};
+    use super::{
+        DOCLING_MAX_INFLIGHT_DEFAULT, DOCLING_OCR_PRESET_DEFAULT, DoclingSettingsResponse,
+        UpdateDoclingSettingsRequest, default_docling_max_inflight,
+    };
+    use utoipa::PartialSchema;
+
+    /// The generated schema of one request, as the OpenAPI document carries it.
+    fn request_schema() -> serde_json::Value {
+        serde_json::to_value(UpdateDoclingSettingsRequest::schema())
+            .expect("the request schema serializes")
+    }
+
+    /// The property names one schema requires.
+    fn required_properties(schema: &serde_json::Value) -> Vec<String> {
+        schema["required"]
+            .as_array()
+            .map(|names| {
+                names
+                    .iter()
+                    .filter_map(|name| name.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 
     #[test]
     fn docling_max_inflight_defaults_to_single_worker() {
         assert_eq!(DOCLING_MAX_INFLIGHT_DEFAULT, 1);
         assert_eq!(default_docling_max_inflight(), 1);
+    }
+
+    #[test]
+    fn the_default_ocr_preset_is_rapidocr() {
+        assert_eq!(DOCLING_OCR_PRESET_DEFAULT, "rapidocr");
+    }
+
+    /// An old client that does not know the OCR preset must be able to leave
+    /// the stored selection untouched, so an absent field and an explicit
+    /// `null` stay distinguishable on the wire.
+    #[test]
+    fn an_absent_ocr_preset_is_not_an_explicit_null() {
+        let absent: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": {
+                "base_url": "http://docling:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            }
+        }))
+        .expect("a request without the ocr preset");
+        assert_eq!(absent.ocr_preset, None);
+
+        let explicit_null: UpdateDoclingSettingsRequest =
+            serde_json::from_value(serde_json::json!({
+                "connection": {
+                    "base_url": "http://docling:5001",
+                    "timeout_secs": 120,
+                    "poll_interval_secs": 2,
+                    "task_timeout_secs": 3600
+                },
+                "ocr_preset": null
+            }))
+            .expect("a request with an explicit null ocr preset");
+        assert_eq!(explicit_null.ocr_preset, Some(None));
+
+        let selected: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": {
+                "base_url": "http://docling:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            },
+            "ocr_preset": "tesseract"
+        }))
+        .expect("a request with a selected ocr preset");
+        assert_eq!(selected.ocr_preset, Some(Some("tesseract".to_string())));
+    }
+
+    /// The generated contract must document the update property as an optional
+    /// string.
+    ///
+    /// The API rejects an explicit `null`, so a schema that advertises `null`
+    /// would promise a value the API refuses. The property stays optional:
+    /// an old client may omit it and keep its stored selection.
+    #[test]
+    fn the_ocr_preset_update_property_is_an_optional_string() {
+        let schema = request_schema();
+        let property = &schema["properties"]["ocr_preset"];
+        assert_eq!(
+            property["type"],
+            serde_json::json!("string"),
+            "the update property must be documented as a plain string, got: {property}"
+        );
+        assert!(
+            property.get("nullable").is_none(),
+            "the update property must not advertise null as a valid value, got: {property}"
+        );
+        assert!(
+            !required_properties(&schema)
+                .iter()
+                .any(|name| name == "ocr_preset"),
+            "the update property must stay optional, got: {schema}"
+        );
+    }
+
+    /// The generated contract must document the response property as the
+    /// selected preset, always present.
+    #[test]
+    fn the_ocr_preset_response_property_is_a_required_string() {
+        let schema = serde_json::to_value(DoclingSettingsResponse::schema())
+            .expect("the response schema serializes");
+        let property = &schema["properties"]["ocr_preset"];
+        assert_eq!(
+            property["type"],
+            serde_json::json!("string"),
+            "the response property must be documented as a plain string, got: {property}"
+        );
+        assert!(
+            required_properties(&schema)
+                .iter()
+                .any(|name| name == "ocr_preset"),
+            "the response property must always be present, got: {schema}"
+        );
     }
 }
 

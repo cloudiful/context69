@@ -204,6 +204,9 @@ export const settings = {
   docling: {
     title: "Docling",
     connectionTitle: "连接",
+    ocrTitle: "OCR",
+    ocrPreset: "OCR 预设",
+    ocrPresetPlaceholder: "rapidocr",
     test: "测试连接",
     testSuccess: "Docling 连接成功",
     testFailed: "Docling 连接失败",

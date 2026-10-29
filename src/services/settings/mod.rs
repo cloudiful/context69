@@ -33,8 +33,8 @@ mod validate;
 use self::{
     mappers::{
         canonical_search_settings_from_request, config_from_stored, docling_settings_from_request,
-        response_from_stored, search_response_from_stored, search_settings_from_request,
-        unconfigured_docling_response, validate_docling_vlm_shape,
+        resolved_ocr_preset, response_from_stored, search_response_from_stored,
+        search_settings_from_request, unconfigured_docling_response, validate_docling_vlm_shape,
     },
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request,
@@ -744,6 +744,16 @@ impl SettingsService {
     ) -> Result<DoclingSettingsResponse> {
         settings_validate::docling_request(request)?;
 
+        // An old client that omits the OCR preset keeps the stored selection,
+        // so the save reads the stored row before it rebuilds it.
+        let stored = self.db.get_docling_settings().await?;
+        let ocr_preset = resolved_ocr_preset(
+            request,
+            stored
+                .as_ref()
+                .and_then(|settings| settings.ocr_engine.as_deref()),
+        );
+
         let patch = docling_vlm_patch(
             request.vlm.api_key.clone(),
             normalize_optional_string(request.vlm.openai_base_url.clone()).is_some(),
@@ -752,7 +762,7 @@ impl SettingsService {
             .docling_secrets
             .stage(
                 &patch,
-                |api_key| docling_settings_from_request(request, api_key),
+                |api_key| docling_settings_from_request(request, api_key, &ocr_preset),
                 validate_docling_vlm_shape,
             )
             .await?;
@@ -906,10 +916,11 @@ async fn reconcile_runtime_refreshes(
 mod tests {
     use super::{
         mappers::{
-            config_from_stored, docling_settings_from_request, response_from_stored,
-            search_response_from_stored, search_settings_from_request,
+            config_from_stored, docling_settings_from_request, resolved_ocr_preset,
+            response_from_stored, search_response_from_stored, search_settings_from_request,
         },
         runtime_mappers::{runtime_settings_from_request, runtime_settings_response},
+        unconfigured_docling_response,
         validate::{
             docling_request as validate_docling_request,
             runtime_settings_request as validate_runtime_settings_request,
@@ -949,6 +960,7 @@ mod tests {
                 max_inflight: context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
             },
             vlm: UpdateDoclingVlmSettings::default(),
+            ocr_preset: None,
         }
     }
 
@@ -1321,7 +1333,7 @@ mod tests {
             ..UpdateDoclingVlmSettings::default()
         };
 
-        let stored = docling_settings_from_request(&request, None);
+        let stored = docling_settings_from_request(&request, None, "rapidocr");
         assert_eq!(
             stored.picture_description_preset.as_deref(),
             Some("smolvlm"),
@@ -1350,7 +1362,7 @@ mod tests {
     #[test]
     fn empty_picture_description_preset_is_normalized_away_in_mapper() {
         let request = sample_request();
-        let stored = docling_settings_from_request(&request, None);
+        let stored = docling_settings_from_request(&request, None, "rapidocr");
         assert!(
             stored.picture_description_preset.is_none(),
             "blank picture_description_preset must be normalized away by the mapper"
@@ -1464,7 +1476,7 @@ mod tests {
     fn docling_mapper_round_trips_max_inflight() {
         let mut request = sample_request();
         request.connection.max_inflight = 3;
-        let stored = docling_settings_from_request(&request, None);
+        let stored = docling_settings_from_request(&request, None, "rapidocr");
         assert_eq!(stored.max_inflight, 3);
 
         let response =
@@ -1494,6 +1506,117 @@ mod tests {
             "legacy API payloads must default to the single-worker ceiling"
         );
         validate_docling_request(&request).expect("defaulted request should be valid");
+    }
+
+    /// A legacy row without a stored preset reports the default preset, so a
+    /// fresh or unconfigured installation shows one selection.
+    #[test]
+    fn an_unconfigured_docling_response_reports_the_default_ocr_preset() {
+        let response = unconfigured_docling_response();
+        assert_eq!(
+            response.ocr_preset,
+            context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT
+        );
+
+        let mut stored = sample_stored();
+        stored.ocr_engine = None;
+        let response = response_from_stored(DoclingSettingsSource::Database, true, stored, false);
+        assert_eq!(
+            response.ocr_preset,
+            context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT
+        );
+    }
+
+    /// A stored legacy value is a real selection and is never reset: `auto` is
+    /// a preset of its own.
+    #[test]
+    fn a_stored_legacy_ocr_preset_is_preserved() {
+        let mut stored = sample_stored();
+        stored.ocr_engine = Some("auto".to_string());
+        let response = response_from_stored(DoclingSettingsSource::Database, true, stored, false);
+        assert_eq!(response.ocr_preset, "auto");
+
+        let mut stored = sample_stored();
+        stored.ocr_engine = Some("tesseract".to_string());
+        let config = config_from_stored(stored, None);
+        assert_eq!(config.ocr_preset, "tesseract");
+    }
+
+    /// A request that omits the preset keeps the stored selection, so an old
+    /// client can never reset a saved choice.
+    #[test]
+    fn an_omitted_ocr_preset_keeps_the_stored_selection() {
+        let request = sample_request();
+        assert_eq!(request.ocr_preset, None);
+        assert_eq!(
+            resolved_ocr_preset(&request, Some("tesseract")),
+            "tesseract",
+            "an old client must not reset a saved preset"
+        );
+        assert_eq!(
+            resolved_ocr_preset(&request, None),
+            context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT,
+            "an unset stored preset falls back to the default"
+        );
+    }
+
+    /// An explicit selection wins and is stored as it is.
+    #[test]
+    fn a_selected_ocr_preset_is_persisted() {
+        let mut request = sample_request();
+        request.ocr_preset = Some(Some("custom.ocr-preset".to_string()));
+        validate_docling_request(&request).expect("a valid preset must be accepted");
+
+        let stored = docling_settings_from_request(&request, None, "custom.ocr-preset");
+        assert_eq!(stored.ocr_engine.as_deref(), Some("custom.ocr-preset"));
+        assert_eq!(
+            resolved_ocr_preset(&request, Some("tesseract")),
+            "custom.ocr-preset"
+        );
+    }
+
+    /// An explicit null is rejected instead of being read as an absent field.
+    ///
+    /// The generated contract documents the property as a plain optional
+    /// string, so `null` is not a value the API accepts.
+    #[test]
+    fn an_explicit_null_ocr_preset_is_rejected() {
+        let mut request = sample_request();
+        request.ocr_preset = Some(None);
+        let error = validate_docling_request(&request)
+            .expect_err("an explicit null preset must be rejected");
+        let message = error.to_string();
+        assert!(message.contains("ocr_preset"), "{message}");
+        assert!(message.contains("must not be null"), "{message}");
+    }
+
+    /// An invalid preset is rejected instead of being coerced.
+    #[test]
+    fn an_invalid_ocr_preset_is_rejected() {
+        for preset in ["", "   ", "rapid ocr", "rapid/ocr", "rápidocr"] {
+            let mut request = sample_request();
+            request.ocr_preset = Some(Some(preset.to_string()));
+            let error =
+                validate_docling_request(&request).expect_err("an invalid preset must be rejected");
+            assert!(
+                error.to_string().contains("ocr_preset"),
+                "the error must name the rejected field, got: {error}"
+            );
+        }
+
+        let mut request = sample_request();
+        request.ocr_preset = Some(Some(
+            "a".repeat(context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN + 1),
+        ));
+        let error =
+            validate_docling_request(&request).expect_err("an overlong preset must be rejected");
+        assert!(error.to_string().contains("ocr_preset"), "{error}");
+
+        let mut request = sample_request();
+        request.ocr_preset = Some(Some(
+            "a".repeat(context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN),
+        ));
+        validate_docling_request(&request).expect("the longest accepted preset must be valid");
     }
 
     #[test]

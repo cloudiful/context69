@@ -13,6 +13,9 @@ import type {
 
 type DoclingVlmSettingsResponse = components["schemas"]["DoclingVlmSettingsResponse"];
 
+/** The Docling OCR preset a fresh or unconfigured installation uses. */
+export const DEFAULT_DOCLING_OCR_PRESET = "rapidocr";
+
 export function createRuntimeDraft(): DraftRuntimeSettings {
   return {
     qdrant: {
@@ -69,6 +72,7 @@ export function createDoclingDraft(): DraftDoclingSettings {
       task_timeout_secs: 600,
       max_inflight: 2,
     },
+    ocr_preset: DEFAULT_DOCLING_OCR_PRESET,
     vlm_mode: "disabled",
     vlm: {
       openai_base_url: "",
@@ -155,6 +159,7 @@ export function doclingResponseToDraft(
       task_timeout_secs: response.connection.task_timeout_secs,
       max_inflight: response.connection.max_inflight,
     },
+    ocr_preset: response.ocr_preset,
     vlm_mode: inferDoclingVlmMode(vlm),
     vlm: {
       openai_base_url: vlm.openai_base_url ?? "",

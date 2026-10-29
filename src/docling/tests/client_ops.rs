@@ -38,6 +38,7 @@ fn submission<'a>(
         output_formats,
         vlm: None,
         picture_description_preset: None,
+        ocr_preset: crate::docling::DEFAULT_DOCLING_OCR_PRESET,
     }
 }
 

@@ -10,15 +10,30 @@ use crate::{
     docling::{
         DEFAULT_DOCLING_MAX_INFLIGHT, DEFAULT_DOCLING_POLL_INTERVAL_SECS,
         DEFAULT_DOCLING_TASK_TIMEOUT_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
-        DoclingConnectionConfig, DoclingVlmConfig,
+        DoclingConnectionConfig, DoclingVlmConfig, effective_ocr_preset,
     },
     domain_errors::DomainError,
     support::normalize::{normalize_optional_string, normalize_string_list},
 };
 
+/// The OCR preset a settings save persists.
+///
+/// An explicit selection wins. A request that omits the field keeps the stored
+/// selection, and a stored row without one falls back to the default preset.
+pub(super) fn resolved_ocr_preset(
+    request: &UpdateDoclingSettingsRequest,
+    stored: Option<&str>,
+) -> String {
+    match &request.ocr_preset {
+        Some(Some(preset)) => preset.trim().to_string(),
+        _ => effective_ocr_preset(stored),
+    }
+}
+
 pub(super) fn docling_settings_from_request(
     request: &UpdateDoclingSettingsRequest,
     api_key: Option<String>,
+    ocr_preset: &str,
 ) -> StoredDoclingSettings {
     StoredDoclingSettings {
         base_url: request.connection.base_url.trim().to_string(),
@@ -31,7 +46,7 @@ pub(super) fn docling_settings_from_request(
         image_export_mode: Some("placeholder".to_string()),
         do_ocr: true,
         force_ocr: false,
-        ocr_engine: Some("rapidocr".to_string()),
+        ocr_engine: Some(ocr_preset.to_string()),
         ocr_lang: normalize_string_list(Vec::new()),
         do_code_enrichment: true,
         do_formula_enrichment: true,
@@ -93,6 +108,7 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
             code_formula_model: None,
             picture_description_preset: None,
         },
+        ocr_preset: effective_ocr_preset(None),
     }
 }
 
@@ -142,6 +158,7 @@ pub(super) fn response_from_stored(
             code_formula_model: settings.code_formula_model,
             picture_description_preset: settings.picture_description_preset,
         },
+        ocr_preset: effective_ocr_preset(settings.ocr_engine.as_deref()),
     }
 }
 
@@ -168,6 +185,7 @@ pub(super) fn config_from_stored(
             code_formula_model: settings.code_formula_model,
             picture_description_preset: settings.picture_description_preset,
         },
+        ocr_preset: effective_ocr_preset(settings.ocr_engine.as_deref()),
     }
 }
 

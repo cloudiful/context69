@@ -101,6 +101,7 @@ export const DOCLING_SETTINGS: DoclingSettingsFixture = {
     task_timeout_secs: 600,
     max_inflight: 2,
   },
+  ocr_preset: "rapidocr",
   vlm: {
     has_api_key: false,
     openai_base_url: null,

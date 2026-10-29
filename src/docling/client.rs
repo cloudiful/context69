@@ -401,6 +401,11 @@ fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingErr
     if let Some(preset) = request.picture_description_preset {
         form = form.text("picture_description_preset", preset.to_string());
     }
+    // The OCR preset is a conversion setting of its own: it is named for every
+    // PDF and DOCX submission, with or without a VLM bundle.
+    if request.input_format.supports_vlm() {
+        form = form.text("ocr_preset", request.ocr_preset.to_string());
+    }
     if request.input_format.supports_vlm()
         && let Some(vlm) = request.vlm
     {
@@ -443,7 +448,6 @@ fn apply_vlm_config(
         .text("do_code_enrichment", "true")
         .text("do_formula_enrichment", "true")
         .text("do_picture_description", "true")
-        .text("ocr_engine", "rapidocr")
         .text("image_export_mode", "placeholder"))
 }
 
