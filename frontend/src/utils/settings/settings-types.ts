@@ -58,6 +58,8 @@ export type DraftDoclingSettings = {
     task_timeout_secs: number;
     max_inflight: number;
   };
+  /** The Docling OCR preset every PDF and DOCX conversion requests. */
+  ocr_preset: string;
   /** Frontend-only draft mode selector; never persisted to the backend. */
   vlm_mode: DraftDoclingVlmMode;
   vlm: {

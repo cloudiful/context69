@@ -28,6 +28,7 @@ export function buildDoclingPayload(
       task_timeout_secs: draft.connection.task_timeout_secs,
       max_inflight: draft.connection.max_inflight,
     },
+    ocr_preset: draft.ocr_preset,
     vlm: projectDoclingVlmForPayload(draft.vlm_mode, draft.vlm),
   });
 }

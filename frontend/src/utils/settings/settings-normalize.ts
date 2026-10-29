@@ -87,6 +87,7 @@ export function normalizeDoclingPayload(
       task_timeout_secs: Number(payload.connection.task_timeout_secs),
       max_inflight: Number(payload.connection.max_inflight),
     },
+    ocr_preset: (payload.ocr_preset ?? "").trim(),
     vlm: {
       openai_base_url: cleanOptional(vlm.openai_base_url),
       api_key: cleanOptional(vlm.api_key),

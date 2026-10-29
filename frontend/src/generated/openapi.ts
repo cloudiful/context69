@@ -2230,6 +2230,11 @@ export interface components {
         DoclingSettingsResponse: {
             configured: boolean;
             connection: components["schemas"]["DoclingConnectionSettingsResponse"];
+            /**
+             * @description The selected Docling OCR preset. A fresh or unconfigured installation
+             *     reports the default preset.
+             */
+            ocr_preset: string;
             source: components["schemas"]["DoclingSettingsSource"];
             vlm: components["schemas"]["DoclingVlmSettingsResponse"];
         };
@@ -4702,6 +4707,19 @@ export interface components {
         };
         UpdateDoclingSettingsRequest: {
             connection: components["schemas"]["UpdateDoclingConnectionSettings"];
+            /**
+             * @description The selected Docling OCR preset.
+             *
+             *     An absent field keeps the stored selection, so a client that does not
+             *     know the setting never resets it. An explicit `null` is rejected
+             *     instead of being read as an absent field.
+             *
+             *     The generated schema documents the property as a plain optional string:
+             *     the wire form keeps an explicit `null` distinguishable so it can be
+             *     rejected, but `null` is not a value the API accepts, and the schema
+             *     must not advertise one.
+             */
+            ocr_preset?: string;
             vlm?: components["schemas"]["UpdateDoclingVlmSettings"];
         };
         UpdateDoclingVlmSettings: {

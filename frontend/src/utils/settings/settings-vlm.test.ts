@@ -25,6 +25,7 @@ function makeDoclingResponse(
       task_timeout_secs: 600,
       max_inflight: 2,
     },
+    ocr_preset: "rapidocr",
     vlm: {
       openai_base_url: null,
       has_api_key: false,

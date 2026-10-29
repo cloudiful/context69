@@ -109,6 +109,7 @@ export const DOCLING_SETTINGS: DoclingSettingsResponse = {
     task_timeout_secs: 600,
     timeout_secs: 120,
   },
+  ocr_preset: "rapidocr",
   vlm: {
     has_api_key: false,
     openai_base_url: null,
@@ -452,6 +453,7 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
         }
         const payload = body as unknown as {
           connection: DoclingSettingsResponse["connection"];
+          ocr_preset?: string | null;
           vlm?: {
             openai_base_url?: string;
             api_key?: string;
@@ -465,6 +467,7 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
           configured: true,
           source: "database",
           connection: payload.connection,
+          ocr_preset: payload.ocr_preset ?? state.docling.ocr_preset,
           vlm: {
             openai_base_url: payload.vlm?.openai_base_url ?? null,
             vlm_pipeline_model: payload.vlm?.vlm_pipeline_model ?? null,

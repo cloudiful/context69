@@ -223,6 +223,26 @@ describe("docling settings", () => {
     expect(body.vlm.api_key).toBeUndefined();
   });
 
+  it("shows the stored OCR preset and saves a selected one", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/docling");
+
+    const preset = await screen.findByLabelText("OCR Preset");
+    expect(preset).toHaveValue("rapidocr");
+
+    await userEvent.clear(preset);
+    await userEvent.type(preset, "custom.ocr-preset");
+    await userEvent.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/docling")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/docling")[0].body as {
+      ocr_preset?: string;
+    };
+    expect(body.ocr_preset).toBe("custom.ocr-preset");
+  });
+
   it("lists remote tasks, pages forward and wakes stopped-task cleanup", async () => {
     const backend = installFakeBackend();
     await openSettings("/settings/docling");

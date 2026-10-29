@@ -10,6 +10,8 @@ use crate::{
     db::StoredSearchSettings,
 };
 
+use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
+
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
     if request.qdrant.url.trim().is_empty() {
         return Err(DomainError::invalid_argument("runtime.qdrant.url must not be empty").into());
@@ -162,6 +164,37 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
             context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX
         ))
         .into());
+    }
+    match &request.ocr_preset {
+        // An old client that does not know the setting keeps the stored one.
+        None => {}
+        Some(None) => {
+            return Err(
+                DomainError::invalid_argument("docling.ocr_preset must not be null").into(),
+            );
+        }
+        Some(Some(preset)) => {
+            let preset = preset.trim();
+            if preset.is_empty() {
+                return Err(
+                    DomainError::invalid_argument("docling.ocr_preset must not be empty").into(),
+                );
+            }
+            if preset.len() > DOCLING_OCR_PRESET_MAX_LEN {
+                return Err(DomainError::invalid_argument(format!(
+                    "docling.ocr_preset must be at most {DOCLING_OCR_PRESET_MAX_LEN} characters"
+                ))
+                .into());
+            }
+            if !preset.chars().all(|character| {
+                character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
+            }) {
+                return Err(DomainError::invalid_argument(
+                    "docling.ocr_preset must contain only ASCII letters, digits, underscore, hyphen, or dot",
+                )
+                .into());
+            }
+        }
     }
 
     Ok(())
