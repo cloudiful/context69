@@ -96,10 +96,224 @@ export const DEFAULT_QUEUE_SORT_BY_VIEW: Record<
   trash: { field: "created_at", direction: "desc" },
 };
 
-export interface RecoverySummary {
+/**
+ * A task is skipped, not failed, when the server refuses it because it is not
+ * in an eligible state any more: a status race, a missing task or a task the
+ * caller may read but not manage. The distinction is reported, never hidden.
+ */
+export class QueueTaskSkippedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QueueTaskSkippedError";
+  }
+}
+
+/**
+ * A bulk action that ran only part of its way. The cancel-then-trash flow is
+ * explicitly not atomic: a task that was cancelled but could not be moved to
+ * the trash stays cancelled and is reported as a partial failure.
+ */
+export class QueuePartialFailureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "QueuePartialFailureError";
+  }
+}
+
+/** The bulk actions the queue offers on a selection. */
+export type QueueBulkAction = "retry" | "resume" | "cancel" | "trash" | "restore" | "delete";
+
+/**
+ * Whether one action applies to a task that had this status when it was
+ * selected. A bulk action targets only the selected tasks that could take it:
+ * a retry never reaches a cancelled task, and a resume never reaches a failed
+ * one. The per-task endpoint re-checks the live state again, so a task that
+ * changed in the meantime is reported as skipped instead of being forced.
+ */
+export function isQueueBulkActionApplicable(
+  action: QueueBulkAction,
+  status: TaskStatus,
+): boolean {
+  switch (action) {
+    case "retry":
+      return status === "failed";
+    case "resume":
+      return status === "cancelled";
+    case "cancel":
+      return isActiveStatus(status);
+    case "trash":
+      return isActiveStatus(status) || isTerminalStatus(status);
+    case "restore":
+    case "delete":
+      return true;
+    default:
+      return false;
+  }
+}
+
+export interface QueueBulkTarget {
+  readonly taskId: string;
+  readonly action: QueueBulkAction;
+  /** The status the task had when it was selected. */
+  readonly status: TaskStatus;
+}
+
+export interface QueueBulkOutcome {
+  readonly taskId: string;
+  readonly status: "succeeded" | "skipped" | "failed";
+  /** True when the task was cancelled but could not be moved to the trash. */
+  readonly partial: boolean;
+  readonly reason?: string;
+}
+
+export interface QueueBulkSummary {
   succeeded: number;
   skipped: number;
   failed: number;
+  partial: number;
+}
+
+/** The actions a selection can take, decided from the selected tasks' status. */
+export function isActiveStatus(status: TaskStatus): boolean {
+  return ACTIVE_STATUSES.includes(status);
+}
+
+export function isTerminalStatus(status: TaskStatus): boolean {
+  return TERMINAL_STATUSES.includes(status);
+}
+
+/**
+ * The bulk actions that apply to a selection.
+ *
+ * The actions are contextual: a selection of failed tasks offers a retry and
+ * nothing else, a selection of active tasks offers a cancellation, and the
+ * trash view offers the restore and the permanent deletion. An action is
+ * offered when at least one selected task could take it.
+ */
+export function availableQueueBulkActions(
+  statuses: readonly TaskStatus[],
+  view: TaskListView,
+): QueueBulkAction[] {
+  if (view === "trash") {
+    return statuses.length > 0 ? ["restore", "delete"] : [];
+  }
+  const actions: QueueBulkAction[] = [];
+  if (statuses.some((status) => status === "failed")) {
+    actions.push("retry");
+  }
+  if (statuses.some((status) => status === "cancelled")) {
+    actions.push("resume");
+  }
+  if (statuses.some((status) => isActiveStatus(status))) {
+    actions.push("cancel");
+  }
+  if (statuses.length > 0) {
+    actions.push("trash");
+  }
+  return actions;
+}
+
+/** Every selected task becomes one target, in the order the tasks were selected. */
+export function captureQueueBulkTargets(
+  ids: readonly string[],
+  statuses: Readonly<Record<string, TaskStatus>>,
+  action: QueueBulkAction,
+): readonly QueueBulkTarget[] {
+  const targets: QueueBulkTarget[] = [];
+  const seen = new Set<string>();
+  for (const taskId of ids) {
+    if (seen.has(taskId)) {
+      continue;
+    }
+    seen.add(taskId);
+    const status = statuses[taskId];
+    if (!status) {
+      continue;
+    }
+    targets.push(Object.freeze({ taskId, action, status }));
+  }
+  return Object.freeze(targets);
+}
+
+const BULK_CONCURRENCY = 4;
+
+/**
+ * Bounded bulk execution: never more than four task workflows in flight, the
+ * outcomes keep the order of the targets, and every rejection is captured so
+ * the summary stays truthful.
+ */
+export async function runQueueBulkTasks(
+  targets: readonly QueueBulkTarget[],
+  submit: (target: QueueBulkTarget) => Promise<unknown>,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<QueueBulkOutcome[]> {
+  const outcomes = new Array<QueueBulkOutcome>(targets.length);
+  let nextIndex = 0;
+  let completed = 0;
+
+  async function runWorker(): Promise<void> {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const target = targets[index];
+      if (!target) {
+        return;
+      }
+      try {
+        await submit(target);
+        outcomes[index] = { taskId: target.taskId, status: "succeeded", partial: false };
+      } catch (reason) {
+        const skipped = reason instanceof QueueTaskSkippedError
+          || isEligibilityRefusal(reason);
+        outcomes[index] = {
+          taskId: target.taskId,
+          status: skipped ? "skipped" : "failed",
+          partial: reason instanceof QueuePartialFailureError,
+          reason: reason instanceof Error ? reason.message : String(reason),
+        };
+      }
+      completed += 1;
+      onProgress?.(completed, targets.length);
+    }
+  }
+
+  const workerCount = Math.min(BULK_CONCURRENCY, targets.length);
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
+  return outcomes;
+}
+
+/**
+ * A refusal that means "this task is not eligible any more": the task changed
+ * state, disappeared, or the caller may read it but not manage it. Any other
+ * failure is a real failure and is reported as one.
+ */
+function isEligibilityRefusal(reason: unknown): boolean {
+  const status = (reason as { status?: unknown } | null)?.status;
+  if (typeof status !== "number") {
+    return false;
+  }
+  return status === 400 || status === 403 || status === 404 || status === 409;
+}
+
+export function summarizeQueueBulkOutcomes(
+  outcomes: readonly QueueBulkOutcome[],
+): QueueBulkSummary {
+  const summary: QueueBulkSummary = { succeeded: 0, skipped: 0, failed: 0, partial: 0 };
+  for (const outcome of outcomes) {
+    if (outcome.status === "succeeded") {
+      summary.succeeded += 1;
+      continue;
+    }
+    if (outcome.status === "skipped") {
+      summary.skipped += 1;
+      continue;
+    }
+    summary.failed += 1;
+    if (outcome.partial) {
+      summary.partial += 1;
+    }
+  }
+  return summary;
 }
 
 /**
@@ -139,106 +353,6 @@ export function taskSubject(task: TaskResponse): string | null {
     ?? task.group_path?.trim()
     ?? task.source_key?.trim()
     ?? null;
-}
-
-export function summarizeResults(
-  results: PromiseSettledResult<unknown>[],
-  isSkipped?: (reason: unknown, index: number) => boolean,
-): RecoverySummary {
-  const summary: RecoverySummary = { succeeded: 0, skipped: 0, failed: 0 };
-  results.forEach((result, index) => {
-    if (result.status === "fulfilled") {
-      summary.succeeded += 1;
-    } else if (isSkipped?.(result.reason, index)) {
-      summary.skipped += 1;
-    } else {
-      summary.failed += 1;
-    }
-  });
-  return summary;
-}
-
-export type QueueRecoveryAction = "retry" | "rerun";
-
-export interface QueueRecoveryTarget {
-  readonly taskId: string;
-  readonly action: QueueRecoveryAction;
-}
-
-export interface QueueRecoveryOutcome {
-  readonly target: QueueRecoveryTarget;
-  readonly result: PromiseSettledResult<void>;
-}
-
-/** The recovery action each captured row needs, decided once at capture time. */
-export function captureQueueRecoveryTargets(
-  tasks: readonly TaskResponse[],
-): readonly QueueRecoveryTarget[] {
-  const seen = new Set<string>();
-  const targets: QueueRecoveryTarget[] = [];
-  for (const task of tasks) {
-    if (seen.has(task.task_id)) {
-      continue;
-    }
-    seen.add(task.task_id);
-    targets.push(Object.freeze({
-      taskId: task.task_id,
-      action: task.status === "cancelled" ? "rerun" : "retry",
-    }));
-  }
-  return Object.freeze(targets);
-}
-
-const RECOVERY_CONCURRENCY = 4;
-
-/**
- * Bounded recovery: never more than four in-flight submissions, ordered
- * outcomes, and every rejection captured so the summary stays truthful.
- */
-export async function runQueueBulkRecovery(
-  targets: readonly QueueRecoveryTarget[],
-  submit: (taskId: string, action: QueueRecoveryAction) => Promise<unknown>,
-): Promise<QueueRecoveryOutcome[]> {
-  const outcomes = new Array<QueueRecoveryOutcome>(targets.length);
-  let nextIndex = 0;
-
-  async function runWorker(): Promise<void> {
-    for (;;) {
-      const index = nextIndex;
-      nextIndex += 1;
-      const target = targets[index];
-      if (!target) {
-        return;
-      }
-      try {
-        await submit(target.taskId, target.action);
-        outcomes[index] = { target, result: { status: "fulfilled", value: undefined } };
-      } catch (reason) {
-        outcomes[index] = { target, result: { status: "rejected", reason } };
-      }
-    }
-  }
-
-  const workerCount = Math.min(RECOVERY_CONCURRENCY, targets.length);
-  await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
-  return outcomes;
-}
-
-export function summarizeQueueRecovery(outcomes: readonly QueueRecoveryOutcome[]): {
-  summary: RecoverySummary;
-  resumedCount: number;
-} {
-  const results = outcomes.map(({ result }) => result);
-  const summary = summarizeResults(results, (reason, index) => {
-    const target = outcomes[index]?.target;
-    return target?.action === "retry"
-      && reason instanceof Error
-      && /no retryable/i.test(reason.message);
-  });
-  const resumedCount = outcomes.filter(({ target, result }) => (
-    target.action === "rerun" && result.status === "fulfilled"
-  )).length;
-  return { summary, resumedCount };
 }
 
 // Truthful, stage-local progress rendering rules. The generated progress record

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/lib/i18n";
 import { apiClient } from "@/services/api";
-import type { TaskPageResponse, TaskResponse } from "@/services/api";
+import type { TaskPageResponse, TaskResponse, TaskStatus } from "@/services/api";
 import { FakeEventSource, installFakeEventSource } from "@/test-utils/event-source";
 
 import { QUEUE_LIST_TIMEOUT_MS, useQueue } from "./use-queue";
@@ -420,7 +420,7 @@ describe("useQueue", () => {
     await waitFor(() => expect(apiClient.deleteTask).toHaveBeenCalledWith("trashed-1"));
   });
 
-  it("recovers only the current page, bounded to four concurrent requests", async () => {
+  it("retries the selected tasks only, bounded to four concurrent requests", async () => {
     const gates = Array.from({ length: 6 }, () => deferred<{ retried_items: number; task: { task_id: string } }>());
     let active = 0;
     let peak = 0;
@@ -439,10 +439,12 @@ describe("useQueue", () => {
     await waitFor(() => expect(result.current.items).toHaveLength(6));
 
     act(() => {
-      result.current.confirmRecoverAll();
+      result.current.togglePageSelection();
     });
-    act(() => {
-      result.current.confirmAccept();
+    expect(result.current.selectionCount).toBe(6);
+
+    await act(async () => {
+      result.current.runBulkAction("retry");
     });
     await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledTimes(4));
     expect(peak).toBeLessThanOrEqual(4);
@@ -457,20 +459,380 @@ describe("useQueue", () => {
     }
   });
 
-  it("reports skipped retries truthfully and keeps the page when nothing resumed", async () => {
-    vi.spyOn(apiClient, "retryTask").mockRejectedValue(new Error("no retryable items"));
+  it("acts only on the selected ids and leaves the rest untouched", async () => {
+    vi.spyOn(apiClient, "retryTask").mockResolvedValue({ retried_items: 1, task: { task_id: "failed-1" } });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+      task({ task_id: "failed-2", status: "failed" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+    });
+
+    await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledTimes(1));
+    expect(apiClient.retryTask).toHaveBeenCalledWith("failed-1");
+    expect(apiClient.retryTask).not.toHaveBeenCalledWith("failed-2");
+  });
+
+  it("reports a skipped retry truthfully and keeps the task selected", async () => {
+    vi.spyOn(apiClient, "retryTask").mockRejectedValue(
+      Object.assign(new Error("task has no failed items to retry"), { status: 400 }),
+    );
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ status: "failed" })]));
     const { result } = renderQueue();
     await waitFor(() => expect(result.current.items).toHaveLength(1));
 
     act(() => {
-      result.current.confirmRecoverAll();
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+    });
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(toast.warning.mock.calls[0]?.[0]).toContain("1 skipped");
+    expect(result.current.selectionCount).toBe(1);
+  });
+
+  it("clears the successful tasks and keeps the failed ones selected", async () => {
+    vi.spyOn(apiClient, "retryTask").mockImplementation(async (taskId: string) => {
+      if (taskId === "failed-2") {
+        throw new Error("boom");
+      }
+      return { retried_items: 1, task: { task_id: taskId } };
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+      task({ task_id: "failed-2", status: "failed" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    act(() => {
+      result.current.togglePageSelection();
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+    });
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(result.current.selection.ids).toEqual(["failed-2"]);
+  });
+
+  it("keeps the selection across paging and sorting and drops it on a filter change", async () => {
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "task-1", status: "failed" }),
+      task({ task_id: "task-2", status: "failed" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    expect(result.current.selectionCount).toBe(1);
+
+    act(() => {
+      result.current.setPage(2);
+    });
+    expect(result.current.selectionCount).toBe(1);
+
+    act(() => {
+      result.current.setSort("updated_at", "desc");
+    });
+    expect(result.current.selectionCount).toBe(1);
+
+    act(() => {
+      result.current.setStatus("failed");
+    });
+    await waitFor(() => expect(result.current.selectionCount).toBe(0));
+  });
+
+  it("captures every matching task as a snapshot and selects only those ids", async () => {
+    vi.spyOn(apiClient, "listTaskSelection").mockResolvedValue({
+      items: [
+        { task_id: "matched-1", status: "failed" },
+        { task_id: "matched-2", status: "queued" },
+      ],
+      total: 2,
+      limit: 50000,
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ task_id: "task-1", status: "failed" })]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.selectAllMatching();
+    });
+
+    await waitFor(() => expect(result.current.selectionCount).toBe(2));
+    expect(apiClient.listTaskSelection).toHaveBeenCalledWith(expect.objectContaining({
+      view: "processing",
+      query: "",
+    }));
+    expect(result.current.selection.snapshot).toBe(true);
+    expect(result.current.selection.ids).toEqual(["matched-1", "matched-2"]);
+  });
+
+  it("freezes the window and the selection while a bulk action runs", async () => {
+    const gates = Array.from({ length: 2 }, () => deferred<{ retried_items: number; task: { task_id: string } }>());
+    let call = 0;
+    vi.spyOn(apiClient, "retryTask").mockImplementation(() => {
+      const gate = gates[call];
+      call += 1;
+      return gate!.promise;
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+      task({ task_id: "failed-2", status: "failed" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    act(() => {
+      result.current.togglePageSelection();
+    });
+    let running: Promise<void>;
+    act(() => {
+      result.current.runBulkAction("retry");
+      running = Promise.resolve();
+    });
+
+    await waitFor(() => expect(result.current.selectionBusy).toBe(true));
+    expect(result.current.bulkAction).toBe("retry");
+
+    // Every window or selection mutator is refused while the batch runs.
+    act(() => {
+      result.current.setView("trash");
+    });
+    act(() => {
+      result.current.setStatus("failed");
+    });
+    act(() => {
+      result.current.setKind("url_batch");
+    });
+    act(() => {
+      result.current.submitSearch();
+    });
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    act(() => {
+      result.current.togglePageSelection();
+    });
+    act(() => {
+      result.current.clearSelection();
+    });
+    act(() => {
+      result.current.setPage(2);
+    });
+    act(() => {
+      result.current.setPageSize(50);
+    });
+
+    expect(result.current.scope.view).toBe("processing");
+    expect(result.current.scope.status).toBeNull();
+    expect(result.current.scope.kind).toBeNull();
+    expect(result.current.scope.page).toBe(1);
+    expect(result.current.scope.pageSize).toBe(25);
+    expect(result.current.selectionCount).toBe(2);
+
+    await act(async () => {
+      gates.forEach((gate) => gate.resolve({ retried_items: 1, task: { task_id: "x" } }));
+      await running!;
+    });
+    await waitFor(() => expect(result.current.selectionBusy).toBe(false));
+  });
+
+  it("freezes the window while a snapshot is being captured", async () => {
+    const pending = deferred<{
+      items: { task_id: string; status: TaskStatus }[];
+      total: number;
+      limit: number;
+    }>();
+    vi.spyOn(apiClient, "listTaskSelection").mockReturnValue(pending.promise);
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ task_id: "task-1", status: "failed" })]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.selectAllMatching();
+    });
+    await waitFor(() => expect(result.current.selectionBusy).toBe(true));
+
+    act(() => {
+      result.current.setView("trash");
+    });
+    act(() => {
+      result.current.setStatus("failed");
+    });
+    expect(result.current.scope.view).toBe("processing");
+    expect(result.current.scope.status).toBeNull();
+
+    await act(async () => {
+      pending.resolve({ items: [{ task_id: "task-1", status: "failed" }], total: 1, limit: 50000 });
+    });
+    await waitFor(() => expect(result.current.selectionCount).toBe(1));
+  });
+
+  it("drops a snapshot answer for a window that has been left", async () => {
+    const pending = deferred<{
+      items: { task_id: string; status: TaskStatus }[];
+      total: number;
+      limit: number;
+    }>();
+    vi.spyOn(apiClient, "listTaskSelection").mockReturnValue(pending.promise);
+    vi.spyOn(apiClient, "rerunTask").mockResolvedValue({ task: { task_id: "cancelled-1" } });
+    vi.mocked(apiClient.listTasks).mockImplementation(async (params) => (
+      params.status === "cancelled"
+        ? page([task({ task_id: "cancelled-1", status: "cancelled" })])
+        : page([task({ task_id: "cancelled-1", status: "queued" })])
+    ));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    act(() => {
+      result.current.setStatus("cancelled");
+    });
+    await waitFor(() => expect(result.current.scope.status).toBe("cancelled"));
+
+    act(() => {
+      result.current.selectAllMatching();
+    });
+    await waitFor(() => expect(result.current.selectionBusy).toBe(true));
+
+    // A single-row recovery clears the narrowing status filter mid-capture, so
+    // the window moves while the snapshot read is still in flight. Its answer
+    // must not replace the (now empty) selection with ids of the old window.
+    await act(async () => {
+      result.current.recoverTask(result.current.items[0]!);
+    });
+    await waitFor(() => expect(result.current.scope.status).toBeNull());
+
+    await act(async () => {
+      pending.resolve({ items: [{ task_id: "ghost", status: "cancelled" }], total: 1, limit: 50000 });
+    });
+    await waitFor(() => expect(result.current.selectionBusy).toBe(false));
+    expect(result.current.selection.ids).toEqual([]);
+    expect(toast.error).toHaveBeenCalled();
+  });
+
+  it("reports a refused snapshot instead of selecting anything", async () => {
+    vi.spyOn(apiClient, "listTaskSelection").mockRejectedValue(
+      new Error("more than 50000 tasks match the current filters"),
+    );
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.selectAllMatching();
+    });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(result.current.selectionCount).toBe(0);
+  });
+
+  it("cancels an active task before moving it to the trash", async () => {
+    const order: string[] = [];
+    vi.spyOn(apiClient, "cancelTask").mockImplementation(async () => {
+      order.push("cancel");
+      return undefined;
+    });
+    vi.spyOn(apiClient, "trashTask").mockImplementation(async () => {
+      order.push("trash");
+      return task({ status: "cancelled" });
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ task_id: "active-1", status: "running" })]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    act(() => {
+      result.current.runBulkAction("trash");
+    });
+    expect(result.current.confirm).not.toBeNull();
+    expect(result.current.confirm?.message).toContain("1");
+
+    await act(async () => {
+      result.current.confirmAccept();
+    });
+    await waitFor(() => expect(apiClient.trashTask).toHaveBeenCalledWith("active-1"));
+    expect(order).toEqual(["cancel", "trash"]);
+  });
+
+  it("reports a cancelled task that could not be trashed as a partial failure", async () => {
+    vi.spyOn(apiClient, "cancelTask").mockResolvedValue(undefined);
+    vi.spyOn(apiClient, "trashTask").mockRejectedValue(new Error("trash unavailable"));
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ task_id: "active-1", status: "running" })]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    act(() => {
+      result.current.runBulkAction("trash");
     });
     await act(async () => {
       result.current.confirmAccept();
     });
-    await waitFor(() => expect(toast.success).toHaveBeenCalled());
-    expect(toast.success.mock.calls[0]?.[0]).toContain("1 skipped");
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(toast.warning.mock.calls[0]?.[0]).toContain("1 failed");
+    expect(result.current.selection.ids).toEqual(["active-1"]);
+  });
+
+  it("never resumes a task that is not cancelled any more", async () => {
+    vi.spyOn(apiClient, "getTask").mockResolvedValue(task({ task_id: "cancelled-1", status: "failed" }));
+    vi.spyOn(apiClient, "rerunTask").mockResolvedValue({ task: { task_id: "cancelled-1" } });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ task_id: "cancelled-1", status: "cancelled" })]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("resume");
+    });
+
+    await waitFor(() => expect(apiClient.getTask).toHaveBeenCalledWith("cancelled-1"));
+    expect(apiClient.rerunTask).not.toHaveBeenCalled();
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+  });
+
+  it("requires a confirmation with the selected count before a permanent delete", async () => {
+    vi.spyOn(apiClient, "deleteTask").mockResolvedValue(undefined);
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "trashed-1", status: "failed", deleted_at: "2026-01-02T00:00:00Z" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+    act(() => {
+      result.current.setView("trash");
+    });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    act(() => {
+      result.current.runBulkAction("delete");
+    });
+    expect(apiClient.deleteTask).not.toHaveBeenCalled();
+    expect(result.current.confirm?.message).toContain("1");
+
+    await act(async () => {
+      result.current.confirmAccept();
+    });
+    await waitFor(() => expect(apiClient.deleteTask).toHaveBeenCalledWith("trashed-1"));
   });
 
   it("clears a narrowing status filter after a cancelled task is resumed", async () => {
@@ -496,7 +858,7 @@ describe("useQueue", () => {
     ));
   });
 
-  it("cancels only the active ids captured from the current page", async () => {
+  it("cancels only the selected active ids", async () => {
     vi.spyOn(apiClient, "cancelTask").mockResolvedValue(undefined);
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([
       task({ task_id: "active-1", status: "running" }),
@@ -507,7 +869,11 @@ describe("useQueue", () => {
     await waitFor(() => expect(result.current.items).toHaveLength(3));
 
     act(() => {
-      result.current.confirmCancelActive();
+      result.current.toggleTaskSelected(result.current.items[0]!);
+      result.current.toggleTaskSelected(result.current.items[1]!);
+    });
+    act(() => {
+      result.current.runBulkAction("cancel");
     });
     await act(async () => {
       result.current.confirmAccept();
@@ -517,7 +883,7 @@ describe("useQueue", () => {
     expect(apiClient.cancelTask).toHaveBeenCalledWith("active-2");
   });
 
-  it("scopes clear history to the typed view", async () => {
+  it("offers no clear-history command and keeps the history endpoint unused", async () => {
     vi.spyOn(apiClient, "clearTaskHistory").mockResolvedValue({ deleted_count: 3 });
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([]));
     const { result } = renderQueue();
@@ -531,28 +897,8 @@ describe("useQueue", () => {
       expect.anything(),
     ));
 
-    act(() => {
-      result.current.confirmClearCompleted();
-    });
-    await act(async () => {
-      result.current.confirmAccept();
-    });
-    await waitFor(() => expect(apiClient.clearTaskHistory).toHaveBeenCalledWith({ view: "completed" }));
-
-    act(() => {
-      result.current.setView("trash");
-    });
-    await waitFor(() => expect(apiClient.listTasks).toHaveBeenLastCalledWith(
-      expect.objectContaining({ view: "trash" }),
-      expect.anything(),
-    ));
-    act(() => {
-      result.current.confirmClearTrash();
-    });
-    await act(async () => {
-      result.current.confirmAccept();
-    });
-    await waitFor(() => expect(apiClient.clearTaskHistory).toHaveBeenLastCalledWith({ view: "trash" }));
+    expect(apiClient.clearTaskHistory).not.toHaveBeenCalled();
+    expect(result.current.bulkActions).toEqual([]);
   });
 
   it("keeps expanded rows across a same-window reload and drops them when the window changes", async () => {

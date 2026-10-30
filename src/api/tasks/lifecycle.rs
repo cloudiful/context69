@@ -8,6 +8,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use context69_contracts::tasks::TaskSelectionQuery;
 use context69_contracts::{
     ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskItemsQuery,
     TaskListQuery,
@@ -45,6 +46,21 @@ pub(crate) async fn list_tasks(
     let legacy: TaskListQuery = query.into();
     match state.app.tasks.list(session.user.id, &legacy).await {
         Ok(tasks) => (StatusCode::OK, Json(tasks)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(get, path = "/v1/tasks/selection", params(TaskSelectionQuery), responses((status = 200, body = crate::contracts::tasks::TaskSelectionResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn list_task_selection(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Query(query): Query<TaskSelectionQuery>,
+) -> Response {
+    // Read-only snapshot of every task matching the current filters. The
+    // captured ids freeze the scope of a later bulk action; the per-task
+    // endpoints stay authoritative for authorization and lifecycle.
+    match state.app.tasks.selection(session.user.id, &query).await {
+        Ok(selection) => (StatusCode::OK, Json(selection)).into_response(),
         Err(error) => task_error(error),
     }
 }

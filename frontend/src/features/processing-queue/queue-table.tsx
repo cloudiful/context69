@@ -5,6 +5,7 @@ import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { TableColumnHeader, type ColumnSortDirection } from "@/components/common/table-column-header";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SortDirection, TaskKind, TaskListView, TaskResponse, TaskSortBy, TaskStatus } from "@/services/api";
 import { formatTimestamp } from "@/lib/format";
@@ -37,6 +38,11 @@ export interface QueueTableProps {
   scope: QueueScope;
   expanded: Record<string, boolean>;
   isActing: (task: TaskResponse) => boolean;
+  isSelected: (taskId: string) => boolean;
+  selectionDisabled: boolean;
+  filtersDisabled: boolean;
+  onToggleSelect: (task: TaskResponse) => void;
+  onTogglePageSelection: () => void;
   onToggleExpand: (taskId: string) => void;
   onSort: (field: TaskSortBy | null, direction: SortDirection | null) => void;
   onStatusFilter: (status: TaskStatus | null) => void;
@@ -93,6 +99,11 @@ export function QueueTable({
   scope,
   expanded,
   isActing,
+  isSelected,
+  selectionDisabled,
+  filtersDisabled,
+  onToggleSelect,
+  onTogglePageSelection,
   onToggleExpand,
   onSort,
   onStatusFilter,
@@ -182,6 +193,7 @@ export function QueueTable({
                   options={filter.options}
                   selected={filter.selected}
                   active={filter.active ?? filter.selected !== null}
+                  disabled={filtersDisabled}
                   onSelect={filter.onSelect}
                 />
               )
@@ -202,6 +214,7 @@ export function QueueTable({
               options={filter.options}
               selected={filter.selected}
               active={filter.active ?? filter.selected !== null}
+              disabled={filtersDisabled}
               onSelect={filter.onSelect}
             />
           )}
@@ -223,13 +236,24 @@ export function QueueTable({
     : trash
       ? t("processingQueue.tabs.noTrashedTasks")
       : t("processingQueue.noTasks");
-  const columnCount = completed ? 11 : trash ? 11 : 12;
+  const columnCount = completed ? 12 : trash ? 12 : 13;
+  const selectedOnPage = items.filter((task) => isSelected(task.task_id)).length;
+  const pageSelected = items.length > 0 && selectedOnPage === items.length;
+  const pagePartiallySelected = selectedOnPage > 0 && !pageSelected;
 
   return (
     <div className="overflow-x-auto rounded-md border bg-card" data-testid="processing-queue-table">
       <Table className="min-w-[88rem]">
         <TableHeader className="bg-muted">
           <TableRow>
+            <TableHead className="w-10">
+              <Checkbox
+                aria-label={t("processingQueue.selectPage")}
+                checked={pagePartiallySelected ? "indeterminate" : pageSelected}
+                disabled={selectionDisabled || items.length === 0}
+                onCheckedChange={() => onTogglePageSelection()}
+              />
+            </TableHead>
             <TableHead className="w-10" />
             {plainHead(t("processingQueue.task"))}
             {sortableHead("kind", t("processingQueue.type"), {
@@ -312,6 +336,9 @@ export function QueueTable({
                     action={action}
                     completed={completed}
                     trash={trash}
+                    selected={isSelected(task.task_id)}
+                    selectionDisabled={selectionDisabled}
+                    onToggleSelect={onToggleSelect}
                     onToggleExpand={onToggleExpand}
                     onRecover={onRecover}
                     onCancel={onCancel}
@@ -334,6 +361,9 @@ function TaskRow({
   action,
   completed,
   trash,
+  selected,
+  selectionDisabled,
+  onToggleSelect,
   onToggleExpand,
   onRecover,
   onCancel,
@@ -347,6 +377,9 @@ function TaskRow({
   action: ReturnType<typeof primaryAction>;
   completed: boolean;
   trash: boolean;
+  selected: boolean;
+  selectionDisabled: boolean;
+  onToggleSelect: (task: TaskResponse) => void;
   onToggleExpand: (taskId: string) => void;
   onRecover: (task: TaskResponse) => void;
   onCancel: (task: TaskResponse) => void;
@@ -366,11 +399,21 @@ function TaskRow({
   const errorStage = task.failure_stage && KNOWN_STAGES.has(task.failure_stage)
     ? queueStageLabel(t, task.failure_stage)
     : null;
-  const columnCount = completed ? 11 : trash ? 11 : 12;
+  const columnCount = completed ? 12 : trash ? 12 : 13;
 
   return (
     <>
       <TableRow data-testid="queue-task-row" data-state={open ? "open" : "closed"}>
+        <TableCell>
+          <Checkbox
+            aria-label={t("processingQueue.selectTaskNamed", {
+              name: subject ?? t("processingQueue.unnamedTask"),
+            })}
+            checked={selected}
+            disabled={selectionDisabled}
+            onCheckedChange={() => onToggleSelect(task)}
+          />
+        </TableCell>
         <TableCell>
           <Button
             type="button"

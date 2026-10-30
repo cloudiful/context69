@@ -68,6 +68,20 @@ impl TaskStatus {
             Self::Cancelled => "cancelled",
         }
     }
+
+    /// Parses a stored task status. An unknown value is refused instead of
+    /// being mapped to a guessed status.
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "queued" => Some(Self::Queued),
+            "running" => Some(Self::Running),
+            "waiting" => Some(Self::Waiting),
+            "succeeded" => Some(Self::Succeeded),
+            "failed" => Some(Self::Failed),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -399,6 +413,61 @@ impl From<CanonicalTaskListQuery> for TaskListQuery {
 pub struct TaskPageResponse {
     pub items: Vec<TaskResponse>,
     pub pagination: Pagination,
+}
+
+/// Upper bound on the number of task ids one selection snapshot may carry.
+///
+/// The snapshot is a safety boundary, not a silent truncation: a filter that
+/// matches more tasks than this is refused with a clear message instead of
+/// returning a partial set.
+pub const TASK_SELECTION_LIMIT: u64 = 50_000;
+
+/// Query for `GET /v1/tasks/selection`.
+///
+/// The membership filter is the task list filter without pagination and
+/// sorting: the snapshot is the whole matching set, so the captured ids do not
+/// depend on the page the operator happens to look at.
+#[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema)]
+#[into_params(parameter_in = Query)]
+#[serde(deny_unknown_fields)]
+pub struct TaskSelectionQuery {
+    #[serde(default)]
+    pub query: Option<String>,
+    #[serde(default)]
+    pub kind: Option<TaskKind>,
+    #[serde(default)]
+    pub status: Option<TaskStatus>,
+    /// Typed list view, exactly as in the task list: the view owns the trash
+    /// predicate and a user-supplied `status` only narrows it.
+    pub view: TaskListView,
+    #[serde(default)]
+    pub stage: Option<String>,
+    #[serde(default)]
+    pub waiting_reason: Option<String>,
+    #[serde(default)]
+    pub dependency_key: Option<String>,
+}
+
+/// One captured task of a selection snapshot.
+///
+/// Only the id and the status the task had when the snapshot was read are
+/// exposed; no task, file or document content is part of a snapshot.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskSelectionItem {
+    pub task_id: Uuid,
+    pub status: TaskStatus,
+}
+
+/// Response of `GET /v1/tasks/selection`.
+///
+/// `total` is the number of captured ids and `limit` the snapshot cap, so a
+/// client can state the captured set exactly. A set larger than the cap is
+/// refused by the server instead of being truncated here.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskSelectionResponse {
+    pub items: Vec<TaskSelectionItem>,
+    pub total: u64,
+    pub limit: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

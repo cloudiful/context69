@@ -5,7 +5,6 @@ import { toast } from "sonner";
 
 import { apiClient } from "@/services/api";
 import type {
-  ClearTaskHistoryView,
   SortDirection,
   TaskKind,
   TaskListView,
@@ -18,13 +17,18 @@ import type {
 import {
   ACTIVE_STATUSES,
   DEFAULT_QUEUE_SORT_BY_VIEW,
-  captureQueueRecoveryTargets,
+  QueuePartialFailureError,
+  QueueTaskSkippedError,
+  availableQueueBulkActions,
+  captureQueueBulkTargets,
+  isActiveStatus,
+  isQueueBulkActionApplicable,
   isRecoverableTask,
   isTerminalTask,
-  runQueueBulkRecovery,
-  summarizeQueueRecovery,
-  summarizeResults,
-  type QueueRecoveryAction,
+  runQueueBulkTasks,
+  summarizeQueueBulkOutcomes,
+  type QueueBulkAction,
+  type QueueBulkTarget,
 } from "./queue-helpers";
 import { applyTaskPatches, type QueueScope } from "./queue-updates";
 import { useQueueLive } from "./use-queue-live";
@@ -44,7 +48,22 @@ export interface ConfirmRequest {
   action: () => void;
 }
 
-export type BulkAction = "recover" | "cancel" | null;
+/**
+ * The selected tasks: the ids the operator picked, the status each id had when
+ * it was picked, and whether the ids came from a captured matching set.
+ */
+export interface QueueSelection {
+  ids: string[];
+  statuses: Record<string, TaskStatus>;
+  snapshot: boolean;
+}
+
+export interface QueueBulkProgress {
+  completed: number;
+  total: number;
+}
+
+const EMPTY_SELECTION: QueueSelection = { ids: [], statuses: {}, snapshot: false };
 
 class QueueListTimeoutError extends Error {
   constructor() {
@@ -123,13 +142,15 @@ export interface QueueState {
   live: { streaming: boolean; connected: boolean; fallback: boolean };
   expanded: Record<string, boolean>;
   actionIds: string[];
-  bulkAction: BulkAction;
-  clearAction: ClearTaskHistoryView | null;
+  selection: QueueSelection;
+  selectionCount: number;
+  bulkAction: QueueBulkAction | null;
+  bulkProgress: QueueBulkProgress | null;
+  bulkActions: QueueBulkAction[];
+  /** A bulk action is running or a snapshot is being captured. */
+  selectionBusy: boolean;
+  capturingSelection: boolean;
   confirm: ConfirmRequest | null;
-  recoverableCount: number;
-  activeCount: number;
-  failedCount: number;
-  cancelledCount: number;
   searchInput: string;
   setSearchInput: (value: string) => void;
   submitSearch: (event?: { preventDefault: () => void }) => void;
@@ -145,15 +166,17 @@ export interface QueueState {
   refresh: () => void;
   toggleExpanded: (taskId: string) => void;
   isActing: (task: TaskResponse) => boolean;
+  isSelected: (taskId: string) => boolean;
+  toggleTaskSelected: (task: TaskResponse) => void;
+  togglePageSelection: () => void;
+  clearSelection: () => void;
+  selectAllMatching: () => void;
+  runBulkAction: (action: QueueBulkAction) => void;
   recoverTask: (task: TaskResponse) => void;
   cancelTask: (task: TaskResponse) => void;
   confirmTrashTask: (task: TaskResponse) => void;
   restoreTask: (task: TaskResponse) => void;
   confirmDeleteTask: (task: TaskResponse) => void;
-  confirmRecoverAll: () => void;
-  confirmCancelActive: () => void;
-  confirmClearCompleted: () => void;
-  confirmClearTrash: () => void;
   confirmAccept: () => void;
   confirmCancel: () => void;
 }
@@ -173,13 +196,19 @@ function initialScope(): QueueScope {
   };
 }
 
+/** A conflict answer: the task is no longer in the state the action needs. */
+function isConflict(error: unknown): boolean {
+  return (error as { status?: unknown } | null)?.status === 409;
+}
+
 /**
  * One server-state queue window plus its user actions.
  *
  * The list, its totals and every row live in ONE React Query cache entry keyed by
  * the complete scope. Live frames patch that cache in place; anything that could
  * change membership, order or totals queues a trailing authoritative GET. Local
- * state is limited to UI selections (expanded rows, in-flight actions).
+ * state is limited to UI selections (expanded rows, in-flight actions, the
+ * selected task ids).
  */
 export function useQueue(): QueueState {
   const { t } = useTranslation();
@@ -188,8 +217,10 @@ export function useQueue(): QueueState {
   const [searchInput, setSearchInput] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [actionIds, setActionIds] = useState<string[]>([]);
-  const [bulkAction, setBulkAction] = useState<BulkAction>(null);
-  const [clearAction, setClearAction] = useState<ClearTaskHistoryView | null>(null);
+  const [selection, setSelection] = useState<QueueSelection>(EMPTY_SELECTION);
+  const [bulkAction, setBulkAction] = useState<QueueBulkAction | null>(null);
+  const [bulkProgress, setBulkProgress] = useState<QueueBulkProgress | null>(null);
+  const [capturingSelection, setCapturingSelection] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
 
   const scopeRef = useRef(scope);
@@ -328,12 +359,47 @@ export function useQueue(): QueueState {
     });
   }, [authoritativeIds]);
 
-  const recoverableCount = items.filter(isRecoverableTask).length;
-  const activeCount = items.filter((task) => ACTIVE_STATUSES.includes(task.status)).length;
-  const failedCount = items.filter((task) => task.status === "failed").length;
-  const cancelledCount = items.filter((task) => task.status === "cancelled").length;
+  // The status of a selected task: the live status of the row on the current
+  // page wins over the status captured with the selection, so an eligibility
+  // decision never uses a state the list has already corrected.
+  const selectionStatuses = useMemo(() => {
+    const merged: Record<string, TaskStatus> = { ...selection.statuses };
+    for (const task of items) {
+      if (task.task_id in merged) {
+        merged[task.task_id] = task.status;
+      }
+    }
+    return merged;
+  }, [items, selection.statuses]);
 
-  const updateScope = useCallback((patch: Partial<QueueScope>, resetPage = true) => {
+  const selectedStatuses = useMemo(
+    () => selection.ids
+      .map((taskId) => selectionStatuses[taskId])
+      .filter((status): status is TaskStatus => status !== undefined),
+    [selection.ids, selectionStatuses],
+  );
+
+  const bulkActions = useMemo(
+    () => availableQueueBulkActions(selectedStatuses, scope.view),
+    [scope.view, selectedStatuses],
+  );
+
+  // While a bulk action runs or a snapshot is being captured, the window and
+  // the selection are frozen: a filter or view change would hide the tasks P1
+  // keeps selected for a retry, and a snapshot answer for another scope would
+  // replace the selection with ids the new view cannot act on. The controls are
+  // disabled and these guards keep any other path from doing it anyway.
+  const selectionBusyRef = useRef(bulkAction !== null || capturingSelection);
+  selectionBusyRef.current = bulkAction !== null || capturingSelection;
+
+  const updateScope = useCallback((
+    patch: Partial<QueueScope>,
+    options: { resetPage?: boolean; clearSelection?: boolean } = {},
+  ) => {
+    if (selectionBusyRef.current) {
+      return;
+    }
+    const { resetPage = true, clearSelection: dropSelection = true } = options;
     setScope((current) => {
       const next = { ...current, ...patch };
       if (resetPage && patch.page === undefined) {
@@ -342,6 +408,11 @@ export function useQueue(): QueueState {
       return next;
     });
     setExpanded({});
+    // A changed view or filter can hide a destructive selection, so the
+    // selection is dropped. Paging and sorting keep it.
+    if (dropSelection) {
+      setSelection(EMPTY_SELECTION);
+    }
   }, []);
 
   const submitSearch = useCallback((event?: { preventDefault: () => void }) => {
@@ -353,6 +424,9 @@ export function useQueue(): QueueState {
   // trash/succeeded predicate; a status only narrows it. Each view restores its
   // own ordering, and completed drops the stage/waiting filters it cannot show.
   const setView = useCallback((view: TaskListView) => {
+    if (selectionBusyRef.current) {
+      return;
+    }
     setScope((current) => ({
       ...current,
       view,
@@ -364,6 +438,7 @@ export function useQueue(): QueueState {
       sort: { ...DEFAULT_QUEUE_SORT_BY_VIEW[view] },
     }));
     setExpanded({});
+    setSelection(EMPTY_SELECTION);
   }, []);
 
   const setSort = useCallback((field: TaskSortBy | null, direction: SortDirection | null) => {
@@ -375,7 +450,8 @@ export function useQueue(): QueueState {
       }));
       return;
     }
-    updateScope({ sort: { field, direction } });
+    // Sorting reorders the window, it does not change what is selected.
+    updateScope({ sort: { field, direction } }, { clearSelection: false });
   }, [updateScope]);
 
   const isActing = useCallback(
@@ -497,168 +573,254 @@ export function useQueue(): QueueState {
     });
   }, [actionIds, runTaskAction, t]);
 
-  const submitRecovery = useCallback(async (taskId: string, action: QueueRecoveryAction) => {
-    if (action === "rerun") {
-      await apiClient.rerunTask(taskId);
+  const isSelected = useCallback(
+    (taskId: string) => selection.ids.includes(taskId),
+    [selection.ids],
+  );
+
+  const toggleTaskSelected = useCallback((task: TaskResponse) => {
+    if (selectionBusyRef.current) {
       return;
     }
-    await apiClient.retryTask(taskId);
+    setSelection((current) => {
+      const statuses = { ...current.statuses };
+      if (current.ids.includes(task.task_id)) {
+        delete statuses[task.task_id];
+        return {
+          ...current,
+          ids: current.ids.filter((taskId) => taskId !== task.task_id),
+          statuses,
+        };
+      }
+      statuses[task.task_id] = task.status;
+      return { ...current, ids: [...current.ids, task.task_id], statuses };
+    });
   }, []);
 
-  const recoverAll = useCallback(async () => {
-    if (bulkAction || clearAction) {
+  const togglePageSelection = useCallback(() => {
+    if (selectionBusyRef.current) {
       return;
     }
-    // Capture the current page's recoverable rows once, before any request.
-    const targets = captureQueueRecoveryTargets(items.filter(isRecoverableTask));
+    setSelection((current) => {
+      const pageIds = items.map((task) => task.task_id);
+      const allSelected = pageIds.length > 0
+        && pageIds.every((taskId) => current.ids.includes(taskId));
+      const statuses = { ...current.statuses };
+      if (allSelected) {
+        for (const taskId of pageIds) {
+          delete statuses[taskId];
+        }
+        return {
+          ...current,
+          ids: current.ids.filter((taskId) => !pageIds.includes(taskId)),
+          statuses,
+        };
+      }
+      for (const task of items) {
+        statuses[task.task_id] = task.status;
+      }
+      const missing = pageIds.filter((taskId) => !current.ids.includes(taskId));
+      return { ...current, ids: [...current.ids, ...missing], statuses };
+    });
+  }, [items]);
+
+  const clearSelection = useCallback(() => {
+    if (selectionBusyRef.current) {
+      return;
+    }
+    setSelection(EMPTY_SELECTION);
+  }, []);
+
+  /**
+   * Capture every task that matches the current filters, independent of the
+   * page the operator looks at. The captured ids are frozen here: a later bulk
+   * action acts on exactly these ids, so a task that arrives meanwhile is never
+   * part of the action.
+   */
+  const selectAllMatching = useCallback(() => {
+    if (selectionBusyRef.current) {
+      return;
+    }
+    // The scope the capture belongs to. A response for a window that has since
+    // been left is dropped instead of replacing the selection with ids the
+    // current view cannot act on.
+    const current = scopeRef.current;
+    setCapturingSelection(true);
+    void (async () => {
+      try {
+        const response = await apiClient.listTaskSelection({
+          query: current.query,
+          kind: current.kind,
+          status: current.status,
+          view: current.view,
+          stage: current.stage,
+          waitingReason: current.waitingReason,
+          dependencyKey: current.dependencyKey,
+        });
+        if (scopeRef.current !== current) {
+          toast.error(t("processingQueue.selectionFailed"), {
+            description: t("processingQueue.selectionScopeChanged"),
+            duration: 5000,
+          });
+          return;
+        }
+        const statuses: Record<string, TaskStatus> = {};
+        for (const item of response.items) {
+          statuses[item.task_id] = item.status;
+        }
+        setSelection({ ids: response.items.map((item) => item.task_id), statuses, snapshot: true });
+        toast.success(t("processingQueue.selectionCaptured", { count: response.total }), {
+          duration: 3000,
+        });
+      } catch (error) {
+        toast.error(t("processingQueue.selectionFailed"), {
+          description: error instanceof Error ? error.message : undefined,
+          duration: 5000,
+        });
+      } finally {
+        setCapturingSelection(false);
+      }
+    })();
+  }, [t]);
+
+  /**
+   * Move a selected task to the trash. An active task is cancelled first and
+   * only trashed after the cancellation succeeded; a task that turns terminal
+   * in between is re-read and trashed when the re-read confirms it.
+   */
+  const submitTrashTarget = useCallback(async (target: QueueBulkTarget) => {
+    let cancelled = false;
+    if (isActiveStatus(target.status)) {
+      try {
+        await apiClient.cancelTask(target.taskId);
+        cancelled = true;
+      } catch (error) {
+        if (!isConflict(error)) {
+          throw error;
+        }
+        const current = await apiClient.getTask(target.taskId);
+        if (isActiveStatus(current.status)) {
+          throw error;
+        }
+      }
+    }
+    try {
+      return await apiClient.trashTask(target.taskId);
+    } catch (error) {
+      if (cancelled) {
+        throw new QueuePartialFailureError(t("processingQueue.bulkPartialFailure"));
+      }
+      throw error;
+    }
+  }, [t]);
+
+  const submitBulkTarget = useCallback(async (target: QueueBulkTarget) => {
+    switch (target.action) {
+      case "retry":
+        return apiClient.retryTask(target.taskId);
+      case "resume": {
+        // The rerun endpoint forks a failed task, so a resume only ever runs on
+        // a task that is cancelled right now.
+        const current = await apiClient.getTask(target.taskId);
+        if (current.status !== "cancelled") {
+          throw new QueueTaskSkippedError(t("processingQueue.bulkSkippedNotCancelled"));
+        }
+        return apiClient.rerunTask(target.taskId);
+      }
+      case "cancel":
+        return apiClient.cancelTask(target.taskId);
+      case "trash":
+        return submitTrashTarget(target);
+      case "restore":
+        return apiClient.restoreTask(target.taskId);
+      case "delete":
+        return apiClient.deleteTask(target.taskId);
+      default:
+        throw new QueueTaskSkippedError(t("processingQueue.bulkSkippedNotCancelled"));
+    }
+  }, [submitTrashTarget, t]);
+
+  const runBulkAction = useCallback(async (action: QueueBulkAction) => {
+    if (bulkAction) {
+      return;
+    }
+    const targets = captureQueueBulkTargets(selection.ids, selectionStatuses, action)
+      .filter((target) => isQueueBulkActionApplicable(action, target.status));
     if (targets.length === 0) {
       return;
     }
-    setBulkAction("recover");
+    setBulkAction(action);
+    setBulkProgress({ completed: 0, total: targets.length });
     try {
-      const outcomes = await runQueueBulkRecovery(targets, submitRecovery);
-      const { summary, resumedCount } = summarizeQueueRecovery(outcomes);
-      if (resumedCount > 0 && scopeRef.current.status !== null) {
-        setScope((current) => ({ ...current, status: null, page: 1 }));
-      } else {
-        reload();
-      }
-      toast[summary.failed === 0 ? "success" : "warning"](
+      const outcomes = await runQueueBulkTasks(
+        targets,
+        submitBulkTarget,
+        (completed, total) => setBulkProgress({ completed, total }),
+      );
+      const summary = summarizeQueueBulkOutcomes(outcomes);
+      // The tasks that were handled leave the selection; the skipped and failed
+      // ones stay selected so they can be seen and acted on again.
+      const handled = new Set(
+        outcomes
+          .filter((outcome) => outcome.status === "succeeded")
+          .map((outcome) => outcome.taskId),
+      );
+      setSelection((current) => {
+        const statuses = Object.fromEntries(
+          Object.entries(current.statuses).filter(([taskId]) => !handled.has(taskId)),
+        );
+        const ids = current.ids.filter((taskId) => !handled.has(taskId));
+        return {
+          ...current,
+          ids,
+          statuses,
+          snapshot: current.snapshot && ids.length > 0,
+        };
+      });
+      reload();
+      toast[summary.failed === 0 && summary.skipped === 0 ? "success" : "warning"](
         t("processingQueue.bulkSummary", {
           succeeded: summary.succeeded,
           skipped: summary.skipped,
           failed: summary.failed,
         }),
         {
-          description: resumedCount > 0
-            ? t("processingQueue.bulkResumed", { count: resumedCount })
+          description: summary.partial > 0
+            ? t("processingQueue.bulkPartial", { count: summary.partial })
             : undefined,
           duration: 3500,
         },
       );
     } catch (error) {
       toast.error(t("common.error"), {
-        description: error instanceof Error ? error.message : t("processingQueue.bulkRetryFailed"),
+        description: error instanceof Error ? error.message : t("processingQueue.bulkFailed"),
         duration: 5000,
       });
     } finally {
       setBulkAction(null);
+      setBulkProgress(null);
     }
-  }, [bulkAction, clearAction, items, reload, submitRecovery, t]);
+  }, [bulkAction, reload, selection.ids, selectionStatuses, submitBulkTarget, t]);
 
-  const cancelActive = useCallback(async () => {
-    if (bulkAction || clearAction) {
+  const requestBulkAction = useCallback((action: QueueBulkAction) => {
+    if (bulkAction || selection.ids.length === 0) {
       return;
     }
-    // Capture the same page's active task ids; never an unscoped admin cancel.
-    const taskIds = items
-      .filter((task) => ACTIVE_STATUSES.includes(task.status))
-      .map((task) => task.task_id);
-    if (taskIds.length === 0) {
-      return;
-    }
-    setBulkAction("cancel");
-    try {
-      const results = await Promise.allSettled(taskIds.map((taskId) => apiClient.cancelTask(taskId)));
-      const summary = summarizeResults(results);
-      reload();
-      toast[summary.failed === 0 ? "success" : "warning"](
-        t("processingQueue.bulkSummary", {
-          succeeded: summary.succeeded,
-          skipped: summary.skipped,
-          failed: summary.failed,
-        }),
-        { duration: 3500 },
-      );
-    } catch (error) {
-      toast.error(t("common.error"), {
-        description: error instanceof Error ? error.message : t("processingQueue.bulkCancelFailed"),
-        duration: 5000,
-      });
-    } finally {
-      setBulkAction(null);
-    }
-  }, [bulkAction, clearAction, items, reload, t]);
-
-  const confirmRecoverAll = useCallback(() => {
-    if (bulkAction || clearAction || recoverableCount === 0) {
+    const count = selection.ids.length;
+    if (action === "retry" || action === "resume" || action === "restore") {
+      void runBulkAction(action);
       return;
     }
     setConfirm({
-      title: t("processingQueue.retryAll"),
-      message: t("processingQueue.recoverAllConfirm", {
-        failed: failedCount,
-        cancelled: cancelledCount,
-      }),
-      acceptLabel: t("processingQueue.retryAllAction"),
+      title: t(`processingQueue.bulkTitles.${action}`),
+      message: t(`processingQueue.bulkConfirms.${action}`, { count }),
+      acceptLabel: t(`processingQueue.bulkActions.${action}`),
       action: () => {
         setConfirm(null);
-        void recoverAll();
+        void runBulkAction(action);
       },
     });
-  }, [bulkAction, cancelledCount, clearAction, failedCount, recoverAll, recoverableCount, t]);
-
-  const confirmCancelActive = useCallback(() => {
-    if (bulkAction || clearAction || activeCount === 0) {
-      return;
-    }
-    setConfirm({
-      title: t("processingQueue.cancelActive"),
-      message: `${t("processingQueue.cancelActiveConfirm")} (${activeCount})`,
-      acceptLabel: t("processingQueue.cancelActiveAction"),
-      action: () => {
-        setConfirm(null);
-        void cancelActive();
-      },
-    });
-  }, [activeCount, bulkAction, cancelActive, clearAction, t]);
-
-  const clearHistory = useCallback(async (view: ClearTaskHistoryView) => {
-    if (clearAction || bulkAction) {
-      return;
-    }
-    setClearAction(view);
-    try {
-      const response = await apiClient.clearTaskHistory({ view });
-      reload();
-      toast.success(
-        t(view === "completed"
-          ? "processingQueue.clearCompletedAccepted"
-          : "processingQueue.clearTrashAccepted"),
-        { description: String(response.deleted_count), duration: 3000 },
-      );
-    } catch (error) {
-      toast.error(t("common.error"), {
-        description: error instanceof Error
-          ? error.message
-          : t(view === "completed"
-            ? "processingQueue.clearCompletedFailed"
-            : "processingQueue.clearTrashFailed"),
-        duration: 5000,
-      });
-    } finally {
-      setClearAction(null);
-    }
-  }, [bulkAction, clearAction, reload, t]);
-
-  const confirmClear = useCallback((view: ClearTaskHistoryView) => {
-    if (clearAction || bulkAction) {
-      return;
-    }
-    setConfirm({
-      title: t(view === "completed" ? "processingQueue.clearCompleted" : "processingQueue.clearTrash"),
-      message: t(view === "completed"
-        ? "processingQueue.clearCompletedConfirm"
-        : "processingQueue.clearTrashConfirm"),
-      acceptLabel: t(view === "completed"
-        ? "processingQueue.clearCompletedAction"
-        : "processingQueue.clearTrashAction"),
-      action: () => {
-        setConfirm(null);
-        void clearHistory(view);
-      },
-    });
-  }, [bulkAction, clearAction, clearHistory, t]);
+  }, [bulkAction, runBulkAction, selection.ids.length, t]);
 
   const toggleExpanded = useCallback((taskId: string) => {
     setExpanded((current) => {
@@ -681,13 +843,14 @@ export function useQueue(): QueueState {
     live,
     expanded,
     actionIds,
+    selection,
+    selectionCount: selection.ids.length,
     bulkAction,
-    clearAction,
+    bulkProgress,
+    bulkActions,
+    selectionBusy: bulkAction !== null || capturingSelection,
+    capturingSelection,
     confirm,
-    recoverableCount,
-    activeCount,
-    failedCount,
-    cancelledCount,
     searchInput,
     setSearchInput,
     submitSearch,
@@ -697,21 +860,33 @@ export function useQueue(): QueueState {
     setStage: (stage) => updateScope({ stage }),
     setWaitingReason: (waitingReason) => updateScope({ waitingReason }),
     setDependencyKey: (dependencyKey) => updateScope({ dependencyKey }),
-    setPage: (page) => setScope((current) => ({ ...current, page })),
-    setPageSize: (pageSize) => setScope((current) => ({ ...current, pageSize, page: 1 })),
+    setPage: (page) => {
+      if (selectionBusyRef.current) {
+        return;
+      }
+      setScope((current) => ({ ...current, page }));
+    },
+    setPageSize: (pageSize) => {
+      if (selectionBusyRef.current) {
+        return;
+      }
+      setScope((current) => ({ ...current, pageSize, page: 1 }));
+    },
     setSort,
     refresh: reload,
     toggleExpanded,
     isActing,
+    isSelected,
+    toggleTaskSelected,
+    togglePageSelection,
+    clearSelection,
+    selectAllMatching,
+    runBulkAction: requestBulkAction,
     recoverTask,
     cancelTask,
     confirmTrashTask,
     restoreTask,
     confirmDeleteTask,
-    confirmRecoverAll,
-    confirmCancelActive,
-    confirmClearCompleted: () => confirmClear("completed"),
-    confirmClearTrash: () => confirmClear("trash"),
     confirmAccept: () => {
       const request = confirm;
       setConfirm(null);

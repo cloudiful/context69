@@ -3191,6 +3191,30 @@
       "target": "task_resume",
       "test": "resume_of_a_legacy_item_opens_its_segment_and_the_item_is_claimable",
       "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_selection",
+      "test": "selection_covers_every_matching_task_and_excludes_other_users",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_selection",
+      "test": "selection_applies_the_view_and_status_filters",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_selection",
+      "test": "selection_follows_the_group_visibility_of_the_list",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_selection",
+      "test": "selection_stops_at_the_read_limit",
+      "class": "db"
     }
   ]
 }

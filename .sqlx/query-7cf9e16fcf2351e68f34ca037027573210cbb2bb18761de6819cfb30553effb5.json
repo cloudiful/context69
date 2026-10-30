@@ -1,0 +1,48 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Read-only selection snapshot (issue 1130 P1).\n--\n-- The membership predicate is the predicate of `list.sql` and `count.sql`,\n-- unchanged: the same visible groups, the same search columns, the same\n-- kind/status/stage/waiting-reason/dependency filters and the same view\n-- branches. Only the projection differs - a snapshot carries the task id and\n-- its status, never the file or document metadata the list resolves.\n--\n-- `LIMIT $9` is the caller's cap plus one row. The extra row proves that the\n-- matching set is larger than the cap without reading the whole table, so an\n-- oversized filter is refused instead of silently truncated.\nWITH RECURSIVE accessible_groups AS (\n    SELECT gm.group_id\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id\n    FROM context69.groups child\n    JOIN accessible_groups ON child.parent_group_id = accessible_groups.group_id\n)\nSELECT\n    task.id AS task_id,\n    task.status\nFROM context69.tasks task\nWHERE (\n      task.user_id = $1\n      OR EXISTS (\n          SELECT 1\n          FROM accessible_groups ag\n          WHERE ag.group_id = task.group_id\n      )\n  )\n  AND (\n      $2::text IS NULL\n      OR task.group_path ILIKE '%' || $2 || '%'\n      OR task.source_key ILIKE '%' || $2 || '%'\n      OR task.error_summary ILIKE '%' || $2 || '%'\n      OR EXISTS (\n          SELECT 1\n          FROM context69.task_items item\n          WHERE item.task_id = task.id\n            AND item.payload::text ILIKE '%' || $2 || '%'\n      )\n  )\n  AND ($3::text IS NULL OR task.kind = $3)\n  AND ($4::text IS NULL OR task.status = $4)\n  AND ($5::text IS NULL OR task.stage = $5)\n  AND ($6::text IS NULL OR task.waiting_reason = $6)\n  AND ($7::text IS NULL OR task.dependency_key = $7)\n  AND (\n      ($8::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')\n      OR ($8::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')\n      OR ($8::text = 'trash' AND task.deleted_at IS NOT NULL)\n  )\nORDER BY task.created_at DESC, task.id DESC\nLIMIT $9\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7cf9e16fcf2351e68f34ca037027573210cbb2bb18761de6819cfb30553effb5"
+}

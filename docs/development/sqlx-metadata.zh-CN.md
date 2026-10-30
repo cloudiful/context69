@@ -14,7 +14,7 @@ Context69 的 SQL 针对已提交的查询缓存编译。`sqlx::query_file*!` �
 - 固定版本的 `cloudiful-tasks` 依赖在自身清单旁自带 `.sqlx`，其语句元数据归该依赖
   所有。它由 `cargo metadata` 解析；下方组合门要求公共仓库
   `https://github.com/cloudiful/tasks` 的
-  `rev = 739cad5822e2208e9a4424eead9f79653a7e02d7`，因此不硬编码任何缓存路径，也不
+  `rev = 09ca2b383cd489f5a1d8eac697e6f093adbb40b4`，因此不硬编码任何缓存路径，也不
   允许白名单外的其他 crate。
 
 依赖的元数据绝不复制进工作区缓存，也绝不为消除原生差异而重新生成工作区缓存。被复制

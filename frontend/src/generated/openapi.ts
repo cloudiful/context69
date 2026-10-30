@@ -1646,6 +1646,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/selection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_task_selection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/stream": {
         parameters: {
             query?: never;
@@ -4437,6 +4453,51 @@ export interface components {
             /** Format: int64 */
             retried_items: number;
             task: components["schemas"]["TaskRef"];
+        };
+        /**
+         * @description One captured task of a selection snapshot.
+         *
+         *     Only the id and the status the task had when the snapshot was read are
+         *     exposed; no task, file or document content is part of a snapshot.
+         */
+        TaskSelectionItem: {
+            status: components["schemas"]["TaskStatus"];
+            /** Format: uuid */
+            task_id: string;
+        };
+        /**
+         * @description Query for `GET /v1/tasks/selection`.
+         *
+         *     The membership filter is the task list filter without pagination and
+         *     sorting: the snapshot is the whole matching set, so the captured ids do not
+         *     depend on the page the operator happens to look at.
+         */
+        TaskSelectionQuery: {
+            dependency_key?: string | null;
+            kind?: null | components["schemas"]["TaskKind"];
+            query?: string | null;
+            stage?: string | null;
+            status?: null | components["schemas"]["TaskStatus"];
+            /**
+             * @description Typed list view, exactly as in the task list: the view owns the trash
+             *     predicate and a user-supplied `status` only narrows it.
+             */
+            view: components["schemas"]["TaskListView"];
+            waiting_reason?: string | null;
+        };
+        /**
+         * @description Response of `GET /v1/tasks/selection`.
+         *
+         *     `total` is the number of captured ids and `limit` the snapshot cap, so a
+         *     client can state the captured set exactly. A set larger than the cap is
+         *     refused by the server instead of being truncated here.
+         */
+        TaskSelectionResponse: {
+            items: components["schemas"]["TaskSelectionItem"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            total: number;
         };
         /** @enum {string} */
         TaskSortBy: "created_at" | "updated_at" | "status" | "kind" | "stage" | "group_path";
@@ -9779,6 +9840,45 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ClearTaskHistoryResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_task_selection: {
+        parameters: {
+            query: {
+                query?: string;
+                kind?: components["schemas"]["TaskKind"];
+                status?: components["schemas"]["TaskStatus"];
+                /**
+                 * @description Typed list view, exactly as in the task list: the view owns the trash
+                 *     predicate and a user-supplied `status` only narrows it.
+                 */
+                view: components["schemas"]["TaskListView"];
+                stage?: string;
+                waiting_reason?: string;
+                dependency_key?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskSelectionResponse"];
                 };
             };
             400: {

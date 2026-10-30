@@ -1,4 +1,7 @@
 use anyhow::{Context, Result};
+use context69_contracts::tasks::{
+    TASK_SELECTION_LIMIT, TaskSelectionItem, TaskSelectionQuery, TaskSelectionResponse,
+};
 use context69_contracts::{
     SortDirection, TaskDiagnoseResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
     TaskListQuery, TaskListView, TaskPageResponse, TaskRef, TaskResponse, TaskRetryResponse,
@@ -14,6 +17,31 @@ use super::{
     responses::{task_item_response, task_response},
     task_diagnostics::{DIAGNOSE_ITEM_LIMIT, task_diagnose_response},
 };
+
+/// The captured snapshot of one selection read.
+///
+/// A matching set larger than [`TASK_SELECTION_LIMIT`] is refused instead of
+/// being truncated: the caller never acts on a partial set, and the message
+/// names the limit so the filters can be narrowed.
+fn selection_response(rows: Vec<(Uuid, String)>) -> Result<TaskSelectionResponse> {
+    if rows.len() as u64 > TASK_SELECTION_LIMIT {
+        return Err(DomainError::invalid_argument(format!(
+            "more than {TASK_SELECTION_LIMIT} tasks match the current filters; narrow the filters to capture a selection"
+        ))
+        .into());
+    }
+    let mut items = Vec::with_capacity(rows.len());
+    for (task_id, status) in rows {
+        let status = TaskStatus::from_wire(&status)
+            .ok_or_else(|| anyhow::anyhow!("task {task_id} has an unknown status"))?;
+        items.push(TaskSelectionItem { task_id, status });
+    }
+    Ok(TaskSelectionResponse {
+        total: items.len() as u64,
+        limit: TASK_SELECTION_LIMIT,
+        items,
+    })
+}
 
 impl TaskService {
     pub async fn get(&self, task_id: Uuid, user_id: i64) -> Result<TaskResponse> {
@@ -73,6 +101,28 @@ impl TaskService {
                 .pagination(total)
                 .map_err(|error| DomainError::invalid_argument(error.to_string()))?,
         })
+    }
+
+    /// Read-only selection snapshot (issue 1130 P1).
+    ///
+    /// The snapshot captures every task that matches the current filters, not
+    /// the page the caller looks at, so a bulk action can act on a whole
+    /// filtered set without paging through it. It carries ids and statuses
+    /// only: no task, file or document content leaves the server here.
+    ///
+    /// A matching set larger than [`TASK_SELECTION_LIMIT`] is refused with a
+    /// clear message instead of being truncated, so the caller can narrow the
+    /// filters and capture a complete set.
+    pub async fn selection(
+        &self,
+        user_id: i64,
+        query: &TaskSelectionQuery,
+    ) -> Result<TaskSelectionResponse> {
+        let rows = self
+            .db
+            .list_task_selection(user_id, query, TASK_SELECTION_LIMIT as i64 + 1)
+            .await?;
+        selection_response(rows)
     }
 
     pub async fn items(
@@ -196,7 +246,44 @@ impl TaskService {
 
 #[cfg(test)]
 mod tests {
+    use context69_contracts::tasks::TASK_SELECTION_LIMIT;
     use context69_contracts::{TaskListQuery, TaskListView};
+
+    #[test]
+    fn selection_refuses_a_matching_set_larger_than_the_cap() {
+        let rows = |count: usize| {
+            (0..count)
+                .map(|_| (uuid::Uuid::new_v4(), "queued".to_string()))
+                .collect::<Vec<_>>()
+        };
+
+        let refused = super::selection_response(rows(TASK_SELECTION_LIMIT as usize + 1))
+            .expect_err("a set above the cap must be refused");
+        let message = refused.to_string();
+        assert!(
+            message.contains(&TASK_SELECTION_LIMIT.to_string()),
+            "the refusal must name the limit: {message}"
+        );
+
+        let accepted = super::selection_response(rows(TASK_SELECTION_LIMIT as usize))
+            .expect("a set at the cap is complete");
+        assert_eq!(accepted.total, TASK_SELECTION_LIMIT);
+        assert_eq!(accepted.limit, TASK_SELECTION_LIMIT);
+        assert_eq!(accepted.items.len() as u64, TASK_SELECTION_LIMIT);
+    }
+
+    #[test]
+    fn selection_carries_the_captured_status() {
+        let task_id = uuid::Uuid::new_v4();
+        let selection =
+            super::selection_response(vec![(task_id, "failed".to_string())]).expect("selection");
+        assert_eq!(selection.total, 1);
+        assert_eq!(selection.items[0].task_id, task_id);
+        assert_eq!(
+            selection.items[0].status,
+            context69_contracts::TaskStatus::Failed
+        );
+    }
 
     #[test]
     fn task_list_view_wire_names_are_stable() {

@@ -102,6 +102,16 @@ export interface QueueMock {
   /** `snapshot` sends one watch-all frame; `error` fails the transport. */
   stream?: "snapshot" | "error";
   listError?: BackendFailure;
+  /**
+   * Fails the read-only selection snapshot, so the closed `> 50000` boundary is
+   * reachable without serving 50k rows.
+   */
+  selectionError?: BackendFailure;
+  /**
+   * Delays one task action answer, so a running bulk action is observable (the
+   * queue freezes its window and selection while a batch runs).
+   */
+  actionDelayMs?: number;
 }
 
 export interface DocumentsMock {
@@ -379,6 +389,42 @@ export async function installAppTransport(
       return true;
     }
 
+    if (url.pathname === "/v1/tasks/selection" && method === "GET") {
+      if (queue.selectionError) {
+        await route.fulfill(json(queue.selectionError.status, {
+          code: "invalid_argument",
+          message: queue.selectionError.message,
+        }));
+        return true;
+      }
+      const view = url.searchParams.get("view") ?? "processing";
+      const status = url.searchParams.get("status");
+      const kind = url.searchParams.get("kind");
+      const stage = url.searchParams.get("stage");
+      const waitingReason = url.searchParams.get("waiting_reason");
+      const dependencyKey = url.searchParams.get("dependency_key");
+      const query = (url.searchParams.get("query") ?? "").trim().toLowerCase();
+      const base = view === "completed"
+        ? (queue.completed ?? [QUEUE_COMPLETED_TASK])
+        : view === "trash"
+          ? (queue.trash ?? [QUEUE_TRASHED_TASK])
+          : (queue.processing ?? [QUEUE_ACTIVE_TASK, QUEUE_FAILED_TASK]);
+      // The snapshot is the whole filtered set, independent of pagination.
+      const items = base
+        .filter((task) => (
+          (!status || task.status === status)
+          && (!kind || task.kind === kind)
+          && (!stage || task.stage === stage)
+          && (!waitingReason || task.waiting_reason === waitingReason)
+          && (!dependencyKey || task.dependency_key === dependencyKey)
+          && (!query || [task.file_name, task.document_title, task.group_path, task.error_summary]
+            .some((value) => value?.toLowerCase().includes(query)))
+        ))
+        .map((task) => ({ task_id: task.task_id, status: task.status }));
+      await route.fulfill(json(200, { items, total: items.length, limit: 50000 }));
+      return true;
+    }
+
     if (url.pathname === "/v1/tasks" && method === "GET") {
       const hangingView = (url.searchParams.get("view") ?? "processing") === "processing"
         && !url.searchParams.get("kind")
@@ -471,6 +517,9 @@ export async function installAppTransport(
     if (actionMatch && method === "POST") {
       const taskId = decodeURIComponent(actionMatch[1]);
       const action = actionMatch[2];
+      if (queue.actionDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, queue.actionDelayMs));
+      }
       const source = [
         ...(queue.processing ?? []),
         ...(queue.completed ?? []),

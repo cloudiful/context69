@@ -14,6 +14,7 @@ import type {
   TaskRef,
   TaskResponse,
   TaskRetryResponse,
+  TaskSelectionResponse,
   SortDirection,
   TaskSortBy,
   TaskStatus,
@@ -70,6 +71,30 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         params: { path: { task_id: taskId } },
         signal: options?.signal,
       }));
+    },
+    listTaskSelection(params: {
+      query?: string;
+      kind?: TaskKind | null;
+      status?: TaskStatus | null;
+      view: TaskListView;
+      stage?: string | null;
+      waitingReason?: string | null;
+      dependencyKey?: string | null;
+    }, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/tasks/selection", {
+        params: {
+          query: {
+            query: params.query || undefined,
+            kind: params.kind ?? undefined,
+            status: params.status ?? undefined,
+            view: params.view,
+            stage: params.stage || undefined,
+            waiting_reason: params.waitingReason || undefined,
+            dependency_key: params.dependencyKey || undefined,
+          },
+        },
+        signal: options?.signal,
+      })) as Promise<TaskSelectionResponse>;
     },
     getTaskItems(taskId: string, params: { limit: number; cursor?: string; status?: TaskItemStatus | null }, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/tasks/{task_id}/items", {

@@ -15,8 +15,8 @@ use super::{
     get_group_library_tree, get_group_translation_settings, get_library_file,
     get_library_resources, get_library_tree, get_task, import_group_library_file_url,
     list_document_results, list_document_translation_jobs, list_metadata_indexes, list_task_items,
-    list_tasks, move_group_library_file, move_group_library_folder, move_library_file,
-    move_library_folder, prepare_group_library_upload, query_group_documents,
+    list_task_selection, list_tasks, move_group_library_file, move_group_library_folder,
+    move_library_file, move_library_folder, prepare_group_library_upload, query_group_documents,
     rebuild_document_translations, release_group_library_file_source,
     require_library_scope_middleware, require_workspace_scope_middleware, rerun_task, restore_task,
     retry_metadata_index, retry_task, stream_tasks, submit_delete_batch, submit_file_batch,
@@ -30,6 +30,7 @@ pub(super) fn task_routes(api_state: ApiState) -> Router<ApiState> {
         .route("/v1/scopes/ensure", post(ensure_scope))
         .route("/v1/tasks/clear", post(clear_task_history))
         .route("/v1/tasks/stream", get(stream_tasks))
+        .route("/v1/tasks/selection", get(list_task_selection))
         .route("/v1/tasks", get(list_tasks).post(submit_task))
         .route("/v1/tasks/{task_id}", get(get_task).delete(delete_task))
         .route("/v1/tasks/{task_id}/items", get(list_task_items))

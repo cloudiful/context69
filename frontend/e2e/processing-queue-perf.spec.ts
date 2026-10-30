@@ -199,7 +199,7 @@ test("captures one and ten expanded rows after loading two item pages each", asy
   });
 });
 
-test("records mocked 100-task bulk retry and rerun latency and summary", async ({ browser }) => {
+test("records mocked 100-task bulk retry and resume latency and summary", async ({ browser }) => {
   const failTaskId = "00000000-0000-4000-8000-000000000100";
   await runWithQueuePage(
     browser,
@@ -207,26 +207,35 @@ test("records mocked 100-task bulk retry and rerun latency and summary", async (
     { actionDelayMs: 25, failActionTaskId: failTaskId },
     async (queue) => {
       await resetQueuePerformanceProbe(queue.page);
-      await queue.page.getByRole("button", { name: /Retry recoverable tasks/ }).click();
-      await queue.page.getByRole("button", { name: "Retry", exact: true }).click();
-      await expect(queue.page.getByText("99 succeeded · 0 skipped · 1 failed", { exact: true })).toBeVisible();
+      // One captured snapshot of the whole filtered set, then the contextual
+      // retry of the failed rows only.
+      await queue.page.getByRole("button", { name: "Select all matching" }).click();
+      await expect(queue.page.getByTestId("queue-selection-count")).toHaveText("100 selected");
+      await queue.page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry" }).click();
+      await expect(queue.page.getByText("50 succeeded · 0 skipped · 0 failed", { exact: true })).toBeVisible();
+
+      // The cancelled rows stay selected, so the resume targets exactly them.
+      await expect(queue.page.getByTestId("queue-selection-count")).toHaveText("50 selected");
+      await queue.page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Resume" }).click();
+      await expect(queue.page.getByText("49 succeeded · 0 skipped · 1 failed", { exact: true })).toBeVisible();
       const pageText = await queue.page.locator("body").innerText();
       const toastLines = pageText.split("\n").map((line) => line.trim()).filter((line) =>
-        /succeeded.*skipped.*failed|Resumed \d+ tasks in place/.test(line),
+        /succeeded.*skipped.*failed/.test(line),
       );
       const measured = await recordScenario(queue, "100-bulk-recovery-mixed", {
-        workload: "mocked-bulk-recovery",
+        workload: "mocked-bulk-selection",
         requestedTargets: 100,
         actionDelayMs: 25,
         expectedSuccessfulRetries: 50,
         expectedSuccessfulReruns: 49,
-        remainingRecoverableAfterReload: 1,
+        remainingFailedAfterReload: 1,
         observedToastLines: toastLines,
       });
+      expect(measured.requests.selectionRequests).toBe(1);
       expect(measured.requests.actionRequests).toHaveLength(100);
       expect(measured.requests.retryRequests).toBe(50);
       expect(measured.requests.rerunRequests).toBe(50);
-      // The current-page runner is bounded to four in-flight submissions.
+      // The bulk runner is bounded to four in-flight submissions.
       expect(measured.requests.maximumActionConcurrency).toBeGreaterThan(0);
       expect(measured.requests.maximumActionConcurrency).toBeLessThanOrEqual(4);
     },
