@@ -6631,6 +6631,93 @@
         }
       }
     },
+    "/v1/tasks/selection": {
+      "get": {
+        "tags": [],
+        "operationId": "list_task_selection",
+        "parameters": [
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskKind"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TaskStatus"
+            }
+          },
+          {
+            "name": "view",
+            "in": "query",
+            "description": "Typed list view, exactly as in the task list: the view owns the trash\npredicate and a user-supplied `status` only narrows it.",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/TaskListView"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "waiting_reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "dependency_key",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskSelectionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/stream": {
       "get": {
         "tags": [],
@@ -13940,6 +14027,108 @@
           },
           "task": {
             "$ref": "#/components/schemas/TaskRef"
+          }
+        }
+      },
+      "TaskSelectionItem": {
+        "type": "object",
+        "description": "One captured task of a selection snapshot.\n\nOnly the id and the status the task had when the snapshot was read are\nexposed; no task, file or document content is part of a snapshot.",
+        "required": [
+          "task_id",
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "$ref": "#/components/schemas/TaskStatus"
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TaskSelectionQuery": {
+        "type": "object",
+        "description": "Query for `GET /v1/tasks/selection`.\n\nThe membership filter is the task list filter without pagination and\nsorting: the snapshot is the whole matching set, so the captured ids do not\ndepend on the page the operator happens to look at.",
+        "required": [
+          "view"
+        ],
+        "properties": {
+          "dependency_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskKind"
+              }
+            ]
+          },
+          "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskStatus"
+              }
+            ]
+          },
+          "view": {
+            "$ref": "#/components/schemas/TaskListView",
+            "description": "Typed list view, exactly as in the task list: the view owns the trash\npredicate and a user-supplied `status` only narrows it."
+          },
+          "waiting_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "TaskSelectionResponse": {
+        "type": "object",
+        "description": "Response of `GET /v1/tasks/selection`.\n\n`total` is the number of captured ids and `limit` the snapshot cap, so a\nclient can state the captured set exactly. A set larger than the cap is\nrefused by the server instead of being truncated here.",
+        "required": [
+          "items",
+          "total",
+          "limit"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskSelectionItem"
+            }
+          },
+          "limit": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          },
+          "total": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
           }
         }
       },

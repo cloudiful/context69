@@ -59,6 +59,83 @@ fn task_list_and_count_share_one_view_predicate() {
     }
 }
 
+/// The selection snapshot must carry exactly the membership predicate of the
+/// list and count queries: the same visible groups, the same search columns,
+/// the same filters and the same view branches. Only the projection differs,
+/// so a snapshot and a filtered page can never disagree about membership.
+#[test]
+fn task_selection_shares_the_list_and_count_membership_predicate() {
+    let list = include_str!("../../sql/db/tasks/list.sql");
+    let count = include_str!("../../sql/db/tasks/count.sql");
+    let selection = include_str!("../../sql/db/tasks/list_selection.sql");
+
+    for fragment in [
+        "WITH RECURSIVE accessible_groups AS",
+        "task.user_id = $1",
+        "FROM accessible_groups ag",
+        "$2::text IS NULL",
+        "task.group_path ILIKE '%' || $2 || '%'",
+        "task.source_key ILIKE '%' || $2 || '%'",
+        "task.error_summary ILIKE '%' || $2 || '%'",
+        "FROM context69.task_items item",
+        "$3::text IS NULL OR task.kind = $3",
+        "$4::text IS NULL OR task.status = $4",
+        "$5::text IS NULL OR task.stage = $5",
+        "$6::text IS NULL OR task.waiting_reason = $6",
+        "$7::text IS NULL OR task.dependency_key = $7",
+    ] {
+        for (name, sql) in [
+            ("list.sql", list),
+            ("count.sql", count),
+            ("list_selection.sql", selection),
+        ] {
+            assert!(
+                sql.contains(fragment),
+                "{name} must carry the shared membership fragment `{fragment}`"
+            );
+        }
+    }
+
+    // The view branches are the same three, with the same meaning.
+    for branch in [
+        "task.deleted_at IS NULL AND task.status <> 'succeeded'",
+        "task.deleted_at IS NULL AND task.status = 'succeeded'",
+        "AND task.deleted_at IS NOT NULL",
+    ] {
+        assert!(
+            selection.contains(branch),
+            "list_selection.sql must contain view branch {branch}"
+        );
+    }
+
+    // The snapshot is one read of ids and statuses: no metadata lookup, no
+    // page shape, and a bounded row count.
+    assert!(
+        !selection.contains("LATERAL"),
+        "the selection snapshot must not resolve file or document metadata"
+    );
+    assert!(
+        !selection.contains("library_files") && !selection.contains("library_file_documents"),
+        "the selection snapshot must stay metadata-free"
+    );
+    assert!(
+        !selection.contains("OFFSET"),
+        "the selection snapshot must not page through the matching set"
+    );
+    assert!(
+        selection.contains("LIMIT $9"),
+        "the selection snapshot must be bounded by the caller's limit"
+    );
+    assert!(
+        selection.contains("task.id AS task_id"),
+        "the selection snapshot must project the task id"
+    );
+    assert!(
+        !selection.contains(';'),
+        "the selection snapshot must be a single statement"
+    );
+}
+
 #[test]
 fn clear_user_task_history_sql_is_user_scoped_and_view_guarded() {
     let sql = include_str!("../../sql/db/tasks/clear_user_task_history.sql");

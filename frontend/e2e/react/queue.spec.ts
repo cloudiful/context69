@@ -101,23 +101,157 @@ test.describe("react processing queue", () => {
     )).length).toBe(1);
   });
 
-  test("clears completed history with the typed view in the request", async ({ page }) => {
+  test("selects the current page and keeps the selection across pages", async ({ page }) => {
     const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
 
     await page.goto("/processing-queue");
-    await page.getByRole("tab", { name: "Completed" }).click();
-    await expect(page.getByText("annual-report.pdf")).toBeVisible();
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("0 selected");
 
-    await page.getByRole("button", { name: "Clear completed" }).click();
+    await page.getByRole("checkbox", { name: "Select Field Notes" }).check();
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("1 selected");
+
+    // Sorting keeps the captured ids; only a filter change drops them.
+    await page.getByRole("button", { name: "Sort by Created, sorted descending" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === "/v1/tasks" && call.query.includes("sort_by=created_at&sort_direction=asc")
+    )).length).toBeGreaterThan(0);
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("1 selected");
+
+    await page.getByRole("button", { name: "Filter by Status" }).click();
+    await page.getByRole("menuitem", { name: "Failed" }).click();
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("0 selected");
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("captures every matching task with the explicit select-all control", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      // Two rows on the page, three matching rows behind the filters.
+      queue: {
+        processing: [QUEUE_ACTIVE_TASK, QUEUE_FAILED_TASK, { ...QUEUE_FAILED_TASK, task_id: "task-queue-extra", file_name: "extra.pdf" }],
+      },
+    });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(3);
+
+    await page.getByRole("button", { name: "Select all matching" }).click();
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("3 selected");
+    await expect(page.getByTestId("queue-selection-snapshot")).toBeVisible();
+    expect(transport.calls.some((call) => call.method === "GET" && call.path === "/v1/tasks/selection")).toBe(true);
+
+    // Only the captured ids are targeted: the retry hits the failed rows, never
+    // the active one.
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/retry"
+    )).length).toBe(1);
+    expect(transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/task-queue-active/retry"
+    ))).toEqual([]);
+  });
+
+  test("fails closed when the matching set exceeds the snapshot cap", async ({ page }) => {
+    await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: {
+        selectionError: {
+          status: 400,
+          message: "more than 50000 tasks match the current filters; narrow the filters to capture a selection",
+        },
+      },
+    });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await page.getByRole("button", { name: "Select all matching" }).click();
+    await expect(page.getByText("Failed to capture the matching tasks")).toBeVisible();
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("0 selected");
+    await expect(page.getByTestId("queue-bulk-actions")).toHaveCount(0);
+  });
+
+  test("cancels then trashes a selected active task and confirms the count", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await page.getByRole("checkbox", { name: "Select Field Notes" }).check();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Move to trash" }).click();
     const dialog = page.getByRole("alertdialog");
-    await expect(dialog).toContainText("Permanently delete your completed task history?");
-    await dialog.getByRole("button", { name: "Clear completed" }).click();
+    await expect(dialog).toContainText("Move 1 selected tasks to the trash?");
+    await dialog.getByRole("button", { name: "Move to trash" }).click();
 
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/clear"
+      call.method === "POST" && call.path === "/v1/tasks/task-queue-active/trash"
     )).length).toBe(1);
-    const clearCall = transport.calls.find((call) => call.method === "POST" && call.path === "/v1/tasks/clear");
-    expect(clearCall?.body).toEqual({ view: "completed" });
+    const paths = transport.calls.map((call) => `${call.method} ${call.path}`);
+    expect(paths.indexOf("POST /v1/tasks/task-queue-active/cancel"))
+      .toBeLessThan(paths.indexOf("POST /v1/tasks/task-queue-active/trash"));
+  });
+
+  test("permanently deletes a selected trash set only after the counted confirmation", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
+
+    await page.goto("/processing-queue");
+    await page.getByRole("tab", { name: "Trash" }).click();
+    await expect(page.getByText("old-draft.pdf")).toBeVisible();
+
+    await page.getByRole("checkbox", { name: "Select the tasks on this page" }).check();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Delete permanently" }).click();
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toContainText("Permanently delete 1 selected tasks?");
+    await expect(dialog).toContainText("cannot be undone");
+    await dialog.getByRole("button", { name: "Delete permanently" }).click();
+
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "DELETE" && call.path === "/v1/tasks/task-queue-trashed"
+    )).length).toBe(1);
+    await expect(page.getByTestId("queue-selection-count")).toHaveText("0 selected");
+  });
+
+  test("freezes the view, search and filters while a bulk action runs", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: { ...queue, actionDelayMs: 900 },
+    });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await page.getByRole("checkbox", { name: "Select Policy Review" }).check();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry" }).click();
+
+    // The captured ids must not be orphaned by a window change mid-batch.
+    await expect(page.getByRole("tab", { name: "Trash" })).toBeDisabled();
+    await expect(page.getByLabel("Search files, groups, or errors")).toBeDisabled();
+    await expect(page.getByRole("button", { name: "Filter by Status" })).toBeDisabled();
+
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/retry"
+    )).length).toBe(1);
+    await expect(page.getByRole("tab", { name: "Trash" })).toBeEnabled();
+  });
+
+  test("removes the legacy top bulk commands", async ({ page }) => {
+    await installAppTransport(page, { user: ADMIN_USER, queue });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+    for (const name of [
+      /Retry recoverable tasks/,
+      "Cancel active",
+      "Clear completed",
+      "Empty trash",
+    ]) {
+      await expect(page.getByRole("button", { name })).toHaveCount(0);
+    }
+
+    await page.getByRole("tab", { name: "Completed" }).click();
+    await expect(page.getByText("annual-report.pdf")).toBeVisible();
+    await expect(page.getByRole("button", { name: "Clear completed" })).toHaveCount(0);
   });
 
   test("refreshes expanded item rows when the parent task turns terminal", async ({ page }) => {
@@ -278,22 +412,6 @@ test.describe("react processing queue", () => {
 
     const listReads = transport.calls.filter((call) => call.method === "GET" && call.path === "/v1/tasks");
     expect(listReads.length).toBeLessThanOrEqual(3);
-  });
-
-  test("retries the recoverable rows on the page after confirmation", async ({ page }) => {
-    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
-
-    await page.goto("/processing-queue");
-    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
-
-    await page.getByRole("button", { name: /Retry recoverable tasks/ }).click();
-    const dialog = page.getByRole("alertdialog");
-    await expect(dialog).toContainText("1 failed tasks will be requeued");
-    await dialog.getByRole("button", { name: "Retry", exact: true }).click();
-
-    await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/retry"
-    )).length).toBe(1);
   });
 
   test("fails a hung list at the deadline and loads it on the next Refresh", async ({ page }) => {

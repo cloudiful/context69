@@ -62,7 +62,7 @@ from pathlib import Path
 
 # The pinned library the consumer cache must never absorb (issue 1020 P1).
 EXPECTED_REPO = "https://github.com/cloudiful/tasks"
-EXPECTED_REV = "739cad5822e2208e9a4424eead9f79653a7e02d7"
+EXPECTED_REV = "09ca2b383cd489f5a1d8eac697e6f093adbb40b4"
 
 # SQLx leaves its check-mode inventory beside the build cache.
 SCRATCH_DIR_NAME = "sqlx-prepare-check"

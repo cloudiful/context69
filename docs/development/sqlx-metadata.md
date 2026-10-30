@@ -17,7 +17,7 @@ Each crate owns the metadata of its own statements:
   manifest and owns the metadata of its own statements. It is resolved from
   `cargo metadata`; the gate below requires the public repository
   `https://github.com/cloudiful/tasks` at
-  `rev = 739cad5822e2208e9a4424eead9f79653a7e02d7`, so no cache path or foreign
+  `rev = 09ca2b383cd489f5a1d8eac697e6f093adbb40b4`, so no cache path or foreign
   crate is allowlisted.
 
 The dependency's metadata is never copied into the workspace cache, and the

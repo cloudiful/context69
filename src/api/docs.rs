@@ -71,11 +71,11 @@ use crate::api::{
     },
     tasks::{
         __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_diagnose_task,
-        __path_ensure_scope, __path_get_task, __path_list_task_items, __path_list_tasks,
-        __path_rerun_task, __path_restore_task, __path_retry_task, __path_stream_tasks,
-        __path_submit_delete_batch, __path_submit_file_batch, __path_submit_task,
-        __path_submit_text_batch, __path_submit_url_batch, __path_submit_vector_index_rebuild,
-        __path_trash_task,
+        __path_ensure_scope, __path_get_task, __path_list_task_items, __path_list_task_selection,
+        __path_list_tasks, __path_rerun_task, __path_restore_task, __path_retry_task,
+        __path_stream_tasks, __path_submit_delete_batch, __path_submit_file_batch,
+        __path_submit_task, __path_submit_text_batch, __path_submit_url_batch,
+        __path_submit_vector_index_rebuild, __path_trash_task,
     },
     translations::{
         __path_get_group_translation_settings, __path_get_translation_settings,
@@ -137,6 +137,8 @@ use crate::contracts::sources::{
     GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
     GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRequest,
 };
+
+use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelectionResponse};
 
 #[derive(OpenApi)]
 #[openapi(
@@ -238,6 +240,7 @@ use crate::contracts::sources::{
         submit_vector_index_rebuild,
         get_task,
         list_tasks,
+        list_task_selection,
         stream_tasks,
         list_task_items,
         diagnose_task,
@@ -412,6 +415,9 @@ use crate::contracts::sources::{
         TaskRef,
         TaskResponse,
         TaskRetryResponse,
+        TaskSelectionItem,
+        TaskSelectionQuery,
+        TaskSelectionResponse,
         RerunTaskResponse,
         TaskStatus,
         TaskStreamDone,

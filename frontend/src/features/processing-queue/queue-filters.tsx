@@ -40,12 +40,14 @@ export function QueueHeaderFilter({
   options,
   selected,
   active,
+  disabled,
   onSelect,
 }: {
   label: string;
   options: QueueFilterOption[];
   selected: string | null;
   active: boolean;
+  disabled?: boolean;
   onSelect: (value: string | null, group?: string | null) => void;
 }) {
   const selectedText = selectedLabel(options, selected);
@@ -61,6 +63,7 @@ export function QueueHeaderFilter({
           className={cn("size-6 shrink-0", active ? "text-foreground" : "text-muted-foreground")}
           aria-label={ariaLabel}
           data-filter-active={active ? "true" : "false"}
+          disabled={disabled}
         >
           <ListFilter aria-hidden="true" className={cn("size-3", active ? "opacity-100" : "opacity-60")} />
         </Button>

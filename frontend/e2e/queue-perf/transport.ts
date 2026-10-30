@@ -15,6 +15,7 @@ export class QueueMockTransport {
   readonly listQueries: Array<{ page: number; pageSize: number }> = [];
   readonly itemQueries: Array<{ taskId: string; cursor: string | null }> = [];
   readonly actionRequests: Array<{ kind: "retry" | "rerun"; taskId: string }> = [];
+  private selectionRequests = 0;
   private actionInFlight = 0;
   private maximumActionConcurrency = 0;
   private readonly tasks: TaskResponse[];
@@ -55,6 +56,18 @@ export class QueueMockTransport {
       await this.fulfill(route, makeAuthMeResponse());
       return true;
     }
+    if (method === "GET" && url.pathname === "/v1/tasks/selection") {
+      const view = url.searchParams.get("view") ?? "processing";
+      const status = url.searchParams.get("status");
+      // The snapshot is the whole filtered set, so it does not depend on the
+      // page the browser happens to show.
+      const items = this.tasks
+        .filter((task) => view !== "trash" && (!status || task.status === status))
+        .map((task) => ({ task_id: task.task_id, status: task.status }));
+      this.selectionRequests += 1;
+      await this.fulfill(route, { items, total: items.length, limit: 50_000 });
+      return true;
+    }
     if (method === "GET" && url.pathname === "/v1/tasks") {
       const page = Number(url.searchParams.get("page") ?? 1);
       const pageSize = Number(url.searchParams.get("page_size") ?? 25);
@@ -70,9 +83,25 @@ export class QueueMockTransport {
       await this.fulfill(route, makeTaskItemPage(taskId, cursor === "next-100" ? 100 : 0));
       return true;
     }
+    const taskMatch = /^\/v1\/tasks\/([^/]+)$/.exec(url.pathname);
+    if (method === "GET" && taskMatch) {
+      const task = this.tasks.find((candidate) => (
+        candidate.task_id === decodeURIComponent(taskMatch[1])
+      ));
+      if (!task) {
+        await route.fulfill({ status: 404, contentType: "application/json", body: "{}" });
+        return true;
+      }
+      await this.fulfill(route, task);
+      return true;
+    }
     const actionMatch = /^\/v1\/tasks\/([^/]+)\/(retry|rerun)$/.exec(url.pathname);
     if (method === "POST" && actionMatch) {
       await this.handleRecovery(route, decodeURIComponent(actionMatch[1]), actionMatch[2] as "retry" | "rerun");
+      return true;
+    }
+    if (method === "POST" && /^\/v1\/tasks\/[^/]+\/cancel$/.test(url.pathname)) {
+      await this.fulfill(route, {});
       return true;
     }
     return false;
@@ -117,6 +146,7 @@ export class QueueMockTransport {
     return {
       listRequests: this.listQueries.length,
       listQueries: [...this.listQueries],
+      selectionRequests: this.selectionRequests,
       itemRequests: this.itemQueries.length,
       itemQueries: [...this.itemQueries],
       retryRequests: this.actionRequests.filter(({ kind }) => kind === "retry").length,

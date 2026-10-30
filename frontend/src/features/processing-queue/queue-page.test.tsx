@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -69,7 +69,7 @@ describe("ProcessingQueuePage", () => {
     expect(screen.getByRole("tab", { name: "Processing" })).toHaveAttribute("data-state", "active");
   });
 
-  it("switches to the completed view with clear history instead of bulk recovery", async () => {
+  it("keeps the legacy top bulk commands out of the header in every view", async () => {
     const user = userEvent.setup();
     vi.spyOn(apiClient, "listTasks").mockImplementation(async (params) => (
       params.view === "completed" ? page([]) : page([task()])
@@ -77,14 +77,149 @@ describe("ProcessingQueuePage", () => {
     renderPage();
     await screen.findAllByTestId("queue-task-row");
 
+    for (const name of [
+      "Retry recoverable tasks",
+      "Cancel active",
+      "Clear completed",
+      "Empty trash",
+    ]) {
+      expect(screen.queryByRole("button", { name })).not.toBeInTheDocument();
+    }
+
     await user.click(screen.getByRole("tab", { name: "Completed" }));
     await waitFor(() => expect(apiClient.listTasks).toHaveBeenLastCalledWith(
       expect.objectContaining({ view: "completed" }),
       expect.anything(),
     ));
-    expect(screen.getByRole("button", { name: "Clear completed" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Clear completed" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Retry recoverable tasks" })).not.toBeInTheDocument();
     expect(await screen.findByText("No completed tasks")).toBeInTheDocument();
+  });
+
+  it("selects rows with checkboxes and offers contextual bulk actions", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: "task-1", file_name: "alpha.pdf", status: "failed" }),
+      task({ task_id: "task-2", file_name: "beta.pdf", status: "running" }),
+    ]));
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("0 selected");
+    expect(screen.queryByTestId("queue-bulk-actions")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
+    expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("1 selected");
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry" }))
+      .toBeInTheDocument();
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Move to trash" }))
+      .toBeInTheDocument();
+    expect(within(screen.getByTestId("queue-bulk-actions")).queryByRole("button", { name: "Cancel" }))
+      .not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("checkbox", { name: "Select beta.pdf" }));
+    expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("2 selected");
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Cancel" }))
+      .toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear selection" }));
+    expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("0 selected");
+  });
+
+  it("disables view, search, filter and paging controls while a bulk action runs", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: "failed-1", file_name: "alpha.pdf", status: "failed" }),
+    ]));
+    let release!: () => void;
+    vi.spyOn(apiClient, "retryTask").mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({ retried_items: 1, task: { task_id: "failed-1" } });
+    }));
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
+    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Trash" })).toBeDisabled());
+    expect(screen.getByRole("tab", { name: "Completed" })).toBeDisabled();
+    expect(screen.getByLabelText("Search files, groups, or errors")).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Filter by Type" })).toBeDisabled();
+    expect(screen.getByTestId("queue-pagination")).toHaveAttribute("inert");
+    expect(screen.getByTestId("queue-pagination")).toHaveAttribute("aria-busy", "true");
+
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(screen.getByRole("tab", { name: "Trash" })).toBeEnabled());
+  });
+
+  it("selects the current page only from the header checkbox", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: "task-1", file_name: "alpha.pdf", status: "failed" }),
+      task({ task_id: "task-2", file_name: "beta.pdf", status: "failed" }),
+    ]));
+    const selection = vi.spyOn(apiClient, "listTaskSelection");
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select the tasks on this page" }));
+    expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("2 selected");
+    expect(selection).not.toHaveBeenCalled();
+  });
+
+  it("captures every matching task with the explicit select-all control", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: "task-1", file_name: "alpha.pdf", status: "failed" }),
+    ]));
+    const selection = vi.spyOn(apiClient, "listTaskSelection").mockResolvedValue({
+      items: [
+        { task_id: "task-1", status: "failed" },
+        { task_id: "task-9", status: "failed" },
+      ],
+      total: 2,
+      limit: 50000,
+    });
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("button", { name: "Select all matching" }));
+    await waitFor(() => expect(selection).toHaveBeenCalledWith(expect.objectContaining({
+      view: "processing",
+      query: "",
+    })));
+    expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("2 selected");
+    expect(screen.getByTestId("queue-selection-snapshot")).toBeInTheDocument();
+  });
+
+  it("states the captured count before deleting a selection permanently", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: "task-1", file_name: "alpha.pdf", status: "failed", deleted_at: "2026-01-02T00:00:00Z" }),
+      task({ task_id: "task-2", file_name: "beta.pdf", status: "failed", deleted_at: "2026-01-02T00:00:00Z" }),
+    ]));
+    const remove = vi.spyOn(apiClient, "deleteTask").mockResolvedValue(undefined);
+    renderPage();
+    await screen.findByText("alpha.pdf");
+    await user.click(screen.getByRole("tab", { name: "Trash" }));
+    await waitFor(() => expect(apiClient.listTasks).toHaveBeenLastCalledWith(
+      expect.objectContaining({ view: "trash" }),
+      expect.anything(),
+    ));
+
+    await user.click(screen.getByRole("checkbox", { name: "Select the tasks on this page" }));
+    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Delete permanently" }));
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText(/2 selected tasks/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/cannot be undone/)).toBeInTheDocument();
+    expect(remove).not.toHaveBeenCalled();
+
+    await user.click(within(dialog).getByRole("button", { name: "Delete permanently" }));
+    await waitFor(() => expect(remove).toHaveBeenCalledTimes(2));
+    expect(remove).toHaveBeenCalledWith("task-1");
+    expect(remove).toHaveBeenCalledWith("task-2");
   });
 
   it("trashes a failed task only after the confirmation dialog accepts", async () => {

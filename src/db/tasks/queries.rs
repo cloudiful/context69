@@ -1,4 +1,5 @@
 use anyhow::Result;
+use context69_contracts::tasks::{TaskKind, TaskListView, TaskSelectionQuery, TaskStatus};
 use uuid::Uuid;
 
 use super::types::{
@@ -60,6 +61,41 @@ impl Database {
         .fetch_one(self.pool())
         .await?
         .unwrap_or(0))
+    }
+
+    /// Read-only selection snapshot (issue 1130 P1).
+    ///
+    /// The statement returns the id and the status of every task that matches
+    /// the filter, independent of pagination and sorting, so the captured set
+    /// is the whole matching set and not the page the caller looks at. The
+    /// membership predicate is the predicate of `list.sql` and `count.sql`.
+    ///
+    /// `limit` is the caller's cap plus one row: the extra row proves that the
+    /// matching set is larger than the cap without reading all of it.
+    pub async fn list_task_selection(
+        &self,
+        user_id: i64,
+        query: &TaskSelectionQuery,
+        limit: i64,
+    ) -> Result<Vec<(Uuid, String)>> {
+        let rows = sqlx::query_file!(
+            "src/sql/db/tasks/list_selection.sql",
+            user_id,
+            query.query.as_deref(),
+            query.kind.map(TaskKind::as_str),
+            query.status.map(TaskStatus::as_str),
+            query.stage.as_deref(),
+            query.waiting_reason.as_deref(),
+            query.dependency_key.as_deref(),
+            TaskListView::as_str(query.view),
+            limit,
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|row| (row.task_id, row.status))
+            .collect())
     }
 
     pub async fn list_task_items(
