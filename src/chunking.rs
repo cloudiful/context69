@@ -30,7 +30,7 @@ pub fn chunk_document(
     document: &NormalizedDocument,
     config: &ChunkingConfig,
 ) -> Vec<DocumentChunk> {
-    chunk_document_iter(document_id, source_key, document, config).collect()
+    chunk_document_iter(document_id, source_key, document, config, None).collect()
 }
 
 pub fn chunk_document_iter<'a>(
@@ -38,14 +38,16 @@ pub fn chunk_document_iter<'a>(
     source_key: &'a str,
     document: &'a NormalizedDocument,
     config: &ChunkingConfig,
+    generation: Option<i64>,
 ) -> ChunkDocumentIter<'a> {
-    ChunkDocumentIter::new(document_id, source_key, document, config)
+    ChunkDocumentIter::new(document_id, source_key, document, config, generation)
 }
 
 pub struct ChunkDocumentIter<'a> {
     document_id: i64,
     source_key: &'a str,
     document: &'a NormalizedDocument,
+    generation: Option<i64>,
     paragraphs: std::str::Split<'a, &'static str>,
     current: String,
     current_chars: usize,
@@ -68,6 +70,7 @@ impl<'a> ChunkDocumentIter<'a> {
         source_key: &'a str,
         document: &'a NormalizedDocument,
         config: &ChunkingConfig,
+        generation: Option<i64>,
     ) -> Self {
         let max_chars = config.max_chars.max(1);
         let overlap_chars = config.overlap_chars.min(max_chars - 1);
@@ -77,6 +80,7 @@ impl<'a> ChunkDocumentIter<'a> {
             document_id,
             source_key,
             document,
+            generation,
             paragraphs,
             current: String::new(),
             current_chars: 0,
@@ -115,6 +119,7 @@ impl<'a> ChunkDocumentIter<'a> {
                 &self.document.external_id,
                 &self.document.record_hash,
                 index,
+                self.generation,
             ),
             document_id: self.document_id,
             chunk_index: index,
@@ -235,8 +240,19 @@ fn prefix_len_by_chars(text: &str, count: usize) -> usize {
         .unwrap_or(text.len())
 }
 
-fn chunk_uuid(source_key: &str, external_id: &str, record_hash: &str, chunk_index: i32) -> Uuid {
-    let name = format!("{source_key}:{external_id}:{record_hash}:{chunk_index}");
+fn chunk_uuid(
+    source_key: &str,
+    external_id: &str,
+    record_hash: &str,
+    chunk_index: i32,
+    generation: Option<i64>,
+) -> Uuid {
+    let name = match generation {
+        Some(generation) => {
+            format!("{source_key}:{external_id}:{record_hash}:{chunk_index}:{generation}")
+        }
+        None => format!("{source_key}:{external_id}:{record_hash}:{chunk_index}"),
+    };
     Uuid::new_v5(&Uuid::NAMESPACE_URL, name.as_bytes())
 }
 

@@ -21,10 +21,14 @@ import {
   QueueTaskSkippedError,
   availableQueueBulkActions,
   captureQueueBulkTargets,
+  describeQueueBulkOutcomes,
   isActiveStatus,
   isQueueBulkActionApplicable,
   isRecoverableTask,
+  isSourceRerunnableTask,
   isTerminalTask,
+  runQueueBatchRerun,
+  runQueueBatchRetry,
   runQueueBulkTasks,
   summarizeQueueBulkOutcomes,
   type QueueBulkAction,
@@ -173,6 +177,7 @@ export interface QueueState {
   selectAllMatching: () => void;
   runBulkAction: (action: QueueBulkAction) => void;
   recoverTask: (task: TaskResponse) => void;
+  rerunTask: (task: TaskResponse) => void;
   cancelTask: (task: TaskResponse) => void;
   confirmTrashTask: (task: TaskResponse) => void;
   restoreTask: (task: TaskResponse) => void;
@@ -508,6 +513,22 @@ export function useQueue(): QueueState {
     );
   }, [actionIds, runTaskAction]);
 
+  /**
+   * Rerun a succeeded task from its current source. The server creates a
+   * child task that reads the source again; the parent keeps its history.
+   */
+  const rerunTask = useCallback((task: TaskResponse) => {
+    if (!isSourceRerunnableTask(task) || actionIds.includes(task.task_id)) {
+      return;
+    }
+    void runTaskAction(
+      task,
+      () => apiClient.rerunTask(task.task_id),
+      "processingQueue.rerunAccepted",
+      "processingQueue.rerunFailed",
+    );
+  }, [actionIds, runTaskAction]);
+
   const cancelTask = useCallback((task: TaskResponse) => {
     if (!ACTIVE_STATUSES.includes(task.status) || actionIds.includes(task.task_id)) {
       return;
@@ -716,17 +737,6 @@ export function useQueue(): QueueState {
 
   const submitBulkTarget = useCallback(async (target: QueueBulkTarget) => {
     switch (target.action) {
-      case "retry":
-        return apiClient.retryTask(target.taskId);
-      case "resume": {
-        // The rerun endpoint forks a failed task, so a resume only ever runs on
-        // a task that is cancelled right now.
-        const current = await apiClient.getTask(target.taskId);
-        if (current.status !== "cancelled") {
-          throw new QueueTaskSkippedError(t("processingQueue.bulkSkippedNotCancelled"));
-        }
-        return apiClient.rerunTask(target.taskId);
-      }
       case "cancel":
         return apiClient.cancelTask(target.taskId);
       case "trash":
@@ -752,11 +762,28 @@ export function useQueue(): QueueState {
     setBulkAction(action);
     setBulkProgress({ completed: 0, total: targets.length });
     try {
-      const outcomes = await runQueueBulkTasks(
-        targets,
-        submitBulkTarget,
-        (completed, total) => setBulkProgress({ completed, total }),
-      );
+      const onProgress = (completed: number, total: number) => setBulkProgress({ completed, total });
+      const outcomes = action === "retry"
+        // One bounded batch API call per chunk, never a per-task fan-out: the
+        // server retries failed and resumes cancelled items in place.
+        ? await runQueueBatchRetry(
+            targets,
+            (taskIds) => apiClient.batchRetryTasks([...taskIds]),
+            onProgress,
+          )
+        : action === "rerun"
+          // The same bounded batch call, but for the succeeded parents that
+          // own a rerunnable source; every other id is reported per item.
+          ? await runQueueBatchRerun(
+              targets,
+              (taskIds) => apiClient.batchRerunTasks([...taskIds]),
+              onProgress,
+            )
+          : await runQueueBulkTasks(
+              targets,
+              submitBulkTarget,
+              onProgress,
+            );
       const summary = summarizeQueueBulkOutcomes(outcomes);
       // The tasks that were handled leave the selection; the skipped and failed
       // ones stay selected so they can be seen and acted on again.
@@ -778,6 +805,8 @@ export function useQueue(): QueueState {
         };
       });
       reload();
+      const details = describeQueueBulkOutcomes(outcomes).map((detail) =>
+        `${detail.taskId} ${t(`processingQueue.bulkReasons.${detail.reason}`, { defaultValue: detail.reason })}`);
       toast[summary.failed === 0 && summary.skipped === 0 ? "success" : "warning"](
         t("processingQueue.bulkSummary", {
           succeeded: summary.succeeded,
@@ -785,9 +814,11 @@ export function useQueue(): QueueState {
           failed: summary.failed,
         }),
         {
-          description: summary.partial > 0
-            ? t("processingQueue.bulkPartial", { count: summary.partial })
-            : undefined,
+          description: details.length > 0
+            ? details.join(" · ")
+            : summary.partial > 0
+              ? t("processingQueue.bulkPartial", { count: summary.partial })
+              : undefined,
           duration: 3500,
         },
       );
@@ -807,7 +838,7 @@ export function useQueue(): QueueState {
       return;
     }
     const count = selection.ids.length;
-    if (action === "retry" || action === "resume" || action === "restore") {
+    if (action === "retry" || action === "rerun" || action === "restore") {
       void runBulkAction(action);
       return;
     }
@@ -883,6 +914,7 @@ export function useQueue(): QueueState {
     selectAllMatching,
     runBulkAction: requestBulkAction,
     recoverTask,
+    rerunTask,
     cancelTask,
     confirmTrashTask,
     restoreTask,

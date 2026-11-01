@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Whether a library file carries an active unresolved ingest run.\n--\n-- An active run is a current row that was never resolved. A retired row is\n-- history and a resolved row belongs to a finished switch, so neither may\n-- block a delete. The delete of a file with an active run is refused, so the\n-- caller can cancel the run and retry instead of deleting a file that an\n-- ingest is still writing.\nSELECT EXISTS (\n    SELECT 1\n    FROM context69.library_ingest_runs\n    WHERE file_id = $1\n      AND resolved_at IS NULL\n      AND retired_at IS NULL\n      AND ($2::uuid IS NULL OR item_id <> $2)\n) AS \"active!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "active!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "dfeddae08cfecedb07f1888dc6bba42d3c9220c6ad2e7909386f4f50c44e49f5"
+}

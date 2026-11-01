@@ -96,6 +96,9 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     trusted_proxy_enabled: false,
     url_import_concurrency: 2,
     url_import_min_interval_ms: 1000,
+    registry_max_ids_total: 32768,
+    registry_max_ids_per_file: 16384,
+    registry_max_ids_per_run: 8192,
   },
 };
 
@@ -428,6 +431,11 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             url_import_concurrency: payload.file_library.url_import_concurrency,
             url_import_min_interval_ms: payload.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: payload.file_library.trusted_proxy_enabled,
+            // The capacity policy is not part of the settings form: the
+            // request omits it, so the stored policy stays in effect.
+            registry_max_ids_total: state.runtime.file_library.registry_max_ids_total,
+            registry_max_ids_per_file: state.runtime.file_library.registry_max_ids_per_file,
+            registry_max_ids_per_run: state.runtime.file_library.registry_max_ids_per_run,
             s3: payload.file_library.s3
               ? {
                 endpoint: payload.file_library.s3.endpoint,

@@ -288,14 +288,14 @@ impl LibraryService {
 }
 
 /// Config/sync control files are managed by the sync engine and read from
-/// storage during a sync; releasing their source would break the managed
-/// source. They are refused even though they are otherwise ordinary succeeded
-/// files. The `source-folder:` external-id prefix covers the `source.json`
-/// config file and every synced record.
+/// storage during a sync; releasing or replacing their source would break the
+/// managed source. They are refused even though they are otherwise ordinary
+/// succeeded files.
+pub(crate) fn is_managed_source_file(filename: &str, external_id: Option<&str>) -> bool {
+    filename.eq_ignore_ascii_case(SOURCE_CONFIG_FILENAME)
+        || external_id.is_some_and(|external_id| external_id.starts_with("source-folder:"))
+}
+
 pub(crate) fn is_sync_control_file(state: &FileSourceLifecycleRow) -> bool {
-    state.filename.eq_ignore_ascii_case(SOURCE_CONFIG_FILENAME)
-        || state
-            .external_id
-            .as_deref()
-            .is_some_and(|external_id| external_id.starts_with("source-folder:"))
+    is_managed_source_file(&state.filename, state.external_id.as_deref())
 }

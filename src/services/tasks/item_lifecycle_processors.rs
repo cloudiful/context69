@@ -158,7 +158,7 @@ pub(super) async fn process_sync(
 pub(super) async fn process_vector_rebuild(
     service: &TaskService,
     task: &crate::db::StoredTask,
-    item: &crate::db::ClaimedItem,
+    item: &mut crate::db::ClaimedItem,
     stage: &str,
 ) -> Result<ProcessResult> {
     if stage == "finalize" {
@@ -183,7 +183,14 @@ pub(super) async fn process_vector_rebuild(
             message: Some("another vector index rebuild is still running".to_string()),
         });
     }
-    match service.sync().run_vector_index_rebuild().await {
+    // The rebuild owns the persistent barrier, so it carries the captured
+    // grant of this task item: the barrier records an owner that can prove
+    // it is a live writer.
+    let fence = match crate::library_store::TaskWriteFence::from_claimed_item(item) {
+        Ok(fence) => fence,
+        Err(error) => return Ok(process_error(stage, error)),
+    };
+    match service.sync().run_vector_index_rebuild(fence).await {
         Ok(_) => Ok(ProcessResult::Progressed { next: "finalize" }),
         Err(error) if error.to_string().contains("already running") => Ok(ProcessResult::Waiting {
             reason: "dependency".to_string(),

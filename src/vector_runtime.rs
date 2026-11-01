@@ -78,6 +78,14 @@ pub struct VectorSnapshot {
     pub index: Arc<QdrantIndex>,
     pub collection: String,
     pub generation: u64,
+    /// The fingerprint of the vector space this pair was published with.
+    ///
+    /// It is published together with the provider, the identity, the index and
+    /// the collection, so a consumer that captures the snapshot captures the
+    /// identity of the provider it will use. A reconfiguration never relabels
+    /// an older pair with a newer fingerprint: the pair and its identity move
+    /// as one, or not at all.
+    pub configured_fingerprint: Option<String>,
 }
 
 impl VectorSnapshot {
@@ -254,6 +262,7 @@ impl VectorRuntime {
                     index: Arc::new(index),
                     collection,
                     generation,
+                    configured_fingerprint: None,
                 });
                 state.ready = true;
             });
@@ -280,6 +289,18 @@ impl VectorRuntime {
             rebuilding: state.rebuilding,
             snapshot: state.snapshot.clone(),
         }
+    }
+
+    /// The published pair together with the identity it was published with.
+    ///
+    /// Both come from one read of the runtime state, so the returned identity
+    /// belongs to the returned pair. A pair without a fingerprint has no
+    /// usable identity and is reported as absent.
+    pub fn published_pair(&self) -> Option<(VectorSnapshot, String)> {
+        let state = self.read();
+        let snapshot = state.snapshot.clone()?;
+        let fingerprint = snapshot.configured_fingerprint.clone()?;
+        Some((snapshot, fingerprint))
     }
 
     pub fn is_ready(&self) -> bool {
@@ -395,12 +416,17 @@ impl VectorRuntime {
     /// Applies an admitted reconfiguration while holding the state write lock.
     ///
     /// `update` mutates the reconnect source and reports whether the
-    /// vector-relevant configuration changed; the configured fingerprint is
-    /// recorded in the same transition. A changed configuration advances the
+    /// vector-relevant configuration changed; the desired identity fingerprint
+    /// is recorded in the same transition. A changed configuration advances the
     /// generation and withdraws readiness, so a snapshot published before it
     /// becomes stale and nothing observes a half-applied configuration. The
     /// caller holds the shared exclusion, so no rebuild start or publication can
     /// interleave with the commit.
+    ///
+    /// The recorded fingerprint is the *desired* identity of the node, never a
+    /// label for the published pair: the pair keeps the fingerprint it was
+    /// published with, so a rebuild can tell an old pair from the identity it
+    /// would be rebuilt under.
     ///
     /// Returns `None` without running `update` when a rebuild fence is open
     /// under the same state lock: an attempt owns that generation and its
@@ -530,9 +556,20 @@ impl VectorRuntime {
             if identity.dimensions == 0 || snapshot.collection.trim().is_empty() {
                 return Err(RebuildAdmissionError::MissingIdentity);
             }
-            let Some(fingerprint) = state.configured_fingerprint.clone() else {
+            let Some(fingerprint) = snapshot.configured_fingerprint.clone() else {
                 return Err(RebuildAdmissionError::MissingFingerprint);
             };
+            // The published pair carries the identity it was published with. A
+            // reconfiguration that moved the desired identity forward while
+            // the old pair is still published leaves the two apart, and such a
+            // pair is never re-embedded under the newer identity.
+            if state
+                .configured_fingerprint
+                .as_ref()
+                .is_some_and(|desired| desired != &fingerprint)
+            {
+                return Err(RebuildAdmissionError::StaleSnapshot);
+            }
             state.generation += 1;
             if let Some(snapshot) = state.snapshot.as_mut() {
                 snapshot.generation = state.generation;
@@ -553,17 +590,26 @@ impl VectorRuntime {
         admitted
     }
 
-    /// Rewrites the published pair's provider and identity in place for a
-    /// confirmed same-space transition. The Qdrant handle, collection, and
-    /// generation are preserved, so requests holding an older snapshot finish on
-    /// the provider they started with while new requests see one consistent new
-    /// pair. A different dimension, an open rebuild fence, or no published pair
-    /// is rejected and changes nothing.
+    /// Rewrites the published pair's provider, identity and fingerprint in
+    /// place for a confirmed same-space transition.
+    ///
+    /// The Qdrant handle, the collection, and the generation are preserved, so
+    /// requests holding an older snapshot finish on the provider they started
+    /// with while new requests see one consistent new pair. The fingerprint is
+    /// explicit and required: the pair and the identity of its vector space
+    /// move in one write, so the published pair is never described by a
+    /// fingerprint of another configuration. A different dimension, an open
+    /// rebuild fence, a missing fingerprint, or no published pair is rejected
+    /// and changes nothing.
     pub fn rekey_same_space(
         &self,
         provider: Arc<dyn EmbeddingProvider>,
         identity: EmbeddingIdentity,
+        fingerprint: Option<String>,
     ) -> bool {
+        let Some(fingerprint) = fingerprint else {
+            return false;
+        };
         self.with_write_state(|state| {
             let Some(snapshot) = state.snapshot.as_mut() else {
                 return false;
@@ -578,6 +624,8 @@ impl VectorRuntime {
             }
             snapshot.embedding = provider;
             snapshot.identity = Some(identity);
+            snapshot.configured_fingerprint = Some(fingerprint.clone());
+            state.configured_fingerprint = Some(fingerprint);
             true
         })
     }
@@ -972,6 +1020,7 @@ mod test_support {
                     index: Arc::new(index),
                     collection: "test".to_string(),
                     generation,
+                    configured_fingerprint: Some("test-fingerprint".to_string()),
                 },
             );
             runtime

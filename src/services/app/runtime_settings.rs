@@ -5,7 +5,10 @@ use tracing::warn;
 
 use crate::{
     chunking::ChunkingConfig,
-    config::{Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, SchedulerConfig},
+    config::{
+        Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, RegistryQuotaConfig,
+        SchedulerConfig,
+    },
     db::{Database, StoredDoclingSettings, StoredRuntimeSettings},
     services::{
         secret_store::SecretStore,
@@ -75,6 +78,11 @@ pub async fn import_legacy_runtime_if_needed(
             url_import_concurrency: config.file_library.url_import_concurrency,
             url_import_min_interval_ms: config.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: config.file_library.trusted_proxy_enabled,
+            // The registry capacity policy is seeded from the configuration, so
+            // a fresh boot installs the same caps the deployment declares.
+            registry_max_ids_total: Some(config.registry_quota.registry_max_ids_total),
+            registry_max_ids_per_file: Some(config.registry_quota.registry_max_ids_per_file),
+            registry_max_ids_per_run: Some(config.registry_quota.registry_max_ids_per_run),
             s3: config
                 .file_library
                 .s3
@@ -282,6 +290,15 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
                 // falling back to local storage.
                 secret_key: s3.secret_key.clone().unwrap_or_default(),
             }),
+    };
+    // The persisted registry capacity policy stays in effect: the hydration
+    // keeps the stored caps instead of falling back to the deployment
+    // defaults.
+    let quota = runtime.file_library.registry_quota();
+    config.registry_quota = RegistryQuotaConfig {
+        registry_max_ids_total: quota.max_ids_total,
+        registry_max_ids_per_file: quota.max_ids_per_file,
+        registry_max_ids_per_run: quota.max_ids_per_run,
     };
 }
 

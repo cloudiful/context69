@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Reserve the next document id that is not a tombstoned entity.\n--\n-- The sequence never repeats a value, so a reserved id can only be a\n-- tombstoned one when an explicit id was inserted ahead of the sequence. Such\n-- an id must not be handed out again: the document is deleted, so a new\n-- document with that id would be invisible to every search that still\n-- excludes the tombstone. The statement therefore returns no row for a\n-- tombstoned candidate, and the caller skips it within a bounded number of\n-- attempts.\nWITH candidate AS (\n    SELECT nextval('context69.documents_id_seq'::regclass) AS id\n)\nSELECT candidate.id AS \"id!\"\nFROM candidate\nWHERE NOT EXISTS (\n    SELECT 1\n    FROM context69.library_deleted_entities\n    WHERE document_id = candidate.id\n)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7a6b24f6948110d60375adf942276b5b5c9319fc2c17c08d9038aecdb924f3b0"
+}

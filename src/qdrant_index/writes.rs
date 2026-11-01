@@ -3,8 +3,8 @@ use qdrant_client::{
     Payload,
     qdrant::{
         DeletePointsBuilder, PointId, PointStruct, PointsIdsList, PointsSelector,
-        PointsUpdateOperation, UpdateBatchPointsBuilder, UpsertPointsBuilder,
-        points_selector::PointsSelectorOneOf, points_update_operation,
+        PointsUpdateOperation, UpdateBatchPointsBuilder, UpdateMode, UpsertPoints,
+        UpsertPointsBuilder, points_selector::PointsSelectorOneOf, points_update_operation,
     },
 };
 use std::time::Instant;
@@ -39,6 +39,24 @@ impl QdrantIndex {
             return Ok(());
         }
         self.upsert_points(points, payloads.len()).await
+    }
+
+    /// Upserts chunk points in insert-only mode.
+    ///
+    /// A point id that already exists keeps its stored payload and vector; only
+    /// absent ids are inserted. The staged replacement executor writes with this
+    /// mode so a retried attempt never overwrites an already verified point, and
+    /// a foreign point that shares an id can never be silently replaced.
+    pub async fn upsert_document_chunks_insert_only(
+        &self,
+        payloads: &[ChunkPayload],
+        embeddings: &[Vec<f32>],
+    ) -> Result<()> {
+        let points = self.build_document_points(payloads, embeddings)?;
+        if points.is_empty() {
+            return Ok(());
+        }
+        self.upsert_points_insert_only(points, payloads.len()).await
     }
 
     pub(super) fn build_document_points(
@@ -97,6 +115,43 @@ impl QdrantIndex {
             batch_size,
             elapsed_ms = started.elapsed().as_millis() as u64,
             "qdrant points upserted"
+        );
+        Ok(())
+    }
+
+    /// The exact request one insert-only upsert issues. Exposed to unit tests so
+    /// the fixed wait and mode are pinned without a server.
+    pub(super) fn insert_only_upsert_request(
+        collection_name: &str,
+        points: Vec<PointStruct>,
+    ) -> UpsertPoints {
+        UpsertPointsBuilder::new(collection_name, points)
+            .wait(true)
+            .update_mode(UpdateMode::InsertOnly)
+            .build()
+    }
+
+    pub(super) async fn upsert_points_insert_only(
+        &self,
+        points: Vec<PointStruct>,
+        batch_size: usize,
+    ) -> Result<()> {
+        if self.is_noop() {
+            return Ok(());
+        }
+        let started = Instant::now();
+        let operation = "upsert_points_insert_only";
+        let collection = self.collection_name.clone();
+        let extra = format!("batch_size={batch_size}");
+        let request = Self::insert_only_upsert_request(&self.collection_name, points);
+        timeout(QDRANT_OPERATION_TIMEOUT, self.client.upsert_points(request))
+            .await
+            .map_err(|_| qdrant_timeout_error(operation, &collection, &extra))?
+            .map_err(|err| format_qdrant_error(operation, &collection, &extra, err.into()))?;
+        info!(
+            batch_size,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant points upserted insert-only"
         );
         Ok(())
     }
@@ -260,7 +315,70 @@ pub fn is_qdrant_idempotent_not_found(error: &anyhow::Error) -> bool {
 #[cfg(test)]
 mod tests {
     use super::is_qdrant_idempotent_not_found;
+    use crate::domain::ChunkPayload;
     use anyhow::anyhow;
+    use qdrant_client::qdrant::{PointStruct, UpdateMode};
+
+    fn payload() -> ChunkPayload {
+        ChunkPayload {
+            chunk_id: uuid::Uuid::new_v4(),
+            document_id: 1,
+            group_id: 1,
+            group_key: "key".into(),
+            group_path: "path".into(),
+            visibility: crate::contracts::Visibility::Private,
+            source_key: "library".into(),
+            external_id: "external".into(),
+            title: "title".into(),
+            summary: None,
+            source_uri: "context69://test".into(),
+            published_at: None,
+            updated_at_source: chrono::Utc::now(),
+            record_hash: "hash".into(),
+            chunk_index: 0,
+            chunk_text: "text".into(),
+            metadata_json: serde_json::json!({}),
+            content_locale: "original".into(),
+            source_locale: None,
+            translation_provider: None,
+        }
+    }
+
+    #[test]
+    fn the_insert_only_request_pins_wait_and_mode() {
+        let points = vec![PointStruct::new(
+            "00000000-0000-0000-0000-000000000001".to_string(),
+            vec![0.0; 4],
+            qdrant_client::Payload::try_from(serde_json::json!({"record_hash": "hash"}))
+                .expect("a payload object"),
+        )];
+        let request = super::QdrantIndex::insert_only_upsert_request("the-collection", points);
+        assert_eq!(request.collection_name, "the-collection");
+        assert_eq!(request.wait, Some(true));
+        assert_eq!(
+            request.update_mode,
+            Some(UpdateMode::InsertOnly as i32),
+            "the staged executor must request insert-only mode, never the overwriting default"
+        );
+        assert_eq!(request.points.len(), 1);
+    }
+
+    #[test]
+    fn the_insert_only_upsert_rejects_a_dimension_mismatch_before_any_request() {
+        let index = super::QdrantIndex::for_test("context69", 8);
+        let error = tokio::runtime::Runtime::new()
+            .expect("a runtime")
+            .block_on(async {
+                super::QdrantIndex::upsert_document_chunks_insert_only(
+                    &index,
+                    &[payload()],
+                    &[vec![0.0; 3]],
+                )
+                .await
+                .expect_err("a dimension mismatch must fail before any request")
+            });
+        assert!(error.to_string().contains("dimension mismatch"));
+    }
 
     #[test]
     fn idempotent_helper_distinguishes_permission_from_point_not_found() {

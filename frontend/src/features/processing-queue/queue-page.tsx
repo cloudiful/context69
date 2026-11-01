@@ -169,6 +169,7 @@ export function ProcessingQueuePage() {
         }}
         onDependencyFilter={queue.setDependencyKey}
         onRecover={queue.recoverTask}
+        onRerun={queue.rerunTask}
         onCancel={queue.cancelTask}
         onTrash={queue.confirmTrashTask}
         onRestore={queue.restoreTask}

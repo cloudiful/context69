@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use context69_search::SearchExclusions;
 use qdrant_client::qdrant::{Condition, Filter, PointId, Range};
 use std::time::Instant;
 use tracing::info;
@@ -45,6 +46,7 @@ impl QdrantIndex {
         request: &SearchRequest,
         scope: &AccessScope,
         query: context69_search::DateWindowQuery,
+        exclusions: &SearchExclusions,
     ) -> Result<crate::services::query::DateWindowPage> {
         use crate::services::query::DateWindowPage;
         use context69_search::DateBound;
@@ -64,7 +66,7 @@ impl QdrantIndex {
                 next_offset: None,
             });
         }
-        let conditions = self.build_search_conditions(request, scope)?;
+        let conditions = self.build_search_conditions(request, scope, exclusions)?;
         if conditions.is_short_circuit {
             return Ok(DateWindowPage {
                 hits: Vec::new(),
@@ -76,11 +78,19 @@ impl QdrantIndex {
             lte: before_inclusive.map(i64_to_f64),
             ..Default::default()
         };
-        let mut filter = conditions.filter;
-        filter.push(Condition::range("published_ts", range));
+        let mut must = conditions.filter;
+        must.push(Condition::range("published_ts", range));
+        // The attempt's exclusion filter rides on both the window walk and the
+        // ceiling query so the same staged/retired ids are excluded wherever the
+        // pipeline reads candidates.
+        let filter = Filter {
+            must,
+            must_not: conditions.must_not,
+            ..Default::default()
+        };
 
         let mut builder = qdrant_client::qdrant::ScrollPointsBuilder::new(&self.collection_name)
-            .filter(Filter::must(filter))
+            .filter(filter)
             .order_by(date_window_order_by())
             .limit(limit as u32)
             .with_payload(
@@ -157,13 +167,14 @@ impl QdrantIndex {
         &self,
         request: &SearchRequest,
         scope: &AccessScope,
+        exclusions: &SearchExclusions,
     ) -> Result<Option<i64>> {
-        let conditions = self.build_search_conditions(request, scope)?;
+        let conditions = self.build_search_conditions(request, scope, exclusions)?;
         if conditions.is_short_circuit {
             return Ok(None);
         }
         let builder = qdrant_client::qdrant::ScrollPointsBuilder::new(&self.collection_name)
-            .filter(Filter::must(conditions.filter))
+            .filter(conditions.into_filter())
             .order_by(date_window_order_by())
             .limit(1)
             .with_payload(

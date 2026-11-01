@@ -183,18 +183,14 @@ impl LibraryService {
         })
     }
 
+    /// Delete one library folder and the files it owns.
+    ///
+    /// The delete is atomic: the entity tombstones of the deleted files, the
+    /// deleted documents and the folder row commit together. The points of
+    /// the files are removed only after that commit, so a delete that fails
+    /// leaves the folder, its files and their points untouched.
     pub async fn delete_folder(&self, folder_id: Uuid) -> Result<()> {
-        self.store
-            .get_folder(folder_id)
-            .await?
-            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
-        let file_ids = self.descendant_file_ids(folder_id).await?;
-        let paths = self.store.list_storage_paths_for_files(&file_ids).await?;
-        self.delete_file_ids(&file_ids).await?;
-        self.store.delete_folder_record(folder_id).await?;
-        self.delete_unreferenced_objects(paths).await?;
-        self.bump_search_generation("library folder delete").await?;
-        Ok(())
+        self.delete_folder_inner(folder_id, None, None).await
     }
 
     pub async fn delete_folder_in_project(
@@ -202,7 +198,7 @@ impl LibraryService {
         project: &crate::domain::GroupRecord,
         folder_id: Uuid,
     ) -> Result<()> {
-        self.delete_folder_in_project_with_lease(project, folder_id, None)
+        self.delete_folder_inner(folder_id, Some(project.id), None)
             .await
     }
 
@@ -222,7 +218,7 @@ impl LibraryService {
         lease_token: Uuid,
     ) -> Result<()> {
         let _ = lease_token;
-        self.delete_folder_in_project_inner(project, folder_id, None)
+        self.delete_folder_inner(folder_id, Some(project.id), None)
             .await
     }
 
@@ -232,69 +228,131 @@ impl LibraryService {
         folder_id: Uuid,
         fence: crate::library_store::TaskWriteFence,
     ) -> Result<()> {
-        self.delete_folder_in_project_inner(project, folder_id, Some(fence))
+        self.delete_folder_inner(folder_id, Some(project.id), Some(fence))
             .await
     }
 
-    async fn delete_folder_in_project_with_lease(
+    /// The delete of one library folder, on one connection.
+    ///
+    /// The transaction locks the registry epoch before the folder row, then
+    /// the files of the subtree in ascending id order, and records the entity
+    /// tombstone of every file it deletes. A file that joins the subtree
+    /// while the delete runs is removed by the folder cascade and its
+    /// tombstone is recorded by the delete backstop trigger of the file row.
+    async fn delete_folder_inner(
         &self,
-        project: &crate::domain::GroupRecord,
         folder_id: Uuid,
-        lease_token: Option<Uuid>,
-    ) -> Result<()> {
-        self.delete_folder_in_project_inner(project, folder_id, None)
-            .await
-            .map(|()| {
-                let _ = (lease_token, folder_id);
-            })
-    }
-
-    async fn delete_folder_in_project_inner(
-        &self,
-        project: &crate::domain::GroupRecord,
-        folder_id: Uuid,
+        project_id: Option<i64>,
         fence: Option<crate::library_store::TaskWriteFence>,
     ) -> Result<()> {
-        self.store
-            .get_folder_in_project(project.id, folder_id)
-            .await?
-            .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
-        let file_ids = self
-            .descendant_file_ids_in_project(project.id, folder_id)
+        let mut write = self.begin_delete_write(fence).await?;
+        // The registry epoch is locked before the folder row, so the delete
+        // never holds a folder lock while it waits for the epoch.
+        self.db
+            .lock_search_registry_epoch_in(write.connection())
             .await?;
-        let paths = self.store.list_storage_paths_for_files(&file_ids).await?;
-        match fence {
-            Some(fence) => {
-                // The vector points go first, outside the guarded transaction.
-                let chunk_ids = self.store.list_chunk_ids_for_files(&file_ids).await?;
-                if let Some(runtime) = self.vector.snapshot() {
-                    runtime.index.delete_points(&chunk_ids).await?;
-                }
-                for file_id in &file_ids {
-                    if !self
-                        .store
-                        .delete_file_in_project_fenced(fence, project.id, *file_id)
-                        .await?
-                    {
-                        return Err(crate::library_store::TaskWriteDenied::new(fence).into());
-                    }
-                }
-                if !self
-                    .store
-                    .delete_folder_record_fenced(fence, folder_id)
+        // A rebuild owns the whole collection while it runs, so a logical
+        // delete that overlapped it would remove points the rebuild still
+        // holds and would publish a tombstone the rebuild never applied.
+        self.db.require_rebuild_idle_in(write.connection()).await?;
+        let Some(folder) = self
+            .store
+            .lock_folder_for_delete_on(write.connection(), folder_id, project_id)
+            .await?
+        else {
+            write.rollback().await;
+            return Err(DomainError::not_found(format!("unknown folder {folder_id}")).into());
+        };
+        let mut file_ids = match project_id {
+            Some(project_id) => {
+                self.descendant_file_ids_in_project(project_id, folder_id)
                     .await?
-                {
-                    return Err(crate::library_store::TaskWriteDenied::new(fence).into());
+            }
+            None => self.descendant_file_ids(folder_id).await?,
+        };
+        file_ids.sort();
+        // The documents of the whole subtree are removed in one statement, so
+        // a file that joined the subtree after the enumeration loses its
+        // documents too.
+        self.store
+            .delete_documents_for_folder_subtree_on(write.connection(), folder.group_id, folder_id)
+            .await?;
+        let mut paths = Vec::new();
+        let mut deleted_file_ids = Vec::new();
+        for file_id in &file_ids {
+            let Some(file) = self
+                .store
+                .lock_file_for_delete_on(write.connection(), *file_id, project_id)
+                .await?
+            else {
+                continue;
+            };
+            self.refuse_active_ingest_run(
+                write.connection(),
+                file.id,
+                fence.map(|fence| fence.item_id()),
+            )
+            .await?;
+            self.db
+                .insert_deleted_file_entity_in(write.connection(), file.id, Some(file.group_id))
+                .await?;
+            let deleted = match project_id {
+                Some(project_id) => {
+                    self.store
+                        .delete_file_record_in_project_on(write.connection(), project_id, file.id)
+                        .await?
                 }
+                None => {
+                    self.store
+                        .delete_file_record_on(write.connection(), file.id)
+                        .await?
+                }
+            };
+            if !deleted {
+                continue;
             }
-            None => {
-                self.delete_file_ids(&file_ids).await?;
-                self.store.delete_folder_record(folder_id).await?;
-            }
+            self.record_source_cleanup_intent(
+                write.connection(),
+                file.group_id,
+                &file.storage_rel_path,
+                file.storage_object_id,
+                file.source_released_at,
+                &file.sha256,
+            )
+            .await?;
+            paths.push(crate::library_store::documents::StoragePathRow {
+                id: file.id,
+                storage_rel_path: file.storage_rel_path,
+                storage_object_id: file.storage_object_id,
+                source_released_at: file.source_released_at,
+            });
+            deleted_file_ids.push(file.id);
         }
+        if !self
+            .store
+            .delete_folder_record_on(write.connection(), folder_id)
+            .await?
+        {
+            write.rollback().await;
+            return Err(DomainError::not_found(format!("unknown folder {folder_id}")).into());
+        }
+        if !write.commit().await? {
+            return Err(crate::library_store::TaskWriteDenied::new(
+                fence.expect("a fenced delete owns its fence"),
+            )
+            .into());
+        }
+        // The points are removed after the commit. A failed purge leaves the
+        // tombstones pending and the search exclusion valid.
+        self.purge_deleted_entities_best_effort(
+            &deleted_file_ids
+                .into_iter()
+                .map(DeletedEntityTarget::File)
+                .collect::<Vec<_>>(),
+        )
+        .await;
         self.delete_unreferenced_objects_with_lease(paths, fence.map(|fence| fence.token()))
             .await?;
-        self.bump_search_generation("library folder delete").await?;
         Ok(())
     }
 }

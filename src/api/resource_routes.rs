@@ -5,12 +5,13 @@ use axum::{
     routing::{get, post, put},
 };
 
+use super::tasks::batch_rerun_tasks;
 use super::{
-    ApiState, batch_get_group_documents, cancel_task, clear_task_history, create_document_result,
-    create_group_library_folder, create_group_library_text, create_library_folder,
-    create_library_text, create_metadata_index, delete_group_document_by_key,
-    delete_group_library_file, delete_group_library_folder, delete_library_file,
-    delete_library_folder, delete_metadata_index, delete_task, ensure_scope,
+    ApiState, batch_get_group_documents, batch_retry_tasks, cancel_task, clear_task_history,
+    create_document_result, create_group_library_folder, create_group_library_text,
+    create_library_folder, create_library_text, create_metadata_index,
+    delete_group_document_by_key, delete_group_library_file, delete_group_library_folder,
+    delete_library_file, delete_library_folder, delete_metadata_index, delete_task, ensure_scope,
     get_group_document_by_key, get_group_library_file, get_group_library_resources,
     get_group_library_tree, get_group_translation_settings, get_library_file,
     get_library_resources, get_library_tree, get_task, import_group_library_file_url,
@@ -32,6 +33,8 @@ pub(super) fn task_routes(api_state: ApiState) -> Router<ApiState> {
         .route("/v1/tasks/stream", get(stream_tasks))
         .route("/v1/tasks/selection", get(list_task_selection))
         .route("/v1/tasks", get(list_tasks).post(submit_task))
+        .route("/v1/tasks/batch/retry", post(batch_retry_tasks))
+        .route("/v1/tasks/batch/rerun", post(batch_rerun_tasks))
         .route("/v1/tasks/{task_id}", get(get_task).delete(delete_task))
         .route("/v1/tasks/{task_id}/items", get(list_task_items))
         .route("/v1/tasks/{task_id}/retry", post(retry_task))

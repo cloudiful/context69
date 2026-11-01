@@ -408,19 +408,38 @@ impl SettingsService {
 
         let existing = self.db.get_runtime_settings().await?;
         // A rebuild owns the vectors of the collection it admitted. Changing the
-        // Qdrant destination while it runs would make its completion describe a
-        // different collection, even when the embedding identity is unchanged,
-        // so the save is rejected before any secret or settings write.
-        if let Some(in_progress) = &self.runtime_rebuild_in_progress
-            && in_progress()
-            && let Some(existing) = existing.as_ref()
-        {
+        // Qdrant destination or the embedding identity while it runs would make
+        // its completion describe a different collection or a different vector
+        // space, even when the other half is unchanged, so the save is
+        // rejected before any secret or settings write.
+        //
+        // The persistent barrier is the authority: it is visible to every
+        // node, so a rebuild that runs on another node still refuses the save
+        // here. The in-process flag stays a local fast path.
+        let barrier_busy =
+            self.db.read_rebuild_barrier().await?.state != crate::db::RebuildBarrierState::Idle;
+        let rebuild_busy = barrier_busy
+            || self
+                .runtime_rebuild_in_progress
+                .as_ref()
+                .is_some_and(|in_progress| in_progress());
+        if rebuild_busy && let Some(existing) = existing.as_ref() {
             let destination_changed = normalize_endpoint(&request.qdrant.url)
                 != normalize_endpoint(&existing.qdrant.url)
                 || request.qdrant.collection_name.trim() != existing.qdrant.collection_name.trim();
-            if destination_changed {
+            let existing_identity = EmbeddingIdentity {
+                base_url: existing
+                    .embedding
+                    .base_url
+                    .trim()
+                    .trim_end_matches('/')
+                    .to_string(),
+                model: existing.embedding.model.trim().to_string(),
+                dimensions: existing.embedding.dimensions,
+            };
+            if destination_changed || existing_identity != candidate_identity {
                 return Err(DomainError::conflict(
-                    "runtime.qdrant destination cannot change while a vector index rebuild is in \
+                    "the runtime vector identity cannot change while a vector index rebuild is in \
                      progress; retry after it completes",
                 )
                 .into());
@@ -542,6 +561,13 @@ impl SettingsService {
     /// configuration. A missing persisted row is not a mismatch: it describes an
     /// installation whose vectors have not been built yet, not a stale space.
     async fn requires_rebuild(&self, stored: &StoredRuntimeSettings) -> Result<bool> {
+        // A rebuild that owns the persistent barrier, or that failed and left
+        // it behind, is a rebuild this deployment still owes. The barrier
+        // outlives the process, so a node that never observed the rebuild
+        // fails closed as well.
+        if self.db.read_rebuild_barrier().await?.state != crate::db::RebuildBarrierState::Idle {
+            return Ok(true);
+        }
         let stored_fingerprint = self
             .db
             .get_vector_index_fingerprint(&stored.qdrant.collection_name)
@@ -1024,6 +1050,9 @@ mod tests {
                 url_import_concurrency: 1,
                 url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
+                registry_max_ids_total: None,
+                registry_max_ids_per_file: None,
+                registry_max_ids_per_run: None,
                 s3: None,
             },
         }
@@ -1889,6 +1918,7 @@ mod tests {
                 )),
                 collection: "collection-a".to_string(),
                 generation,
+                configured_fingerprint: Some("fingerprint-a".to_string()),
             }
         ));
         runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));

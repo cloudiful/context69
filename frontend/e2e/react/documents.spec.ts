@@ -6,6 +6,8 @@ import {
   LIBRARY_DOCUMENT,
   READER_DOCUMENT,
   STALE_DOCUMENT,
+  documentResultFixture,
+  documentResultsPageFixture,
   searchHitFixture,
   searchPageFixture,
 } from "./fixtures";
@@ -206,5 +208,81 @@ test.describe("react document reader", () => {
     await expect(page.getByTestId("document-visibility")).toContainText("私有");
     await expect(page.getByTestId("document-provenance")).toContainText("私有");
     await expect(page.getByTestId("document-visibility")).not.toContainText("private");
+  });
+
+  test("shows current results grouped by producer and switches to history", async ({ page }) => {
+    await installAppTransport(page, {
+      user: ADMIN_USER,
+      documents: {
+        documents: { "42": READER_DOCUMENT },
+        results: {
+          "42": (query) => {
+            if (query.get("current_only") === "true") {
+              return documentResultsPageFixture([
+                documentResultFixture({ id: 3, idempotency_key: "current" }),
+                documentResultFixture({
+                  id: 2,
+                  producer: "stock.disclosure",
+                  result_kind: "summary.v1",
+                  result: { headline: "Filed" },
+                }),
+              ]);
+            }
+            if (query.get("after_id") === "2") {
+              return documentResultsPageFixture([
+                documentResultFixture({ id: 1, idempotency_key: "old", source_record_hash: "older-hash" }),
+              ]);
+            }
+            return documentResultsPageFixture(
+              [
+                documentResultFixture({ id: 3, idempotency_key: "current" }),
+                documentResultFixture({ id: 2, idempotency_key: "older", source_record_hash: "older-hash" }),
+              ],
+              { next_after_id: 2 },
+            );
+          },
+        },
+      },
+    });
+
+    await page.goto("/documents/42");
+
+    await expect(page.getByTestId("document-result-group")).toHaveCount(2);
+    await expect(page.getByTestId("document-results-current")).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTestId("document-result-group").first()).toContainText("stock.disclosure");
+
+    await page.getByTestId("document-results-history").click();
+    await expect(page.getByTestId("document-result-history-item")).toHaveCount(2);
+    await expect(page.getByTestId("document-result-version-badge").first()).toHaveText("Current");
+    await expect(page.getByTestId("document-result-history-item").nth(1)).toContainText("Historical");
+    await expect(page.getByTestId("document-result-history-item").nth(1)).toContainText("Source version: older-hash");
+
+    await page.getByTestId("document-results-load-more").click();
+    await expect(page.getByTestId("document-result-history-item")).toHaveCount(3);
+    await expect(page.getByTestId("document-results-load-more")).toHaveCount(0);
+  });
+
+  test("renders result payloads as text and never interprets injected markup", async ({ page }) => {
+    await installAppTransport(page, {
+      user: ADMIN_USER,
+      documents: {
+        documents: { "42": READER_DOCUMENT },
+        results: {
+          "42": documentResultsPageFixture([
+            documentResultFixture({
+              result: { note: "<img src=x onerror=window.__resultXss=1><script>window.__resultXss=2</script>" },
+            }),
+          ]),
+        },
+      },
+    });
+
+    await page.goto("/documents/42");
+
+    const payload = page.getByTestId("document-result-payload").first();
+    await expect(payload).toContainText("<img src=x onerror=window.__resultXss=1>");
+    await expect(payload.locator("img")).toHaveCount(0);
+    await expect(payload.locator("script")).toHaveCount(0);
+    expect(await page.evaluate(() => (window as { __resultXss?: number }).__resultXss)).toBeUndefined();
   });
 });

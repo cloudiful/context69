@@ -51,6 +51,9 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             url_import_concurrency: 1,
             url_import_min_interval_ms: 1000,
             trusted_proxy_enabled: false,
+            registry_max_ids_total: Some(32768),
+            registry_max_ids_per_file: Some(16384),
+            registry_max_ids_per_run: Some(8192),
             s3: Some(StoredRuntimeS3Settings {
                 endpoint: "https://objects.invalid".to_string(),
                 region: "internal".to_string(),

@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.search_registry_epoch\nSET epoch = context69.search_registry_epoch.epoch + 1,\n    updated_at = now()\nWHERE id = 1\nRETURNING epoch\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9fcb47286bd9d4618057a58b1ef661602549dfccd1935c866a76ce542e220fc1"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One tombstone for a deleted library file.\n--\n-- The insert is the only writer of the row: a repeated delete of the same\n-- file matches the unique partial index and inserts nothing, so the caller\n-- knows that no new tombstone (and no new generation bump) is owed.\nINSERT INTO context69.library_deleted_entities (file_id, group_id)\nVALUES ($1, $2)\nON CONFLICT (file_id) WHERE file_id IS NOT NULL DO NOTHING\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f6bd219aeb29e3a07ff739ebd531f95feabe9f2a6bda4e04f8ff82c532e7178"
+}

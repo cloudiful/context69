@@ -18,7 +18,8 @@ use context69_sdk::{
     CreateDocumentResultRequest, DocumentKey, DocumentResultProvenance, DocumentResultResponse,
     IngestOptions, ListDocumentResultsQuery, ListDocumentResultsResponse, RawRequest,
     SearchPagination, SearchRequest, SearchResponse, SecretPatch, SortDirection, SourcePolicy,
-    TaskItemStatus, TaskItemsOptions, TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
+    TaskBatchRerunRequest, TaskBatchRetryRequest, TaskItemStatus, TaskItemsOptions, TaskItemsQuery,
+    TaskListOptions, TaskListView, TaskSortBy,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -493,6 +494,38 @@ async fn test_router(log: SharedLog) -> axum::Router {
             }),
         )
         .route(
+            "/v1/tasks/batch/retry",
+            post({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (
+                            StatusCode::OK,
+                            Json(json!({"results": [{"task_id": task_id(), "outcome": "accepted", "retried_task_id": task_id()}]})),
+                        )
+                    }
+                }
+            }),
+        )
+        .route(
+            "/v1/tasks/batch/rerun",
+            post({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (
+                            StatusCode::OK,
+                            Json(json!({"results": [{"task_id": task_id(), "outcome": "accepted", "rerun_task_id": task_id()}]})),
+                        )
+                    }
+                }
+            }),
+        )
+        .route(
             "/v1/tasks/{task_id}/rerun",
             post({
                 let log = log.clone();
@@ -885,6 +918,8 @@ fn sdk_only_construction_covers_facade_inputs() {
         producer: Some("stock.news".to_string()),
         result_kind: None,
         after_id: Some(9),
+        current_only: true,
+        latest_only: true,
         limit: 50,
     };
     let _result_page: ListDocumentResultsResponse = serde_json::from_value(json!({
@@ -1119,6 +1154,24 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(last(&log).method, "POST");
     assert_eq!(last(&log).path, format!("/v1/tasks/{task_uuid}/retry"));
 
+    client
+        .batch_retry_tasks(&TaskBatchRetryRequest {
+            task_ids: vec![task_uuid],
+        })
+        .await
+        .expect("batch retry");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(last(&log).path, "/v1/tasks/batch/retry");
+
+    client
+        .batch_rerun_tasks(&TaskBatchRerunRequest {
+            task_ids: vec![task_uuid],
+        })
+        .await
+        .expect("batch rerun");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(last(&log).path, "/v1/tasks/batch/rerun");
+
     client.rerun_task(task_uuid).await.expect("rerun");
     assert_eq!(last(&log).method, "POST");
     assert_eq!(last(&log).path, format!("/v1/tasks/{task_uuid}/rerun"));
@@ -1197,6 +1250,8 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
             42,
             &ListDocumentResultsQuery {
                 producer: Some("stock.news".to_string()),
+                current_only: true,
+                latest_only: true,
                 limit: 10,
                 ..ListDocumentResultsQuery::default()
             },
@@ -1216,6 +1271,8 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     );
     assert!(!query.contains_key("result_kind"));
     assert!(!query.contains_key("after_id"));
+    assert_eq!(query.get("current_only").map(String::as_str), Some("true"));
+    assert_eq!(query.get("latest_only").map(String::as_str), Some("true"));
     assert_eq!(listed.source_record_hash, "sha256:abc");
     assert_eq!(listed.items.len(), 1);
 

@@ -20,6 +20,16 @@ pub(super) async fn process_url(
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("URL tasks require group_id"))?;
+    if let Some(run) = service.db().read_library_ingest_run(item.id).await? {
+        return super::item_replacement_processor::process_atomic_ingest(
+            service,
+            Some(group),
+            task,
+            item,
+            run.mode,
+        )
+        .await;
+    }
     if stage == "download" {
         if item.file_id.is_some() || downloaded_artifact(&item.payload).is_some() {
             return Ok(ProcessResult::Progressed { next: "storage" });
@@ -112,21 +122,154 @@ pub(super) async fn process_url(
             if ingest.metadata.source_uri.is_none() {
                 ingest.metadata.source_uri = Some(artifact.source_url.clone());
             }
+            let upload = UploadedLibraryFile {
+                folder_id: request.folder_id,
+                filename: artifact.filename,
+                media_type: artifact.media_type,
+                bytes,
+                declared_sha256: Some(artifact.sha256),
+                options: ingest,
+                staged_storage_object_id,
+            };
+            if service.replacement_caps().is_some() {
+                match service
+                    .library()
+                    .upload_replacement_candidate(group.id, &upload)
+                    .await
+                {
+                    Ok(Some((existing, attributes))) => {
+                        if crate::services::library::is_managed_source_file(
+                            &existing.filename,
+                            existing.external_id.as_deref(),
+                        ) {
+                            return Ok(ProcessResult::Failed {
+                                stage: "storage".to_string(),
+                                message: "managed source-folder files cannot be replaced by an ordinary URL update"
+                                    .to_string(),
+                                retryable: false,
+                            });
+                        }
+                        if item.input_storage_object_id.is_none() {
+                            let staged = match service
+                                .library()
+                                .stage_file_for_task_input(group.id, upload.clone())
+                                .await
+                            {
+                                Ok(object_id) => object_id,
+                                Err(error) => return Ok(process_error(stage, error)),
+                            };
+                            let execution = match item.execution_context() {
+                                Some(execution) => execution,
+                                None => {
+                                    return Ok(process_error(
+                                        stage,
+                                        DomainError::conflict(
+                                            "task item has no captured execution",
+                                        )
+                                        .into(),
+                                    ));
+                                }
+                            };
+                            if !service
+                                .db()
+                                .set_task_item_input_storage_object(
+                                    item.id,
+                                    &execution,
+                                    staged,
+                                    &item.payload,
+                                )
+                                .await?
+                            {
+                                let _ = service
+                                    .library()
+                                    .release_task_input_staging(staged, None)
+                                    .await;
+                                return Ok(process_error(
+                                    stage,
+                                    DomainError::conflict(
+                                        "task item lease was lost while saving staged URL input",
+                                    )
+                                    .into(),
+                                ));
+                            }
+                            item.input_storage_object_id = Some(staged);
+                        }
+                        match crate::services::library::begin_ordinary_replacement(
+                            service.db(),
+                            task.id,
+                            item,
+                            existing.id,
+                            crate::db::IngestRunSource::Url,
+                        )
+                        .await
+                        {
+                            Ok(true) => {
+                                let next = match service
+                                    .library()
+                                    .file_ingest_stage(&attributes.filename, &attributes.media_type)
+                                {
+                                    Ok(next) => next,
+                                    Err(error) => return Ok(process_error(stage, error)),
+                                };
+                                return Ok(ProcessResult::Progressed { next });
+                            }
+                            Ok(false) => {
+                                return Ok(super::item_processors::waiting_for_error(
+                                    item,
+                                    crate::services::library::UnifiedIngestError {
+                                        stage: "storage".to_string(),
+                                        dependency_key: None,
+                                        retryable: true,
+                                        message:
+                                            "another task item is already replacing this library file"
+                                                .to_string(),
+                                    },
+                                ));
+                            }
+                            Err(error) => return Ok(process_error(stage, error)),
+                        }
+                    }
+                    Ok(None) => {
+                        // No committed file owns this identity: the atomic
+                        // first insert creates the file, binds it to the item
+                        // and claims its durable run in one transaction.
+                        let staged =
+                            match super::item_replacement_processor::stage_first_insert_source(
+                                service, group.id, item, &upload,
+                            )
+                            .await
+                            {
+                                Ok(object_id) => object_id,
+                                Err(error) => return Ok(process_error(stage, error)),
+                            };
+                        let file = crate::services::library::AtomicFirstInsertFile {
+                            folder_id: upload.folder_id,
+                            external_id: upload.options.metadata.external_id.clone(),
+                            filename: upload.filename.clone(),
+                            media_type: upload.media_type.clone(),
+                            delete_source_after_processing: upload.options.as_delete_flag(),
+                        };
+                        let metadata = (!upload.options.metadata.is_empty())
+                            .then_some(&upload.options.metadata);
+                        return super::item_replacement_processor::claim_atomic_first_insert(
+                            service,
+                            group.id,
+                            task,
+                            item,
+                            &file,
+                            staged,
+                            metadata,
+                            upload.options.translation.as_ref(),
+                            crate::db::IngestRunSource::Url,
+                        )
+                        .await;
+                    }
+                    Err(error) => return Ok(process_error(stage, error)),
+                }
+            }
             match service
                 .library()
-                .prepare_file_for_task(
-                    group.id,
-                    UploadedLibraryFile {
-                        folder_id: request.folder_id,
-                        filename: artifact.filename,
-                        media_type: artifact.media_type,
-                        bytes,
-                        declared_sha256: Some(artifact.sha256),
-                        options: ingest,
-                        staged_storage_object_id,
-                    },
-                    item.lease_token,
-                )
+                .prepare_file_for_task(group.id, upload, item.lease_token)
                 .await
             {
                 Ok(file) => file,
@@ -168,11 +311,11 @@ pub(super) async fn process_url(
 /// `content_base64` is absent for items materialized by streaming and present
 /// only for in-flight legacy payloads, which stay readable until they finish.
 #[derive(Debug, serde::Deserialize)]
-struct DownloadArtifact {
-    source_url: String,
-    filename: String,
-    media_type: String,
-    sha256: String,
+pub(super) struct DownloadArtifact {
+    pub(super) source_url: String,
+    pub(super) filename: String,
+    pub(super) media_type: String,
+    pub(super) sha256: String,
     #[serde(default)]
     content_base64: Option<String>,
 }
@@ -251,11 +394,11 @@ async fn url_source_bytes(
     }
 }
 
-fn downloaded_artifact(payload: &Value) -> Option<DownloadArtifact> {
+pub(super) fn downloaded_artifact(payload: &Value) -> Option<DownloadArtifact> {
     serde_json::from_value(payload.get("download_artifact")?.clone()).ok()
 }
 
-fn url_storage_request(payload: &Value) -> Result<ImportLibraryFileFromUrlRequest> {
+pub(super) fn url_storage_request(payload: &Value) -> Result<ImportLibraryFileFromUrlRequest> {
     let mut without_artifact = payload.clone();
     if let Some(object) = without_artifact.as_object_mut() {
         object.remove("download_artifact");

@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
-    db::{Database, StoredTask},
+    db::{Database, RegistryQuotaOverride, StoredTask},
     domain_errors::DomainError,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
@@ -35,6 +35,7 @@ mod item_git_index_processor;
 mod item_lifecycle_processors;
 #[cfg(test)]
 mod item_pipeline_tests;
+mod item_replacement_processor;
 
 /// The claim is a global primitive over the shared scratch database, so every
 /// case that claims an item serializes on this lock.
@@ -79,6 +80,14 @@ pub struct TaskService {
     dispatch_stop: Arc<DispatchStop>,
     task_event_bus: tokio::sync::broadcast::Sender<TaskEvent>,
     execution_latch: Arc<cutover::ExecutionLatch>,
+    /// The registry-visible replacement processor of this service, or `None`
+    /// while it stays disabled.
+    ///
+    /// The value is a narrowing of the persisted capacity policy, never the
+    /// policy itself: the admission reads the persisted caps inside its own
+    /// transaction, so this service never decides how much the registry may
+    /// hold.
+    replacement_caps: Option<RegistryQuotaOverride>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,6 +137,11 @@ impl TaskService {
         let (task_event_bus, _) = tokio::sync::broadcast::channel(
             crate::services::tasks::events::TASK_EVENT_BUS_CAPACITY,
         );
+        // The atomic writers of this service follow the library service they
+        // share the registry with: the persisted capacity policy decides
+        // whether they run, and this service inherits that decision instead
+        // of carrying a second one.
+        let replacement_caps = library.registry_caps();
         Self {
             settings: SettingsService::new(db.clone()),
             db,
@@ -144,6 +158,7 @@ impl TaskService {
             dispatch_stop: Arc::new(DispatchStop::new()),
             task_event_bus,
             execution_latch: cutover::ExecutionLatch::new(),
+            replacement_caps,
         }
     }
 
@@ -317,6 +332,28 @@ impl TaskService {
     }
     pub(crate) fn settings(&self) -> &SettingsService {
         &self.settings
+    }
+    /// The registry-visible replacement processor, or `None` while it stays
+    /// disabled (issue 1138 P17).
+    pub(super) fn replacement_caps(&self) -> Option<RegistryQuotaOverride> {
+        self.replacement_caps
+    }
+
+    /// Test-only setup of the replacement caps.
+    ///
+    /// The caps only narrow the persisted policy: a test can lower the
+    /// registry capacity, never raise it.
+    #[cfg(any(test, feature = "integration-test-helpers"))]
+    #[must_use]
+    pub fn with_replacement_caps_for_test(mut self, caps: [i64; 3]) -> Self {
+        self.replacement_caps = Some(RegistryQuotaOverride::exact(caps));
+        self
+    }
+
+    /// Test-only drive of one claimed item through the production worker path.
+    #[cfg(feature = "integration-test-helpers")]
+    pub async fn run_item_for_test(&self, item: crate::db::ClaimedItem) -> Result<()> {
+        runtime_driver::run_item(self, item).await
     }
     /// Uses the application's shared settings service (which carries the
     /// registered settings observers) instead of the per-service instance

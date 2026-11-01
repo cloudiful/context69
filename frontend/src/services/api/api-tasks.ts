@@ -4,6 +4,7 @@ import type {
   ClearTaskHistoryResponse,
   RequestOptions,
   RerunTaskResponse,
+  TaskBatchRetryResponse,
   TaskItemsResponse,
   TaskItemStatus,
   TaskDiagnoseResponse,
@@ -20,6 +21,12 @@ import type {
   TaskStatus,
   TaskSubmitRequest,
 } from "./api-types";
+import type { components } from "@/generated/openapi";
+
+type Schemas = components["schemas"];
+
+/** The ordered per-task outcomes of one bounded batch source rerun. */
+export type TaskBatchRerunResponse = Schemas["TaskBatchRerunResponse"];
 
 type Deps = {
   openapiClient: import("./api-core").OpenApiClient;
@@ -116,6 +123,18 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         params: { path: { task_id: taskId } },
         signal: options?.signal,
       })) as Promise<TaskRetryResponse>;
+    },
+    batchRetryTasks(taskIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/retry", {
+        body: { task_ids: taskIds },
+        signal: options?.signal,
+      })) as Promise<TaskBatchRetryResponse>;
+    },
+    batchRerunTasks(taskIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/rerun", {
+        body: { task_ids: taskIds },
+        signal: options?.signal,
+      })) as Promise<TaskBatchRerunResponse>;
     },
     rerunTask(taskId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/rerun", {

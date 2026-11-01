@@ -13,7 +13,8 @@ pub use context69_contracts::{
     ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
     MetadataValueKind, OffsetPageQuery, OffsetPagination, RerunTaskResponse, ScopeMetadataIndex,
     ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
-    SourcePolicy, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    SourcePolicy, TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryRequest,
+    TaskBatchRetryResponse, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
     TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
     TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
     TextBatchRequest, TranslationDirective, TranslationStatus,
@@ -386,6 +387,37 @@ impl Context69Client {
             .await
     }
 
+    /// Recover up to 100 failed/cancelled tasks in one bounded call. Each id
+    /// keeps its requested position in the ordered results.
+    pub async fn batch_retry_tasks(
+        &self,
+        request: &TaskBatchRetryRequest,
+    ) -> Result<TaskBatchRetryResponse, Error> {
+        let path = "/v1/tasks/batch/retry";
+        self.execute_json(
+            self.authorized_request(Method::POST, path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    /// Rerun up to 100 succeeded tasks from their current source in one
+    /// bounded call. Each id keeps its requested position in the ordered
+    /// results, and only an accepted id carries the created child task id.
+    pub async fn batch_rerun_tasks(
+        &self,
+        request: &TaskBatchRerunRequest,
+    ) -> Result<TaskBatchRerunResponse, Error> {
+        let path = "/v1/tasks/batch/rerun";
+        self.execute_json(
+            self.authorized_request(Method::POST, path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
     pub async fn rerun_task(&self, task_id: Uuid) -> Result<RerunTaskResponse, Error> {
         let path = format!("/v1/tasks/{task_id}/rerun");
         self.execute_json(self.authorized_request(Method::POST, &path).await?)
@@ -574,7 +606,9 @@ impl Context69Client {
     /// (`GET /v1/groups/by-path/{group_path}/documents/{document_id}/results`).
     ///
     /// `limit` is validated (`1..=100`); `producer`/`result_kind`/`after_id` are
-    /// omitted when unset. The response carries the document's current
+    /// omitted when unset. `current_only` restricts the page to the document's
+    /// current source version and `latest_only` keeps the newest row per
+    /// `(producer, result_kind)`. The response carries the document's current
     /// `source_record_hash` for binding a subsequent append.
     pub async fn list_document_results(
         &self,
@@ -598,6 +632,12 @@ impl Context69Client {
         }
         if let Some(after_id) = query.after_id {
             pairs.push(("after_id".to_string(), after_id.to_string()));
+        }
+        if query.current_only {
+            pairs.push(("current_only".to_string(), "true".to_string()));
+        }
+        if query.latest_only {
+            pairs.push(("latest_only".to_string(), "true".to_string()));
         }
         self.execute_json(
             self.authorized_request(Method::GET, &path)

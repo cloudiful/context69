@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use super::UnifiedIngestError;
 use super::task_ingest::task_failure;
-use super::{LibraryDependency, LibraryFileKind, LibraryService, storage};
+use super::{LibraryDependency, LibraryFileKind, LibraryService, TaskSourceRef, storage};
 
 /// Docling-stage submit error carrying the `docling` dependency key, so the
 /// worker parks on the `dependency` queue reason and the failure is recorded
@@ -103,6 +103,19 @@ impl LibraryService {
         file_id: Uuid,
         lease_token: Uuid,
         task_id: Uuid,
+        source: TaskSourceRef,
+    ) -> Result<DoclingRemoteSubmit, UnifiedIngestError> {
+        self.submit_docling_remote_for_task_with_view(file_id, lease_token, task_id, source, None)
+            .await
+    }
+
+    pub(crate) async fn submit_docling_remote_for_task_with_view(
+        &self,
+        file_id: Uuid,
+        lease_token: Uuid,
+        task_id: Uuid,
+        source: TaskSourceRef,
+        view: Option<&super::ReplacementFileAttributes>,
     ) -> Result<DoclingRemoteSubmit, UnifiedIngestError> {
         let file = self
             .store
@@ -113,6 +126,9 @@ impl LibraryService {
                 crate::domain_errors::DomainError::not_found(format!("unknown file {file_id}"))
             })
             .map_err(|error| task_failure("storage", error, false))?;
+        let file = view
+            .map(|view| view.project(&file))
+            .unwrap_or_else(|| file.clone());
         let kind = storage::detect_file_kind(&file.filename, &file.media_type)
             .map_err(|error| task_failure("parsing", error, false))?;
         if !matches!(
@@ -129,15 +145,8 @@ impl LibraryService {
             ));
         }
         let bytes = self
-            .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
-            .await
-            .map_err(|error| task_failure("storage", error, true))?
-            .ok_or_else(|| {
-                crate::domain_errors::DomainError::not_found(format!(
-                    "stored file not found for file {file_id}"
-                ))
-            })
-            .map_err(|error| task_failure("storage", error, false))?;
+            .read_task_source_bytes(&file, source, lease_token)
+            .await?;
         let config = self
             .settings
             .resolve_docling_config()

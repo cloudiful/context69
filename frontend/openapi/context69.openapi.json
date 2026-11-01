@@ -1706,6 +1706,24 @@
             }
           },
           {
+            "name": "current_only",
+            "in": "query",
+            "description": "Restrict the page to rows bound to the document's current\n`record_hash`. Older rows stay stored and remain available when this is\nomitted.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
+            "name": "latest_only",
+            "in": "query",
+            "description": "Return only the greatest result id for each `(producer, result_kind)`\namong the current-version rows. Requires `current_only`.",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          },
+          {
             "name": "limit",
             "in": "query",
             "required": false,
@@ -6593,6 +6611,82 @@
         }
       }
     },
+    "/v1/tasks/batch/rerun": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_rerun_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchRerunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchRerunResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/batch/retry": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_retry_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchRetryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchRetryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/clear": {
       "post": {
         "tags": [],
@@ -6994,6 +7088,16 @@
             }
           },
           "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
             "description": "",
             "content": {
               "application/json": {
@@ -7891,7 +7995,11 @@
           },
           "result": {
             "type": "object",
-            "description": "The opaque result payload; must be a JSON object."
+            "description": "The opaque result payload; must be a JSON object.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "result_kind": {
             "type": "string",
@@ -8856,7 +8964,11 @@
             ]
           },
           "result": {
-            "type": "object"
+            "type": "object",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
           },
           "result_kind": {
             "type": "string"
@@ -11335,7 +11447,7 @@
       },
       "ListDocumentResultsQuery": {
         "type": "object",
-        "description": "List filters. `limit` defaults to 50 and is bounded to `1..=100`; results\nare ordered by `id` descending and `after_id` continues from the last\nreturned id.",
+        "description": "List filters. `limit` defaults to 50 and is bounded to `1..=100`; results\nare ordered by `id` descending and `after_id` continues from the last\nreturned id. `current_only` restricts the page to the document's current\nsource version, and `latest_only` keeps only the newest row per\n`(producer, result_kind)` in that version.",
         "properties": {
           "after_id": {
             "type": [
@@ -11343,6 +11455,14 @@
               "null"
             ],
             "format": "int64"
+          },
+          "current_only": {
+            "type": "boolean",
+            "description": "Restrict the page to rows bound to the document's current\n`record_hash`. Older rows stay stored and remain available when this is\nomitted."
+          },
+          "latest_only": {
+            "type": "boolean",
+            "description": "Return only the greatest result id for each `(producer, result_kind)`\namong the current-version rows. Requires `current_only`."
           },
           "limit": {
             "type": "integer",
@@ -12040,7 +12160,10 @@
           "ingest_concurrency",
           "url_import_concurrency",
           "url_import_min_interval_ms",
-          "trusted_proxy_enabled"
+          "trusted_proxy_enabled",
+          "registry_max_ids_total",
+          "registry_max_ids_per_file",
+          "registry_max_ids_per_run"
         ],
         "properties": {
           "ingest_concurrency": {
@@ -12054,6 +12177,21 @@
           "max_upload_size_mb": {
             "type": "integer",
             "minimum": 0
+          },
+          "registry_max_ids_per_file": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The number of point ids one file may retain."
+          },
+          "registry_max_ids_per_run": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The number of point ids one ingestion run may admit."
+          },
+          "registry_max_ids_total": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The number of point ids the whole deployment may retain."
           },
           "s3": {
             "oneOf": [
@@ -13074,6 +13212,175 @@
           }
         }
       },
+      "TaskBatchRerunItem": {
+        "type": "object",
+        "description": "One ordered outcome of a batch source-rerun call.",
+        "required": [
+          "task_id",
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/TaskBatchRerunOutcome"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskBatchRerunReason"
+              }
+            ]
+          },
+          "rerun_task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The created child task's own id. A source rerun forks a child, so it\ndiffers from `task_id`, and it is absent unless the id was accepted."
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TaskBatchRerunOutcome": {
+        "type": "string",
+        "description": "The per-id result vocabulary of a batch source-rerun call.",
+        "enum": [
+          "accepted",
+          "skipped",
+          "failed"
+        ]
+      },
+      "TaskBatchRerunReason": {
+        "type": "string",
+        "description": "Machine-readable, non-sensitive reason attached to a skipped or failed id.",
+        "enum": [
+          "not_found",
+          "ineligible_status",
+          "nothing_to_rerun",
+          "active_source_busy",
+          "internal_error"
+        ]
+      },
+      "TaskBatchRerunRequest": {
+        "type": "object",
+        "description": "One bounded batch source-rerun request (issue 1138 P28).\n\nOnly a succeeded file, url, or text parent is rerun: the request creates a\nfresh child task that reads the current source again. Every other id is\nreported with a reason instead of being forked, and the list is ordered so\nevery requested id keeps its position in the response.",
+        "required": [
+          "task_ids"
+        ],
+        "properties": {
+          "task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "TaskBatchRerunResponse": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskBatchRerunItem"
+            }
+          }
+        }
+      },
+      "TaskBatchRetryItem": {
+        "type": "object",
+        "description": "One ordered outcome of a batch recovery call.",
+        "required": [
+          "task_id",
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/TaskBatchRetryOutcome"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskBatchRetryReason"
+              }
+            ]
+          },
+          "retried_task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The recovered task's own id. Recovery never forks, so it equals\n`task_id`, and it is absent when the id was skipped or failed."
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TaskBatchRetryOutcome": {
+        "type": "string",
+        "description": "The per-id result vocabulary of a batch recovery call.",
+        "enum": [
+          "accepted",
+          "skipped",
+          "failed"
+        ]
+      },
+      "TaskBatchRetryReason": {
+        "type": "string",
+        "description": "Machine-readable, non-sensitive reason attached to a skipped or failed id.",
+        "enum": [
+          "not_found",
+          "ineligible_status",
+          "nothing_to_retry",
+          "internal_error"
+        ]
+      },
+      "TaskBatchRetryRequest": {
+        "type": "object",
+        "description": "One bounded batch recovery request (issue 1138 P2).\n\nEach id is recovered independently through the existing per-task\nauthorization and in-place lifecycle: a failed task retries its own failed\nitems, a cancelled task resumes its own cancelled items, and every other\nstate is skipped instead of forked. The list is ordered and every requested\nid keeps its position in the response.",
+        "required": [
+          "task_ids"
+        ],
+        "properties": {
+          "task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "TaskBatchRetryResponse": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskBatchRetryItem"
+            }
+          }
+        }
+      },
       "TaskConsistencyReport": {
         "type": "object",
         "description": "Parent-versus-item consistency verdict for one task.\n\n`mismatches` names the disagreeing fields so an operator sees the breach,\nnot just a boolean.",
@@ -13728,7 +14035,8 @@
         "type": "string",
         "enum": [
           "manual",
-          "rerun"
+          "rerun",
+          "rerun_source"
         ]
       },
       "TaskPageResponse": {
@@ -15235,6 +15543,30 @@
           "max_upload_size_mb": {
             "type": "integer",
             "minimum": 0
+          },
+          "registry_max_ids_per_file": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The number of point ids one file may retain."
+          },
+          "registry_max_ids_per_run": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The number of point ids one ingestion run may admit."
+          },
+          "registry_max_ids_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The number of point ids the whole deployment may retain.\n\nA client that omits the setting keeps the stored cap, so an older\nclient never resets the policy."
           },
           "s3": {
             "oneOf": [

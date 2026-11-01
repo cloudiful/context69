@@ -5,7 +5,8 @@ use crate::domain_errors::DomainError;
 use crate::{
     contracts::{
         CanonicalUpdateSearchSettingsRequest, UpdateDoclingSettingsRequest,
-        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+        UpdateRuntimeFileLibrarySettings, UpdateRuntimeSettingsRequest,
+        UpdateSearchSettingsRequest,
     },
     db::StoredSearchSettings,
 };
@@ -128,6 +129,65 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
                 ))
                 .into());
             }
+        }
+    }
+    registry_capacity_request(&request.file_library)?;
+    Ok(())
+}
+
+/// The registry capacity caps a request carries.
+///
+/// A cap the request omits keeps the stored one, so only the caps it carries
+/// are compared here. The save compares the effective policy against the
+/// stored one, so a request that mixes a new cap with a stored cap is still
+/// refused before anything is written.
+fn registry_capacity_request(file_library: &UpdateRuntimeFileLibrarySettings) -> Result<()> {
+    let caps = [
+        (
+            "registry_max_ids_total",
+            file_library.registry_max_ids_total,
+        ),
+        (
+            "registry_max_ids_per_file",
+            file_library.registry_max_ids_per_file,
+        ),
+        (
+            "registry_max_ids_per_run",
+            file_library.registry_max_ids_per_run,
+        ),
+    ];
+    for (name, value) in caps {
+        if let Some(value) = value
+            && value <= 0
+        {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.file_library.{name} must be greater than 0"
+            ))
+            .into());
+        }
+    }
+    let ordering = [
+        (
+            "registry_max_ids_per_run",
+            file_library.registry_max_ids_per_run,
+            "registry_max_ids_per_file",
+            file_library.registry_max_ids_per_file,
+        ),
+        (
+            "registry_max_ids_per_file",
+            file_library.registry_max_ids_per_file,
+            "registry_max_ids_total",
+            file_library.registry_max_ids_total,
+        ),
+    ];
+    for (smaller_name, smaller, larger_name, larger) in ordering {
+        if let (Some(smaller), Some(larger)) = (smaller, larger)
+            && smaller > larger
+        {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.file_library.{smaller_name} must not exceed runtime.file_library.{larger_name}"
+            ))
+            .into());
         }
     }
     Ok(())

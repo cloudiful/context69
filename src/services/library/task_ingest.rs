@@ -15,6 +15,28 @@ use super::ingest_checkpoint::parse_indexing_checkpoint;
 use super::*;
 
 impl LibraryService {
+    pub(super) async fn read_task_source_bytes(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+        source: TaskSourceRef,
+        lease_token: Uuid,
+    ) -> Result<Bytes, UnifiedIngestError> {
+        match source {
+            TaskSourceRef::StoredFile => self
+                .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
+                .await
+                .map_err(|error| task_failure("storage", error, true))?
+                .ok_or_else(|| {
+                    DomainError::not_found(format!("stored file not found for file {}", file.id))
+                })
+                .map_err(|error| task_failure("storage", error, false)),
+            TaskSourceRef::StagedInput(id) => self
+                .read_task_input_for_task(file.group_id, id, lease_token)
+                .await
+                .map_err(|error| task_failure("storage", error, true)),
+        }
+    }
+
     pub(crate) async fn prepare_file_sections_for_task(
         &self,
         file_id: Uuid,
@@ -22,21 +44,57 @@ impl LibraryService {
         _task_id: Uuid,
         section_payload: Option<Value>,
     ) -> Result<Value, UnifiedIngestError> {
+        if let Some(payload) = section_payload {
+            let file = self.task_file(file_id).await?;
+            storage::detect_file_kind(&file.filename, &file.media_type)
+                .map_err(|error| task_failure("parsing", error, false))?;
+            // A supplied section payload is an already converted Docling result;
+            // it is returned as-is and never re-reads the source.
+            return serde_json::to_value(
+                serde_json::from_value::<Vec<IngestSection>>(payload)
+                    .map_err(|error| task_failure("parsing", error, false))?,
+            )
+            .map_err(|error| task_failure("parsing", error, false));
+        }
+        let sections = self
+            .prepare_task_source_sections(file_id, TaskSourceRef::StoredFile, lease_token)
+            .await?;
+        serde_json::to_value(sections).map_err(|error| task_failure("parsing", error, false))
+    }
+
+    /// Prepare the sections of the current source under one task grant.
+    ///
+    /// The bytes are always read from the current source: the stored file under
+    /// the item lease, or the staged object a fresh URL download attached. A
+    /// released or missing source is a terminal failure and never falls back to
+    /// a saved section payload.
+    pub(crate) async fn prepare_task_source_sections(
+        &self,
+        file_id: Uuid,
+        source: TaskSourceRef,
+        lease_token: Uuid,
+    ) -> Result<Vec<IngestSection>, UnifiedIngestError> {
+        self.prepare_task_source_sections_with_view(file_id, None, source, lease_token)
+            .await
+    }
+
+    pub(crate) async fn prepare_task_source_sections_with_view(
+        &self,
+        file_id: Uuid,
+        view: Option<&super::ReplacementFileAttributes>,
+        source: TaskSourceRef,
+        lease_token: Uuid,
+    ) -> Result<Vec<IngestSection>, UnifiedIngestError> {
         let file = self.task_file(file_id).await?;
+        let file = view
+            .map(|view| view.project(&file))
+            .unwrap_or_else(|| file.clone());
         let kind = storage::detect_file_kind(&file.filename, &file.media_type)
             .map_err(|error| task_failure("parsing", error, false))?;
-        // Issue 639: Docling files convert only through the durable
-        // submit/park/sweep stage. Reaching here without a section payload
-        // means a caller bypassed that stage; fail closed (non-retryable so
-        // the item fails instead of parking on a path that can never
-        // succeed) rather than converting inline while holding worker
-        // capacity.
-        if section_payload.is_none()
-            && matches!(
-                kind,
-                LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx
-            )
-        {
+        if matches!(
+            kind,
+            LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::Xlsx
+        ) {
             return Err(UnifiedIngestError {
                 stage: "docling".to_string(),
                 dependency_key: Some(LibraryDependency::Docling.as_str().to_string()),
@@ -47,25 +105,12 @@ impl LibraryService {
                 ),
             });
         }
-        let sections = if let Some(payload) = section_payload {
-            serde_json::from_value::<Vec<IngestSection>>(payload)
-                .map_err(|error| task_failure("parsing", error, false))?
-        } else {
-            let bytes = self
-                .read_active_storage_for_lease(&file.storage_rel_path, lease_token)
-                .await
-                .map_err(|error| task_failure("storage", error, true))?
-                .ok_or_else(|| {
-                    DomainError::not_found(format!("stored file not found for file {file_id}"))
-                })
-                .map_err(|error| task_failure("storage", error, false))?;
-            // Only plain text reaches the inline path: every Docling kind
-            // fails closed above, so no in-process Docling wait remains here.
-            self.ingest_text(&file, &bytes)
-                .await
-                .map_err(normalize_task_failure)?
-        };
-        serde_json::to_value(sections).map_err(|error| task_failure("parsing", error, false))
+        let bytes = self
+            .read_task_source_bytes(&file, source, lease_token)
+            .await?;
+        self.ingest_text(&file, &bytes)
+            .await
+            .map_err(normalize_task_failure)
     }
 
     pub async fn persist_file_sections_for_task(
@@ -258,6 +303,7 @@ impl LibraryService {
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,
                 &self.chunking,
+                None,
             );
             for batch in super::ingest_batches::ChunkBatchIter::new(chunks) {
                 self.persist_batch_content(
@@ -316,7 +362,7 @@ impl LibraryService {
         }
     }
 
-    async fn task_file(
+    pub(super) async fn task_file(
         &self,
         file_id: Uuid,
     ) -> Result<crate::domain::LibraryFileRecord, UnifiedIngestError> {
@@ -511,6 +557,7 @@ mod tests {
                 index: Arc::new(QdrantIndex::for_test("test", 4)),
                 collection: "test".to_string(),
                 generation,
+                configured_fingerprint: None,
             }
         ));
         assert!(

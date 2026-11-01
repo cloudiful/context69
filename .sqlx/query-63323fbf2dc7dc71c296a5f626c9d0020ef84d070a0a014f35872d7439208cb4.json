@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- read_stale_translation_point_ids.sql (issue 1138, P23)\n--\n-- The translation point ids of one document whose stored translation version\n-- does not match the desired NEW source hash.\n--\n-- The document's own chunks are not part of this set: a metadata publication\n-- keeps them live and rewrites their payload in place.\n--\n-- An id that a registry entry already excludes is not reported again. The\n-- bounded admission refuses an id set that overlaps an existing entry, and a\n-- translation that an earlier publication already tombstoned must not fail\n-- the next metadata publication that invalidates it once more.\nSELECT chunk.id AS \"id!\"\nFROM context69.document_translation_chunks AS chunk\nJOIN context69.document_translation_versions AS version ON version.id = chunk.translation_id\nWHERE chunk.document_id = $1\n  AND version.source_record_hash <> $2\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.search_registry_entries AS entry\n      WHERE entry.staged_ids && ARRAY[chunk.id]::uuid[]\n         OR entry.retired_ids && ARRAY[chunk.id]::uuid[]\n  )\nORDER BY chunk.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_chunks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "63323fbf2dc7dc71c296a5f626c9d0020ef84d070a0a014f35872d7439208cb4"
+}

@@ -4,6 +4,21 @@ use serde_json::Value;
 use super::LibraryIngestFailureStage;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskSourceRef {
+    StoredFile,
+    StagedInput(uuid::Uuid),
+}
+
+impl TaskSourceRef {
+    pub(crate) fn from_input(input: Option<uuid::Uuid>) -> Self {
+        match input {
+            Some(id) => Self::StagedInput(id),
+            None => Self::StoredFile,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LibraryFileKind {
     Pdf,
     Docx,
@@ -167,7 +182,17 @@ pub(super) struct PreparedIngestSection {
 
 #[cfg(test)]
 mod tests {
-    use super::LibraryFileKind;
+    use super::{LibraryFileKind, TaskSourceRef};
+
+    #[test]
+    fn task_source_selection_preserves_explicit_staged_input() {
+        let id = uuid::Uuid::new_v4();
+        assert_eq!(TaskSourceRef::from_input(None), TaskSourceRef::StoredFile);
+        assert_eq!(
+            TaskSourceRef::from_input(Some(id)),
+            TaskSourceRef::StagedInput(id)
+        );
+    }
 
     #[test]
     fn docling_kinds_convert_at_the_durable_stage_and_text_stays_inline() {

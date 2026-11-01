@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT item.id\nFROM context69.task_items item\nWHERE item.id = $1\n  AND item.task_id = $2\n  AND item.file_id = $3\n  AND item.status = 'running'\n  AND item.lease_token = $4\n  AND item.lease_until > clock_timestamp()\n  AND item.execution_task_id = $5\n  AND item.execution_generation = $6\nFOR UPDATE OF item\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "084b465e557791cc600b4519ddb5000828a0136a42079564855a0929b4e9496d"
+}

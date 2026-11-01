@@ -1,14 +1,39 @@
 use anyhow::Result;
+use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::mappers::folder_from_row;
 use super::{FolderRow, LibraryFolderRecord, LibraryStore, TaskWriteDenied, TaskWriteFence};
 
+/// The library folder row a delete locks.
+///
+/// The group is the scope of the delete: a project-scoped delete never locks
+/// (and never deletes) a folder of another project.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct DeleteFolderRow {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub parent_id: Option<Uuid>,
+}
+
 impl LibraryStore {
     pub async fn list_folders(&self) -> Result<Vec<LibraryFolderRecord>> {
+        let mut connection = self.db.pool().acquire().await?;
+        self.list_folders_on(&mut connection).await
+    }
+
+    /// The folder rows on a caller transaction.
+    ///
+    /// The metadata publisher reads the folder path on the same connection as
+    /// the file and document writes, so no pooled read observes another
+    /// transaction between them.
+    pub async fn list_folders_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<Vec<LibraryFolderRecord>> {
         let rows =
             sqlx::query_file_as!(FolderRow, "src/sql/library_store/folders/list_folders.sql")
-                .fetch_all(self.db.pool())
+                .fetch_all(connection)
                 .await?;
 
         rows.into_iter().map(folder_from_row).collect()
@@ -170,6 +195,60 @@ impl LibraryStore {
             folder_id
         )
         .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Read and lock one folder row for a delete.
+    ///
+    /// The folder delete locks the registry epoch first and this row second,
+    /// so a folder delete never holds a folder lock while it waits for the
+    /// epoch. `project_id` scopes the lock to one group.
+    pub async fn lock_folder_for_delete_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        folder_id: Uuid,
+        project_id: Option<i64>,
+    ) -> Result<Option<DeleteFolderRow>> {
+        let row = match project_id {
+            Some(project_id) => {
+                sqlx::query_file_as!(
+                    DeleteFolderRow,
+                    "src/sql/library_store/folders/lock_folder_for_delete_in_project.sql",
+                    folder_id,
+                    project_id
+                )
+                .fetch_optional(connection)
+                .await?
+            }
+            None => {
+                sqlx::query_file_as!(
+                    DeleteFolderRow,
+                    "src/sql/library_store/folders/lock_folder_for_delete.sql",
+                    folder_id
+                )
+                .fetch_optional(connection)
+                .await?
+            }
+        };
+        Ok(row)
+    }
+
+    /// Delete one folder row on a borrowed connection.
+    ///
+    /// The folder row owns its files, so the delete removes the files of the
+    /// subtree in the same transaction and the delete backstop trigger of every
+    /// file records its entity tombstone there.
+    pub async fn delete_folder_record_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        folder_id: Uuid,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/library_store/folders/delete_folder_record.sql",
+            folder_id
+        )
+        .execute(connection)
         .await?;
         Ok(result.rows_affected() > 0)
     }

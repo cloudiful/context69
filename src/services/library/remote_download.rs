@@ -4,7 +4,9 @@ use rate_limiter::RateLimiter;
 use reqwest::{StatusCode, Url, header};
 use tokio::net::lookup_host;
 
-use super::remote_proxy::{RemoteTransport, is_public_ip};
+use super::remote_proxy::{
+    RemoteBody, RemoteHttpTransport, RemoteTransport, is_public_ip, validate_peer_address,
+};
 use crate::domain_errors::DomainError;
 
 const MAX_REDIRECTS: usize = 3;
@@ -60,15 +62,13 @@ pub(crate) struct RemoteSource {
     pub url: Url,
     pub filename: String,
     pub media_type: String,
-    response: reqwest::Response,
+    body: Box<dyn RemoteBody>,
 }
 
 impl RemoteSource {
     /// Read the next body chunk; `None` marks a complete body.
     pub(crate) async fn read_chunk(&mut self) -> Result<Option<Bytes>> {
-        self.response.chunk().await.map_err(|error| {
-            DomainError::upstream_timeout(format!("remote_download_failed: {error}")).into()
-        })
+        self.body.next_chunk().await
     }
 }
 
@@ -79,6 +79,14 @@ impl super::streaming::ChunkSource for RemoteSource {
     }
 }
 
+/// Open one remote source and answer with the response the caller streams.
+///
+/// `transport` is the HTTP transport the request goes through. `None` is the
+/// production path: the real transport, the real peer policy, and the
+/// configured trusted proxy. An injected transport only replaces the HTTP
+/// call itself — the URL normalization, the public-address check, the
+/// redirect check, the peer check, and the size and type guards stay in
+/// production code.
 pub(crate) async fn open(
     source: &str,
     filename: Option<&str>,
@@ -86,23 +94,24 @@ pub(crate) async fn open(
     max_bytes: usize,
     trusted_proxy_enabled: bool,
     limiter: &dyn RateLimiter,
+    transport: Option<&dyn RemoteHttpTransport>,
 ) -> Result<RemoteSource> {
-    let transport = RemoteTransport::new(trusted_proxy_enabled).await?;
+    let production_transport;
+    let transport: &dyn RemoteHttpTransport = match transport {
+        Some(transport) => transport,
+        None => {
+            production_transport = RemoteTransport::new(trusted_proxy_enabled).await?;
+            &production_transport
+        }
+    };
     let mut url = validate_url(source).await?;
     for redirect_count in 0..=MAX_REDIRECTS {
         limiter.acquire(&origin_key(&url)?).await.map_err(|error| {
             DomainError::rate_limited(format!("remote_rate_limit_failed: {error}"))
         })?;
-        let response = transport
-            .client()
-            .get(url.clone())
-            .send()
-            .await
-            .map_err(|error| {
-                DomainError::upstream_timeout(format!("remote_download_failed: {error}"))
-            })?;
-        transport.validate_peer(response.remote_addr())?;
-        if response.status().is_redirection() {
+        let mut response = transport.get(url.clone()).await?;
+        validate_peer_address(response.remote_address, transport.trusted_proxy_addresses())?;
+        if response.status.is_redirection() {
             if redirect_count == MAX_REDIRECTS {
                 // A redirect chain that never ends is deterministic, but its
                 // upstream error code and message stay the ones the API
@@ -112,7 +121,7 @@ pub(crate) async fn open(
                 ));
             }
             let location = response
-                .headers()
+                .headers
                 .get(header::LOCATION)
                 .ok_or_else(|| {
                     crate::retry_policy::mark_deterministic(DomainError::upstream_error(
@@ -128,30 +137,29 @@ pub(crate) async fn open(
             url = validate_url(url.join(location)?.as_str()).await?;
             continue;
         }
-        if response.status() != StatusCode::OK {
-            let status = response.status();
-            if let Err(typed) = response.error_for_status_ref() {
-                return Err(remote_status_error(status, typed));
-            }
-            return Err(DomainError::upstream_error(format!(
-                "remote_http_status_{}",
-                status.as_u16()
-            ))
-            .into());
+        if response.status != StatusCode::OK {
+            let status = response.status;
+            return Err(match response.take_status_error() {
+                Some(typed) => remote_status_error(status, typed),
+                None => {
+                    DomainError::upstream_error(format!("remote_http_status_{}", status.as_u16()))
+                        .into()
+                }
+            });
         }
-        if let Some(length) = response.content_length()
+        if let Some(length) = response.content_length
             && length > max_bytes as u64
         {
             return Err(content_length_limit_error(max_bytes, length));
         }
-        let filename = resolve_filename(filename, &url, response.headers())?;
+        let filename = resolve_filename(filename, &url, &response.headers)?;
         let media_type = media_type
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
             .or_else(|| {
                 response
-                    .headers()
+                    .headers
                     .get(header::CONTENT_TYPE)
                     .and_then(|value| value.to_str().ok())
                     .and_then(|value| value.split(';').next())
@@ -166,7 +174,7 @@ pub(crate) async fn open(
             url,
             filename,
             media_type,
-            response,
+            body: response.into_body(),
         });
     }
     unreachable!()
@@ -313,11 +321,240 @@ fn validate_type_match(filename: &str, media_type: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::{
-        content_length_limit_error, origin_key, remote_status_error, resolve_filename,
+        content_length_limit_error, open, origin_key, remote_status_error, resolve_filename,
         streamed_limit_error, validate_type_match, validate_url,
     };
     use crate::domain_errors::DomainError;
+    use crate::services::library::remote_proxy::{
+        FetchedRemoteResponse, RemoteBody, RemoteHttpTransport,
+    };
+    use anyhow::Result;
+    use bytes::Bytes;
+    use rate_limiter::{LocalRateLimiter, RateLimitPolicy};
     use reqwest::{StatusCode, Url, header};
+    use std::collections::HashSet;
+    use std::net::SocketAddr;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    /// A scripted transport that answers every request with the same response.
+    struct ScriptedTransport {
+        remote_address: Option<SocketAddr>,
+        body: Bytes,
+        calls: AtomicUsize,
+        body_reads: Arc<AtomicUsize>,
+        trusted: HashSet<SocketAddr>,
+    }
+
+    impl ScriptedTransport {
+        fn new(remote_address: Option<SocketAddr>, body: Bytes) -> Self {
+            Self {
+                remote_address,
+                body,
+                calls: AtomicUsize::new(0),
+                body_reads: Arc::new(AtomicUsize::new(0)),
+                trusted: HashSet::new(),
+            }
+        }
+
+        fn with_trusted(mut self, trusted: SocketAddr) -> Self {
+            self.trusted.insert(trusted);
+            self
+        }
+    }
+
+    /// A body that counts how often it was read.
+    struct CountingBody {
+        bytes: Bytes,
+        reads: Arc<AtomicUsize>,
+    }
+
+    #[async_trait::async_trait]
+    impl RemoteBody for CountingBody {
+        async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            Ok(if self.bytes.is_empty() {
+                None
+            } else {
+                Some(self.bytes.split_to(self.bytes.len()))
+            })
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RemoteHttpTransport for ScriptedTransport {
+        async fn get(&self, _url: Url) -> Result<FetchedRemoteResponse> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            let mut headers = header::HeaderMap::new();
+            headers.insert(
+                header::CONTENT_TYPE,
+                header::HeaderValue::from_static("text/markdown"),
+            );
+            Ok(FetchedRemoteResponse::for_test_with_body(
+                StatusCode::OK,
+                headers,
+                self.remote_address,
+                Box::new(CountingBody {
+                    bytes: self.body.clone(),
+                    reads: self.body_reads.clone(),
+                }),
+            ))
+        }
+
+        fn trusted_proxy_addresses(&self) -> &HashSet<SocketAddr> {
+            &self.trusted
+        }
+    }
+
+    fn limiter() -> LocalRateLimiter {
+        LocalRateLimiter::new(RateLimitPolicy::min_interval(Duration::from_millis(1)).unwrap())
+            .expect("build the local limiter")
+    }
+
+    /// A scripted transport serves the bytes through the production policy.
+    #[tokio::test]
+    async fn a_scripted_transport_serves_the_bytes_through_the_production_policy() {
+        let transport = ScriptedTransport::new(
+            Some("93.184.216.34:443".parse().unwrap()),
+            Bytes::from_static(b"# fresh source\n"),
+        );
+
+        let mut source = open(
+            "https://93.184.216.34/doc.md",
+            None,
+            None,
+            1024,
+            false,
+            &limiter(),
+            Some(&transport),
+        )
+        .await
+        .expect("the scripted transport answers");
+
+        assert_eq!(source.filename, "doc.md");
+        assert_eq!(source.media_type, "text/markdown");
+        assert_eq!(
+            source.read_chunk().await.expect("read the body"),
+            Some(Bytes::from_static(b"# fresh source\n"))
+        );
+        assert_eq!(transport.calls.load(Ordering::SeqCst), 1);
+    }
+
+    /// A scripted peer that is not public is refused before any byte of the
+    /// body is read.
+    #[tokio::test]
+    async fn a_scripted_private_peer_is_refused_before_any_byte_is_read() {
+        let transport = ScriptedTransport::new(
+            Some("10.0.0.7:443".parse().unwrap()),
+            Bytes::from_static(b"private body"),
+        );
+
+        let error = match open(
+            "https://93.184.216.34/doc.md",
+            None,
+            None,
+            1024,
+            false,
+            &limiter(),
+            Some(&transport),
+        )
+        .await
+        {
+            Ok(_) => panic!("a private peer must be refused"),
+            Err(error) => error,
+        };
+
+        assert_eq!(error.to_string(), "remote_url_blocked");
+        assert_eq!(
+            transport.body_reads.load(Ordering::SeqCst),
+            0,
+            "the body must not be read once the peer is refused"
+        );
+    }
+
+    /// A trusted proxy address is a valid peer for the scripted transport too.
+    #[tokio::test]
+    async fn a_trusted_proxy_peer_is_accepted_by_the_scripted_transport() {
+        let trusted: SocketAddr = "10.0.0.8:20173".parse().unwrap();
+        let transport = ScriptedTransport::new(Some(trusted), Bytes::from_static(b"proxied body"))
+            .with_trusted(trusted);
+
+        let mut source = open(
+            "https://93.184.216.34/doc.md",
+            None,
+            None,
+            1024,
+            false,
+            &limiter(),
+            Some(&transport),
+        )
+        .await
+        .expect("the trusted proxy peer is accepted");
+
+        assert_eq!(
+            source.read_chunk().await.expect("read the body"),
+            Some(Bytes::from_static(b"proxied body"))
+        );
+    }
+
+    /// The SSRF matrix keeps its verdicts with a scripted transport in place:
+    /// the transport only replaces the HTTP call.
+    #[tokio::test]
+    async fn the_ssrf_matrix_refuses_every_private_target() {
+        for target in [
+            "https://127.0.0.1/doc.md",
+            "https://10.0.0.5/doc.md",
+            "https://172.16.0.1/doc.md",
+            "https://192.168.1.1/doc.md",
+            "https://169.254.169.254/doc.md",
+            "https://100.64.0.1/doc.md",
+            "https://0.0.0.0/doc.md",
+        ] {
+            let error = validate_url(target)
+                .await
+                .expect_err("a private target is refused");
+            assert_eq!(
+                error.to_string(),
+                "remote_url_blocked",
+                "{target} must stay refused"
+            );
+        }
+
+        // An IPv6 literal in a URL reaches the resolver instead of the
+        // address-literal path, so it never resolves to a private peer. The
+        // address policy itself is covered by `is_public_ip`.
+        for target in [
+            "https://[::1]/doc.md",
+            "https://[fc00::1]/doc.md",
+            "https://[fe80::1]/doc.md",
+            "https://[::ffff:192.168.1.10]/doc.md",
+        ] {
+            assert!(
+                validate_url(target).await.is_err(),
+                "{target} must stay refused"
+            );
+        }
+
+        for target in [
+            "http://93.184.216.34/doc.md",
+            "https://user:secret@93.184.216.34/doc.md",
+        ] {
+            let error = validate_url(target)
+                .await
+                .expect_err("a non-https or credentialed target is refused");
+            assert_eq!(
+                error.to_string(),
+                "remote_url_blocked",
+                "{target} must stay refused"
+            );
+        }
+
+        assert!(
+            validate_url("https://93.184.216.34/doc.md").await.is_ok(),
+            "a public literal stays accepted"
+        );
+    }
 
     /// A local HTTP fake that answers with one status code.
     async fn status_error(status: StatusCode) -> anyhow::Error {

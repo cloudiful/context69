@@ -12,8 +12,9 @@ pub use cache::{
     rerank_item_scores_complete, rerank_item_scores_from_hits, sort_cached_item_scores,
 };
 pub use ports::{
-    DateBound, DateWindowPage, DateWindowQuery, SearchDatePointHit, SearchEmbeddingProvider,
-    SearchIndex, SearchRepository, SearchScopeResolver,
+    DateBound, DateWindowPage, DateWindowQuery, RegistryPhase, SearchDatePointHit,
+    SearchEmbeddingProvider, SearchExclusions, SearchIndex, SearchRegistryEntry,
+    SearchRegistryState, SearchRepository, SearchScopeResolver,
 };
 pub use rerank::{OpenRouterRerankClient, RerankClient, RerankDocument, RerankHit};
 pub use service::{SearchService, decode_search_cursor_for_validation};

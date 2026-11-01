@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Persist the final document id reserved for one new section of a run.\n--\n-- The caller holds the run row and has already read the key on the same\n-- transaction, so a conflicting insert is a broken run identity and must fail\n-- instead of silently replacing the earlier reservation.\nINSERT INTO context69.library_ingest_run_sections\n    (run_id, section_key, file_id, section_external_id, document_id)\nVALUES ($1, $2, $3, $4, $5)\nRETURNING document_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_run_sections",
+            "name": "document_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "887563bef228d2e947e1e05478f5002c5f4cbc42b776ee1d44ac143df4c9a0a1"
+}

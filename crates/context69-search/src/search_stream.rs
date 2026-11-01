@@ -84,79 +84,86 @@ impl SearchService {
             .checked_add(request.limit)
             .ok_or_else(|| DomainError::invalid_argument("search result limit is too large"))?;
         let (fetch_limit, can_probe_window) = probe_fetch_limit(requested_limit);
-        let scope = self
-            .scope_resolver
-            .access_scope(user_id, request.group_path.clone())
-            .await?;
-        let settings = self
-            .repository
-            .get_search_settings()
-            .await?
-            .unwrap_or_else(SearchSettings::default);
-        let generation = self.repository.get_search_generation().await?;
-        let query_hash = SearchCache::query_hash(&request.query);
-        let cursor_ctx = cursor_context(&request, request.limit, generation, &settings);
-        // F2: the cursor's request context must match the active request
-        // before we emit any `local` frame. A reranked cursor against a
-        // vector (local-only) run, or a cursor with a mismatched query,
-        // surfaces as the first (and only) frame.
-        validate_cursor_context(request.cursor.as_deref(), &cursor_ctx)?;
-        let vector_multiplier = if request.metadata_filters.is_empty() {
-            1
-        } else {
-            8
-        };
-        let rerank_snapshot_size = settings.candidate_limit.max(1);
-        let vector_limit = fetch_limit
-            .max(80)
-            .max(rerank_snapshot_size)
-            .saturating_mul(vector_multiplier)
-            .min(MAX_SEARCH_CANDIDATE_WINDOW);
-        probe.vector_limit = vector_limit;
 
-        // F1: collect candidates under the abort signal so a client
-        // disconnect stops the embed/vector/keyword fetch.
-        let collected = tokio::select! {
-            biased;
-            _ = abort.wait() => return Ok(()),
-            result = self.collect_candidates(
-                &request,
-                &scope,
-                &settings,
-                &query_hash,
-                vector_limit,
-                &mut probe,
-            ) => result?,
-        };
-        let window = PageWindow {
-            offset,
-            limit: request.limit,
-            requested_limit,
-            fetch_limit,
-            can_probe_window,
-            upstream_capped: collected.upstream_capped,
-        };
-
-        // F2: a cursor pins the request to one ordering epoch. We must
-        // resolve the epoch before emitting any `local` frame so a cursor
-        // that no longer matches the active ordering surfaces as the only
-        // frame the client ever sees.
-        if let Some(raw_cursor) = request.cursor.as_deref() {
-            // Vector mode is local-only (`rerank_applied = false`) so the
-            // effective epoch is known up front. Reject a reranked cursor
-            // before any work could leak a `local` frame.
-            if !collected.hybrid {
-                if let Err(error) = ensure_cursor_ordering(Some(raw_cursor), false) {
-                    send_error(tx, &error.to_string()).await;
-                    return Ok(());
-                }
+        // Optimistic registry-epoch coherence (issue #1138 P3): every attempt
+        // snapshots the registry before any contributing read and re-checks the
+        // epoch before the first content frame of the attempt. A moved epoch
+        // discards the attempt and repeats; nothing is emitted from a stale
+        // attempt. The loop has no fixed retry count: any bound would fake
+        // consistency, and the abort signal stops the retries.
+        loop {
+            let registry = tokio::select! {
+                biased;
+                _ = abort.wait() => return Ok(()),
+                result = self.repository.read_search_registry_state() => result?,
+            };
+            let exclusions = registry.search_exclusions();
+            let scope = self
+                .scope_resolver
+                .access_scope(user_id, request.group_path.clone())
+                .await?;
+            let settings = self
+                .repository
+                .get_search_settings()
+                .await?
+                .unwrap_or_else(SearchSettings::default);
+            let generation = self.repository.get_search_generation().await?;
+            let query_hash = SearchCache::query_hash(&request.query);
+            let cursor_ctx = cursor_context(&request, request.limit, generation, &settings);
+            // F2: the cursor's request context must match the active request
+            // before we emit any `local` frame. A reranked cursor against a
+            // vector (local-only) run, or a cursor with a mismatched query,
+            // surfaces as the first (and only) frame.
+            validate_cursor_context(request.cursor.as_deref(), &cursor_ctx)?;
+            let vector_multiplier = if request.metadata_filters.is_empty() {
+                1
             } else {
+                8
+            };
+            let rerank_snapshot_size = settings.candidate_limit.max(1);
+            let vector_limit = fetch_limit
+                .max(80)
+                .max(rerank_snapshot_size)
+                .saturating_mul(vector_multiplier)
+                .min(MAX_SEARCH_CANDIDATE_WINDOW);
+            probe.vector_limit = vector_limit;
+
+            // F1: collect candidates under the abort signal so a client
+            // disconnect stops the embed/vector/keyword fetch.
+            let collected = tokio::select! {
+                biased;
+                _ = abort.wait() => return Ok(()),
+                result = self.collect_candidates(
+                    &request,
+                    &scope,
+                    &settings,
+                    &query_hash,
+                    vector_limit,
+                    &exclusions,
+                    &mut probe,
+                ) => result?,
+            };
+            let window = PageWindow {
+                offset,
+                limit: request.limit,
+                requested_limit,
+                fetch_limit,
+                can_probe_window,
+                upstream_capped: collected.upstream_capped,
+            };
+
+            // F2: a cursor pins the request to one ordering epoch. We must
+            // resolve the epoch before emitting any `local` frame so a cursor
+            // that no longer matches the active ordering surfaces as the only
+            // frame the client ever sees.
+            if collected.hybrid && request.cursor.is_some() {
                 // Hybrid mode: the actual `rerank_applied` is decided by
                 // the rerank stage, so run it under the abort signal first,
                 // then validate the cursor against the real outcome. The
                 // candidates are reused — we never fetch twice. We snapshot
                 // the local-ordering slice before rerank so stage 1 still
                 // carries the local ordering even when rerank succeeds.
+                let raw_cursor = request.cursor.as_deref().expect("cursor checked above");
                 let local_ordering: Vec<SearchHit> = collected
                     .candidates
                     .iter()
@@ -175,6 +182,22 @@ impl SearchService {
                     _ = abort.wait() => return Ok(()),
                     result = self.rerank_stage(collected.candidates, ctx, &mut probe) => result?,
                 };
+                // Every read contributing to both pages is done; the re-check
+                // must pass before the first frame of this attempt is emitted.
+                match self
+                    .registry_epoch_matches(registry.epoch, &mut abort)
+                    .await?
+                {
+                    Some(true) => {}
+                    Some(false) => {
+                        info!(
+                            snapshot_epoch = registry.epoch,
+                            "search registry epoch changed; discarding stream attempt and retrying"
+                        );
+                        continue;
+                    }
+                    None => return Ok(()),
+                }
                 if let Err(error) = ensure_cursor_ordering(Some(raw_cursor), rerank_applied) {
                     send_error(tx, &error.to_string()).await;
                     return Ok(());
@@ -231,116 +254,200 @@ impl SearchService {
                 .await;
                 return Ok(());
             }
-        }
 
-        // ---- Stage 1: emit the local-ordering page immediately ---------------
-        if !collected.hybrid {
-            // Vector mode has no rerank stage: one ordering, one page.
-            let page = self.finalize_page(collected.candidates, &window, &cursor_ctx, false)?;
-            self.fill_probe_window(&mut probe, fetch_limit, offset, request.limit, &page);
-            if !send_frame(tx, SearchStreamEvent::Local(page)).await {
+            // ---- Stage 1: emit the local-ordering page immediately ---------------
+            if !collected.hybrid {
+                // Vector mode has no rerank stage: one ordering, one page.
+                // The re-check covers the embed/cache/vector/hydration reads
+                // and must pass before the page is emitted.
+                match self
+                    .registry_epoch_matches(registry.epoch, &mut abort)
+                    .await?
+                {
+                    Some(true) => {}
+                    Some(false) => {
+                        info!(
+                            snapshot_epoch = registry.epoch,
+                            "search registry epoch changed; discarding stream attempt and retrying"
+                        );
+                        continue;
+                    }
+                    None => return Ok(()),
+                }
+                // Vector mode is local-only (`rerank_applied = false`) so the
+                // effective epoch is known up front. Reject a reranked cursor
+                // before any frame could leak it.
+                if let Err(error) = ensure_cursor_ordering(request.cursor.as_deref(), false) {
+                    send_error(tx, &error.to_string()).await;
+                    return Ok(());
+                }
+                let page = self.finalize_page(collected.candidates, &window, &cursor_ctx, false)?;
+                self.fill_probe_window(&mut probe, fetch_limit, offset, request.limit, &page);
+                if !send_frame(tx, SearchStreamEvent::Local(page)).await {
+                    return Ok(());
+                }
+                self.log_local_stage(&probe, "vector");
+                let _ = send_frame(
+                    tx,
+                    SearchStreamEvent::Done(SearchStreamDone {
+                        rerank_applied: false,
+                    }),
+                )
+                .await;
                 return Ok(());
             }
-            self.log_local_stage(&probe, "vector");
+
+            // Hybrid stage 1 (cursor-less request): local ordering is derived
+            // from the same candidates that stage 2 will rerank, so the fetch
+            // happens exactly once. The local page is only emitted from an
+            // attempt whose epoch re-check passed.
+            match self
+                .registry_epoch_matches(registry.epoch, &mut abort)
+                .await?
+            {
+                Some(true) => {}
+                Some(false) => {
+                    info!(
+                        snapshot_epoch = registry.epoch,
+                        "search registry epoch changed; discarding stream attempt and retrying"
+                    );
+                    continue;
+                }
+                None => return Ok(()),
+            }
+            let local_page = self.finalize_page(
+                collected
+                    .candidates
+                    .iter()
+                    .take(fetch_limit)
+                    .cloned()
+                    .collect::<Vec<_>>(),
+                &window,
+                &cursor_ctx,
+                false,
+            )?;
+            self.fill_probe_window(&mut probe, fetch_limit, offset, request.limit, &local_page);
+            if !send_frame(tx, SearchStreamEvent::Local(local_page)).await {
+                return Ok(());
+            }
+            self.log_local_stage(&probe, "hybrid");
+
+            // ---- Stage 2: rerank stable snapshot and emit the final ordering -----
+            let ctx = RerankContext {
+                settings: &settings,
+                request: &request,
+                generation,
+                query_hash: &query_hash,
+                fetch_limit,
+            };
+            // F1: rerank under the abort signal so a client disconnect stops the
+            // upstream rerank call instead of running it to completion.
+            let (final_results, rerank_applied) = tokio::select! {
+                biased;
+                _ = abort.wait() => return Ok(()),
+                result = self.rerank_stage(collected.candidates, ctx, &mut probe) => result?,
+            };
+
+            // A cursor is only valid inside the ordering epoch that issued it;
+            // never silently continue with a differently ordered window.
+            // F2: rerank may have failed and changed the effective epoch; if the
+            // cursor was issued for the reranked ordering we must not silently
+            // continue with the local ordering. The error frame is the only
+            // thing the client sees in that case (no `local` was pre-validated
+            // for a different epoch).
+            if let Err(error) = ensure_cursor_ordering(request.cursor.as_deref(), rerank_applied) {
+                send_error(tx, &error.to_string()).await;
+                return Ok(());
+            }
+
+            if rerank_applied {
+                // The rerank stage read the reranker and possibly the persisted
+                // item scores after the local page was emitted, so its page is
+                // re-checked as its own coherence unit. A moved epoch discards
+                // the reranked page: the already-verified local page is the
+                // answer, reported honestly as `rerank_applied = false` so the
+                // client never expects a reranked frame that will not come.
+                match self
+                    .registry_epoch_matches(registry.epoch, &mut abort)
+                    .await?
+                {
+                    Some(true) => {
+                        let reranked_page =
+                            self.finalize_page(final_results, &window, &cursor_ctx, true)?;
+                        self.fill_probe_window(
+                            &mut probe,
+                            fetch_limit,
+                            offset,
+                            request.limit,
+                            &reranked_page,
+                        );
+                        if !send_frame(tx, SearchStreamEvent::Reranked(reranked_page)).await {
+                            return Ok(());
+                        }
+                        info!(
+                            rerank_elapsed_ms = probe.rerank_elapsed_ms,
+                            rerank_top_n = probe.rerank_top_n,
+                            rerank_candidate_len = probe.rerank_candidate_len,
+                            rerank_batch_cache_hit = probe.rerank_batch_cache_hit,
+                            rerank_item_cache_hit = probe.rerank_item_cache_hit,
+                            has_more = ?probe.has_more,
+                            result_count = probe.result_count,
+                            offset = probe.offset,
+                            limit = probe.limit,
+                            "search stream stage2 (reranked ordering) page emitted"
+                        );
+                    }
+                    Some(false) => {
+                        info!(
+                            snapshot_epoch = registry.epoch,
+                            "search registry epoch changed after the local page; reranked page discarded"
+                        );
+                        let _ = send_frame(
+                            tx,
+                            SearchStreamEvent::Done(SearchStreamDone {
+                                rerank_applied: false,
+                            }),
+                        )
+                        .await;
+                        return Ok(());
+                    }
+                    None => return Ok(()),
+                }
+            } else {
+                info!(
+                    rerank_elapsed_ms = probe.rerank_elapsed_ms,
+                    reason = "rerank disabled, empty candidate set, or upstream rerank failed",
+                    has_more = ?probe.has_more,
+                    result_count = probe.result_count,
+                    offset = probe.offset,
+                    limit = probe.limit,
+                    "search stream stage2 kept local ordering"
+                );
+            }
             let _ = send_frame(
                 tx,
-                SearchStreamEvent::Done(SearchStreamDone {
-                    rerank_applied: false,
-                }),
+                SearchStreamEvent::Done(SearchStreamDone { rerank_applied }),
             )
             .await;
             return Ok(());
         }
+    }
 
-        // Hybrid stage 1 (cursor-less request): local ordering is derived
-        // from the same candidates that stage 2 will rerank, so the fetch
-        // happens exactly once.
-        let local_page = self.finalize_page(
-            collected
-                .candidates
-                .iter()
-                .take(fetch_limit)
-                .cloned()
-                .collect::<Vec<_>>(),
-            &window,
-            &cursor_ctx,
-            false,
-        )?;
-        self.fill_probe_window(&mut probe, fetch_limit, offset, request.limit, &local_page);
-        if !send_frame(tx, SearchStreamEvent::Local(local_page)).await {
-            return Ok(());
-        }
-        self.log_local_stage(&probe, "hybrid");
-
-        // ---- Stage 2: rerank stable snapshot and emit the final ordering -----
-        let ctx = RerankContext {
-            settings: &settings,
-            request: &request,
-            generation,
-            query_hash: &query_hash,
-            fetch_limit,
-        };
-        // F1: rerank under the abort signal so a client disconnect stops the
-        // upstream rerank call instead of running it to completion.
-        let (final_results, rerank_applied) = tokio::select! {
+    /// Re-check the registry epoch after the reads contributing to the next
+    /// output. `None` means the abort signal fired first and the caller must
+    /// stop without emitting; `Some(true)` means the attempt snapshot still
+    /// holds; `Some(false)` means the epoch moved and the attempt is stale.
+    async fn registry_epoch_matches(
+        &self,
+        snapshot_epoch: i64,
+        abort: &mut AbortSignal,
+    ) -> Result<Option<bool>> {
+        let epoch = tokio::select! {
             biased;
-            _ = abort.wait() => return Ok(()),
-            result = self.rerank_stage(collected.candidates, ctx, &mut probe) => result?,
+            _ = abort.wait() => return Ok(None),
+            result = self.repository.read_search_registry_epoch() => result?,
         };
-
-        // A cursor is only valid inside the ordering epoch that issued it;
-        // never silently continue with a differently ordered window.
-        // F2: rerank may have failed and changed the effective epoch; if the
-        // cursor was issued for the reranked ordering we must not silently
-        // continue with the local ordering. The error frame is the only
-        // thing the client sees in that case (no `local` was pre-validated
-        // for a different epoch).
-        if let Err(error) = ensure_cursor_ordering(request.cursor.as_deref(), rerank_applied) {
-            send_error(tx, &error.to_string()).await;
-            return Ok(());
-        }
-
-        if rerank_applied {
-            let reranked_page = self.finalize_page(final_results, &window, &cursor_ctx, true)?;
-            self.fill_probe_window(
-                &mut probe,
-                fetch_limit,
-                offset,
-                request.limit,
-                &reranked_page,
-            );
-            if !send_frame(tx, SearchStreamEvent::Reranked(reranked_page)).await {
-                return Ok(());
-            }
-            info!(
-                rerank_elapsed_ms = probe.rerank_elapsed_ms,
-                rerank_top_n = probe.rerank_top_n,
-                rerank_candidate_len = probe.rerank_candidate_len,
-                rerank_batch_cache_hit = probe.rerank_batch_cache_hit,
-                rerank_item_cache_hit = probe.rerank_item_cache_hit,
-                has_more = ?probe.has_more,
-                result_count = probe.result_count,
-                offset = probe.offset,
-                limit = probe.limit,
-                "search stream stage2 (reranked ordering) page emitted"
-            );
-        } else {
-            info!(
-                rerank_elapsed_ms = probe.rerank_elapsed_ms,
-                reason = "rerank disabled, empty candidate set, or upstream rerank failed",
-                has_more = ?probe.has_more,
-                result_count = probe.result_count,
-                offset = probe.offset,
-                limit = probe.limit,
-                "search stream stage2 kept local ordering"
-            );
-        }
-        let _ = send_frame(
-            tx,
-            SearchStreamEvent::Done(SearchStreamDone { rerank_applied }),
-        )
-        .await;
-        Ok(())
+        Ok(Some(epoch == snapshot_epoch))
     }
 
     /// Turn an ordered result list into a stream page for `window`.
@@ -375,6 +482,11 @@ impl SearchService {
     /// (date mode never re-orders the results). Abort and cursor context
     /// validation follow the same rules as the relevance stream: nothing is
     /// emitted before the cursor and the abort signal stop the work.
+    ///
+    /// The whole page is assembled by `run_date_search` and re-checked against
+    /// the registry epoch before the first frame: a moved epoch discards the
+    /// page and repeats. The retry loop has no fixed retry count and every
+    /// step selects on the abort signal.
     async fn stream_search_by_date(
         &self,
         user_id: Option<i64>,
@@ -391,46 +503,71 @@ impl SearchService {
             // date stream we additionally require a `c4:` cursor.
             super::search_cursor::validate_date_cursor(Some(raw_cursor))?;
         }
-        let outcome = tokio::select! {
-            biased;
-            _ = abort.wait() => return Ok(()),
-            result = run_date_search(
-                &*self.repository,
-                &*self.scope_resolver,
-                &*self.embedding,
-                &*self.index,
-                user_id,
-                request,
-            ) => result,
-        };
-        let response = match outcome {
-            Ok(response) => response,
-            Err(error) => {
-                let _ = tx
-                    .send(SearchStreamEvent::Error {
-                        message: error.to_string(),
-                    })
+        loop {
+            let registry = tokio::select! {
+                biased;
+                _ = abort.wait() => return Ok(()),
+                result = self.repository.read_search_registry_state() => result?,
+            };
+            let exclusions = registry.search_exclusions();
+            let outcome = tokio::select! {
+                biased;
+                _ = abort.wait() => return Ok(()),
+                result = run_date_search(
+                    &*self.repository,
+                    &*self.scope_resolver,
+                    &*self.embedding,
+                    &*self.index,
+                    user_id,
+                    request.clone(),
+                    &exclusions,
+                ) => result,
+            };
+            let response = match outcome {
+                Ok(response) => response,
+                Err(error) => {
+                    let _ = tx
+                        .send(SearchStreamEvent::Error {
+                            message: error.to_string(),
+                        })
+                        .await;
+                    return Ok(());
+                }
+            };
+            match self
+                .registry_epoch_matches(registry.epoch, &mut abort)
+                .await?
+            {
+                Some(true) => {
+                    let page = SearchStreamPage {
+                        items: response.items,
+                        pagination: response.pagination,
+                    };
+                    if !send_frame(tx, SearchStreamEvent::Local(page)).await {
+                        return Ok(());
+                    }
+                    // Date mode has no rerank stage; we still emit a `done`
+                    // frame so clients with a streaming renderer can stop
+                    // showing a spinner.
+                    let _ = send_frame(
+                        tx,
+                        SearchStreamEvent::Done(SearchStreamDone {
+                            rerank_applied: false,
+                        }),
+                    )
                     .await;
-                return Ok(());
+                    return Ok(());
+                }
+                Some(false) => {
+                    info!(
+                        snapshot_epoch = registry.epoch,
+                        "search registry epoch changed; discarding date stream attempt and retrying"
+                    );
+                    continue;
+                }
+                None => return Ok(()),
             }
-        };
-        let page = SearchStreamPage {
-            items: response.items,
-            pagination: response.pagination,
-        };
-        if !send_frame(tx, SearchStreamEvent::Local(page)).await {
-            return Ok(());
         }
-        // Date mode has no rerank stage; we still emit a `done` frame so
-        // clients with a streaming renderer can stop showing a spinner.
-        let _ = send_frame(
-            tx,
-            SearchStreamEvent::Done(SearchStreamDone {
-                rerank_applied: false,
-            }),
-        )
-        .await;
-        Ok(())
     }
 
     fn log_local_stage(&self, probe: &SearchProbe, mode: &str) {

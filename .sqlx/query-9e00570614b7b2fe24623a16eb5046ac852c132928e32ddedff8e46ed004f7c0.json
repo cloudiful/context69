@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The documents of every file in a folder subtree.\n--\n-- The folder delete removes the files of the subtree, so their documents are\n-- removed in the same statement: a document of a file that joined the subtree\n-- after the enumeration is removed too, and no document of a deleted file\n-- survives as an orphan.\nWITH RECURSIVE subtree AS (\n    SELECT id\n    FROM context69.library_folders\n    WHERE id = $1\n      AND group_id = $2\n    UNION ALL\n    SELECT child.id\n    FROM context69.library_folders child\n    JOIN subtree parent ON child.parent_id = parent.id\n    WHERE child.group_id = $2\n)\nDELETE FROM context69.documents\nWHERE id IN (\n    SELECT DISTINCT link.document_id\n    FROM context69.library_file_documents link\n    JOIN context69.library_files file ON file.id = link.file_id\n    WHERE file.folder_id IN (SELECT id FROM subtree)\n)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9e00570614b7b2fe24623a16eb5046ac852c132928e32ddedff8e46ed004f7c0"
+}

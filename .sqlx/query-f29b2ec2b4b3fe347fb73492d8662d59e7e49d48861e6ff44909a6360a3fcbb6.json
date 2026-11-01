@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM context69.search_registry_entries WHERE run_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f29b2ec2b4b3fe347fb73492d8662d59e7e49d48861e6ff44909a6360a3fcbb6"
+}

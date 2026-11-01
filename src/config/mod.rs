@@ -5,7 +5,8 @@ mod types;
 mod validate;
 
 pub use defaults::{
-    DATABASE_URL_ENV_VAR, DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
+    DATABASE_URL_ENV_VAR, DEFAULT_REGISTRY_MAX_IDS_PER_FILE, DEFAULT_REGISTRY_MAX_IDS_PER_RUN,
+    DEFAULT_REGISTRY_MAX_IDS_TOTAL, DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
     DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SECRET_STORE_KEY_VERSION,
     DEFAULT_SESSION_VALKEY_URL,
 };
@@ -13,8 +14,8 @@ pub use load::load_app_db_url;
 pub use types::{
     ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, Config, ConnectionConfig,
     EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig, QdrantConfig,
-    S3StorageConfig, SchedulerConfig, SecretStoreConfig, SourceConfig, SyncStrategy,
-    parse_sync_strategy,
+    RegistryQuotaConfig, S3StorageConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
+    SyncStrategy, parse_sync_strategy,
 };
 
 #[cfg(test)]
@@ -111,6 +112,42 @@ enabled = true
         let config = FileConfig::default();
 
         assert_eq!(config.scheduler.max_concurrency, 1);
+    }
+
+    /// The registry capacity policy is a deployment input, so a configuration
+    /// that does not mention it keeps the documented defaults.
+    #[test]
+    fn the_registry_capacity_policy_defaults_to_the_documented_caps() {
+        let config = FileConfig::default();
+
+        assert_eq!(
+            config.registry_quota.registry_max_ids_total,
+            super::DEFAULT_REGISTRY_MAX_IDS_TOTAL
+        );
+        assert_eq!(
+            config.registry_quota.registry_max_ids_per_file,
+            super::DEFAULT_REGISTRY_MAX_IDS_PER_FILE
+        );
+        assert_eq!(
+            config.registry_quota.registry_max_ids_per_run,
+            super::DEFAULT_REGISTRY_MAX_IDS_PER_RUN
+        );
+        assert_eq!(super::DEFAULT_REGISTRY_MAX_IDS_TOTAL, 32768);
+        assert_eq!(super::DEFAULT_REGISTRY_MAX_IDS_PER_FILE, 16384);
+        assert_eq!(super::DEFAULT_REGISTRY_MAX_IDS_PER_RUN, 8192);
+    }
+
+    /// A configuration that states the policy keeps the stated caps.
+    #[test]
+    fn a_stated_registry_capacity_policy_is_kept() {
+        let mut config = FileConfig::default();
+        config.registry_quota.registry_max_ids_total = 4096;
+        config.registry_quota.registry_max_ids_per_file = 2048;
+        config.registry_quota.registry_max_ids_per_run = 1024;
+
+        assert_eq!(config.registry_quota.registry_max_ids_total, 4096);
+        assert_eq!(config.registry_quota.registry_max_ids_per_file, 2048);
+        assert_eq!(config.registry_quota.registry_max_ids_per_run, 1024);
     }
 
     /// The master secret is an application-scoped deployment input, so it is read

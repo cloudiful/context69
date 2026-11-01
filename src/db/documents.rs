@@ -18,7 +18,130 @@ use crate::contracts::{
 use crate::domain::{AccessScope, ChunkPayload, DocumentChunk};
 use crate::normalize::is_meaningful_text;
 
+/// How many reserved document ids may be tombstoned in a row before the
+/// reservation is refused.
+///
+/// The bound keeps the reservation bounded: a run of tombstoned candidates
+/// ends the attempt with an error instead of consuming the sequence without
+/// an end.
+const RESERVED_DOCUMENT_ID_TOMBSTONE_SKIP_LIMIT: usize = 16;
+
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct ReplacementDocumentSnapshot {
+    pub id: i64,
+    pub group_id: i64,
+    pub source_key: String,
+    pub external_id: String,
+    pub record_hash: String,
+}
+
+/// The canonical business source of one document for a metadata publication.
+///
+/// `body_text` is the body of the current `document_versions` row, joined by the
+/// document's current record hash. It is `None` when that version row is
+/// missing, and the caller must then fail closed.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct DocumentBusinessSource {
+    pub title: String,
+    pub summary: Option<String>,
+    pub source_uri: String,
+    pub published_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub updated_at_source: chrono::DateTime<chrono::Utc>,
+    pub metadata_json: serde_json::Value,
+    pub record_hash: String,
+    pub body_text: Option<String>,
+}
+
 impl Database {
+    /// The ready-metadata definitions of one group and source on a caller
+    /// connection.
+    ///
+    /// Metadata publication validates and indexes on the same connection as its
+    /// writes, so no pooled read observes a different transaction.
+    pub(crate) async fn list_metadata_indexes_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        source_key: &str,
+    ) -> Result<Vec<super::metadata_indexes::StoredMetadataIndex>> {
+        super::metadata_indexes::list_metadata_indexes_in(connection, group_id, source_key).await
+    }
+
+    /// The canonical business source of one document, locked for the caller
+    /// transaction and joined with its current version body.
+    pub async fn get_document_business_source_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+    ) -> Result<Option<DocumentBusinessSource>> {
+        Ok(sqlx::query_file_as!(
+            DocumentBusinessSource,
+            "src/sql/db/documents/get_document_business_source.sql",
+            document_id
+        )
+        .fetch_optional(connection)
+        .await?)
+    }
+
+    pub async fn lock_replacement_documents_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        ids: &[i64],
+    ) -> Result<Vec<ReplacementDocumentSnapshot>> {
+        Ok(sqlx::query_file_as!(
+            ReplacementDocumentSnapshot,
+            "src/sql/db/documents/lock_replacement_documents.sql",
+            ids
+        )
+        .fetch_all(connection)
+        .await?)
+    }
+
+    /// The point ids of one affected document that a replacement retires.
+    ///
+    /// `record_hash` is the desired NEW source hash of the replacement: the
+    /// document's own chunk rows are always part of the set, and a stored
+    /// translation chunk joins it when its version was translated from a
+    /// different source hash.
+    pub async fn replacement_point_ids_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+        record_hash: &str,
+        invalidate_translation: bool,
+    ) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/documents/read_replacement_point_ids.sql",
+            document_id,
+            record_hash,
+            invalidate_translation
+        )
+        .fetch_all(connection)
+        .await?)
+    }
+
+    /// The translation point ids of one document that the desired NEW source
+    /// hash invalidates.
+    ///
+    /// The document's own chunks stay live: a metadata publication rewrites
+    /// their payload in place. A translation chunk that a registry entry
+    /// already excludes is not reported again, so a repeated invalidation of
+    /// the same translation never fails the bounded admission.
+    pub async fn stale_translation_point_ids_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+        record_hash: &str,
+    ) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/documents/read_stale_translation_point_ids.sql",
+            document_id,
+            record_hash
+        )
+        .fetch_all(connection)
+        .await?)
+    }
+
     pub async fn find_document_id_by_key(
         &self,
         group_id: i64,
@@ -33,6 +156,27 @@ impl Database {
         )
         .fetch_optional(&self.pool)
         .await?)
+    }
+
+    /// The one library file that links this document, or `None`.
+    ///
+    /// A document with no section mapping and a document shared by more than
+    /// one file both return `None`, so a publication that needs a single file
+    /// scope never guesses one.
+    pub async fn find_unique_library_file_for_document(
+        &self,
+        document_id: i64,
+    ) -> Result<Option<Uuid>> {
+        let mut file_ids = sqlx::query_file_scalar!(
+            "src/sql/db/documents/find_unique_file_id_for_document.sql",
+            document_id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        if file_ids.len() != 1 {
+            return Ok(None);
+        }
+        Ok(file_ids.pop())
     }
 
     pub async fn list_document_ids_by_keys(
@@ -240,7 +384,7 @@ impl Database {
     }
     pub async fn upsert_document(&self, payload: &ChunkPayload) -> Result<UpsertedDocument> {
         let mut tx = self.pool.begin().await?;
-        let (document_id, changed) = upsert_document_row_in(&mut tx, payload).await?;
+        let (document_id, changed) = upsert_document_row_in(&mut tx, payload, None).await?;
 
         tx.commit().await?;
         let mut metadata_keys = Vec::new();
@@ -276,12 +420,54 @@ impl Database {
     /// A task-owned write runs the three statements on the connection of its
     /// guarded transaction, so the document, the version that describes it and
     /// the metadata values that index it commit together.
+    ///
+    /// A reserved id that names a tombstoned document is skipped: the document
+    /// is deleted, so a new document with that id would be invisible to every
+    /// search that still excludes the tombstone. The skip is bounded, and a
+    /// run of tombstoned candidates is refused instead of consuming the
+    /// sequence without an end.
+    pub async fn reserve_document_id_on(&self, connection: &mut sqlx::PgConnection) -> Result<i64> {
+        for _ in 0..RESERVED_DOCUMENT_ID_TOMBSTONE_SKIP_LIMIT {
+            let reserved = sqlx::query_file_scalar!("src/sql/db/documents/reserve_document_id.sql")
+                .fetch_optional(&mut *connection)
+                .await?;
+            if let Some(id) = reserved {
+                return Ok(id);
+            }
+        }
+        anyhow::bail!(
+            "the document id sequence produced {RESERVED_DOCUMENT_ID_TOMBSTONE_SKIP_LIMIT} \
+             tombstoned ids in a row; the reservation is refused"
+        )
+    }
+
     pub async fn upsert_document_in(
         &self,
         connection: &mut sqlx::PgConnection,
         payload: &ChunkPayload,
     ) -> Result<UpsertedDocument> {
-        let (document_id, changed) = upsert_document_row_in(connection, payload).await?;
+        self.upsert_document_with_id_in(connection, payload, None)
+            .await
+    }
+
+    pub async fn upsert_document_with_reserved_id_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        payload: &ChunkPayload,
+        document_id: i64,
+    ) -> Result<UpsertedDocument> {
+        self.upsert_document_with_id_in(connection, payload, Some(document_id))
+            .await
+    }
+
+    async fn upsert_document_with_id_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        payload: &ChunkPayload,
+        document_id: Option<i64>,
+    ) -> Result<UpsertedDocument> {
+        let (document_id, changed) =
+            upsert_document_row_in(connection, payload, document_id).await?;
         let definitions = crate::db::metadata_indexes::list_metadata_indexes_in(
             connection,
             payload.group_id,
@@ -337,24 +523,26 @@ impl Database {
             .collect::<Result<Vec<_>>>()?;
 
         let mut tx = self.pool.begin().await?;
+        let Some(expected) = self
+            .lock_replacement_documents_on(&mut tx, &[document_id])
+            .await?
+            .into_iter()
+            .next()
+            .map(|row| row.record_hash)
+        else {
+            return Ok(());
+        };
         super::document_versions::ensure_library_version_in_transaction(
             &mut tx,
             document_id,
             payload,
         )
         .await?;
-        sqlx::query_file!(
-            "src/sql/db/documents/update_library_business_fields.sql",
-            document_id,
-            payload.external_id,
-            payload.source_uri,
-            payload.published_at,
-            payload.updated_at_source,
-            payload.metadata_json,
-            payload.record_hash
-        )
-        .execute(&mut *tx)
-        .await?;
+        if !apply_business_fields_on(&mut *tx, document_id, payload, &expected).await? {
+            anyhow::bail!(
+                "document {document_id} changed while its business fields were published"
+            );
+        }
         let metadata_keys = definitions
             .iter()
             .map(|(index_id, _)| (*index_id, document_id))
@@ -373,6 +561,63 @@ impl Database {
         .await?;
         tx.commit().await?;
         Ok(())
+    }
+
+    /// The business-fields publish of one document on a caller transaction.
+    ///
+    /// `body_text` is the canonical body the caller hashed; the version
+    /// snapshot stores that exact text. `expected_record_hash` is enforced by
+    /// the UPDATE predicate, so a baseline that moved refuses with `false` and
+    /// the caller rolls its whole file/document transaction back.
+    pub async fn update_library_document_business_fields_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+        payload: &ChunkPayload,
+        expected_record_hash: &str,
+        body_text: &str,
+    ) -> Result<bool> {
+        super::document_versions::ensure_library_version_in_connection(
+            connection,
+            document_id,
+            payload,
+            body_text,
+        )
+        .await?;
+        if !apply_business_fields_on(connection, document_id, payload, expected_record_hash).await?
+        {
+            return Ok(false);
+        }
+        let definitions = crate::db::metadata_indexes::list_metadata_indexes_in(
+            connection,
+            payload.group_id,
+            &payload.source_key,
+        )
+        .await?;
+        let mut metadata_keys = Vec::new();
+        let mut metadata_values = Vec::new();
+        for definition in definitions
+            .into_iter()
+            .filter(|definition| definition.status == "ready")
+        {
+            metadata_keys.push((definition.index_id, document_id));
+            let values = crate::services::document_store::metadata::extract_values(
+                &definition,
+                &payload.metadata_json,
+            )?;
+            metadata_values.extend(crate::db::metadata_indexes::metadata_value_rows(
+                definition.index_id,
+                document_id,
+                &values,
+            ));
+        }
+        crate::db::metadata_indexes::replace_metadata_values_in_connection(
+            connection,
+            &metadata_keys,
+            &metadata_values,
+        )
+        .await?;
+        Ok(true)
     }
 
     pub async fn replace_document_chunks(
@@ -689,8 +934,9 @@ fn reindex_payload_from_row(row: ReindexChunkRow) -> ChunkPayload {
 async fn upsert_document_row_in(
     connection: &mut sqlx::PgConnection,
     payload: &ChunkPayload,
+    reserved_id: Option<i64>,
 ) -> Result<(i64, bool)> {
-    let existing = sqlx::query_file_as!(
+    let mut existing = sqlx::query_file_as!(
         ExistingDocumentRow,
         "src/sql/db/documents/get_existing_document.sql",
         payload.group_id,
@@ -699,6 +945,48 @@ async fn upsert_document_row_in(
     )
     .fetch_optional(&mut *connection)
     .await?;
+
+    if let Some(reserved_id) = reserved_id {
+        if let Some(found) = &existing {
+            anyhow::ensure!(
+                found.id == reserved_id,
+                "document identity does not match reserved id"
+            );
+        }
+        let locked = sqlx::query_file_as!(
+            ReplacementDocumentSnapshot,
+            "src/sql/db/documents/lock_replacement_documents.sql",
+            &[reserved_id]
+        )
+        .fetch_optional(&mut *connection)
+        .await?;
+        if let Some(locked) = locked {
+            anyhow::ensure!(
+                locked.group_id == payload.group_id && locked.source_key == payload.source_key,
+                "reserved document belongs to another group or source"
+            );
+            if locked.external_id != payload.external_id {
+                anyhow::ensure!(
+                    existing.is_none(),
+                    "replacement document key already exists"
+                );
+                anyhow::ensure!(
+                    apply_business_fields_on(
+                        &mut *connection,
+                        reserved_id,
+                        payload,
+                        &locked.record_hash,
+                    )
+                    .await?,
+                    "reserved document changed while its business fields were updated"
+                );
+                existing = Some(ExistingDocumentRow {
+                    id: locked.id,
+                    record_hash: locked.record_hash,
+                });
+            }
+        }
+    }
 
     let (document_id, changed) = match existing {
         Some(existing) if existing.record_hash == payload.record_hash => {
@@ -735,6 +1023,26 @@ async fn upsert_document_row_in(
             .execute(&mut *connection)
             .await?;
             (existing.id, true)
+        }
+        None if reserved_id.is_some() => {
+            let id = sqlx::query_file_scalar!(
+                "src/sql/db/documents/insert_document_reserved.sql",
+                reserved_id,
+                payload.group_id,
+                payload.visibility.as_str(),
+                payload.source_key,
+                payload.external_id,
+                payload.title,
+                payload.summary,
+                payload.source_uri,
+                payload.published_at,
+                payload.updated_at_source,
+                payload.metadata_json,
+                payload.record_hash
+            )
+            .fetch_one(&mut *connection)
+            .await?;
+            (id, true)
         }
         None => {
             let id = sqlx::query_file_scalar!(
@@ -774,6 +1082,43 @@ async fn upsert_document_row_in(
     }
 
     Ok((document_id, changed))
+}
+
+/// Rewrite the business fields and the chunk hashes of one document.
+///
+/// The document UPDATE is a compare-and-set on the expected current hash and
+/// returns the id only when it matched. The chunk rewrite targets only that
+/// document, so a CAS miss touches nothing.
+async fn apply_business_fields_on(
+    connection: &mut sqlx::PgConnection,
+    document_id: i64,
+    payload: &ChunkPayload,
+    expected_record_hash: &str,
+) -> Result<bool> {
+    let updated = sqlx::query_file_scalar!(
+        "src/sql/db/documents/update_library_business_fields.sql",
+        document_id,
+        payload.external_id,
+        payload.source_uri,
+        payload.published_at,
+        payload.updated_at_source,
+        payload.metadata_json,
+        payload.record_hash,
+        expected_record_hash
+    )
+    .fetch_optional(&mut *connection)
+    .await?;
+    if updated.is_none() {
+        return Ok(false);
+    }
+    sqlx::query_file!(
+        "src/sql/db/documents/update_library_chunk_record_hash.sql",
+        document_id,
+        payload.record_hash
+    )
+    .execute(&mut *connection)
+    .await?;
+    Ok(true)
 }
 
 async fn insert_document_chunks_in_transaction(

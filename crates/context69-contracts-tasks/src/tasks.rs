@@ -124,6 +124,12 @@ pub struct TaskProgress {
 pub enum TaskOrigin {
     Manual,
     Rerun,
+    /// A succeeded source task forked into a fresh source read (issue 1138 P17).
+    ///
+    /// It is deliberately distinct from [`Self::Rerun`]: the ordinary rerun
+    /// keeps its existing fork/resume semantics, while this origin marks the
+    /// internal fresh-source replacement processor.
+    RerunSource,
 }
 
 impl TaskOrigin {
@@ -131,6 +137,7 @@ impl TaskOrigin {
         match self {
             Self::Manual => "manual",
             Self::Rerun => "rerun",
+            Self::RerunSource => "rerun_source",
         }
     }
 }
@@ -622,6 +629,153 @@ pub struct TaskRetryResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct RerunTaskResponse {
     pub task: TaskRef,
+}
+
+/// Maximum number of task ids one `POST /v1/tasks/batch/retry` call accepts.
+pub const TASK_BATCH_RETRY_MAX: usize = 100;
+
+/// One bounded batch recovery request (issue 1138 P2).
+///
+/// Each id is recovered independently through the existing per-task
+/// authorization and in-place lifecycle: a failed task retries its own failed
+/// items, a cancelled task resumes its own cancelled items, and every other
+/// state is skipped instead of forked. The list is ordered and every requested
+/// id keeps its position in the response.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchRetryRequest {
+    pub task_ids: Vec<Uuid>,
+}
+
+/// The per-id result vocabulary of a batch recovery call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchRetryOutcome {
+    /// At least one of the task's own items was reopened in place.
+    Accepted,
+    /// The task was readable but not recovered; `reason` says why.
+    Skipped,
+    /// The item could not be processed; `reason` is non-sensitive and the
+    /// other items still run.
+    Failed,
+}
+
+/// Machine-readable, non-sensitive reason attached to a skipped or failed id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchRetryReason {
+    /// Missing or not manageable by the caller; the two are deliberately
+    /// indistinguishable so existence never leaks.
+    NotFound,
+    /// Succeeded, active, trashed or otherwise not a failed/cancelled task.
+    IneligibleStatus,
+    /// Nothing was left to reopen for this task's current items.
+    NothingToRetry,
+    /// An unexpected internal failure while recovering this id.
+    InternalError,
+}
+
+impl TaskBatchRetryReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotFound => "not_found",
+            Self::IneligibleStatus => "ineligible_status",
+            Self::NothingToRetry => "nothing_to_retry",
+            Self::InternalError => "internal_error",
+        }
+    }
+}
+
+/// One ordered outcome of a batch recovery call.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchRetryItem {
+    pub task_id: Uuid,
+    pub outcome: TaskBatchRetryOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<TaskBatchRetryReason>,
+    /// The recovered task's own id. Recovery never forks, so it equals
+    /// `task_id`, and it is absent when the id was skipped or failed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retried_task_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchRetryResponse {
+    pub results: Vec<TaskBatchRetryItem>,
+}
+
+/// Maximum number of task ids one `POST /v1/tasks/batch/rerun` call accepts.
+pub const TASK_BATCH_RERUN_MAX: usize = 100;
+
+/// One bounded batch source-rerun request (issue 1138 P28).
+///
+/// Only a succeeded file, url, or text parent is rerun: the request creates a
+/// fresh child task that reads the current source again. Every other id is
+/// reported with a reason instead of being forked, and the list is ordered so
+/// every requested id keeps its position in the response.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchRerunRequest {
+    pub task_ids: Vec<Uuid>,
+}
+
+/// The per-id result vocabulary of a batch source-rerun call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchRerunOutcome {
+    /// A fresh child task was created for the succeeded parent.
+    Accepted,
+    /// The task was readable but not rerun; `reason` says why.
+    Skipped,
+    /// The rerun could not be processed; `reason` is non-sensitive and the
+    /// other items still run.
+    Failed,
+}
+
+/// Machine-readable, non-sensitive reason attached to a skipped or failed id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchRerunReason {
+    /// Missing or not manageable by the caller; the two are deliberately
+    /// indistinguishable so existence never leaks.
+    NotFound,
+    /// Not a succeeded file, url, or text task. Failed and cancelled parents
+    /// belong to the recovery action, not to a source rerun.
+    IneligibleStatus,
+    /// The task holds no succeeded item that still owns a rerunnable source.
+    NothingToRerun,
+    /// The source is already covered by an active processing task.
+    ActiveSourceBusy,
+    /// An unexpected internal failure while rerunning this id.
+    InternalError,
+}
+
+impl TaskBatchRerunReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotFound => "not_found",
+            Self::IneligibleStatus => "ineligible_status",
+            Self::NothingToRerun => "nothing_to_rerun",
+            Self::ActiveSourceBusy => "active_source_busy",
+            Self::InternalError => "internal_error",
+        }
+    }
+}
+
+/// One ordered outcome of a batch source-rerun call.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchRerunItem {
+    pub task_id: Uuid,
+    pub outcome: TaskBatchRerunOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<TaskBatchRerunReason>,
+    /// The created child task's own id. A source rerun forks a child, so it
+    /// differs from `task_id`, and it is absent unless the id was accepted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_task_id: Option<Uuid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchRerunResponse {
+    pub results: Vec<TaskBatchRerunItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Files whose released source cannot supply the admission that claims them.\n--\n-- A stored file or text task reads its own stored bytes, so a released source\n-- is unavailable and must be refused. A URL task downloads the current source\n-- URI again, so released cached bytes are still rerunnable as long as the file\n-- carries a downloadable URL. Any other state stays refused.\nSELECT count(*)::bigint AS \"count!\"\nFROM context69.library_files\nWHERE group_id = $1\n  AND id = ANY($2)\n  AND source_released_at IS NOT NULL\n  AND (\n      $3::text <> 'url'\n      OR source_uri IS NULL\n      OR source_uri !~* '^https?://'\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "7df30307f5b877aadc53bc432f1af791d0b51900b9c8232f213814b2fac271e6"
+}

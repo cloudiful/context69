@@ -54,6 +54,7 @@ impl VectorConnector for DelayedConnector {
                 dimensions: 8,
             },
             collection: self.collection.lock().expect("collection").clone(),
+            configured_fingerprint: Some("recovery-fingerprint".to_string()),
         })
     }
 
@@ -234,6 +235,7 @@ impl VectorConnector for CountingConnector {
                 dimensions: 8,
             },
             collection: "context69".to_string(),
+            configured_fingerprint: Some("recovery-fingerprint".to_string()),
         })
     }
 
@@ -866,6 +868,7 @@ impl VectorConnector for RebuildSeamConnector {
                 dimensions: 8,
             },
             collection: "unknown_collection".to_string(),
+            configured_fingerprint: Some("recovery-fingerprint".to_string()),
         })
     }
 

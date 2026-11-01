@@ -1630,6 +1630,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/batch/rerun": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_rerun_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/batch/retry": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_retry_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/clear": {
         parameters: {
             query?: never;
@@ -2047,7 +2079,9 @@ export interface components {
             producer: string;
             provenance?: null | components["schemas"]["DocumentResultProvenance"];
             /** @description The opaque result payload; must be a JSON object. */
-            result: Record<string, never>;
+            result: {
+                [key: string]: unknown;
+            };
             /** @description Bounded opaque result-kind identifier chosen by the producer. */
             result_kind: string;
             /** @description Producer-owned schema reference for the opaque payload. */
@@ -2363,7 +2397,9 @@ export interface components {
             idempotency_key: string;
             producer: string;
             provenance?: null | components["schemas"]["DocumentResultProvenance"];
-            result: Record<string, never>;
+            result: {
+                [key: string]: unknown;
+            };
             result_kind: string;
             schema_ref: string;
             source_record_hash: string;
@@ -3482,11 +3518,24 @@ export interface components {
         /**
          * @description List filters. `limit` defaults to 50 and is bounded to `1..=100`; results
          *     are ordered by `id` descending and `after_id` continues from the last
-         *     returned id.
+         *     returned id. `current_only` restricts the page to the document's current
+         *     source version, and `latest_only` keeps only the newest row per
+         *     `(producer, result_kind)` in that version.
          */
         ListDocumentResultsQuery: {
             /** Format: int64 */
             after_id?: number | null;
+            /**
+             * @description Restrict the page to rows bound to the document's current
+             *     `record_hash`. Older rows stay stored and remain available when this is
+             *     omitted.
+             */
+            current_only?: boolean;
+            /**
+             * @description Return only the greatest result id for each `(producer, result_kind)`
+             *     among the current-version rows. Requires `current_only`.
+             */
+            latest_only?: boolean;
             /** Format: int32 */
             limit?: number;
             producer?: string | null;
@@ -3710,6 +3759,21 @@ export interface components {
             ingest_concurrency: number;
             max_upload_request_size_mb: number;
             max_upload_size_mb: number;
+            /**
+             * Format: int64
+             * @description The number of point ids one file may retain.
+             */
+            registry_max_ids_per_file: number;
+            /**
+             * Format: int64
+             * @description The number of point ids one ingestion run may admit.
+             */
+            registry_max_ids_per_run: number;
+            /**
+             * Format: int64
+             * @description The number of point ids the whole deployment may retain.
+             */
+            registry_max_ids_total: number;
             s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
             trusted_proxy_enabled: boolean;
@@ -4072,6 +4136,81 @@ export interface components {
             started_at: string;
             status: string;
         };
+        /** @description One ordered outcome of a batch source-rerun call. */
+        TaskBatchRerunItem: {
+            outcome: components["schemas"]["TaskBatchRerunOutcome"];
+            reason?: null | components["schemas"]["TaskBatchRerunReason"];
+            /**
+             * Format: uuid
+             * @description The created child task's own id. A source rerun forks a child, so it
+             *     differs from `task_id`, and it is absent unless the id was accepted.
+             */
+            rerun_task_id?: string | null;
+            /** Format: uuid */
+            task_id: string;
+        };
+        /**
+         * @description The per-id result vocabulary of a batch source-rerun call.
+         * @enum {string}
+         */
+        TaskBatchRerunOutcome: "accepted" | "skipped" | "failed";
+        /**
+         * @description Machine-readable, non-sensitive reason attached to a skipped or failed id.
+         * @enum {string}
+         */
+        TaskBatchRerunReason: "not_found" | "ineligible_status" | "nothing_to_rerun" | "active_source_busy" | "internal_error";
+        /**
+         * @description One bounded batch source-rerun request (issue 1138 P28).
+         *
+         *     Only a succeeded file, url, or text parent is rerun: the request creates a
+         *     fresh child task that reads the current source again. Every other id is
+         *     reported with a reason instead of being forked, and the list is ordered so
+         *     every requested id keeps its position in the response.
+         */
+        TaskBatchRerunRequest: {
+            task_ids: string[];
+        };
+        TaskBatchRerunResponse: {
+            results: components["schemas"]["TaskBatchRerunItem"][];
+        };
+        /** @description One ordered outcome of a batch recovery call. */
+        TaskBatchRetryItem: {
+            outcome: components["schemas"]["TaskBatchRetryOutcome"];
+            reason?: null | components["schemas"]["TaskBatchRetryReason"];
+            /**
+             * Format: uuid
+             * @description The recovered task's own id. Recovery never forks, so it equals
+             *     `task_id`, and it is absent when the id was skipped or failed.
+             */
+            retried_task_id?: string | null;
+            /** Format: uuid */
+            task_id: string;
+        };
+        /**
+         * @description The per-id result vocabulary of a batch recovery call.
+         * @enum {string}
+         */
+        TaskBatchRetryOutcome: "accepted" | "skipped" | "failed";
+        /**
+         * @description Machine-readable, non-sensitive reason attached to a skipped or failed id.
+         * @enum {string}
+         */
+        TaskBatchRetryReason: "not_found" | "ineligible_status" | "nothing_to_retry" | "internal_error";
+        /**
+         * @description One bounded batch recovery request (issue 1138 P2).
+         *
+         *     Each id is recovered independently through the existing per-task
+         *     authorization and in-place lifecycle: a failed task retries its own failed
+         *     items, a cancelled task resumes its own cancelled items, and every other
+         *     state is skipped instead of forked. The list is ordered and every requested
+         *     id keeps its position in the response.
+         */
+        TaskBatchRetryRequest: {
+            task_ids: string[];
+        };
+        TaskBatchRetryResponse: {
+            results: components["schemas"]["TaskBatchRetryItem"][];
+        };
         /**
          * @description Parent-versus-item consistency verdict for one task.
          *
@@ -4322,7 +4461,7 @@ export interface components {
         /** @enum {string} */
         TaskListView: "processing" | "completed" | "trash";
         /** @enum {string} */
-        TaskOrigin: "manual" | "rerun";
+        TaskOrigin: "manual" | "rerun" | "rerun_source";
         TaskPageResponse: {
             items: components["schemas"]["TaskResponse"][];
             pagination: components["schemas"]["Pagination"];
@@ -4824,6 +4963,24 @@ export interface components {
             ingest_concurrency: number;
             max_upload_request_size_mb: number;
             max_upload_size_mb: number;
+            /**
+             * Format: int64
+             * @description The number of point ids one file may retain.
+             */
+            registry_max_ids_per_file?: number | null;
+            /**
+             * Format: int64
+             * @description The number of point ids one ingestion run may admit.
+             */
+            registry_max_ids_per_run?: number | null;
+            /**
+             * Format: int64
+             * @description The number of point ids the whole deployment may retain.
+             *
+             *     A client that omits the setting keeps the stored cap, so an older
+             *     client never resets the policy.
+             */
+            registry_max_ids_total?: number | null;
             s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
             storage_root: string;
             trusted_proxy_enabled?: boolean;
@@ -6091,6 +6248,17 @@ export interface operations {
                 producer?: string;
                 result_kind?: string;
                 after_id?: number;
+                /**
+                 * @description Restrict the page to rows bound to the document's current
+                 *     `record_hash`. Older rows stay stored and remain available when this is
+                 *     omitted.
+                 */
+                current_only?: boolean;
+                /**
+                 * @description Return only the greatest result id for each `(producer, result_kind)`
+                 *     among the current-version rows. Requires `current_only`.
+                 */
+                latest_only?: boolean;
                 limit?: number;
             };
             header?: never;
@@ -9821,6 +9989,68 @@ export interface operations {
             };
         };
     };
+    batch_rerun_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchRerunRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchRerunResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    batch_retry_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchRetryRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchRetryResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     clear_task_history: {
         parameters: {
             query?: never;
@@ -10097,6 +10327,14 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

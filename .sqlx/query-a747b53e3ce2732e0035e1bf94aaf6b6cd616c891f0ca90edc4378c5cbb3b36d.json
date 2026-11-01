@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Conditional lifecycle transition of one registry entry.\n--\n-- The `(run_id, expected phase)` predicate is the compare-and-set: an entry\n-- that already moved matches no row, so no array changes and no epoch bump\n-- happens. The edge guard repeats the Rust whitelist in the database, so a\n-- raw caller cannot apply an illegal move either.\n--\n-- The three legal edges own the id arrays they leave behind:\n--   staging -> switched : retired_ids becomes the caller's complete old-live\n--                         set and staged_ids is cleared, because the staged\n--                         ids are the live version from now on;\n--   staging -> retired  : retired_ids becomes the stored staged_ids and\n--                         staged_ids is cleared, so an abandoned run keeps\n--                         its points excluded;\n--   switched -> retired : retired_ids is retained and staged_ids is cleared.\nUPDATE context69.search_registry_entries\nSET phase = $3::text,\n    retired_ids = CASE\n        WHEN $3::text = 'switched' THEN $4::uuid[]\n        WHEN $2::text = 'staging' THEN staged_ids\n        ELSE retired_ids\n    END,\n    reserved_ids = CASE\n        WHEN $3::text = 'switched' THEN cardinality($4::uuid[])::bigint\n        WHEN $2::text = 'staging' THEN cardinality(staged_ids)::bigint\n        ELSE cardinality(retired_ids)::bigint\n    END,\n    staged_ids = CASE\n        WHEN $3::text IN ('switched', 'retired') THEN '{}'::uuid[]\n        ELSE staged_ids\n    END\nWHERE run_id = $1\n  AND phase = $2::text\n  AND CASE\n      WHEN $3::text = 'switched' THEN cardinality($4::uuid[])::bigint\n      WHEN $2::text = 'staging' THEN cardinality(staged_ids)::bigint\n      ELSE cardinality(retired_ids)::bigint\n  END <= reserved_ids\n  AND (\n      ($2::text = 'staging' AND $3::text IN ('switched', 'retired'))\n      OR ($2::text = 'switched' AND $3::text = 'retired')\n  )\nRETURNING run_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "run_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Text",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a747b53e3ce2732e0035e1bf94aaf6b6cd616c891f0ca90edc4378c5cbb3b36d"
+}

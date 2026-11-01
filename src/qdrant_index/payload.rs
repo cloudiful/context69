@@ -1,10 +1,26 @@
 use chrono::{DateTime, Utc};
 use qdrant_client::qdrant::{Condition, DatetimeRange, Filter, Range, Timestamp};
 use serde_json::json;
+use uuid::Uuid;
 
 use super::date_to_timestamp;
 use crate::contracts::{MetadataFilter, MetadataFilterOperator};
 use crate::domain::ChunkPayload;
+
+/// Top-level payload key carrying the internal index state of a point. The
+/// `c69_` namespace keeps the marker clear of user metadata, which only ever
+/// lives nested under `metadata_index`.
+pub(super) const POINT_STATE_KEY: &str = "c69_ix_state";
+
+/// Indexed payload field that carries the library file a point belongs to.
+pub(super) const LIBRARY_FILE_ID_FIELD: &str = "library_file_id";
+
+/// Indexed payload field that carries the document a point belongs to.
+pub(super) const DOCUMENT_ID_FIELD: &str = "document_id";
+
+/// Index states that are never visible to search. Every other value — a live
+/// value, an unrelated value, or no value at all — stays visible.
+const HIDDEN_POINT_STATES: [&str; 2] = ["staged", "pending"];
 
 pub(super) fn chunk_payload_json(payload: &ChunkPayload) -> serde_json::Value {
     let mut payload_json = json!({
@@ -42,6 +58,47 @@ pub(super) fn chunk_payload_json(payload: &ChunkPayload) -> serde_json::Value {
     payload_json["metadata_index"] = payload.metadata_json.clone();
 
     payload_json
+}
+
+/// Condition that hides points whose index state is one of the hidden states.
+///
+/// The clause is a `match`-based `must_not`, never an `is_empty` test: a
+/// point without the key (every legacy point), a point whose value is null,
+/// and a point carrying a live or unrelated value never match it and stay
+/// visible. Only the exact hidden values are excluded.
+pub(super) fn hidden_point_condition() -> Condition {
+    Condition::from(Filter::must_not(
+        HIDDEN_POINT_STATES
+            .iter()
+            .map(|state| Condition::matches(POINT_STATE_KEY, state.to_string()))
+            .collect::<Vec<_>>(),
+    ))
+}
+
+/// The `must_not` clause that hides every point of a deleted library file.
+///
+/// The clause matches the indexed `library_file_id` payload field against any
+/// of the deleted file ids, so one clause excludes a whole file without one
+/// registry reservation per point. An empty set adds no clause at all.
+pub(super) fn deleted_file_condition(file_ids: &[Uuid]) -> Option<Condition> {
+    if file_ids.is_empty() {
+        return None;
+    }
+    Some(Condition::matches(
+        LIBRARY_FILE_ID_FIELD,
+        file_ids.iter().map(Uuid::to_string).collect::<Vec<_>>(),
+    ))
+}
+
+/// The `must_not` clause that hides every point of a deleted document.
+///
+/// The clause matches the indexed `document_id` payload field against any of
+/// the deleted document ids. An empty set adds no clause at all.
+pub(super) fn deleted_document_condition(document_ids: &[i64]) -> Option<Condition> {
+    if document_ids.is_empty() {
+        return None;
+    }
+    Some(Condition::matches(DOCUMENT_ID_FIELD, document_ids.to_vec()))
 }
 
 pub(super) fn metadata_filter_condition(filter: &MetadataFilter) -> Option<Condition> {

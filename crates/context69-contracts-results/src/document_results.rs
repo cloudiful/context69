@@ -92,7 +92,7 @@ pub struct CreateDocumentResultRequest {
     /// producer.
     pub idempotency_key: String,
     /// The opaque result payload; must be a JSON object.
-    #[schema(value_type = Object)]
+    #[schema(value_type = std::collections::BTreeMap<String, serde_json::Value>)]
     pub result: serde_json::Value,
     /// Credential-free provenance; omitted when the caller has none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -154,7 +154,7 @@ pub struct DocumentResultResponse {
     pub schema_ref: String,
     pub source_record_hash: String,
     pub idempotency_key: String,
-    #[schema(value_type = Object)]
+    #[schema(value_type = std::collections::BTreeMap<String, serde_json::Value>)]
     pub result: serde_json::Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provenance: Option<DocumentResultProvenance>,
@@ -163,7 +163,9 @@ pub struct DocumentResultResponse {
 
 /// List filters. `limit` defaults to 50 and is bounded to `1..=100`; results
 /// are ordered by `id` descending and `after_id` continues from the last
-/// returned id.
+/// returned id. `current_only` restricts the page to the document's current
+/// source version, and `latest_only` keeps only the newest row per
+/// `(producer, result_kind)` in that version.
 #[derive(Debug, Clone, Serialize, Deserialize, IntoParams, ToSchema, JsonSchema)]
 #[into_params(parameter_in = Query)]
 pub struct ListDocumentResultsQuery {
@@ -173,6 +175,15 @@ pub struct ListDocumentResultsQuery {
     pub result_kind: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub after_id: Option<i64>,
+    /// Restrict the page to rows bound to the document's current
+    /// `record_hash`. Older rows stay stored and remain available when this is
+    /// omitted.
+    #[serde(default)]
+    pub current_only: bool,
+    /// Return only the greatest result id for each `(producer, result_kind)`
+    /// among the current-version rows. Requires `current_only`.
+    #[serde(default)]
+    pub latest_only: bool,
     #[serde(default = "default_list_limit")]
     #[param(minimum = 1, maximum = 100)]
     #[schema(minimum = 1, maximum = 100)]
@@ -186,6 +197,8 @@ impl Default for ListDocumentResultsQuery {
             producer: None,
             result_kind: None,
             after_id: None,
+            current_only: false,
+            latest_only: false,
             limit: default_list_limit(),
         }
     }
@@ -208,6 +221,9 @@ impl ListDocumentResultsQuery {
             if after_id < 0 {
                 return Err(anyhow::anyhow!("after_id must not be negative"));
             }
+        }
+        if self.latest_only && !self.current_only {
+            return Err(anyhow::anyhow!("latest_only requires current_only=true"));
         }
         Ok(())
     }

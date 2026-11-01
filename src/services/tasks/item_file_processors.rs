@@ -25,6 +25,16 @@ pub(super) async fn process_text(
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("text tasks require group_id"))?;
+    if let Some(run) = service.db().read_library_ingest_run(item.id).await? {
+        return super::item_replacement_processor::process_atomic_ingest(
+            service,
+            Some(group),
+            task,
+            item,
+            run.mode,
+        )
+        .await;
+    }
     if stage == "storage" {
         // Recovery: `save_sections` stores the parsed sections back into the
         // item payload as `section_payload`, which `UpsertLibraryTextRequest`
@@ -36,12 +46,162 @@ pub(super) async fn process_text(
             Err(error) => return Ok(process_error(stage, error)),
         };
         if let Some(next) = text_storage_resume_stage(sections.as_ref()) {
-            return Ok(ProcessResult::Progressed { next });
+            if service.replacement_caps().is_none() {
+                return Ok(ProcessResult::Progressed { next });
+            }
+            // The atomic mode reads its own current source, so the parse of a
+            // previous attempt is dropped before the item is claimed. The
+            // stored request parses again once the cached sections are gone.
+            crate::services::library::clear_ingest_cache(service.db(), item).await?;
         }
         let request: UpsertLibraryTextRequest = match deserialize_worker_input(&item.payload) {
             Ok(request) => request,
             Err(error) => return Ok(process_error(stage, error.into())),
         };
+        if service.replacement_caps().is_some() {
+            match service
+                .library()
+                .text_replacement_candidate(group, &request)
+                .await
+            {
+                Ok(Some((existing, attributes, bytes))) => {
+                    if crate::services::library::is_managed_source_file(
+                        &existing.filename,
+                        existing.external_id.as_deref(),
+                    ) {
+                        return Ok(ProcessResult::Failed {
+                            stage: "storage".to_string(),
+                            message: "managed source-folder files cannot be replaced by an ordinary text update"
+                                .to_string(),
+                            retryable: false,
+                        });
+                    }
+                    let staged = match service
+                        .library()
+                        .stage_file_for_task_input(
+                            group.id,
+                            UploadedLibraryFile {
+                                folder_id: attributes.folder_id,
+                                filename: attributes.filename.clone(),
+                                media_type: attributes.media_type.clone(),
+                                bytes,
+                                declared_sha256: None,
+                                options: context69_contracts::IngestOptions::retain(),
+                                staged_storage_object_id: None,
+                            },
+                        )
+                        .await
+                    {
+                        Ok(object_id) => object_id,
+                        Err(error) => return Ok(process_error(stage, error)),
+                    };
+                    let execution = match item.execution_context() {
+                        Some(execution) => execution,
+                        None => {
+                            return Ok(process_error(
+                                stage,
+                                DomainError::conflict("task item has no captured execution").into(),
+                            ));
+                        }
+                    };
+                    if !service
+                        .db()
+                        .set_task_item_input_storage_object(
+                            item.id,
+                            &execution,
+                            staged,
+                            &item.payload,
+                        )
+                        .await?
+                    {
+                        let _ = service
+                            .library()
+                            .release_task_input_staging(staged, None)
+                            .await;
+                        return Ok(process_error(
+                            stage,
+                            DomainError::conflict(
+                                "task item lease was lost while saving staged text input",
+                            )
+                            .into(),
+                        ));
+                    }
+                    item.input_storage_object_id = Some(staged);
+                    match crate::services::library::begin_ordinary_replacement(
+                        service.db(),
+                        task.id,
+                        item,
+                        existing.id,
+                        crate::db::IngestRunSource::Stored,
+                    )
+                    .await
+                    {
+                        Ok(true) => {
+                            return Ok(ProcessResult::Progressed { next: "embedding" });
+                        }
+                        Ok(false) => {
+                            return Ok(super::item_processors::waiting_for_error(
+                                item,
+                                UnifiedIngestError {
+                                    stage: "storage".to_string(),
+                                    dependency_key: None,
+                                    retryable: true,
+                                    message:
+                                        "another task item is already replacing this library file"
+                                            .to_string(),
+                                },
+                            ));
+                        }
+                        Err(error) => return Ok(process_error(stage, error)),
+                    }
+                }
+                Ok(None) => {
+                    // No committed file owns this external id: the atomic first
+                    // insert creates the file, binds it to the item and claims
+                    // its durable run in one transaction.
+                    let (file, bytes, metadata) = match service
+                        .library()
+                        .text_first_insert_candidate(group, &request)
+                        .await
+                    {
+                        Ok(plan) => plan,
+                        Err(error) => return Ok(process_error(stage, error)),
+                    };
+                    let staged = match super::item_replacement_processor::stage_first_insert_source(
+                        service,
+                        group.id,
+                        item,
+                        &UploadedLibraryFile {
+                            folder_id: file.folder_id,
+                            filename: file.filename.clone(),
+                            media_type: file.media_type.clone(),
+                            bytes,
+                            declared_sha256: None,
+                            options: context69_contracts::IngestOptions::retain(),
+                            staged_storage_object_id: None,
+                        },
+                    )
+                    .await
+                    {
+                        Ok(object_id) => object_id,
+                        Err(error) => return Ok(process_error(stage, error)),
+                    };
+                    return super::item_replacement_processor::claim_atomic_first_insert(
+                        service,
+                        group.id,
+                        task,
+                        item,
+                        &file,
+                        staged,
+                        Some(&metadata),
+                        request.translation.as_ref(),
+                        crate::db::IngestRunSource::Stored,
+                    )
+                    .await;
+                }
+                Err(error) => return Ok(process_error(stage, error)),
+            }
+        }
         // Text ingestion has no storage upload and no remote conversion: the
         // work this stage performs is parsing the submitted body.
         record_stage(service.db(), item, PipelineProgressStage::Parsing).await?;
@@ -84,6 +244,16 @@ pub(super) async fn process_file(
     stage: &str,
 ) -> Result<ProcessResult> {
     let group = group.context(DomainError::invalid_argument("file tasks require group_id"))?;
+    if let Some(run) = service.db().read_library_ingest_run(item.id).await? {
+        return super::item_replacement_processor::process_atomic_ingest(
+            service,
+            Some(group),
+            task,
+            item,
+            run.mode,
+        )
+        .await;
+    }
     if stage == "storage" {
         let file = if let Some(file_id) = item.file_id {
             match service
@@ -116,22 +286,155 @@ pub(super) async fn process_file(
                 }
             };
             let ingest = &request.options;
+            let upload = UploadedLibraryFile {
+                folder_id: request.folder_id,
+                filename: request.filename,
+                media_type: request.media_type,
+                bytes,
+                declared_sha256: request.declared_sha256,
+                options: ingest.clone(),
+                staged_storage_object_id: item.input_storage_object_id,
+            };
+            if service.replacement_caps().is_some() {
+                match service
+                    .library()
+                    .upload_replacement_candidate(group.id, &upload)
+                    .await
+                {
+                    Ok(Some((existing, attributes))) => {
+                        if crate::services::library::is_managed_source_file(
+                            &existing.filename,
+                            existing.external_id.as_deref(),
+                        ) {
+                            return Ok(ProcessResult::Failed {
+                                stage: "storage".to_string(),
+                                message: "managed source-folder files cannot be replaced by an ordinary file update"
+                                    .to_string(),
+                                retryable: false,
+                            });
+                        }
+                        if item.input_storage_object_id.is_none() {
+                            let staged = match service
+                                .library()
+                                .stage_file_for_task_input(group.id, upload.clone())
+                                .await
+                            {
+                                Ok(object_id) => object_id,
+                                Err(error) => return Ok(process_error(stage, error)),
+                            };
+                            let execution = match item.execution_context() {
+                                Some(execution) => execution,
+                                None => {
+                                    return Ok(process_error(
+                                        stage,
+                                        DomainError::conflict(
+                                            "task item has no captured execution",
+                                        )
+                                        .into(),
+                                    ));
+                                }
+                            };
+                            if !service
+                                .db()
+                                .set_task_item_input_storage_object(
+                                    item.id,
+                                    &execution,
+                                    staged,
+                                    &item.payload,
+                                )
+                                .await?
+                            {
+                                let _ = service
+                                    .library()
+                                    .release_task_input_staging(staged, None)
+                                    .await;
+                                return Ok(process_error(
+                                    stage,
+                                    DomainError::conflict(
+                                        "task item lease was lost while saving staged file input",
+                                    )
+                                    .into(),
+                                ));
+                            }
+                            item.input_storage_object_id = Some(staged);
+                        }
+                        match crate::services::library::begin_ordinary_replacement(
+                            service.db(),
+                            task.id,
+                            item,
+                            existing.id,
+                            crate::db::IngestRunSource::Stored,
+                        )
+                        .await
+                        {
+                            Ok(true) => {
+                                let next = match service
+                                    .library()
+                                    .file_ingest_stage(&attributes.filename, &attributes.media_type)
+                                {
+                                    Ok(next) => next,
+                                    Err(error) => return Ok(process_error(stage, error)),
+                                };
+                                return Ok(ProcessResult::Progressed { next });
+                            }
+                            Ok(false) => {
+                                return Ok(super::item_processors::waiting_for_error(
+                                    item,
+                                    UnifiedIngestError {
+                                        stage: "storage".to_string(),
+                                        dependency_key: None,
+                                        retryable: true,
+                                        message:
+                                            "another task item is already replacing this library file"
+                                                .to_string(),
+                                    },
+                                ));
+                            }
+                            Err(error) => return Ok(process_error(stage, error)),
+                        }
+                    }
+                    Ok(None) => {
+                        // No committed file owns this identity: the atomic
+                        // first insert creates the file, binds it to the item
+                        // and claims its durable run in one transaction.
+                        let staged =
+                            match super::item_replacement_processor::stage_first_insert_source(
+                                service, group.id, item, &upload,
+                            )
+                            .await
+                            {
+                                Ok(object_id) => object_id,
+                                Err(error) => return Ok(process_error(stage, error)),
+                            };
+                        let file = crate::services::library::AtomicFirstInsertFile {
+                            folder_id: upload.folder_id,
+                            external_id: upload.options.metadata.external_id.clone(),
+                            filename: upload.filename.clone(),
+                            media_type: upload.media_type.clone(),
+                            delete_source_after_processing: upload.options.as_delete_flag(),
+                        };
+                        let metadata = (!upload.options.metadata.is_empty())
+                            .then_some(&upload.options.metadata);
+                        return super::item_replacement_processor::claim_atomic_first_insert(
+                            service,
+                            group.id,
+                            task,
+                            item,
+                            &file,
+                            staged,
+                            metadata,
+                            upload.options.translation.as_ref(),
+                            crate::db::IngestRunSource::Stored,
+                        )
+                        .await;
+                    }
+                    Err(error) => return Ok(process_error(stage, error)),
+                }
+            }
             record_stage(service.db(), item, PipelineProgressStage::Storage).await?;
             match service
                 .library()
-                .prepare_file_for_task(
-                    group.id,
-                    UploadedLibraryFile {
-                        folder_id: request.folder_id,
-                        filename: request.filename,
-                        media_type: request.media_type,
-                        bytes,
-                        declared_sha256: request.declared_sha256,
-                        options: ingest.clone(),
-                        staged_storage_object_id: item.input_storage_object_id,
-                    },
-                    item.lease_token,
-                )
+                .prepare_file_for_task(group.id, upload, item.lease_token)
                 .await
             {
                 Ok(file) => file,
@@ -174,17 +477,17 @@ pub(super) async fn process_file(
 /// next worker claim.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
-struct StoredFileBatchItem {
-    filename: String,
+pub(super) struct StoredFileBatchItem {
+    pub(super) filename: String,
     #[serde(default)]
-    media_type: String,
+    pub(super) media_type: String,
     #[serde(default)]
-    content_base64: Option<String>,
+    pub(super) content_base64: Option<String>,
     #[serde(default)]
-    declared_sha256: Option<String>,
+    pub(super) declared_sha256: Option<String>,
     #[serde(default)]
-    folder_id: Option<Uuid>,
-    options: context69_contracts::IngestOptions,
+    pub(super) folder_id: Option<Uuid>,
+    pub(super) options: context69_contracts::IngestOptions,
 }
 
 async fn detach_unused_remote(service: &TaskService, item: &crate::db::ClaimedItem) -> Result<()> {
@@ -1062,6 +1365,7 @@ mod tests {
                     index: Arc::new(QdrantIndex::for_test("test-noop", 4)),
                     collection: "test-noop".to_string(),
                     generation,
+                    configured_fingerprint: None,
                 }
             ));
             assert!(runtime.is_ready());

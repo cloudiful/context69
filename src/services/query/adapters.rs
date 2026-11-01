@@ -4,8 +4,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use context69_search::{
     AccessScope as SearchAccessScope, DateWindowPage, DateWindowQuery, SearchEmbeddingProvider,
-    SearchIndex, SearchPointHit, SearchRepository, SearchScopeResolver, SearchSettings,
-    StoredRerankItemScore as SearchStoredRerankItemScore,
+    SearchExclusions, SearchIndex, SearchPointHit, SearchRegistryState, SearchRepository,
+    SearchScopeResolver, SearchSettings, StoredRerankItemScore as SearchStoredRerankItemScore,
 };
 use uuid::Uuid;
 
@@ -134,6 +134,7 @@ impl SearchRepository for DbSearchRepository {
         &self,
         user_id: Option<i64>,
         request: &SearchRequest,
+        exclusions: &SearchExclusions,
     ) -> Result<Option<i64>> {
         // The date-mode pipeline asks Qdrant for the largest `published_ts`
         // visible under the request's filter set. The snapshot must use the
@@ -148,7 +149,11 @@ impl SearchRepository for DbSearchRepository {
         let snapshot = self.vector.require_ready()?;
         let max = snapshot
             .index
-            .date_max_published_ts(request, &to_root_scope(&to_search_scope(&scope)))
+            .date_max_published_ts(
+                request,
+                &to_root_scope(&to_search_scope(&scope)),
+                exclusions,
+            )
             .await?;
         Ok(max)
     }
@@ -231,6 +236,14 @@ impl SearchRepository for DbSearchRepository {
             .get_document(document_id, &to_root_scope(scope))
             .await
     }
+
+    async fn read_search_registry_state(&self) -> Result<SearchRegistryState> {
+        self.db.read_search_registry_state().await
+    }
+
+    async fn read_search_registry_epoch(&self) -> Result<i64> {
+        self.db.read_search_registry_epoch().await
+    }
 }
 
 #[async_trait]
@@ -271,11 +284,12 @@ impl SearchIndex for QdrantSearchIndex {
         vector: Vec<f32>,
         request: &SearchRequest,
         scope: &SearchAccessScope,
+        exclusions: &SearchExclusions,
     ) -> Result<Vec<SearchPointHit>> {
         let snapshot = self.vector.require_ready()?;
         Ok(snapshot
             .index
-            .search(vector, request, &to_root_scope(scope))
+            .search(vector, request, &to_root_scope(scope), exclusions)
             .await?
             .into_iter()
             .map(|hit| SearchPointHit {
@@ -291,11 +305,12 @@ impl SearchIndex for QdrantSearchIndex {
         request: &SearchRequest,
         scope: &SearchAccessScope,
         query: DateWindowQuery,
+        exclusions: &SearchExclusions,
     ) -> Result<DateWindowPage> {
         let snapshot = self.vector.require_ready()?;
         let page = snapshot
             .index
-            .search_by_date_window(vector, request, &to_root_scope(scope), query)
+            .search_by_date_window(vector, request, &to_root_scope(scope), query, exclusions)
             .await?;
         Ok(DateWindowPage {
             hits: page

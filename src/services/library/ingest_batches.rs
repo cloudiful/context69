@@ -82,6 +82,7 @@ impl LibraryService {
             FILE_LIBRARY_SOURCE_KEY,
             normalized,
             &self.chunking,
+            None,
         );
         let mut chunk_count = 0;
         let mut embedding_batch_count = 0;

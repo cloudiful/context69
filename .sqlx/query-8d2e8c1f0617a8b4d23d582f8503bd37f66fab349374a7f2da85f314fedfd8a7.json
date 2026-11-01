@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One tombstone for an explicitly deleted document.\n--\n-- The insert is the only writer of the row: a repeated delete of the same\n-- document matches the unique partial index and inserts nothing, so the caller\n-- knows that no new tombstone (and no new generation bump) is owed.\nINSERT INTO context69.library_deleted_entities (document_id, group_id)\nVALUES ($1, $2)\nON CONFLICT (document_id) WHERE document_id IS NOT NULL DO NOTHING\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8d2e8c1f0617a8b4d23d582f8503bd37f66fab349374a7f2da85f314fedfd8a7"
+}

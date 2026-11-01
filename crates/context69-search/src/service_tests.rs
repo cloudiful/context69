@@ -14,8 +14,9 @@ use uuid::Uuid;
 use super::search_cursor::{CursorContext, encode_cursor};
 use crate::{
     AccessScope, DateBound, RerankClient, RerankDocument, RerankHit, SearchCache,
-    SearchDatePointHit, SearchEmbeddingProvider, SearchIndex, SearchPointHit, SearchRepository,
-    SearchScopeResolver, SearchService, SearchSettings, StoredRerankItemScore, abort_pair,
+    SearchDatePointHit, SearchEmbeddingProvider, SearchExclusions, SearchIndex, SearchPointHit,
+    SearchRegistryEntry, SearchRegistryState, SearchRepository, SearchScopeResolver, SearchService,
+    SearchSettings, StoredRerankItemScore, abort_pair,
 };
 
 fn block_on<F: Future>(mut future: F) -> F::Output {
@@ -78,6 +79,13 @@ struct MockIndex {
     /// to exercise the per-request cap without forcing a 4 096-record
     /// population.
     fetch_limit_override: Option<usize>,
+    /// Number of relevance `search` calls, so an epoch-retry test can prove
+    /// exactly how many attempts ran.
+    search_calls: Arc<Mutex<usize>>,
+    /// Per-attempt relevance pages, consumed in order; the static `hits`
+    /// answer serves once the script is exhausted. The epoch-retry tests use
+    /// it to make only the discarded attempt observe a pre-check record.
+    scripted_pages: Arc<Mutex<Vec<Vec<SearchPointHit>>>>,
 }
 
 #[async_trait]
@@ -87,9 +95,13 @@ impl SearchIndex for MockIndex {
         _vector: Vec<f32>,
         request: &SearchRequest,
         _scope: &AccessScope,
+        _exclusions: &SearchExclusions,
     ) -> anyhow::Result<Vec<SearchPointHit>> {
         *self.seen_limit.lock().expect("index lock") = Some(request.limit);
-        Ok(self.hits.clone())
+        *self.search_calls.lock().expect("index calls lock") += 1;
+        let scripted = self.scripted_pages.lock().expect("pages lock").pop();
+        let hits = scripted.unwrap_or_else(|| self.hits.clone());
+        Ok(hits)
     }
 
     async fn search_by_date_window(
@@ -98,6 +110,7 @@ impl SearchIndex for MockIndex {
         _request: &SearchRequest,
         _scope: &AccessScope,
         query: crate::DateWindowQuery,
+        _exclusions: &SearchExclusions,
     ) -> anyhow::Result<crate::DateWindowPage> {
         let after_value = match query.after {
             DateBound::Inclusive(value) => Some(value.saturating_sub(1)),
@@ -181,6 +194,54 @@ struct MockRepo {
     keyword_hits: Vec<SearchHit>,
     seen_keyword_limit: Arc<Mutex<Option<usize>>>,
     upper_bound: Option<i64>,
+    /// Epoch values served in order by every registry read (the attempt
+    /// snapshot and each post-result re-check); the last value repeats once
+    /// the script is exhausted. An empty script is a stable registry.
+    registry_epoch_script: Arc<Mutex<Vec<i64>>>,
+    /// When set, every registry read answers a fresh increment, so the retry
+    /// loop never converges. Only the cancellation test uses it.
+    registry_epoch_never_stable: bool,
+    /// Per-attempt hydration maps, consumed in order; the static `hydrated`
+    /// map serves once the script is exhausted. The epoch-retry tests use it
+    /// to make only the discarded attempt observe a pre-check record.
+    scripted_hydration: Arc<Mutex<Vec<HashMap<Uuid, SearchHit>>>>,
+}
+
+impl Default for MockRepo {
+    fn default() -> Self {
+        Self {
+            settings: SearchSettings::default(),
+            hydrated: HashMap::new(),
+            keyword_hits: Vec::new(),
+            seen_keyword_limit: Arc::new(Mutex::new(None)),
+            upper_bound: None,
+            registry_epoch_script: Arc::new(Mutex::new(Vec::new())),
+            registry_epoch_never_stable: false,
+            scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+}
+
+impl MockRepo {
+    /// Serve `values` from the registry epoch script in order; the final
+    /// value repeats once exhausted.
+    fn with_epoch_script(values: Vec<i64>) -> Arc<Mutex<Vec<i64>>> {
+        Arc::new(Mutex::new(values))
+    }
+
+    fn next_scripted_epoch(&self) -> i64 {
+        if self.registry_epoch_never_stable {
+            let mut counter = self.registry_epoch_script.lock().expect("epoch lock");
+            *counter = vec![counter.first().copied().unwrap_or(0) + 1];
+            return counter[0];
+        }
+        let mut script = self.registry_epoch_script.lock().expect("epoch lock");
+        if script.len() > 1 {
+            script.remove(0)
+        } else {
+            script.first().copied().unwrap_or(0)
+        }
+    }
 }
 
 #[async_trait]
@@ -197,11 +258,25 @@ impl SearchRepository for MockRepo {
         &self,
         _user_id: Option<i64>,
         _request: &SearchRequest,
+        _exclusions: &SearchExclusions,
     ) -> anyhow::Result<Option<i64>> {
         // Tests that exercise the date-mode pipeline construct mocks that
         // observe the upper-bound request explicitly. The default is `None`
         // so tests that do not care about wall-clock drift keep working.
         Ok(self.upper_bound)
+    }
+
+    async fn read_search_registry_state(&self) -> anyhow::Result<crate::SearchRegistryState> {
+        Ok(crate::SearchRegistryState {
+            epoch: self.next_scripted_epoch(),
+            entries: Vec::new(),
+            deleted_file_ids: Vec::new(),
+            deleted_document_ids: Vec::new(),
+        })
+    }
+
+    async fn read_search_registry_epoch(&self) -> anyhow::Result<i64> {
+        Ok(self.next_scripted_epoch())
     }
 
     async fn fetch_search_hits_by_chunk_ids(
@@ -210,9 +285,15 @@ impl SearchRepository for MockRepo {
         _request: &SearchRequest,
         _scope: &AccessScope,
     ) -> anyhow::Result<HashMap<Uuid, SearchHit>> {
+        let scripted = self
+            .scripted_hydration
+            .lock()
+            .expect("hydration lock")
+            .pop();
+        let source = scripted.unwrap_or_else(|| self.hydrated.clone());
         let mut out = HashMap::new();
         for id in chunk_ids {
-            if let Some(hit) = self.hydrated.get(id) {
+            if let Some(hit) = source.get(id) {
                 out.insert(*id, hit.clone());
             }
         }
@@ -346,6 +427,7 @@ fn build_service(
         keyword_hits,
         seen_keyword_limit: Arc::clone(&seen_keyword),
         upper_bound: None,
+        ..MockRepo::default()
     };
     let service = block_on(SearchService::new(
         Arc::new(repo),
@@ -357,12 +439,18 @@ fn build_service(
             date_hits: Vec::new(),
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
             fetch_limit_override: None,
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         None,
         "test-model".to_string(),
     ))
     .expect("service");
     (service, seen_index, seen_keyword)
+}
+
+fn mock_index_calls(index: &Arc<MockIndex>) -> usize {
+    *index.search_calls.lock().expect("index calls lock")
 }
 
 #[test]
@@ -891,6 +979,7 @@ fn build_service_with_rerank(
         keyword_hits,
         seen_keyword_limit: Arc::new(Mutex::new(None)),
         upper_bound: None,
+        ..MockRepo::default()
     };
     block_on(SearchService::with_rerank_client(
         Arc::new(repo),
@@ -902,6 +991,8 @@ fn build_service_with_rerank(
             date_hits: Vec::new(),
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
             fetch_limit_override: None,
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         Arc::new(MockReverseRerank),
         None,
@@ -1159,6 +1250,7 @@ async fn stream_abort_stops_producer_before_first_frame() {
         keyword_hits: Vec::new(),
         seen_keyword_limit: Arc::new(Mutex::new(None)),
         upper_bound: None,
+        ..MockRepo::default()
     });
     let index = Arc::new(MockIndex {
         hits: Vec::new(),
@@ -1166,6 +1258,8 @@ async fn stream_abort_stops_producer_before_first_frame() {
         date_hits: Vec::new(),
         seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
         fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
     });
     let scope = Arc::new(MockScope);
     let service = SearchService::new(
@@ -1217,6 +1311,7 @@ fn build_date_service(
         keyword_hits: Vec::new(),
         seen_keyword_limit: Arc::new(Mutex::new(None)),
         upper_bound,
+        ..MockRepo::default()
     };
     let mocks = DateMocks {
         seen_date_bounds: Arc::clone(&seen_date_bounds),
@@ -1231,6 +1326,8 @@ fn build_date_service(
             date_hits: index_hits,
             seen_date_bounds,
             fetch_limit_override: None,
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         None,
         "test-model".to_string(),
@@ -1257,6 +1354,7 @@ fn build_date_service_with_fetch_limit(
         keyword_hits: Vec::new(),
         seen_keyword_limit: Arc::new(Mutex::new(None)),
         upper_bound,
+        ..MockRepo::default()
     };
     let mocks = DateMocks {
         seen_date_bounds: Arc::clone(&seen_date_bounds),
@@ -1271,6 +1369,8 @@ fn build_date_service_with_fetch_limit(
             date_hits: index_hits,
             seen_date_bounds,
             fetch_limit_override: Some(fetch_limit),
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         None,
         "test-model".to_string(),
@@ -1724,6 +1824,7 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
         keyword_hits: Vec::new(),
         seen_keyword_limit: Arc::new(Mutex::new(None)),
         upper_bound: None,
+        ..MockRepo::default()
     });
     let index = Arc::new(MockIndex {
         hits: Vec::new(),
@@ -1731,6 +1832,8 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
         date_hits: Vec::new(),
         seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
         fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
     });
     let scope = Arc::new(MockScope);
     let service = SearchService::new(
@@ -1926,6 +2029,7 @@ fn date_mode_snapshot_error_propagates_as_repository_error() {
             &self,
             _user_id: Option<i64>,
             _request: &SearchRequest,
+            _exclusions: &SearchExclusions,
         ) -> anyhow::Result<Option<i64>> {
             // Snapshot failure must surface as `Err(_)`.
             Err(anyhow!("qdrant snapshot failure: timeout"))
@@ -1985,6 +2089,8 @@ fn date_mode_snapshot_error_propagates_as_repository_error() {
             date_hits: vec![date_hit(chunk_id, Some(1_700_000_010))],
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
             fetch_limit_override: None,
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         None,
         "test-model".to_string(),
@@ -2022,6 +2128,7 @@ fn date_mode_snapshot_receives_caller_user_id() {
             &self,
             user_id: Option<i64>,
             _request: &SearchRequest,
+            _exclusions: &SearchExclusions,
         ) -> anyhow::Result<Option<i64>> {
             *self.observed_user_id.lock().expect("lock") = Some(user_id);
             Ok(Some(1_700_000_010))
@@ -2082,6 +2189,8 @@ fn date_mode_snapshot_receives_caller_user_id() {
             date_hits: vec![date_hit(chunk_id, Some(1_700_000_010))],
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
             fetch_limit_override: None,
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         None,
         "test-model".to_string(),
@@ -2809,6 +2918,7 @@ fn identity_service(embedding: Arc<dyn SearchEmbeddingProvider>, startup: &str) 
             keyword_hits: Vec::new(),
             seen_keyword_limit: Arc::new(Mutex::new(None)),
             upper_bound: None,
+            ..MockRepo::default()
         }),
         Arc::new(MockScope),
         embedding,
@@ -2818,6 +2928,8 @@ fn identity_service(embedding: Arc<dyn SearchEmbeddingProvider>, startup: &str) 
             date_hits: Vec::new(),
             seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
             fetch_limit_override: None,
+            search_calls: Arc::new(Mutex::new(0)),
+            scripted_pages: Arc::new(Mutex::new(Vec::new())),
         }),
         None,
         startup.to_string(),
@@ -2888,5 +3000,1173 @@ fn an_identeless_settings_hash_is_what_a_date_cursor_carries() {
     assert_ne!(
         carried,
         SearchCache::settings_hash_with_identity(&settings, "moved")
+    );
+}
+
+// ---- Registry-epoch coherence (issue #1138 P3) --------------------------------
+
+/// An empty script keeps a stable registry: every registry read answers 0.
+const STABLE_EPOCH_SCRIPT: Vec<i64> = Vec::new();
+
+fn epoch_service(
+    _settings: SearchSettings,
+    index: Arc<MockIndex>,
+    repo: MockRepo,
+) -> SearchService {
+    block_on(SearchService::new(
+        Arc::new(repo),
+        Arc::new(MockScope),
+        Arc::new(MockEmbedding),
+        index,
+        None,
+        "test-model".to_string(),
+    ))
+    .expect("service")
+}
+
+fn vector_hits(hits: &[SearchHit]) -> Vec<SearchPointHit> {
+    hits.iter()
+        .enumerate()
+        .map(|(pos, hit)| SearchPointHit {
+            chunk_id: hit.chunk_id,
+            score: 0.9 - pos as f32 * 0.01,
+        })
+        .collect()
+}
+
+fn hydration_map(hits: Vec<SearchHit>) -> HashMap<Uuid, SearchHit> {
+    hits.into_iter().map(|hit| (hit.chunk_id, hit)).collect()
+}
+
+#[test]
+fn a_stable_epoch_answers_without_a_retry() {
+    let hits: Vec<SearchHit> = (1..=5)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&hits),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(hits.clone()),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(STABLE_EPOCH_SCRIPT),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
+
+    let first = block_on(service.search(None, test_request(1, 8))).expect("search");
+    assert_eq!(first.items.len(), 5);
+    assert_eq!(mock_index_calls(&index), 1, "a stable epoch never retries");
+
+    // A second identical request is byte-identical: a stable epoch produces
+    // the same output.
+    let second = block_on(service.search(None, test_request(1, 8))).expect("search");
+    assert_eq!(
+        serde_json::to_value(&first).unwrap(),
+        serde_json::to_value(&second).unwrap()
+    );
+}
+
+#[test]
+fn an_epoch_change_after_data_reads_retries_without_leaking_precheck_content() {
+    let stable: Vec<SearchHit> = (1..=3)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
+        .collect();
+    // A record that only the discarded first attempt observes.
+    let precheck = test_hit(99, 0, "meaningful precheck text");
+    let precheck_id = precheck.chunk_id;
+
+    let mut first_attempt_page = vector_hits(&stable);
+    first_attempt_page.push(SearchPointHit {
+        chunk_id: precheck_id,
+        score: 0.95,
+    });
+    let mut first_attempt_hydration = hydration_map(stable.clone());
+    first_attempt_hydration.insert(precheck_id, precheck);
+
+    let index = Arc::new(MockIndex {
+        hits: first_attempt_page.clone(),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(vec![first_attempt_page, vector_hits(&stable)])),
+    });
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(stable.clone()),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        // Attempt 1: snapshot 0, re-check 1 (moved -> discard). Attempt 2:
+        // snapshot 1, re-check 1 (stable -> answer).
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 1, 1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(vec![first_attempt_hydration])),
+    };
+    let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
+
+    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let answered: Vec<Uuid> = response.items.iter().map(|hit| hit.chunk_id).collect();
+    assert_eq!(
+        answered,
+        stable.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>(),
+        "the retry must answer exactly the stable page"
+    );
+    assert_eq!(
+        mock_index_calls(&index),
+        2,
+        "the moved epoch must discard attempt 1 and retry exactly once"
+    );
+}
+
+#[test]
+fn two_epoch_changes_retry_twice_and_still_answer() {
+    let hits: Vec<SearchHit> = (1..=3)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&hits),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(hits),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 1, 1, 2, 2]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
+
+    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    assert_eq!(response.items.len(), 3);
+    assert_eq!(
+        mock_index_calls(&index),
+        3,
+        "two moved epochs must retry twice before the stable pass"
+    );
+}
+
+#[test]
+fn a_hybrid_post_retries_across_the_rerank_reads() {
+    let vector_channel: Vec<SearchHit> = (1..=3)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful vector text {doc}")))
+        .collect();
+    let keyword_hits: Vec<SearchHit> = (4..=6)
+        .map(|doc| {
+            let mut hit = test_hit(doc, 0, &format!("meaningful keyword text {doc}"));
+            hit.keyword_score = Some(0.4);
+            hit
+        })
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&vector_channel),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let repo = MockRepo {
+        settings: hybrid_settings(true),
+        hydrated: hydration_map(vector_channel),
+        keyword_hits,
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 1, 1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    // The rerank falls back to the local ordering (no api key), which is a
+    // read-contributing path the re-check must cover.
+    let service = epoch_service(hybrid_settings(true), Arc::clone(&index), repo);
+
+    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    assert!(!response.items.is_empty());
+    assert_eq!(
+        mock_index_calls(&index),
+        2,
+        "one retry after the moved epoch"
+    );
+}
+
+#[test]
+fn a_date_post_page_is_discarded_and_rerun_when_the_epoch_moves() {
+    let chunk_id = Uuid::from_u128(0x4444_4444_4444_4444_4444_4444_4444_4444);
+    let (_id, hit) = make_hit_with_chunk(1, chunk_id, 1_700_000_010, "body");
+    let mut hydrated = HashMap::new();
+    hydrated.insert(chunk_id, hit);
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated,
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: Some(1_700_000_010),
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 1, 1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let date_bounds: SeenDateBounds = Arc::new(Mutex::new(Vec::new()));
+    let index = Arc::new(MockIndex {
+        hits: Vec::new(),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: vec![date_hit(chunk_id, Some(1_700_000_010))],
+        seen_date_bounds: Arc::clone(&date_bounds),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
+
+    let response = block_on(service.search(None, date_request(8))).expect("date search");
+    assert_eq!(
+        response
+            .items
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
+        vec![chunk_id],
+        "the retried walk must answer the same coherent page"
+    );
+    let bounds = date_bounds.lock().expect("date bounds lock").len();
+    // Each walk issues three window fetches (cross-timestamp discovery,
+    // boundary drain, exhaustion probe), and the moved epoch reruns the whole
+    // walk once: 3 x 2 = 6.
+    assert_eq!(bounds, 6, "the date walk must rerun exactly once");
+}
+
+#[test]
+fn a_stream_retry_emits_nothing_until_the_epoch_matches() {
+    let stable: Vec<SearchHit> = (1..=3)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
+        .collect();
+    let precheck = test_hit(99, 0, "meaningful precheck text");
+    let precheck_id = precheck.chunk_id;
+
+    let mut first_attempt_page = vector_hits(&stable);
+    first_attempt_page.push(SearchPointHit {
+        chunk_id: precheck_id,
+        score: 0.95,
+    });
+    let mut first_attempt_hydration = hydration_map(stable.clone());
+    first_attempt_hydration.insert(precheck_id, precheck);
+
+    let index = Arc::new(MockIndex {
+        hits: first_attempt_page,
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(vec![vector_hits(&stable)])),
+    });
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(stable.clone()),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 1, 1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(vec![first_attempt_hydration])),
+    };
+    let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
+
+    let frames = collect_stream_frames(&service, test_request(1, 8));
+    assert_eq!(
+        frames.len(),
+        2,
+        "only the verified attempt may emit: local + done"
+    );
+    let chunks = match &frames[0] {
+        SearchStreamEvent::Local(page) => page
+            .items
+            .iter()
+            .map(|hit| hit.chunk_id)
+            .collect::<Vec<_>>(),
+        other => panic!("expected a local frame first, got {other:?}"),
+    };
+    assert_eq!(
+        chunks,
+        stable.iter().map(|hit| hit.chunk_id).collect::<Vec<_>>(),
+        "the pre-check record must never leak into a frame"
+    );
+    assert!(matches!(&frames[1], SearchStreamEvent::Done(done) if !done.rerank_applied));
+    assert_eq!(mock_index_calls(&index), 2);
+}
+
+#[test]
+fn a_hybrid_stream_discards_a_reranked_page_whose_epoch_moved() {
+    let vector_channel: Vec<SearchHit> = (1..=4)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful vector text {doc}")))
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&vector_channel),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    // snapshot 0, local-page re-check 0 (pass, local emitted), rerank, then
+    // the reranked-page re-check observes 1: the reranked page is discarded.
+    let repo = MockRepo {
+        settings: hybrid_settings(true),
+        hydrated: hydration_map(vector_channel.clone()),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 0, 1, 1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let service = block_on(SearchService::with_rerank_client(
+        Arc::new(repo),
+        Arc::new(MockScope),
+        Arc::new(MockEmbedding),
+        index,
+        Arc::new(MockReverseRerank),
+        None,
+        "test-model".to_string(),
+    ))
+    .expect("service");
+
+    let frames = collect_stream_frames(&service, test_request(1, 8));
+    assert!(
+        matches!(frames.as_slice(), [SearchStreamEvent::Local(_), SearchStreamEvent::Done(done)] if !done.rerank_applied),
+        "the stale reranked page must be discarded; got {frames:?}"
+    );
+}
+
+#[test]
+fn a_hybrid_stream_emits_both_pages_when_the_epoch_is_stable() {
+    let vector_channel: Vec<SearchHit> = (1..=4)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful vector text {doc}")))
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&vector_channel),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let repo = MockRepo {
+        settings: hybrid_settings(true),
+        hydrated: hydration_map(vector_channel),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let service = block_on(SearchService::with_rerank_client(
+        Arc::new(repo),
+        Arc::new(MockScope),
+        Arc::new(MockEmbedding),
+        index,
+        Arc::new(MockReverseRerank),
+        None,
+        "test-model".to_string(),
+    ))
+    .expect("service");
+
+    let frames = collect_stream_frames(&service, test_request(1, 8));
+    assert!(
+        matches!(
+            frames.as_slice(),
+            [
+                SearchStreamEvent::Local(_),
+                SearchStreamEvent::Reranked(_),
+                SearchStreamEvent::Done(done)
+            ] if done.rerank_applied
+        ),
+        "a stable epoch must not change the stream contract; got {frames:?}"
+    );
+}
+
+#[test]
+fn a_date_stream_retry_emits_nothing_until_the_epoch_matches() {
+    let chunk_id = Uuid::from_u128(0x5555_5555_5555_5555_5555_5555_5555_5555);
+    let (_id, hit) = make_hit_with_chunk(1, chunk_id, 1_700_000_010, "body");
+    let mut hydrated = HashMap::new();
+    hydrated.insert(chunk_id, hit);
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated,
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: Some(1_700_000_010),
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0, 1, 1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let index = Arc::new(MockIndex {
+        hits: Vec::new(),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: vec![date_hit(chunk_id, Some(1_700_000_010))],
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
+
+    let frames = collect_stream_frames(&service, date_request(8));
+    assert_eq!(frames.len(), 2, "only the verified attempt may emit");
+    match &frames[0] {
+        SearchStreamEvent::Local(page) => assert_eq!(
+            page.items
+                .iter()
+                .map(|hit| hit.chunk_id)
+                .collect::<Vec<_>>(),
+            vec![chunk_id]
+        ),
+        other => panic!("expected a local frame first, got {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "current_thread")]
+async fn a_stream_abort_stops_epoch_retries() {
+    struct BlockingEmbedding;
+
+    #[async_trait]
+    impl SearchEmbeddingProvider for BlockingEmbedding {
+        async fn embed_query(&self, _query: &str) -> anyhow::Result<Vec<f32>> {
+            // Park forever; the abort signal (client disconnect) is the only
+            // way out, mirroring a retry loop that keeps losing races.
+            std::future::pending::<()>().await;
+            unreachable!("pending never resolves")
+        }
+    }
+
+    let hits: Vec<SearchHit> = (1..=3)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&hits),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let mut repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(hits),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(Vec::new()),
+        registry_epoch_never_stable: true,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    // First read (the attempt snapshot) still answers 0; every following read
+    // moves, so the loop can only be ended by the abort.
+    repo.registry_epoch_script = MockRepo::with_epoch_script(vec![0]);
+    let service = SearchService::new(
+        Arc::new(repo),
+        Arc::new(MockScope),
+        Arc::new(BlockingEmbedding),
+        index,
+        None,
+        "test-model".to_string(),
+    )
+    .await
+    .expect("service");
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<SearchStreamEvent>(8);
+    let (signal, guard) = abort_pair();
+    let producer = tokio::spawn(async move {
+        let _ = service
+            .stream_search(None, test_request(1, 8), tx, signal)
+            .await;
+    });
+    // Let the producer park on the first embedding of attempt 1, then
+    // simulate the client disconnect. The abort must end the producer even
+    // though its epoch never stabilized.
+    tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    drop(guard);
+    let outcome = tokio::time::timeout(std::time::Duration::from_secs(2), producer).await;
+    assert!(outcome.is_ok(), "abort must stop an unfinished retry loop");
+    // No content frame ever escaped the unverified attempts.
+    let _ = tokio::time::timeout(std::time::Duration::from_millis(50), rx.recv()).await;
+}
+
+// ---- Staged/retired point exclusions (issue #1138 P5) -----------------------
+
+fn registry_entry(phase: &str, staged: &[Uuid], retired: &[Uuid]) -> SearchRegistryEntry {
+    SearchRegistryEntry {
+        run_id: Uuid::new_v4(),
+        file_id: None,
+        document_ids: Vec::new(),
+        staged_ids: staged.to_vec(),
+        retired_ids: retired.to_vec(),
+        baseline_record_hash: None,
+        staged_record_hash: None,
+        generation: 0,
+        phase: phase.to_string(),
+    }
+}
+
+fn registry_state(epoch: i64, entries: Vec<SearchRegistryEntry>) -> SearchRegistryState {
+    SearchRegistryState {
+        epoch,
+        entries,
+        deleted_file_ids: Vec::new(),
+        deleted_document_ids: Vec::new(),
+    }
+}
+
+/// A registry snapshot that also carries the deleted entity sets of the same
+/// statement.
+fn registry_state_with_deleted_entities(
+    epoch: i64,
+    entries: Vec<SearchRegistryEntry>,
+    deleted_file_ids: Vec<Uuid>,
+    deleted_document_ids: Vec<i64>,
+) -> SearchRegistryState {
+    SearchRegistryState {
+        epoch,
+        entries,
+        deleted_file_ids,
+        deleted_document_ids,
+    }
+}
+
+/// The exclusion set of a snapshot that only hides point ids.
+fn point_exclusions(point_ids: Vec<Uuid>) -> SearchExclusions {
+    SearchExclusions {
+        point_ids,
+        ..SearchExclusions::default()
+    }
+}
+
+/// The exclusion set of a snapshot that hides deleted entities only.
+fn entity_exclusions(file_ids: Vec<Uuid>, document_ids: Vec<i64>) -> SearchExclusions {
+    SearchExclusions {
+        point_ids: Vec::new(),
+        file_ids,
+        document_ids,
+    }
+}
+
+/// Delegates the ordinary repository surface to `inner` while serving a scripted
+/// registry snapshot and recording the exclusion set the date ceiling observes.
+struct RegistryEntriesRepo {
+    inner: MockRepo,
+    states: Arc<Mutex<Vec<SearchRegistryState>>>,
+    seen_upper_exclusions: Arc<Mutex<Vec<SearchExclusions>>>,
+}
+
+impl RegistryEntriesRepo {
+    fn new(inner: MockRepo, states: Vec<SearchRegistryState>) -> Self {
+        Self {
+            inner,
+            states: Arc::new(Mutex::new(states)),
+            seen_upper_exclusions: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    fn next_state(&self) -> SearchRegistryState {
+        let mut states = self.states.lock().expect("registry state lock");
+        if states.len() > 1 {
+            states.remove(0)
+        } else {
+            states.first().cloned().unwrap_or_default()
+        }
+    }
+}
+
+#[async_trait]
+impl SearchRepository for RegistryEntriesRepo {
+    async fn get_search_settings(&self) -> anyhow::Result<Option<SearchSettings>> {
+        self.inner.get_search_settings().await
+    }
+
+    async fn get_search_generation(&self) -> anyhow::Result<i64> {
+        self.inner.get_search_generation().await
+    }
+
+    async fn date_request_upper_bound(
+        &self,
+        user_id: Option<i64>,
+        request: &SearchRequest,
+        exclusions: &SearchExclusions,
+    ) -> anyhow::Result<Option<i64>> {
+        self.seen_upper_exclusions
+            .lock()
+            .expect("upper exclusions lock")
+            .push(exclusions.clone());
+        self.inner
+            .date_request_upper_bound(user_id, request, exclusions)
+            .await
+    }
+
+    async fn fetch_search_hits_by_chunk_ids(
+        &self,
+        chunk_ids: &[Uuid],
+        request: &SearchRequest,
+        scope: &AccessScope,
+    ) -> anyhow::Result<HashMap<Uuid, SearchHit>> {
+        self.inner
+            .fetch_search_hits_by_chunk_ids(chunk_ids, request, scope)
+            .await
+    }
+
+    async fn keyword_search(
+        &self,
+        request: &SearchRequest,
+        scope: &AccessScope,
+        limit: usize,
+    ) -> anyhow::Result<Vec<SearchHit>> {
+        self.inner.keyword_search(request, scope, limit).await
+    }
+
+    async fn list_rerank_item_scores(
+        &self,
+        rerank_model: &str,
+        query_hash: &str,
+        chunk_ids: &[Uuid],
+    ) -> anyhow::Result<HashMap<Uuid, StoredRerankItemScore>> {
+        self.inner
+            .list_rerank_item_scores(rerank_model, query_hash, chunk_ids)
+            .await
+    }
+
+    async fn upsert_rerank_item_scores(
+        &self,
+        scores: &[StoredRerankItemScore],
+    ) -> anyhow::Result<()> {
+        self.inner.upsert_rerank_item_scores(scores).await
+    }
+
+    async fn get_document(
+        &self,
+        document_id: i64,
+        scope: &AccessScope,
+    ) -> anyhow::Result<Option<DocumentResponse>> {
+        self.inner.get_document(document_id, scope).await
+    }
+
+    async fn read_search_registry_state(&self) -> anyhow::Result<SearchRegistryState> {
+        Ok(self.next_state())
+    }
+
+    async fn read_search_registry_epoch(&self) -> anyhow::Result<i64> {
+        self.inner.read_search_registry_epoch().await
+    }
+}
+
+/// Records the exclusion set each vector candidate path receives and answers
+/// from a static relevance page. Date windows answer an empty page so the test
+/// only observes the exclusion threading.
+struct RecordingExclusionIndex {
+    hits: Vec<SearchPointHit>,
+    seen_relevance: Arc<Mutex<Vec<SearchExclusions>>>,
+    seen_date: Arc<Mutex<Vec<SearchExclusions>>>,
+}
+
+#[async_trait]
+impl SearchIndex for RecordingExclusionIndex {
+    async fn search(
+        &self,
+        _vector: Vec<f32>,
+        _request: &SearchRequest,
+        _scope: &AccessScope,
+        exclusions: &SearchExclusions,
+    ) -> anyhow::Result<Vec<SearchPointHit>> {
+        self.seen_relevance
+            .lock()
+            .expect("relevance exclusions lock")
+            .push(exclusions.clone());
+        Ok(self.hits.clone())
+    }
+
+    async fn search_by_date_window(
+        &self,
+        _vector: Vec<f32>,
+        _request: &SearchRequest,
+        _scope: &AccessScope,
+        _query: crate::DateWindowQuery,
+        exclusions: &SearchExclusions,
+    ) -> anyhow::Result<crate::DateWindowPage> {
+        self.seen_date
+            .lock()
+            .expect("date exclusions lock")
+            .push(exclusions.clone());
+        Ok(crate::DateWindowPage {
+            hits: Vec::new(),
+            next_offset: None,
+        })
+    }
+}
+
+fn exclusion_service(
+    repo: RegistryEntriesRepo,
+    index: Arc<RecordingExclusionIndex>,
+) -> SearchService {
+    block_on(SearchService::new(
+        Arc::new(repo),
+        Arc::new(MockScope),
+        Arc::new(MockEmbedding),
+        index,
+        None,
+        "test-model".to_string(),
+    ))
+    .expect("service")
+}
+
+#[test]
+fn the_snapshot_exclusions_carry_the_deleted_entities_of_the_same_statement() {
+    let staged = Uuid::from_u128(0x1101);
+    let file = Uuid::from_u128(0x1102);
+    let other_file = Uuid::from_u128(0x1103);
+    let state = registry_state_with_deleted_entities(
+        4,
+        vec![registry_entry("staging", &[staged], &[])],
+        vec![file, other_file, file],
+        vec![21, 22, 21],
+    );
+
+    let exclusions = state.search_exclusions();
+    assert_eq!(
+        exclusions.point_ids,
+        vec![staged],
+        "the registry point exclusion is unchanged"
+    );
+    assert_eq!(
+        exclusions.file_ids,
+        vec![file, other_file],
+        "a repeated deleted file id must reach the filter once"
+    );
+    assert_eq!(
+        exclusions.document_ids,
+        vec![21, 22],
+        "a repeated deleted document id must reach the filter once"
+    );
+}
+
+#[test]
+fn an_empty_snapshot_excludes_nothing_at_all() {
+    let exclusions = SearchRegistryState::default().search_exclusions();
+    assert!(
+        exclusions.is_empty(),
+        "an empty registry must produce an empty exclusion set"
+    );
+}
+
+#[test]
+fn relevance_search_passes_the_deleted_entities_to_the_index() {
+    let file = Uuid::from_u128(0x1201);
+    let hit = test_hit(1, 0, "meaningful body text");
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: vector_hits(std::slice::from_ref(&hit)),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(vec![hit]),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![registry_state_with_deleted_entities(
+            0,
+            Vec::new(),
+            vec![file],
+            vec![9],
+        )],
+    );
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, test_request(1, 8))).expect("search");
+
+    assert_eq!(
+        index.seen_relevance.lock().expect("relevance lock").clone(),
+        vec![entity_exclusions(vec![file], vec![9])],
+        "the relevance path must exclude the deleted file and document"
+    );
+}
+
+#[test]
+fn an_epoch_retry_carries_the_new_deleted_entity_sets() {
+    let first_file = Uuid::from_u128(0x1301);
+    let second_file = Uuid::from_u128(0x1302);
+    let hit = test_hit(1, 0, "meaningful body text");
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: vector_hits(std::slice::from_ref(&hit)),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(vec![hit]),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        // Attempt 1: state epoch 0, re-check 1 (moved). Attempt 2: state epoch
+        // 2, re-check 2 (stable).
+        registry_epoch_script: MockRepo::with_epoch_script(vec![1, 2]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![
+            registry_state_with_deleted_entities(0, Vec::new(), vec![first_file], Vec::new()),
+            registry_state_with_deleted_entities(2, Vec::new(), vec![second_file], Vec::new()),
+        ],
+    );
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, test_request(1, 8))).expect("search");
+
+    assert_eq!(
+        index.seen_relevance.lock().expect("relevance lock").clone(),
+        vec![
+            entity_exclusions(vec![first_file], Vec::new()),
+            entity_exclusions(vec![second_file], Vec::new()),
+        ],
+        "a stale attempt must retry with the new snapshot's deleted entity sets"
+    );
+}
+
+#[test]
+fn registry_exclusions_follow_the_phase_and_dedup_the_ids() {
+    let staged_a = Uuid::from_u128(0x1001);
+    let staged_b = Uuid::from_u128(0x1002);
+    let retired_c = Uuid::from_u128(0x1003);
+    let retired_d = Uuid::from_u128(0x1004);
+    let state = registry_state(
+        7,
+        vec![
+            registry_entry("staging", &[staged_a, staged_b], &[staged_b, retired_c]),
+            registry_entry("switched", &[retired_c, staged_a], &[retired_d]),
+            registry_entry("retired", &[], &[retired_c, retired_d]),
+        ],
+    );
+
+    assert_eq!(
+        state.search_point_exclusions(),
+        vec![staged_a, staged_b, retired_d, retired_c],
+        "a staging entry excludes its staged ids, a resolved entry its retired ids, each id once"
+    );
+    assert!(
+        SearchRegistryState::default()
+            .search_point_exclusions()
+            .is_empty(),
+        "an empty registry must produce an empty exclusion set"
+    );
+}
+
+#[test]
+fn a_switched_entry_keeps_its_new_live_ids_visible() {
+    let old_live = Uuid::from_u128(0x1101);
+    let new_live = Uuid::from_u128(0x1102);
+    let state = registry_state(
+        3,
+        vec![registry_entry("switched", &[new_live], &[old_live])],
+    );
+
+    assert_eq!(
+        state.search_point_exclusions(),
+        vec![old_live],
+        "a switched entry excludes the retired ids only; its staged ids are the live version"
+    );
+}
+
+#[test]
+fn an_abandoned_entry_excludes_its_staged_ids() {
+    let staged = Uuid::from_u128(0x1201);
+    let state = registry_state(3, vec![registry_entry("retired", &[staged], &[staged])]);
+
+    assert_eq!(
+        state.search_point_exclusions(),
+        vec![staged],
+        "an abandoned run keeps its staged ids excluded as the retired set"
+    );
+}
+
+#[test]
+fn an_unknown_phase_excludes_both_id_lists() {
+    let staged = Uuid::from_u128(0x1301);
+    let retired = Uuid::from_u128(0x1302);
+    let state = registry_state(3, vec![registry_entry("staged", &[staged], &[retired])]);
+
+    assert_eq!(
+        state.search_point_exclusions(),
+        vec![staged, retired],
+        "an undefined phase must never let a hidden point back into a result"
+    );
+}
+
+#[test]
+fn relevance_search_passes_deduped_registry_exclusions_to_the_index() {
+    let staged = Uuid::from_u128(0x2001);
+    let retired = Uuid::from_u128(0x2002);
+    let hit = test_hit(1, 0, "meaningful body text");
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: vector_hits(std::slice::from_ref(&hit)),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(vec![hit]),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![registry_state(
+            0,
+            vec![
+                registry_entry("staging", &[staged], &[]),
+                registry_entry("switched", &[], &[retired]),
+            ],
+        )],
+    );
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, test_request(1, 8))).expect("search");
+
+    let seen = index.seen_relevance.lock().expect("relevance lock").clone();
+    assert_eq!(
+        seen,
+        vec![point_exclusions(vec![staged, retired])],
+        "the relevance path must receive every deduplicated staged/retired id"
+    );
+}
+
+#[test]
+fn stream_search_passes_the_attempt_exclusions_to_the_index() {
+    let staged = Uuid::from_u128(0x2101);
+    let hit = test_hit(1, 0, "meaningful body text");
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: vector_hits(std::slice::from_ref(&hit)),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(vec![hit]),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![registry_state(
+            0,
+            vec![registry_entry("staging", &[staged], &[])],
+        )],
+    );
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    let frames = collect_stream_frames(&service, test_request(1, 8));
+    assert!(matches!(frames.first(), Some(SearchStreamEvent::Local(_))));
+    assert_eq!(
+        index.seen_relevance.lock().expect("relevance lock").clone(),
+        vec![point_exclusions(vec![staged])],
+        "the stream pipeline must apply the same attempt exclusion"
+    );
+}
+
+#[test]
+fn date_search_passes_the_attempt_exclusions_to_the_ceiling_and_windows() {
+    let staged = Uuid::from_u128(0x2201);
+    let retired = Uuid::from_u128(0x2202);
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: Vec::new(),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: HashMap::new(),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: Some(1_700_000_010),
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![registry_state(
+            0,
+            vec![
+                registry_entry("staging", &[staged], &[]),
+                registry_entry("switched", &[], &[retired]),
+            ],
+        )],
+    );
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, date_request(8))).expect("date search");
+
+    let expected = vec![point_exclusions(vec![staged, retired])];
+    assert_eq!(
+        index.seen_date.lock().expect("date lock").clone(),
+        expected,
+        "the date window path must apply the same attempt exclusion"
+    );
+}
+
+#[test]
+fn date_ceiling_query_receives_the_attempt_exclusions() {
+    let staged = Uuid::from_u128(0x2301);
+    let retired = Uuid::from_u128(0x2302);
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: Vec::new(),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: HashMap::new(),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: Some(1_700_000_010),
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![registry_state(
+            0,
+            vec![
+                registry_entry("staging", &[staged], &[]),
+                registry_entry("switched", &[], &[retired]),
+            ],
+        )],
+    );
+    let seen_upper = Arc::clone(&repo.seen_upper_exclusions);
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, date_request(8))).expect("date search");
+
+    assert_eq!(
+        seen_upper.lock().expect("upper lock").clone(),
+        vec![point_exclusions(vec![staged, retired])],
+        "the date ceiling snapshot must exclude the same staged/retired ids"
+    );
+}
+
+#[test]
+fn an_empty_registry_leaves_the_filter_empty_for_relevance_and_date() {
+    let hit = test_hit(1, 0, "meaningful body text");
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: vector_hits(std::slice::from_ref(&hit)),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(vec![hit]),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: Some(1_700_000_010),
+        registry_epoch_script: MockRepo::with_epoch_script(vec![0]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(inner, vec![SearchRegistryState::default()]);
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, test_request(1, 8))).expect("relevance search");
+    block_on(service.search(None, date_request(8))).expect("date search");
+
+    assert_eq!(
+        index.seen_relevance.lock().expect("relevance lock").clone(),
+        vec![SearchExclusions::empty()],
+        "an empty registry must keep the pre-existing relevance filter"
+    );
+    assert_eq!(
+        index.seen_date.lock().expect("date lock").clone(),
+        vec![SearchExclusions::empty()],
+        "an empty registry must keep the pre-existing date filter"
+    );
+}
+
+#[test]
+fn an_epoch_retry_uses_the_new_attempt_exclusion_snapshot() {
+    let first_attempt = Uuid::from_u128(0x2401);
+    let second_attempt = Uuid::from_u128(0x2402);
+    let hit = test_hit(1, 0, "meaningful body text");
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: vector_hits(std::slice::from_ref(&hit)),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(vec![hit]),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        // Attempt 1: state epoch 0, re-check 1 (moved). Attempt 2: state epoch
+        // 2, re-check 2 (stable).
+        registry_epoch_script: MockRepo::with_epoch_script(vec![1, 2]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![
+            registry_state(0, vec![registry_entry("staging", &[first_attempt], &[])]),
+            registry_state(2, vec![registry_entry("staging", &[second_attempt], &[])]),
+        ],
+    );
+    let service = exclusion_service(repo, Arc::clone(&index));
+
+    block_on(service.search(None, test_request(1, 8))).expect("search");
+
+    assert_eq!(
+        index.seen_relevance.lock().expect("relevance lock").clone(),
+        vec![
+            point_exclusions(vec![first_attempt]),
+            point_exclusions(vec![second_attempt]),
+        ],
+        "a stale attempt must retry with the new snapshot's exclusion set"
     );
 }

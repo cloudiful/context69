@@ -1,4 +1,4 @@
-import { Ban, ChevronRight, Play, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Ban, ChevronRight, Play, RefreshCw, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
@@ -20,6 +20,7 @@ import {
   QUEUE_WAITING_REASON_VALUES,
   TASK_KIND_VALUES,
   isRecoverableTask,
+  isSourceRerunnableTask,
   libraryDependencyLabel,
   queueStageLabel,
   taskFileName,
@@ -51,6 +52,7 @@ export interface QueueTableProps {
   onWaitingReasonFilter: (reason: string | null, group?: string | null) => void;
   onDependencyFilter: (dependency: string | null) => void;
   onRecover: (task: TaskResponse) => void;
+  onRerun: (task: TaskResponse) => void;
   onCancel: (task: TaskResponse) => void;
   onTrash: (task: TaskResponse) => void;
   onRestore: (task: TaskResponse) => void;
@@ -112,6 +114,7 @@ export function QueueTable({
   onWaitingReasonFilter,
   onDependencyFilter,
   onRecover,
+  onRerun,
   onCancel,
   onTrash,
   onRestore,
@@ -341,6 +344,7 @@ export function QueueTable({
                     onToggleSelect={onToggleSelect}
                     onToggleExpand={onToggleExpand}
                     onRecover={onRecover}
+                    onRerun={onRerun}
                     onCancel={onCancel}
                     onTrash={onTrash}
                     onRestore={onRestore}
@@ -366,6 +370,7 @@ function TaskRow({
   onToggleSelect,
   onToggleExpand,
   onRecover,
+  onRerun,
   onCancel,
   onTrash,
   onRestore,
@@ -382,6 +387,7 @@ function TaskRow({
   onToggleSelect: (task: TaskResponse) => void;
   onToggleExpand: (taskId: string) => void;
   onRecover: (task: TaskResponse) => void;
+  onRerun: (task: TaskResponse) => void;
   onCancel: (task: TaskResponse) => void;
   onTrash: (task: TaskResponse) => void;
   onRestore: (task: TaskResponse) => void;
@@ -538,6 +544,14 @@ function TaskRow({
                     ? (
                         <Button type="button" variant="ghost" size="icon-sm" disabled={acting} aria-label={t("processingQueue.cancel")} title={t("processingQueue.cancel")} onClick={() => onCancel(task)}>
                           <Ban aria-hidden="true" className="text-destructive" />
+                        </Button>
+                      )
+                    : null}
+                  {isSourceRerunnableTask(task)
+                    ? (
+                        <Button type="button" variant="ghost" size="sm" disabled={acting} title={t("processingQueue.rerunHint")} onClick={() => onRerun(task)}>
+                          <RefreshCw aria-hidden="true" />
+                          {t("processingQueue.rerun")}
                         </Button>
                       )
                     : null}

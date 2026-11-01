@@ -1,0 +1,155 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT\n    r.id,\n    r.document_id,\n    r.author_user_id,\n    r.producer,\n    r.result_kind,\n    r.schema_ref,\n    r.source_record_hash,\n    r.idempotency_key,\n    r.result,\n    r.provenance,\n    r.created_at\nFROM context69.document_results r\nWHERE r.document_id = $1\n  AND ($2::text IS NULL OR r.producer = $2)\n  AND ($3::text IS NULL OR r.result_kind = $3)\n  AND ($4::bigint IS NULL OR r.id < $4)\n  AND (NOT $5::boolean OR r.source_record_hash = $6::text)\n  AND (\n    NOT $7::boolean\n    OR r.id = (\n      SELECT max(latest.id)\n      FROM context69.document_results latest\n      WHERE latest.document_id = r.document_id\n        AND latest.producer = r.producer\n        AND latest.result_kind = r.result_kind\n        AND latest.source_record_hash = $6::text\n    )\n  )\nORDER BY r.id DESC\nLIMIT $8\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "author_user_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "author_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "producer",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "producer"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "result_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "result_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "schema_ref",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "schema_ref"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "source_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "source_record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "idempotency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "idempotency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "result",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "result"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "provenance",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "provenance"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.document_results",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Bool",
+        "Text",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false
+    ]
+  },
+  "hash": "165350a96f0f0f2e28855e3e93f093815775bf4a4ebc091f0060f77ea5a72982"
+}

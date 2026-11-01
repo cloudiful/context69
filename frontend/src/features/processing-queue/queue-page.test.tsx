@@ -126,14 +126,39 @@ describe("ProcessingQueuePage", () => {
     expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("0 selected");
   });
 
+  it("offers the source rerun on a succeeded row and on a selection of successes", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: "done-1", file_name: "alpha.pdf", status: "succeeded" }),
+      task({ task_id: "done-2", file_name: "beta.pdf", status: "succeeded" }),
+    ]));
+    const rerun = vi.spyOn(apiClient, "rerunTask").mockResolvedValue({
+      task: { task_id: "child-1", item_ids: [] },
+    });
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(within(screen.getAllByTestId("queue-task-row")[0]!).getByRole("button", { name: "Rerun" }));
+    await waitFor(() => expect(rerun).toHaveBeenCalledWith("done-1"));
+
+    await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
+    await user.click(screen.getByRole("checkbox", { name: "Select beta.pdf" }));
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Rerun" }))
+      .toBeInTheDocument();
+    expect(within(screen.getByTestId("queue-bulk-actions")).queryByRole("button", { name: "Retry" }))
+      .not.toBeInTheDocument();
+  });
+
   it("disables view, search, filter and paging controls while a bulk action runs", async () => {
     const user = userEvent.setup();
     vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
       task({ task_id: "failed-1", file_name: "alpha.pdf", status: "failed" }),
     ]));
     let release!: () => void;
-    vi.spyOn(apiClient, "retryTask").mockImplementation(() => new Promise((resolve) => {
-      release = () => resolve({ retried_items: 1, task: { task_id: "failed-1" } });
+    vi.spyOn(apiClient, "batchRetryTasks").mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({
+        results: [{ task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" }],
+      });
     }));
     renderPage();
     await screen.findByText("alpha.pdf");

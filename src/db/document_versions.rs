@@ -94,6 +94,58 @@ pub(super) async fn ensure_library_version_in_transaction(
     Ok(true)
 }
 
+/// Ensure a matching version snapshot on a caller transaction, from the
+/// canonical body the caller already hashed.
+///
+/// The metadata publisher reads the current version body and recomputes the
+/// hash over exactly that body, so the snapshot of the new hash must store the
+/// same text. Rebuilding it from overlapping chunks would make the stored body
+/// disagree with the stored hash for every multi-chunk document.
+pub(super) async fn ensure_library_version_in_connection(
+    connection: &mut sqlx::PgConnection,
+    document_id: i64,
+    payload: &ChunkPayload,
+    body_text: &str,
+) -> Result<bool> {
+    let basis = sqlx::query_file_as!(
+        VersionBasisRow,
+        "src/sql/db/documents/get_document_version_basis_for_update.sql",
+        document_id
+    )
+    .fetch_optional(&mut *connection)
+    .await
+    .context("load document version basis")?;
+
+    let Some(basis) = basis else {
+        return Ok(false);
+    };
+    if basis.record_hash == payload.record_hash {
+        return Ok(false);
+    }
+    if body_text.trim().is_empty() {
+        anyhow::bail!(
+            "cannot snapshot document version for changed record_hash: document {document_id} has no valid body text"
+        );
+    }
+
+    sqlx::query_file!(
+        "src/sql/db/documents/insert_document_version.sql",
+        document_id,
+        payload.record_hash,
+        basis.title,
+        basis.summary,
+        body_text,
+        payload.source_uri,
+        payload.published_at,
+        payload.metadata_json
+    )
+    .execute(&mut *connection)
+    .await
+    .context("insert document version snapshot")?;
+
+    Ok(true)
+}
+
 // --- Read-only repair-preview audit (issue 139, phase 3) -------------------
 // SELECT-only helpers for previewing documents whose current
 // `documents.record_hash` lacks a matching `document_versions` row. No

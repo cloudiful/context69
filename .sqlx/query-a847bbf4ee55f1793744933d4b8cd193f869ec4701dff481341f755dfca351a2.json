@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- update_library_chunk_record_hash.sql (issue 1138, P19)\n--\n-- Rewrite the record hash of the chunks of one document whose hash diverged.\n-- Only the rows of the document that passed the business-fields CAS are\n-- touched, so a CAS miss never rewrites a later generation's chunks.\nUPDATE context69.document_chunks\nSET record_hash = $2\nWHERE document_id = $1\n  AND record_hash IS DISTINCT FROM $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a847bbf4ee55f1793744933d4b8cd193f869ec4701dff481341f755dfca351a2"
+}

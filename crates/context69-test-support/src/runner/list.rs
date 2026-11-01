@@ -63,6 +63,7 @@ pub fn report(repo_root: &Path, run_dir: &RunDir, summary: &mut RunSummary) -> R
                 "manifest:upgrade-recovery-tests={}",
                 report.upgrade_recovery_tests
             ));
+            summary.record(format!("manifest:external-tests={}", report.external_tests));
             summary.record(format!("manifest:ignored-tests={}", report.ignored_tests));
             summary.record(format!("manifest:pure-tests={}", report.pure_tests));
             summary.status = RunStatus::Passed;

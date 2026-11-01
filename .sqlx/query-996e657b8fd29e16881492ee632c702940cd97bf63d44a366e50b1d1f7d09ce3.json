@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The file of one running task item without clearing its staged input.\n--\n-- A replacement keeps the item's staged source object attached until the\n-- atomic switch commits. The guard is the captured execution of the item: the\n-- fencing token of the library attempt, the library task and the execution\n-- generation.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the file, `$4` the library\n-- task and `$5` the execution generation.\nUPDATE context69.task_items\nSET file_id = $3,\n    resource_id = $3::uuid::text,\n    updated_at = now()\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n  AND execution_task_id = $4\n  AND execution_generation = $5\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "996e657b8fd29e16881492ee632c702940cd97bf63d44a366e50b1d1f7d09ce3"
+}

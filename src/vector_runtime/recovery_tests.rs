@@ -80,6 +80,7 @@ impl VectorConnector for FakeConnector {
                 dimensions: 8,
             },
             collection: "test".to_string(),
+            configured_fingerprint: Some("test-fingerprint".to_string()),
         })
     }
 

@@ -48,6 +48,11 @@ pub struct VectorPair {
     pub embedding: Arc<dyn EmbeddingProvider>,
     pub identity: EmbeddingIdentity,
     pub collection: String,
+    /// The fingerprint of the vector space this pair produces.
+    ///
+    /// It is published with the pair, so the published snapshot always
+    /// describes the identity of the provider it carries.
+    pub configured_fingerprint: Option<String>,
 }
 
 /// Establishes and probes the vector runtime. The production implementation
@@ -328,6 +333,7 @@ impl VectorRecovery {
             index,
             collection: pair.collection,
             generation,
+            configured_fingerprint: pair.configured_fingerprint,
         };
         if !self.runtime.publish(generation, snapshot.clone()) {
             return Attempt::Stale;

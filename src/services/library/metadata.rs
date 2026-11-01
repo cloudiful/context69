@@ -1,7 +1,22 @@
+use super::tree::folder_path_for_on;
 use super::*;
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, business_update};
-use crate::domain::{AccessScope, SourceRecord};
+use crate::domain::SourceRecord;
 use crate::domain_errors::DomainError;
+use context69_search::SearchRegistryEntry;
+
+/// The outcome of one metadata publication on a caller transaction.
+///
+/// The payloads are the exact committed ids and must only be sent after the
+/// caller commits. The invalidated translation point ids are the ones the new
+/// canonical source hash makes unhydratable; the caller admits and retires
+/// them in the same transaction, so the stale translations leave the search
+/// results in the commit that moves the source hash.
+pub(super) struct MetadataPublication {
+    pub payloads: Vec<crate::domain::ChunkPayload>,
+    pub document_ids: Vec<i64>,
+    pub invalidated_translation_point_ids: Vec<Uuid>,
+}
 
 impl LibraryService {
     pub(super) async fn apply_file_translation_directive(
@@ -48,17 +63,28 @@ impl LibraryService {
         metadata: &crate::contracts::CanonicalUploadMetadata,
     ) -> Result<crate::domain::LibraryFileRecord> {
         let metadata_value = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
+        let caps = self.registry_caps();
+        let mut tx = self.db.pool().begin().await?;
+        // The registry epoch is locked before the file row, so a publication
+        // that admits a registry entry never holds a file lock while it waits
+        // for the epoch and every registry writer takes the same order.
+        if caps.is_some() {
+            self.db.lock_search_registry_epoch_in(&mut tx).await?;
+            // A rebuild owns the whole collection while it runs, so a
+            // publication that overlapped it would write points the rebuild
+            // overwrites or loses.
+            self.db.require_rebuild_idle_in(&mut tx).await?;
+        }
         let current = self
             .store
-            .get_file(file_id)
+            .lock_file_on(&mut tx, file_id)
             .await?
-            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
-            .map_err(anyhow::Error::from)?;
-        let folder_path = self.folder_path_by_id(current.folder_id).await?;
-        let mappings = self.store.list_file_documents(file_id).await?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
+        let folder_path = folder_path_for_on(&self.store, &mut tx, current.folder_id).await?;
+        let mappings = self.store.list_file_documents_on(&mut tx, file_id).await?;
         for definition in self
             .db
-            .list_metadata_indexes(current.group_id, FILE_LIBRARY_SOURCE_KEY)
+            .list_metadata_indexes_on(&mut tx, current.group_id, FILE_LIBRARY_SOURCE_KEY)
             .await?
             .into_iter()
             .filter(|definition| definition.status == "ready")
@@ -79,14 +105,116 @@ impl LibraryService {
         }
         let updated = self
             .store
-            .update_business_metadata(current.group_id, file_id, metadata)
+            .update_business_metadata_in(&mut tx, current.group_id, file_id, metadata)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
             .map_err(anyhow::Error::from)?;
-        self.refresh_metadata_for_file(file_id).await?;
-        self.bump_search_generation("library file business metadata update")
-            .await?;
+        let publication = self.refresh_metadata_for_file_on(&mut tx, &updated).await?;
+        if let Some(caps) = caps {
+            self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
+                .await?;
+            self.db.bump_search_generation_in(&mut tx).await?;
+        }
+        tx.commit().await?;
+        self.send_metadata_payload_updates(&publication.payloads)
+            .await;
+        if caps.is_none() {
+            self.bump_search_generation("library file business metadata update")
+                .await?;
+        }
         Ok(updated)
+    }
+
+    /// Admits and immediately retires the translation points the new source
+    /// hash invalidates, inside the publication transaction.
+    ///
+    /// The entry is a metadata-only tombstone: it stages no point of its own
+    /// and its retired set is exactly the invalidated ids. A refused
+    /// admission rolls the whole publication back, so the file, its documents
+    /// and their metadata keep the state they had.
+    pub(super) async fn retire_invalidated_translations(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        publication: &MetadataPublication,
+        quota: RegistryQuotaOverride,
+    ) -> Result<()> {
+        // The bounded admission refuses a duplicated id set, so the same
+        // invalidated point is admitted once.
+        let mut seen: HashSet<Uuid> = HashSet::new();
+        let invalidated: Vec<Uuid> = publication
+            .invalidated_translation_point_ids
+            .iter()
+            .copied()
+            .filter(|id| seen.insert(*id))
+            .collect();
+        if invalidated.is_empty() {
+            return Ok(());
+        }
+        let generation = self.db.next_ingest_generation_in(connection).await?;
+        let entry = SearchRegistryEntry {
+            run_id: Uuid::new_v4(),
+            file_id: Some(file_id),
+            document_ids: publication.document_ids.clone(),
+            staged_ids: invalidated,
+            retired_ids: Vec::new(),
+            baseline_record_hash: None,
+            staged_record_hash: None,
+            generation,
+            phase: "staging".into(),
+        };
+        let admitted = self
+            .db
+            .admit_search_registry_entry_checked_in(&entry, None, 0, quota, connection)
+            .await?;
+        match admitted {
+            crate::db::AdmissionOutcome::Admitted(_) => {}
+            crate::db::AdmissionOutcome::CapsRefused => {
+                // The registry capacity is a policy of the deployment, not a
+                // temporary condition: the refusal is deterministic, and the
+                // caller rolls its business fields back with it.
+                return Err(DomainError::invalid_argument(
+                    "the registry capacity policy does not allow this metadata publication; \
+                     increase the configured capacity only after evaluating the cost of the \
+                     retained points, or delete the entities whose points should no longer be \
+                     retained",
+                )
+                .into());
+            }
+            crate::db::AdmissionOutcome::RebuildBusy => {
+                return Err(DomainError::conflict(
+                    "a vector index rebuild is in progress; retry the metadata publication after it \
+                     completes",
+                )
+                .into());
+            }
+        }
+        let retired = self
+            .db
+            .transition_search_registry_entry_in(
+                entry.run_id,
+                "staging",
+                "retired",
+                None,
+                connection,
+            )
+            .await?;
+        if retired.is_none() {
+            return Err(anyhow::anyhow!(
+                "the metadata tombstone entry did not retire its invalidated translations"
+            ));
+        }
+        Ok(())
+    }
+
+    /// Test-only drive of the metadata publication service path.
+    #[cfg(feature = "integration-test-helpers")]
+    pub async fn apply_business_metadata_for_test(
+        &self,
+        file_id: Uuid,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
+    ) -> Result<crate::domain::LibraryFileRecord> {
+        self.apply_file_business_metadata(file_id, metadata).await
     }
 
     pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
@@ -170,17 +298,77 @@ impl LibraryService {
     }
 
     pub(super) async fn refresh_metadata_for_file(&self, file_id: Uuid) -> Result<()> {
+        let caps = self.registry_caps();
+        let mut tx = self.db.pool().begin().await?;
+        // The registry epoch comes before the file row, so a refresh that
+        // admits a registry entry never holds a file lock while it waits for
+        // the epoch.
+        if caps.is_some() {
+            self.db.lock_search_registry_epoch_in(&mut tx).await?;
+        }
         let file = self
             .store
-            .get_file(file_id)
+            .lock_file_on(&mut tx, file_id)
             .await?
-            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
-            .map_err(anyhow::Error::from)?;
-        let folder_path = self.folder_path_by_id(file.folder_id).await?;
-        let mappings = self.store.list_file_documents(file_id).await?;
+            .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
+        let publication = self.refresh_metadata_for_file_on(&mut tx, &file).await?;
+        if let Some(caps) = caps {
+            self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
+                .await?;
+            self.db.bump_search_generation_in(&mut tx).await?;
+        }
+        tx.commit().await?;
+        self.send_metadata_payload_updates(&publication.payloads)
+            .await;
+        Ok(())
+    }
+
+    /// The metadata publish core of one file on a caller transaction.
+    ///
+    /// The file row is already locked by the caller as its first statement.
+    /// Documents are locked in ascending id order, exactly as the replacement
+    /// switch locks them, and every document update is a compare-and-set on the
+    /// current hash read from the same connection. The returned payloads are the
+    /// exact committed ids and must only be sent after the caller commits.
+    ///
+    /// The invalidated translation point ids are read under the document lock,
+    /// so a translation that another writer published in the meantime is
+    /// either part of the set or already committed before the epoch lock this
+    /// caller holds.
+    pub(super) async fn refresh_metadata_for_file_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file: &crate::domain::LibraryFileRecord,
+    ) -> Result<MetadataPublication> {
+        let folder_path = folder_path_for_on(&self.store, connection, file.folder_id).await?;
+        let mut mappings = self
+            .store
+            .list_file_documents_on(connection, file.id)
+            .await?;
+        mappings.sort_by_key(|mapping| mapping.document_id);
+        let registry_enabled = self.registry_caps().is_some();
+        let mut document_ids: Vec<i64> = Vec::new();
+        let mut invalidated_translation_point_ids: Vec<Uuid> = Vec::new();
         for mapping in mappings {
+            let source = self
+                .db
+                .get_document_business_source_on(connection, mapping.document_id)
+                .await?
+                .ok_or_else(|| {
+                    DomainError::conflict(format!(
+                        "document {} of file {} no longer exists; retry the metadata update",
+                        mapping.document_id, file.id
+                    ))
+                })?;
+            let Some(body_text) = source.body_text else {
+                return Err(DomainError::conflict(format!(
+                    "document {} has no current content version for record hash {}; refusing to publish metadata over an inconsistent baseline",
+                    mapping.document_id, source.record_hash
+                ))
+                .into());
+            };
             let system_metadata = library_system_metadata(
-                &file,
+                file,
                 &folder_path,
                 &mapping.section_key,
                 &mapping.section_label,
@@ -190,78 +378,117 @@ impl LibraryService {
                 &file.metadata_json,
                 system_metadata,
             )?;
-            let scope = AccessScope {
-                user_id: None,
-                include_public: true,
-                private_group_ids: vec![mapping.group_id],
-                group_path: None,
-                scoped_group_id: None,
-            };
-            if let Some(existing) = self.db.get_document(mapping.document_id, &scope).await? {
-                let external_id = file
-                    .external_id
-                    .as_ref()
-                    .map(|base| {
-                        if mapping.sort_order == 0 {
-                            base.clone()
-                        } else {
-                            format!("{base}:{}", mapping.section_key)
-                        }
-                    })
-                    .or(mapping.section_external_id.clone())
-                    .unwrap_or_else(|| format!("{}:{}", file.id, mapping.section_key));
-                let body_text = existing
-                    .chunks
-                    .iter()
-                    .map(|chunk| chunk.text.as_str())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let normalized = normalize_record(SourceRecord {
-                    external_id,
-                    title: existing.title.clone(),
-                    summary: existing.summary.clone(),
-                    body_text,
-                    source_uri: file
-                        .source_uri
-                        .clone()
-                        .or(mapping.section_source_uri.clone())
-                        .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
-                    published_at: file.published_at.or(mapping.section_published_at),
-                    updated_at: Utc::now(),
-                    metadata_json: metadata,
-                });
-                let payload = business_update(
-                    &PayloadGroup {
-                        group_id: file.group_id,
-                        group_key: &file.group_key,
-                        group_path: &file.group_path,
-                        visibility: file.visibility,
-                    },
-                    &PayloadDocument {
-                        source_key: FILE_LIBRARY_SOURCE_KEY,
-                        external_id: &normalized.external_id,
-                        title: &normalized.title,
-                        summary: normalized.summary.as_deref(),
-                        source_uri: &normalized.source_uri,
-                        published_at: normalized.published_at,
-                        updated_at_source: normalized.updated_at,
-                        record_hash: &normalized.record_hash,
-                        metadata_json: &normalized.metadata_json,
-                    },
-                    mapping.document_id,
-                    &normalized.body_text,
+            let external_id = file
+                .external_id
+                .as_ref()
+                .map(|base| {
+                    if mapping.sort_order == 0 {
+                        base.clone()
+                    } else {
+                        format!("{base}:{}", mapping.section_key)
+                    }
+                })
+                .or(mapping.section_external_id.clone())
+                .unwrap_or_else(|| format!("{}:{}", file.id, mapping.section_key));
+            let normalized = normalize_record(SourceRecord {
+                external_id,
+                title: source.title,
+                summary: source.summary,
+                body_text,
+                source_uri: file
+                    .source_uri
+                    .clone()
+                    .or(mapping.section_source_uri.clone())
+                    .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
+                published_at: file.published_at.or(mapping.section_published_at),
+                updated_at: Utc::now(),
+                metadata_json: metadata,
+            });
+            if registry_enabled {
+                // A translation of a source hash the publication replaces is
+                // unhydratable from now on, so its points leave the search
+                // results with this very commit.
+                invalidated_translation_point_ids.extend(
+                    self.db
+                        .stale_translation_point_ids_on(
+                            connection,
+                            mapping.document_id,
+                            &normalized.record_hash,
+                        )
+                        .await?,
                 );
-                self.db
-                    .update_library_document_business_fields(mapping.document_id, &payload)
-                    .await?;
             }
+            let payload = business_update(
+                &PayloadGroup {
+                    group_id: file.group_id,
+                    group_key: &file.group_key,
+                    group_path: &file.group_path,
+                    visibility: file.visibility,
+                },
+                &PayloadDocument {
+                    source_key: FILE_LIBRARY_SOURCE_KEY,
+                    external_id: &normalized.external_id,
+                    title: &normalized.title,
+                    summary: normalized.summary.as_deref(),
+                    source_uri: &normalized.source_uri,
+                    published_at: normalized.published_at,
+                    updated_at_source: normalized.updated_at,
+                    record_hash: &normalized.record_hash,
+                    metadata_json: &normalized.metadata_json,
+                },
+                mapping.document_id,
+                &normalized.body_text,
+            );
+            if !self
+                .db
+                .update_library_document_business_fields_in(
+                    connection,
+                    mapping.document_id,
+                    &payload,
+                    &source.record_hash,
+                    &normalized.body_text,
+                )
+                .await?
+            {
+                return Err(DomainError::conflict(format!(
+                    "document {} changed while its metadata was published; retry the metadata update",
+                    mapping.document_id
+                ))
+                .into());
+            }
+            document_ids.push(mapping.document_id);
         }
+        Ok(MetadataPublication {
+            payloads: self
+                .store
+                .list_chunk_payloads_for_files_on(connection, &[file.id])
+                .await?,
+            document_ids,
+            invalidated_translation_point_ids,
+        })
+    }
 
-        if let Some(runtime) = self.vector.snapshot() {
-            let payloads = self.store.list_chunk_payloads_for_files(&[file_id]).await?;
-            runtime.index.update_chunk_payloads(&payloads).await?;
+    /// Mirror the committed payloads to the vector index after the database
+    /// commit. The ids were captured inside the transaction, so this can never
+    /// reach a later replacement generation. A failure leaves the database
+    /// consistent and is repaired by a reindex.
+    pub(super) async fn send_metadata_payload_updates(
+        &self,
+        payloads: &[crate::domain::ChunkPayload],
+    ) {
+        if payloads.is_empty() {
+            return;
         }
-        Ok(())
+        let Some(runtime) = self.vector.snapshot() else {
+            return;
+        };
+        if let Err(error) = runtime.index.update_chunk_payloads(payloads).await {
+            warn!(
+                error = %error,
+                payload_count = payloads.len(),
+                "committed metadata payload mirror failed; a reindex repairs it"
+            );
+        }
     }
 
     pub(super) async fn bump_search_generation(&self, reason: &str) -> Result<()> {
@@ -299,27 +526,6 @@ impl LibraryService {
         }
         info!(reason, generation, "search generation bumped");
         Ok(())
-    }
-
-    pub(super) async fn delete_file_ids(&self, file_ids: &[Uuid]) -> Result<()> {
-        if file_ids.is_empty() {
-            return Ok(());
-        }
-
-        let chunk_ids = self.store.list_chunk_ids_for_files(file_ids).await?;
-        if let Some(runtime) = self.vector.snapshot() {
-            runtime.index.delete_points(&chunk_ids).await?;
-        }
-        self.store.delete_documents_for_files(file_ids).await?;
-        Ok(())
-    }
-
-    pub(super) async fn delete_unreferenced_objects(
-        &self,
-        paths: Vec<crate::library_store::documents::StoragePathRow>,
-    ) -> Result<()> {
-        self.delete_unreferenced_objects_with_lease(paths, None)
-            .await
     }
 
     pub(super) async fn delete_unreferenced_objects_with_lease(

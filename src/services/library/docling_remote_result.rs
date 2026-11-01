@@ -94,6 +94,16 @@ impl LibraryService {
         file_id: Uuid,
         converted: ConvertedDocument,
     ) -> Result<Value, UnifiedIngestError> {
+        self.sections_for_remote_result_with_view(file_id, converted, None)
+            .await
+    }
+
+    pub(crate) async fn sections_for_remote_result_with_view(
+        &self,
+        file_id: Uuid,
+        converted: ConvertedDocument,
+        view: Option<&super::ReplacementFileAttributes>,
+    ) -> Result<Value, UnifiedIngestError> {
         let file = self
             .store
             .get_file(file_id)
@@ -103,6 +113,9 @@ impl LibraryService {
                 crate::domain_errors::DomainError::not_found(format!("unknown file {file_id}"))
             })
             .map_err(|error| task_failure("storage", error, false))?;
+        let file = view
+            .map(|view| view.project(&file))
+            .unwrap_or_else(|| file.clone());
         let kind = storage::detect_file_kind(&file.filename, &file.media_type)
             .map_err(|error| task_failure("parsing", error, false))?;
         let sections = match kind {

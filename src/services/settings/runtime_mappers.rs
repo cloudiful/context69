@@ -64,6 +64,11 @@ pub(super) fn runtime_settings_from_request(
             url_import_concurrency: request.file_library.url_import_concurrency,
             url_import_min_interval_ms: request.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: request.file_library.trusted_proxy_enabled,
+            // An absent cap keeps the stored one: an older client that does
+            // not know the setting never resets the policy.
+            registry_max_ids_total: request.file_library.registry_max_ids_total,
+            registry_max_ids_per_file: request.file_library.registry_max_ids_per_file,
+            registry_max_ids_per_run: request.file_library.registry_max_ids_per_run,
             s3: request
                 .file_library
                 .s3
@@ -93,6 +98,7 @@ pub(super) fn runtime_settings_response(
     has_s3_secret_key: bool,
     requires_rebuild: bool,
 ) -> RuntimeSettingsResponse {
+    let quota = settings.file_library.registry_quota();
     RuntimeSettingsResponse {
         qdrant: RuntimeQdrantSettings {
             url: settings.qdrant.url,
@@ -125,6 +131,11 @@ pub(super) fn runtime_settings_response(
             url_import_concurrency: settings.file_library.url_import_concurrency,
             url_import_min_interval_ms: settings.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: settings.file_library.trusted_proxy_enabled,
+            // The response reports the policy that is in effect, not the one
+            // the request asked for.
+            registry_max_ids_total: quota.max_ids_total,
+            registry_max_ids_per_file: quota.max_ids_per_file,
+            registry_max_ids_per_run: quota.max_ids_per_run,
             s3: settings
                 .file_library
                 .s3
@@ -180,6 +191,9 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             url_import_concurrency: defaults.file_library.url_import_concurrency,
             url_import_min_interval_ms: defaults.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: defaults.file_library.trusted_proxy_enabled,
+            registry_max_ids_total: defaults.registry_quota.registry_max_ids_total,
+            registry_max_ids_per_file: defaults.registry_quota.registry_max_ids_per_file,
+            registry_max_ids_per_run: defaults.registry_quota.registry_max_ids_per_run,
             s3: defaults
                 .file_library
                 .s3

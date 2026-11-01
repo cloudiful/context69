@@ -3,7 +3,7 @@ use anyhow::{Context, Result};
 use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
 use super::{
-    Database, RuntimeChunkingSettingsRow, RuntimeEmbeddingSettingsRow,
+    Database, RegistryQuotaPolicy, RuntimeChunkingSettingsRow, RuntimeEmbeddingSettingsRow,
     RuntimeFileLibrarySettingsRow, RuntimeQdrantSettingsRow, RuntimeSchedulerSettingsRow,
     StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
     StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeS3Settings,
@@ -56,6 +56,9 @@ impl Database {
         )
         .fetch_one(&self.pool)
         .await?;
+        // The registry capacity policy is read from the row that holds it, so
+        // the reported policy is the one the admission enforces.
+        let quota = self.read_registry_quota().await?;
 
         Ok(Some(StoredRuntimeSettings {
             qdrant: StoredRuntimeQdrantSettings {
@@ -104,6 +107,9 @@ impl Database {
                         "runtime file_library url_import_min_interval_ms must be non-negative",
                     )?,
                 trusted_proxy_enabled: file_library.trusted_proxy_enabled,
+                registry_max_ids_total: Some(quota.max_ids_total),
+                registry_max_ids_per_file: Some(quota.max_ids_per_file),
+                registry_max_ids_per_run: Some(quota.max_ids_per_run),
                 // The S3 block is projected from the identifiers alone. Its secret
                 // key is not in this row, so it is resolved from the shared store by
                 // whoever needs a usable configuration.
@@ -153,6 +159,21 @@ impl Database {
         acknowledgment: Option<VectorIdentityAck<'_>>,
     ) -> Result<StoredRuntimeSettings> {
         let mut tx = self.pool.begin().await?;
+        // The rebuild barrier is checked under the epoch lock inside this
+        // transaction, so a rebuild that starts concurrently serializes with
+        // this save instead of racing it. The lock order is epoch, runtime
+        // settings rows, vector identity row, which is the order every other
+        // writer of these rows takes.
+        self.lock_search_registry_epoch_in(&mut tx).await?;
+        // The registry capacity policy is resolved under the same epoch lock
+        // the admission takes, so a save and an admission describe one
+        // policy. A request that does not send a cap keeps the stored one, and
+        // an invalid policy is refused before any row is written.
+        let registry_quota = self
+            .resolve_registry_quota_in(&mut tx, &settings.file_library)
+            .await?;
+        self.require_quiet_vector_identity(&mut tx, settings)
+            .await?;
         let embedding_dimensions = i64::try_from(settings.embedding.dimensions)
             .context("embedding dimensions too large")?;
         let embedding_timeout_secs = i64::try_from(settings.embedding.timeout_secs)
@@ -257,7 +278,10 @@ impl Database {
                 .file_library
                 .s3
                 .as_ref()
-                .map(|value| value.access_key.as_str())
+                .map(|value| value.access_key.as_str()),
+            registry_quota.max_ids_total,
+            registry_quota.max_ids_per_file,
+            registry_quota.max_ids_per_run
         )
         .execute(&mut *tx)
         .await?;
@@ -291,5 +315,86 @@ impl Database {
         self.get_runtime_settings()
             .await?
             .context("runtime settings missing after save")
+    }
+
+    /// Resolves the registry capacity policy of a settings save.
+    ///
+    /// A request that carries a cap replaces the stored one; a request that
+    /// carries none keeps it. The stored values are read inside the save
+    /// transaction, under the registry epoch lock, so a save and a concurrent
+    /// admission describe the same policy. The resolved policy is validated
+    /// before any row is written, so an invalid policy is refused atomically
+    /// and never replaces a usable one.
+    async fn resolve_registry_quota_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_library: &StoredRuntimeFileLibrarySettings,
+    ) -> Result<RegistryQuotaPolicy> {
+        let stored = self.read_usable_registry_quota_in(connection).await?;
+        let policy = RegistryQuotaPolicy {
+            max_ids_total: file_library
+                .registry_max_ids_total
+                .unwrap_or(stored.max_ids_total),
+            max_ids_per_file: file_library
+                .registry_max_ids_per_file
+                .unwrap_or(stored.max_ids_per_file),
+            max_ids_per_run: file_library
+                .registry_max_ids_per_run
+                .unwrap_or(stored.max_ids_per_run),
+        };
+        policy.validate()?;
+        Ok(policy)
+    }
+
+    /// Refuses a save that moves the vector space while a rebuild owns it.
+    ///
+    /// The decision is made against the persisted rows inside the save
+    /// transaction, never against a service-level read that a concurrent
+    /// rebuild could already have overtaken. A save that does not move the
+    /// vector space - a credential, a timeout, an unrelated setting - is never
+    /// blocked by a running rebuild or by an unresolved run.
+    async fn require_quiet_vector_identity(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        settings: &StoredRuntimeSettings,
+    ) -> Result<()> {
+        let Some(persisted) = self.read_persisted_vector_identity_in(connection).await? else {
+            // Nothing is configured yet, so there is no vector space a rebuild
+            // could own.
+            return Ok(());
+        };
+        let candidate = crate::db::RegistryVectorIdentity {
+            embedding_fingerprint: crate::embedding::embedding_runtime::vector_identity_fingerprint(
+                settings.qdrant.url.trim(),
+                settings.qdrant.collection_name.trim(),
+                settings.embedding.base_url.trim(),
+                settings.embedding.model.trim(),
+                settings.embedding.dimensions,
+            ),
+            collection_name: settings.qdrant.collection_name.trim().to_string(),
+        };
+        if candidate == persisted {
+            return Ok(());
+        }
+        let barrier = self.read_rebuild_barrier_in(connection).await?;
+        if barrier.state != crate::db::RebuildBarrierState::Idle {
+            return Err(DomainError::conflict(
+                "the runtime vector identity cannot change while a vector index rebuild is in \
+                 progress; retry after it completes",
+            )
+            .into());
+        }
+        let staging = sqlx::query_file_scalar!("src/sql/db/search_registry/read_staging_count.sql")
+            .fetch_one(&mut *connection)
+            .await
+            .context("read the unresolved staging entries")?;
+        if staging > 0 {
+            return Err(DomainError::conflict(
+                "unresolved ingestion runs still hold staged points; retry the vector identity \
+                 change after they resolved",
+            )
+            .into());
+        }
+        Ok(())
     }
 }

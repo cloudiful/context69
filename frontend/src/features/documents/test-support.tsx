@@ -1,7 +1,12 @@
 import { vi } from "vitest";
 
 import { openapiClient } from "@/services/openapi-client";
-import type { DocumentChunkResponse, DocumentResponse } from "@/services/api";
+import type {
+  DocumentChunkResponse,
+  DocumentResponse,
+  DocumentResultResponse,
+  ListDocumentResultsResponse,
+} from "@/services/api";
 
 export function chunkFixture(overrides: Partial<DocumentChunkResponse> = {}): DocumentChunkResponse {
   return {
@@ -57,9 +62,41 @@ export interface DocumentFailure {
 
 export interface DocumentBackendOptions {
   document?: DocumentResponse | ((documentId: number) => DocumentResponse);
+  results?: ListDocumentResultsResponse | ((documentId: number, query?: { after_id?: number; current_only?: boolean; latest_only?: boolean }) => ListDocumentResultsResponse);
+  resultsFailure?: DocumentFailure;
   failure?: DocumentFailure;
   /** Keeps the request pending until `resolve` is called. */
   deferred?: boolean;
+}
+
+export function documentResultFixture(
+  overrides: Partial<DocumentResultResponse> = {},
+): DocumentResultResponse {
+  return {
+    id: 1,
+    document_id: 42,
+    author_user_id: 7,
+    producer: "stock.news",
+    result_kind: "sentiment.v1",
+    schema_ref: "stock.news/sentiment@1",
+    source_record_hash: "hash-42",
+    idempotency_key: "run-1",
+    result: { direction: "positive" },
+    created_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function documentResultsPage(
+  items: DocumentResultResponse[] = [],
+  overrides: Partial<ListDocumentResultsResponse> = {},
+): ListDocumentResultsResponse {
+  return {
+    source_record_hash: "hash-42",
+    items,
+    next_after_id: null,
+    ...overrides,
+  };
 }
 
 /**
@@ -70,11 +107,29 @@ export function installDocumentBackend(options: DocumentBackendOptions = {}) {
   const calls: RecordedDocumentCall[] = [];
   const pending: Array<() => void> = [];
   let failure = options.failure;
+  let resultsFailure = options.resultsFailure;
 
   vi.spyOn(openapiClient, "GET").mockImplementation(((path: string, init?: {
-    params?: { path?: { document_id?: number } };
+    params?: {
+      path?: { document_id?: number };
+      query?: { current_only?: boolean; latest_only?: boolean; after_id?: number };
+    };
     signal?: AbortSignal;
   }) => {
+    const resultsMatch = /^\/v1\/groups\/by-path\/\{group_path\}\/documents\/\{document_id\}\/results$/.test(path);
+    if (resultsMatch) {
+      if (resultsFailure) {
+        return Promise.resolve({
+          error: { message: resultsFailure.message },
+          response: { ok: false, status: resultsFailure.status },
+        });
+      }
+      const documentId = Number(init?.params?.path?.document_id);
+      const value = typeof options.results === "function"
+        ? options.results(documentId, init?.params?.query)
+        : options.results ?? documentResultsPage([], { source_record_hash: "hash-42" });
+      return Promise.resolve({ data: value, response: { ok: true, status: 200 } });
+    }
     if (path !== "/v1/documents/{document_id}") {
       return Promise.resolve({ error: { message: "unmocked" }, response: { ok: false, status: 404 } });
     }
@@ -111,6 +166,9 @@ export function installDocumentBackend(options: DocumentBackendOptions = {}) {
     },
     setFailure(next: DocumentFailure | null) {
       failure = next ?? undefined;
+    },
+    setResultsFailure(next: DocumentFailure | null) {
+      resultsFailure = next ?? undefined;
     },
   };
 }

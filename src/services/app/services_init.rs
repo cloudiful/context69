@@ -52,10 +52,16 @@ pub async fn initialize(
         http_client: reqwest::Client::builder()
             .timeout(Duration::from_secs(120))
             .build()?,
-        publisher: Arc::new(TranslationPublisherAdapter::with_vector_runtime(
-            vector.vector.clone(),
-            chunking.clone(),
-        )),
+        publisher: Arc::new(
+            TranslationPublisherAdapter::with_vector_runtime(
+                vector.vector.clone(),
+                chunking.clone(),
+            )
+            // The registry-visible publication is enabled by the persisted
+            // capacity policy, so a translation admits under the same caps as
+            // every other writer of this deployment.
+            .with_committed_publication(db.clone(), crate::db::RegistryQuotaOverride::none()),
+        ),
         concurrency: config.scheduler.max_concurrency,
         readiness: Arc::new(readiness::LibraryEmbeddingVectorReadiness {
             store: LibraryStore::new(db.clone()),

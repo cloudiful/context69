@@ -73,7 +73,8 @@ use super::search_cursor::{
 };
 use crate::{
     DateBound, DateWindowPage, DateWindowQuery, SearchCache, SearchDatePointHit,
-    SearchEmbeddingProvider, SearchIndex, SearchRepository, SearchScopeResolver, SearchSettings,
+    SearchEmbeddingProvider, SearchExclusions, SearchIndex, SearchRepository, SearchScopeResolver,
+    SearchSettings,
 };
 
 /// Hard cap on the index-side `limit` for one date-mode window fetch.
@@ -110,6 +111,7 @@ impl DateRequestSnapshot {
         repository: &dyn SearchRepository,
         user_id: Option<i64>,
         request: &SearchRequest,
+        exclusions: &SearchExclusions,
     ) -> Result<Self> {
         let settings = repository
             .get_search_settings()
@@ -122,7 +124,7 @@ impl DateRequestSnapshot {
         // "snapshot fetch failed" (Err(_)) so a transient Qdrant outage
         // can never silently widen a replayed upper bound.
         let upper_ts = repository
-            .date_request_upper_bound(user_id, request)
+            .date_request_upper_bound(user_id, request, exclusions)
             .await?;
         Ok(Self {
             settings,
@@ -246,6 +248,7 @@ pub async fn run_date_search(
     index: &dyn SearchIndex,
     user_id: Option<i64>,
     request: SearchRequest,
+    exclusions: &SearchExclusions,
 ) -> Result<SearchResponse> {
     let limit = request.limit;
     if limit == 0 || limit > 100 {
@@ -263,7 +266,7 @@ pub async fn run_date_search(
             "page > 1 is not supported for sort=date; pass the cursor returned in `next_cursor` to fetch the next page"
         ).into());
     }
-    let snapshot = DateRequestSnapshot::capture(repository, user_id, &request).await?;
+    let snapshot = DateRequestSnapshot::capture(repository, user_id, &request, exclusions).await?;
     let context = CursorContext {
         query_hash: snapshot.query_hash.clone(),
         filter_hash: SearchCache::filter_hash(&request),
@@ -370,6 +373,7 @@ pub async fn run_date_search(
                 ts,
                 boundary_offset,
                 remaining,
+                exclusions,
             )
             .await?;
             windows_consumed += 1;
@@ -481,6 +485,7 @@ pub async fn run_date_search(
             &scope,
             before,
             DATE_BOUNDARY_FETCH_LIMIT,
+            exclusions,
         )
         .await?;
         windows_consumed += 1;
@@ -733,6 +738,7 @@ async fn fetch_window(
     scope: &crate::AccessScope,
     before: Option<i64>,
     limit: usize,
+    exclusions: &SearchExclusions,
 ) -> Result<DateWindowPage> {
     let started = std::time::Instant::now();
     let page = index
@@ -748,6 +754,7 @@ async fn fetch_window(
                 limit,
                 offset: None,
             },
+            exclusions,
         )
         .await?;
     info!(
@@ -767,6 +774,7 @@ async fn fetch_boundary(
     boundary_ts: i64,
     offset: Option<uuid::Uuid>,
     limit: usize,
+    exclusions: &SearchExclusions,
 ) -> Result<crate::DateWindowPage> {
     let started = std::time::Instant::now();
     // The per-timestamp drain filters to `published_ts == boundary_ts`
@@ -787,6 +795,7 @@ async fn fetch_boundary(
                 limit,
                 offset,
             },
+            exclusions,
         )
         .await?;
     let DateWindowPage { hits, next_offset } = page;

@@ -39,15 +39,7 @@ impl LibraryService {
     }
 
     pub(super) async fn folder_path_by_id(&self, folder_id: Option<Uuid>) -> Result<String> {
-        if folder_id.is_none() {
-            return Ok("/".to_string());
-        }
-        let folders = self.store.list_folders().await?;
-        let mut by_id = HashMap::new();
-        for folder in folders {
-            by_id.insert(folder.id, folder);
-        }
-        build_folder_path(folder_id, &by_id)
+        folder_path_for(&self.store, folder_id).await
     }
 
     pub(super) async fn folder_path(&self, parent_id: Option<Uuid>, name: &str) -> Result<String> {
@@ -192,6 +184,46 @@ fn build_folder_node(
             files: seed.files,
         },
     }
+}
+
+/// The folder path of one folder id, read from the store.
+///
+/// Extracted from [`LibraryService::folder_path_by_id`] so the replacement
+/// runner prepares the same folder path without a `LibraryService`.
+pub(super) async fn folder_path_for(
+    store: &LibraryStore,
+    folder_id: Option<Uuid>,
+) -> Result<String> {
+    if folder_id.is_none() {
+        return Ok("/".to_string());
+    }
+    let folders = store.list_folders().await?;
+    let mut by_id = HashMap::new();
+    for folder in folders {
+        by_id.insert(folder.id, folder);
+    }
+    build_folder_path(folder_id, &by_id)
+}
+
+/// The folder path read on a caller transaction.
+///
+/// The metadata publisher reads it after it locked the file row, on the same
+/// connection as its writes, so the path it publishes matches the folder state
+/// its transaction observes.
+pub(super) async fn folder_path_for_on(
+    store: &LibraryStore,
+    connection: &mut sqlx::PgConnection,
+    folder_id: Option<Uuid>,
+) -> Result<String> {
+    if folder_id.is_none() {
+        return Ok("/".to_string());
+    }
+    let folders = store.list_folders_on(connection).await?;
+    let mut by_id = HashMap::new();
+    for folder in folders {
+        by_id.insert(folder.id, folder);
+    }
+    build_folder_path(folder_id, &by_id)
 }
 
 fn build_folder_path(

@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- read_replacement_point_ids.sql (issue 1138, P15; source hash semantics P23)\n--\n-- The point ids of one affected document that a replacement switch retires.\n--\n-- $2 is the desired NEW source hash of the replacement. The document's own\n-- chunk rows are always retired, and a stored translation chunk is retired\n-- exactly when its version was translated from a different source hash: every\n-- translation that does not match the new content becomes unhydratable and\n-- leaves the search results. A translation of the new hash survives a\n-- same-hash reindex.\n--\n-- $3 adds the translation set to the document's own chunks.\nSELECT ids.id AS \"id!\"\nFROM (\n    SELECT id FROM context69.document_chunks WHERE document_id = $1\n    UNION\n    SELECT chunk.id\n    FROM context69.document_translation_chunks AS chunk\n    JOIN context69.document_translation_versions AS version ON version.id = chunk.translation_id\n    WHERE chunk.document_id = $1 AND version.source_record_hash <> $2 AND $3\n) AS ids\nORDER BY ids.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "cf040f62b992337ab2b0d629f90823fa969dc8fcf693a4fea35f2e7faad3e9ed"
+}

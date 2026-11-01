@@ -32,6 +32,7 @@ fn publish(runtime: &VectorRuntime, generation: u64) {
             index: Arc::new(QdrantIndex::for_test("context69", 8)),
             collection: "context69".to_string(),
             generation,
+            configured_fingerprint: None,
         },
     ));
 }

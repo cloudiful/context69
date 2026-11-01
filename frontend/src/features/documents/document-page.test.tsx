@@ -8,7 +8,14 @@ import { applyTimeZoneSelection, setLocale } from "@/lib/preferences-store";
 import { saveSearchSession } from "@/utils/search";
 
 import { DocumentPage } from "./document-page";
-import { chunkFixture, documentFixture, documentFrom, installDocumentBackend } from "./test-support";
+import {
+  chunkFixture,
+  documentFixture,
+  documentFrom,
+  documentResultFixture,
+  documentResultsPage,
+  installDocumentBackend,
+} from "./test-support";
 
 function GroupTargetProbe() {
   const params = useParams();
@@ -428,5 +435,173 @@ describe("document reader", () => {
     // the app usable and the injected global still unset.
     await router.navigate("/documents/43");
     expect((window as unknown as { __p3cXss?: number }).__p3cXss).toBeUndefined();
+  });
+
+  it("shows current latest results grouped by producer and kind", async () => {
+    installDocumentBackend({
+      results: documentResultsPage([
+        documentResultFixture({
+          id: 2,
+          result_kind: "sentiment.v1",
+          result: { direction: "positive", note: "<img src=x onerror=alert(1)>" },
+        }),
+        documentResultFixture({
+          id: 1,
+          producer: "stock.disclosure",
+          result_kind: "summary.v1",
+          result: { headline: "Filed" },
+        }),
+      ]),
+    });
+    await reader();
+
+    expect(await screen.findByTestId("document-results")).toHaveTextContent("Results");
+    const groups = await screen.findAllByTestId("document-result-group");
+    expect(groups).toHaveLength(2);
+    expect(groups[0]).toHaveTextContent("stock.disclosure");
+    expect(groups[1]).toHaveTextContent("stock.news");
+    expect(within(groups[1]).getByTestId("document-result-kind")).toHaveTextContent("sentiment.v1");
+    expect(within(groups[1]).getByText(/direction/)).toBeInTheDocument();
+    expect(groups[1].querySelector("img")).toBeNull();
+    expect(screen.getByTestId("document-results-current")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps current producer results reachable beyond the first page", async () => {
+    installDocumentBackend({
+      results: (_, query) => {
+        if (query?.after_id === 2) {
+          return documentResultsPage([
+            documentResultFixture({ id: 1, producer: "last-producer", result: { marker: "last current result" } }),
+          ]);
+        }
+        return documentResultsPage(
+          Array.from({ length: 50 }, (_, index) => documentResultFixture({
+            id: 51 - index,
+            producer: `producer-${index}`,
+          })),
+          { next_after_id: 2 },
+        );
+      },
+    });
+    const user = userEvent.setup();
+    await reader();
+    await screen.findAllByTestId("document-result-group");
+    const loadMore = screen.queryByRole("button", { name: /load more/i });
+    if (loadMore) await user.click(loadMore);
+    expect(await screen.findByText("last-producer")).toBeInTheDocument();
+  });
+
+  it("does not mix old source results into Current when the source changes between pages", async () => {
+    let moved = false;
+    installDocumentBackend({
+      results: (_, query) => {
+        if (query?.after_id === 2) {
+          moved = true;
+          return documentResultsPage([], { source_record_hash: "new-hash" });
+        }
+        if (moved) {
+          return documentResultsPage([
+            documentResultFixture({ id: 60, producer: "new-source-producer", source_record_hash: "new-hash" }),
+          ], { source_record_hash: "new-hash" });
+        }
+        return documentResultsPage(Array.from({ length: 50 }, (_, index) =>
+          documentResultFixture({
+            id: 51 - index,
+            producer: index === 0 ? "old-source-producer" : `old-producer-${index}`,
+            source_record_hash: "hash-42",
+          })), { next_after_id: 2, source_record_hash: "hash-42" });
+      },
+    });
+    const user = userEvent.setup();
+    await reader();
+    await screen.findByText("old-source-producer");
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+    await waitFor(() => expect(screen.queryByText("old-source-producer")).not.toBeInTheDocument());
+    expect(await screen.findByText("new-source-producer")).toBeInTheDocument();
+  });
+
+  it("finishes a Current reset to an empty source version without a refetch loop", async () => {
+    let moved = false;
+    const cursors: (number | undefined)[] = [];
+    installDocumentBackend({
+      results: (_, query) => {
+        cursors.push(query?.after_id);
+        if (query?.after_id === 2) moved = true;
+        if (moved) return documentResultsPage([], { source_record_hash: "empty-new-hash" });
+        return documentResultsPage(Array.from({ length: 50 }, (_, index) =>
+          documentResultFixture({ id: 51 - index, producer: `empty-reset-producer-${index}` })),
+        { next_after_id: 2 });
+      },
+    });
+    const user = userEvent.setup();
+    await reader();
+    await screen.findByText("empty-reset-producer-0");
+    await user.click(screen.getByRole("button", { name: /load more/i }));
+    expect(await screen.findByTestId("document-results-empty")).toHaveTextContent(
+      "No results for the current source version.",
+    );
+    expect(screen.queryByText("empty-reset-producer-0")).not.toBeInTheDocument();
+    expect(cursors).toEqual([undefined, 2, undefined]);
+  });
+
+  it("lists stored history with current and historical source-version labels", async () => {
+    installDocumentBackend({
+      results: (_, query) => {
+        if (query?.current_only) {
+          return documentResultsPage([
+            documentResultFixture({ id: 3, idempotency_key: "current", source_record_hash: "hash-42" }),
+          ]);
+        }
+        if (query?.after_id === 2) {
+          return documentResultsPage([
+            documentResultFixture({ id: 1, idempotency_key: "old", source_record_hash: "hash-old" }),
+          ]);
+        }
+        return documentResultsPage(
+          [
+            documentResultFixture({ id: 3, idempotency_key: "current", source_record_hash: "hash-42" }),
+            documentResultFixture({ id: 2, idempotency_key: "older", source_record_hash: "hash-old" }),
+          ],
+          { next_after_id: 2 },
+        );
+      },
+    });
+    const user = userEvent.setup();
+    await reader();
+    await screen.findByTestId("document-results");
+
+    await user.click(screen.getByTestId("document-results-history"));
+
+    const items = await screen.findAllByTestId("document-result-history-item");
+    expect(items).toHaveLength(2);
+    expect(items[0]).toHaveTextContent("Current");
+    expect(items[1]).toHaveTextContent("Historical");
+    expect(items[1]).toHaveTextContent("Source version: hash-old");
+
+    await user.click(screen.getByTestId("document-results-load-more"));
+    await waitFor(() => expect(screen.getAllByTestId("document-result-history-item")).toHaveLength(3));
+    expect(screen.queryByTestId("document-results-load-more")).not.toBeInTheDocument();
+  });
+
+  it("shows a retryable results error without breaking the document reader", async () => {
+    const backend = installDocumentBackend({
+      resultsFailure: { status: 500, message: "results unavailable" },
+    });
+    const user = userEvent.setup();
+    await reader();
+
+    expect(await screen.findByTestId("document-results-error")).toHaveTextContent(
+      "Results could not be loaded.",
+    );
+    expect(screen.getByTestId("document-summary")).toBeInTheDocument();
+
+    backend.setResultsFailure(null);
+    await user.click(within(screen.getByTestId("document-results-error")).getByRole("button", {
+      name: "Retry",
+    }));
+
+    expect(await screen.findByTestId("document-results-empty")).toHaveTextContent(
+      "No results for the current source version.",
+    );
   });
 });

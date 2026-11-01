@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The vector identity an entry was admitted under.\n--\n-- An entry that admits new vector writes records the embedding fingerprint\n-- and the collection it was admitted with. A metadata-only tombstone entry\n-- creates no point and records neither, so both columns are null there.\nSELECT embedding_fingerprint, collection_name\nFROM context69.search_registry_entries\nWHERE run_id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "embedding_fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "embedding_fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "collection_name"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "27e5c5633aea82856264a8850a3332c508f9f5aa2c30abdd3cbe6b0387751a81"
+}

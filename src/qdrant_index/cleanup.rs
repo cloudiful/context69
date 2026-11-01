@@ -66,6 +66,52 @@ impl QdrantIndex {
         result?;
         Ok(())
     }
+
+    /// Delete every point of one document by its indexed payload filter.
+    ///
+    /// The filter targets the indexed `document_id` field, so the delete never
+    /// needs the point ids of the document. No production caller uses it yet:
+    /// a deleted document is excluded from the search snapshot through its
+    /// entity tombstone, and the physical removal of its points belongs to the
+    /// delete-route refactor that follows this phase.
+    pub async fn delete_points_for_document(&self, document_id: i64) -> Result<()> {
+        if cleanup_no_op(self) {
+            return Ok(());
+        }
+        let filter = Filter::must([Condition::matches("document_id", document_id)]);
+        let operation = "delete_points_for_document";
+        let collection = self.collection_name.clone();
+        let extra = format!("document_id={document_id}");
+        let result = timeout(
+            QDRANT_OPERATION_TIMEOUT,
+            self.client.delete_points(
+                DeletePointsBuilder::new(&self.collection_name)
+                    .points(filter)
+                    .wait(true),
+            ),
+        )
+        .await
+        .map_err(|_| qdrant_timeout_error(operation, &collection, &extra));
+
+        let result = match result {
+            Err(err) => Err(err),
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(err)) => {
+                let err_anyhow: anyhow::Error = err.into();
+                if is_qdrant_idempotent_not_found(&err_anyhow) {
+                    return Ok(());
+                }
+                Err(format_qdrant_error(
+                    operation,
+                    &collection,
+                    &extra,
+                    err_anyhow,
+                ))
+            }
+        };
+        result?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

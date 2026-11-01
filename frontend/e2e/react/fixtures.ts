@@ -17,6 +17,8 @@ export type SearchHitFixture = Schemas["SearchHit"];
 export type SearchPaginationFixture = Schemas["SearchPagination"];
 export type SearchResponseFixture = Schemas["SearchResponse"];
 export type DocumentFixture = Schemas["DocumentResponse"];
+export type DocumentResultFixture = Schemas["DocumentResultResponse"];
+export type DocumentResultsPageFixture = Schemas["ListDocumentResultsResponse"];
 export type SourceStatusFixture = Schemas["SourceStatus"];
 export type GroupFixture = Schemas["GroupResponse"];
 export type GroupMemberFixture = Schemas["GroupMemberResponse"];
@@ -88,6 +90,9 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     url_import_concurrency: 2,
     url_import_min_interval_ms: 1000,
     trusted_proxy_enabled: false,
+    registry_max_ids_total: 32768,
+    registry_max_ids_per_file: 16384,
+    registry_max_ids_per_run: 8192,
   },
 };
 
@@ -278,8 +283,37 @@ export function searchPageFixture(
   };
 }
 
-export const PREVIEW_DOCUMENT: DocumentFixture = {
-  document_id: 1,
+export function documentResultFixture(
+  overrides: Partial<DocumentResultFixture> = {},
+): DocumentResultFixture {
+  return {
+    id: 1,
+    document_id: 42,
+    author_user_id: 1,
+    producer: "stock.news",
+    result_kind: "sentiment.v1",
+    schema_ref: "stock.news/sentiment@1",
+    source_record_hash: "reader-hash",
+    idempotency_key: "run-1",
+    result: { direction: "positive" },
+    created_at: "2026-01-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+export function documentResultsPageFixture(
+  items: DocumentResultFixture[] = [],
+  overrides: Partial<DocumentResultsPageFixture> = {},
+): DocumentResultsPageFixture {
+  return {
+    source_record_hash: "reader-hash",
+    items,
+    next_after_id: null,
+    ...overrides,
+  };
+}
+
+export const PREVIEW_DOCUMENT: DocumentFixture = {  document_id: 1,
   external_id: "ext-doc-1",
   group_key: "group",
   group_path: "personal-admin/default",

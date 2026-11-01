@@ -1,6 +1,60 @@
 use super::*;
 
 impl LibraryService {
+    /// The committed existing file an ordinary upload would replace, plus the
+    /// attributes the replacement will publish atomically.
+    ///
+    /// The lookup mirrors the ordinary upload path: an `external_id` match
+    /// wins, then a same-SHA file that does not request another identity. A
+    /// same-SHA, unreleased file keeps the ordinary reuse path, and a file that
+    /// was never committed is still a first ingest rather than a replacement.
+    ///
+    /// A committed file that is not ingested yet is a replacement target as
+    /// well: the atomic mode never cleans a file in place, it replaces the
+    /// content of the file and keeps its identity, history and results.
+    pub async fn upload_replacement_candidate(
+        &self,
+        group_id: i64,
+        upload: &UploadedLibraryFile,
+    ) -> Result<Option<(crate::domain::LibraryFileRecord, ReplacementFileAttributes)>> {
+        let (_, sha256) = self.prepare_uploaded_file(upload).await?;
+        let requested_external_id = upload.options.metadata.external_id.as_deref();
+        let existing = match requested_external_id {
+            Some(external_id) => {
+                self.store
+                    .get_file_by_external_id_in_project(group_id, external_id)
+                    .await?
+            }
+            None => {
+                self.store
+                    .get_file_by_sha_in_project(group_id, &sha256)
+                    .await?
+            }
+        };
+        let Some(existing) = existing else {
+            return Ok(None);
+        };
+        if existing.ingest_status == crate::contracts::LibraryIngestStatus::Succeeded {
+            let same_content =
+                existing.sha256 == sha256 && !self.file_source_released(existing.id).await?;
+            if same_content {
+                return Ok(None);
+            }
+        }
+        Ok(Some((
+            existing.clone(),
+            projected_upload_attributes(&existing, upload),
+        )))
+    }
+
+    /// The projected attributes of an ordinary upload replacement.
+    pub(crate) fn projected_upload_attributes(
+        &self,
+        existing: &crate::domain::LibraryFileRecord,
+        upload: &UploadedLibraryFile,
+    ) -> ReplacementFileAttributes {
+        projected_upload_attributes(existing, upload)
+    }
     pub async fn prepare_file_for_task(
         &self,
         group_id: i64,
@@ -302,6 +356,13 @@ impl LibraryService {
         &self,
         upload: &UploadedLibraryFile,
     ) -> Result<(LibraryFileKind, String)> {
+        self.validate_uploaded_file(upload).await
+    }
+
+    async fn validate_uploaded_file(
+        &self,
+        upload: &UploadedLibraryFile,
+    ) -> Result<(LibraryFileKind, String)> {
         if upload.bytes.len() > self.max_upload_size_bytes {
             return Err(DomainError::payload_too_large(format!(
                 "file {} exceeds upload size limit of {} bytes",
@@ -323,5 +384,36 @@ impl LibraryService {
             .into());
         }
         Ok((kind, sha256))
+    }
+}
+
+fn projected_upload_attributes(
+    existing: &crate::domain::LibraryFileRecord,
+    upload: &UploadedLibraryFile,
+) -> ReplacementFileAttributes {
+    let metadata = &upload.options.metadata;
+    let (external_id, source_uri, published_at, metadata_json) = if metadata.is_empty() {
+        (
+            existing.external_id.clone(),
+            existing.source_uri.clone(),
+            existing.published_at,
+            existing.metadata_json.clone(),
+        )
+    } else {
+        (
+            metadata.external_id.clone(),
+            metadata.source_uri.clone(),
+            metadata.published_at,
+            crate::contracts::metadata_object_to_value(&metadata.metadata_json),
+        )
+    };
+    ReplacementFileAttributes {
+        folder_id: upload.folder_id.or(existing.folder_id),
+        external_id,
+        filename: upload.filename.clone(),
+        media_type: upload.media_type.clone(),
+        source_uri,
+        published_at,
+        metadata_json,
     }
 }

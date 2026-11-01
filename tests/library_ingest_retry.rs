@@ -691,6 +691,7 @@ mod integration {
                 index: Arc::new(index),
                 collection: "test-noop".to_string(),
                 generation,
+                configured_fingerprint: Some("library_ingest_retry-fingerprint".to_string()),
             },
         );
         assert!(runtime.is_ready());
@@ -960,6 +961,7 @@ mod integration {
                 index: Arc::new(index),
                 collection: "test-collection".to_string(),
                 generation,
+                configured_fingerprint: Some("library_ingest_retry-fingerprint".to_string()),
             }
         ));
         assert!(runtime.is_ready());

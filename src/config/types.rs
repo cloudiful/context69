@@ -9,7 +9,8 @@ use crate::serde_helpers;
 
 use super::{
     defaults::{
-        DEFAULT_MCP_BIND_ADDR, default_scheduler_execution_guard_renew_interval,
+        DEFAULT_MCP_BIND_ADDR, default_registry_max_ids_per_file, default_registry_max_ids_per_run,
+        default_registry_max_ids_total, default_scheduler_execution_guard_renew_interval,
         default_scheduler_execution_guard_ttl, default_secret_store_key_version,
         default_session_idle_ttl, default_url_import_concurrency,
         default_url_import_min_interval_ms,
@@ -27,6 +28,8 @@ pub struct Config {
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
     pub file_library: FileLibraryConfig,
+    /// The registry capacity policy the file library admits points under.
+    pub registry_quota: RegistryQuotaConfig,
     pub scheduler: SchedulerConfig,
     pub api: ApiConfig,
     pub mcp: McpConfig,
@@ -102,6 +105,36 @@ pub struct FileLibraryConfig {
     pub trusted_proxy_enabled: bool,
     #[serde(default)]
     pub s3: Option<S3StorageConfig>,
+}
+
+/// The registry capacity policy of the file library.
+///
+/// The three caps bound how many vector point ids the search registry admits.
+/// They are independent of the upload size: a cap counts the retained registry
+/// entries of the deployment, of one file, and of one ingestion run, never the
+/// bytes of a document. The policy is cumulative, so lowering a cap keeps the
+/// entries that already exist and refuses new admissions until they fit.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegistryQuotaConfig {
+    /// The number of point ids the whole deployment may retain.
+    #[serde(default = "default_registry_max_ids_total")]
+    pub registry_max_ids_total: i64,
+    /// The number of point ids one file may retain.
+    #[serde(default = "default_registry_max_ids_per_file")]
+    pub registry_max_ids_per_file: i64,
+    /// The number of point ids one ingestion run may admit.
+    #[serde(default = "default_registry_max_ids_per_run")]
+    pub registry_max_ids_per_run: i64,
+}
+
+impl Default for RegistryQuotaConfig {
+    fn default() -> Self {
+        Self {
+            registry_max_ids_total: default_registry_max_ids_total(),
+            registry_max_ids_per_file: default_registry_max_ids_per_file(),
+            registry_max_ids_per_run: default_registry_max_ids_per_run(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +319,8 @@ pub(super) struct FileConfig {
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
     pub file_library: FileLibraryConfig,
+    /// The registry capacity policy the file library admits points under.
+    pub registry_quota: RegistryQuotaConfig,
     pub scheduler: SchedulerConfig,
     pub api: ApiConfig,
     pub mcp: McpConfig,
@@ -322,6 +357,7 @@ impl TryFrom<FileConfig> for Config {
             docling: file_config.docling.map(normalize_docling_config),
             auth: file_config.auth,
             file_library: file_config.file_library,
+            registry_quota: file_config.registry_quota,
             scheduler: normalize_scheduler_config(file_config.scheduler),
             api: file_config.api,
             mcp: file_config.mcp,

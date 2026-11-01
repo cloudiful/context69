@@ -391,10 +391,18 @@ impl EmbeddingTransitionApplier {
         stored: StoredRuntimeSettings,
         api_key: Option<String>,
     ) -> Result<()> {
-        if !self
-            .vector
-            .rekey_same_space(provider.clone(), identity.clone())
-        {
+        let mut effective = self.base_config.clone();
+        super::runtime_settings::apply_runtime_settings(&mut effective, &stored);
+        effective.embedding.api_key = api_key;
+        // The published pair is rekeyed in one write: the acknowledged
+        // provider, its identity and the fingerprint of the vector space they
+        // produce move together, so the pair is never described by the
+        // fingerprint of another configuration.
+        if !self.recovery.adopt_acknowledged_identity(
+            effective.clone(),
+            provider.clone(),
+            identity.clone(),
+        ) {
             self.fail_reconciliation();
             return Err(DomainError::unavailable(
                 "the vector runtime could not apply the acknowledged identity; readiness was \
@@ -403,16 +411,9 @@ impl EmbeddingTransitionApplier {
             .into());
         }
         self.runtime.install(provider, identity);
-        let mut effective = self.base_config.clone();
-        super::runtime_settings::apply_runtime_settings(&mut effective, &stored);
-        effective.embedding.api_key = api_key;
         // The acknowledged identity is now the persisted one, so the mismatch
-        // that required a rebuild no longer holds, and the reconnect source must
-        // record the same fingerprint for a later manual rebuild.
+        // that required a rebuild no longer holds.
         self.vector.set_requires_rebuild(false);
-        self.vector
-            .set_configured_fingerprint(Some(super::vector_identity::fingerprint(&effective)));
-        self.recovery.adopt_acknowledged_identity(effective);
         Ok(())
     }
 

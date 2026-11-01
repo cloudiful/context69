@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The translation version ids of a document and target locale.\nSELECT id\nFROM context69.document_translation_versions\nWHERE document_id = $1 AND target_locale = $2\nORDER BY id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_translation_versions",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d2fc48c820eeabf54f839dbad2c4e3f85d39f61e27e008343ab7f27c3899f91c"
+}

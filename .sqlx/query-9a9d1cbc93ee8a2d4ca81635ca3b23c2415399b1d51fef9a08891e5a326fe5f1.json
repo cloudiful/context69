@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One document row, removed on the connection of the delete transaction.\n--\n-- The delete of the document and the entity tombstone that excludes its\n-- points commit together, so a document is never searchable without its\n-- exclusion and never excluded without being gone.\nDELETE FROM context69.documents\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "9a9d1cbc93ee8a2d4ca81635ca3b23c2415399b1d51fef9a08891e5a326fe5f1"
+}

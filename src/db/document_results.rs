@@ -167,6 +167,14 @@ impl Database {
             .validate()
             .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
 
+        // One repeatable-read, read-only snapshot provides both the current
+        // document hash and the rows it selects, so a concurrent document update
+        // can never label old rows as current (or the reverse) within a page.
+        let mut tx = self
+            .pool
+            .begin_with("BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY")
+            .await?;
+
         let target = sqlx::query_file_as!(
             DocumentTargetRow,
             "src/sql/db/document_results/get_document_result_target.sql",
@@ -175,7 +183,7 @@ impl Database {
             &scope.private_group_ids,
             group_path
         )
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| DomainError::not_found("document not found"))?;
 
@@ -188,10 +196,15 @@ impl Database {
             query.producer,
             query.result_kind,
             query.after_id,
+            query.current_only,
+            &target.record_hash,
+            query.latest_only,
             fetch_limit
         )
-        .fetch_all(&self.pool)
+        .fetch_all(&mut *tx)
         .await?;
+
+        tx.commit().await?;
 
         let mut items = rows
             .into_iter()
