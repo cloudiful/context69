@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { MemoryRouter, useLocation } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { AppProviders } from "@/app/providers";
@@ -38,11 +39,19 @@ function page(items: TaskResponse[], overrides: Partial<TaskPageResponse["pagina
   };
 }
 
-function renderPage() {
+function LocationProbe() {
+  const location = useLocation();
+  return <span data-testid="location-search">{location.search}</span>;
+}
+
+function renderPage(path = "/processing-queue") {
   return render(
-    <AppProviders>
-      <ProcessingQueuePage />
-    </AppProviders>,
+    <MemoryRouter initialEntries={[path]}>
+      <AppProviders>
+        <ProcessingQueuePage />
+        <LocationProbe />
+      </AppProviders>
+    </MemoryRouter>,
   );
 }
 
@@ -110,16 +119,16 @@ describe("ProcessingQueuePage", () => {
 
     await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
     expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("1 selected");
-    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry" }))
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry 1 failed" }))
       .toBeInTheDocument();
-    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Move to trash" }))
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Move 1 to trash" }))
       .toBeInTheDocument();
-    expect(within(screen.getByTestId("queue-bulk-actions")).queryByRole("button", { name: "Cancel" }))
+    expect(within(screen.getByTestId("queue-bulk-actions")).queryByRole("button", { name: /^Cancel/ }))
       .not.toBeInTheDocument();
 
     await user.click(screen.getByRole("checkbox", { name: "Select beta.pdf" }));
     expect(screen.getByTestId("queue-selection-count")).toHaveTextContent("2 selected");
-    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Cancel" }))
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Cancel 1" }))
       .toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "Clear selection" }));
@@ -138,14 +147,14 @@ describe("ProcessingQueuePage", () => {
     renderPage();
     await screen.findByText("alpha.pdf");
 
-    await user.click(within(screen.getAllByTestId("queue-task-row")[0]!).getByRole("button", { name: "Rerun" }));
+    await user.click(within(screen.getAllByTestId("queue-task-row")[0]!).getByRole("button", { name: "Reprocess source" }));
     await waitFor(() => expect(rerun).toHaveBeenCalledWith("done-1"));
 
     await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
     await user.click(screen.getByRole("checkbox", { name: "Select beta.pdf" }));
-    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Rerun" }))
+    expect(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Reprocess source 2" }))
       .toBeInTheDocument();
-    expect(within(screen.getByTestId("queue-bulk-actions")).queryByRole("button", { name: "Retry" }))
+    expect(within(screen.getByTestId("queue-bulk-actions")).queryByRole("button", { name: /Retry/ }))
       .not.toBeInTheDocument();
   });
 
@@ -164,7 +173,7 @@ describe("ProcessingQueuePage", () => {
     await screen.findByText("alpha.pdf");
 
     await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
-    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry" }));
+    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry 1 failed" }));
 
     await waitFor(() => expect(screen.getByRole("tab", { name: "Trash" })).toBeDisabled());
     expect(screen.getByRole("tab", { name: "Completed" })).toBeDisabled();
@@ -235,7 +244,7 @@ describe("ProcessingQueuePage", () => {
     ));
 
     await user.click(screen.getByRole("checkbox", { name: "Select the tasks on this page" }));
-    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Delete permanently" }));
+    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Delete 2 permanently" }));
     const dialog = await screen.findByRole("alertdialog");
     expect(within(dialog).getByText(/2 selected tasks/)).toBeInTheDocument();
     expect(within(dialog).getByText(/cannot be undone/)).toBeInTheDocument();
@@ -270,7 +279,7 @@ describe("ProcessingQueuePage", () => {
     renderPage();
     await screen.findByText("alpha.pdf");
 
-    await user.click(screen.getByRole("button", { name: "Retry this task" }));
+    await user.click(screen.getByRole("button", { name: "Retry failed items" }));
     await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledWith("task-1"));
   });
 
@@ -414,5 +423,83 @@ describe("ProcessingQueuePage", () => {
     const finishedHead = within(table).getByText("Completed", { exact: true }).closest("th");
     expect(finishedHead).not.toHaveAttribute("aria-sort");
     expect(within(finishedHead as HTMLElement).queryByRole("button")).not.toBeInTheDocument();
+  });
+
+  it("keeps a bulk report with the accepted target and opens it", async () => {
+    const user = userEvent.setup();
+    const taskId = "11111111-1111-4111-8111-111111111111";
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({ task_id: taskId, file_name: "alpha.pdf", status: "failed" }),
+    ]));
+    vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [{ task_id: taskId, outcome: "accepted", retried_task_id: taskId }],
+    });
+    vi.spyOn(apiClient, "getTask").mockResolvedValue(task({
+      task_id: taskId,
+      file_name: "alpha.pdf",
+      status: "queued",
+    }));
+    vi.spyOn(apiClient, "getTaskItems").mockResolvedValue({ items: [], next_cursor: null });
+    renderPage();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("checkbox", { name: "Select alpha.pdf" }));
+    await user.click(within(screen.getByTestId("queue-bulk-actions")).getByRole("button", { name: "Retry 1 failed" }));
+
+    const report = await screen.findByTestId("queue-bulk-report");
+    expect(screen.getByTestId("queue-bulk-report-summary"))
+      .toHaveTextContent("1 accepted · 0 skipped · 0 failed");
+    const row = within(report).getByTestId("queue-bulk-report-row");
+    expect(row).toHaveTextContent("alpha.pdf");
+    expect(row).toHaveTextContent("Accepted");
+
+    await user.click(within(row).getByRole("button", { name: "Open alpha.pdf" }));
+    expect(screen.getByTestId("location-search")).toHaveTextContent(`task=${taskId}`);
+    expect(await screen.findByText("Focused task")).toBeInTheDocument();
+    await waitFor(() => expect(apiClient.getTask).toHaveBeenCalledWith(taskId, expect.anything()));
+
+    await user.click(screen.getByRole("button", { name: "Dismiss result" }));
+    expect(screen.queryByTestId("queue-bulk-report")).not.toBeInTheDocument();
+  });
+
+  it("shows one focused task even when it is outside the current page", async () => {
+    const taskId = "22222222-2222-4222-8222-222222222222";
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([]));
+    vi.spyOn(apiClient, "getTask").mockResolvedValue(task({
+      task_id: taskId,
+      file_name: "off-page.pdf",
+      status: "queued",
+    }));
+    vi.spyOn(apiClient, "getTaskItems").mockResolvedValue({ items: [], next_cursor: null });
+    renderPage(`/processing-queue?task=${taskId}&keep=1`);
+
+    const focused = await screen.findByTestId("queue-focused-task");
+    expect(await within(focused).findByText("off-page.pdf")).toBeInTheDocument();
+    expect(within(focused).getByText("Queued")).toBeInTheDocument();
+    expect(apiClient.getTask).toHaveBeenCalledTimes(1);
+
+    await userEvent.setup().click(screen.getByRole("button", { name: "Close task view" }));
+    expect(screen.getByTestId("location-search")).toHaveTextContent("?keep=1");
+  });
+
+  it("rejects a malformed focus link without a request", async () => {
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task({ file_name: "alpha.pdf" })]));
+    const getTask = vi.spyOn(apiClient, "getTask");
+    renderPage("/processing-queue?task=not-a-uuid");
+
+    expect(screen.getByTestId("queue-focused-task")).toHaveTextContent("This task link is not valid.");
+    expect(getTask).not.toHaveBeenCalled();
+  });
+
+  it("explains an unavailable focused task without leaking its state", async () => {
+    const taskId = "33333333-3333-4333-8333-333333333333";
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task({ file_name: "alpha.pdf" })]));
+    vi.spyOn(apiClient, "getTask").mockRejectedValue(
+      Object.assign(new Error("forbidden"), { status: 403 }),
+    );
+    renderPage(`/processing-queue?task=${taskId}`);
+
+    expect(await screen.findByTestId("queue-focused-task-error"))
+      .toHaveTextContent("This task is unavailable or you do not have access to it.");
   });
 });

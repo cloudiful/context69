@@ -102,6 +102,18 @@ export interface QueueMock {
   diagnose?: Record<string, TaskDiagnoseFixture>;
   /** `snapshot` sends one watch-all frame; `error` fails the transport. */
   stream?: "snapshot" | "error";
+  /**
+   * Single-task reads used by the `?task=<uuid>` focus. A task that is not in
+   * the list fixtures and not in this map answers `404`.
+   */
+  taskById?: Record<string, TaskFixture>;
+  /**
+   * Successive single-task reads per task id, used to observe an authoritative
+   * progress/terminal transition. The last entry repeats.
+   */
+  taskReadSequence?: Record<string, TaskFixture[]>;
+  /** Child task ids a source rerun reports, keyed by the parent task id. */
+  rerunChildIds?: Record<string, string>;
   listError?: BackendFailure;
   /**
    * Fails the read-only selection snapshot, so the closed `> 50000` boundary is
@@ -241,6 +253,7 @@ export async function installAppTransport(
   };
   let signedIn = !options.guest;
   const itemRequests: Record<string, number> = {};
+  const taskReads: Record<string, number> = {};
   let listRequests = 0;
   let deletionPolls = 0;
   const searchPosts: SearchResponseFixture[] = options.search
@@ -567,7 +580,11 @@ export async function installAppTransport(
             && source.status === "succeeded"
             && ["file_batch", "url_batch", "text_batch"].includes(source.kind);
           if (rerunnable) {
-            return { task_id: taskId, outcome: "accepted", rerun_task_id: `${taskId}-child` };
+            return {
+              task_id: taskId,
+              outcome: "accepted",
+              rerun_task_id: queue.rerunChildIds?.[taskId] ?? `${taskId}-child`,
+            };
           }
           return {
             task_id: taskId,
@@ -600,7 +617,8 @@ export async function installAppTransport(
         return true;
       }
       if (action === "rerun") {
-        await route.fulfill(json(200, { task: { task_id: taskId } }));
+        const childId = queue.rerunChildIds?.[taskId] ?? `${taskId}-child`;
+        await route.fulfill(json(200, { task: { task_id: childId } }));
         return true;
       }
       await route.fulfill(json(200, {
@@ -614,6 +632,27 @@ export async function installAppTransport(
     const deleteMatch = /^\/v1\/tasks\/([^/]+)$/.exec(url.pathname);
     if (deleteMatch && method === "DELETE") {
       await route.fulfill({ status: 204, headers: { "Cache-Control": "no-store" } });
+      return true;
+    }
+
+    const taskReadMatch = /^\/v1\/tasks\/([^/]+)$/.exec(url.pathname);
+    if (taskReadMatch && method === "GET") {
+      const taskId = decodeURIComponent(taskReadMatch[1]);
+      const sequence = queue.taskReadSequence?.[taskId];
+      const served = sequence ? Math.min(taskReads[taskId] ?? 0, sequence.length - 1) : 0;
+      if (sequence) {
+        taskReads[taskId] = (taskReads[taskId] ?? 0) + 1;
+      }
+      const source = sequence?.[served] ?? queue.taskById?.[taskId] ?? [
+        ...(queue.processing ?? []),
+        ...(queue.completed ?? []),
+        ...(queue.trash ?? []),
+      ].find((task) => task.task_id === taskId);
+      if (!source) {
+        await route.fulfill(json(404, { code: "not_found", message: "task not found" }));
+        return true;
+      }
+      await route.fulfill(json(200, source));
       return true;
     }
 

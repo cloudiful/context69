@@ -62,9 +62,9 @@ test.describe("react processing queue", () => {
     await expect(page.getByText("Read-only troubleshooting")).toBeVisible();
 
     // A per-item `retryable: false` never hides the manual task-scoped action.
-    await page.getByRole("button", { name: "Retry this task" }).first().click();
+    await page.getByRole("button", { name: "Retry failed items" }).first().click();
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/retry"
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000002/retry"
     )).length).toBe(1);
   });
 
@@ -81,7 +81,7 @@ test.describe("react processing queue", () => {
     await expect(trashDialog).toContainText("Move this task history to the trash?");
     await trashDialog.getByRole("button", { name: "Move to trash" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/trash"
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000002/trash"
     )).length).toBe(1);
 
     await page.getByRole("tab", { name: "Trash" }).click();
@@ -89,7 +89,7 @@ test.describe("react processing queue", () => {
 
     await page.getByRole("button", { name: "Restore task" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-trashed/restore"
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000004/restore"
     )).length).toBe(1);
 
     await page.getByRole("button", { name: "Delete permanently" }).click();
@@ -97,7 +97,7 @@ test.describe("react processing queue", () => {
     await expect(deleteDialog).toContainText("Permanently delete this task history?");
     await deleteDialog.getByRole("button", { name: "Delete" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "DELETE" && call.path === "/v1/tasks/task-queue-trashed"
+      call.method === "DELETE" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000004"
     )).length).toBe(1);
   });
 
@@ -129,7 +129,7 @@ test.describe("react processing queue", () => {
       user: ADMIN_USER,
       // Two rows on the page, three matching rows behind the filters.
       queue: {
-        processing: [QUEUE_ACTIVE_TASK, QUEUE_FAILED_TASK, { ...QUEUE_FAILED_TASK, task_id: "task-queue-extra", file_name: "extra.pdf" }],
+        processing: [QUEUE_ACTIVE_TASK, QUEUE_FAILED_TASK, { ...QUEUE_FAILED_TASK, task_id: "a1b2c3d4-0000-4000-8000-000000000005", file_name: "extra.pdf" }],
       },
     });
 
@@ -143,7 +143,7 @@ test.describe("react processing queue", () => {
 
     // Only the captured eligible ids are targeted through the bounded batch
     // endpoint; the active row is never part of the request.
-    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry" }).click();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry 2 failed" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
       call.method === "POST" && call.path === "/v1/tasks/batch/retry"
     )).length).toBe(1);
@@ -151,7 +151,7 @@ test.describe("react processing queue", () => {
       call.method === "POST" && call.path === "/v1/tasks/batch/retry"
     ));
     expect((batchCall?.body as { task_ids?: string[] } | undefined)?.task_ids)
-      .toEqual(["task-queue-failed", "task-queue-extra"]);
+      .toEqual(["a1b2c3d4-0000-4000-8000-000000000002", "a1b2c3d4-0000-4000-8000-000000000005"]);
     expect(transport.calls.filter((call) => (
       call.method === "POST"
       && call.path.endsWith("/retry")
@@ -186,17 +186,17 @@ test.describe("react processing queue", () => {
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
 
     await page.getByRole("checkbox", { name: "Select Field Notes" }).check();
-    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Move to trash" }).click();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Move 1 to trash" }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText("Move 1 selected tasks to the trash?");
     await dialog.getByRole("button", { name: "Move to trash" }).click();
 
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-active/trash"
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000001/trash"
     )).length).toBe(1);
     const paths = transport.calls.map((call) => `${call.method} ${call.path}`);
-    expect(paths.indexOf("POST /v1/tasks/task-queue-active/cancel"))
-      .toBeLessThan(paths.indexOf("POST /v1/tasks/task-queue-active/trash"));
+    expect(paths.indexOf("POST /v1/tasks/a1b2c3d4-0000-4000-8000-000000000001/cancel"))
+      .toBeLessThan(paths.indexOf("POST /v1/tasks/a1b2c3d4-0000-4000-8000-000000000001/trash"));
   });
 
   test("permanently deletes a selected trash set only after the counted confirmation", async ({ page }) => {
@@ -207,14 +207,14 @@ test.describe("react processing queue", () => {
     await expect(page.getByText("old-draft.pdf")).toBeVisible();
 
     await page.getByRole("checkbox", { name: "Select the tasks on this page" }).check();
-    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Delete permanently" }).click();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Delete 1 permanently" }).click();
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toContainText("Permanently delete 1 selected tasks?");
     await expect(dialog).toContainText("cannot be undone");
     await dialog.getByRole("button", { name: "Delete permanently" }).click();
 
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "DELETE" && call.path === "/v1/tasks/task-queue-trashed"
+      call.method === "DELETE" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000004"
     )).length).toBe(1);
     await expect(page.getByTestId("queue-selection-count")).toHaveText("0 selected");
   });
@@ -231,14 +231,14 @@ test.describe("react processing queue", () => {
 
     // The completed row offers the rerun; it reads the source again in a new
     // task and leaves the parent alone.
-    await page.getByTestId("queue-task-row").getByRole("button", { name: "Rerun" }).click();
+    await page.getByTestId("queue-task-row").getByRole("button", { name: "Reprocess source" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-completed/rerun"
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000003/rerun"
     )).length).toBe(1);
 
     // The multi-select rerun goes through the bounded batch endpoint once.
     await page.getByRole("checkbox", { name: "Select Annual Report" }).check();
-    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Rerun" }).click();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Reprocess source 1" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
       call.method === "POST" && call.path === "/v1/tasks/batch/rerun"
     )).length).toBe(1);
@@ -246,7 +246,7 @@ test.describe("react processing queue", () => {
       call.method === "POST" && call.path === "/v1/tasks/batch/rerun"
     ));
     expect((batchCall?.body as { task_ids?: string[] } | undefined)?.task_ids)
-      .toEqual(["task-queue-completed"]);
+      .toEqual(["a1b2c3d4-0000-4000-8000-000000000003"]);
     expect(transport.calls.filter((call) => (
       call.method === "POST"
       && call.path.endsWith("/rerun")
@@ -265,7 +265,7 @@ test.describe("react processing queue", () => {
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
 
     await page.getByRole("checkbox", { name: "Select Policy Review" }).check();
-    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry" }).click();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry 1 failed" }).click();
 
     // The captured ids must not be orphaned by a window change mid-batch.
     await expect(page.getByRole("tab", { name: "Trash" })).toBeDisabled();
@@ -512,6 +512,180 @@ test.describe("react processing queue", () => {
     await page.getByRole("button", { name: "Refresh queue" }).click();
     await expect(page.getByText("Failed to load the processing queue")).toHaveCount(0);
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("keeps a persistent bulk report and opens its accepted target without losing the filter", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
+
+    await page.goto("/processing-queue");
+    await page.getByRole("button", { name: "Filter by Status" }).click();
+    await page.getByRole("menuitem", { name: "Failed" }).click();
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
+
+    await page.getByRole("checkbox", { name: "Select Policy Review" }).check();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry 1 failed" }).click();
+
+    const report = page.getByTestId("queue-bulk-report");
+    await expect(report).toBeVisible();
+    await expect(page.getByTestId("queue-bulk-report-summary")).toContainText("1 accepted");
+    const row = page.getByTestId("queue-bulk-report-row");
+    await expect(row).toContainText("Policy Review");
+    await expect(row).toContainText("Accepted");
+    await expect(row.getByRole("button", { name: "Open Policy Review" })).toHaveText("View task");
+
+    // An in-place retry links to the original task, never to a child.
+    await row.getByRole("button", { name: "Open Policy Review" }).click();
+    await expect(page).toHaveURL(/task=a1b2c3d4-0000-4000-8000-000000000002/);
+    await expect(page.getByTestId("queue-focused-task")).toContainText("Focused task");
+    await expect(page.getByTestId("queue-focused-task")).toContainText("Policy Review");
+    await expect(page.getByRole("button", { name: "Filter by Status: Failed" })).toBeVisible();
+
+    // Dismiss removes only the task parameter; the filter stays applied.
+    await page.getByRole("button", { name: "Close task view" }).click();
+    await expect(page).not.toHaveURL(/task=/);
+    await expect(page.getByRole("button", { name: "Filter by Status: Failed" })).toBeVisible();
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
+
+    await page.getByRole("button", { name: "Dismiss result" }).click();
+    await expect(page.getByTestId("queue-bulk-report")).toHaveCount(0);
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("opens the child task returned by a source reprocess even when it is off-page", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: {
+        completed: [QUEUE_COMPLETED_TASK],
+        rerunChildIds: {
+          [QUEUE_COMPLETED_TASK.task_id]: "a1b2c3d4-0000-4000-8000-000000000006",
+        },
+        taskById: {
+          "a1b2c3d4-0000-4000-8000-000000000006": {
+            ...QUEUE_COMPLETED_TASK,
+            task_id: "a1b2c3d4-0000-4000-8000-000000000006",
+            file_name: "annual-report-copy.pdf",
+            document_title: "Annual Report Copy",
+            status: "queued",
+            stage: "download",
+          },
+        },
+      },
+    });
+
+    await page.goto("/processing-queue");
+    await page.getByRole("tab", { name: "Completed" }).click();
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
+
+    await page.getByTestId("queue-task-row").getByRole("button", { name: "Reprocess source" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000003/rerun"
+    )).length).toBe(1);
+
+    // The success toast keeps the created child id reachable.
+    await page.getByRole("button", { name: "View task" }).click();
+    await expect(page).toHaveURL(/task=a1b2c3d4-0000-4000-8000-000000000006/);
+    const focused = page.getByTestId("queue-focused-task");
+    await expect(focused).toContainText("Annual Report Copy");
+    await expect(focused).toContainText("Queued");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
+    expect(transport.calls.some((call) => (
+      call.method === "GET" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000006"
+    ))).toBe(true);
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("rejects a malformed focus link without a request and explains a missing task", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
+
+    await page.goto("/processing-queue?task=not-a-task-id");
+    await expect(page.getByTestId("queue-focused-task")).toContainText("This task link is not valid.");
+    expect(transport.calls.some((call) => (
+      call.method === "GET" && call.path === "/v1/tasks/not-a-task-id"
+    ))).toBe(false);
+
+    await page.getByRole("button", { name: "Close task view" }).click();
+    await expect(page).not.toHaveURL(/task=/);
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await page.goto("/processing-queue?task=11111111-1111-4111-8111-111111111111");
+    await expect(page.getByTestId("queue-focused-task-error"))
+      .toContainText("This task is unavailable or you do not have access to it.");
+    expect(transport.calls.some((call) => (
+      call.method === "GET" && call.path === "/v1/tasks/11111111-1111-4111-8111-111111111111"
+    ))).toBe(true);
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("refreshes the focused task after its retry is accepted", async ({ page }) => {
+    const queued = {
+      ...QUEUE_FAILED_TASK,
+      status: "queued" as const,
+      updated_at: "2026-01-01T09:00:00Z",
+    };
+    await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: { processing: [QUEUE_FAILED_TASK] },
+    });
+    let retried = false;
+    await page.route(`**/v1/tasks/${QUEUE_FAILED_TASK.task_id}`, async (route) => {
+      await route.fulfill({ json: retried ? queued : QUEUE_FAILED_TASK });
+    });
+    await page.route(`**/v1/tasks/${QUEUE_FAILED_TASK.task_id}/retry`, async (route) => {
+      retried = true;
+      await route.fulfill({ json: { retried_items: 1, task: queued } });
+    });
+    await page.route(/\/v1\/tasks\?/, async (route) => {
+      await route.fulfill({ json: {
+        items: [retried ? queued : QUEUE_FAILED_TASK],
+        pagination: { page: 1, page_size: 25, total: 1, total_pages: 1 },
+      } });
+    });
+
+    await page.goto(`/processing-queue?task=${QUEUE_FAILED_TASK.task_id}`);
+    const focused = page.getByTestId("queue-focused-task");
+    await expect(focused.getByText("Failed", { exact: true }).first()).toBeVisible();
+    await focused.getByRole("button", { name: "Retry failed items" }).first().click();
+    await expect(page.getByTestId("queue-task-row")).toContainText("Queued");
+    await page.getByRole("button", { name: "Refresh queue", exact: true }).click();
+    await expect(focused.getByText("Queued", { exact: true })).toBeVisible();
+    await expect(focused.getByRole("button", { name: "Retry failed items" })).toHaveCount(0);
+  });
+
+  test("follows a focused active task to terminal and stops polling", async ({ page }) => {
+    const queued = {
+      ...QUEUE_ACTIVE_TASK,
+      status: "queued" as const,
+      updated_at: "2026-01-01T09:00:00Z",
+    };
+    const succeeded = {
+      ...QUEUE_ACTIVE_TASK,
+      status: "succeeded" as const,
+      stage: "finalize",
+      updated_at: "2026-01-01T09:05:00Z",
+      progress: { total: 4, queued: 0, running: 0, waiting: 0, succeeded: 4, failed: 0, cancelled: 0 },
+    };
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: {
+        processing: [queued],
+        taskReadSequence: { [QUEUE_ACTIVE_TASK.task_id]: [queued, succeeded] },
+      },
+    });
+
+    await page.goto(`/processing-queue?task=${QUEUE_ACTIVE_TASK.task_id}`);
+    const focused = page.getByTestId("queue-focused-task");
+    const status = focused.getByTestId("queue-focused-task-status");
+    await expect(status).toHaveText("Queued");
+    await expect(status).toHaveText("Succeeded", { timeout: 6_000 });
+    await expect(focused.getByRole("button", { name: "Retry failed items" })).toHaveCount(0);
+
+    const detailReads = () => transport.calls.filter((call) => (
+      call.method === "GET" && call.path === `/v1/tasks/${QUEUE_ACTIVE_TASK.task_id}`
+    )).length;
+    const settledReads = detailReads();
+    await page.waitForTimeout(3_500);
+    expect(detailReads()).toBe(settledReads);
     expect(transport.unmocked).toEqual([]);
   });
 

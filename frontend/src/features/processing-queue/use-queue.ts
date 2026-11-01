@@ -17,25 +17,31 @@ import type {
 import {
   ACTIVE_STATUSES,
   DEFAULT_QUEUE_SORT_BY_VIEW,
+  QUEUE_BULK_REPORT_ID,
   QueuePartialFailureError,
   QueueTaskSkippedError,
-  availableQueueBulkActions,
+  buildQueueBulkReport,
   captureQueueBulkTargets,
-  describeQueueBulkOutcomes,
   isActiveStatus,
+  isActiveTask,
   isQueueBulkActionApplicable,
   isRecoverableTask,
   isSourceRerunnableTask,
   isTerminalTask,
+  queueBulkActionOptions,
   runQueueBatchRerun,
   runQueueBatchRetry,
   runQueueBulkTasks,
   summarizeQueueBulkOutcomes,
+  taskSubject,
   type QueueBulkAction,
+  type QueueBulkActionOption,
+  type QueueBulkReport,
   type QueueBulkTarget,
 } from "./queue-helpers";
 import { applyTaskPatches, type QueueScope } from "./queue-updates";
 import { useQueueLive } from "./use-queue-live";
+import { TASK_ITEMS_REFRESH_MS } from "./use-task-items";
 
 const DEFAULT_PAGE_SIZE = 25;
 /**
@@ -44,6 +50,21 @@ const DEFAULT_PAGE_SIZE = 25;
  * refresh can start a new one.
  */
 export const QUEUE_LIST_TIMEOUT_MS = 15_000;
+
+const TASK_FOCUS_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The focused-task detail query key, shared by focus reads, mutations and refresh. */
+export function taskFocusQueryKey(taskId: string) {
+  return ["tasks", "detail", taskId] as const;
+}
+
+/** A malformed link is rejected before any request is built from it. */
+export function isValidTaskFocusId(value: string | null | undefined): value is string {
+  return typeof value === "string" && TASK_FOCUS_ID.test(value);
+}
+
+/** A focused task still in progress is re-read on the same cadence as its items. */
+export const FOCUSED_TASK_REFRESH_MS = TASK_ITEMS_REFRESH_MS;
 
 export interface ConfirmRequest {
   title: string;
@@ -65,6 +86,13 @@ export interface QueueSelection {
 export interface QueueBulkProgress {
   completed: number;
   total: number;
+}
+
+/** The page owns navigation, so the hook borrows only the task-open behavior. */
+export interface UseQueueOptions {
+  openTask?: (taskId: string) => void;
+  /** The `?task=<uuid>` value the page reads from its route. */
+  focusedTaskId?: string | null;
 }
 
 const EMPTY_SELECTION: QueueSelection = { ids: [], statuses: {}, snapshot: false };
@@ -151,6 +179,15 @@ export interface QueueState {
   bulkAction: QueueBulkAction | null;
   bulkProgress: QueueBulkProgress | null;
   bulkActions: QueueBulkAction[];
+  /** The available actions with their counted eligible labels. */
+  bulkActionOptions: QueueBulkActionOption[];
+  /** The last bulk action's persistent per-item report. */
+  bulkReport: QueueBulkReport | null;
+  dismissBulkReport: () => void;
+  /** The authoritative detail behind the focused task card, if one is valid. */
+  focusedTask: TaskResponse | null;
+  focusedTaskLoading: boolean;
+  focusedTaskError: boolean;
   /** A bulk action is running or a snapshot is being captured. */
   selectionBusy: boolean;
   capturingSelection: boolean;
@@ -215,7 +252,7 @@ function isConflict(error: unknown): boolean {
  * state is limited to UI selections (expanded rows, in-flight actions, the
  * selected task ids).
  */
-export function useQueue(): QueueState {
+export function useQueue(options: UseQueueOptions = {}): QueueState {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
   const [scope, setScope] = useState<QueueScope>(initialScope);
@@ -225,8 +262,52 @@ export function useQueue(): QueueState {
   const [selection, setSelection] = useState<QueueSelection>(EMPTY_SELECTION);
   const [bulkAction, setBulkAction] = useState<QueueBulkAction | null>(null);
   const [bulkProgress, setBulkProgress] = useState<QueueBulkProgress | null>(null);
+  const [bulkReport, setBulkReport] = useState<QueueBulkReport | null>(null);
+  // Synchronous guard: two clicks in one tick both see the old state, so the
+  // ref is what actually prevents a duplicate batch submission.
+  const bulkRunningRef = useRef(false);
   const [capturingSelection, setCapturingSelection] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+
+  const openTaskRef = useRef(options.openTask);
+  openTaskRef.current = options.openTask;
+
+  const focusedTaskId = isValidTaskFocusId(options.focusedTaskId) ? options.focusedTaskId : null;
+  const focusedTaskIdRef = useRef<string | null>(focusedTaskId);
+  focusedTaskIdRef.current = focusedTaskId;
+
+  // The focused task is one extra authoritative read, keyed by its own id so a
+  // navigation cannot apply an older response. While the task can still change
+  // it is polled on the same cadence as the item panel; a terminal task stops
+  // the interval, so a settled focus never keeps requesting.
+  const focusedTaskQuery = useQuery({
+    queryKey: taskFocusQueryKey(focusedTaskId ?? ""),
+    queryFn: ({ signal }) => {
+      if (!focusedTaskId) {
+        throw new Error("No focused task");
+      }
+      return apiClient.getTask(focusedTaskId, { signal });
+    },
+    enabled: focusedTaskId !== null,
+    retry: false,
+    refetchInterval: (query) => {
+      const task = query.state.data;
+      return task && isActiveTask(task) ? FOCUSED_TASK_REFRESH_MS : false;
+    },
+    refetchIntervalInBackground: false,
+  });
+
+  /**
+   * Re-read one focused detail query by id. A mutation passes the id it
+   * changed; the explicit queue refresh passes the current focus. Inactive ids
+   * are only marked stale, so an unfocused task never issues a request.
+   */
+  const refetchFocusedTask = useCallback((taskId: string | null = focusedTaskIdRef.current) => {
+    if (!isValidTaskFocusId(taskId)) {
+      return;
+    }
+    void queryClient.invalidateQueries({ queryKey: taskFocusQueryKey(taskId), exact: true });
+  }, [queryClient]);
 
   const scopeRef = useRef(scope);
   scopeRef.current = scope;
@@ -384,10 +465,28 @@ export function useQueue(): QueueState {
     [selection.ids, selectionStatuses],
   );
 
-  const bulkActions = useMemo(
-    () => availableQueueBulkActions(selectedStatuses, scope.view),
-    [scope.view, selectedStatuses],
+  const bulkActionOptions = useMemo(
+    () => queueBulkActionOptions(t, selectedStatuses, scope.view),
+    [scope.view, selectedStatuses, t],
   );
+
+  const bulkActions = useMemo(
+    () => bulkActionOptions.map((option) => option.action),
+    [bulkActionOptions],
+  );
+
+  // Readable subjects captured with the selection, so the persistent report can
+  // name a row whose page has since been left. Off-page ids stay without one.
+  const subjects = useMemo(() => {
+    const names: Record<string, string> = {};
+    for (const task of items) {
+      const subject = taskSubject(task);
+      if (subject) {
+        names[task.task_id] = subject;
+      }
+    }
+    return names;
+  }, [items]);
 
   // While a bulk action runs or a snapshot is being captured, the window and
   // the selection are frozen: a filter or view change would hide the tasks P1
@@ -476,17 +575,34 @@ export function useQueue(): QueueState {
     mutate: () => Promise<unknown>,
     successKey: string,
     failureKey: string,
-    options: { clearStatusOnSuccess?: boolean } = {},
+    options: { clearStatusOnSuccess?: boolean; viewTarget?: string | null } = {},
   ) => {
     beginAction(task.task_id);
     try {
       await mutate();
+      // The focused detail is authoritative per task: a successful mutation
+      // refreshes exactly this id alongside the list, so the card cannot keep
+      // offering the action the server has just accepted.
+      refetchFocusedTask(task.task_id);
       if (options.clearStatusOnSuccess && scopeRef.current.status !== null) {
         setScope((current) => ({ ...current, status: null, page: 1 }));
       } else {
         reload();
       }
-      toast.success(t(successKey), { description: task.task_id, duration: 2500 });
+      // The accepted action target is the original task unless the mutation
+      // created one: a source reprocess links to the child, a deletion has
+      // nothing left to open.
+      const target = options.viewTarget === undefined ? task.task_id : options.viewTarget;
+      toast.success(t(successKey), {
+        description: task.task_id,
+        duration: 2500,
+        action: target
+          ? {
+              label: t("processingQueue.viewTask"),
+              onClick: () => openTaskRef.current?.(target),
+            }
+          : undefined,
+      });
     } catch (error) {
       toast.error(t("common.error"), {
         description: error instanceof Error ? error.message : t(failureKey),
@@ -495,7 +611,7 @@ export function useQueue(): QueueState {
     } finally {
       endAction(task.task_id);
     }
-  }, [beginAction, endAction, reload, t]);
+  }, [beginAction, endAction, refetchFocusedTask, reload, t]);
 
   const recoverTask = useCallback((task: TaskResponse) => {
     if (!isRecoverableTask(task) || actionIds.includes(task.task_id)) {
@@ -514,20 +630,43 @@ export function useQueue(): QueueState {
   }, [actionIds, runTaskAction]);
 
   /**
-   * Rerun a succeeded task from its current source. The server creates a
-   * child task that reads the source again; the parent keeps its history.
+   * Reprocess a succeeded task from its current source. The server creates a
+   * child task that reads the source again; the parent keeps its history. The
+   * response is not discarded: its child id is what "View task" opens.
    */
   const rerunTask = useCallback((task: TaskResponse) => {
     if (!isSourceRerunnableTask(task) || actionIds.includes(task.task_id)) {
       return;
     }
-    void runTaskAction(
-      task,
-      () => apiClient.rerunTask(task.task_id),
-      "processingQueue.rerunAccepted",
-      "processingQueue.rerunFailed",
-    );
-  }, [actionIds, runTaskAction]);
+    beginAction(task.task_id);
+    void (async () => {
+      try {
+        const response = await apiClient.rerunTask(task.task_id);
+        const childId = response.task.task_id;
+        // The parent keeps its identity and its detail; the created child is
+        // focused only when the operator asks for it.
+        refetchFocusedTask(task.task_id);
+        reload();
+        toast.success(t("processingQueue.rerunAccepted"), {
+          description: childId,
+          duration: 6000,
+          action: childId
+            ? {
+                label: t("processingQueue.viewTask"),
+                onClick: () => openTaskRef.current?.(childId),
+              }
+            : undefined,
+        });
+      } catch (error) {
+        toast.error(t("common.error"), {
+          description: error instanceof Error ? error.message : t("processingQueue.rerunFailed"),
+          duration: 5000,
+        });
+      } finally {
+        endAction(task.task_id);
+      }
+    })();
+  }, [actionIds, beginAction, endAction, refetchFocusedTask, reload, t]);
 
   const cancelTask = useCallback((task: TaskResponse) => {
     if (!ACTIVE_STATUSES.includes(task.status) || actionIds.includes(task.task_id)) {
@@ -589,6 +728,7 @@ export function useQueue(): QueueState {
           () => apiClient.deleteTask(task.task_id),
           "processingQueue.deleteAccepted",
           "processingQueue.deleteFailed",
+          { viewTarget: null },
         );
       },
     });
@@ -751,15 +891,17 @@ export function useQueue(): QueueState {
   }, [submitTrashTarget, t]);
 
   const runBulkAction = useCallback(async (action: QueueBulkAction) => {
-    if (bulkAction) {
+    if (bulkAction || bulkRunningRef.current) {
       return;
     }
-    const targets = captureQueueBulkTargets(selection.ids, selectionStatuses, action)
+    const targets = captureQueueBulkTargets(selection.ids, selectionStatuses, action, subjects)
       .filter((target) => isQueueBulkActionApplicable(action, target.status));
     if (targets.length === 0) {
       return;
     }
+    bulkRunningRef.current = true;
     setBulkAction(action);
+    setBulkReport(null);
     setBulkProgress({ completed: 0, total: targets.length });
     try {
       const onProgress = (completed: number, total: number) => setBulkProgress({ completed, total });
@@ -785,6 +927,8 @@ export function useQueue(): QueueState {
               onProgress,
             );
       const summary = summarizeQueueBulkOutcomes(outcomes);
+      const report = buildQueueBulkReport(action, outcomes);
+      setBulkReport(report);
       // The tasks that were handled leave the selection; the skipped and failed
       // ones stay selected so they can be seen and acted on again.
       const handled = new Set(
@@ -804,9 +948,15 @@ export function useQueue(): QueueState {
           snapshot: current.snapshot && ids.length > 0,
         };
       });
+      // Only the focused id's own detail is refreshed when the batch accepted
+      // it; other accepted ids have no active detail observer and issue nothing.
+      const focusedTaskId = focusedTaskIdRef.current;
+      if (focusedTaskId && handled.has(focusedTaskId)) {
+        refetchFocusedTask(focusedTaskId);
+      }
       reload();
-      const details = describeQueueBulkOutcomes(outcomes).map((detail) =>
-        `${detail.taskId} ${t(`processingQueue.bulkReasons.${detail.reason}`, { defaultValue: detail.reason })}`);
+      // The toast stays brief and offers the persistent report instead of
+      // joining per-id reasons into one long description.
       toast[summary.failed === 0 && summary.skipped === 0 ? "success" : "warning"](
         t("processingQueue.bulkSummary", {
           succeeded: summary.succeeded,
@@ -814,11 +964,10 @@ export function useQueue(): QueueState {
           failed: summary.failed,
         }),
         {
-          description: details.length > 0
-            ? details.join(" · ")
-            : summary.partial > 0
-              ? t("processingQueue.bulkPartial", { count: summary.partial })
-              : undefined,
+          action: {
+            label: t("processingQueue.bulkReport.details"),
+            onClick: () => document.getElementById(QUEUE_BULK_REPORT_ID)?.focus(),
+          },
           duration: 3500,
         },
       );
@@ -828,16 +977,24 @@ export function useQueue(): QueueState {
         duration: 5000,
       });
     } finally {
+      bulkRunningRef.current = false;
       setBulkAction(null);
       setBulkProgress(null);
     }
-  }, [bulkAction, reload, selection.ids, selectionStatuses, submitBulkTarget, t]);
+  }, [bulkAction, reload, selection.ids, selectionStatuses, subjects, submitBulkTarget, refetchFocusedTask, t]);
 
   const requestBulkAction = useCallback((action: QueueBulkAction) => {
     if (bulkAction || selection.ids.length === 0) {
       return;
     }
-    const count = selection.ids.length;
+    // The confirmation states the eligible count, not a total that includes
+    // selected rows this action cannot touch.
+    const count = captureQueueBulkTargets(selection.ids, selectionStatuses, action)
+      .filter((target) => isQueueBulkActionApplicable(action, target.status))
+      .length;
+    if (count === 0) {
+      return;
+    }
     if (action === "retry" || action === "rerun" || action === "restore") {
       void runBulkAction(action);
       return;
@@ -851,7 +1008,7 @@ export function useQueue(): QueueState {
         void runBulkAction(action);
       },
     });
-  }, [bulkAction, runBulkAction, selection.ids.length, t]);
+  }, [bulkAction, runBulkAction, selection.ids, selectionStatuses, t]);
 
   const toggleExpanded = useCallback((taskId: string) => {
     setExpanded((current) => {
@@ -879,6 +1036,12 @@ export function useQueue(): QueueState {
     bulkAction,
     bulkProgress,
     bulkActions,
+    bulkActionOptions,
+    bulkReport,
+    dismissBulkReport: () => setBulkReport(null),
+    focusedTask: focusedTaskId !== null ? focusedTaskQuery.data ?? null : null,
+    focusedTaskLoading: focusedTaskId !== null && focusedTaskQuery.isLoading,
+    focusedTaskError: focusedTaskId !== null && focusedTaskQuery.isError,
     selectionBusy: bulkAction !== null || capturingSelection,
     capturingSelection,
     confirm,
@@ -904,7 +1067,10 @@ export function useQueue(): QueueState {
       setScope((current) => ({ ...current, pageSize, page: 1 }));
     },
     setSort,
-    refresh: reload,
+    refresh: () => {
+      reload();
+      refetchFocusedTask();
+    },
     toggleExpanded,
     isActing,
     isSelected,

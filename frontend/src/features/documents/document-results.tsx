@@ -4,23 +4,12 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatJson } from "@/lib/format";
 
 import type { DocumentResultResponse } from "@/services/api";
 
+import { ResultPayload } from "./result-payload";
 import type { DocumentResultProducerGroup, HistoryResult } from "./use-document-results";
 import { useDocumentResults } from "./use-document-results";
-
-function ResultPayload({ result }: { result: DocumentResultResponse }) {
-  return (
-    <pre
-      data-testid="document-result-payload"
-      className="max-h-64 overflow-auto rounded-lg bg-muted/50 px-3 py-2 text-xs leading-6 break-words whitespace-pre-wrap"
-    >
-      {formatJson(result.result)}
-    </pre>
-  );
-}
 
 function CurrentResultGroup({ group }: { group: DocumentResultProducerGroup }) {
   const { t } = useTranslation();
@@ -36,7 +25,7 @@ function CurrentResultGroup({ group }: { group: DocumentResultProducerGroup }) {
             <span className="text-xs text-muted-foreground">{kind.items[0]?.schema_ref}</span>
           </div>
           {kind.items.map((item) => (
-            <ResultPayload key={item.id} result={item} />
+            <ResultPayload key={item.id} result={item.result} />
           ))}
         </div>
       ))}
@@ -58,7 +47,7 @@ function HistoryEntry({ entry }: { entry: HistoryResult }) {
           {t("document.resultSourceVersion")}: {entry.result.source_record_hash}
         </span>
       </div>
-      <ResultPayload result={entry.result} />
+      <ResultPayload result={entry.result.result} />
     </div>
   );
 }

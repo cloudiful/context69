@@ -679,13 +679,13 @@ export function queueTaskFixture(
 }
 
 export const QUEUE_ACTIVE_TASK = queueTaskFixture({
-  task_id: "task-queue-active",
+  task_id: "a1b2c3d4-0000-4000-8000-000000000001",
   file_name: "field-notes.pdf",
   document_title: "Field Notes",
 });
 
 export const QUEUE_FAILED_TASK = queueTaskFixture({
-  task_id: "task-queue-failed",
+  task_id: "a1b2c3d4-0000-4000-8000-000000000002",
   status: "failed",
   file_name: "policy-review.pdf",
   document_title: "Policy Review",
@@ -695,7 +695,7 @@ export const QUEUE_FAILED_TASK = queueTaskFixture({
 });
 
 export const QUEUE_COMPLETED_TASK = queueTaskFixture({
-  task_id: "task-queue-completed",
+  task_id: "a1b2c3d4-0000-4000-8000-000000000003",
   status: "succeeded",
   stage: "finalize",
   file_name: "annual-report.pdf",
@@ -705,7 +705,7 @@ export const QUEUE_COMPLETED_TASK = queueTaskFixture({
 });
 
 export const QUEUE_TRASHED_TASK = queueTaskFixture({
-  task_id: "task-queue-trashed",
+  task_id: "a1b2c3d4-0000-4000-8000-000000000004",
   status: "cancelled",
   file_name: "old-draft.pdf",
   deleted_at: "2026-01-02T09:00:00Z",
@@ -772,7 +772,7 @@ export const QUEUE_DIAGNOSE: TaskDiagnoseFixture = {
   items_truncated: false,
   observed_at: "2026-01-01T08:08:00Z",
   task: {
-    task_id: "task-queue-failed",
+    task_id: "a1b2c3d4-0000-4000-8000-000000000002",
     kind: "file_batch",
     status: "failed",
     stage: "indexing",
