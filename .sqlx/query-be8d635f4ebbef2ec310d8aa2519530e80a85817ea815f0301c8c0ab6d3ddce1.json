@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Conditional removal of one registry entry.\n--\n-- Only an empty staging row may be removed. A staging row that still holds\n-- ids belongs to a run that has not resolved, and a switched or retired row\n-- is the tombstone of an already resolved run; both keep their ids excluded\n-- from the search paths, so removing them would leak a hidden point back into\n-- the search results.\nDELETE FROM context69.search_registry_entries\nWHERE run_id = $1\n  AND phase = 'staging'\n  AND cardinality(staged_ids) = 0\n  AND cardinality(retired_ids) = 0\nRETURNING run_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "run_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "be8d635f4ebbef2ec310d8aa2519530e80a85817ea815f0301c8c0ab6d3ddce1"
+}

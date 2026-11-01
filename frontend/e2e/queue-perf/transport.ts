@@ -15,9 +15,12 @@ export class QueueMockTransport {
   readonly listQueries: Array<{ page: number; pageSize: number }> = [];
   readonly itemQueries: Array<{ taskId: string; cursor: string | null }> = [];
   readonly actionRequests: Array<{ kind: "retry" | "rerun"; taskId: string }> = [];
+  readonly batchRequests: Array<{ taskIds: string[] }> = [];
   private selectionRequests = 0;
   private actionInFlight = 0;
   private maximumActionConcurrency = 0;
+  private batchInFlight = 0;
+  private maximumBatchConcurrency = 0;
   private readonly tasks: TaskResponse[];
   private readonly actionDelayMs: number;
   private readonly failActionTaskId?: string;
@@ -95,6 +98,10 @@ export class QueueMockTransport {
       await this.fulfill(route, task);
       return true;
     }
+    if (method === "POST" && url.pathname === "/v1/tasks/batch/retry") {
+      await this.handleBatchRetry(route);
+      return true;
+    }
     const actionMatch = /^\/v1\/tasks\/([^/]+)\/(retry|rerun)$/.exec(url.pathname);
     if (method === "POST" && actionMatch) {
       await this.handleRecovery(route, decodeURIComponent(actionMatch[1]), actionMatch[2] as "retry" | "rerun");
@@ -105,6 +112,33 @@ export class QueueMockTransport {
       return true;
     }
     return false;
+  }
+
+  private async handleBatchRetry(route: Route): Promise<void> {
+    const body = route.request().postDataJSON() as { task_ids?: string[] };
+    const taskIds = [...(body.task_ids ?? [])];
+    this.batchRequests.push({ taskIds });
+    this.batchInFlight += 1;
+    this.maximumBatchConcurrency = Math.max(this.maximumBatchConcurrency, this.batchInFlight);
+    try {
+      if (this.actionDelayMs > 0) await new Promise((resolve) => setTimeout(resolve, this.actionDelayMs));
+      const results = taskIds.map((taskId) => {
+        const task = this.tasks.find((candidate) => candidate.task_id === taskId);
+        if (taskId === this.failActionTaskId) {
+          return { task_id: taskId, outcome: "failed", reason: "internal_error" };
+        }
+        if (!task || (task.status !== "failed" && task.status !== "cancelled")) {
+          return { task_id: taskId, outcome: "skipped", reason: "ineligible_status" };
+        }
+        task.status = "queued";
+        task.updated_at = new Date().toISOString();
+        task.progress = { ...task.progress, cancelled: 0, failed: 0, queued: 1, running: 0 };
+        return { task_id: taskId, outcome: "accepted", retried_task_id: taskId };
+      });
+      await this.fulfill(route, { results });
+    } finally {
+      this.batchInFlight -= 1;
+    }
   }
 
   private async handleRecovery(route: Route, taskId: string, kind: "retry" | "rerun"): Promise<void> {
@@ -153,6 +187,10 @@ export class QueueMockTransport {
       rerunRequests: this.actionRequests.filter(({ kind }) => kind === "rerun").length,
       actionRequests: [...this.actionRequests],
       maximumActionConcurrency: this.maximumActionConcurrency,
+      batchRequests: [...this.batchRequests],
+      batchRequestCount: this.batchRequests.length,
+      batchItemCount: this.batchRequests.reduce((total, request) => total + request.taskIds.length, 0),
+      maximumBatchConcurrency: this.maximumBatchConcurrency,
       unmatchedApiRequests: [...this.unmatchedApiRequests],
       blockedExternalRequests: [...this.blockedExternalRequests],
     };

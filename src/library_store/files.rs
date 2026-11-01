@@ -39,6 +39,41 @@ pub struct MissingLegacySourceFileRow {
     pub created_at: DateTime<Utc>,
 }
 
+/// The library file row a delete locks.
+///
+/// The columns are the identity the delete needs: the group of the tombstone
+/// audit value, the storage reference of the source cleanup intent and the
+/// release state that keeps a deliberately released source out of the cleanup.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct DeleteFileRow {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub storage_rel_path: String,
+    pub storage_object_id: Option<Uuid>,
+    pub source_released_at: Option<DateTime<Utc>>,
+    pub sha256: String,
+}
+
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct ReplacementFileSnapshot {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub folder_id: Option<Uuid>,
+    pub visibility: String,
+    pub external_id: Option<String>,
+    pub source_uri: Option<String>,
+    pub published_at: Option<DateTime<Utc>>,
+    pub metadata_json: serde_json::Value,
+    pub filename: String,
+    pub media_type: String,
+    pub size_bytes: i64,
+    pub sha256: String,
+    pub storage_rel_path: String,
+    pub storage_object_id: Option<Uuid>,
+    pub source_released_at: Option<DateTime<Utc>>,
+    pub updated_at: DateTime<Utc>,
+}
+
 #[derive(Debug, FromRow)]
 struct FileTranslationDirectiveRow {
     translation_override: bool,
@@ -53,6 +88,96 @@ use super::{
 };
 
 impl LibraryStore {
+    /// Read and lock one file row on a caller transaction.
+    ///
+    /// The metadata publisher takes this row first so it serializes with the
+    /// replacement switch, which locks the same row before its documents.
+    pub async fn lock_file_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/lock_file_row.sql",
+            file_id
+        )
+        .fetch_optional(connection)
+        .await?;
+        row.map(file_from_row).transpose()
+    }
+
+    pub async fn lock_replacement_file_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<Option<ReplacementFileSnapshot>> {
+        Ok(sqlx::query_file_as!(
+            ReplacementFileSnapshot,
+            "src/sql/library_store/files/lock_replacement_snapshot.sql",
+            file_id
+        )
+        .fetch_optional(connection)
+        .await?)
+    }
+
+    pub async fn switch_replacement_file_in(
+        &self,
+        write: &mut super::TaskWriteTx<'_>,
+        baseline: &ReplacementFileSnapshot,
+        staged_object: Option<Uuid>,
+        attributes: Option<&crate::services::library::ReplacementFileAttributes>,
+    ) -> Result<bool> {
+        let current = self
+            .lock_replacement_file_on(write.connection(), baseline.id)
+            .await?;
+        if current.as_ref() != Some(baseline) {
+            return Ok(false);
+        }
+        let item_id = write.fence().item_id();
+        let (folder_id, external_id, filename, media_type, source_uri, published_at, metadata_json) =
+            match attributes {
+                Some(attributes) => (
+                    attributes.folder_id,
+                    attributes.external_id.as_deref(),
+                    Some(attributes.filename.as_str()),
+                    Some(attributes.media_type.as_str()),
+                    attributes.source_uri.as_deref(),
+                    attributes.published_at,
+                    Some(&attributes.metadata_json),
+                ),
+                None => (None, None, None, None, None, None, None),
+            };
+        let result = sqlx::query_file_scalar!(
+            "src/sql/library_store/files/switch_replacement_success.sql",
+            baseline.id,
+            baseline.group_id,
+            baseline.updated_at,
+            staged_object,
+            item_id,
+            folder_id,
+            external_id,
+            filename,
+            media_type,
+            source_uri,
+            published_at,
+            metadata_json,
+            attributes.is_some()
+        )
+        .fetch_optional(write.connection())
+        .await;
+        match result {
+            Ok(id) => Ok(id.is_some()),
+            Err(sqlx::Error::Database(error)) if error.code().as_deref() == Some("23505") => {
+                Err(crate::domain_errors::DomainError::conflict(
+                    "a replaced file conflicts with another file in the group",
+                )
+                .into())
+            }
+            Err(error) => Err(error.into()),
+        }
+    }
+
     pub async fn set_file_translation_directive(
         &self,
         file_id: Uuid,
@@ -68,6 +193,31 @@ impl LibraryStore {
                 .unwrap_or_default()
         )
         .execute(self.db.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// The translation directive of one file on a caller transaction.
+    ///
+    /// The atomic first insert publishes the directive of the created file on
+    /// the transaction that creates it, so the directive commits with the file
+    /// and never describes a row that does not exist.
+    pub async fn set_file_translation_directive_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        directive: Option<&crate::contracts::TranslationDirective>,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/files/set_translation_directive.sql",
+            file_id,
+            directive.is_some(),
+            directive.and_then(|value| value.source_locale.as_deref()),
+            directive
+                .map(|value| value.target_locales.as_slice())
+                .unwrap_or_default()
+        )
+        .execute(connection)
         .await?;
         Ok(())
     }
@@ -98,6 +248,22 @@ impl LibraryStore {
         file_id: Uuid,
         metadata: &crate::contracts::CanonicalUploadMetadata,
     ) -> Result<Option<LibraryFileRecord>> {
+        let mut connection = self.db.pool().acquire().await?;
+        self.update_business_metadata_in(&mut connection, group_id, file_id, metadata)
+            .await
+    }
+
+    /// The business metadata rewrite of one file on a caller transaction.
+    ///
+    /// The metadata publisher writes the file row and every linked document on
+    /// the same connection, so a later document failure rolls the file back too.
+    pub async fn update_business_metadata_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        file_id: Uuid,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
+    ) -> Result<Option<LibraryFileRecord>> {
         let metadata_json = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
         let row = sqlx::query_file_as!(
             FileRow,
@@ -109,7 +275,7 @@ impl LibraryStore {
             metadata.published_at,
             metadata_json
         )
-        .fetch_optional(self.db.pool())
+        .fetch_optional(connection)
         .await?;
         row.map(file_from_row).transpose()
     }
@@ -317,6 +483,49 @@ impl LibraryStore {
         row.map(file_from_row).transpose()
     }
 
+    /// The candidate of one library identity on a caller transaction.
+    ///
+    /// The atomic first insert re-probes the identity inside the transaction
+    /// that creates the file, so the read must run on that transaction's own
+    /// connection and see the rows the first writer committed.
+    pub async fn get_file_by_external_id_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        external_id: &str,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/get_file_by_external_id_in_project.sql",
+            project_id,
+            external_id
+        )
+        .fetch_optional(connection)
+        .await?;
+
+        row.map(file_from_row).transpose()
+    }
+
+    /// The same-content candidate of one library identity on a caller
+    /// transaction.
+    pub async fn get_file_by_sha_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        sha256: &str,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/get_file_by_sha_in_project.sql",
+            project_id,
+            sha256
+        )
+        .fetch_optional(connection)
+        .await?;
+
+        row.map(file_from_row).transpose()
+    }
+
     pub async fn create_file(&self, file: &NewLibraryFile) -> Result<LibraryFileRecord> {
         let row = sqlx::query_file_as!(
             FileRow,
@@ -359,6 +568,38 @@ impl LibraryStore {
             file.delete_source_after_processing
         )
         .fetch_one(self.db.pool())
+        .await?;
+
+        file_from_row(row)
+    }
+
+    /// The create statement on a caller transaction.
+    ///
+    /// The atomic first insert writes the file row on the connection of the
+    /// transaction that binds the task item and claims the durable run, so a
+    /// created file is never observable without its item and run binding.
+    pub async fn create_file_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        file: &NewLibraryFile,
+    ) -> Result<LibraryFileRecord> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/create_file_in_project.sql",
+            file.id,
+            file.folder_id,
+            file.external_id,
+            file.filename,
+            file.media_type,
+            file.size_bytes,
+            file.sha256,
+            file.storage_rel_path,
+            project_id,
+            file.storage_object_id,
+            file.delete_source_after_processing
+        )
+        .fetch_one(connection)
         .await?;
 
         file_from_row(row)
@@ -606,13 +847,29 @@ impl LibraryStore {
         file_id: Uuid,
         target_folder_id: Option<Uuid>,
     ) -> Result<Option<LibraryFileRecord>> {
+        let mut connection = self.db.pool().acquire().await?;
+        self.move_file_on(&mut connection, file_id, target_folder_id)
+            .await
+    }
+
+    /// The file move on a caller transaction.
+    ///
+    /// The UPDATE locks the file row as the first statement, so the metadata
+    /// refresh that follows in the same transaction is serialized with the
+    /// replacement switch and commits or rolls back with the move.
+    pub async fn move_file_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        target_folder_id: Option<Uuid>,
+    ) -> Result<Option<LibraryFileRecord>> {
         let row = sqlx::query_file_as!(
             FileRow,
             "src/sql/library_store/files/move_file.sql",
             file_id,
             target_folder_id
         )
-        .fetch_optional(self.db.pool())
+        .fetch_optional(connection)
         .await?;
 
         row.map(file_from_row).transpose()
@@ -624,6 +881,18 @@ impl LibraryStore {
         file_id: Uuid,
         target_folder_id: Option<Uuid>,
     ) -> Result<Option<LibraryFileRecord>> {
+        let mut connection = self.db.pool().acquire().await?;
+        self.move_file_in_project_on(&mut connection, project_id, file_id, target_folder_id)
+            .await
+    }
+
+    pub async fn move_file_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        file_id: Uuid,
+        target_folder_id: Option<Uuid>,
+    ) -> Result<Option<LibraryFileRecord>> {
         let row = sqlx::query_file_as!(
             FileRow,
             "src/sql/library_store/files/move_file_in_project.sql",
@@ -631,7 +900,7 @@ impl LibraryStore {
             file_id,
             target_folder_id
         )
-        .fetch_optional(self.db.pool())
+        .fetch_optional(connection)
         .await?;
 
         row.map(file_from_row).transpose()
@@ -714,6 +983,79 @@ impl LibraryStore {
             file_id
         )
         .execute(self.db.pool())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Read and lock one library file row for a delete.
+    ///
+    /// The delete path locks the registry epoch first and this row second, so
+    /// the epoch is always the first lock of the transaction. `project_id`
+    /// scopes the lock to one group: a delete of another project never locks
+    /// (and never deletes) a file it does not own.
+    pub async fn lock_file_for_delete_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        project_id: Option<i64>,
+    ) -> Result<Option<DeleteFileRow>> {
+        let row = match project_id {
+            Some(project_id) => {
+                sqlx::query_file_as!(
+                    DeleteFileRow,
+                    "src/sql/library_store/files/lock_file_for_delete_in_project.sql",
+                    file_id,
+                    project_id
+                )
+                .fetch_optional(connection)
+                .await?
+            }
+            None => {
+                sqlx::query_file_as!(
+                    DeleteFileRow,
+                    "src/sql/library_store/files/lock_file_for_delete.sql",
+                    file_id
+                )
+                .fetch_optional(connection)
+                .await?
+            }
+        };
+        Ok(row)
+    }
+
+    /// Delete one library file row on a borrowed connection.
+    ///
+    /// The delete backstop trigger of the row records the entity tombstone of
+    /// the file, so a delete that reaches this statement always leaves the
+    /// exclusion behind. A supported caller has already recorded the same
+    /// tombstone, which makes the trigger a no-op instead of a second bump.
+    pub async fn delete_file_record_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/library_store/files/delete_file_record.sql",
+            file_id
+        )
+        .execute(connection)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete one library file row of one project on a borrowed connection.
+    pub async fn delete_file_record_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/library_store/files/delete_file_record_in_project.sql",
+            project_id,
+            file_id
+        )
+        .execute(connection)
         .await?;
         Ok(result.rows_affected() > 0)
     }

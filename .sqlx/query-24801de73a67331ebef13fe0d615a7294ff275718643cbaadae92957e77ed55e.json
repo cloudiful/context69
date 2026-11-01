@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.library_files AS file\nSET folder_id = CASE WHEN $13 THEN $6::uuid ELSE file.folder_id END,\n    external_id = CASE WHEN $13 THEN $7::text ELSE file.external_id END,\n    filename = CASE WHEN $13 THEN $8::text ELSE file.filename END,\n    media_type = CASE WHEN $13 THEN $9::text ELSE file.media_type END,\n    source_uri = CASE WHEN $13 THEN $10::text ELSE file.source_uri END,\n    published_at = CASE WHEN $13 THEN $11::timestamptz ELSE file.published_at END,\n    metadata_json = CASE WHEN $13 THEN $12::jsonb ELSE file.metadata_json END,\n    storage_object_id = CASE WHEN $4::uuid IS NULL THEN file.storage_object_id ELSE object.id END,\n    storage_rel_path = CASE WHEN $4::uuid IS NULL THEN file.storage_rel_path ELSE object.object_key END,\n    sha256 = CASE WHEN $4::uuid IS NULL THEN file.sha256 ELSE object.sha256 END,\n    size_bytes = CASE WHEN $4::uuid IS NULL THEN file.size_bytes ELSE object.size_bytes END,\n    source_released_at = CASE WHEN $4::uuid IS NULL THEN file.source_released_at ELSE NULL END,\n    ingest_status = 'succeeded', error_message = NULL, ingested_at = now(), updated_at = now()\nFROM (SELECT $4::uuid AS staged_id) AS input\nLEFT JOIN context69.library_storage_objects AS object ON object.id = input.staged_id\nWHERE file.id = $1 AND file.group_id = $2 AND file.updated_at = $3\n  AND EXISTS (\n      SELECT 1 FROM context69.task_items AS item\n      WHERE item.id = $5 AND item.file_id = file.id\n        AND ($4::uuid IS NULL OR item.input_storage_object_id = object.id)\n  )\n  AND ($4::uuid IS NULL OR object.group_id = file.group_id)\nRETURNING file.id AS \"id!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Timestamptz",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Jsonb",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "24801de73a67331ebef13fe0d615a7294ff275718643cbaadae92957e77ed55e"
+}

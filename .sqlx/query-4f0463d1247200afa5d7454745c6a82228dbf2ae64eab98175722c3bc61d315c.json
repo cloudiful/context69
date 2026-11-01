@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The identity locks of one library file creation (issue 1138 P22).\n--\n-- Two writers that would create the same library identity must not both\n-- create a row. The identity of a file in a group is its external id and its\n-- content digest, so both keys are locked. The keys are taken in one\n-- canonical (ascending) order, so two concurrent writers serialize on the\n-- same lock instead of deadlocking on each other, and the second one\n-- re-probes the identity after the first one committed.\n--\n-- `$1` is the group plus external id key, `$2` the group plus digest key.\nWITH ordered AS MATERIALIZED (\n    SELECT key\n    FROM (VALUES (hashtextextended($1::text, 0)), (hashtextextended($2::text, 0)))\n        AS candidates(key)\n    ORDER BY key\n)\nSELECT count(*)::bigint AS \"locked!\"\nFROM (SELECT pg_advisory_xact_lock(key) FROM ordered) AS taken;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "locked!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4f0463d1247200afa5d7454745c6a82228dbf2ae64eab98175722c3bc61d315c"
+}

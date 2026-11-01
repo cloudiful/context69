@@ -75,6 +75,12 @@ export const processingQueue = {
   resumeAccepted: "Task resumed",
   resumeFailed: "Failed to resume the task",
   continue: "Resume",
+  // A source rerun reads the current source again and creates a child task;
+  // the parent keeps its history and its documents.
+  rerun: "Rerun",
+  rerunHint: "Reads the current source again in a new task.",
+  rerunAccepted: "Rerun started",
+  rerunFailed: "Failed to rerun the task",
   // Selection and the contextual bulk actions it offers. The counts always
   // describe the captured selection, never the visible page.
   selectAllMatching: "Select all matching",
@@ -95,15 +101,23 @@ export const processingQueue = {
   bulkFailed: "The bulk action failed",
   bulkActions: {
     retry: "Retry",
-    resume: "Resume",
+    rerun: "Rerun",
     cancel: "Cancel",
     trash: "Move to trash",
     restore: "Restore",
     delete: "Delete permanently",
   },
+  // The per-task reason a bounded batch action reported for one id.
+  bulkReasons: {
+    not_found: "not found",
+    ineligible_status: "not eligible",
+    nothing_to_retry: "nothing to retry",
+    nothing_to_rerun: "nothing to rerun",
+    active_source_busy: "source already in progress",
+    internal_error: "failed",
+  },
   bulkTitles: {
     retry: "Retry tasks",
-    resume: "Resume tasks",
     cancel: "Cancel tasks",
     trash: "Move tasks to the trash",
     restore: "Restore tasks",

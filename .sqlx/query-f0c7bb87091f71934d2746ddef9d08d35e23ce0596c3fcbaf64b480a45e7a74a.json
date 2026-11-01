@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The number of unresolved staging entries of the registry.\n--\n-- A staging entry is an admitted run that never resolved, so its points are\n-- not the live version yet and a rebuild would race it. The predicate is the\n-- exact one of the snapshot read_state, so the rebuild and the visible\n-- snapshot always agree about which entries are still unresolved. The entries\n-- of a permanently tombstoned file are excluded, because their file entity\n-- exclusion already dominates every point of that file.\nSELECT count(*)::bigint AS \"staging_count!\"\nFROM context69.search_registry_entries r\nWHERE r.phase = 'staging'\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.library_deleted_entities d\n      WHERE d.file_id = r.file_id\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "staging_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f0c7bb87091f71934d2746ddef9d08d35e23ce0596c3fcbaf64b480a45e7a74a"
+}

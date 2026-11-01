@@ -23,6 +23,8 @@ pub enum TestClass {
     /// Opt-in startup recovery from the schema immediately before the pinned
     /// retirement migration; never part of the ordinary database run.
     UpgradeRecovery,
+    /// Requires a separate explicit invocation outside the database runner.
+    External,
 }
 
 impl TestClass {
@@ -119,6 +121,7 @@ pub struct CoverageReport {
     pub benchmark_tests: usize,
     pub app_startup_tests: usize,
     pub upgrade_recovery_tests: usize,
+    pub external_tests: usize,
     pub ignored_tests: usize,
     pub pure_tests: usize,
     /// Targets whose every compiled test is database-backed.
@@ -192,6 +195,7 @@ impl TestManifest {
                 TestClass::Benchmark => report.benchmark_tests += 1,
                 TestClass::AppStartup => report.app_startup_tests += 1,
                 TestClass::UpgradeRecovery => report.upgrade_recovery_tests += 1,
+                TestClass::External => report.external_tests += 1,
             }
         }
 
@@ -262,7 +266,10 @@ impl TestManifest {
     pub fn database_test_count(&self, opt_ins: &[TestClass]) -> usize {
         self.entries
             .iter()
-            .filter(|entry| entry.class.runs_by_default() || opt_ins.contains(&entry.class))
+            .filter(|entry| {
+                entry.class != TestClass::External
+                    && (entry.class.runs_by_default() || opt_ins.contains(&entry.class))
+            })
             .count()
     }
 }

@@ -10,8 +10,8 @@ use axum::{
 };
 use context69_contracts::tasks::TaskSelectionQuery;
 use context69_contracts::{
-    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskItemsQuery,
-    TaskListQuery,
+    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskBatchRerunRequest,
+    TaskBatchRetryRequest, TaskItemsQuery, TaskListQuery,
 };
 use uuid::Uuid;
 
@@ -128,16 +128,45 @@ pub(crate) async fn retry_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::RerunTaskResponse), (status = 400, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/retry", request_body = TaskBatchRetryRequest, responses((status = 200, body = crate::contracts::TaskBatchRetryResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_retry_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchRetryRequest>,
+) -> Response {
+    // One ordered outcome per requested id; per-item authorization and
+    // lifecycle stay inside the existing in-place primitives.
+    match state.app.tasks.batch_retry(session.user.id, &request).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::RerunTaskResponse), (status = 400, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn rerun_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
     // Routing: a cancelled submission reopens its own items and keeps its id,
-    // while a failed task keeps the documented fresh-parent rerun.
+    // a failed task keeps the documented fresh-parent rerun, and a succeeded
+    // file, url, or text task is rerun from its current source.
     match state.app.tasks.rerun(task_id, session.user.id).await {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/batch/rerun", request_body = TaskBatchRerunRequest, responses((status = 200, body = crate::contracts::TaskBatchRerunResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_rerun_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchRerunRequest>,
+) -> Response {
+    // One ordered outcome per requested id; only a succeeded file, url, or text
+    // parent is rerun, and every other id is skipped with a reason.
+    match state.app.tasks.batch_rerun(session.user.id, &request).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => task_error(error),
     }
 }

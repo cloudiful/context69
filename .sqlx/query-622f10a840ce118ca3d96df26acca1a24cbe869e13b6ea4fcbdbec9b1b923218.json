@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT record_hash\nFROM context69.documents\nWHERE id = $1\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "622f10a840ce118ca3d96df26acca1a24cbe869e13b6ea4fcbdbec9b1b923218"
+}

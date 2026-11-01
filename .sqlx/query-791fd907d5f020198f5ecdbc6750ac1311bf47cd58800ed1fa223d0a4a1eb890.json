@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Files a succeeded source task's items reference (issue 1138 P17).\n--\n-- The source task row is locked here, before the fork reads any payload, so a\n-- concurrent delete cannot remove the file rows the fork is about to reuse.\n-- Only a succeeded file/url/text parent contributes files; the files are then\n-- locked (and revalidated for ownership and release) by\n-- `claim_file_processing_slots` before the selection's active-sibling check\n-- runs, exactly like the failed retry and terminal rerun paths.\nWITH locked_task AS MATERIALIZED (\n    SELECT task.id, task.group_id\n    FROM context69.tasks AS task\n    WHERE task.id = $1\n      AND task.status = 'succeeded'\n      AND task.kind IN ('file_batch', 'url_batch', 'text_batch')\n    FOR UPDATE\n)\nSELECT DISTINCT item.file_id\nFROM context69.task_items item\nJOIN locked_task ON locked_task.id = item.task_id\nJOIN context69.library_files file ON file.id = item.file_id\nWHERE item.status = 'succeeded'\n  AND item.file_id IS NOT NULL\n  AND lower(file.filename) <> 'source.json'\n  AND (file.external_id IS NULL OR file.external_id NOT LIKE 'source-folder:%')\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "791fd907d5f020198f5ecdbc6750ac1311bf47cd58800ed1fa223d0a4a1eb890"
+}

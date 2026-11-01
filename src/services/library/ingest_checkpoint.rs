@@ -180,6 +180,7 @@ pub fn count_prepared_ingest_totals(
             super::FILE_LIBRARY_SOURCE_KEY,
             &section.normalized,
             chunking,
+            None,
         );
         for batch in ChunkBatchIter::new(chunks) {
             totals.total_batches += 1;

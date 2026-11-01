@@ -110,14 +110,27 @@ impl VectorRecoveryWiring {
     /// Adopts the desired configuration of a confirmed same-space identity
     /// transition without starting a new recovery generation.
     ///
-    /// The acknowledged provider is already installed in the shared pair, so
-    /// advancing the generation here would withdraw the readiness the save just
-    /// reported. Only the reconnect source for later publications changes.
-    pub fn adopt_acknowledged_identity(&self, config: Config) {
-        self.runtime
-            .set_configured_fingerprint(Some(vector_identity::fingerprint(&config)));
+    /// The published pair is rekeyed in one write: the acknowledged provider,
+    /// its identity and the fingerprint of the vector space it produces move
+    /// together, so the published snapshot never carries a provider of one
+    /// configuration with the identity of another. Only the reconnect source
+    /// for later publications changes.
+    pub fn adopt_acknowledged_identity(
+        &self,
+        config: Config,
+        provider: std::sync::Arc<dyn crate::embedding::EmbeddingProvider>,
+        identity: crate::embedding::EmbeddingIdentity,
+    ) -> bool {
+        let fingerprint = vector_identity::fingerprint(&config);
+        if !self
+            .runtime
+            .rekey_same_space(provider, identity, Some(fingerprint))
+        {
+            return false;
+        }
         self.connector.set_config(config);
         self.runtime.mark_configured(true);
+        true
     }
 
     /// Runs the bounded startup attempt once, when the instance already had
@@ -192,6 +205,7 @@ impl VectorConnector for AppVectorConnector {
             embedding,
             identity,
             collection: config.qdrant.collection_name.clone(),
+            configured_fingerprint: Some(vector_identity::fingerprint(&config)),
         })
     }
 

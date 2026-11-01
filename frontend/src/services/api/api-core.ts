@@ -4,6 +4,7 @@ import { handleUnauthorized } from "../../lib/auth-store";
 import { openapiClient, resolveApiUrl } from "../openapi-client";
 import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
+import { createDocumentResultsApi } from "./api-document-results";
 import { createGitConnectionsApi } from "./api-git-connections";
 import { createGitRepositoriesApi } from "./api-git-repositories";
 import { createNamespacesApi } from "./api-namespaces";
@@ -92,6 +93,7 @@ export const apiClient = {
   ...createTasksApi({ openapiClient, unwrapResponse }),
   ...createSettingsApi({ openapiClient, unwrapResponse }),
   ...createSearchApi({ openapiClient, unwrapResponse }),
+  ...createDocumentResultsApi({ openapiClient, unwrapResponse }),
   health(options?: RequestOptions) {
     return unwrapResponse(
       openapiClient.GET("/healthz", {

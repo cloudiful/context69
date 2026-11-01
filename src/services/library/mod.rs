@@ -27,7 +27,7 @@ use crate::{
         LibraryResourcePageResponse, LibraryTreeResponse, MoveFileRequest, MoveFolderRequest,
         UpsertLibraryTextRequest,
     },
-    db::Database,
+    db::{Database, RegistryQuotaOverride},
     domain::{LibraryFileDocumentRecord, LibraryFolderRecord, SourceRecord},
     embedding::EmbeddingRuntime,
     library_store::{LibraryStore, NewLibraryFile, file_to_summary},
@@ -39,6 +39,11 @@ use crate::{
 
 pub mod artifact_backfill;
 mod content_objects;
+mod deleted_entity_cleanup;
+pub(crate) use deleted_entity_cleanup::DeletedEntityTarget;
+pub use deleted_entity_cleanup::{
+    DEFAULT_DELETED_ENTITY_CLEANUP_BATCH_SIZE, DeletedEntityCleanupSummary,
+};
 mod dependency_errors;
 mod dependency_runtime;
 pub(crate) use dependency_runtime::{
@@ -69,6 +74,20 @@ pub use ingest_progress_codec::{
 mod ingest_documents;
 mod ingest_persistence;
 mod ingest_progress_store;
+mod ingest_switch;
+pub use ingest_switch::{
+    PreparedReplacement, PreparedReplacementSection, ReplacementDocumentBaseline,
+    ReplacementFileBaseline, ReplacementSwitchDisposition, ReplacementSwitchOutcome,
+    switch_replacement,
+};
+mod replacement_runner;
+mod replacement_task;
+pub use replacement_runner::{
+    ReplacementRunDisposition, ReplacementRunOutcome, ReplacementRunRequest,
+    ReplacementSectionInput, ReplacementVector, run_first_insert, run_replacement,
+};
+pub use replacement_task::AtomicFirstInsert;
+pub(crate) use replacement_task::{begin_ordinary_replacement, clear_ingest_cache};
 mod ingest_types;
 mod legacy_cleanup;
 pub use legacy_cleanup::{DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, LegacyCleanupSummary};
@@ -121,15 +140,26 @@ mod url_import_runtime;
 mod url_imports;
 mod xlsx;
 
+/// The remote-download seam an integration test drives.
+///
+/// The types are the production transport contract: an injected transport
+/// answers with a status, headers, a peer address, and a body, and the
+/// production policy decides what may be fetched and how the bytes are
+/// guarded. Nothing here weakens that policy.
+#[cfg(feature = "integration-test-helpers")]
+pub mod test_remote {
+    pub use super::remote_proxy::{FetchedRemoteResponse, RemoteBody, RemoteHttpTransport};
+}
+
 pub(crate) use crate::contracts::LibraryIngestFailureStage;
 pub use ingest_types::LibraryDependency;
-pub(crate) use ingest_types::LibraryFileKind;
 use ingest_types::{
-    IngestFailure, IngestResult, IngestSection, PreparedIngestSection, SourceConfigPreview,
-    SourceRecordJson,
+    IngestFailure, IngestResult, PreparedIngestSection, SourceConfigPreview, SourceRecordJson,
 };
+pub(crate) use ingest_types::{IngestSection, LibraryFileKind, TaskSourceRef};
 use metadata_helpers::{compose_library_metadata, library_system_metadata};
-pub use upload_types::UploadedLibraryFile;
+pub(crate) use source_release::is_managed_source_file;
+pub use upload_types::{AtomicFirstInsertFile, ReplacementFileAttributes, UploadedLibraryFile};
 use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
 
 const FILE_LIBRARY_SOURCE_KEY: &str = "file_library";
@@ -168,6 +198,21 @@ pub struct LibraryService {
     /// Shared vector-index readiness, wired by the application. `None` means
     /// "always ready", which is what unit-constructed services assume.
     vector_index_ready: Option<Arc<AtomicBool>>,
+    /// The registry-visible publication of this service, or `None` while it
+    /// stays disabled.
+    ///
+    /// The value is a narrowing of the persisted capacity policy, never the
+    /// policy itself: the admission reads the persisted caps inside its own
+    /// transaction, so this service never decides how much the registry may
+    /// hold.
+    registry_caps: Option<RegistryQuotaOverride>,
+    /// The HTTP transport a remote download goes through, or `None` for the
+    /// production transport.
+    ///
+    /// Only an integration test injects one, and only to replace the HTTP
+    /// call itself: the URL, peer, redirect, size, and type guards stay in
+    /// production code.
+    remote_transport: Option<Arc<dyn remote_proxy::RemoteHttpTransport>>,
 }
 
 pub struct LibraryServiceConfig {
@@ -205,6 +250,23 @@ struct FolderNodeSeed {
 }
 
 impl LibraryService {
+    /// Open one delete transaction.
+    ///
+    /// A fenced delete locks the task item first, so the captured grant is
+    /// verified before the delete reaches its business statement. An unfenced
+    /// delete is a plain transaction on the pooled connection.
+    pub(crate) async fn begin_delete_write(
+        &self,
+        fence: Option<crate::library_store::TaskWriteFence>,
+    ) -> Result<DeleteWrite<'_>> {
+        match fence {
+            Some(fence) => Ok(DeleteWrite::Fenced(
+                crate::library_store::begin_task_write(&self.db, fence).await?,
+            )),
+            None => Ok(DeleteWrite::Plain(self.db.pool().begin().await?)),
+        }
+    }
+
     pub async fn new(
         db: Database,
         embedding: impl Into<EmbeddingRuntime>,
@@ -276,7 +338,62 @@ impl LibraryService {
             docling_resize_lock: Arc::new(Mutex::new(())),
             source_cleanup_dispatcher: None,
             vector_index_ready: None,
+            registry_caps: None,
+            remote_transport: None,
         })
+    }
+
+    /// Delete one document that no library file owns.
+    ///
+    /// The delete is atomic: the entity tombstone of the document and the
+    /// deleted row commit together, and the points of the document are
+    /// removed only after that commit. A delete that fails leaves the
+    /// document and its points exactly as they were.
+    pub(crate) async fn delete_document_entity(
+        &self,
+        group_id: i64,
+        document_id: i64,
+        fence: Option<crate::library_store::TaskWriteFence>,
+    ) -> Result<()> {
+        let mut write = self.begin_delete_write(fence).await?;
+        // The registry epoch is locked before the document row, so the delete
+        // never holds a document lock while it waits for the epoch.
+        self.db
+            .lock_search_registry_epoch_in(write.connection())
+            .await?;
+        // A rebuild owns the whole collection while it runs, so a logical
+        // delete that overlapped it would remove points the rebuild still
+        // holds and would publish a tombstone the rebuild never applied.
+        self.db.require_rebuild_idle_in(write.connection()).await?;
+        let Some(document) = self
+            .store
+            .lock_document_for_delete_on(write.connection(), group_id, document_id)
+            .await?
+        else {
+            write.rollback().await;
+            return Err(DomainError::not_found("document not found").into());
+        };
+        self.db
+            .insert_deleted_document_entity_in(
+                write.connection(),
+                document.id,
+                Some(document.group_id),
+            )
+            .await?;
+        self.store
+            .delete_document_by_id_on(write.connection(), document.id)
+            .await?;
+        if !write.commit().await? {
+            return Err(crate::library_store::TaskWriteDenied::new(
+                fence.expect("a fenced delete owns its fence"),
+            )
+            .into());
+        }
+        // The points are removed after the commit. A failed purge leaves the
+        // tombstone pending and the search exclusion valid.
+        self.purge_deleted_entities_best_effort(&[DeletedEntityTarget::Document(document.id)])
+            .await;
+        Ok(())
     }
 
     pub fn max_upload_size_bytes(&self) -> usize {
@@ -287,7 +404,15 @@ impl LibraryService {
         self.max_upload_request_size_bytes
     }
 
-    fn runtime(&self) -> Result<LibraryRuntime> {
+    /// One coherent capture of the published pair and of its identity.
+    ///
+    /// The snapshot and the fingerprint come from one read of the runtime, so
+    /// the identity a run records belongs to the very provider that writes its
+    /// points. A pair without a fingerprint has no usable identity, and the
+    /// run that would use it must not write points.
+    fn captured_runtime(
+        &self,
+    ) -> Result<(LibraryRuntime, Option<crate::db::RegistryVectorIdentity>)> {
         let current = self.vector.current();
         if current.rebuilding {
             return Err(DomainError::unavailable(
@@ -305,10 +430,27 @@ impl LibraryService {
                 library_runtime_unavailable()
             }
         })?;
-        Ok(LibraryRuntime {
-            embedding: EmbeddingRuntime::new(Some(snapshot.embedding), snapshot.identity),
-            index: (*snapshot.index).clone(),
-        })
+        let identity = snapshot.configured_fingerprint.clone().map(|fingerprint| {
+            crate::db::RegistryVectorIdentity {
+                embedding_fingerprint: fingerprint,
+                collection_name: snapshot.collection.clone(),
+            }
+        });
+        Ok((
+            LibraryRuntime {
+                embedding: EmbeddingRuntime::new(Some(snapshot.embedding), snapshot.identity),
+                index: (*snapshot.index).clone(),
+            },
+            identity,
+        ))
+    }
+
+    /// The published pair of this runtime.
+    ///
+    /// The callers that do not publish vectors keep the plain pair; a writer
+    /// that records an identity captures both with [`Self::captured_runtime`].
+    fn runtime(&self) -> Result<LibraryRuntime> {
+        self.captured_runtime().map(|(runtime, _identity)| runtime)
     }
 
     /// Whether vector work is configured for this deployment. Read from the
@@ -369,6 +511,56 @@ impl LibraryService {
         self.vector_index_ready = Some(ready);
     }
 
+    /// The registry-visible publication of this service, or `None` while it
+    /// stays disabled.
+    ///
+    /// Without it a metadata publication changes only the file and its
+    /// documents, exactly as before. With it the publication also retires the
+    /// translation points the new source hash invalidates, in the same commit
+    /// that makes them stale.
+    pub(crate) fn registry_caps(&self) -> Option<RegistryQuotaOverride> {
+        self.registry_caps
+    }
+
+    /// Enable the registry-visible publication of this service.
+    ///
+    /// The persisted capacity policy is the only authority: the admission
+    /// reads it inside its own transaction, so a node that still holds an
+    /// older policy cannot admit more than the deployment currently allows.
+    #[must_use]
+    pub fn with_registry_publication(mut self) -> Self {
+        self.registry_caps = Some(RegistryQuotaOverride::none());
+        self
+    }
+
+    /// Test-only setup of the registry admission caps.
+    ///
+    /// The caps only narrow the persisted policy: a test can lower the
+    /// registry capacity, never raise it.
+    #[cfg(any(test, feature = "integration-test-helpers"))]
+    #[must_use]
+    pub fn with_registry_caps_for_test(mut self, caps: [i64; 3]) -> Self {
+        self.registry_caps = Some(RegistryQuotaOverride::exact(caps));
+        self
+    }
+
+    /// Test-only setup of the HTTP transport a remote download goes through.
+    ///
+    /// The injected transport replaces the HTTP call only. Every guard around
+    /// it — the URL normalization, the public-address check, the redirect
+    /// check, the peer check, and the size and type guards — stays in
+    /// production code, so a scripted transport is refused exactly like a real
+    /// one when it names a private peer.
+    #[cfg(feature = "integration-test-helpers")]
+    #[must_use]
+    pub fn with_remote_transport_for_test(
+        mut self,
+        transport: Arc<dyn remote_proxy::RemoteHttpTransport>,
+    ) -> Self {
+        self.remote_transport = Some(transport);
+        self
+    }
+
     /// Borrow the wired dispatcher, if any. Release paths wake only when
     /// present; an unwired service still commits durably and relies on the
     /// fallback drain.
@@ -381,6 +573,53 @@ impl LibraryService {
     pub(crate) fn wake_source_cleanup(&self) {
         if let Some(dispatcher) = self.source_cleanup_dispatcher.as_ref() {
             dispatcher.wake();
+        }
+    }
+}
+
+/// One delete transaction, fenced by a captured task grant or not.
+///
+/// The fenced variant locks the task item first, so a write that lost its
+/// grant is refused before it reaches the business statement, and the grant is
+/// verified again before the commit. Both variants run the delete on one
+/// connection, so the entity tombstone, the deleted rows and the recorded
+/// cleanup intent commit together or roll back together.
+pub(crate) enum DeleteWrite<'a> {
+    Plain(sqlx::Transaction<'a, sqlx::Postgres>),
+    Fenced(crate::library_store::TaskWriteTx<'a>),
+}
+
+impl DeleteWrite<'_> {
+    /// The connection the delete statements must run on.
+    pub(crate) fn connection(&mut self) -> &mut sqlx::PgConnection {
+        match self {
+            Self::Plain(transaction) => &mut **transaction,
+            Self::Fenced(write) => write.connection(),
+        }
+    }
+
+    /// Commit the delete, rechecking the captured grant of a fenced write.
+    ///
+    /// `false` means the grant is gone: the transaction was rolled back and
+    /// nothing the delete wrote is durable. That is an ownership loss, not a
+    /// successful delete of zero rows.
+    pub(crate) async fn commit(self) -> Result<bool> {
+        match self {
+            Self::Plain(transaction) => {
+                transaction.commit().await?;
+                Ok(true)
+            }
+            Self::Fenced(write) => write.commit().await,
+        }
+    }
+
+    /// Roll the delete back without committing anything.
+    pub(crate) async fn rollback(self) {
+        match self {
+            Self::Plain(transaction) => {
+                transaction.rollback().await.ok();
+            }
+            Self::Fenced(write) => write.rollback().await,
         }
     }
 }

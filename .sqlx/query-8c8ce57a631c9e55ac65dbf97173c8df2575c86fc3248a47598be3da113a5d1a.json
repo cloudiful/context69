@@ -1,0 +1,25 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.search_registry_entries (\n    run_id, file_id, document_ids, staged_ids, retired_ids,\n    baseline_record_hash, staged_record_hash, generation, phase, reserved_ids,\n    embedding_fingerprint, collection_name\n) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8Array",
+        "UuidArray",
+        "UuidArray",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8c8ce57a631c9e55ac65dbf97173c8df2575c86fc3248a47598be3da113a5d1a"
+}

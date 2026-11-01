@@ -440,16 +440,18 @@ async fn the_public_rerun_resumes_cancelled_and_forks_failed() {
         "a fork leaves the original task's idempotency binding where it was"
     );
 
-    // An unrelated state is still refused at the boundary.
+    // A succeeded task is rerun from its current source (issue 1138 P28), so
+    // this one is refused because it owns no rerunnable source, not because
+    // its state is refused.
     let (succeeded, succeeded_items) = create_task(&db, user_id, "succeeded").await;
     terminalize(&db, succeeded, &succeeded_items, "succeeded").await;
     let refused = service
         .rerun(succeeded, user_id)
         .await
-        .expect_err("a succeeded task must not be rerunnable");
+        .expect_err("a succeeded task without a rerunnable source must be refused");
     assert!(
-        refused.to_string().contains("cancelled or failed"),
-        "the refusal must name the states rerun accepts: {refused}"
+        refused.to_string().contains("file, url, or text"),
+        "the refusal must name the rerunnable sources: {refused}"
     );
 }
 

@@ -53,7 +53,7 @@ async fn build_library(
     settings: &SettingsService,
     translation: &context69_translation::TranslationService,
 ) -> Result<LibraryService> {
-    let mut library = LibraryService::with_vector_runtime(
+    let library = LibraryService::with_vector_runtime(
         db.clone(),
         vector.vector.clone(),
         LibraryServiceConfig {
@@ -72,6 +72,10 @@ async fn build_library(
         translation.clone(),
     )
     .await?;
+    // The registry-visible writers are enabled by the persisted capacity
+    // policy: the admission reads it inside its own transaction, so every
+    // writer of this deployment admits under the same caps.
+    let mut library = library.with_registry_publication();
     // Wire the shared readiness flag before the startup gates resolve, so a
     // startup rebuild keeps the embedding/qdrant gates closed until it is done.
     library.set_vector_index_ready(vector.gate.flag());

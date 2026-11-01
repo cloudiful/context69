@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (139 operations, sorted by `operation_id` for deterministic diffs).
+//! (141 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -40,6 +40,28 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "BatchGetDocumentsRequest",
         response_schema: "BatchGetDocumentsResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "batch_rerun_tasks",
+        method: "POST",
+        path_template: "/v1/tasks/batch/rerun",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "TaskBatchRerunRequest",
+        response_schema: "TaskBatchRerunResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "batch_retry_tasks",
+        method: "POST",
+        path_template: "/v1/tasks/batch/retry",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "TaskBatchRetryRequest",
+        response_schema: "TaskBatchRetryResponse",
         success_status: 200,
         idempotent: false,
     },

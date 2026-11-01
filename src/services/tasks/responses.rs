@@ -73,6 +73,7 @@ pub(super) fn parse_origin(value: &str) -> Result<TaskOrigin> {
     match value {
         "manual" => Ok(TaskOrigin::Manual),
         "rerun" => Ok(TaskOrigin::Rerun),
+        "rerun_source" => Ok(TaskOrigin::RerunSource),
         other => {
             Err(DomainError::invalid_argument(format!("unsupported task origin {other}")).into())
         }
@@ -152,8 +153,8 @@ pub(super) fn group_response(group: GroupRecord) -> GroupResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_kind;
-    use context69_contracts::TaskKind;
+    use super::{parse_kind, parse_origin};
+    use context69_contracts::{TaskKind, TaskOrigin};
 
     #[test]
     fn all_public_task_kinds_round_trip() {
@@ -169,5 +170,17 @@ mod tests {
         ] {
             assert_eq!(parse_kind(kind.as_str()).expect("kind"), kind);
         }
+    }
+
+    #[test]
+    fn every_task_origin_round_trips_including_the_source_rerun() {
+        for origin in [
+            TaskOrigin::Manual,
+            TaskOrigin::Rerun,
+            TaskOrigin::RerunSource,
+        ] {
+            assert_eq!(parse_origin(origin.as_str()).expect("origin"), origin);
+        }
+        assert!(parse_origin("rerun_source_other").is_err());
     }
 }

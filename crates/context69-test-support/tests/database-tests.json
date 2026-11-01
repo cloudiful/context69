@@ -2,6 +2,102 @@
   "entries": [
     {
       "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "replacement_file_snapshot_and_attached_source_are_fenced",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "reserved_document_identity_reuses_version_and_rolls_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "replacement_switch_moves_every_layer_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "a_baseline_conflict_rolls_every_layer_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "the_registered_staged_set_must_match_the_prepared_chunks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "a_resolved_run_replays_without_rewriting_a_later_state",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "a_lost_grant_refuses_the_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_switch",
+      "test": "a_staged_source_outside_the_task_item_refuses_the_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_runs",
+      "test": "fenced_identity_adoption_resolution_and_rollback",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_run_retirement",
+      "test": "a_failed_finish_retires_the_run_and_tombstones_the_staging_entry",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_run_retirement",
+      "test": "a_cancelled_task_retires_without_registry_mutation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_run_retirement",
+      "test": "a_wait_reuses_the_current_run_and_exhaustion_retires_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_run_retirement",
+      "test": "a_resolved_switched_run_is_never_retired",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_run_retirement",
+      "test": "a_retry_allocates_a_fresh_generation_and_keeps_history",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_run_retirement",
+      "test": "concurrent_terminal_finishes_retire_the_run_once",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "qdrant_capability",
+      "test": "qdrant_conditional_write_capabilities",
+      "class": "external"
+    },
+    {
+      "package": "context69",
       "target": "app_startup",
       "test": "app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settings",
       "class": "app_startup"
@@ -746,6 +842,114 @@
     },
     {
       "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_deleted_document_enters_the_snapshot_and_advances_both_generations",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_deleted_file_enters_the_snapshot_and_advances_both_generations",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_purged_tombstone_still_excludes_the_entity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_repeated_tombstone_advances_no_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_rolled_back_tombstone_leaves_the_snapshot_untouched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_tombstoned_document_id_cannot_be_reused",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "a_tombstoned_file_id_cannot_be_reused",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "deleting_a_library_file_tombstones_it_through_the_backstop",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "the_pending_list_is_bounded",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "the_reserved_document_id_refuses_a_run_of_tombstoned_values",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "the_reserved_document_id_skips_a_tombstoned_sequence_value",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "deleted_entities",
+      "test": "the_tombstone_table_survives_the_deletion_of_its_group",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_delete_atomic",
+      "test": "library_delete_atomic_cases::a_document_only_delete_stamps_the_document_exclusion",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_delete_atomic",
+      "test": "library_delete_atomic_cases::a_delete_of_a_file_with_an_active_ingest_run_is_refused",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_delete_atomic",
+      "test": "library_delete_atomic_cases::a_failed_point_purge_keeps_the_logical_delete_and_the_pending_cleanup",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_delete_atomic",
+      "test": "library_delete_atomic_cases::a_folder_cascade_records_every_file_exclusion",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_delete_atomic",
+      "test": "library_delete_atomic_cases::a_refused_fenced_delete_changes_neither_rows_nor_points",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_delete_atomic",
+      "test": "library_delete_atomic_cases::a_tombstoned_file_frees_the_active_registry_budget",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "document_business_fields",
       "test": "changed_record_hash_propagates_to_every_chunk",
       "class": "db"
@@ -790,6 +994,42 @@
       "package": "context69",
       "target": "document_versions_invariant",
       "test": "same_hash_publish_is_idempotent_without_duplicate_versions",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "the_canonical_version_body_is_the_hash_basis_not_overlapping_chunks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_missing_current_version_rolls_the_file_and_every_document_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_stale_expected_hash_refuses_the_compare_and_set",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "metadata_edits_keep_document_identity_history_chunks_and_results",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_move_updates_the_file_and_the_document_path_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_failed_move_rolls_the_folder_change_back",
       "class": "db"
     },
     {
@@ -2396,6 +2636,60 @@
     },
     {
       "package": "context69",
+      "target": "task_batch_retry",
+      "test": "cancelled_only_resume_never_reopens_a_failed_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_retry",
+      "test": "a_task_that_left_cancelled_resumes_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_retry",
+      "test": "concurrent_cancelled_resumes_reopen_each_item_once_without_forking",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_retry",
+      "test": "cancelled_resume_by_an_unauthorized_user_reopens_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "a_batch_reruns_only_the_succeeded_parent_and_keeps_the_request_order",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "an_active_source_is_skipped_as_busy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "a_managed_source_folder_file_is_not_rerunnable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "the_single_rerun_creates_a_child_for_a_succeeded_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "an_unsupported_kind_is_refused_by_the_single_rerun",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "task_rerun",
       "test": "rerun_creates_a_fresh_task_with_only_unfinished_items",
       "class": "db"
@@ -2685,7 +2979,31 @@
     {
       "package": "context69",
       "target": "document_results",
+      "test": "cases::concurrent_update_never_labels_a_row_with_the_wrong_snapshot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_results",
+      "test": "cases::current_latest_keeps_newest_row_per_producer_and_kind",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_results",
+      "test": "cases::empty_current_latest_page_still_reports_the_snapshot_hash",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_results",
       "test": "cases::exact_replay_returns_the_original_immutable_row",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_results",
+      "test": "cases::latest_pagination_applies_after_grouping",
       "class": "db"
     },
     {
@@ -2698,6 +3016,12 @@
       "package": "context69",
       "target": "document_results",
       "test": "cases::list_read_does_not_mutate_document_metadata",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "document_results",
+      "test": "cases::old_source_version_is_historical_not_current",
       "class": "db"
     },
     {
@@ -3214,6 +3538,516 @@
       "package": "context69",
       "target": "task_selection",
       "test": "selection_stops_at_the_read_limit",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "an_empty_registry_reads_the_epoch_with_no_entries",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "an_entry_and_its_epoch_bump_commit_and_roll_back_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "concurrent_bumps_keep_the_epoch_monotonic",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "the_registry_snapshot_pairs_the_epoch_with_its_entries",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "the_registry_snapshot_pairs_the_epoch_with_the_deleted_entity_sets",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "a_switch_releases_the_new_live_ids_and_keeps_the_old_ones_excluded",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "an_abandoned_run_moves_its_staged_ids_into_the_tombstone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "a_staging_entry_that_still_holds_ids_is_never_removed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "an_illegal_transition_is_refused_without_mutating_the_entry",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "bounded_admission_serializes_and_preserves_reservations",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "search_epoch",
+      "test": "bounded_admission_refuses_invalid_and_overlapping_entries",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_replacement_switches_changed_and_new_sections_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::an_admission_refusal_sends_no_upsert",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_transient_embedding_failure_preserves_staging_and_a_retry_succeeds",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_new_section_identity_is_reserved_durably_before_the_first_point_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_missing_point_prevents_the_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_foreign_point_under_a_planned_id_prevents_the_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_conflicting_plan_is_refused_without_an_upsert",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_resolved_replay_writes_no_points",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_cleanup_failure_reports_pending_cleanup_and_keeps_the_tombstone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_lost_grant_refuses_the_run_before_anything_is_staged",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::staged_ids_are_generation_scoped_and_stay_stable_across_retries",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_same_hash_new_generation_reindexes_without_a_new_version",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::the_staged_payload_carries_no_hidden_state_marker",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::the_insert_only_retry_never_overwrites_a_verified_point",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::the_stored_hash_matches_the_final_normalized_source_and_metadata",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::a_succeeded_source_forks_fresh_items_without_inherited_work",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::source_rerun_refuses_ineligible_sources_and_active_siblings",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::the_processor_is_disabled_when_caps_are_unset",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::a_stored_source_is_parsed_fresh_and_switched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::a_transient_embed_failure_retries_into_a_successful_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::a_missing_source_fails_terminally_without_a_saved_parse",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::a_source_rerun_keeps_the_parent_document_identity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::a_source_valid_translation_commits_every_layer_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::a_source_change_during_the_provider_call_retires_only_staged_points",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::a_second_publication_retires_the_actual_latest_ids_only",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::without_caps_the_legacy_path_publishes_without_a_registry_entry",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::publish_version_in_refuses_a_moved_source_without_writing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::the_default_hook_publishes_then_writes_the_version",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::a_document_without_a_file_link_uses_the_legacy_path",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::projected_attributes_move_atomically_with_the_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_unique_conflict_rolls_back_and_keeps_the_old_file",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::the_source_rerun_fork_refuses_managed_files",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::foreign_ingest_history_guards_the_legacy_writer",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_changed_ordinary_text_update_switches_through_the_replacement",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::the_first_insert_binds_the_file_the_item_and_the_run_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_refused_first_insert_leaves_no_file_and_no_run",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_concurrent_same_identity_admits_one_writer",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::the_first_insert_switches_the_created_file_atomically",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::an_existing_failed_file_becomes_a_preserving_replacement",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::deleting_a_task_item_tombstones_its_staging_run",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::an_ordinary_text_first_insert_switches_through_the_atomic_path",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::an_adopted_item_rereads_its_source_without_deleting_old_records",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::an_ordinary_file_first_insert_switches_through_the_atomic_path",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_metadata_edit_retires_the_stale_translation_points",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_cap_refusal_rolls_the_file_and_the_documents_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "without_caps_the_metadata_edit_retires_no_translation_point",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_metadata_atomic",
+      "test": "a_second_metadata_edit_keeps_the_tombstoned_translation_quiet",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::the_reservation_covers_the_actually_stored_ids",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::a_successive_publication_retires_the_complete_prior_target_locale_set",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_replacement_retires_the_historical_stale_translation_ids",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "an_unresolved_staging_entry_blocks_the_rebuild_start",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "a_running_barrier_refuses_a_new_admission_and_writes_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "a_failed_barrier_refuses_everything_until_the_same_identity_rebuilds",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "only_the_owner_may_clear_the_barrier_and_the_epochs_move_with_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "a_dead_owner_is_taken_over_by_the_same_identity_only",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "the_identity_and_the_barrier_commit_and_roll_back_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "a_stale_admitted_identity_cannot_switch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "the_readiness_of_the_deployment_observes_the_barrier",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "a_superseded_owner_token_releases_the_barrier_but_an_elapsed_lease_does_not",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "the_settings_save_refuses_an_identity_change_a_rebuild_or_a_staged_run_owns",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "the_completion_waits_for_the_epoch_before_it_writes_the_identity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "a_boot_seeds_the_configured_capacity_policy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "an_upgraded_installation_keeps_the_documented_policy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "a_client_without_the_setting_keeps_the_stored_policy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "an_invalid_policy_is_refused_before_any_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "a_caller_cannot_raise_the_stored_caps",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "a_lowered_policy_keeps_the_retained_entries_and_refuses_new_work",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "a_service_with_an_older_policy_cannot_exceed_the_current_one",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "an_admission_without_a_stored_row_uses_the_documented_policy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "registry_quota_policy",
+      "test": "a_refused_replacement_is_deterministic_and_keeps_the_old_data",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "url_source_rerun",
+      "test": "url_source_rerun_cases::a_url_source_rerun_downloads_fresh_bytes_and_switches",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "url_source_rerun",
+      "test": "url_source_rerun_cases::a_retry_after_the_staged_download_does_not_fetch_the_source_again",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_source_rerun",
+      "test": "docling_source_rerun_cases::a_docling_child_converts_its_own_bytes_and_commits_the_result",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_source_rerun",
+      "test": "docling_source_rerun_cases::a_retryable_poll_failure_adopts_the_submitted_job_without_a_second_submit",
       "class": "db"
     }
   ]

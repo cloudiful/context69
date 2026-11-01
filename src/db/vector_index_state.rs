@@ -15,6 +15,21 @@ impl Database {
     }
 
     pub async fn save_vector_index_state(&self, state: &VectorIndexState<'_>) -> Result<()> {
+        let mut connection = self.pool.acquire().await?;
+        self.save_vector_index_state_in(&mut connection, state)
+            .await
+    }
+
+    /// Write the identity a rebuild produced on the caller's connection.
+    ///
+    /// The rebuild completion writes the identity, clears the rebuild barrier
+    /// and moves the epochs in one transaction, so the identity of a finished
+    /// rebuild and the barrier that describes it can never disagree.
+    pub async fn save_vector_index_state_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        state: &VectorIndexState<'_>,
+    ) -> Result<()> {
         let dimensions =
             i64::try_from(state.dimensions).context("embedding dimensions too large")?;
         let rebuilt_chunks =
@@ -28,7 +43,7 @@ impl Database {
             dimensions,
             rebuilt_chunks
         )
-        .execute(&self.pool)
+        .execute(&mut *connection)
         .await?;
         Ok(())
     }

@@ -75,6 +75,11 @@ export const processingQueue = {
   resumeAccepted: "任务已恢复",
   resumeFailed: "恢复任务失败",
   continue: "继续",
+  // 源重跑会重新读取当前源并创建子任务，父任务保留历史与文档。
+  rerun: "重跑",
+  rerunHint: "在新任务中重新读取当前源。",
+  rerunAccepted: "已开始重跑",
+  rerunFailed: "重跑任务失败",
   // 选择与由选择产生的批量操作。计数始终描述已捕获的选择，而不是当前页。
   selectAllMatching: "选择全部匹配项",
   selectPage: "选择本页任务",
@@ -94,15 +99,23 @@ export const processingQueue = {
   bulkFailed: "批量操作失败",
   bulkActions: {
     retry: "重试",
-    resume: "继续",
+    rerun: "重跑",
     cancel: "取消",
     trash: "移入回收站",
     restore: "恢复",
     delete: "永久删除",
   },
+  // 批量操作针对单个任务返回的原因。
+  bulkReasons: {
+    not_found: "不存在",
+    ineligible_status: "不适用",
+    nothing_to_retry: "没有可重试项",
+    nothing_to_rerun: "没有可重跑的源",
+    active_source_busy: "源正在处理中",
+    internal_error: "失败",
+  },
   bulkTitles: {
     retry: "重试任务",
-    resume: "继续任务",
     cancel: "取消任务",
     trash: "将任务移入回收站",
     restore: "恢复任务",

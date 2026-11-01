@@ -262,6 +262,12 @@ pub struct RuntimeFileLibrarySettings {
     pub url_import_concurrency: usize,
     pub url_import_min_interval_ms: u64,
     pub trusted_proxy_enabled: bool,
+    /// The number of point ids the whole deployment may retain.
+    pub registry_max_ids_total: i64,
+    /// The number of point ids one file may retain.
+    pub registry_max_ids_per_file: i64,
+    /// The number of point ids one ingestion run may admit.
+    pub registry_max_ids_per_run: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3: Option<RuntimeS3SettingsResponse>,
 }
@@ -276,6 +282,18 @@ pub struct UpdateRuntimeFileLibrarySettings {
     pub url_import_min_interval_ms: u64,
     #[serde(default)]
     pub trusted_proxy_enabled: bool,
+    /// The number of point ids the whole deployment may retain.
+    ///
+    /// A client that omits the setting keeps the stored cap, so an older
+    /// client never resets the policy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_max_ids_total: Option<i64>,
+    /// The number of point ids one file may retain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_max_ids_per_file: Option<i64>,
+    /// The number of point ids one ingestion run may admit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub registry_max_ids_per_run: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3: Option<UpdateRuntimeS3Settings>,
 }

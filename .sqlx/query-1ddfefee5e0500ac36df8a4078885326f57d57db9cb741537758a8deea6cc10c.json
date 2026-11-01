@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.document_translation_chunks\n    (id, translation_id, document_id, target_locale, chunk_index, chunk_text)\nVALUES ($1, $2, $3, $4, 0, 'test')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1ddfefee5e0500ac36df8a4078885326f57d57db9cb741537758a8deea6cc10c"
+}

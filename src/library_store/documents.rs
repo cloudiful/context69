@@ -1,4 +1,5 @@
 use anyhow::Result;
+use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::{
@@ -8,6 +9,18 @@ use super::{
 use crate::chunk_payload::{RowPayload, from_row};
 use crate::domain::ChunkPayload;
 use crate::domain::LibraryFileDocumentRecord;
+
+/// The document row an explicit delete locks.
+///
+/// The group is the scope of the delete, so a delete never touches a document
+/// of another group.
+#[derive(Debug, Clone, PartialEq, FromRow)]
+pub struct DeleteDocumentRow {
+    pub id: i64,
+    pub group_id: i64,
+    pub source_key: String,
+    pub external_id: String,
+}
 
 #[derive(Debug)]
 pub struct StoragePathRow {
@@ -112,8 +125,28 @@ impl LibraryStore {
         write.commit().await
     }
 
+    pub async fn merge_file_documents_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        updates: &[LibraryFileDocumentRecord],
+    ) -> Result<()> {
+        let documents = self.list_file_documents_on(connection, file_id).await?;
+        let documents = merge_file_documents(file_id, documents, updates)?;
+        replace_file_documents_on(connection, file_id, &documents).await
+    }
+
     pub async fn list_file_documents(
         &self,
+        file_id: Uuid,
+    ) -> Result<Vec<LibraryFileDocumentRecord>> {
+        let mut connection = self.db.pool().acquire().await?;
+        self.list_file_documents_on(&mut connection, file_id).await
+    }
+
+    pub async fn list_file_documents_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
         file_id: Uuid,
     ) -> Result<Vec<LibraryFileDocumentRecord>> {
         let rows = sqlx::query_file_as!(
@@ -121,7 +154,7 @@ impl LibraryStore {
             "src/sql/library_store/documents/list_file_documents.sql",
             file_id
         )
-        .fetch_all(self.db.pool())
+        .fetch_all(connection)
         .await?;
 
         Ok(rows
@@ -166,12 +199,31 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
+        let mut connection = self.db.pool().acquire().await?;
+        self.list_chunk_payloads_for_files_on(&mut connection, file_ids)
+            .await
+    }
+
+    /// The chunk payloads of some files on a caller transaction.
+    ///
+    /// The metadata publisher captures the exact ids it committed before it
+    /// commits, so the post-commit Qdrant update can never reach a later
+    /// replacement generation.
+    pub async fn list_chunk_payloads_for_files_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_ids: &[Uuid],
+    ) -> Result<Vec<ChunkPayload>> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
         let rows = sqlx::query_file_as!(
             ChunkPayloadRow,
             "src/sql/library_store/documents/list_chunk_payloads_for_files.sql",
             file_ids
         )
-        .fetch_all(self.db.pool())
+        .fetch_all(connection)
         .await?;
 
         Ok(rows
@@ -248,6 +300,149 @@ impl LibraryStore {
         .await?;
 
         Ok(rows)
+    }
+
+    /// Read and lock one document row for an explicit delete.
+    ///
+    /// The delete path locks the registry epoch first and this row second, so
+    /// the epoch is always the first lock of the transaction. The group is
+    /// part of the lock, so a delete never touches a document of another
+    /// group.
+    pub async fn lock_document_for_delete_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        document_id: i64,
+    ) -> Result<Option<DeleteDocumentRow>> {
+        Ok(sqlx::query_file_as!(
+            DeleteDocumentRow,
+            "src/sql/library_store/documents/lock_document_for_delete.sql",
+            document_id,
+            group_id
+        )
+        .fetch_optional(connection)
+        .await?)
+    }
+
+    /// Delete one document row on a borrowed connection.
+    ///
+    /// The delete of the document and the entity tombstone that excludes its
+    /// points commit together, so a document is never searchable without its
+    /// exclusion and never excluded without being gone.
+    pub async fn delete_document_by_id_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+    ) -> Result<bool> {
+        let result = sqlx::query_file!(
+            "src/sql/library_store/documents/delete_document_by_id.sql",
+            document_id
+        )
+        .execute(connection)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Delete the documents of every file in a folder subtree.
+    ///
+    /// The folder delete removes the files of the subtree, so their documents
+    /// are removed in the same statement: a document of a file that joined the
+    /// subtree after the enumeration is removed too, and no document of a
+    /// deleted file survives as an orphan.
+    pub async fn delete_documents_for_folder_subtree_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        folder_id: Uuid,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/library_store/documents/delete_documents_for_folder_subtree.sql",
+            folder_id,
+            group_id
+        )
+        .execute(connection)
+        .await?;
+        Ok(())
+    }
+}
+
+fn merge_file_documents(
+    file_id: Uuid,
+    mut documents: Vec<LibraryFileDocumentRecord>,
+    updates: &[LibraryFileDocumentRecord],
+) -> Result<Vec<LibraryFileDocumentRecord>> {
+    let mut seen = std::collections::HashSet::new();
+    for update in updates {
+        anyhow::ensure!(
+            update.file_id == file_id,
+            "file document belongs to another file"
+        );
+        anyhow::ensure!(seen.insert(&update.section_key), "duplicate section key");
+        if let Some(existing) = documents
+            .iter_mut()
+            .find(|row| row.section_key == update.section_key)
+        {
+            anyhow::ensure!(
+                existing.document_id == update.document_id,
+                "section document identity changed"
+            );
+            *existing = update.clone();
+        } else {
+            anyhow::ensure!(
+                !documents
+                    .iter()
+                    .any(|row| row.document_id == update.document_id),
+                "document already belongs to another section"
+            );
+            documents.push(update.clone());
+        }
+    }
+    Ok(documents)
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use crate::contracts::Visibility;
+
+    fn link(file_id: Uuid, document_id: i64, key: &str) -> LibraryFileDocumentRecord {
+        LibraryFileDocumentRecord {
+            file_id,
+            document_id,
+            group_id: 1,
+            visibility: Visibility::Private,
+            section_key: key.into(),
+            section_label: key.into(),
+            section_external_id: None,
+            section_source_uri: None,
+            section_published_at: None,
+            section_metadata_json: serde_json::json!({}),
+            sort_order: 0,
+        }
+    }
+
+    #[test]
+    fn merge_retains_vanished_sections_and_rejects_identity_changes() {
+        let file = Uuid::new_v4();
+        let old = vec![link(file, 1, "old"), link(file, 2, "kept")];
+        let merged = merge_file_documents(
+            file,
+            old.clone(),
+            &[link(file, 2, "kept"), link(file, 3, "new")],
+        )
+        .unwrap();
+        assert_eq!(
+            merged
+                .iter()
+                .map(|row| (row.section_key.as_str(), row.document_id))
+                .collect::<Vec<_>>(),
+            vec![("old", 1), ("kept", 2), ("new", 3)]
+        );
+        assert!(merge_file_documents(file, old.clone(), &[link(file, 3, "kept")]).is_err());
+        assert!(merge_file_documents(file, old.clone(), &[link(file, 1, "new")]).is_err());
+        assert!(
+            merge_file_documents(file, old, &[link(file, 3, "new"), link(file, 3, "new")]).is_err()
+        );
     }
 }
 

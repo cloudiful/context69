@@ -398,6 +398,290 @@ async fn source_read_reports_chunk_generation() {
     cleanup_group(&db, group).await;
 }
 
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn current_latest_keeps_newest_row_per_producer_and_kind() {
+    let db = connect_scratch().await;
+    let group = seed_group(&db, "public").await;
+    let path = group_path(&db, group).await;
+    let user = seed_user(&db).await;
+    let scope = member_scope(group, &path);
+    let document = seed_document(&db, group, "hash-1", &serde_json::json!({})).await;
+
+    for key in ["news-1", "news-2"] {
+        let req = request(result_request("stock.news", key, "hash-1")).await;
+        db.append_document_result(group, document, &path, user, &scope, &req)
+            .await
+            .expect("append news");
+    }
+    let disclosure = request(result_request("stock.disclosure", "disc-1", "hash-1")).await;
+    db.append_document_result(group, document, &path, user, &scope, &disclosure)
+        .await
+        .expect("append disclosure");
+    let mut summary_value = result_request("stock.news", "news-summary", "hash-1");
+    summary_value["result_kind"] = serde_json::json!("summary.v1");
+    let summary = request(summary_value).await;
+    db.append_document_result(group, document, &path, user, &scope, &summary)
+        .await
+        .expect("append summary");
+
+    let current_latest = ListDocumentResultsQuery {
+        current_only: true,
+        latest_only: true,
+        ..ListDocumentResultsQuery::default()
+    };
+    let page = db
+        .list_document_results(group, document, &path, &scope, &current_latest)
+        .await
+        .expect("current latest");
+    assert_eq!(page.source_record_hash, "hash-1");
+    assert_eq!(
+        page.items.len(),
+        3,
+        "one row per (producer, result_kind) in the current version"
+    );
+    let mut keys: Vec<String> = page
+        .items
+        .iter()
+        .map(|item| item.idempotency_key.clone())
+        .collect();
+    keys.sort();
+    assert_eq!(
+        keys,
+        vec![
+            "disc-1".to_string(),
+            "news-2".to_string(),
+            "news-summary".to_string()
+        ],
+        "the older stock.news/sentiment row is not the latest"
+    );
+    assert!(
+        page.items.windows(2).all(|pair| pair[0].id > pair[1].id),
+        "newest first"
+    );
+
+    let history = db
+        .list_document_results(
+            group,
+            document,
+            &path,
+            &scope,
+            &ListDocumentResultsQuery::default(),
+        )
+        .await
+        .expect("full history");
+    assert_eq!(history.items.len(), 4, "history retains every append");
+
+    cleanup_group(&db, group).await;
+    cleanup_user(&db, user).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn old_source_version_is_historical_not_current() {
+    let db = connect_scratch().await;
+    let group = seed_group(&db, "public").await;
+    let path = group_path(&db, group).await;
+    let user = seed_user(&db).await;
+    let scope = member_scope(group, &path);
+    let document = seed_document(&db, group, "hash-1", &serde_json::json!({})).await;
+
+    let old = request(result_request("stock.news", "old", "hash-1")).await;
+    db.append_document_result(group, document, &path, user, &scope, &old)
+        .await
+        .expect("append old version");
+    update_document_record_hash(&db, document, "hash-2").await;
+    let current = request(result_request("stock.news", "current", "hash-2")).await;
+    db.append_document_result(group, document, &path, user, &scope, &current)
+        .await
+        .expect("append current version");
+
+    let current_only = ListDocumentResultsQuery {
+        current_only: true,
+        ..ListDocumentResultsQuery::default()
+    };
+    let page = db
+        .list_document_results(group, document, &path, &scope, &current_only)
+        .await
+        .expect("current only");
+    assert_eq!(page.source_record_hash, "hash-2");
+    assert_eq!(page.items.len(), 1);
+    assert_eq!(page.items[0].source_record_hash, "hash-2");
+    assert_eq!(page.items[0].idempotency_key, "current");
+
+    let history = db
+        .list_document_results(
+            group,
+            document,
+            &path,
+            &scope,
+            &ListDocumentResultsQuery::default(),
+        )
+        .await
+        .expect("history");
+    assert_eq!(history.items.len(), 2);
+    assert_eq!(history.items[0].idempotency_key, "current");
+    assert_eq!(
+        history.items[1].source_record_hash, "hash-1",
+        "older rows remain readable as history"
+    );
+
+    cleanup_group(&db, group).await;
+    cleanup_user(&db, user).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn latest_pagination_applies_after_grouping() {
+    let db = connect_scratch().await;
+    let group = seed_group(&db, "public").await;
+    let path = group_path(&db, group).await;
+    let user = seed_user(&db).await;
+    let scope = member_scope(group, &path);
+    let document = seed_document(&db, group, "hash-1", &serde_json::json!({})).await;
+
+    for producer in ["p1", "p2", "p3", "p4"] {
+        for key in ["first", "second"] {
+            let req = request(result_request(producer, key, "hash-1")).await;
+            db.append_document_result(group, document, &path, user, &scope, &req)
+                .await
+                .expect("append");
+        }
+    }
+
+    let first = db
+        .list_document_results(
+            group,
+            document,
+            &path,
+            &scope,
+            &ListDocumentResultsQuery {
+                current_only: true,
+                latest_only: true,
+                limit: 2,
+                ..ListDocumentResultsQuery::default()
+            },
+        )
+        .await
+        .expect("first latest page");
+    assert_eq!(first.items.len(), 2);
+    let after = first.next_after_id.expect("continuation");
+
+    let second = db
+        .list_document_results(
+            group,
+            document,
+            &path,
+            &scope,
+            &ListDocumentResultsQuery {
+                current_only: true,
+                latest_only: true,
+                after_id: Some(after),
+                limit: 2,
+                ..ListDocumentResultsQuery::default()
+            },
+        )
+        .await
+        .expect("second latest page");
+    assert_eq!(second.items.len(), 2);
+    assert!(second.next_after_id.is_none());
+    assert!(
+        second.items[0].id < first.items[1].id,
+        "pagination continues from the grouped latest set"
+    );
+
+    cleanup_group(&db, group).await;
+    cleanup_user(&db, user).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn empty_current_latest_page_still_reports_the_snapshot_hash() {
+    let db = connect_scratch().await;
+    let group = seed_group(&db, "private").await;
+    let path = group_path(&db, group).await;
+    let user = seed_user(&db).await;
+    let scope = member_scope(group, &path);
+    let document = seed_document(&db, group, "hash-empty", &serde_json::json!({})).await;
+
+    let page = db
+        .list_document_results(
+            group,
+            document,
+            &path,
+            &scope,
+            &ListDocumentResultsQuery {
+                current_only: true,
+                latest_only: true,
+                ..ListDocumentResultsQuery::default()
+            },
+        )
+        .await
+        .expect("empty page");
+    assert_eq!(page.source_record_hash, "hash-empty");
+    assert!(page.items.is_empty());
+    assert!(page.next_after_id.is_none());
+
+    let other = seed_group(&db, "private").await;
+    let other_path = group_path(&db, other).await;
+    let foreign = member_scope(other, &other_path);
+    let error = db
+        .list_document_results(
+            group,
+            document,
+            &path,
+            &foreign,
+            &ListDocumentResultsQuery::default(),
+        )
+        .await
+        .expect_err("an empty but invisible document stays not found");
+    assert_eq!(status_for_error(&error), StatusCode::NOT_FOUND);
+
+    cleanup_group(&db, group).await;
+    cleanup_group(&db, other).await;
+    cleanup_user(&db, user).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn concurrent_update_never_labels_a_row_with_the_wrong_snapshot() {
+    let db = connect_scratch().await;
+    let group = seed_group(&db, "public").await;
+    let path = group_path(&db, group).await;
+    let user = seed_user(&db).await;
+    let scope = member_scope(group, &path);
+    let document = seed_document(&db, group, "hash-0", &serde_json::json!({})).await;
+    let current = ListDocumentResultsQuery {
+        current_only: true,
+        ..ListDocumentResultsQuery::default()
+    };
+
+    for round in 0..10 {
+        let hash = format!("hash-{round}");
+        update_document_record_hash(&db, document, &hash).await;
+        let req = request(result_request("stock.news", &format!("key-{round}"), &hash)).await;
+        db.append_document_result(group, document, &path, user, &scope, &req)
+            .await
+            .expect("append current version");
+
+        let next_hash = format!("hash-{}", round + 1);
+        let (page, _) = tokio::join!(
+            db.list_document_results(group, document, &path, &scope, &current),
+            update_document_record_hash(&db, document, &next_hash),
+        );
+        let page = page.expect("concurrent read");
+        for item in &page.items {
+            assert_eq!(
+                item.source_record_hash, page.source_record_hash,
+                "every current row belongs to the page snapshot hash"
+            );
+        }
+    }
+
+    cleanup_group(&db, group).await;
+    cleanup_user(&db, user).await;
+}
+
 #[test]
 fn malformed_and_oversize_envelopes_are_rejected_before_any_io() {
     // Blank identifier alphabet, non-object result, and an oversize serialized

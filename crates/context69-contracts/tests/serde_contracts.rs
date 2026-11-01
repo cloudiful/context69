@@ -1369,6 +1369,8 @@ fn caller_result_list_query_defaults_and_bounds() {
     assert_eq!(empty.producer, None);
     assert_eq!(empty.result_kind, None);
     assert_eq!(empty.after_id, None);
+    assert!(!empty.current_only);
+    assert!(!empty.latest_only);
     empty.validate().expect("defaults valid");
     let serialized = to_value(&empty).expect("serialize query");
     let object = serialized.as_object().expect("object");
@@ -1376,6 +1378,8 @@ fn caller_result_list_query_defaults_and_bounds() {
     assert!(!object.contains_key("producer"));
     assert!(!object.contains_key("result_kind"));
     assert!(!object.contains_key("after_id"));
+    assert_eq!(object.get("current_only"), Some(&json!(false)));
+    assert_eq!(object.get("latest_only"), Some(&json!(false)));
 
     for bad in [0, 101] {
         let parsed: ListDocumentResultsQuery =
@@ -1399,6 +1403,16 @@ fn caller_result_list_query_defaults_and_bounds() {
     let bad_after: ListDocumentResultsQuery =
         serde_json::from_value(json!({"after_id": -1})).expect("parses");
     assert!(bad_after.validate().is_err());
+
+    let latest_without_current: ListDocumentResultsQuery =
+        serde_json::from_value(json!({"latest_only": true})).expect("parses");
+    assert!(
+        latest_without_current.validate().is_err(),
+        "latest_only requires current_only"
+    );
+    let current_latest: ListDocumentResultsQuery =
+        serde_json::from_value(json!({"current_only": true, "latest_only": true})).expect("parses");
+    current_latest.validate().expect("current+latest is valid");
 }
 
 #[test]

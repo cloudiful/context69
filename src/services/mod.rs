@@ -19,3 +19,4 @@ pub mod sync;
 pub mod tasks;
 pub mod token_utils;
 pub mod translation;
+pub(crate) mod translation_registry;

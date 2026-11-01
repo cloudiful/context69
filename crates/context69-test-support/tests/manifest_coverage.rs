@@ -185,6 +185,44 @@ fn opt_in_classes_never_join_the_ordinary_database_selection() {
     );
 }
 
+#[test]
+fn external_inventory_is_reconciled_but_never_selected_by_runner_modes() {
+    let mut inventory = manifest();
+    inventory
+        .entries
+        .push(entry("external_capability", TestClass::External));
+    let mut compiled = listing();
+    compiled.tests.push(ListedTest {
+        name: "external_capability".to_owned(),
+        ignored: true,
+    });
+    let report = inventory
+        .reconcile(&[compiled])
+        .expect("external test is classified");
+    assert_eq!(report.external_tests, 1);
+    assert_eq!(report.database_tests, 2);
+    assert_eq!(report.ignored_tests, 4);
+    let all_modes = [
+        TestClass::Db,
+        TestClass::Benchmark,
+        TestClass::AppStartup,
+        TestClass::UpgradeRecovery,
+    ];
+    for opt_ins in [&all_modes[1..1], &all_modes[1..]] {
+        let baseline = context69_test_support::runner::execute::plan(&manifest(), opt_ins);
+        let planned = context69_test_support::runner::execute::plan(&inventory, opt_ins);
+        assert_eq!(planned, baseline);
+        assert!(
+            planned
+                .iter()
+                .flat_map(|target| &target.tests)
+                .all(|name| name != "external_capability")
+        );
+    }
+    assert_eq!(inventory.database_test_count(&all_modes[1..]), 3);
+    assert_eq!(inventory.database_test_count(&[TestClass::External]), 2);
+}
+
 const METADATA: &str = r#"{
   "workspace_members": ["path+file:///repo#root@0.1.0"],
   "packages": [

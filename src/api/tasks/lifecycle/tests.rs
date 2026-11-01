@@ -121,3 +121,45 @@ fn task_items_query_status_defaults_to_none_and_round_trips() {
         "unknown item status must be rejected before the handler runs"
     );
 }
+
+/// The batch recovery wire shape is ordered and non-sensitive: accepted items
+/// carry the recovered task id, skipped/failed items carry a machine-readable
+/// reason and never a message.
+#[test]
+fn batch_retry_wire_shape_is_ordered_and_machine_readable() {
+    let request: TaskBatchRetryRequest = serde_json::from_value(serde_json::json!({
+        "task_ids": [
+            "11111111-1111-4111-8111-111111111111",
+            "22222222-2222-4222-8222-222222222222"
+        ]
+    }))
+    .expect("decode batch request");
+    assert_eq!(request.task_ids.len(), 2);
+
+    let response = context69_contracts::TaskBatchRetryResponse {
+        results: vec![
+            context69_contracts::TaskBatchRetryItem {
+                task_id: request.task_ids[0],
+                outcome: context69_contracts::TaskBatchRetryOutcome::Accepted,
+                reason: None,
+                retried_task_id: Some(request.task_ids[0]),
+            },
+            context69_contracts::TaskBatchRetryItem {
+                task_id: request.task_ids[1],
+                outcome: context69_contracts::TaskBatchRetryOutcome::Skipped,
+                reason: Some(context69_contracts::TaskBatchRetryReason::NotFound),
+                retried_task_id: None,
+            },
+        ],
+    };
+    let value = serde_json::to_value(&response).expect("encode batch response");
+    assert_eq!(value["results"][0]["outcome"], "accepted");
+    assert_eq!(
+        value["results"][0]["retried_task_id"],
+        serde_json::json!(request.task_ids[0].to_string())
+    );
+    assert!(value["results"][0].get("reason").is_none());
+    assert_eq!(value["results"][1]["outcome"], "skipped");
+    assert_eq!(value["results"][1]["reason"], "not_found");
+    assert!(value["results"][1].get("retried_task_id").is_none());
+}

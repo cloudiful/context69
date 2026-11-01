@@ -61,6 +61,17 @@ pub(super) async fn process_item_blocking(
     item: &mut crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
     let mut working = item.clone();
+    if task.origin == "rerun_source" {
+        let outcome = super::item_replacement_processor::process_replacement(
+            service,
+            task,
+            group,
+            &mut working,
+        )
+        .await?;
+        *item = working;
+        return Ok(outcome);
+    }
     let stage = resume_stage(kind, working.stage.as_deref());
     let runner = ServiceStageRunner {
         service,

@@ -308,12 +308,12 @@ impl DocumentStoreService {
                 None => self.library.delete_file_in_project(group, file_id).await,
             };
         }
-        let chunk_ids = self.db.document_chunk_ids(id).await?;
-        self.db.delete_document_by_id(id).await?;
-        if let Some(index) = self.index() {
-            index.delete_points(&chunk_ids).await?;
-        }
-        Ok(())
+        // The document is not owned by a library file: its own entity
+        // tombstone, its deleted row and its commit are one transaction, and
+        // its points are removed only after that commit.
+        self.library
+            .delete_document_entity(group.id, id, fence)
+            .await
     }
 
     pub async fn create_index(

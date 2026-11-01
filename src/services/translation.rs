@@ -6,7 +6,7 @@ use crate::domain_errors::DomainError;
 use async_trait::async_trait;
 use context69_translation::{
     TranslationChunkPublication, TranslationPublication, TranslationPublicationResult,
-    TranslationPublisher,
+    TranslationPublisher, TranslationStore, TranslationVersionInput, publish_committed_default,
 };
 use tracing::info;
 
@@ -25,6 +25,16 @@ use crate::{
 pub struct TranslationPublisherAdapter {
     vector: VectorRuntime,
     chunking: ChunkingConfig,
+    /// The registry-visible publication is opt-in. Without a database handle
+    /// and an enabled capacity policy the adapter keeps the legacy sequence, so
+    /// a deployment that has not adopted a policy is never affected.
+    registry_db: Option<crate::db::Database>,
+    /// The narrowing of the persisted registry capacity policy.
+    ///
+    /// The persisted policy is the authority: the admission reads it inside
+    /// its own transaction, so this value can only lower the caps the
+    /// deployment allows.
+    registry_caps: Option<crate::db::RegistryQuotaOverride>,
 }
 
 impl TranslationPublisherAdapter {
@@ -40,19 +50,42 @@ impl TranslationPublisherAdapter {
     }
 
     pub fn with_vector_runtime(vector: VectorRuntime, chunking: ChunkingConfig) -> Self {
-        Self { vector, chunking }
+        Self {
+            vector,
+            chunking,
+            registry_db: None,
+            registry_caps: None,
+        }
     }
 
-    fn runtime(&self) -> Result<VectorSnapshot> {
+    /// Enables the registry-visible committed publication.
+    ///
+    /// The quota is a narrowing of the persisted capacity policy: without a
+    /// database handle the publication keeps the legacy sequence, and the
+    /// admission applies the persisted caps.
+    #[must_use]
+    pub fn with_committed_publication(
+        mut self,
+        db: crate::db::Database,
+        quota: crate::db::RegistryQuotaOverride,
+    ) -> Self {
+        self.registry_db = Some(db);
+        self.registry_caps = Some(quota);
+        self
+    }
+
+    fn runtime(&self) -> Result<(VectorSnapshot, Option<String>)> {
         // Translation publishes new vectors, so it waits out an
         // identity-changing rebuild instead of adding vectors to a collection
-        // being re-embedded.
-        self.vector.require_ready().map_err(|error| {
-            DomainError::unavailable(format!(
+        // being re-embedded. The identity comes from the captured pair, so a
+        // publication never records the identity of another configuration.
+        let snapshot = self.vector.require_ready().map_err(|error| {
+            anyhow::Error::from(DomainError::unavailable(format!(
                 "translation embedding runtime is unavailable: {error}"
-            ))
-            .into()
-        })
+            )))
+        })?;
+        let fingerprint = snapshot.configured_fingerprint.clone();
+        Ok((snapshot, fingerprint))
     }
 }
 
@@ -75,7 +108,7 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         translation: TranslationPublication<'_>,
     ) -> Result<TranslationPublicationResult> {
         let started = Instant::now();
-        let runtime = self.runtime()?;
+        let (runtime, _fingerprint) = self.runtime()?;
         let embedding = runtime.embedding.clone();
         let index = runtime.index.clone();
         let visibility = translation
@@ -175,6 +208,52 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             chunks,
             Box::pin(async move { replacement.rollback().await }),
         ))
+    }
+
+    async fn publish_committed(
+        &self,
+        store: &TranslationStore,
+        old_chunk_ids: &[uuid::Uuid],
+        translation: TranslationPublication<'_>,
+        version: &TranslationVersionInput<'_>,
+    ) -> Result<()> {
+        let (Some(db), Some(quota)) = (self.registry_db.as_ref(), self.registry_caps) else {
+            return publish_committed_default(self, store, old_chunk_ids, translation, version)
+                .await;
+        };
+        let Some(file_id) = db
+            .find_unique_library_file_for_document(translation.document_id)
+            .await?
+        else {
+            return publish_committed_default(self, store, old_chunk_ids, translation, version)
+                .await;
+        };
+        let (runtime, fingerprint) = self.runtime()?;
+        let identity = fingerprint.map(|embedding_fingerprint| crate::db::RegistryVectorIdentity {
+            embedding_fingerprint,
+            collection_name: runtime.collection.clone(),
+        });
+        match crate::services::translation_registry::publish_translation(
+            &crate::services::translation_registry::Publication {
+                db,
+                store,
+                snapshot: &runtime,
+                chunking: &self.chunking,
+                quota,
+                identity,
+            },
+            file_id,
+            old_chunk_ids,
+            &translation,
+            version,
+        )
+        .await?
+        {
+            Some(()) => Ok(()),
+            None => {
+                publish_committed_default(self, store, old_chunk_ids, translation, version).await
+            }
+        }
     }
 
     async fn delete(&self, chunk_ids: &[uuid::Uuid]) -> Result<()> {

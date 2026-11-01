@@ -1,0 +1,89 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The library file row a project-scoped delete locks.\n--\n-- The group is part of the lock, so a delete of another project never locks\n-- (and never deletes) a file it does not own.\nSELECT\n    id,\n    group_id,\n    storage_rel_path,\n    storage_object_id,\n    source_released_at,\n    sha256\nFROM context69.library_files\nWHERE id = $1\n  AND group_id = $2\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "storage_rel_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_rel_path"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "storage_object_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "source_released_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "source_released_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "sha256",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "sha256"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "31566564e9dc33e43b5bab0d007cc3548cd917cf338cf1e37e5f7c2c1d74d2d3"
+}

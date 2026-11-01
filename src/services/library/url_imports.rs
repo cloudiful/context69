@@ -209,6 +209,7 @@ impl LibraryService {
                 self.max_upload_size_bytes,
                 spec.trusted_proxy_enabled,
                 spec.limiter.as_ref(),
+                self.remote_transport.as_deref(),
             )
             .await?;
             let digest = transfer(&mut source, &mut sink, self.max_upload_size_bytes).await?;

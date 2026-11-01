@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
 use crate::domain_errors::DomainError;
+use crate::library_store::TaskWriteFence;
 use crate::vector_runtime::RebuildAdmissionError;
 
 impl SyncService {
@@ -286,11 +287,12 @@ impl SyncService {
         self.vector_rebuild_status.status()
     }
 
-    pub(crate) async fn run_vector_index_rebuild(&self) -> Result<usize> {
-        let attempt = self.begin_vector_index_rebuild().await?;
+    pub(crate) async fn run_vector_index_rebuild(&self, fence: TaskWriteFence) -> Result<usize> {
+        let attempt = self.begin_vector_index_rebuild(fence).await?;
         let rebuilt = match self.rebuild_index_with_snapshot(&attempt).await {
             Ok(rebuilt) => rebuilt,
             Err(error) => {
+                self.fail_rebuild_barrier(fence, &error).await;
                 return fail_rebuild_attempt(
                     &self.vector,
                     &self.vector_rebuild_status,
@@ -301,47 +303,116 @@ impl SyncService {
             }
         };
         // The writer seam receives the identity the attempt actually re-embedded
-        // with, including the real completed count. The production closure below
-        // writes exactly that value; tests capture the same value.
+        // with, including the real completed count. The production closure
+        // writes the identity, clears the barrier and moves the epochs in one
+        // transaction, so the identity of a finished rebuild and the barrier
+        // that describes it can never disagree.
         let db = self.db.clone();
-        settle_successful_rebuild(
+        let outcome = settle_successful_rebuild(
             &self.vector,
             &self.vector_rebuild_status,
             &attempt,
             rebuilt,
             move |identity| {
-                Box::pin(async move {
-                    db.save_vector_index_state(&crate::db::VectorIndexState {
-                        collection_name: &identity.collection,
-                        fingerprint: &identity.fingerprint,
-                        embedding_base_url: &identity.base_url,
-                        embedding_model: &identity.model,
-                        dimensions: identity.dimensions,
-                        rebuilt_chunks: identity.rebuilt_chunks,
-                    })
-                    .await
-                })
+                Box::pin(async move { complete_rebuild_transaction(&db, fence, &identity).await })
             },
         )
-        .await
+        .await;
+        if let Err(error) = &outcome {
+            self.fail_rebuild_barrier(fence, error).await;
+        }
+        outcome
+    }
+
+    /// Records a failed rebuild in the persistent barrier.
+    ///
+    /// The barrier keeps its owner and its identity, so a retry of the same
+    /// identity may take it over again. The write is owner-guarded, so an
+    /// attempt that was superseded never touches the barrier of its
+    /// successor.
+    async fn fail_rebuild_barrier(&self, fence: TaskWriteFence, error: &anyhow::Error) {
+        let mut connection = match self.db.pool().acquire().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                tracing::warn!(%error, "failed to open the rebuild failure transaction");
+                return;
+            }
+        };
+        // The epoch row is locked before it is written, so the failure record
+        // takes the same order as every other writer of that row.
+        if let Err(error) = self.db.lock_search_registry_epoch_in(&mut connection).await {
+            tracing::warn!(%error, "failed to lock the rebuild barrier for the failure record");
+            return;
+        }
+        let recorded = self
+            .db
+            .fail_rebuild_in(
+                &mut connection,
+                fence.item_id(),
+                fence.token(),
+                &error.to_string(),
+            )
+            .await;
+        if let Err(error) = recorded {
+            tracing::warn!(%error, "failed to record the failed rebuild barrier");
+        }
     }
 
     /// Admits an explicit rebuild through the runtime's one atomic admission.
     ///
-    /// The runtime validates and captures the generation, the published pair,
-    /// its identity, and the configured fingerprint together under the shared
-    /// exclusion, then opens the fence. A retained snapshot of a superseded
-    /// generation is rejected instead of being relabelled, so a destination
-    /// change that advanced the generation without publishing a replacement
-    /// pair can never be rebuilt as the old collection under the new identity.
-    pub(crate) async fn begin_vector_index_rebuild(&self) -> Result<RebuildAttempt> {
+    /// The persistent barrier is taken first: it is the authority that no
+    /// registry-admitted publication overlaps the rebuild, and it outlives the
+    /// process, so a node that never observed the rebuild still fails closed.
+    /// The barrier is claimed under the captured grant of the task item, so
+    /// the owner of the barrier is a live writer that can prove it.
+    ///
+    /// The runtime then validates and captures the generation, the published
+    /// pair, its identity, and the configured fingerprint together under the
+    /// shared exclusion. A retained snapshot of a superseded generation is
+    /// rejected instead of being relabelled, so a destination change that
+    /// advanced the generation without publishing a replacement pair can never
+    /// be rebuilt as the old collection under the new identity.
+    pub(crate) async fn begin_vector_index_rebuild(
+        &self,
+        fence: TaskWriteFence,
+    ) -> Result<RebuildAttempt> {
+        let (fingerprint, collection) = self.rebuild_identity()?;
+        let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+        // The persisted configuration is the authority of the vector space, and
+        // the begin kernel compares it with the captured identity after it
+        // holds the registry epoch. A settings save therefore either happens
+        // entirely before the comparison or entirely after the barrier claim,
+        // so a rebuild never re-embeds an old provider under a newer identity.
+        let outcome = self
+            .db
+            .begin_rebuild_checked_in(
+                write.connection(),
+                fence.item_id(),
+                fence.token(),
+                &fingerprint,
+                &collection,
+            )
+            .await?;
+        if !write.commit().await? {
+            return Err(anyhow::anyhow!(
+                "the grant no longer authorizes the rebuild start"
+            ));
+        }
+        match outcome {
+            crate::db::RebuildStartOutcome::Started(_) => {}
+            crate::db::RebuildStartOutcome::Refused(reason) => {
+                return Err(rebuild_refusal_error(reason));
+            }
+        }
         if !self.vector_rebuild_status.claim_start() {
+            self.release_rebuild_barrier(fence).await;
             return Err(DomainError::conflict("vector index rebuild is already running").into());
         }
         let admitted = match self.vector.try_admit_rebuild() {
             Ok(admitted) => admitted,
             Err(error) => {
                 self.vector_rebuild_status.release_start();
+                self.release_rebuild_barrier(fence).await;
                 return Err(match error {
                     RebuildAdmissionError::NotConfigured
                     | RebuildAdmissionError::MissingIdentity
@@ -361,6 +432,60 @@ impl SyncService {
             snapshot: admitted.snapshot,
             fingerprint: admitted.configured_fingerprint,
         })
+    }
+
+    /// The identity the rebuild barrier records.
+    ///
+    /// It is the fingerprint of the vector space of the captured pair and the
+    /// collection it writes into. The pair carries its own identity, so a
+    /// reconfiguration that moved the desired identity forward while the old
+    /// pair is still published is refused here instead of re-embedding the old
+    /// provider under the newer fingerprint.
+    fn rebuild_identity(&self) -> Result<(String, String)> {
+        let (snapshot, fingerprint) = self.vector.published_pair().ok_or_else(|| {
+            DomainError::unavailable(
+                "the published vector pair carries no configured identity fingerprint",
+            )
+        })?;
+        if let Some(desired) = self.vector.configured_fingerprint()
+            && desired != fingerprint
+        {
+            return Err(DomainError::conflict(
+                "the published vector pair does not match the configured vector identity; retry \
+                 the rebuild after the runtime published the configured pair",
+            )
+            .into());
+        }
+        Ok((fingerprint, snapshot.collection.clone()))
+    }
+
+    /// Returns the barrier to idle after the rebuild never started.
+    ///
+    /// The rollback is only justified while no rebuild RPC could have
+    /// occurred: the in-process admission refused the attempt before any
+    /// point was written, so the collection is untouched and the barrier has
+    /// nothing to describe. Every failure after that keeps the owned failed
+    /// state instead, and the write is owner-guarded, so it never clears the
+    /// barrier of another owner.
+    async fn release_rebuild_barrier(&self, fence: TaskWriteFence) {
+        let mut connection = match self.db.pool().acquire().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                tracing::warn!(%error, "failed to open the rebuild release transaction");
+                return;
+            }
+        };
+        if let Err(error) = self.db.lock_search_registry_epoch_in(&mut connection).await {
+            tracing::warn!(%error, "failed to lock the rebuild barrier for the release");
+            return;
+        }
+        if let Err(error) = self
+            .db
+            .complete_rebuild_in(&mut connection, fence.item_id(), fence.token())
+            .await
+        {
+            tracing::warn!(%error, "failed to release the rebuild barrier");
+        }
     }
 
     async fn set_vector_rebuild_progress(
@@ -460,6 +585,81 @@ async fn fail_rebuild_attempt(
     Err(error)
 }
 
+/// The refusal a rebuild start reports to its caller.
+fn rebuild_refusal_error(reason: crate::db::RebuildRefusalReason) -> anyhow::Error {
+    match reason {
+        crate::db::RebuildRefusalReason::StagingEntries => DomainError::conflict(
+            "an unresolved ingestion run still holds staged points; retry the rebuild after it \
+             resolved",
+        )
+        .into(),
+        crate::db::RebuildRefusalReason::Busy => {
+            DomainError::conflict("another vector index rebuild is already running").into()
+        }
+        crate::db::RebuildRefusalReason::IdentityMismatch => DomainError::conflict(
+            "a vector index rebuild of another vector identity is pending; an explicit rebuild of \
+             the current identity is required",
+        )
+        .into(),
+        crate::db::RebuildRefusalReason::PersistedIdentityMismatch => DomainError::conflict(
+            "the published vector pair does not match the persisted vector identity; retry the \
+             rebuild after the runtime applied the configured identity",
+        )
+        .into(),
+        crate::db::RebuildRefusalReason::PersistedIdentityMissing => DomainError::unavailable(
+            "the persisted vector identity is unavailable; the rebuild cannot know which vector \
+             space it would rebuild",
+        )
+        .into(),
+    }
+}
+
+/// Commits the identity of a finished rebuild, clears its barrier and moves
+/// the epochs in one transaction.
+///
+/// The transaction runs under the captured grant of the task item, so the
+/// completion is authorized by the same owner the barrier records. A barrier
+/// this attempt no longer owns writes nothing at all: the identity of the
+/// rebuild is not persisted either, so a superseded attempt never describes a
+/// collection another owner rebuilt.
+async fn complete_rebuild_transaction(
+    db: &crate::db::Database,
+    fence: TaskWriteFence,
+    identity: &RebuiltIdentity,
+) -> Result<()> {
+    let mut write = crate::library_store::begin_task_write(db, fence).await?;
+    // The canonical order is item, epoch, vector identity row. The settings
+    // save takes the same order, so the two transactions serialize instead of
+    // deadlocking on each other.
+    let cleared = db
+        .complete_owned_rebuild_in(
+            write.connection(),
+            fence.item_id(),
+            fence.token(),
+            &crate::db::VectorIndexState {
+                collection_name: &identity.collection,
+                fingerprint: &identity.fingerprint,
+                embedding_base_url: &identity.base_url,
+                embedding_model: &identity.model,
+                dimensions: identity.dimensions,
+                rebuilt_chunks: identity.rebuilt_chunks,
+            },
+        )
+        .await?;
+    if cleared.is_none() {
+        write.rollback().await;
+        return Err(anyhow::anyhow!(
+            "the rebuild barrier is no longer owned by this attempt"
+        ));
+    }
+    if !write.commit().await? {
+        return Err(anyhow::anyhow!(
+            "the grant no longer authorizes the rebuild completion"
+        ));
+    }
+    Ok(())
+}
+
 /// Settles a successful re-embedding only when this attempt still owns the
 /// runtime generation.
 ///
@@ -536,13 +736,19 @@ mod tests {
         }
     }
 
-    fn snapshot(generation: u64, collection: &str, model: &str) -> VectorSnapshot {
+    fn snapshot(
+        generation: u64,
+        collection: &str,
+        model: &str,
+        fingerprint: &str,
+    ) -> VectorSnapshot {
         VectorSnapshot {
             embedding: Arc::new(TestProvider),
             identity: Some(identity(model)),
             index: Arc::new(QdrantIndex::for_test(collection, 8)),
             collection: collection.to_string(),
             generation,
+            configured_fingerprint: Some(fingerprint.to_string()),
         }
     }
 
@@ -552,7 +758,10 @@ mod tests {
         let runtime =
             VectorRuntime::configured(Arc::new(std::sync::atomic::AtomicBool::new(false)));
         let generation = runtime.generation();
-        assert!(runtime.publish(generation, snapshot(generation, "collection-a", "model-a")));
+        assert!(runtime.publish(
+            generation,
+            snapshot(generation, "collection-a", "model-a", "fingerprint-a")
+        ));
         runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
         runtime
     }
@@ -704,7 +913,10 @@ mod tests {
         let attempt_generation = attempt.generation;
         let newer = runtime.begin_generation();
         assert!(newer > attempt_generation);
-        assert!(runtime.publish(newer, snapshot(newer, "collection-b", "model-b")));
+        assert!(runtime.publish(
+            newer,
+            snapshot(newer, "collection-b", "model-b", "fingerprint-b")
+        ));
         runtime.set_configured_fingerprint(Some("fingerprint-b".to_string()));
         runtime.set_requires_rebuild(true);
 
@@ -839,7 +1051,7 @@ mod tests {
         // that pair and its fingerprint together.
         assert!(runtime.publish(
             new_generation,
-            snapshot(new_generation, "collection-b", "model-b")
+            snapshot(new_generation, "collection-b", "model-b", "fingerprint-b")
         ));
         let admitted = runtime
             .try_admit_rebuild()

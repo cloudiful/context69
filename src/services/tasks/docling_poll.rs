@@ -42,6 +42,20 @@ pub(super) trait DoclingRemoteOps: Send + Sync {
         file_id: Uuid,
         converted: ConvertedDocument,
     ) -> Result<Value, UnifiedIngestError>;
+    /// The converted sections under an optional projected file view.
+    ///
+    /// The default keeps every existing implementation on its own parser; the
+    /// library service overrides it so an ordinary replacement parses with the
+    /// announced filename and media type.
+    async fn remote_sections_with_view(
+        &self,
+        file_id: Uuid,
+        converted: ConvertedDocument,
+        view: Option<&crate::services::library::ReplacementFileAttributes>,
+    ) -> Result<Value, UnifiedIngestError> {
+        let _ = view;
+        self.remote_sections(file_id, converted).await
+    }
     async fn note_remote_failure(&self, error: &UnifiedIngestError);
     async fn note_remote_success(&self);
     /// Externalize the just-committed inline sections for a group-owned item.
@@ -81,6 +95,16 @@ impl DoclingRemoteOps for LibraryService {
         converted: ConvertedDocument,
     ) -> Result<Value, UnifiedIngestError> {
         self.sections_for_remote_result(file_id, converted).await
+    }
+
+    async fn remote_sections_with_view(
+        &self,
+        file_id: Uuid,
+        converted: ConvertedDocument,
+        view: Option<&crate::services::library::ReplacementFileAttributes>,
+    ) -> Result<Value, UnifiedIngestError> {
+        self.sections_for_remote_result_with_view(file_id, converted, view)
+            .await
     }
 
     async fn note_remote_failure(&self, error: &UnifiedIngestError) {
@@ -187,6 +211,7 @@ pub(super) async fn run_docling_stage_blocking(
     item: &mut crate::db::ClaimedItem,
     file_id: Uuid,
     job: StoredDoclingRemoteJob,
+    view: Option<&crate::services::library::ReplacementFileAttributes>,
 ) -> Result<ProcessResult> {
     let mut attempt: i32 = 0;
     // The captured root is the endpoint the job was submitted to: a settings
@@ -313,7 +338,10 @@ pub(super) async fn run_docling_stage_blocking(
             }
             _ => return Ok(lease_lost()),
         };
-        let sections = match ops.remote_sections(file_id, converted).await {
+        let sections = match ops
+            .remote_sections_with_view(file_id, converted, view)
+            .await
+        {
             Ok(sections) => sections,
             Err(error) => {
                 if !error.retryable {
@@ -519,7 +547,7 @@ mod tests {
             .await
             .expect("remote job");
         let ops = ScriptedRemote::pending_then_success();
-        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job)
+        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job, None)
             .await
             .expect("blocking run");
         assert!(
@@ -869,7 +897,7 @@ mod tests {
             .await
             .expect("remote job");
         let ops = ScriptedRemote::pending_then_success();
-        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job)
+        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job, None)
             .await
             .expect("blocking run");
         match outcome {

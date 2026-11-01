@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The registry admission usage of one file and the whole registry.\n--\n-- The entries of a permanently tombstoned file are excluded: the file entity\n-- exclusion of the same snapshot dominates every point of that file, including\n-- a point a late write adds, so such an entry never consumes admission budget\n-- again. The predicate is the exact one of the snapshot read_state, so the\n-- admission decision and the visible snapshot always agree.\nSELECT\n    COALESCE(sum(GREATEST(reserved_ids, cardinality(staged_ids)::bigint + cardinality(retired_ids)::bigint)), 0)::bigint AS \"total!\",\n    COALESCE(sum(GREATEST(reserved_ids, cardinality(staged_ids)::bigint + cardinality(retired_ids)::bigint)) FILTER (WHERE file_id = $1), 0)::bigint AS \"file_total!\",\n    COALESCE(bool_or(CASE WHEN phase = 'staging' THEN staged_ids && $2::uuid[] ELSE retired_ids && $2::uuid[] END), false) AS \"overlaps!\"\nFROM context69.search_registry_entries r\nWHERE NOT EXISTS (\n    SELECT 1\n    FROM context69.library_deleted_entities d\n    WHERE d.file_id = r.file_id\n)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "file_total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "overlaps!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "31b179fb0d8e3acc37359323b6b5a987b8c6545548fb501db06582aaac07367a"
+}

@@ -1,0 +1,124 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT run_id, file_id, document_ids, staged_ids, retired_ids,\n       baseline_record_hash, staged_record_hash, generation, phase\nFROM context69.search_registry_entries\nWHERE run_id = $1\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "run_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "document_ids",
+        "type_info": "Int8Array",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "document_ids"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "staged_ids",
+        "type_info": "UuidArray",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "staged_ids"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "retired_ids",
+        "type_info": "UuidArray",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "retired_ids"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "baseline_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "baseline_record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "staged_record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "staged_record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "phase",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "phase"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "f2e912b5a8b2da02d02b21236643f4a9f8842d7cc20c1a5d51f3e370033f0921"
+}

@@ -20,13 +20,14 @@ fn identity(model: &str) -> EmbeddingIdentity {
     }
 }
 
-fn snapshot(generation: u64, model: &str) -> super::VectorSnapshot {
+fn snapshot(generation: u64, model: &str, fingerprint: &str) -> super::VectorSnapshot {
     super::VectorSnapshot {
         embedding: Arc::new(TestEmbeddingProvider),
         identity: Some(identity(model)),
         index: Arc::new(QdrantIndex::for_test("test", 8)),
         collection: "test".to_string(),
         generation,
+        configured_fingerprint: Some(fingerprint.to_string()),
     }
 }
 
@@ -34,7 +35,7 @@ fn snapshot(generation: u64, model: &str) -> super::VectorSnapshot {
 fn a_stale_publish_is_rejected_and_keeps_the_current_generation() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
     let first = runtime.generation();
-    assert!(runtime.publish(first, snapshot(first, "model-a")));
+    assert!(runtime.publish(first, snapshot(first, "model-a", "fingerprint-a")));
     assert!(runtime.is_ready());
 
     let second = runtime.begin_generation();
@@ -42,7 +43,7 @@ fn a_stale_publish_is_rejected_and_keeps_the_current_generation() {
     assert!(!runtime.is_ready());
 
     // The attempt that started under the first generation is stale.
-    assert!(!runtime.publish(first, snapshot(first, "model-b")));
+    assert!(!runtime.publish(first, snapshot(first, "model-b", "fingerprint-a")));
     let current = runtime.snapshot().expect("the old snapshot is retained");
     assert_eq!(current.generation, first);
     assert_eq!(
@@ -53,7 +54,7 @@ fn a_stale_publish_is_rejected_and_keeps_the_current_generation() {
         Some("model-a")
     );
 
-    assert!(runtime.publish(second, snapshot(second, "model-c")));
+    assert!(runtime.publish(second, snapshot(second, "model-c", "fingerprint-a")));
     assert!(runtime.is_ready());
 }
 
@@ -82,13 +83,13 @@ fn a_stale_failure_cannot_clear_a_newer_generation() {
 fn a_rebuild_fence_keeps_the_pair_unready_until_its_own_generation_completes() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
     let base = runtime.generation();
-    runtime.publish(base, snapshot(base, "model-a"));
+    runtime.publish(base, snapshot(base, "model-a", "fingerprint-a"));
 
     let rebuild = runtime.begin_rebuild();
     assert!(runtime.is_rebuilding());
     assert!(!runtime.is_ready());
     // Publishing the matching candidate during a rebuild keeps readiness off.
-    assert!(runtime.publish(rebuild, snapshot(rebuild, "model-a")));
+    assert!(runtime.publish(rebuild, snapshot(rebuild, "model-a", "fingerprint-a")));
     assert!(!runtime.is_ready());
 
     // A settings change supersedes the rebuild.
@@ -103,7 +104,7 @@ fn a_rebuild_fence_keeps_the_pair_unready_until_its_own_generation_completes() {
 fn replacing_provider_rejects_an_identity_change() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     let before = runtime.snapshot().expect("published snapshot");
     let index_ptr = Arc::as_ptr(&before.index);
 
@@ -160,7 +161,7 @@ fn commit_readiness_only_admits_a_published_unfenced_pair() {
     assert!(!flag.load(Ordering::Acquire));
 
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     assert!(runtime.is_ready());
     assert!(flag.load(Ordering::Acquire));
 
@@ -175,7 +176,7 @@ fn commit_readiness_only_admits_a_published_unfenced_pair() {
 fn a_stale_rebuild_completion_cannot_reopen_a_newer_generation() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let rebuild = runtime.begin_rebuild();
-    assert!(runtime.publish(rebuild, snapshot(rebuild, "model-a")));
+    assert!(runtime.publish(rebuild, snapshot(rebuild, "model-a", "fingerprint-a")));
     assert!(!runtime.is_ready(), "a published pair stays fenced");
 
     let newer = runtime.begin_generation();
@@ -190,7 +191,7 @@ fn a_stale_rebuild_completion_cannot_reopen_a_newer_generation() {
 fn a_stale_readiness_restore_is_rejected() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let first = runtime.generation();
-    assert!(runtime.publish(first, snapshot(first, "model-a")));
+    assert!(runtime.publish(first, snapshot(first, "model-a", "fingerprint-a")));
 
     let newer = runtime.begin_generation();
     assert!(!runtime.restore_ready(first));
@@ -202,7 +203,7 @@ fn a_stale_readiness_restore_is_rejected() {
 fn a_ready_read_returns_the_pair_of_its_own_generation() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
 
     let ready = runtime.require_ready().expect("published pair is ready");
     assert_eq!(ready.generation, generation);
@@ -235,13 +236,17 @@ fn a_ready_read_returns_the_pair_of_its_own_generation() {
 fn a_same_space_rekey_preserves_the_index_generation_and_collection() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     let before = runtime.snapshot().expect("published pair");
     let index_ptr = Arc::as_ptr(&before.index);
     let cache_before = runtime.cache_identity();
 
     let replacement = Arc::new(TestEmbeddingProvider);
-    assert!(runtime.rekey_same_space(replacement, identity("model-alias")));
+    assert!(runtime.rekey_same_space(
+        replacement,
+        identity("model-alias"),
+        Some("rekeyed-fingerprint".to_string())
+    ));
 
     let after = runtime.snapshot().expect("rekeyed pair");
     assert_eq!(after.generation, generation, "the generation is preserved");
@@ -270,36 +275,142 @@ fn a_same_space_rekey_preserves_the_index_generation_and_collection() {
 fn a_same_space_rekey_rejects_a_dimension_change_rebuild_or_missing_pair() {
     let unconfigured = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     assert!(
-        !unconfigured.rekey_same_space(Arc::new(TestEmbeddingProvider), identity("model-a")),
+        !unconfigured.rekey_same_space(
+            Arc::new(TestEmbeddingProvider),
+            identity("model-a"),
+            Some("rekeyed-fingerprint".to_string())
+        ),
         "no published pair cannot be rekeyed"
     );
 
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     assert!(
         !runtime.rekey_same_space(
             Arc::new(TestEmbeddingProvider),
             EmbeddingIdentity {
                 dimensions: 16,
                 ..identity("model-a")
-            }
+            },
+            Some("rekeyed-fingerprint".to_string())
         ),
         "a different dimension must never rekey the live pair"
     );
     let rebuild = runtime.begin_rebuild();
     assert!(
-        !runtime.rekey_same_space(Arc::new(TestEmbeddingProvider), identity("model-a")),
+        !runtime.rekey_same_space(
+            Arc::new(TestEmbeddingProvider),
+            identity("model-a"),
+            Some("rekeyed-fingerprint".to_string())
+        ),
         "a rebuild fence rejects the rekey"
     );
     assert!(runtime.fail_rebuild(rebuild));
+}
+
+/// A reconfiguration never relabels the published pair.
+///
+/// The desired identity of the node moves forward while the old pair is still
+/// published. The pair keeps the identity it was published with, so a rebuild
+/// can tell that the pair belongs to another configuration and refuses it
+/// instead of re-embedding the old provider under the newer identity.
+#[test]
+fn a_reconfiguration_never_relabels_the_published_pair_with_the_new_identity() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
+    runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
+
+    assert!(
+        runtime
+            .apply_runtime_reconfiguration(Some("fingerprint-b".to_string()), || true)
+            .is_some(),
+        "the reconfiguration is applied"
+    );
+
+    let (published, fingerprint) = runtime.published_pair().expect("the published pair");
+    assert_eq!(
+        fingerprint, "fingerprint-a",
+        "the published pair keeps the identity it was published with"
+    );
+    assert_eq!(
+        published
+            .identity
+            .as_ref()
+            .map(|identity| identity.model.as_str()),
+        Some("model-a"),
+        "the published provider is unchanged"
+    );
+    assert!(
+        matches!(
+            runtime.try_admit_rebuild(),
+            Err(super::RebuildAdmissionError::StaleSnapshot)
+        ),
+        "a rebuild refuses a pair that belongs to another configuration"
+    );
+}
+
+/// A pair without a fingerprint has no usable identity.
+#[test]
+fn a_pair_without_a_fingerprint_cannot_be_rebuilt() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+    let mut candidate = snapshot(generation, "model-a", "fingerprint-a");
+    candidate.configured_fingerprint = None;
+    runtime.publish(generation, candidate);
+
+    assert!(runtime.published_pair().is_none());
+    assert!(
+        matches!(
+            runtime.try_admit_rebuild(),
+            Err(super::RebuildAdmissionError::MissingFingerprint)
+        ),
+        "a rebuild refuses a pair without an identity"
+    );
+}
+
+/// A same-space rekey moves the pair and its identity in one write.
+#[test]
+fn a_same_space_rekey_updates_the_pair_and_its_identity_together() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
+    runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
+
+    assert!(runtime.rekey_same_space(
+        Arc::new(TestEmbeddingProvider),
+        identity("model-alias"),
+        Some("fingerprint-b".to_string())
+    ));
+
+    let (published, fingerprint) = runtime.published_pair().expect("the rekeyed pair");
+    assert_eq!(fingerprint, "fingerprint-b");
+    assert_eq!(
+        published
+            .identity
+            .as_ref()
+            .map(|identity| identity.model.as_str()),
+        Some("model-alias")
+    );
+    assert_eq!(
+        runtime.configured_fingerprint().as_deref(),
+        Some("fingerprint-b"),
+        "the desired identity moves with the pair"
+    );
+
+    let unconfigured = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    assert!(
+        !unconfigured.rekey_same_space(Arc::new(TestEmbeddingProvider), identity("model-a"), None),
+        "a rekey without a fingerprint is refused"
+    );
 }
 
 #[test]
 fn an_identity_transition_and_a_manual_rebuild_start_are_mutually_exclusive() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
 
     assert!(runtime.try_begin_identity_transition());
@@ -331,7 +442,7 @@ fn a_persisted_identity_mismatch_keeps_readiness_off_until_an_explicit_success()
     runtime.set_requires_rebuild(true);
 
     // Publishing a probeable pair is not readiness for a mismatched space.
-    assert!(runtime.publish(generation, snapshot(generation, "model-a")));
+    assert!(runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a")));
     assert!(!runtime.is_ready());
     assert!(runtime.requires_rebuild());
     assert!(
@@ -376,7 +487,7 @@ fn a_configured_fingerprint_is_recorded_without_affecting_readiness() {
 fn a_failed_rebuild_latches_the_requirement_from_a_ready_start() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     assert!(runtime.is_ready());
     assert!(!runtime.requires_rebuild());
 
@@ -409,7 +520,7 @@ fn a_failed_rebuild_latches_the_requirement_from_a_ready_start() {
 fn a_stale_failed_rebuild_cannot_latch_a_newer_generation() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     let rebuild = runtime.begin_rebuild();
 
     let newer = runtime.begin_generation();
@@ -425,7 +536,7 @@ fn a_stale_failed_rebuild_cannot_latch_a_newer_generation() {
 fn a_rebuild_cannot_start_from_a_generation_whose_snapshot_it_did_not_read() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
 
     // A destination change advances the generation and retains the old
@@ -449,7 +560,7 @@ fn a_rebuild_cannot_start_from_a_generation_whose_snapshot_it_did_not_read() {
 
     // Once the newer destination publishes its own pair it is admitted.
     let current = runtime.generation();
-    runtime.publish(current, snapshot(current, "model-b"));
+    runtime.publish(current, snapshot(current, "model-b", "fingerprint-b"));
     let admitted = runtime
         .try_admit_rebuild()
         .expect("the current replacement generation is admitted");
@@ -470,7 +581,7 @@ fn a_rebuild_cannot_start_from_a_generation_whose_snapshot_it_did_not_read() {
 fn a_superseded_successful_settlement_clears_nothing() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
     let rebuild = runtime.begin_rebuild();
 
@@ -484,7 +595,7 @@ fn a_superseded_successful_settlement_clears_nothing() {
     assert!(!runtime.restore_ready(newer));
 
     // The current generation settles normally once its own pair is published.
-    runtime.publish(newer, snapshot(newer, "model-b"));
+    runtime.publish(newer, snapshot(newer, "model-b", "fingerprint-b"));
     runtime.set_configured_fingerprint(Some("fingerprint-b".to_string()));
     let admitted = runtime.try_admit_rebuild().expect("fence opens");
     assert!(runtime.complete_rebuild_success(admitted.generation));
@@ -504,7 +615,8 @@ fn concurrent_generations_never_expose_an_incoherent_ready_pair() {
                 for _ in 0..rounds {
                     let generation = runtime.begin_generation();
                     // A concurrent generation may supersede this one first.
-                    let _ = runtime.publish(generation, snapshot(generation, "model-a"));
+                    let _ = runtime
+                        .publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
                 }
             });
         }
@@ -541,7 +653,7 @@ fn concurrent_generations_never_expose_an_incoherent_ready_pair() {
 fn runtime_reconfiguration_and_rebuild_admission_are_one_exclusive_step() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
     runtime.set_configured_fingerprint(Some("fingerprint-a".to_string()));
 
     // A rebuild that owns the runtime refuses the admission, not the other way
@@ -570,7 +682,10 @@ fn runtime_reconfiguration_and_rebuild_admission_are_one_exclusive_step() {
 
     // A rebuild of the new published pair is admitted once the admission is
     // released; the retained pre-change pair alone would not be.
-    runtime.publish(applied_generation, snapshot(applied_generation, "model-b"));
+    runtime.publish(
+        applied_generation,
+        snapshot(applied_generation, "model-b", "fingerprint-b"),
+    );
     assert!(runtime.try_begin_rebuild().is_some());
 }
 
@@ -578,7 +693,7 @@ fn runtime_reconfiguration_and_rebuild_admission_are_one_exclusive_step() {
 fn an_unchanged_runtime_reconfiguration_keeps_readiness() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
-    runtime.publish(generation, snapshot(generation, "model-a"));
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
 
     assert!(runtime.try_begin_identity_transition());
     let (changed, applied_generation) = runtime

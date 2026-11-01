@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The current replacement run another task item holds on a library file.\n--\n-- Only an unresolved current run fences an ordinary replacement. Retired rows\n-- are history and a resolved row belongs to a finished switch, so neither may\n-- block a new item from replacing the same file.\nSELECT item_id\nFROM context69.library_ingest_runs\nWHERE file_id = $1\n  AND item_id <> $2\n  AND resolved_at IS NULL\n  AND retired_at IS NULL\nLIMIT 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "item_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d64cf9d8e1a0d88c3bfba7e75e5eab483111fc266faa832ce5b0884eedbf0a98"
+}

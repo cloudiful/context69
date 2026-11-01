@@ -14,6 +14,7 @@ import type { DocumentResponse } from "@/services/api";
 import { HighlightedText } from "@/features/search/search-highlight";
 
 import { DocumentMarkdown } from "./document-markdown";
+import { DocumentResultsPanel } from "./document-results";
 import {
   DOCUMENT_PAGE_SIZE,
   documentBlocks,
@@ -334,6 +335,11 @@ export function DocumentPage() {
               </Button>
             </div>
           ) : null}
+
+          <DocumentResultsPanel
+            documentId={state.document.document_id}
+            groupPath={state.document.group_path}
+          />
 
           <ProvenancePanel document={state.document} />
         </div>

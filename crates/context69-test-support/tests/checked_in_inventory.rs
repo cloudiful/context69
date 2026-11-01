@@ -66,6 +66,7 @@ fn opt_in_classes_are_never_selected_by_the_ordinary_run() {
             TestClass::AppStartup => "app_startup",
             TestClass::UpgradeRecovery => "upgrade_recovery",
             TestClass::Db => "db",
+            TestClass::External => "external",
         })
         .collect();
     assert!(
@@ -74,6 +75,10 @@ fn opt_in_classes_are_never_selected_by_the_ordinary_run() {
             || classes.contains("upgrade_recovery"),
         "the opt-in classes are represented, so a disabled opt-in is skipped \
          rather than silently counted as a pass"
+    );
+    assert!(
+        classes.contains("external"),
+        "external tests are represented"
     );
     for label in manifest.target_labels() {
         let ordinary = manifest.selection(&label, &[TestClass::Db]);
@@ -84,6 +89,7 @@ fn opt_in_classes_are_never_selected_by_the_ordinary_run() {
                     + manifest
                         .selection(&label, &[TestClass::UpgradeRecovery])
                         .len()
+                    + manifest.selection(&label, &[TestClass::External]).len()
                     == manifest
                         .entries
                         .iter()
@@ -107,9 +113,10 @@ fn the_database_selection_of_every_target_is_non_empty_or_opt_in_only() {
                 TestClass::UpgradeRecovery,
             ],
         );
+        let external = manifest.selection(&label, &[TestClass::External]);
         assert!(
-            !db.is_empty() || !opt_ins.is_empty(),
-            "{label} is never selected by any invocation"
+            !db.is_empty() || !opt_ins.is_empty() || !external.is_empty(),
+            "{label} has no database, opt-in, or external tests"
         );
     }
 }

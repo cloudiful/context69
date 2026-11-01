@@ -12,11 +12,15 @@ SELECT artifact.item_id,
        artifact.encoding,
        artifact.storage_object_id,
        task.group_id AS task_group_id,
-       object.group_id AS object_group_id,
-       object.sha256,
-       object.size_bytes,
-       object.object_key,
-       object.storage_backend
+       -- The object columns come from an optional LEFT JOIN, so every one of
+       -- them is nullable whatever the object row contains. The explicit
+       -- expression makes that projection stable instead of depending on how a
+       -- given describe pass treats the joined table's column constraints.
+       COALESCE(object.group_id, NULL::BIGINT) AS object_group_id,
+       COALESCE(object.sha256, NULL::TEXT) AS sha256,
+       COALESCE(object.size_bytes, NULL::BIGINT) AS size_bytes,
+       COALESCE(object.object_key, NULL::TEXT) AS object_key,
+       COALESCE(object.storage_backend, NULL::TEXT) AS storage_backend
 FROM context69.task_item_artifacts AS artifact
 JOIN context69.task_items AS item
   ON item.id = artifact.item_id

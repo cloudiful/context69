@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- update_library_business_fields.sql (issue 50, phase 2; issue 1138, P19)\n--\n-- Rewrite the business fields of one document under a compare-and-set on its\n-- current record hash. $8 is the expected current hash the caller locked and\n-- read in the same transaction; a mismatch updates nothing.\n--\n-- Returning the updated id lets the caller detect a CAS miss (zero rows) even\n-- when the record hash does not change.\nUPDATE context69.documents\nSET external_id = $2,\n    source_uri = $3,\n    published_at = $4,\n    updated_at_source = $5,\n    metadata_json = $6,\n    record_hash = $7,\n    updated_at = now()\nWHERE id = $1\n  AND record_hash IS NOT DISTINCT FROM $8\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Timestamptz",
+        "Jsonb",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f8d3cda29474a8ea93cda098d3e93d658e7f9996cf7f02dc7a4c25b094db134c"
+}

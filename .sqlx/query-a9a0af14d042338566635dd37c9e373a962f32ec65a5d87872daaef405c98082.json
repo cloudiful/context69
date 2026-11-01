@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Whether a library file already carries another task item's durable ingest\n-- history.\n--\n-- Translation-only registry rows have no durable ingest run, so they never\n-- trigger the legacy writer guard. A row here means a replacement (or its\n-- retained history) owns this file and the destructive legacy reindex must not\n-- run.\nSELECT EXISTS (\n    SELECT 1\n    FROM context69.library_ingest_runs\n    WHERE file_id = $1\n      AND item_id <> $2\n) AS \"exists!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a9a0af14d042338566635dd37c9e373a962f32ec65a5d87872daaef405c98082"
+}

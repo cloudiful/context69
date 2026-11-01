@@ -5,12 +5,123 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use bytes::Bytes;
 
 use crate::domain_errors::DomainError;
-use reqwest::{Client, NoProxy, Proxy, Url};
+use reqwest::{Client, NoProxy, Proxy, StatusCode, Url, header::HeaderMap};
 use tokio::net::lookup_host;
 
 const TRUSTED_PROXY_ENV_VARS: [&str; 4] = ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"];
+
+/// The body of one fetched remote response, streamed in chunks.
+///
+/// The trait keeps the download policy independent of the HTTP client: the
+/// production adapter wraps a `reqwest` response, and an integration test may
+/// supply scripted bytes.
+#[async_trait::async_trait]
+pub trait RemoteBody: Send {
+    async fn next_chunk(&mut self) -> Result<Option<Bytes>>;
+}
+
+/// One fetched remote response, as the download policy consumes it.
+///
+/// The response carries the status, the headers, the announced content length,
+/// and the peer address the answer came from. The peer address is what the
+/// shared peer policy checks, so a scripted response is refused exactly like a
+/// real one when it names a private peer.
+pub struct FetchedRemoteResponse {
+    pub status: StatusCode,
+    pub headers: HeaderMap,
+    pub content_length: Option<u64>,
+    pub remote_address: Option<SocketAddr>,
+    /// The typed transport failure of a non-success status, when the transport
+    /// produced one. The retry policy reads the status from it.
+    status_error: Option<reqwest::Error>,
+    body: Box<dyn RemoteBody>,
+}
+
+impl FetchedRemoteResponse {
+    /// Take the typed transport failure of a non-success status.
+    pub fn take_status_error(&mut self) -> Option<reqwest::Error> {
+        self.status_error.take()
+    }
+
+    /// The streamed body of this response.
+    pub fn into_body(self) -> Box<dyn RemoteBody> {
+        self.body
+    }
+
+    /// A scripted response for an integration test.
+    ///
+    /// The status, the headers, the peer address, and the bytes are the only
+    /// things a test may supply: every guard the download policy applies stays
+    /// in production code.
+    #[cfg(any(test, feature = "integration-test-helpers"))]
+    pub fn for_test(
+        status: StatusCode,
+        headers: HeaderMap,
+        remote_address: Option<SocketAddr>,
+        body: Bytes,
+    ) -> Self {
+        Self {
+            status,
+            headers,
+            content_length: Some(body.len() as u64),
+            remote_address,
+            status_error: None,
+            body: Box::new(BytesBody(body)),
+        }
+    }
+
+    /// A scripted response whose body the caller supplies.
+    #[cfg(any(test, feature = "integration-test-helpers"))]
+    pub fn for_test_with_body(
+        status: StatusCode,
+        headers: HeaderMap,
+        remote_address: Option<SocketAddr>,
+        body: Box<dyn RemoteBody>,
+    ) -> Self {
+        Self {
+            status,
+            headers,
+            content_length: None,
+            remote_address,
+            status_error: None,
+            body,
+        }
+    }
+}
+
+/// A body that yields the scripted bytes in one chunk.
+#[cfg(any(test, feature = "integration-test-helpers"))]
+struct BytesBody(Bytes);
+
+#[cfg(any(test, feature = "integration-test-helpers"))]
+#[async_trait::async_trait]
+impl RemoteBody for BytesBody {
+    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
+        Ok(if self.0.is_empty() {
+            None
+        } else {
+            Some(self.0.split_to(self.0.len()))
+        })
+    }
+}
+
+/// The HTTP transport the remote download policy fetches through.
+///
+/// The production transport is the [`RemoteTransport`] of this module. An
+/// integration test may inject a scripted one, but the policy around it —
+/// URL normalization, the public-address check, the redirect check, the peer
+/// check, and the size and type guards — stays in production code.
+#[async_trait::async_trait]
+pub trait RemoteHttpTransport: Send + Sync {
+    /// Fetch one URL and answer with the response the policy inspects.
+    async fn get(&self, url: Url) -> Result<FetchedRemoteResponse>;
+
+    /// The trusted proxy addresses this transport accepts as a peer.
+    fn trusted_proxy_addresses(&self) -> &HashSet<SocketAddr>;
+}
 
 pub(crate) struct RemoteTransport {
     client: Client,
@@ -52,12 +163,61 @@ impl RemoteTransport {
     }
 
     pub(crate) fn validate_peer(&self, address: Option<SocketAddr>) -> Result<()> {
-        if address.is_some_and(|address| {
-            is_public_ip(address.ip()) || self.trusted_proxy_addresses.contains(&address)
-        }) {
-            return Ok(());
-        }
-        Err(DomainError::invalid_argument("remote_url_blocked").into())
+        validate_peer_address(address, &self.trusted_proxy_addresses)
+    }
+}
+
+/// The shared peer policy of every remote transport.
+///
+/// A peer must be a public address or a configured trusted proxy address;
+/// anything else is refused before a byte of the body is read. The production
+/// transport and a scripted test transport answer through this one policy.
+pub(crate) fn validate_peer_address(
+    address: Option<SocketAddr>,
+    trusted_proxy_addresses: &HashSet<SocketAddr>,
+) -> Result<()> {
+    if address.is_some_and(|address| {
+        is_public_ip(address.ip()) || trusted_proxy_addresses.contains(&address)
+    }) {
+        return Ok(());
+    }
+    Err(DomainError::invalid_argument("remote_url_blocked").into())
+}
+
+/// The body of a production response, streamed from the `reqwest` response.
+struct ReqwestBody(reqwest::Response);
+
+#[async_trait::async_trait]
+impl RemoteBody for ReqwestBody {
+    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
+        self.0.chunk().await.map_err(|error| {
+            DomainError::upstream_timeout(format!("remote_download_failed: {error}")).into()
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl RemoteHttpTransport for RemoteTransport {
+    async fn get(&self, url: Url) -> Result<FetchedRemoteResponse> {
+        let response = self.client.get(url).send().await.map_err(|error| {
+            anyhow::Error::from(DomainError::upstream_timeout(format!(
+                "remote_download_failed: {error}"
+            )))
+        })?;
+        let status = response.status();
+        let status_error = response.error_for_status_ref().err();
+        Ok(FetchedRemoteResponse {
+            status,
+            headers: response.headers().clone(),
+            content_length: response.content_length(),
+            remote_address: response.remote_addr(),
+            status_error,
+            body: Box::new(ReqwestBody(response)),
+        })
+    }
+
+    fn trusted_proxy_addresses(&self) -> &HashSet<SocketAddr> {
+        &self.trusted_proxy_addresses
     }
 }
 
@@ -173,6 +333,28 @@ mod tests {
                 .is_err()
         );
         assert!(transport.validate_peer(None).is_err());
+    }
+
+    /// The peer policy is one function, so the production transport and a
+    /// scripted transport answer through the same verdict.
+    #[test]
+    fn the_shared_peer_policy_accepts_a_public_or_trusted_peer_only() {
+        let trusted: SocketAddr = "10.0.0.8:20173".parse().unwrap();
+        let trusted_addresses = HashSet::from([trusted]);
+
+        assert!(
+            validate_peer_address(Some("8.8.8.8:443".parse().unwrap()), &trusted_addresses).is_ok()
+        );
+        assert!(validate_peer_address(Some(trusted), &trusted_addresses).is_ok());
+        assert!(
+            validate_peer_address(Some("10.0.0.9:443".parse().unwrap()), &trusted_addresses)
+                .is_err()
+        );
+        assert!(
+            validate_peer_address(Some("127.0.0.1:443".parse().unwrap()), &trusted_addresses)
+                .is_err()
+        );
+        assert!(validate_peer_address(None, &trusted_addresses).is_err());
     }
 
     #[test]

@@ -14,9 +14,9 @@ use crate::ranking::{
 };
 use crate::{
     AccessScope, CachedRerankItemScore, RerankClient, RerankDocument, SearchCache,
-    SearchEmbeddingProvider, SearchIndex, SearchRepository, SearchScopeResolver, SearchSettings,
-    StoredRerankItemScore, rerank_hits_from_item_scores, rerank_item_scores_complete,
-    rerank_item_scores_from_hits, sort_cached_item_scores,
+    SearchEmbeddingProvider, SearchExclusions, SearchIndex, SearchRepository, SearchScopeResolver,
+    SearchSettings, StoredRerankItemScore, rerank_hits_from_item_scores,
+    rerank_item_scores_complete, rerank_item_scores_from_hits, sort_cached_item_scores,
 };
 
 #[path = "probe.rs"]
@@ -222,6 +222,7 @@ impl SearchService {
         settings: &SearchSettings,
         query_hash: &str,
         vector_limit: usize,
+        exclusions: &SearchExclusions,
         probe: &mut SearchProbe,
     ) -> Result<CandidateWindow> {
         let embed_started = Instant::now();
@@ -255,7 +256,10 @@ impl SearchService {
             let (vector, keyword) = tokio::join!(
                 async {
                     let started = Instant::now();
-                    let result = self.index.search(vector, &vector_request, scope).await;
+                    let result = self
+                        .index
+                        .search(vector, &vector_request, scope, exclusions)
+                        .await;
                     (result, started.elapsed())
                 },
                 async {
@@ -270,7 +274,10 @@ impl SearchService {
             (vector, Some((keyword, keyword_limit)))
         } else {
             let started = Instant::now();
-            let result = self.index.search(vector, &vector_request, scope).await;
+            let result = self
+                .index
+                .search(vector, &vector_request, scope, exclusions)
+                .await;
             ((result, started.elapsed()), None)
         };
         probe.vector_elapsed_ms = vector_result.1.as_millis() as u64;
@@ -538,130 +545,158 @@ impl SearchService {
         if request.sort == context69_contracts_search::SearchSort::Date {
             return self.search_by_date(user_id, request).await;
         }
-        let mut probe = SearchProbe::new();
         let offset = self.resolved_offset(&request)?;
         let requested_limit = offset
             .checked_add(request.limit)
             .ok_or_else(|| DomainError::invalid_argument("search result limit is too large"))?;
         // Probe one item beyond the requested window while staying under the cap.
         let (fetch_limit, can_probe_window) = probe_fetch_limit(requested_limit);
-        let scope = self
-            .scope_resolver
-            .access_scope(user_id, request.group_path.clone())
-            .await?;
-        let settings = self
-            .repository
-            .get_search_settings()
-            .await?
-            .unwrap_or_else(SearchSettings::default);
-        let generation = self.repository.get_search_generation().await?;
-        let request_hash = SearchCache::request_hash(&request);
-        // The response cache is scoped by the live embedding identity too, so a
-        // same-width model/base change cannot serve a pre-change page.
-        let settings_hash =
-            SearchCache::settings_hash_with_identity(&settings, &self.cache_embedding_identity());
-        let query_hash = SearchCache::query_hash(&request.query);
-        let cursor_ctx = cursor_context(&request, request.limit, generation, &settings);
-        let vector_multiplier = if request.metadata_filters.is_empty() {
-            1
-        } else {
-            8
-        };
-        // The vector fetch must cover at least the rerank snapshot
-        // (`settings.candidate_limit`) so a single page request still has
-        // enough candidates to produce a stable ordering that other pages
-        // can reproduce. `max(80, candidate_limit)` covers both small and
-        // larger settings.
-        let rerank_snapshot_size = settings.candidate_limit.max(1);
-        let vector_limit = fetch_limit
-            .max(80)
-            .max(rerank_snapshot_size)
-            .saturating_mul(vector_multiplier)
-            .min(MAX_SEARCH_CANDIDATE_WINDOW);
-        probe.vector_limit = vector_limit;
-        // The response cache stores pages of the ordering that produced them;
-        // a cursor pins the request to a specific ordering epoch, so cursor
-        // requests always run the pipeline and validate their ordering instead
-        // of trusting a cached payload.
-        if let Some(response) = self
-            .cache
-            .get_search_response(generation, &request_hash, &settings_hash)
-            .await
-            .filter(|_| request.cursor.is_none())
-        {
-            probe.response_cache_hit = true;
-            probe.fetch_limit = fetch_limit;
-            probe.offset = offset;
-            probe.limit = request.limit;
-            probe.has_more = response.pagination.has_more;
-            probe.result_count = response.items.len();
-            probe.log();
-            return Ok(response);
-        }
 
-        let collected = self
-            .collect_candidates(
-                &request,
-                &scope,
-                &settings,
-                &query_hash,
-                vector_limit,
-                &mut probe,
-            )
-            .await?;
-        let window = PageWindow {
-            offset,
-            limit: request.limit,
-            requested_limit,
-            fetch_limit,
-            can_probe_window,
-            upstream_capped: collected.upstream_capped,
-        };
-        let ctx = RerankContext {
-            settings: &settings,
-            request: &request,
-            generation,
-            query_hash: &query_hash,
-            fetch_limit,
-        };
-        let (results, rerank_applied) = if collected.hybrid {
-            self.rerank_stage(collected.candidates, ctx, &mut probe)
+        // Optimistic registry-epoch coherence (issue #1138 P3): every attempt
+        // snapshots the registry before any contributing read and re-checks
+        // the epoch after the response is assembled. A moved epoch discards the
+        // attempt — including its cache write — and the search repeats before
+        // returning. No fixed retry count exists: the loop answers only from a
+        // pass whose epoch stayed stable, so any bound would fake consistency.
+        loop {
+            let registry = self.repository.read_search_registry_state().await?;
+            let exclusions = registry.search_exclusions();
+            let mut probe = SearchProbe::new();
+            let scope = self
+                .scope_resolver
+                .access_scope(user_id, request.group_path.clone())
+                .await?;
+            let settings = self
+                .repository
+                .get_search_settings()
                 .await?
-        } else {
-            // Vector mode has no rerank stage: the local ordering is final.
-            (collected.candidates, false)
-        };
+                .unwrap_or_else(SearchSettings::default);
+            let generation = self.repository.get_search_generation().await?;
+            let request_hash = SearchCache::request_hash(&request);
+            // The response cache is scoped by the live embedding identity too, so a
+            // same-width model/base change cannot serve a pre-change page.
+            let settings_hash = SearchCache::settings_hash_with_identity(
+                &settings,
+                &self.cache_embedding_identity(),
+            );
+            let query_hash = SearchCache::query_hash(&request.query);
+            let cursor_ctx = cursor_context(&request, request.limit, generation, &settings);
+            let vector_multiplier = if request.metadata_filters.is_empty() {
+                1
+            } else {
+                8
+            };
+            // The vector fetch must cover at least the rerank snapshot
+            // (`settings.candidate_limit`) so a single page request still has
+            // enough candidates to produce a stable ordering that other pages
+            // can reproduce. `max(80, candidate_limit)` covers both small and
+            // larger settings.
+            let rerank_snapshot_size = settings.candidate_limit.max(1);
+            let vector_limit = fetch_limit
+                .max(80)
+                .max(rerank_snapshot_size)
+                .saturating_mul(vector_multiplier)
+                .min(MAX_SEARCH_CANDIDATE_WINDOW);
+            probe.vector_limit = vector_limit;
+            // The response cache stores pages of the ordering that produced them;
+            // a cursor pins the request to a specific ordering epoch, so cursor
+            // requests always run the pipeline and validate their ordering instead
+            // of trusting a cached payload. A cached page is coherent from its own
+            // epoch (its key already carries the search generation), so no registry
+            // re-check is needed on a hit.
+            if let Some(response) = self
+                .cache
+                .get_search_response(generation, &request_hash, &settings_hash)
+                .await
+                .filter(|_| request.cursor.is_none())
+            {
+                probe.response_cache_hit = true;
+                probe.fetch_limit = fetch_limit;
+                probe.offset = offset;
+                probe.limit = request.limit;
+                probe.has_more = response.pagination.has_more;
+                probe.result_count = response.items.len();
+                probe.log();
+                return Ok(response);
+            }
 
-        // A cursor is only valid inside the ordering epoch that issued it;
-        // reject cross-ordering use with a clean error instead of silently
-        // serving a differently ordered window.
-        ensure_cursor_ordering(request.cursor.as_deref(), rerank_applied)?;
-        // The cursor also binds the request context (query/filter/limit/
-        // generation/settings). Reject mismatched reuse so a cursor for one
-        // filter set cannot slice a different candidate window.
-        validate_cursor_context(request.cursor.as_deref(), &cursor_ctx)?;
-        // Pagination geometry is offset * limit; a misaligned offset would
-        // silently produce overlapping windows, so reject it up front.
-        validate_cursor_alignment(request.cursor.as_deref())?;
+            let collected = self
+                .collect_candidates(
+                    &request,
+                    &scope,
+                    &settings,
+                    &query_hash,
+                    vector_limit,
+                    &exclusions,
+                    &mut probe,
+                )
+                .await?;
+            let window = PageWindow {
+                offset,
+                limit: request.limit,
+                requested_limit,
+                fetch_limit,
+                can_probe_window,
+                upstream_capped: collected.upstream_capped,
+            };
+            let ctx = RerankContext {
+                settings: &settings,
+                request: &request,
+                generation,
+                query_hash: &query_hash,
+                fetch_limit,
+            };
+            let (results, rerank_applied) = if collected.hybrid {
+                self.rerank_stage(collected.candidates, ctx, &mut probe)
+                    .await?
+            } else {
+                // Vector mode has no rerank stage: the local ordering is final.
+                (collected.candidates, false)
+            };
 
-        let (pagination, items) = finalize_window(results, &window, &cursor_ctx, rerank_applied)?;
-        let response = SearchResponse {
-            query: request.query,
-            items,
-            pagination,
-        };
-        if request.cursor.is_none() {
-            self.cache
-                .set_search_response(generation, &request_hash, &settings_hash, &response)
-                .await;
+            // A cursor is only valid inside the ordering epoch that issued it;
+            // reject cross-ordering use with a clean error instead of silently
+            // serving a differently ordered window.
+            ensure_cursor_ordering(request.cursor.as_deref(), rerank_applied)?;
+            // The cursor also binds the request context (query/filter/limit/
+            // generation/settings). Reject mismatched reuse so a cursor for one
+            // filter set cannot slice a different candidate window.
+            validate_cursor_context(request.cursor.as_deref(), &cursor_ctx)?;
+            // Pagination geometry is offset * limit; a misaligned offset would
+            // silently produce overlapping windows, so reject it up front.
+            validate_cursor_alignment(request.cursor.as_deref())?;
+
+            let (pagination, items) =
+                finalize_window(results, &window, &cursor_ctx, rerank_applied)?;
+            let response = SearchResponse {
+                query: request.query.clone(),
+                items,
+                pagination,
+            };
+            // The re-check is the last read before the response returns, so it
+            // covers the candidate fetch, the keyword fetch, hydration, and the
+            // rerank reads of this attempt.
+            let epoch = self.repository.read_search_registry_epoch().await?;
+            if epoch == registry.epoch {
+                if request.cursor.is_none() {
+                    self.cache
+                        .set_search_response(generation, &request_hash, &settings_hash, &response)
+                        .await;
+                }
+                probe.fetch_limit = fetch_limit;
+                probe.offset = offset;
+                probe.limit = request.limit;
+                probe.has_more = response.pagination.has_more;
+                probe.result_count = response.items.len();
+                probe.log();
+                return Ok(response);
+            }
+            info!(
+                snapshot_epoch = registry.epoch,
+                observed_epoch = epoch,
+                "search registry epoch changed; discarding attempt and retrying"
+            );
         }
-        probe.fetch_limit = fetch_limit;
-        probe.offset = offset;
-        probe.limit = request.limit;
-        probe.has_more = response.pagination.has_more;
-        probe.result_count = response.items.len();
-        probe.log();
-        Ok(response)
     }
 
     /// Run the date-mode (`sort=date`) pipeline for a POST search. The
@@ -671,20 +706,39 @@ impl SearchService {
     /// timestamp, and emits an opaque `c4:` cursor for the next page
     /// when more results are visible. No rerank, no response cache, no
     /// hybrid keyword path.
+    ///
+    /// The page is assembled in full by `run_date_search` and re-checked
+    /// against the registry epoch before it returns: a moved epoch discards
+    /// the page and the walk repeats, so nothing reaches the caller from an
+    /// attempt whose snapshot went stale. The loop has no fixed retry count.
     pub async fn search_by_date(
         &self,
         user_id: Option<i64>,
         request: SearchRequest,
     ) -> Result<SearchResponse> {
-        run_date_search(
-            &*self.repository,
-            &*self.scope_resolver,
-            &*self.embedding,
-            &*self.index,
-            user_id,
-            request,
-        )
-        .await
+        loop {
+            let registry = self.repository.read_search_registry_state().await?;
+            let exclusions = registry.search_exclusions();
+            let response = run_date_search(
+                &*self.repository,
+                &*self.scope_resolver,
+                &*self.embedding,
+                &*self.index,
+                user_id,
+                request.clone(),
+                &exclusions,
+            )
+            .await?;
+            let epoch = self.repository.read_search_registry_epoch().await?;
+            if epoch == registry.epoch {
+                return Ok(response);
+            }
+            info!(
+                snapshot_epoch = registry.epoch,
+                observed_epoch = epoch,
+                "search registry epoch changed; discarding date attempt and retrying"
+            );
+        }
     }
 
     pub async fn get_document(

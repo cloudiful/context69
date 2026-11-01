@@ -1,0 +1,98 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The persistent rebuild barrier of the registry epoch row.\n--\n-- The barrier is read under the epoch row lock, so a caller that locked the\n-- epoch before it reads the barrier sees the state of the same instant as\n-- every other writer.\nSELECT\n    rebuild_state,\n    rebuild_owner_item,\n    rebuild_owner_token,\n    rebuild_fingerprint,\n    rebuild_collection,\n    rebuild_started_at,\n    rebuild_error\nFROM context69.search_registry_epoch\nWHERE id = 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rebuild_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_state"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rebuild_owner_item",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_owner_item"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rebuild_owner_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_owner_token"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rebuild_fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "rebuild_collection",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_collection"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "rebuild_started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "rebuild_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_error"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "018155b848403b5c8fe35e044f0422ca60d4c24d88d8d144a28859328f168a80"
+}

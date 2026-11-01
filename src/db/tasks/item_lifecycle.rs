@@ -5,7 +5,10 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::Database;
-use crate::db::task_file_dedup::{claim_failed_item_file_slots, claim_unfinished_item_file_slots};
+use crate::db::task_file_dedup::{
+    FileSourceAdmission, claim_failed_item_file_slots, claim_file_processing_slots_with,
+    claim_unfinished_item_file_slots,
+};
 
 use super::INITIAL_ITEM_STAGE;
 use super::execution::ExecutionContext;
@@ -49,6 +52,16 @@ async fn recompute_parent(tx: &mut Transaction<'_, Postgres>, task_id: Uuid) -> 
 struct RequeuedItem {
     id: Uuid,
     execution_task_id: Option<Uuid>,
+}
+
+/// The row of one fresh-source fork item (issue 1138 P17).
+///
+/// The payload is the canonical submission options only; no saved section,
+/// checkpoint, progress, or staged object reference is inherited.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct SourceRerunItem {
+    file_id: Option<Uuid>,
+    payload: Value,
 }
 
 impl Database {
@@ -261,6 +274,91 @@ impl Database {
         }
         tx.commit().await?;
         Ok(updated)
+    }
+
+    /// The file of one running task item, keeping its staged input attached.
+    ///
+    /// An ordinary replacement binds the upcoming file before the switch but
+    /// must keep reading its freshly staged source, so this variant never
+    /// clears `input_storage_object_id`.
+    pub async fn set_task_item_file_keep_input(
+        &self,
+        task_id: Uuid,
+        item_id: Uuid,
+        execution: &ExecutionContext,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        let mut tx = self.pool().begin().await?;
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/set_task_item_file_keep_input.sql",
+            item_id,
+            execution.fencing_token(),
+            file_id,
+            execution.task_id(),
+            execution.generation
+        )
+        .fetch_optional(&mut *tx)
+        .await?
+        .is_some();
+        if updated {
+            recompute_parent(&mut tx, task_id).await?;
+        }
+        tx.commit().await?;
+        Ok(updated)
+    }
+
+    /// The file of one running task item on a caller transaction.
+    ///
+    /// The atomic first insert binds the file it creates on the same
+    /// transaction that creates the file and claims its durable run, so the
+    /// binding is guarded exactly like the pool variant but commits with the
+    /// creation.
+    pub async fn set_task_item_file_keep_input_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        item_id: Uuid,
+        token: Uuid,
+        execution_task_id: Uuid,
+        execution_generation: i64,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/tasks/set_task_item_file_keep_input.sql",
+            item_id,
+            token,
+            file_id,
+            execution_task_id,
+            execution_generation
+        )
+        .fetch_optional(connection)
+        .await?
+        .is_some())
+    }
+
+    /// Drops the cached ingest state of one running task item.
+    ///
+    /// An item that enters the atomic ingest mode must read its own current
+    /// source, so the parsed sections, the indexing checkpoint of that parse,
+    /// the pipeline progress and the sections artifact of the item are
+    /// dropped. No document, point, version or result is touched.
+    pub async fn clear_task_item_ingest_cache_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        item_id: Uuid,
+        token: Uuid,
+        execution_task_id: Uuid,
+        execution_generation: i64,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/tasks/clear_task_item_ingest_cache.sql",
+            item_id,
+            token,
+            execution_task_id,
+            execution_generation
+        )
+        .fetch_optional(connection)
+        .await?
+        .is_some())
     }
 
     /// Bind a streamed staged input object to a running item and persist the
@@ -543,6 +641,45 @@ impl Database {
         Ok(resumed.into_iter().map(|item| item.id).collect())
     }
 
+    /// Reopen a cancelled task's own cancelled items in place for bounded batch
+    /// recovery (issue 1138 P2).
+    ///
+    /// Same-row semantics as [`Database::resume_task_items`], but the predicate
+    /// is atomic and cancelled-only: `task.status = 'cancelled'` plus
+    /// `item.status = 'cancelled'` in the guarded UPDATE means a concurrent
+    /// failure or resume matches no row instead of reopening anything, so a
+    /// batch call can never fork a task or resume a failed item through the
+    /// cancelled path. Returns an empty result when there was nothing left to
+    /// reopen, which the batch service reports as `skipped`.
+    pub async fn resume_cancelled_task_items(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+    ) -> Result<Vec<Uuid>> {
+        let mut tx = self.pool().begin().await?;
+        let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
+            .fetch_optional(&mut *tx)
+            .await?
+            .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
+        claim_unfinished_item_file_slots(&mut tx, task.group_id, task_id).await?;
+        let resumed = sqlx::query_file_as!(
+            RequeuedItem,
+            "src/sql/db/tasks/resume_cancelled_items.sql",
+            task_id,
+            user_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if !resumed.is_empty() {
+            self.link_unlinked_rows(&mut tx, &resumed).await?;
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+                .execute(&mut *tx)
+                .await?;
+        }
+        tx.commit().await?;
+        Ok(resumed.into_iter().map(|item| item.id).collect())
+    }
+
     /// Opens the execution segment of every requeued row the library does not
     /// execute yet.
     ///
@@ -658,6 +795,114 @@ impl Database {
                 item.id,
                 item_id,
                 new_task_id
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok((new_task_id, item_ids))
+    }
+
+    /// Forks a fresh-source replacement task from a succeeded file/url/text
+    /// parent (issue 1138 P17, activated publicly in issue 1138 P28).
+    ///
+    /// Every new item is a new id with no inherited staged input, sections,
+    /// artifact, checkpoint, progress, or Docling job; only the canonical
+    /// submission options survive, and the processor reads the current source
+    /// again.
+    ///
+    /// The source task row is locked before any payload read, and the per-file
+    /// processing slots are claimed before the active-sibling check, so a
+    /// concurrent submission can never create a second active task for one
+    /// file.
+    ///
+    /// The two refusals are distinct and typed: an `invalid_argument` means the
+    /// parent holds no rerunnable source, and a `conflict` means every
+    /// candidate file is already covered by an active processing task.
+    pub async fn rerun_task_source(&self, task_id: Uuid) -> Result<(Uuid, Vec<Uuid>)> {
+        let mut tx = self.pool().begin().await?;
+        let file_ids =
+            sqlx::query_file_scalar!("src/sql/db/tasks/source_rerun_file_ids.sql", task_id)
+                .fetch_all(&mut *tx)
+                .await?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<Uuid>>();
+        if file_ids.is_empty() {
+            return Err(crate::domain_errors::DomainError::invalid_argument(
+                "source rerun requires a succeeded file, url, or text task with at least one succeeded item",
+            )
+            .into());
+        }
+        let source = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        // A URL source rerun downloads the current source URI, so releasing the
+        // cached bytes of the earlier download does not make it unavailable.
+        // Stored file and text sources keep the strict released-source refusal.
+        let admission = if source.kind == "url_batch" {
+            FileSourceAdmission::UrlSource
+        } else {
+            FileSourceAdmission::StoredSource
+        };
+        claim_file_processing_slots_with(&mut tx, source.group_id, &file_ids, admission).await?;
+        let items = sqlx::query_file_as!(
+            SourceRerunItem,
+            "src/sql/db/tasks/rerun_source_items.sql",
+            task_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if items.is_empty() {
+            // Every candidate file is already covered by an active processing
+            // task, so the source is busy. The conflict is explicit instead of
+            // a generic failure, and the caller reports it per item.
+            return Err(crate::domain_errors::DomainError::conflict(
+                "source rerun requires a source that is not already covered by an active processing task",
+            )
+            .into());
+        }
+        let new_task_id = Uuid::new_v4();
+        let total = items.len() as i64;
+        sqlx::query_file!(
+            "src/sql/db/tasks/create.sql",
+            new_task_id,
+            source.user_id,
+            source.group_id,
+            source.kind,
+            source.group_path,
+            source.source_key,
+            "rerun_source",
+            total
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        let mut item_ids = Vec::with_capacity(items.len());
+        let queue = self.execution_queue().await?;
+        for (ordinal, item) in items.iter().enumerate() {
+            let item_id = Uuid::new_v4();
+            item_ids.push(item_id);
+            let segment = super::execution::produce_segment(
+                queue,
+                &mut tx,
+                super::execution::SegmentPayload::new(
+                    item_id,
+                    new_task_id,
+                    super::execution::FIRST_GENERATION,
+                ),
+            )
+            .await?;
+            sqlx::query_file!(
+                "src/sql/db/tasks/insert_item.sql",
+                item_id,
+                new_task_id,
+                ordinal as i32,
+                item.payload,
+                INITIAL_ITEM_STAGE,
+                item.file_id,
+                Option::<Uuid>::None,
+                segment.as_uuid(),
+                super::execution::FIRST_GENERATION
             )
             .execute(&mut *tx)
             .await?;

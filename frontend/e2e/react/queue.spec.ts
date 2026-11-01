@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN_USER, QUEUE_ACTIVE_TASK, QUEUE_FAILED_TASK } from "./fixtures";
+import { ADMIN_USER, QUEUE_ACTIVE_TASK, QUEUE_COMPLETED_TASK, QUEUE_FAILED_TASK } from "./fixtures";
 import { installAppTransport, recordExternalRequests } from "./transport";
 
 const queue = {
@@ -141,14 +141,21 @@ test.describe("react processing queue", () => {
     await expect(page.getByTestId("queue-selection-snapshot")).toBeVisible();
     expect(transport.calls.some((call) => call.method === "GET" && call.path === "/v1/tasks/selection")).toBe(true);
 
-    // Only the captured ids are targeted: the retry hits the failed rows, never
-    // the active one.
+    // Only the captured eligible ids are targeted through the bounded batch
+    // endpoint; the active row is never part of the request.
     await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Retry" }).click();
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/retry"
+      call.method === "POST" && call.path === "/v1/tasks/batch/retry"
     )).length).toBe(1);
+    const batchCall = transport.calls.find((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/batch/retry"
+    ));
+    expect((batchCall?.body as { task_ids?: string[] } | undefined)?.task_ids)
+      .toEqual(["task-queue-failed", "task-queue-extra"]);
     expect(transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-active/retry"
+      call.method === "POST"
+      && call.path.endsWith("/retry")
+      && !call.path.startsWith("/v1/tasks/batch/")
     ))).toEqual([]);
   });
 
@@ -212,6 +219,42 @@ test.describe("react processing queue", () => {
     await expect(page.getByTestId("queue-selection-count")).toHaveText("0 selected");
   });
 
+  test("reruns a succeeded task from its source and through the bounded batch call", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: { completed: [QUEUE_COMPLETED_TASK] },
+    });
+
+    await page.goto("/processing-queue");
+    await page.getByRole("tab", { name: "Completed" }).click();
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
+
+    // The completed row offers the rerun; it reads the source again in a new
+    // task and leaves the parent alone.
+    await page.getByTestId("queue-task-row").getByRole("button", { name: "Rerun" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/task-queue-completed/rerun"
+    )).length).toBe(1);
+
+    // The multi-select rerun goes through the bounded batch endpoint once.
+    await page.getByRole("checkbox", { name: "Select Annual Report" }).check();
+    await page.getByTestId("queue-bulk-actions").getByRole("button", { name: "Rerun" }).click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/batch/rerun"
+    )).length).toBe(1);
+    const batchCall = transport.calls.find((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/batch/rerun"
+    ));
+    expect((batchCall?.body as { task_ids?: string[] } | undefined)?.task_ids)
+      .toEqual(["task-queue-completed"]);
+    expect(transport.calls.filter((call) => (
+      call.method === "POST"
+      && call.path.endsWith("/rerun")
+      && !call.path.startsWith("/v1/tasks/batch/")
+    )).length).toBe(1);
+    expect(transport.unmocked).toEqual([]);
+  });
+
   test("freezes the view, search and filters while a bulk action runs", async ({ page }) => {
     const transport = await installAppTransport(page, {
       user: ADMIN_USER,
@@ -230,7 +273,7 @@ test.describe("react processing queue", () => {
     await expect(page.getByRole("button", { name: "Filter by Status" })).toBeDisabled();
 
     await expect.poll(() => transport.calls.filter((call) => (
-      call.method === "POST" && call.path === "/v1/tasks/task-queue-failed/retry"
+      call.method === "POST" && call.path === "/v1/tasks/batch/retry"
     )).length).toBe(1);
     await expect(page.getByRole("tab", { name: "Trash" })).toBeEnabled();
   });

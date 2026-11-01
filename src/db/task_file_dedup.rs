@@ -101,14 +101,43 @@ pub(crate) async fn validate_file_ownership(
     Ok(())
 }
 
-/// Reject the batch when any requested file had its source deliberately
-/// released. A released file cannot be reprocessed; re-uploading its bytes is
-/// a new upload, not a reprocess. Runs after ownership so a foreign file is
-/// still indistinguishable from a missing one.
+/// Which source a file processing claim may read again.
+///
+/// A stored file or text task reads its own stored bytes, so a released source
+/// is gone and the claim is refused. A URL task downloads its source URI again,
+/// so releasing the cached bytes of an earlier download does not make the
+/// source unavailable; only a file without a downloadable URI stays refused.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FileSourceAdmission {
+    /// The stored source bytes must still exist.
+    StoredSource,
+    /// Cached bytes may be released as long as the source URI is a URL.
+    UrlSource,
+}
+
+impl FileSourceAdmission {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::StoredSource => "stored",
+            Self::UrlSource => "url",
+        }
+    }
+}
+
+/// Reject the batch when any requested file cannot supply the source that its
+/// admission would read again.
+///
+/// A stored file or text source that was deliberately released cannot be
+/// reprocessed; re-uploading its bytes is a new upload, not a reprocess. A URL
+/// source may have released its cached bytes, because the processor downloads
+/// the current source URI. Runs after ownership so a foreign file is still
+/// indistinguishable from a missing one, and the refusal is a deterministic
+/// invalid argument so callers classify it instead of failing internally.
 pub(crate) async fn validate_files_not_released(
     connection: &mut PgConnection,
     group_id: Option<i64>,
     file_ids: &[Uuid],
+    admission: FileSourceAdmission,
 ) -> Result<()> {
     if file_ids.is_empty() {
         return Ok(());
@@ -120,12 +149,16 @@ pub(crate) async fn validate_files_not_released(
     let released = sqlx::query_file_scalar!(
         "src/sql/db/tasks/released_file_count.sql",
         group_id,
-        &requested
+        &requested,
+        admission.as_str()
     )
     .fetch_one(&mut *connection)
     .await?;
     if released > 0 {
-        anyhow::bail!("file processing conflict: released file source cannot be reprocessed");
+        return Err(crate::domain_errors::DomainError::invalid_argument(
+            "file processing conflict: released file source cannot be reprocessed",
+        )
+        .into());
     }
     Ok(())
 }
@@ -154,19 +187,37 @@ pub(crate) async fn lock_file_processing_slots(
     Ok(())
 }
 
-/// Validate ownership and lock every file a retry or rerun may touch. The
-/// released check runs after the lock so it cannot race a concurrent release.
+/// Validate ownership and lock every file a retry or rerun may touch, with the
+/// strict stored-source policy every legacy caller keeps.
 pub(crate) async fn claim_file_processing_slots(
     connection: &mut PgConnection,
     group_id: Option<i64>,
     file_ids: &[Uuid],
+) -> Result<()> {
+    claim_file_processing_slots_with(
+        connection,
+        group_id,
+        file_ids,
+        FileSourceAdmission::StoredSource,
+    )
+    .await
+}
+
+/// Validate ownership, lock, and admit the source mode of every file a retry or
+/// rerun may touch. The release check runs after the lock so it cannot race a
+/// concurrent release.
+pub(crate) async fn claim_file_processing_slots_with(
+    connection: &mut PgConnection,
+    group_id: Option<i64>,
+    file_ids: &[Uuid],
+    admission: FileSourceAdmission,
 ) -> Result<()> {
     if file_ids.is_empty() {
         return Ok(());
     }
     validate_file_ownership(connection, group_id, file_ids).await?;
     lock_file_processing_slots(connection, file_ids).await?;
-    validate_files_not_released(connection, group_id, file_ids).await
+    validate_files_not_released(connection, group_id, file_ids, admission).await
 }
 
 /// Claim the processing slots of every file referenced by a task's failed
@@ -182,7 +233,13 @@ pub(crate) async fn claim_failed_item_file_slots(
         .into_iter()
         .flatten()
         .collect::<Vec<Uuid>>();
-    claim_file_processing_slots(connection, group_id, &file_ids).await
+    claim_file_processing_slots_with(
+        connection,
+        group_id,
+        &file_ids,
+        FileSourceAdmission::StoredSource,
+    )
+    .await
 }
 
 /// Claim the processing slots of every file referenced by a task's
@@ -227,7 +284,13 @@ pub(crate) async fn resolve_file_dedup(
     explicit.dedup();
     validate_file_ownership(connection, group_id, &explicit).await?;
     lock_file_processing_slots(connection, &explicit).await?;
-    validate_files_not_released(connection, group_id, &explicit).await?;
+    validate_files_not_released(
+        connection,
+        group_id,
+        &explicit,
+        FileSourceAdmission::StoredSource,
+    )
+    .await?;
     let owner_group_id = group_id.context("file processing requires an owning group")?;
     let active = sqlx::query_file_as!(
         StoredActiveFileItem,

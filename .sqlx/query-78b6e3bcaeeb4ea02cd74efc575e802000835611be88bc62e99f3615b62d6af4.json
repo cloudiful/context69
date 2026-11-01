@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Source rows for the internal fresh-source rerun fork (issue 1138 P17).\n--\n-- The source task row is locked first, so the whole fork owns the source task\n-- before any payload is read. Only a succeeded parent of a file/url/text batch\n-- may be forked, and only its succeeded items that still own a library file are\n-- selected.\n--\n-- The item payload is rebuilt from the canonical submission options only: the\n-- parent's saved sections, indexing checkpoint, pipeline progress and download\n-- artifact are never copied, so the new item must read the current source\n-- again. `input_storage_object_id` is never inherited either.\nWITH locked_task AS MATERIALIZED (\n    SELECT task.id, task.kind, task.group_id, task.status\n    FROM context69.tasks AS task\n    WHERE task.id = $1\n    FOR UPDATE\n)\nSELECT item.file_id,\n       CASE\n           WHEN locked_task.kind IN ('file_batch', 'url_batch')\n               AND item.payload ? 'options'\n               THEN jsonb_build_object('options', item.payload -> 'options')\n           ELSE '{}'::jsonb\n       END AS payload\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nJOIN locked_task ON locked_task.id = task.id\nJOIN context69.library_files file ON file.id = item.file_id\nWHERE item.task_id = $1\n  AND item.status = 'succeeded'\n  AND item.file_id IS NOT NULL\n  AND locked_task.status = 'succeeded'\n  AND locked_task.kind IN ('file_batch', 'url_batch', 'text_batch')\n  -- The file must still belong to the source task's group, so a stale item can\n  -- never fork another group's file into a fresh read.\n  AND file.group_id = locked_task.group_id\n  AND lower(file.filename) <> 'source.json'\n  AND (file.external_id IS NULL OR file.external_id NOT LIKE 'source-folder:%')\n  -- Skip files that already have a live item in another task so a source rerun\n  -- can never create a second active processing task for one file.\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.task_items active\n      WHERE active.file_id = item.file_id\n        AND active.id <> item.id\n        AND active.status IN ('queued', 'running', 'waiting')\n  )\nORDER BY item.ordinal\nFOR UPDATE OF item\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "payload",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      null
+    ]
+  },
+  "hash": "78b6e3bcaeeb4ea02cd74efc575e802000835611be88bc62e99f3615b62d6af4"
+}

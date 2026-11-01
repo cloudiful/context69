@@ -4,8 +4,8 @@ use crate::chunking::ChunkingConfig;
 
 use super::types::{
     ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig,
-    EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, SchedulerConfig,
-    SecretStoreConfig, SourceConfig, default_mcp_bind_addr,
+    EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, RegistryQuotaConfig,
+    SchedulerConfig, SecretStoreConfig, SourceConfig, default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -23,6 +23,14 @@ pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
 pub const DEFAULT_URL_IMPORT_CONCURRENCY: usize = 1;
 pub const DEFAULT_URL_IMPORT_MIN_INTERVAL_MS: u64 = 1000;
 pub const DEFAULT_SECRET_STORE_KEY_VERSION: u32 = 1;
+/// The default number of vector point ids the search registry admits for the
+/// whole deployment.
+pub const DEFAULT_REGISTRY_MAX_IDS_TOTAL: i64 = 32768;
+/// The default number of vector point ids the search registry admits for one
+/// file.
+pub const DEFAULT_REGISTRY_MAX_IDS_PER_FILE: i64 = 16384;
+/// The default number of vector point ids one ingestion run may admit.
+pub const DEFAULT_REGISTRY_MAX_IDS_PER_RUN: i64 = 8192;
 
 pub(super) fn default_max_upload_request_size_mb() -> usize {
     256
@@ -50,6 +58,18 @@ pub(super) fn default_url_import_min_interval_ms() -> u64 {
 
 pub(super) fn default_secret_store_key_version() -> u32 {
     DEFAULT_SECRET_STORE_KEY_VERSION
+}
+
+pub(super) fn default_registry_max_ids_total() -> i64 {
+    DEFAULT_REGISTRY_MAX_IDS_TOTAL
+}
+
+pub(super) fn default_registry_max_ids_per_file() -> i64 {
+    DEFAULT_REGISTRY_MAX_IDS_PER_FILE
+}
+
+pub(super) fn default_registry_max_ids_per_run() -> i64 {
+    DEFAULT_REGISTRY_MAX_IDS_PER_RUN
 }
 
 impl Default for FileConfig {
@@ -94,6 +114,7 @@ impl Default for FileConfig {
                 trusted_proxy_enabled: false,
                 s3: None,
             },
+            registry_quota: RegistryQuotaConfig::default(),
             scheduler: SchedulerConfig {
                 interval: Duration::from_secs(300),
                 run_on_start: true,

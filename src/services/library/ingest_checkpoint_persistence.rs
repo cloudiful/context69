@@ -39,6 +39,14 @@ pub(super) enum CheckpointWrite {
 }
 
 impl CheckpointWrite {
+    /// The running item that owns the checkpoint.
+    pub(super) fn item_id(self) -> Uuid {
+        match self {
+            Self::Fenced(fence) => fence.item_id(),
+            Self::Token { item_id, .. } => item_id,
+        }
+    }
+
     /// The captured grant, when the checkpoint is fenced by one.
     pub(super) fn fence(self) -> Option<crate::library_store::TaskWriteFence> {
         match self {
@@ -186,6 +194,24 @@ impl LibraryService {
             .await
             .map_err(|error| task_failure("storage", error, true))?
             .ok_or_else(|| task_failure("storage", anyhow!("unknown file {file_id}"), false))?;
+        // A destructive legacy reindex must never overwrite a file that another
+        // task item already owns through a durable replacement run. The
+        // replacement branch uses the atomic switch instead; translation-only
+        // registry rows have no run and stay compatible.
+        if self
+            .db
+            .file_has_foreign_ingest_history(file_id, checkpoint_write.item_id())
+            .await
+            .map_err(|error| task_failure("indexing", error, true))?
+        {
+            return Err(task_failure(
+                "indexing",
+                crate::domain_errors::DomainError::conflict(
+                    "the file carries another task item's replacement history",
+                ),
+                false,
+            ));
+        }
         let sections = serde_json::from_value::<Vec<IngestSection>>(section_payload.clone())
             .map_err(|error| task_failure("parsing", error, false))?;
         let prepared = self
@@ -292,6 +318,7 @@ impl LibraryService {
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,
                 &self.chunking,
+                None,
             );
 
             for batch in ChunkBatchIter::new(chunks) {

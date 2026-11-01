@@ -257,6 +257,42 @@ impl SourceCleanupDispatcher {
                 );
             }
         }
+        // Deleted entity purge (issue #1138 P25): every delete records the
+        // entity tombstone before its points are removed, so a purge that
+        // failed is retried here without holding a connection across the
+        // index call. The exclusion is valid whether or not the purge is.
+        match library
+            .run_deleted_entity_cleanup(super::DEFAULT_DELETED_ENTITY_CLEANUP_BATCH_SIZE)
+            .await
+        {
+            Ok(summary) if summary.purged > 0 || summary.failed > 0 => {
+                tracing::info!(
+                    purged = summary.purged,
+                    failed = summary.failed,
+                    scanned = summary.scanned,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "deleted entity cleanup pass completed"
+                );
+            }
+            Ok(summary) => {
+                tracing::debug!(
+                    purged = summary.purged,
+                    failed = summary.failed,
+                    scanned = summary.scanned,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "deleted entity cleanup pass completed without work"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    reason = reason_str,
+                    "deleted entity cleanup pass failed"
+                );
+            }
+        }
         // Staged-input orphan sweep (issue 391 Task 4): safe to run on every
         // drain because `STAGED_SWEEP_GRACE` (24h) filters recent inputs and
         // the sweep itself re-validates file/task references under a lock

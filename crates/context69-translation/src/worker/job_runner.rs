@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use anyhow::{Result, anyhow};
-use context69_contracts_core::errors::DomainError;
 use context69_contracts_translation::TranslationGlossaryEntry;
 use tracing::warn;
 use uuid::Uuid;
@@ -268,9 +267,22 @@ impl TranslationService {
             .store
             .current_translation_chunk_ids(job.document_id, &job.target_locale)
             .await?;
-        let published = self
-            .publisher
-            .publish_with_rollback(
+        let input = TranslationVersionInput {
+            id: Uuid::new_v4(),
+            document_id: job.document_id,
+            target_locale: &job.target_locale,
+            source_locale: text.source_locale,
+            source_record_hash: &job.source_record_hash,
+            provider_key: text.provider_key,
+            provider_config_hash: text.config_hash,
+            model_name: text.model_name,
+            title: text.title,
+            summary: text.summary,
+            body_text: text.body,
+        };
+        self.publisher
+            .publish_committed(
+                &self.store,
                 &old_ids,
                 TranslationPublication {
                     document_id: job.document_id,
@@ -292,36 +304,9 @@ impl TranslationService {
                     summary: text.summary,
                     body_text: text.body,
                 },
+                &input,
             )
-            .await?;
-        let chunks = published
-            .chunks
-            .iter()
-            .map(|chunk| (chunk.chunk_id, chunk.chunk_text.clone()))
-            .collect::<Vec<_>>();
-        let input = TranslationVersionInput {
-            id: Uuid::new_v4(),
-            document_id: job.document_id,
-            target_locale: &job.target_locale,
-            source_locale: text.source_locale,
-            source_record_hash: &job.source_record_hash,
-            provider_key: text.provider_key,
-            provider_config_hash: text.config_hash,
-            model_name: text.model_name,
-            title: text.title,
-            summary: text.summary,
-            body_text: text.body,
-        };
-        if let Err(error) = self.store.publish_version(&input, &chunks).await {
-            return match published.rollback().await {
-                Ok(()) => Err(error),
-                Err(rollback_error) => Err(DomainError::internal(format!(
-                    "{error:#}; failed to roll back published translation points: {rollback_error:#}"
-                ))
-                .into()),
-            };
-        }
-        Ok(())
+            .await
     }
 }
 

@@ -11,7 +11,7 @@ use context69_contracts_translation::{TranslationDirective, TranslationJobRespon
 use sqlx::PgPool;
 use uuid::Uuid;
 
-pub use store::{StoredGroupTranslationSettings, TranslationStore};
+pub use store::{StoredGroupTranslationSettings, TranslationStore, TranslationVersionInput};
 pub use worker::TranslationService;
 
 #[derive(Debug, Clone)]
@@ -98,7 +98,58 @@ pub trait TranslationPublisher: Send + Sync {
         ))
     }
 
+    /// Publishes the points and then commits the translation version.
+    ///
+    /// The default sequence is the historical one: publish the points with a
+    /// rollback handle, write the version row and its chunk rows, and roll the
+    /// published points back when the version write fails. A publisher that can
+    /// commit the points, the version and its own visibility change atomically
+    /// overrides this hook instead; every existing implementor keeps the
+    /// default behaviour without an edit.
+    async fn publish_committed(
+        &self,
+        store: &TranslationStore,
+        old_chunk_ids: &[Uuid],
+        translation: TranslationPublication<'_>,
+        version: &TranslationVersionInput<'_>,
+    ) -> Result<()> {
+        publish_committed_default(self, store, old_chunk_ids, translation, version).await
+    }
+
     async fn delete(&self, chunk_ids: &[Uuid]) -> Result<()>;
+}
+
+/// The default [`TranslationPublisher::publish_committed`] sequence.
+///
+/// Exposed so an overriding publisher can delegate to exactly the historical
+/// behaviour instead of duplicating it.
+pub async fn publish_committed_default<P>(
+    publisher: &P,
+    store: &TranslationStore,
+    old_chunk_ids: &[Uuid],
+    translation: TranslationPublication<'_>,
+    version: &TranslationVersionInput<'_>,
+) -> Result<()>
+where
+    P: TranslationPublisher + ?Sized,
+{
+    let published = publisher
+        .publish_with_rollback(old_chunk_ids, translation)
+        .await?;
+    let chunks = published
+        .chunks
+        .iter()
+        .map(|chunk| (chunk.chunk_id, chunk.chunk_text.clone()))
+        .collect::<Vec<_>>();
+    if let Err(error) = store.publish_version(version, &chunks).await {
+        return match published.rollback().await {
+            Ok(()) => Err(error),
+            Err(rollback_error) => Err(anyhow::anyhow!(
+                "{error:#}; failed to roll back published translation points: {rollback_error:#}"
+            )),
+        };
+    }
+    Ok(())
 }
 
 #[async_trait]

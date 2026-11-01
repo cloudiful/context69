@@ -1,0 +1,168 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.library_ingest_runs\n    (item_id, task_id, file_id, batch_id, generation, mode, source,\n     lease_token, execution_task_id, execution_generation)\nVALUES ($1, $2, $3, $4, nextval('context69.library_ingest_generation_seq'), $5, $6, $7, $8, $9)\nRETURNING item_id, task_id, file_id, batch_id, generation, mode, source,\n          lease_token, execution_task_id, execution_generation, resolved_at, retired_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "batch_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "batch_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "mode",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "mode"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "source",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "source"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "execution_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "resolved_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "resolved_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "retired_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "retired_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "ca4a63d088968f11734ca4764b6acc9bd07f66580899965afc036dd50af13b3c"
+}

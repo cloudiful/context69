@@ -27,6 +27,161 @@ impl LibraryService {
             .await
     }
 
+    /// The committed text file an ordinary update would replace, plus the
+    /// projected attributes and the fresh bytes it must stage.
+    ///
+    /// A text upsert always rewrites content and metadata, so every committed
+    /// target is a replacement candidate, including one that was never
+    /// ingested: the atomic mode replaces the content of that file instead of
+    /// cleaning it in place. A missing target is a first insert and keeps the
+    /// ordinary path.
+    pub(crate) async fn text_replacement_candidate(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &UpsertLibraryTextRequest,
+    ) -> Result<
+        Option<(
+            crate::domain::LibraryFileRecord,
+            ReplacementFileAttributes,
+            Bytes,
+        )>,
+    > {
+        let title = normalize_whitespace(&request.title);
+        if title.is_empty() {
+            return Err(DomainError::invalid_argument("text title must not be empty").into());
+        }
+        let external_id = request.external_id.trim();
+        if external_id.is_empty() {
+            return Err(DomainError::invalid_argument("external_id must not be empty").into());
+        }
+        let content = request.content.trim();
+        if content.is_empty() {
+            return Err(DomainError::invalid_argument("text content must not be empty").into());
+        }
+        let bytes = Bytes::from(content.as_bytes().to_vec());
+        if bytes.len() > self.max_upload_size_bytes {
+            let filename = storage::text_filename_from_title(&title, request.content_format);
+            return Err(DomainError::invalid_argument(format!(
+                "text {filename} exceeds upload size limit of {} bytes",
+                self.max_upload_size_bytes
+            ))
+            .into());
+        }
+        let Some(existing) = self
+            .store
+            .get_file_by_external_id_in_project(project.id, external_id)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let target_folder_id = request.folder_id.or(existing.folder_id);
+        if let Some(folder_id) = target_folder_id {
+            self.store
+                .get_folder_in_project(project.id, folder_id)
+                .await?
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
+        }
+        let filename = super::filenames::resolve_project_text_filename(
+            &self.store,
+            project.id,
+            target_folder_id,
+            Some(existing.id),
+            &title,
+            request.content_format,
+        )
+        .await?;
+        let source_uri = request
+            .source_uri
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let attributes = ReplacementFileAttributes {
+            folder_id: target_folder_id,
+            external_id: Some(external_id.to_string()),
+            filename,
+            media_type: storage::text_media_type(request.content_format).to_string(),
+            source_uri,
+            published_at: request.published_at,
+            metadata_json: crate::contracts::metadata_object_to_value(&request.metadata_json),
+        };
+        Ok(Some((existing, attributes, bytes)))
+    }
+
+    /// The identity and the attributes of the file an ordinary text upsert
+    /// creates when no committed file owns its external id yet.
+    ///
+    /// The upsert is validated exactly like the replacement candidate, so a
+    /// refused title, content or size refuses the first insert as well. The
+    /// bytes travel with the plan, because the first insert stages them before
+    /// it creates the file.
+    pub(crate) async fn text_first_insert_candidate(
+        &self,
+        project: &crate::domain::GroupRecord,
+        request: &UpsertLibraryTextRequest,
+    ) -> Result<(
+        AtomicFirstInsertFile,
+        Bytes,
+        crate::contracts::CanonicalUploadMetadata,
+    )> {
+        let title = normalize_whitespace(&request.title);
+        if title.is_empty() {
+            return Err(DomainError::invalid_argument("text title must not be empty").into());
+        }
+        let external_id = request.external_id.trim();
+        if external_id.is_empty() {
+            return Err(DomainError::invalid_argument("external_id must not be empty").into());
+        }
+        let content = request.content.trim();
+        if content.is_empty() {
+            return Err(DomainError::invalid_argument("text content must not be empty").into());
+        }
+        let bytes = Bytes::from(content.as_bytes().to_vec());
+        if bytes.len() > self.max_upload_size_bytes {
+            let filename = storage::text_filename_from_title(&title, request.content_format);
+            return Err(DomainError::invalid_argument(format!(
+                "text {filename} exceeds upload size limit of {} bytes",
+                self.max_upload_size_bytes
+            ))
+            .into());
+        }
+        if let Some(folder_id) = request.folder_id {
+            self.store
+                .get_folder_in_project(project.id, folder_id)
+                .await?
+                .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
+        }
+        let filename = super::filenames::resolve_project_text_filename(
+            &self.store,
+            project.id,
+            request.folder_id,
+            None,
+            &title,
+            request.content_format,
+        )
+        .await?;
+        let source_uri = request
+            .source_uri
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned);
+        let file = AtomicFirstInsertFile {
+            folder_id: request.folder_id,
+            external_id: Some(external_id.to_string()),
+            filename,
+            media_type: storage::text_media_type(request.content_format).to_string(),
+            delete_source_after_processing: false,
+        };
+        let metadata = crate::contracts::CanonicalUploadMetadata {
+            external_id: Some(external_id.to_string()),
+            source_uri,
+            published_at: request.published_at,
+            metadata_json: request.metadata_json.clone(),
+        };
+        Ok((file, bytes, metadata))
+    }
+
     async fn upsert_text_file_in_project_inner(
         &self,
         project: &crate::domain::GroupRecord,

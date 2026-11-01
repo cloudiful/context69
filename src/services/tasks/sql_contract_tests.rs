@@ -603,3 +603,66 @@ fn terminal_payload_migration_strips_only_planned_keys_under_guards() {
         );
     }
 }
+
+/// The batch recovery path uses a cancelled-only atomic resume: it must stay a
+/// single guarded item UPDATE so a concurrent failure or resume can never
+/// reopen the wrong work or fork a parent task.
+#[test]
+fn cancelled_batch_resume_is_a_single_cancelled_only_item_update() {
+    let sql = include_str!("../../sql/db/tasks/resume_cancelled_items.sql");
+    let code: String = sql
+        .lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert_eq!(
+        code.matches("UPDATE").count(),
+        1,
+        "batch resume must be one item UPDATE"
+    );
+    assert!(
+        code.contains("UPDATE context69.task_items item"),
+        "batch resume must reopen the task's own item rows in place"
+    );
+    for forbidden in [
+        "INSERT INTO",
+        "DELETE FROM",
+        "context69.task_attempts",
+        "UPDATE context69.tasks",
+        "library_files",
+        "documents",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "batch resume must not touch {forbidden}"
+        );
+    }
+    for predicate in [
+        "task.status = 'cancelled'",
+        "task.deleted_at IS NULL",
+        "item.status = 'cancelled'",
+    ] {
+        assert!(
+            code.contains(predicate),
+            "batch resume must carry the atomic predicate `{predicate}`"
+        );
+    }
+    for forbidden in [
+        "item.status IN ('cancelled', 'failed')",
+        "item.status = 'failed'",
+    ] {
+        assert!(
+            !code.contains(forbidden),
+            "batch resume must never reopen a failed item through the cancel path"
+        );
+    }
+    assert!(
+        code.contains("task.user_id = $2"),
+        "batch resume must scope ownership to the calling user"
+    );
+    assert!(
+        code.contains("inherited_groups.role_rank >= 2"),
+        "batch resume must keep the group maintainer rule"
+    );
+}

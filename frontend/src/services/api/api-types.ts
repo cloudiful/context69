@@ -123,6 +123,11 @@ export type TaskItemsResponse = Schemas["TaskItemsResponse"];
 export type TaskDiagnoseItem = Schemas["TaskDiagnoseItem"];
 export type TaskDiagnoseResponse = Schemas["TaskDiagnoseResponse"];
 export type TaskRetryResponse = Schemas["TaskRetryResponse"];
+export type TaskBatchRetryItem = Schemas["TaskBatchRetryItem"];
+export type TaskBatchRetryOutcome = Schemas["TaskBatchRetryOutcome"];
+export type TaskBatchRetryReason = Schemas["TaskBatchRetryReason"];
+export type TaskBatchRetryRequest = Schemas["TaskBatchRetryRequest"];
+export type TaskBatchRetryResponse = Schemas["TaskBatchRetryResponse"];
 export type RerunTaskResponse = Schemas["RerunTaskResponse"];
 export type TaskRef = Schemas["TaskRef"];
 export type UpdateRuntimeSettingsRequest = Schemas["UpdateRuntimeSettingsRequest"];
@@ -164,3 +169,6 @@ export type PaginatedResponse<T> = {
   items: T[];
   pagination: Pagination;
 };
+export type DocumentResultResponse = Schemas["DocumentResultResponse"];
+export type ListDocumentResultsQuery = Schemas["ListDocumentResultsQuery"];
+export type ListDocumentResultsResponse = Schemas["ListDocumentResultsResponse"];

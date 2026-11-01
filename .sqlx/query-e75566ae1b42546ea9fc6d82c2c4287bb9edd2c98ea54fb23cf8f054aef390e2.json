@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One caller-produced result of a document, as an earlier delivery left it.\nINSERT INTO context69.document_results (\n    document_id, author_user_id, producer, result_kind, schema_ref,\n    source_record_hash, idempotency_key, result\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7, $8)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e75566ae1b42546ea9fc6d82c2c4287bb9edd2c98ea54fb23cf8f054aef390e2"
+}

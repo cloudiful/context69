@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/lib/i18n";
 import { apiClient } from "@/services/api";
-import type { TaskPageResponse, TaskResponse, TaskStatus } from "@/services/api";
+import type { TaskBatchRetryResponse, TaskPageResponse, TaskResponse, TaskStatus } from "@/services/api";
 import { FakeEventSource, installFakeEventSource } from "@/test-utils/event-source";
 
 import { QUEUE_LIST_TIMEOUT_MS, useQueue } from "./use-queue";
@@ -359,8 +359,6 @@ describe("useQueue", () => {
     await act(async () => {
       result.current.recoverTask(result.current.items[0]!);
     });
-    expect(apiClient.retryTask).not.toHaveBeenCalled();
-    expect(apiClient.rerunTask).not.toHaveBeenCalled();
 
     await act(async () => {
       result.current.cancelTask(result.current.items[0]!);
@@ -420,47 +418,38 @@ describe("useQueue", () => {
     await waitFor(() => expect(apiClient.deleteTask).toHaveBeenCalledWith("trashed-1"));
   });
 
-  it("retries the selected tasks only, bounded to four concurrent requests", async () => {
-    const gates = Array.from({ length: 6 }, () => deferred<{ retried_items: number; task: { task_id: string } }>());
-    let active = 0;
-    let peak = 0;
-    vi.spyOn(apiClient, "retryTask").mockImplementation(() => {
-      const index = active;
-      active += 1;
-      peak = Math.max(peak, active);
-      return gates[index]!.promise.finally(() => {
-        active -= 1;
-      });
+  it("retries and resumes the selected mixed rows through one bounded batch call", async () => {
+    const batch = vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [
+        { task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" },
+        { task_id: "cancelled-1", outcome: "accepted", retried_task_id: "cancelled-1" },
+      ],
     });
-    vi.mocked(apiClient.listTasks).mockResolvedValue(page(
-      Array.from({ length: 6 }, (_, index) => task({ task_id: `failed-${index}`, status: "failed" })),
-    ));
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+      task({ task_id: "cancelled-1", status: "cancelled" }),
+    ]));
     const { result } = renderQueue();
-    await waitFor(() => expect(result.current.items).toHaveLength(6));
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
 
     act(() => {
       result.current.togglePageSelection();
     });
-    expect(result.current.selectionCount).toBe(6);
+    expect(result.current.selectionCount).toBe(2);
 
     await act(async () => {
       result.current.runBulkAction("retry");
     });
-    await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledTimes(4));
-    expect(peak).toBeLessThanOrEqual(4);
 
-    await act(async () => {
-      gates.forEach((gate) => gate.resolve({ retried_items: 1, task: { task_id: "x" } }));
-    });
-    await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledTimes(6));
-    expect(peak).toBeLessThanOrEqual(4);
-    for (let index = 0; index < 6; index += 1) {
-      expect(apiClient.retryTask).toHaveBeenCalledWith(`failed-${index}`);
-    }
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(1));
+    expect(batch).toHaveBeenCalledWith(["failed-1", "cancelled-1"]);
+    await waitFor(() => expect(result.current.selectionCount).toBe(0));
   });
 
   it("acts only on the selected ids and leaves the rest untouched", async () => {
-    vi.spyOn(apiClient, "retryTask").mockResolvedValue({ retried_items: 1, task: { task_id: "failed-1" } });
+    const batch = vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [{ task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" }],
+    });
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([
       task({ task_id: "failed-1", status: "failed" }),
       task({ task_id: "failed-2", status: "failed" }),
@@ -475,15 +464,15 @@ describe("useQueue", () => {
       result.current.runBulkAction("retry");
     });
 
-    await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledTimes(1));
-    expect(apiClient.retryTask).toHaveBeenCalledWith("failed-1");
-    expect(apiClient.retryTask).not.toHaveBeenCalledWith("failed-2");
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(1));
+    expect(batch).toHaveBeenCalledWith(["failed-1"]);
+    expect(batch).not.toHaveBeenCalledWith(["failed-1", "failed-2"]);
   });
 
   it("reports a skipped retry truthfully and keeps the task selected", async () => {
-    vi.spyOn(apiClient, "retryTask").mockRejectedValue(
-      Object.assign(new Error("task has no failed items to retry"), { status: 400 }),
-    );
+    vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [{ task_id: "task-1", outcome: "skipped", reason: "nothing_to_retry" }],
+    });
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ status: "failed" })]));
     const { result } = renderQueue();
     await waitFor(() => expect(result.current.items).toHaveLength(1));
@@ -501,11 +490,11 @@ describe("useQueue", () => {
   });
 
   it("clears the successful tasks and keeps the failed ones selected", async () => {
-    vi.spyOn(apiClient, "retryTask").mockImplementation(async (taskId: string) => {
-      if (taskId === "failed-2") {
-        throw new Error("boom");
-      }
-      return { retried_items: 1, task: { task_id: taskId } };
+    vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [
+        { task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" },
+        { task_id: "failed-2", outcome: "failed", reason: "internal_error" },
+      ],
     });
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([
       task({ task_id: "failed-1", status: "failed" }),
@@ -523,6 +512,93 @@ describe("useQueue", () => {
 
     await waitFor(() => expect(toast.warning).toHaveBeenCalled());
     expect(result.current.selection.ids).toEqual(["failed-2"]);
+  });
+
+  it("reruns the selected succeeded rows through one bounded batch call", async () => {
+    const batch = vi.spyOn(apiClient, "batchRerunTasks").mockResolvedValue({
+      results: [
+        { task_id: "succeeded-1", outcome: "accepted", rerun_task_id: "child-1" },
+        { task_id: "succeeded-2", outcome: "accepted", rerun_task_id: "child-2" },
+      ],
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "succeeded-1", status: "succeeded" }),
+      task({ task_id: "succeeded-2", status: "succeeded" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    act(() => {
+      result.current.togglePageSelection();
+    });
+    expect(result.current.selectionCount).toBe(2);
+
+    await act(async () => {
+      result.current.runBulkAction("rerun");
+    });
+
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(1));
+    expect(batch).toHaveBeenCalledWith(["succeeded-1", "succeeded-2"]);
+    await waitFor(() => expect(result.current.selectionCount).toBe(0));
+  });
+
+  it("reports a skipped source rerun truthfully and keeps the task selected", async () => {
+    vi.spyOn(apiClient, "batchRerunTasks").mockResolvedValue({
+      results: [{ task_id: "task-1", outcome: "skipped", reason: "active_source_busy" }],
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "task-1", status: "succeeded" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("rerun");
+    });
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
+    expect(toast.warning.mock.calls[0]?.[0]).toContain("1 skipped");
+    const description = String(toast.warning.mock.calls[0]?.[1]?.description ?? "");
+    expect(description).toContain("task-1");
+    expect(description).toContain("source already in progress");
+    expect(result.current.selectionCount).toBe(1);
+  });
+
+  it("reruns one succeeded task from its current source", async () => {
+    const rerun = vi.spyOn(apiClient, "rerunTask").mockResolvedValue({
+      task: { task_id: "child-1", item_ids: [] },
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "succeeded-1", status: "succeeded" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.rerunTask(result.current.items[0]!);
+    });
+
+    await waitFor(() => expect(rerun).toHaveBeenCalledWith("succeeded-1"));
+  });
+
+  it("never offers the source rerun for a task that owns no source", async () => {
+    const rerun = vi.spyOn(apiClient, "rerunTask").mockResolvedValue({
+      task: { task_id: "child-1", item_ids: [] },
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "translation-1", status: "succeeded", kind: "translation" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.rerunTask(result.current.items[0]!);
+    });
+
+    expect(rerun).not.toHaveBeenCalled();
   });
 
   it("keeps the selection across paging and sorting and drops it on a filter change", async () => {
@@ -581,13 +657,8 @@ describe("useQueue", () => {
   });
 
   it("freezes the window and the selection while a bulk action runs", async () => {
-    const gates = Array.from({ length: 2 }, () => deferred<{ retried_items: number; task: { task_id: string } }>());
-    let call = 0;
-    vi.spyOn(apiClient, "retryTask").mockImplementation(() => {
-      const gate = gates[call];
-      call += 1;
-      return gate!.promise;
-    });
+    const gate = deferred<TaskBatchRetryResponse>();
+    vi.spyOn(apiClient, "batchRetryTasks").mockReturnValue(gate.promise);
     vi.mocked(apiClient.listTasks).mockResolvedValue(page([
       task({ task_id: "failed-1", status: "failed" }),
       task({ task_id: "failed-2", status: "failed" }),
@@ -644,7 +715,12 @@ describe("useQueue", () => {
     expect(result.current.selectionCount).toBe(2);
 
     await act(async () => {
-      gates.forEach((gate) => gate.resolve({ retried_items: 1, task: { task_id: "x" } }));
+      gate.resolve({
+        results: [
+          { task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" },
+          { task_id: "failed-2", outcome: "accepted", retried_task_id: "failed-2" },
+        ],
+      });
       await running!;
     });
     await waitFor(() => expect(result.current.selectionBusy).toBe(false));
@@ -787,25 +863,6 @@ describe("useQueue", () => {
     await waitFor(() => expect(toast.warning).toHaveBeenCalled());
     expect(toast.warning.mock.calls[0]?.[0]).toContain("1 failed");
     expect(result.current.selection.ids).toEqual(["active-1"]);
-  });
-
-  it("never resumes a task that is not cancelled any more", async () => {
-    vi.spyOn(apiClient, "getTask").mockResolvedValue(task({ task_id: "cancelled-1", status: "failed" }));
-    vi.spyOn(apiClient, "rerunTask").mockResolvedValue({ task: { task_id: "cancelled-1" } });
-    vi.mocked(apiClient.listTasks).mockResolvedValue(page([task({ task_id: "cancelled-1", status: "cancelled" })]));
-    const { result } = renderQueue();
-    await waitFor(() => expect(result.current.items).toHaveLength(1));
-
-    act(() => {
-      result.current.toggleTaskSelected(result.current.items[0]!);
-    });
-    await act(async () => {
-      result.current.runBulkAction("resume");
-    });
-
-    await waitFor(() => expect(apiClient.getTask).toHaveBeenCalledWith("cancelled-1"));
-    expect(apiClient.rerunTask).not.toHaveBeenCalled();
-    await waitFor(() => expect(toast.warning).toHaveBeenCalled());
   });
 
   it("requires a confirmation with the selected count before a permanent delete", async () => {

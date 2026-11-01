@@ -21,6 +21,16 @@ pub(super) async fn submit_and_await_blocking(
     item: &mut crate::db::ClaimedItem,
     file_id: uuid::Uuid,
 ) -> Result<ProcessResult> {
+    submit_and_await_blocking_with_view(service, task_id, item, file_id, None).await
+}
+
+pub(super) async fn submit_and_await_blocking_with_view(
+    service: &TaskService,
+    task_id: uuid::Uuid,
+    item: &mut crate::db::ClaimedItem,
+    file_id: uuid::Uuid,
+    view: Option<&crate::services::library::ReplacementFileAttributes>,
+) -> Result<ProcessResult> {
     if let Some(active) = service
         .db()
         .get_active_docling_remote_job_for_item(item.id)
@@ -34,14 +44,32 @@ pub(super) async fn submit_and_await_blocking(
             item,
             file_id,
             active,
+            view,
         )
         .await;
     }
-    let submit = match service
-        .library()
-        .submit_docling_remote_for_task(file_id, item.lease_token, task_id)
-        .await
-    {
+    let source = crate::services::library::TaskSourceRef::from_input(item.input_storage_object_id);
+    let submitted = match view {
+        Some(view) => {
+            service
+                .library()
+                .submit_docling_remote_for_task_with_view(
+                    file_id,
+                    item.lease_token,
+                    task_id,
+                    source,
+                    Some(view),
+                )
+                .await
+        }
+        None => {
+            service
+                .library()
+                .submit_docling_remote_for_task(file_id, item.lease_token, task_id, source)
+                .await
+        }
+    };
+    let submit = match submitted {
         Ok(submit) => submit,
         Err(error) => {
             // Retryable submit failures (service down, transport) return a
@@ -77,6 +105,7 @@ pub(super) async fn submit_and_await_blocking(
                 item,
                 file_id,
                 job,
+                view,
             )
             .await
         }
@@ -126,6 +155,7 @@ pub(super) async fn submit_and_await_blocking(
                     item,
                     file_id,
                     active,
+                    view,
                 )
                 .await;
             }
@@ -158,6 +188,7 @@ pub(super) async fn submit_and_await_blocking(
                                 item,
                                 file_id,
                                 job,
+                                view,
                             )
                             .await;
                         }

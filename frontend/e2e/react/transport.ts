@@ -34,6 +34,7 @@ import {
   pagination,
   type AuthUserFixture,
   type DocumentFixture,
+  type DocumentResultsPageFixture,
   type GroupFixture,
   type GroupMemberFixture,
   type LibraryFileDetailFixture,
@@ -121,6 +122,14 @@ export interface DocumentsMock {
   failures?: Record<string, BackendFailure>;
   /** Login name that may read a document id; any other identity gets `403`. */
   owners?: Record<string, string>;
+  /**
+   * Result pages keyed by document id. A function receives the parsed query so
+   * a history continuation can answer a different page.
+   */
+  results?: Record<
+    string,
+    DocumentResultsPageFixture | ((query: URLSearchParams) => DocumentResultsPageFixture)
+  >;
   fallback?: DocumentFixture;
 }
 
@@ -513,6 +522,63 @@ export async function installAppTransport(
       return true;
     }
 
+    const batchRetryMatch = /^\/v1\/tasks\/batch\/retry$/.exec(url.pathname);
+    if (batchRetryMatch && method === "POST") {
+      if (queue.actionDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, queue.actionDelayMs));
+      }
+      const body = route.request().postDataJSON() as { task_ids?: string[] };
+      const sources = [
+        ...(queue.processing ?? []),
+        ...(queue.completed ?? []),
+        ...(queue.trash ?? []),
+      ];
+      await route.fulfill(json(200, {
+        results: (body.task_ids ?? []).map((taskId) => {
+          const source = sources.find((task) => task.task_id === taskId);
+          if (source && (source.status === "failed" || source.status === "cancelled")) {
+            return { task_id: taskId, outcome: "accepted", retried_task_id: taskId };
+          }
+          return {
+            task_id: taskId,
+            outcome: "skipped",
+            reason: source ? "ineligible_status" : "not_found",
+          };
+        }),
+      }));
+      return true;
+    }
+
+    const batchRerunMatch = /^\/v1\/tasks\/batch\/rerun$/.exec(url.pathname);
+    if (batchRerunMatch && method === "POST") {
+      if (queue.actionDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, queue.actionDelayMs));
+      }
+      const body = route.request().postDataJSON() as { task_ids?: string[] };
+      const sources = [
+        ...(queue.processing ?? []),
+        ...(queue.completed ?? []),
+        ...(queue.trash ?? []),
+      ];
+      await route.fulfill(json(200, {
+        results: (body.task_ids ?? []).map((taskId) => {
+          const source = sources.find((task) => task.task_id === taskId);
+          const rerunnable = source
+            && source.status === "succeeded"
+            && ["file_batch", "url_batch", "text_batch"].includes(source.kind);
+          if (rerunnable) {
+            return { task_id: taskId, outcome: "accepted", rerun_task_id: `${taskId}-child` };
+          }
+          return {
+            task_id: taskId,
+            outcome: "skipped",
+            reason: source ? "ineligible_status" : "not_found",
+          };
+        }),
+      }));
+      return true;
+    }
+
     const actionMatch = /^\/v1\/tasks\/([^/]+)\/(retry|rerun|cancel|trash|restore)$/.exec(url.pathname);
     if (actionMatch && method === "POST") {
       const taskId = decodeURIComponent(actionMatch[1]);
@@ -558,6 +624,31 @@ export async function installAppTransport(
     const documents = options.documents;
     if (!documents) {
       return false;
+    }
+    const resultsMatch = /^\/v1\/groups\/by-path\/([^/]+)\/documents\/([^/]+)\/results$/.exec(url.pathname);
+    if (resultsMatch && method === "GET") {
+      const key = decodeURIComponent(resultsMatch[2]);
+      const owner = documents.owners?.[key];
+      if (owner && owner !== currentUser.login_name) {
+        await route.fulfill(json(403, { code: "forbidden", message: "You do not have access to this document." }));
+        return true;
+      }
+      const failure = documents.failures?.[key];
+      if (failure) {
+        await route.fulfill(json(failure.status, { code: "reader", message: failure.message }));
+        return true;
+      }
+      const configured = documents.results?.[key];
+      const page = typeof configured === "function"
+        ? configured(url.searchParams)
+        : configured;
+      const document = documents.documents?.[key] ?? documents.fallback;
+      await route.fulfill(json(200, page ?? {
+        source_record_hash: document?.record_hash ?? "reader-hash",
+        items: [],
+        next_after_id: null,
+      }));
+      return true;
     }
     const match = /^\/v1\/documents\/([^/]+)$/.exec(url.pathname);
     if (!match || method !== "GET") {

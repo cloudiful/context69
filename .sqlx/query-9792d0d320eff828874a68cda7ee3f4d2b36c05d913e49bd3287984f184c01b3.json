@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- get_document_business_source.sql (issue 1138, P19)\n--\n-- The canonical business source of one document for a metadata publication.\n-- The current version row is joined by the document's current record hash, so\n-- the body used to recompute the hash is exactly the body the current hash\n-- covers. A missing row yields a NULL body and the caller must fail closed\n-- instead of reassembling overlapping chunks.\n--\n-- The document row is locked for the caller transaction: the file row is\n-- already held, and this keeps the lock order file -> documents ordered by id.\nSELECT\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    d.updated_at_source,\n    d.metadata_json,\n    d.record_hash,\n    v.body_text AS \"body_text?\"\nFROM context69.documents d\nLEFT JOIN context69.document_versions v\n    ON v.document_id = d.id AND v.record_hash = d.record_hash\nWHERE d.id = $1\nFOR UPDATE OF d\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "updated_at_source",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "updated_at_source"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "body_text?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_versions",
+            "name": "body_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "9792d0d320eff828874a68cda7ee3f4d2b36c05d913e49bd3287984f184c01b3"
+}
