@@ -1,5 +1,7 @@
 import { ListChecks, RotateCcw, Search, X } from "lucide-react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useSearchParams } from "react-router";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { TablePagination } from "@/components/common/table-pagination";
@@ -9,20 +11,43 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TaskListView } from "@/services/api";
 
+import { QueueBulkReport } from "./queue-bulk-report";
+import { QueueFocusedTask } from "./queue-focused-task";
 import { QueueTable } from "./queue-table";
 import { useQueue } from "./use-queue";
 
 const VIEWS: TaskListView[] = ["processing", "completed", "trash"];
+const TASK_PARAM = "task";
 
 /**
  * The processing queue workbench: three typed views over one server window,
  * header filters on the columns they narrow, cursor-paged items inside an
  * expanded row, and a selection whose bulk actions state their scope and
- * consequences before they run.
+ * consequences before they run. A `?task=<uuid>` parameter focuses one task
+ * without changing the current view, filters, or page.
  */
 export function ProcessingQueuePage() {
   const { t } = useTranslation();
-  const queue = useQueue();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const focusedTaskId = searchParams.get(TASK_PARAM)?.trim() || null;
+
+  const openTask = useCallback((taskId: string) => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.set(TASK_PARAM, taskId);
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const dismissFocusedTask = useCallback(() => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      next.delete(TASK_PARAM);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  const queue = useQueue({ openTask, focusedTaskId });
   const busy = queue.selectionBusy;
 
   return (
@@ -115,22 +140,46 @@ export function ProcessingQueuePage() {
         {queue.selectionCount > 0
           ? (
               <div className="ml-auto flex flex-wrap items-center gap-2" data-testid="queue-bulk-actions">
-                {queue.bulkActions.map((action) => (
+                {queue.bulkActionOptions.map((option) => (
                   <Button
-                    key={action}
+                    key={option.action}
                     type="button"
                     variant="outline"
                     size="sm"
                     disabled={busy}
-                    onClick={() => queue.runBulkAction(action)}
+                    onClick={() => queue.runBulkAction(option.action)}
                   >
-                    {t(`processingQueue.bulkActions.${action}`)}
+                    {option.label}
                   </Button>
                 ))}
               </div>
             )
           : null}
       </div>
+
+      {focusedTaskId
+        ? (
+            <QueueFocusedTask
+              taskId={focusedTaskId}
+              task={queue.focusedTask}
+              loading={queue.focusedTaskLoading}
+              error={queue.focusedTaskError}
+              onDismiss={dismissFocusedTask}
+              isActing={queue.isActing}
+              onRetry={queue.recoverTask}
+            />
+          )
+        : null}
+
+      {queue.bulkReport
+        ? (
+            <QueueBulkReport
+              report={queue.bulkReport}
+              onDismiss={queue.dismissBulkReport}
+              onOpenTask={openTask}
+            />
+          )
+        : null}
 
       {queue.error
         ? (

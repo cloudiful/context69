@@ -4,9 +4,11 @@ import {
   QueuePartialFailureError,
   QueueTaskSkippedError,
   availableQueueBulkActions,
+  buildQueueBulkReport,
   captureQueueBulkTargets,
   isQueueBulkActionApplicable,
   isSourceRerunnableTask,
+  queueBulkActionOptions,
   runQueueBatchRerun,
   runQueueBatchRetry,
   runQueueBulkTasks,
@@ -58,8 +60,8 @@ describe("captureQueueBulkTargets", () => {
       "retry",
     );
     expect(targets).toEqual([
-      { taskId: "a", status: "failed", action: "retry" },
-      { taskId: "b", status: "running", action: "retry" },
+      { taskId: "a", status: "failed", action: "retry", subject: null },
+      { taskId: "b", status: "running", action: "retry", subject: null },
     ]);
   });
 
@@ -219,6 +221,31 @@ describe("runQueueBatchRerun", () => {
     expect(outcomes[1]?.reason).toBe("active_source_busy");
   });
 
+  it("keeps the accepted target of each batch item", async () => {
+    const retried = await runQueueBatchRetry(
+      [target("failed-1", "failed", "retry")],
+      async () => ({
+        results: [{ task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" }],
+      }),
+    );
+    expect(retried[0]?.targetTaskId).toBe("failed-1");
+
+    const rerun = await runQueueBatchRerun(
+      [target("parent-1", "succeeded", "rerun")],
+      async () => ({
+        results: [{ task_id: "parent-1", outcome: "accepted", rerun_task_id: "child-1" }],
+      }),
+    );
+    expect(rerun[0]?.targetTaskId).toBe("child-1");
+    expect(rerun[0]?.taskId).toBe("parent-1");
+
+    const withoutChild = await runQueueBatchRerun(
+      [target("parent-2", "succeeded", "rerun")],
+      async () => ({ results: [{ task_id: "parent-2", outcome: "accepted" }] }),
+    );
+    expect(withoutChild[0]?.targetTaskId).toBeNull();
+  });
+
   it("never reports a task the response omitted as rerun", async () => {
     const outcomes = await runQueueBatchRerun(
       [target("kept", "succeeded", "rerun"), target("omitted", "succeeded", "rerun")],
@@ -243,11 +270,103 @@ describe("isSourceRerunnableTask", () => {
 describe("summarizeQueueBulkOutcomes", () => {
   it("counts successes, skips, failures and partials separately", () => {
     const summary = summarizeQueueBulkOutcomes([
-      { taskId: "a", status: "succeeded", partial: false },
-      { taskId: "b", status: "skipped", partial: false },
-      { taskId: "c", status: "failed", partial: true },
-      { taskId: "d", status: "failed", partial: false },
+      { taskId: "a", status: "succeeded", partial: false, targetTaskId: "a" },
+      { taskId: "b", status: "skipped", partial: false, targetTaskId: null },
+      { taskId: "c", status: "failed", partial: true, targetTaskId: null },
+      { taskId: "d", status: "failed", partial: false, targetTaskId: null },
     ]);
     expect(summary).toEqual({ succeeded: 1, skipped: 1, failed: 2, partial: 1 });
+  });
+});
+
+describe("queueBulkActionOptions", () => {
+  const t = (key: string, params?: Record<string, unknown>) => `${key}|${JSON.stringify(params ?? {})}`;
+
+  it("labels recovery by the eligible failed and cancelled counts", () => {
+    const onlyFailed = queueBulkActionOptions(t, ["failed", "failed"], "processing");
+    expect(onlyFailed.find((option) => option.action === "retry")).toEqual({
+      action: "retry",
+      label: 'processingQueue.bulkActionLabels.retryFailed|{"count":2}',
+      eligible: 2,
+    });
+
+    const onlyCancelled = queueBulkActionOptions(t, ["cancelled"], "processing");
+    expect(onlyCancelled.find((option) => option.action === "retry")?.label)
+      .toBe('processingQueue.bulkActionLabels.resumeCancelled|{"count":1}');
+
+    const mixed = queueBulkActionOptions(t, ["failed", "cancelled", "cancelled"], "processing");
+    expect(mixed.find((option) => option.action === "retry")).toEqual({
+      action: "retry",
+      label: 'processingQueue.bulkActionLabels.retryMixed|{"failed":1,"cancelled":2}',
+      eligible: 3,
+    });
+  });
+
+  it("never counts an unsupported selection in another action's label", () => {
+    const options = queueBulkActionOptions(t, ["failed", "running", "running"], "processing");
+    expect(options.find((option) => option.action === "retry"))
+      .toEqual({
+        action: "retry",
+        label: 'processingQueue.bulkActionLabels.retryFailed|{"count":1}',
+        eligible: 1,
+      });
+    expect(options.find((option) => option.action === "cancel")?.eligible).toBe(2);
+    expect(options.find((option) => option.action === "rerun")).toBeUndefined();
+  });
+});
+
+describe("buildQueueBulkReport", () => {
+  it("maps outcomes to the visible accepted/skipped/failed vocabulary", () => {
+    const report = buildQueueBulkReport("rerun", [
+      {
+        taskId: "parent-1",
+        status: "succeeded",
+        partial: false,
+        targetTaskId: "child-1",
+        subject: "Annual Report",
+      },
+      {
+        taskId: "parent-2",
+        status: "skipped",
+        partial: false,
+        targetTaskId: null,
+        subject: null,
+        reason: "active_source_busy",
+      },
+      {
+        taskId: "parent-3",
+        status: "failed",
+        partial: true,
+        targetTaskId: null,
+        subject: "Quarterly",
+        reason: "internal_error",
+      },
+    ]);
+
+    expect(report.action).toBe("rerun");
+    expect(report.summary).toEqual({ succeeded: 1, skipped: 1, failed: 1, partial: 1 });
+    expect(report.entries).toEqual([
+      {
+        taskId: "parent-1",
+        subject: "Annual Report",
+        status: "accepted",
+        targetTaskId: "child-1",
+        reason: null,
+      },
+      {
+        taskId: "parent-2",
+        subject: null,
+        status: "skipped",
+        targetTaskId: null,
+        reason: "active_source_busy",
+      },
+      {
+        taskId: "parent-3",
+        subject: "Quarterly",
+        status: "failed",
+        targetTaskId: null,
+        reason: "internal_error",
+      },
+    ]);
   });
 });

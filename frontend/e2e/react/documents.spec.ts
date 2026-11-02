@@ -250,6 +250,8 @@ test.describe("react document reader", () => {
     await expect(page.getByTestId("document-result-group")).toHaveCount(2);
     await expect(page.getByTestId("document-results-current")).toHaveAttribute("aria-pressed", "true");
     await expect(page.getByTestId("document-result-group").first()).toContainText("stock.disclosure");
+    await expect(page.getByTestId("document-result-field").first()).toContainText("headline");
+    await expect(page.getByTestId("document-result-field").first()).toContainText("Filed");
 
     await page.getByTestId("document-results-history").click();
     await expect(page.getByTestId("document-result-history-item")).toHaveCount(2);
@@ -262,7 +264,7 @@ test.describe("react document reader", () => {
     await expect(page.getByTestId("document-results-load-more")).toHaveCount(0);
   });
 
-  test("renders result payloads as text and never interprets injected markup", async ({ page }) => {
+  test("renders readable result fields and expands the original JSON without interpreting markup", async ({ page }) => {
     await installAppTransport(page, {
       user: ADMIN_USER,
       documents: {
@@ -270,7 +272,11 @@ test.describe("react document reader", () => {
         results: {
           "42": documentResultsPageFixture([
             documentResultFixture({
-              result: { note: "<img src=x onerror=window.__resultXss=1><script>window.__resultXss=2</script>" },
+              result: {
+                note: "<img src=x onerror=window.__resultXss=1><script>window.__resultXss=2</script>",
+                score: 0,
+                meta: { region: "EU" },
+              },
             }),
           ]),
         },
@@ -279,8 +285,17 @@ test.describe("react document reader", () => {
 
     await page.goto("/documents/42");
 
+    const field = page.getByTestId("document-result-field").first();
+    await expect(field).toContainText("note");
+    await expect(field).toContainText("<img src=x onerror=window.__resultXss=1>");
+    await expect(page.getByTestId("document-result-field").nth(1)).toContainText("0");
+    await expect(page.getByTestId("document-result-nested")).toContainText("Object · 1 field");
+    await expect(page.getByTestId("document-results").locator("img")).toHaveCount(0);
+
+    await page.getByText("Original JSON").first().click();
     const payload = page.getByTestId("document-result-payload").first();
     await expect(payload).toContainText("<img src=x onerror=window.__resultXss=1>");
+    await expect(payload).toContainText('"region": "EU"');
     await expect(payload.locator("img")).toHaveCount(0);
     await expect(payload.locator("script")).toHaveCount(0);
     expect(await page.evaluate(() => (window as { __resultXss?: number }).__resultXss)).toBeUndefined();

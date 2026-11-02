@@ -55,7 +55,7 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function renderQueue() {
+function renderQueue(options: Parameters<typeof useQueue>[0] = {}) {
   const client = new QueryClient({
     defaultOptions: {
       queries: { retry: false, refetchOnWindowFocus: false },
@@ -66,7 +66,7 @@ function renderQueue() {
       <QueryClientProvider client={client}>{children}</QueryClientProvider>
     </I18nextProvider>
   );
-  return renderHook(() => useQueue(), { wrapper });
+  return renderHook(() => useQueue(options), { wrapper });
 }
 
 describe("useQueue", () => {
@@ -561,9 +561,14 @@ describe("useQueue", () => {
 
     await waitFor(() => expect(toast.warning).toHaveBeenCalled());
     expect(toast.warning.mock.calls[0]?.[0]).toContain("1 skipped");
-    const description = String(toast.warning.mock.calls[0]?.[1]?.description ?? "");
-    expect(description).toContain("task-1");
-    expect(description).toContain("source already in progress");
+    await waitFor(() => expect(result.current.bulkReport).not.toBeNull());
+    expect(result.current.bulkReport?.entries[0]).toEqual({
+      taskId: "task-1",
+      subject: "research",
+      status: "skipped",
+      targetTaskId: null,
+      reason: "active_source_busy",
+    });
     expect(result.current.selectionCount).toBe(1);
   });
 
@@ -582,6 +587,190 @@ describe("useQueue", () => {
     });
 
     await waitFor(() => expect(rerun).toHaveBeenCalledWith("succeeded-1"));
+  });
+
+  it("keeps the created child id and opens it from the success toast", async () => {
+    const rerun = vi.spyOn(apiClient, "rerunTask").mockResolvedValue({
+      task: { task_id: "child-1", item_ids: [] },
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "succeeded-1", status: "succeeded" }),
+    ]));
+    const openTask = vi.fn();
+    const { result } = renderQueue({ openTask });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.rerunTask(result.current.items[0]!);
+    });
+    await waitFor(() => expect(rerun).toHaveBeenCalledWith("succeeded-1"));
+
+    const options = toast.success.mock.calls.at(-1)?.[1];
+    expect(options?.description).toBe("child-1");
+    expect(options?.action?.label).toBe("View task");
+    options?.action?.onClick({} as never);
+    expect(openTask).toHaveBeenCalledWith("child-1");
+  });
+
+  it("keeps an in-place recovery linked to the original task", async () => {
+    vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [{ task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" }],
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+    ]));
+    const openTask = vi.fn();
+    const { result } = renderQueue({ openTask });
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+    });
+
+    await waitFor(() => expect(result.current.bulkReport).not.toBeNull());
+    expect(result.current.bulkReport?.entries[0]).toMatchObject({
+      taskId: "failed-1",
+      status: "accepted",
+      targetTaskId: "failed-1",
+    });
+    const details = toast.success.mock.calls.at(-1)?.[1]?.action;
+    expect(details?.label).toBe("View details");
+    details?.onClick({} as never);
+
+    // A view change keeps the report; only the next batch or a dismissal clears it.
+    act(() => {
+      result.current.setView("trash");
+    });
+    expect(result.current.bulkReport).not.toBeNull();
+
+    act(() => {
+      result.current.dismissBulkReport();
+    });
+    expect(result.current.bulkReport).toBeNull();
+  });
+
+  it("re-reads the focused detail when its retry is accepted", async () => {
+    const taskId = "44444444-4444-4444-8444-444444444444";
+    const failed = task({ task_id: taskId, status: "failed" });
+    const queued = task({ task_id: taskId, status: "queued" });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([failed]));
+    vi.spyOn(apiClient, "retryTask").mockResolvedValue({
+      retried_items: 1,
+      task: { task_id: taskId },
+    });
+    const getTask = vi.spyOn(apiClient, "getTask")
+      .mockResolvedValueOnce(failed)
+      .mockResolvedValue(queued);
+    const { result } = renderQueue({ focusedTaskId: taskId });
+
+    await waitFor(() => expect(result.current.focusedTask?.status).toBe("failed"));
+    expect(result.current.focusedTaskLoading).toBe(false);
+    expect(result.current.focusedTaskError).toBe(false);
+
+    await act(async () => {
+      result.current.recoverTask(result.current.focusedTask!);
+    });
+
+    await waitFor(() => expect(result.current.focusedTask?.status).toBe("queued"));
+    expect(result.current.focusedTask?.task_id).toBe(taskId);
+    expect(getTask.mock.calls.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("re-reads the focused detail on an explicit queue refresh", async () => {
+    const taskId = "55555555-5555-4555-8555-555555555555";
+    const failed = task({ task_id: taskId, status: "failed" });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([failed]));
+    const getTask = vi.spyOn(apiClient, "getTask").mockResolvedValue(failed);
+    const { result } = renderQueue({ focusedTaskId: taskId });
+
+    await waitFor(() => expect(result.current.focusedTask?.task_id).toBe(taskId));
+    expect(getTask).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      result.current.refresh();
+    });
+
+    await waitFor(() => expect(getTask).toHaveBeenCalledTimes(2));
+  });
+
+  it("never reads a detail for a mutation outside the focus", async () => {
+    const getTask = vi.spyOn(apiClient, "getTask");
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+    ]));
+    vi.spyOn(apiClient, "retryTask").mockResolvedValue({
+      retried_items: 1,
+      task: { task_id: "failed-1" },
+    });
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.recoverTask(result.current.items[0]!);
+    });
+    await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalled());
+    expect(getTask).not.toHaveBeenCalled();
+  });
+
+  it("keeps the newest focused task when an older read settles late", async () => {
+    const firstId = "66666666-6666-4666-8666-666666666666";
+    const secondId = "77777777-7777-4777-8777-777777777777";
+    const firstDeferred = deferred<TaskResponse>();
+    const secondDeferred = deferred<TaskResponse>();
+    const getTask = vi.spyOn(apiClient, "getTask").mockImplementation(
+      (taskId) => (taskId === firstId ? firstDeferred.promise : secondDeferred.promise),
+    );
+    const options: Parameters<typeof useQueue>[0] = { focusedTaskId: firstId };
+    const { result, rerender } = renderQueue(options);
+
+    options.focusedTaskId = secondId;
+    act(() => {
+      rerender();
+    });
+
+    await act(async () => {
+      secondDeferred.resolve(task({ task_id: secondId, status: "failed" }));
+    });
+    await waitFor(() => expect(result.current.focusedTask?.task_id).toBe(secondId));
+
+    await act(async () => {
+      firstDeferred.resolve(task({ task_id: firstId, status: "succeeded" }));
+    });
+    expect(result.current.focusedTask?.task_id).toBe(secondId);
+    expect(getTask).toHaveBeenCalledWith(firstId, expect.anything());
+    expect(getTask).toHaveBeenCalledWith(secondId, expect.anything());
+  });
+
+  it("submits one bulk action even when the click repeats", async () => {
+    let release!: () => void;
+    const batch = vi.spyOn(apiClient, "batchRetryTasks").mockImplementation(() => new Promise((resolve) => {
+      release = () => resolve({
+        results: [{ task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" }],
+      });
+    }));
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+      result.current.runBulkAction("retry");
+      await Promise.resolve();
+    });
+
+    expect(batch).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(result.current.bulkAction).toBeNull());
   });
 
   it("never offers the source rerun for a task that owns no source", async () => {

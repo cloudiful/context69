@@ -215,7 +215,7 @@ describe("QueueExpandedRow", () => {
     const { onRetry } = renderRow({ task: task({ status: "failed" }) });
 
     await screen.findByText("alpha.pdf");
-    const retry = screen.getByRole("button", { name: "Retry this task" });
+    const retry = screen.getByRole("button", { name: "Retry failed items" });
     await user.click(retry);
     expect(onRetry).toHaveBeenCalledWith(expect.objectContaining({ task_id: "task-1" }));
   });
@@ -223,7 +223,7 @@ describe("QueueExpandedRow", () => {
   it("hides the retry action while the task is active", async () => {
     renderRow({ task: task({ status: "running" }) });
     await screen.findByText("alpha.pdf");
-    expect(screen.queryByRole("button", { name: "Retry this task" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Retry failed items" })).not.toBeInTheDocument();
   });
 
   it("renders truthful item progress without inventing a percentage or counts", async () => {

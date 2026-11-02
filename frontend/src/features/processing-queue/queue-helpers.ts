@@ -15,6 +15,20 @@ type Schemas = components["schemas"];
 /** The ordered per-task outcomes of one bounded batch source rerun. */
 export type TaskBatchRerunResponse = Schemas["TaskBatchRerunResponse"];
 
+/**
+ * One per-id result of a bounded batch call. The generated item types are the
+ * only definition of the response shape: retry carries `retried_task_id` (the
+ * in-place task), rerun carries `rerun_task_id` (the created child).
+ */
+export type QueueBatchResultItem =
+  | Schemas["TaskBatchRetryItem"]
+  | Schemas["TaskBatchRerunItem"];
+
+export type QueueBatchResponse = TaskBatchRetryResponse | TaskBatchRerunResponse;
+
+/** The DOM id of the persistent bulk report, used to offer its details. */
+export const QUEUE_BULK_REPORT_ID = "queue-bulk-report";
+
 export const ACTIVE_STATUSES: TaskStatus[] = ["queued", "running", "waiting"];
 export const TERMINAL_STATUSES: TaskStatus[] = ["succeeded", "failed", "cancelled"];
 
@@ -173,6 +187,8 @@ export interface QueueBulkTarget {
   readonly action: QueueBulkAction;
   /** The status the task had when it was selected. */
   readonly status: TaskStatus;
+  /** The readable subject captured with the selection, when one was on screen. */
+  readonly subject?: string | null;
 }
 
 export interface QueueBulkOutcome {
@@ -181,6 +197,46 @@ export interface QueueBulkOutcome {
   /** True when the task was cancelled but could not be moved to the trash. */
   readonly partial: boolean;
   readonly reason?: string;
+  /**
+   * The task an accepted action targets: the original task for an in-place
+   * retry/resume, the created child for a source reprocess. Null otherwise.
+   */
+  readonly targetTaskId: string | null;
+  /** The readable subject captured with the selection, when it was available. */
+  readonly subject?: string | null;
+}
+
+/** One row of the persistent bulk report. */
+export interface QueueBulkReportEntry {
+  /** The original selected task. */
+  readonly taskId: string;
+  readonly subject: string | null;
+  /** The visible vocabulary: accepted, skipped, or failed. */
+  readonly status: "accepted" | "skipped" | "failed";
+  /** The accepted target task, never the original of a source reprocess. */
+  readonly targetTaskId: string | null;
+  readonly reason: string | null;
+}
+
+/**
+ * The result of the last bulk action. It stays visible until the next batch
+ * replaces it or the operator dismisses it, so a per-item outcome is never lost
+ * with a toast that disappears.
+ */
+export interface QueueBulkReport {
+  readonly action: QueueBulkAction;
+  readonly summary: QueueBulkSummary;
+  readonly entries: readonly QueueBulkReportEntry[];
+}
+
+/** The report renders at most this many rows per page. */
+export const QUEUE_BULK_REPORT_PAGE_SIZE = 50;
+
+export interface QueueBulkActionOption {
+  readonly action: QueueBulkAction;
+  /** The counted label: the number is the eligible selection, never the total. */
+  readonly label: string;
+  readonly eligible: number;
 }
 
 export interface QueueBulkSummary {
@@ -231,11 +287,79 @@ export function availableQueueBulkActions(
   return actions;
 }
 
+/**
+ * The bulk actions that apply to a selection, each with a counted label.
+ *
+ * Recovery is one endpoint for two states: a failed task is retried in place
+ * and a cancelled task is resumed in place. Its label names the eligible failed
+ * and cancelled counts separately, so a mixed selection never reads as if every
+ * selected row were retried. Every other label carries its own eligible count
+ * too, never the total of a selection that includes unsupported rows.
+ */
+export function queueBulkActionOptions(
+  t: Translate,
+  statuses: readonly TaskStatus[],
+  view: TaskListView,
+): QueueBulkActionOption[] {
+  const count = (predicate: (status: TaskStatus) => boolean) => statuses.filter(predicate).length;
+  const failed = count((status) => status === "failed");
+  const cancelled = count((status) => status === "cancelled");
+  const succeeded = count((status) => status === "succeeded");
+  const active = count(isActiveStatus);
+
+  return availableQueueBulkActions(statuses, view).map((action) => {
+    switch (action) {
+      case "retry": {
+        const eligible = failed + cancelled;
+        const label = failed > 0 && cancelled > 0
+          ? t("processingQueue.bulkActionLabels.retryMixed", { failed, cancelled })
+          : cancelled > 0
+            ? t("processingQueue.bulkActionLabels.resumeCancelled", { count: cancelled })
+            : t("processingQueue.bulkActionLabels.retryFailed", { count: failed });
+        return { action, label, eligible };
+      }
+      case "rerun":
+        return {
+          action,
+          label: t("processingQueue.bulkActionLabels.rerun", { count: succeeded }),
+          eligible: succeeded,
+        };
+      case "cancel":
+        return {
+          action,
+          label: t("processingQueue.bulkActionLabels.cancel", { count: active }),
+          eligible: active,
+        };
+      case "trash":
+        return {
+          action,
+          label: t("processingQueue.bulkActionLabels.trash", { count: statuses.length }),
+          eligible: statuses.length,
+        };
+      case "restore":
+        return {
+          action,
+          label: t("processingQueue.bulkActionLabels.restore", { count: statuses.length }),
+          eligible: statuses.length,
+        };
+      case "delete":
+        return {
+          action,
+          label: t("processingQueue.bulkActionLabels.delete", { count: statuses.length }),
+          eligible: statuses.length,
+        };
+      default:
+        return { action, label: t(`processingQueue.bulkActions.${action}`), eligible: 0 };
+    }
+  });
+}
+
 /** Every selected task becomes one target, in the order the tasks were selected. */
 export function captureQueueBulkTargets(
   ids: readonly string[],
   statuses: Readonly<Record<string, TaskStatus>>,
   action: QueueBulkAction,
+  subjects: Readonly<Record<string, string | null>> = {},
 ): readonly QueueBulkTarget[] {
   const targets: QueueBulkTarget[] = [];
   const seen = new Set<string>();
@@ -248,7 +372,7 @@ export function captureQueueBulkTargets(
     if (!status) {
       continue;
     }
-    targets.push(Object.freeze({ taskId, action, status }));
+    targets.push(Object.freeze({ taskId, action, status, subject: subjects[taskId] ?? null }));
   }
   return Object.freeze(targets);
 }
@@ -279,7 +403,13 @@ export async function runQueueBulkTasks(
       }
       try {
         await submit(target);
-        outcomes[index] = { taskId: target.taskId, status: "succeeded", partial: false };
+        outcomes[index] = {
+          taskId: target.taskId,
+          status: "succeeded",
+          partial: false,
+          targetTaskId: target.taskId,
+          subject: target.subject ?? null,
+        };
       } catch (reason) {
         const skipped = reason instanceof QueueTaskSkippedError
           || isEligibilityRefusal(reason);
@@ -288,6 +418,8 @@ export async function runQueueBulkTasks(
           status: skipped ? "skipped" : "failed",
           partial: reason instanceof QueuePartialFailureError,
           reason: reason instanceof Error ? reason.message : String(reason),
+          targetTaskId: null,
+          subject: target.subject ?? null,
         };
       }
       completed += 1;
@@ -320,54 +452,19 @@ export const QUEUE_BATCH_RETRY_LIMIT = 100;
 export const QUEUE_BATCH_RETRY_CONCURRENCY = 4;
 
 /**
- * The per-id outcome shape both bounded batch endpoints answer with: the
- * ordered id, the outcome, and an optional non-sensitive reason.
- */
-interface QueueBatchResult {
-  readonly task_id: string;
-  readonly outcome: "accepted" | "skipped" | "failed";
-  readonly reason?: string | null;
-}
-
-/**
- * Recover selected failed and cancelled tasks through the bounded batch API.
- *
- * The captured ids are split into chunks of at most 100 and at most four batch
- * requests run at once. Each response item maps back to the id the caller
- * selected, so the summary keeps the requested order and a skipped/failed id is
- * never reported as recovered. A whole chunk that fails marks only its own ids
- * as failed; the other chunks still complete.
- */
-export async function runQueueBatchRetry(
-  targets: readonly QueueBulkTarget[],
-  submit: (taskIds: readonly string[]) => Promise<TaskBatchRetryResponse>,
-  onProgress?: (completed: number, total: number) => void,
-): Promise<QueueBulkOutcome[]> {
-  return runQueueBatchTasks(targets, submit, onProgress);
-}
-
-/**
- * Rerun selected succeeded tasks from their current source through the bounded
- * batch API. The batching, ordering, and per-id mapping are the same as the
- * recovery call; only the endpoint and the outcome vocabulary differ.
- */
-export async function runQueueBatchRerun(
-  targets: readonly QueueBulkTarget[],
-  submit: (taskIds: readonly string[]) => Promise<TaskBatchRerunResponse>,
-  onProgress?: (completed: number, total: number) => void,
-): Promise<QueueBulkOutcome[]> {
-  return runQueueBatchTasks(targets, submit, onProgress);
-}
-
-/**
  * The shared bounded batch execution: never more than four batch requests in
  * flight, the outcomes keep the order of the targets, and every rejection is
  * captured so the summary stays truthful.
+ *
+ * The accepted target id comes from the generated item type: an in-place
+ * recovery reports the recovered task, a source reprocess reports the created
+ * child, and neither is invented from the original id.
  */
 export async function runQueueBatchTasks(
   targets: readonly QueueBulkTarget[],
-  submit: (taskIds: readonly string[]) => Promise<{ results: QueueBatchResult[] }>,
+  submit: (taskIds: readonly string[]) => Promise<QueueBatchResponse>,
   onProgress?: (completed: number, total: number) => void,
+  targetKind: "in-place" | "fork" = "in-place",
 ): Promise<QueueBulkOutcome[]> {
   const outcomes = new Array<QueueBulkOutcome>(targets.length);
   const indexByTaskId = new Map<string, number>();
@@ -398,7 +495,8 @@ export async function runQueueBatchTasks(
       }
       try {
         const response = await submit(chunk.ids);
-        const byId = new Map(response.results.map((item) => [item.task_id, item]));
+        const results: readonly QueueBatchResultItem[] = response.results;
+        const byId = new Map(results.map((item) => [item.task_id, item]));
         for (const taskId of chunk.ids) {
           const index = indexByTaskId.get(taskId);
           if (index === undefined) {
@@ -410,16 +508,21 @@ export async function runQueueBatchTasks(
               taskId,
               status: "failed",
               partial: false,
+              targetTaskId: null,
+              subject: targets[index]?.subject ?? null,
               reason: "the batch response omitted this task",
             };
             continue;
           }
+          const accepted = result.outcome === "accepted";
           outcomes[index] = {
             taskId,
-            status: result.outcome === "accepted"
+            status: accepted
               ? "succeeded"
               : result.outcome === "skipped" ? "skipped" : "failed",
             partial: false,
+            targetTaskId: accepted ? acceptedTargetTaskId(result, taskId, targetKind) : null,
+            subject: targets[index]?.subject ?? null,
             reason: result.reason ?? undefined,
           };
         }
@@ -428,7 +531,14 @@ export async function runQueueBatchTasks(
         for (const taskId of chunk.ids) {
           const index = indexByTaskId.get(taskId);
           if (index !== undefined) {
-            outcomes[index] = { taskId, status: "failed", partial: false, reason: message };
+            outcomes[index] = {
+              taskId,
+              status: "failed",
+              partial: false,
+              targetTaskId: null,
+              subject: targets[index]?.subject ?? null,
+              reason: message,
+            };
           }
         }
       }
@@ -440,6 +550,51 @@ export async function runQueueBatchTasks(
   const workerCount = Math.min(QUEUE_BATCH_RETRY_CONCURRENCY, chunks.length);
   await Promise.all(Array.from({ length: workerCount }, () => runWorker()));
   return outcomes;
+}
+
+/**
+ * The accepted target of one generated batch item: recovery never forks, so its
+ * target is the recovered task; a source rerun reports the created child.
+ */
+function acceptedTargetTaskId(
+  item: QueueBatchResultItem,
+  fallbackTaskId: string,
+  targetKind: "in-place" | "fork",
+): string | null {
+  if (targetKind === "fork") {
+    return "rerun_task_id" in item ? item.rerun_task_id ?? null : null;
+  }
+  return "retried_task_id" in item ? item.retried_task_id ?? fallbackTaskId : fallbackTaskId;
+}
+
+/**
+ * Recover selected failed and cancelled tasks through the bounded batch API.
+ *
+ * The captured ids are split into chunks of at most 100 and at most four batch
+ * requests run at once. Each response item maps back to the id the caller
+ * selected, so the summary keeps the requested order and a skipped/failed id is
+ * never reported as recovered. A whole chunk that fails marks only its own ids
+ * as failed; the other chunks still complete.
+ */
+export async function runQueueBatchRetry(
+  targets: readonly QueueBulkTarget[],
+  submit: (taskIds: readonly string[]) => Promise<TaskBatchRetryResponse>,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<QueueBulkOutcome[]> {
+  return runQueueBatchTasks(targets, submit, onProgress);
+}
+
+/**
+ * Rerun selected succeeded tasks from their current source through the bounded
+ * batch API. The batching, ordering, and per-id mapping are the same as the
+ * recovery call; only the endpoint and the outcome vocabulary differ.
+ */
+export async function runQueueBatchRerun(
+  targets: readonly QueueBulkTarget[],
+  submit: (taskIds: readonly string[]) => Promise<TaskBatchRerunResponse>,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<QueueBulkOutcome[]> {
+  return runQueueBatchTasks(targets, submit, onProgress, "fork");
 }
 
 export function summarizeQueueBulkOutcomes(
@@ -483,20 +638,26 @@ export function isSourceRerunnableTask(task: TaskResponse): boolean {
 }
 
 /**
- * The per-task detail of a bulk action: which ids were skipped or failed and
- * why.
+ * The report of one finished bulk action: the accepted/skipped/failed summary
+ * and one bounded entry per selected task. Each accepted entry keeps the target
+ * the server reported, so a source reprocess links to the created child and an
+ * in-place recovery links to the original task.
  */
-export interface QueueBulkOutcomeDetail {
-  readonly taskId: string;
-  readonly reason: string;
-}
-
-export function describeQueueBulkOutcomes(
+export function buildQueueBulkReport(
+  action: QueueBulkAction,
   outcomes: readonly QueueBulkOutcome[],
-): readonly QueueBulkOutcomeDetail[] {
-  return outcomes
-    .filter((outcome) => outcome.status !== "succeeded" && outcome.reason)
-    .map((outcome) => ({ taskId: outcome.taskId, reason: outcome.reason as string }));
+): QueueBulkReport {
+  return {
+    action,
+    summary: summarizeQueueBulkOutcomes(outcomes),
+    entries: Object.freeze(outcomes.map((outcome) => ({
+      taskId: outcome.taskId,
+      subject: outcome.subject ?? null,
+      status: outcome.status === "succeeded" ? "accepted" as const : outcome.status,
+      targetTaskId: outcome.status === "succeeded" ? outcome.targetTaskId : null,
+      reason: outcome.reason ?? null,
+    }))),
+  };
 }
 
 export function isTerminalTask(task: TaskResponse): boolean {

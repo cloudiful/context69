@@ -461,7 +461,7 @@ describe("document reader", () => {
     expect(groups[0]).toHaveTextContent("stock.disclosure");
     expect(groups[1]).toHaveTextContent("stock.news");
     expect(within(groups[1]).getByTestId("document-result-kind")).toHaveTextContent("sentiment.v1");
-    expect(within(groups[1]).getByText(/direction/)).toBeInTheDocument();
+    expect(within(groups[1]).getAllByTestId("document-result-field")[0]).toHaveTextContent("direction");
     expect(groups[1].querySelector("img")).toBeNull();
     expect(screen.getByTestId("document-results-current")).toHaveAttribute("aria-pressed", "true");
   });
@@ -577,6 +577,8 @@ describe("document reader", () => {
     expect(items[0]).toHaveTextContent("Current");
     expect(items[1]).toHaveTextContent("Historical");
     expect(items[1]).toHaveTextContent("Source version: hash-old");
+    expect(within(items[0]).getByText("direction")).toBeInTheDocument();
+    expect(within(items[0]).getByText("positive")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("document-results-load-more"));
     await waitFor(() => expect(screen.getAllByTestId("document-result-history-item")).toHaveLength(3));
@@ -603,5 +605,195 @@ describe("document reader", () => {
     expect(await screen.findByTestId("document-results-empty")).toHaveTextContent(
       "No results for the current source version.",
     );
+  });
+
+  it("renders scalar result fields as labelled key and value text", async () => {
+    installDocumentBackend({
+      results: documentResultsPage([
+        documentResultFixture({
+          result: { headline: "Filed", score: 0, confident: false, note: null },
+        }),
+      ]),
+    });
+    await reader();
+
+    const fields = await screen.findAllByTestId("document-result-field");
+    expect(fields).toHaveLength(4);
+
+    const field = (name: string) => fields.find((row) => within(row).queryByText(name));
+    expect(within(field("headline") as HTMLElement).getByText("Filed")).toBeInTheDocument();
+    expect(within(field("score") as HTMLElement).getByText("0")).toBeInTheDocument();
+    expect(within(field("confident") as HTMLElement).getByText("false")).toBeInTheDocument();
+    expect(within(field("note") as HTMLElement).getByText("null")).toBeInTheDocument();
+  });
+
+  it("shows a meaningful empty state for an empty result object", async () => {
+    installDocumentBackend({
+      results: documentResultsPage([documentResultFixture({ result: {} })]),
+    });
+    await reader();
+
+    expect(await screen.findByTestId("document-result-empty-payload")).toHaveTextContent(
+      "This result has no fields.",
+    );
+    expect(screen.queryByTestId("document-result-field")).not.toBeInTheDocument();
+  });
+
+  it("keeps hostile and Unicode result text inert while rendering it readably", async () => {
+    const hostile = "<img src=x onerror=window.__resultFieldXss=1><script>window.__resultFieldXss=2</script>";
+    installDocumentBackend({
+      results: documentResultsPage([
+        documentResultFixture({ result: { note: hostile, unicode: "日本語 ✓" } }),
+      ]),
+    });
+    await reader();
+
+    const fields = await screen.findAllByTestId("document-result-field");
+    const container = fields[0].parentElement as HTMLElement;
+    expect(within(container).getByText(hostile)).toBeInTheDocument();
+    expect(within(container).getByText("日本語 ✓")).toBeInTheDocument();
+    expect(container.querySelector("img")).toBeNull();
+    expect(container.querySelector("script")).toBeNull();
+    expect((window as unknown as { __resultFieldXss?: number }).__resultFieldXss).toBeUndefined();
+
+    await userEvent.setup().click(screen.getAllByText("Original JSON")[0]);
+    const payload = screen.getByTestId("document-result-payload");
+    expect(payload).toHaveTextContent(hostile);
+    expect(payload.querySelector("img")).toBeNull();
+    expect(payload.querySelector("script")).toBeNull();
+  });
+
+  it("summarizes nested objects and arrays with expandable raw JSON", async () => {
+    installDocumentBackend({
+      results: documentResultsPage([
+        documentResultFixture({
+          result: { meta: { region: "EU", tags: ["alpha", "beta"] }, rows: [1, 2, 3] },
+        }),
+      ]),
+    });
+    const user = userEvent.setup();
+    await reader();
+
+    const nested = await screen.findAllByTestId("document-result-nested");
+    expect(nested).toHaveLength(2);
+    expect(nested[0]).toHaveTextContent("Object · 2 fields");
+    expect(nested[1]).toHaveTextContent("Array · 3 items");
+    expect(nested[0]).not.toHaveAttribute("open");
+    expect(nested[0].querySelector("img")).toBeNull();
+
+    await user.click(within(nested[0]).getByText("Object · 2 fields"));
+
+    expect(nested[0]).toHaveAttribute("open");
+    expect(nested[0].querySelector("pre")).toHaveTextContent('"region": "EU"');
+  });
+
+  it("bounds a long string visually and expands it accessibly", async () => {
+    const longValue = `${"segment ".repeat(40)}TAIL-END`;
+    installDocumentBackend({
+      results: documentResultsPage([documentResultFixture({ result: { body: longValue } })]),
+    });
+    const user = userEvent.setup();
+    await reader();
+
+    const value = await screen.findByTestId("document-result-string");
+    const toggle = screen.getByTestId("document-result-string-toggle");
+    expect(toggle).toHaveTextContent("Show full value");
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(value.className).toContain("line-clamp-3");
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveTextContent("Show less");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(value.className).not.toContain("line-clamp-3");
+    expect(value).toHaveTextContent("TAIL-END");
+  });
+
+  it("limits wide results and lets every field be shown", async () => {
+    const result = Object.fromEntries(
+      Array.from({ length: 14 }, (_, index) => [`field-${index}`, `value-${index}`]),
+    );
+    installDocumentBackend({
+      results: documentResultsPage([documentResultFixture({ result })]),
+    });
+    const user = userEvent.setup();
+    await reader();
+
+    expect(await screen.findAllByTestId("document-result-field")).toHaveLength(10);
+    const showMore = screen.getByTestId("document-result-show-more");
+    expect(showMore).toHaveTextContent("Show 4 more fields");
+
+    await user.click(showMore);
+
+    expect(screen.getAllByTestId("document-result-field")).toHaveLength(14);
+    expect(screen.getByText("value-13")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("document-result-show-less"));
+    expect(screen.getAllByTestId("document-result-field")).toHaveLength(10);
+  });
+
+  it("keeps complete original JSON and copies the full payload", async () => {
+    const result = {
+      headline: "Filed",
+      meta: { region: "EU", tags: ["alpha"] },
+    };
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    installDocumentBackend({
+      results: documentResultsPage([documentResultFixture({ result })]),
+    });
+    const user = userEvent.setup({ writeToClipboard: false });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await reader();
+
+    await user.click((await screen.findAllByText("Original JSON"))[0]);
+
+    const payload = screen.getByTestId("document-result-payload");
+    expect(payload.textContent).toBe(JSON.stringify(result, null, 2));
+    expect(payload).toHaveTextContent('"region": "EU"');
+
+    await user.click(screen.getByTestId("document-result-copy"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("document-result-copy-status")).toHaveTextContent(
+        "Copied to clipboard",
+      );
+    });
+    expect(writeText).toHaveBeenCalledWith(JSON.stringify(result, null, 2));
+  });
+
+  it("reports failed and unavailable clipboard writes without claiming success", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    installDocumentBackend({
+      results: documentResultsPage([documentResultFixture({ result: { headline: "Filed" } })]),
+    });
+    const user = userEvent.setup({ writeToClipboard: false });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    await reader();
+
+    await user.click((await screen.findAllByText("Original JSON"))[0]);
+    await user.click(screen.getByTestId("document-result-copy"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("document-result-copy-status")).toHaveTextContent("Could not copy");
+    });
+    expect(screen.getByTestId("document-result-copy-status")).not.toHaveTextContent(
+      "Copied to clipboard",
+    );
+
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: undefined });
+    await user.click(screen.getByTestId("document-result-copy"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("document-result-copy-status")).toHaveTextContent(
+        "Clipboard unavailable",
+      );
+    });
+    expect(writeText).toHaveBeenCalledTimes(1);
   });
 });

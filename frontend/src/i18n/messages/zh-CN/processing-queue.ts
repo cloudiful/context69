@@ -68,18 +68,19 @@ export const processingQueue = {
   loadFailed: "加载处理队列失败",
   // 重试作用于整个任务：接口会重新排队父任务下所有可重试的任务项，
   // 因此文案不能承诺"仅重试单个文件"。
-  retryTaskScope: "重试此任务",
+  retryTaskScope: "重试失败项",
   retryAccepted: "已重新排队",
   retryFailed: "重试任务失败",
   resumeHint: "重新排队此任务的未完成项，任务历史会保留。",
   resumeAccepted: "任务已恢复",
   resumeFailed: "恢复任务失败",
   continue: "继续",
-  // 源重跑会重新读取当前源并创建子任务，父任务保留历史与文档。
-  rerun: "重跑",
+  // 源重新处理会重新读取当前源并创建子任务，父任务保留历史与文档。
+  rerun: "重新处理源",
   rerunHint: "在新任务中重新读取当前源。",
-  rerunAccepted: "已开始重跑",
-  rerunFailed: "重跑任务失败",
+  rerunAccepted: "已开始重新处理",
+  rerunFailed: "重新处理源失败",
+  viewTask: "查看任务",
   // 选择与由选择产生的批量操作。计数始终描述已捕获的选择，而不是当前页。
   selectAllMatching: "选择全部匹配项",
   selectPage: "选择本页任务",
@@ -92,11 +93,47 @@ export const processingQueue = {
   selectionFailed: "捕获匹配任务失败",
   clearSelection: "清除选择",
   bulkProgress: "已完成 {completed} / {total}",
-  bulkSummary: "成功 {succeeded} · 跳过 {skipped} · 失败 {failed}",
+  bulkSummary: "{succeeded} 已接受 · {skipped} 跳过 · {failed} 失败",
   bulkPartial: "{count} 个任务已取消，但未能移入回收站",
   bulkPartialFailure: "任务已取消，但未能移入回收站。",
   bulkSkippedNotCancelled: "该任务已不再处于已取消状态。",
   bulkFailed: "批量操作失败",
+  // 动态工具栏文案：数量只统计适用项，绝不包含无法执行该操作的选择。
+  bulkActionLabels: {
+    retryFailed: "重试 {count} 个失败项",
+    resumeCancelled: "继续 {count} 个已取消项",
+    retryMixed: "重试 {failed} 个失败项，继续 {cancelled} 个已取消项",
+    rerun: "重新处理 {count} 个源",
+    cancel: "取消 {count} 个",
+    trash: "移入回收站 {count} 个",
+    restore: "恢复 {count} 个",
+    delete: "永久删除 {count} 个",
+  },
+  // 最近一次批量操作的常驻逐项结果。
+  bulkReport: {
+    title: "批量操作结果",
+    dismiss: "关闭结果",
+    details: "查看详情",
+    viewTask: "查看任务",
+    viewNewTask: "查看新任务",
+    openTaskNamed: "打开 {name}",
+    pagination: "批量结果分页",
+    page: "第 {page} / {pages} 页",
+    previousPage: "上一页结果",
+    nextPage: "下一页结果",
+    statuses: {
+      accepted: "已接受",
+      skipped: "已跳过",
+      failed: "失败",
+    },
+  },
+  // 通过 `?task=<uuid>` 打开的任务，即使它不在当前页。
+  focus: {
+    heading: "聚焦任务",
+    dismiss: "关闭任务视图",
+    invalid: "此任务链接无效。",
+    unavailable: "此任务不可用，或你无权访问。",
+  },
   bulkActions: {
     retry: "重试",
     rerun: "重跑",

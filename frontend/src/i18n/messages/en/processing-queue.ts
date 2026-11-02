@@ -68,19 +68,20 @@ export const processingQueue = {
   loadFailed: "Failed to load the processing queue",
   // Retry acts on the whole task: the endpoint requeues every retryable item
   // of the parent, so no label may promise a per-file effect.
-  retryTaskScope: "Retry this task",
+  retryTaskScope: "Retry failed items",
   retryAccepted: "Queued again",
   retryFailed: "Failed to retry the task",
   resumeHint: "Requeues this task's unfinished items; the task keeps its history.",
   resumeAccepted: "Task resumed",
   resumeFailed: "Failed to resume the task",
   continue: "Resume",
-  // A source rerun reads the current source again and creates a child task;
+  // A source reprocess reads the current source again and creates a child task;
   // the parent keeps its history and its documents.
-  rerun: "Rerun",
+  rerun: "Reprocess source",
   rerunHint: "Reads the current source again in a new task.",
-  rerunAccepted: "Rerun started",
-  rerunFailed: "Failed to rerun the task",
+  rerunAccepted: "Reprocess started",
+  rerunFailed: "Failed to reprocess the source",
+  viewTask: "View task",
   // Selection and the contextual bulk actions it offers. The counts always
   // describe the captured selection, never the visible page.
   selectAllMatching: "Select all matching",
@@ -94,11 +95,48 @@ export const processingQueue = {
   selectionFailed: "Failed to capture the matching tasks",
   clearSelection: "Clear selection",
   bulkProgress: "{completed} / {total} done",
-  bulkSummary: "{succeeded} succeeded · {skipped} skipped · {failed} failed",
+  bulkSummary: "{succeeded} accepted · {skipped} skipped · {failed} failed",
   bulkPartial: "{count} tasks were cancelled but could not be moved to the trash",
   bulkPartialFailure: "The task was cancelled but could not be moved to the trash.",
   bulkSkippedNotCancelled: "The task is not cancelled any more.",
   bulkFailed: "The bulk action failed",
+  // The dynamic toolbar labels: the number is the eligible selection, never a
+  // total that includes rows the action cannot touch.
+  bulkActionLabels: {
+    retryFailed: "Retry {count} failed",
+    resumeCancelled: "Resume {count} cancelled",
+    retryMixed: "Retry {failed} failed, resume {cancelled} cancelled",
+    rerun: "Reprocess source {count}",
+    cancel: "Cancel {count}",
+    trash: "Move {count} to trash",
+    restore: "Restore {count}",
+    delete: "Delete {count} permanently",
+  },
+  // The persistent per-item report of the last bulk action.
+  bulkReport: {
+    title: "Bulk action result",
+    dismiss: "Dismiss result",
+    details: "View details",
+    viewTask: "View task",
+    viewNewTask: "View new task",
+    openTaskNamed: "Open {name}",
+    pagination: "Bulk result pages",
+    page: "Page {page} of {pages}",
+    previousPage: "Previous result page",
+    nextPage: "Next result page",
+    statuses: {
+      accepted: "Accepted",
+      skipped: "Skipped",
+      failed: "Failed",
+    },
+  },
+  // One task opened through `?task=<uuid>`, even when it is not on this page.
+  focus: {
+    heading: "Focused task",
+    dismiss: "Close task view",
+    invalid: "This task link is not valid.",
+    unavailable: "This task is unavailable or you do not have access to it.",
+  },
   bulkActions: {
     retry: "Retry",
     rerun: "Rerun",
