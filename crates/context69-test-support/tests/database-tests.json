@@ -573,6 +573,12 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::docling_poll::tests::a_cancelled_remote_result_fails_the_item_without_waiting_again",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::inline_waits::tests::inline_sleep_aborts_when_the_lease_is_gone",
       "class": "db"
     },

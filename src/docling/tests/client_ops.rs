@@ -126,10 +126,10 @@ async fn a_result_failure_is_a_terminal_failure() {
             Json(json!({
                 "kind": "TaskFailureResult",
                 "failure": {
-                    "category": "content",
+                    "category": "backend_failure",
                     "message": "the document could not be converted",
                     "retryable": false,
-                    "phase": "conversion"
+                    "phase": "execution"
                 }
             }))
         }),
@@ -192,6 +192,162 @@ async fn an_error_status_is_reported_without_reading_the_body() {
         "{error}"
     );
     assert!(!error.to_string().contains("secret upstream detail"));
+}
+
+#[tokio::test]
+async fn a_cancelled_result_conflict_is_a_deterministic_cancellation() {
+    let router = Router::new().route(
+        "/v1/result/task-1",
+        axum::routing::get(|| async {
+            (
+                axum::http::StatusCode::CONFLICT,
+                Json(json!({
+                    "detail": {
+                        "code": "TASK_CANCELLED",
+                        "message": "Task was cancelled while queued."
+                    }
+                })),
+            )
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .fetch_result("task-1")
+        .await
+        .expect_err("a cancelled task has no result");
+    match &error {
+        DoclingError::TaskFailed { status, message } => {
+            assert_eq!(status, "cancelled", "{error}");
+            assert!(message.contains("cancelled"), "{error}");
+        }
+        other => panic!("a cancelled task is a terminal failure, got {other:?}"),
+    }
+    assert!(
+        !crate::retry_policy::is_transient(&anyhow::Error::new(error.clone())),
+        "a cancelled task never waits for another attempt"
+    );
+    assert!(
+        !error
+            .to_string()
+            .contains("Task was cancelled while queued."),
+        "the remote body never reaches the error: {error}"
+    );
+}
+
+#[tokio::test]
+async fn an_unrelated_conflict_stays_a_plain_conflict() {
+    for body in [
+        json!({"detail": {"code": "TASK_ALREADY_STARTED", "message": "secret detail"}}),
+        json!({"detail": {"code": "TASK_CANCELLED_OTHER"}}),
+        json!({"detail": "TASK_CANCELLED"}),
+        json!({"detail": {"code": "task_cancelled"}}),
+        json!({"code": "TASK_CANCELLED"}),
+    ] {
+        let body = body.to_string();
+        let router = Router::new().route(
+            "/v1/result/task-1",
+            axum::routing::get(move || {
+                let body = body.clone();
+                async move {
+                    (
+                        axum::http::StatusCode::CONFLICT,
+                        [("content-type", "application/json")],
+                        body,
+                    )
+                }
+            }),
+        );
+        let base = serve(router).await;
+        let client = DoclingClient::new(&settings(&base)).expect("client");
+        let error = client
+            .fetch_result("task-1")
+            .await
+            .expect_err("an unrelated conflict is not a cancellation");
+        assert!(
+            matches!(error, DoclingError::Http { status: 409 }),
+            "{error}"
+        );
+        assert!(!error.to_string().contains("secret detail"), "{error}");
+    }
+}
+
+#[tokio::test]
+async fn a_malformed_conflict_body_stays_a_plain_conflict() {
+    let router = Router::new().route(
+        "/v1/result/task-1",
+        axum::routing::get(|| async { (axum::http::StatusCode::CONFLICT, "not json at all") }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .fetch_result("task-1")
+        .await
+        .expect_err("a malformed conflict is not a cancellation");
+    assert!(
+        matches!(error, DoclingError::Http { status: 409 }),
+        "{error}"
+    );
+    assert!(!error.to_string().contains("not json at all"), "{error}");
+}
+
+#[tokio::test]
+async fn an_oversized_conflict_body_stays_a_plain_conflict() {
+    // The cancellation detail is a small envelope, so a body above the bound
+    // is never read and never becomes a cancellation.
+    let router = Router::new().route(
+        "/v1/result/task-1",
+        axum::routing::get(|| async {
+            (
+                axum::http::StatusCode::CONFLICT,
+                [("content-type", "application/json")],
+                format!(
+                    r#"{{"detail": {{"code": "TASK_CANCELLED", "message": "{}"}}}}"#,
+                    "x".repeat(16 * 1024)
+                ),
+            )
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .fetch_result("task-1")
+        .await
+        .expect_err("an oversized conflict is not a cancellation");
+    assert!(
+        matches!(error, DoclingError::Http { status: 409 }),
+        "{error}"
+    );
+}
+
+#[tokio::test]
+async fn a_conflict_result_performs_exactly_one_request() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let router = Router::new().route(
+        "/v1/result/task-1",
+        axum::routing::get(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                (
+                    axum::http::StatusCode::CONFLICT,
+                    Json(json!({"detail": {"code": "TASK_CANCELLED"}})),
+                )
+            }
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    client
+        .fetch_result("task-1")
+        .await
+        .expect_err("a cancelled task has no result");
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "a conflict is one attempt, never retried inside the client"
+    );
 }
 
 #[tokio::test]

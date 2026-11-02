@@ -5,7 +5,7 @@ use uuid::Uuid;
 use super::UnifiedIngestError;
 use super::task_ingest::task_failure;
 use super::{LibraryDependency, LibraryFileKind, LibraryService, storage};
-use crate::docling::{ConvertedDocument, DoclingError, TaskStatus};
+use crate::docling::{ConvertedDocument, DoclingError, TaskStatusObservation};
 
 /// Classifies a Docling client error for the blocking worker path.
 ///
@@ -35,7 +35,7 @@ impl LibraryService {
         &self,
         endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<TaskStatus, UnifiedIngestError> {
+    ) -> Result<TaskStatusObservation, UnifiedIngestError> {
         let client = self.docling_client_for_root(endpoint_base_url).await?;
         client
             .poll_status(remote_task_id)

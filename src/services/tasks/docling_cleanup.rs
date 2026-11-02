@@ -51,6 +51,11 @@ fn cancel_result(observation: Cancel) -> Settlement {
             None,
             Some("Remote cancellation requires unsupported authentication"),
         ),
+        Cancel::UnsupportedCapability => Settlement::new(
+            "unsupported",
+            None,
+            Some("Remote cancellation is not supported by this endpoint"),
+        ),
         Cancel::Retryable | Cancel::Failed => Settlement::new(
             "pending",
             None,
@@ -267,6 +272,48 @@ mod tests {
                 .status,
             "awaiting_terminal"
         );
+        server.abort();
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_capability_settles_unsupported_with_its_own_reason() {
+        let capability = cancel_result(Cancel::UnsupportedCapability);
+        assert_eq!(capability.status, "unsupported");
+        assert_eq!(capability.outcome, None);
+        let error = capability.error.expect("a capability reason");
+        assert!(error.contains("not supported"), "{error}");
+        assert!(
+            !error.contains("authentication"),
+            "a missing capability is never reported as an authentication failure: {error}"
+        );
+
+        // The authentication reason keeps its own text.
+        let auth = cancel_result(Cancel::Unsupported);
+        assert_eq!(auth.status, "unsupported");
+        assert!(
+            auth.error.unwrap().contains("authentication"),
+            "the authentication reason is preserved"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unsupported_capability_never_retries_until_the_deadline() {
+        use axum::{Router, routing::post};
+        let router = Router::new().route(
+            "/v1/tasks/x/cancel",
+            post(|| async { axum::http::StatusCode::NOT_IMPLEMENTED }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        let deadline = Utc::now() + chrono::Duration::hours(1);
+
+        let settlement = observe(deadline, Some(&endpoint), "pending", "x").await;
+        assert_eq!(settlement.status, "unsupported");
+        assert_eq!(settlement.outcome, None);
+        let error = settlement.error.expect("a capability reason");
+        assert!(error.contains("not supported"), "{error}");
+        assert!(!error.contains("authentication"), "{error}");
         server.abort();
     }
 

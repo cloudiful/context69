@@ -194,6 +194,63 @@ async fn the_cancel_observes_terminal_awaiting_notfound_and_unsupported() {
 }
 
 #[tokio::test]
+async fn the_cancel_settles_an_unsupported_capability_apart_from_an_auth_failure() {
+    use axum::http::StatusCode;
+
+    // The remote answers `501` when its orchestrator cannot cancel a queued
+    // task at all: that is a permanent capability gap, never a retry.
+    let router = Router::new().route(
+        "/v1/tasks/task-1/cancel",
+        post(|| async {
+            (
+                StatusCode::NOT_IMPLEMENTED,
+                "queued cancellation is unsupported",
+            )
+        }),
+    );
+    let base = serve(router).await;
+    assert_eq!(
+        client(&base).cancel_task("task-1").await.expect("cancel"),
+        RemoteCancelOutcome::UnsupportedCapability,
+        "a 501 is a permanent capability gap, not a retryable server error"
+    );
+
+    // An authentication failure keeps its own outcome: it is never reported
+    // as a missing capability.
+    for status in [StatusCode::UNAUTHORIZED, StatusCode::FORBIDDEN] {
+        let router = Router::new().route(
+            "/v1/tasks/task-1/cancel",
+            post(move || async move { status }),
+        );
+        let base = serve(router).await;
+        assert_eq!(
+            client(&base).cancel_task("task-1").await.expect("cancel"),
+            RemoteCancelOutcome::Unsupported,
+            "status {status}"
+        );
+    }
+
+    // Every other server answer stays retryable, and a rate limit with it.
+    for status in [
+        StatusCode::TOO_MANY_REQUESTS,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        StatusCode::BAD_GATEWAY,
+        StatusCode::SERVICE_UNAVAILABLE,
+    ] {
+        let router = Router::new().route(
+            "/v1/tasks/task-1/cancel",
+            post(move || async move { status }),
+        );
+        let base = serve(router).await;
+        assert_eq!(
+            client(&base).cancel_task("task-1").await.expect("cancel"),
+            RemoteCancelOutcome::Retryable,
+            "status {status}"
+        );
+    }
+}
+
+#[tokio::test]
 async fn the_cancel_rejects_a_mismatched_identity_without_a_false_done() {
     let router = Router::new().route(
         "/v1/tasks/task-1/cancel",
