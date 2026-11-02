@@ -6,7 +6,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use crate::db::{Database, StoredDoclingRemoteJob};
-use crate::docling::{ConversionStatus, ConvertedDocument, TaskStatus};
+use crate::docling::{ConvertedDocument, TaskStatus, TaskStatusObservation};
 use crate::domain_errors::DomainError;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
@@ -29,7 +29,7 @@ pub(super) trait DoclingRemoteOps: Send + Sync {
         &self,
         endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<TaskStatus, UnifiedIngestError>;
+    ) -> Result<TaskStatusObservation, UnifiedIngestError>;
     /// Fetches the converted document at the service root the job was
     /// submitted to.
     async fn fetch_remote(
@@ -75,7 +75,7 @@ impl DoclingRemoteOps for LibraryService {
         &self,
         endpoint_base_url: &str,
         remote_task_id: &str,
-    ) -> Result<TaskStatus, UnifiedIngestError> {
+    ) -> Result<TaskStatusObservation, UnifiedIngestError> {
         self.poll_docling_remote(endpoint_base_url, remote_task_id)
             .await
     }
@@ -280,7 +280,7 @@ pub(super) async fn run_docling_stage_blocking(
                 .failure_message()
                 .map(str::to_string)
                 .unwrap_or_else(|| {
-                    if status.task_status == ConversionStatus::Cancelled {
+                    if status.task_status == TaskStatus::Cancelled {
                         format!("docling task {} was cancelled", job.remote_task_id)
                     } else {
                         format!("docling task {} failed", job.remote_task_id)
@@ -398,7 +398,7 @@ mod tests {
     use uuid::Uuid;
 
     use super::{DoclingRemoteOps, backoff_secs, is_expired, run_docling_stage_blocking};
-    use crate::docling::{ConversionStatus, ConvertedDocument, TaskStatus};
+    use crate::docling::{ConvertedDocument, TaskStatus, TaskStatusObservation};
     use crate::services::library::UnifiedIngestError;
     use crate::services::tasks::item_processors::{ProcessResult, persisted_section_payload};
 
@@ -419,7 +419,7 @@ mod tests {
     /// Scripted remote double: polling/fetching/section answers are canned so
     /// the real blocking loop runs without a live converter.
     struct ScriptedRemote {
-        polls: Mutex<VecDeque<Result<TaskStatus, UnifiedIngestError>>>,
+        polls: Mutex<VecDeque<Result<TaskStatusObservation, UnifiedIngestError>>>,
         fetch: Mutex<Option<Result<ConvertedDocument, UnifiedIngestError>>>,
         sections: Mutex<Option<Result<Value, UnifiedIngestError>>>,
         /// The service roots the durable loop asked for.
@@ -431,8 +431,8 @@ mod tests {
             Self {
                 polls: Mutex::new(
                     [
-                        Ok(status(ConversionStatus::Started)),
-                        Ok(status(ConversionStatus::Success)),
+                        Ok(status(TaskStatus::Started)),
+                        Ok(status(TaskStatus::Success)),
                     ]
                     .into(),
                 ),
@@ -452,8 +452,8 @@ mod tests {
         }
     }
 
-    fn status(task_status: ConversionStatus) -> TaskStatus {
-        TaskStatus {
+    fn status(task_status: TaskStatus) -> TaskStatusObservation {
+        TaskStatusObservation {
             task_id: "remote-1".to_string(),
             task_status,
             error_message: None,
@@ -467,7 +467,7 @@ mod tests {
             &self,
             endpoint_base_url: &str,
             _remote_task_id: &str,
-        ) -> Result<TaskStatus, UnifiedIngestError> {
+        ) -> Result<TaskStatusObservation, UnifiedIngestError> {
             self.roots
                 .lock()
                 .expect("root script")
@@ -653,6 +653,144 @@ mod tests {
             base_url: format!("http://{address}/v1"),
             requests,
         }
+    }
+
+    /// One local Docling endpoint that reports a successful task and then a
+    /// cancelled result, counting both requests.
+    ///
+    /// The result carries the remote's own cancellation envelope, so the
+    /// client has to read the conflict to learn that the task was cancelled.
+    async fn mock_cancelled_result_endpoint() -> MockCancelledEndpoint {
+        let polls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let results = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let poll_counter = polls.clone();
+        let result_counter = results.clone();
+        let router = axum::Router::new()
+            .route(
+                "/v1/status/poll/{id}",
+                axum::routing::get(move || {
+                    let counter = poll_counter.clone();
+                    async move {
+                        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        axum::Json(json!({
+                            "task_id": "remote-1",
+                            "task_type": "convert",
+                            "task_status": "success"
+                        }))
+                    }
+                }),
+            )
+            .route(
+                "/v1/result/{id}",
+                axum::routing::get(move || {
+                    let counter = result_counter.clone();
+                    async move {
+                        counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                        (
+                            axum::http::StatusCode::CONFLICT,
+                            axum::Json(json!({
+                                "detail": {
+                                    "code": "TASK_CANCELLED",
+                                    "message": "Task was cancelled while queued."
+                                }
+                            })),
+                        )
+                    }
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the local mock");
+        let address = listener.local_addr().expect("address");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        MockCancelledEndpoint {
+            base_url: format!("http://{address}/v1"),
+            polls,
+            results,
+        }
+    }
+
+    /// One local endpoint that answers a poll and a cancelled result.
+    struct MockCancelledEndpoint {
+        base_url: String,
+        polls: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        results: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    /// A remote that reports the task as cancelled after a successful status
+    /// fails the item once.
+    ///
+    /// The result conflict is a terminal cancellation, so the stage never
+    /// waits for another attempt, never commits a document, and leaves the
+    /// remote row for the recovery cleanup.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_cancelled_remote_result_fails_the_item_without_waiting_again() {
+        use std::sync::atomic::Ordering;
+
+        let db = test_db().await;
+        let _guard = crate::services::tasks::TASK_CASE_LOCK.lock().await;
+        let (user_id, task_id, mut item, file_id) = seed_running_item(&db).await;
+        let service = build_library_service(&db).await;
+        let endpoint = mock_cancelled_result_endpoint().await;
+        let job = db
+            .create_docling_remote_job(
+                task_id,
+                item.id,
+                "remote-1",
+                Some("submitted"),
+                Some(Utc::now() - chrono::Duration::seconds(1)),
+                Some(Utc::now() + chrono::Duration::hours(1)),
+                Some(&endpoint.base_url),
+            )
+            .await
+            .expect("remote job");
+
+        let outcome = run_docling_stage_blocking(&db, &service, &mut item, file_id, job, None)
+            .await
+            .expect("blocking run");
+        match outcome {
+            ProcessResult::Failed {
+                message, retryable, ..
+            } => {
+                assert!(!retryable, "a cancelled remote result never waits again");
+                assert!(message.contains("cancelled"), "{message}");
+            }
+            other => panic!(
+                "a cancelled remote result fails the item, got a non-failure outcome: {}",
+                match other {
+                    ProcessResult::Succeeded(_) => "succeeded".to_string(),
+                    ProcessResult::Progressed { next } => format!("progressed to {next}"),
+                    ProcessResult::Waiting { reason, .. } => format!("waiting on {reason}"),
+                    ProcessResult::Failed { message, .. } => {
+                        panic!("a cancelled remote result fails the item, got: {message}")
+                    }
+                }
+            ),
+        }
+        assert_eq!(
+            endpoint.polls.load(Ordering::SeqCst),
+            1,
+            "a cancelled result is never polled again"
+        );
+        assert_eq!(
+            endpoint.results.load(Ordering::SeqCst),
+            1,
+            "the result is fetched exactly once"
+        );
+        assert!(
+            db.get_active_docling_remote_job_for_item(item.id)
+                .await
+                .expect("active")
+                .is_some(),
+            "a cancelled result commits nothing and leaves the remote row for cleanup"
+        );
+        db.cancel_active_docling_remote_job_for_item(item.id, Some("test done"))
+            .await
+            .expect("cancel remote");
+        cleanup(&db, task_id, user_id).await;
     }
 
     /// Points the current Docling settings at one endpoint.

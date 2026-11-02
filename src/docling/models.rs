@@ -58,25 +58,32 @@ impl OutputFormat {
     }
 }
 
-/// The conversion state of one remote task.
+/// The task status of one remote conversion.
+///
+/// Docling Serve keeps the task lifecycle separate from the document result
+/// state: the task reports `pending`, `started`, `success`, `failure`, or
+/// `cancelled`. The legacy document-level states `partial_success` and
+/// `skipped` remain accepted for older services and stored rows.
 ///
 /// The wire spelling is kept verbatim so an observation never depends on a
 /// debug rendering, and an unknown future state stays readable instead of
 /// failing the conversion.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum ConversionStatus {
+pub(crate) enum TaskStatus {
     Pending,
     Started,
     Success,
+    /// A legacy document state an older service reported as the task state.
     PartialSuccess,
     Failure,
+    /// A legacy document state an older service reported as the task state.
     Skipped,
     Cancelled,
     /// A state this client does not know yet.
     Unknown(String),
 }
 
-impl ConversionStatus {
+impl TaskStatus {
     /// Reads the wire spelling of one task status.
     ///
     /// An empty status is malformed and fails; every other unknown value
@@ -136,14 +143,14 @@ pub(crate) struct FailureInfo {
 
 /// One observation of a remote task status.
 #[derive(Debug, Clone)]
-pub(crate) struct TaskStatus {
+pub(crate) struct TaskStatusObservation {
     pub task_id: String,
-    pub task_status: ConversionStatus,
+    pub task_status: TaskStatus,
     pub error_message: Option<String>,
     pub failure: Option<FailureInfo>,
 }
 
-impl TaskStatus {
+impl TaskStatusObservation {
     /// The message that explains a terminal unsuccessful state.
     pub(crate) fn failure_message(&self) -> Option<&str> {
         self.error_message.as_deref().or_else(|| {
@@ -239,6 +246,9 @@ struct TaskPostResponse {
 }
 
 /// The wire shape of one task status response.
+///
+/// Fields this client does not consume, such as `task_type`, are tolerated and
+/// ignored.
 #[derive(Debug, Deserialize)]
 struct TaskStatusWire {
     task_id: String,
@@ -250,6 +260,9 @@ struct TaskStatusWire {
 }
 
 /// The wire shape of one structured task failure.
+///
+/// `category` and `phase` are free-form forward-compatible text. An extra
+/// `details` object is tolerated and never stored or rendered.
 #[derive(Debug, Deserialize)]
 struct FailureInfoWire {
     category: String,
@@ -515,12 +528,12 @@ pub(crate) fn vlm_pipeline_options(vlm: &VlmSettings) -> VlmPipelineOptions {
 }
 
 /// Reads one task status response.
-pub(crate) fn parse_task_status(body: &[u8]) -> Result<TaskStatus, DoclingError> {
+pub(crate) fn parse_task_status(body: &[u8]) -> Result<TaskStatusObservation, DoclingError> {
     let wire: TaskStatusWire = serde_json::from_slice(body).map_err(|_| DoclingError::Parse {
         message: "the task status response is not valid".to_string(),
     })?;
-    let task_status = ConversionStatus::parse(&wire.task_status)?;
-    Ok(TaskStatus {
+    let task_status = TaskStatus::parse(&wire.task_status)?;
+    Ok(TaskStatusObservation {
         task_id: wire.task_id,
         task_status,
         error_message: wire.error_message,
@@ -588,6 +601,25 @@ pub(crate) fn parse_task_post(body: &[u8]) -> Result<String, DoclingError> {
     Ok(wire.task_id)
 }
 
+/// The structured code the remote reports for an explicitly cancelled task.
+const CANCELLED_CONFLICT_CODE: &str = "TASK_CANCELLED";
+
+/// Whether one conflict answer names an explicitly cancelled task.
+///
+/// The remote reports a cancelled task as a structured `detail.code`. Only
+/// that exact code is a cancellation: another code, another shape, and a body
+/// that is not valid JSON are all not one.
+pub(crate) fn is_cancelled_conflict(body: &[u8]) -> bool {
+    let Ok(value) = serde_json::from_slice::<Value>(body) else {
+        return false;
+    };
+    value
+        .get("detail")
+        .and_then(|detail| detail.get("code"))
+        .and_then(Value::as_str)
+        == Some(CANCELLED_CONFLICT_CODE)
+}
+
 /// The parsed content of one remote task result.
 #[derive(Debug)]
 pub(crate) enum ParsedResult {
@@ -614,6 +646,10 @@ const CONTENT_KEYS: [&str; 3] = ["md_content", "text_content", "json_content"];
 /// document envelope that carries it. An unrelated JSON object, an empty
 /// object, and a document without any recognized content key are not results,
 /// so they never become an empty success.
+///
+/// The envelope `status` is the document result state (`success`,
+/// `partial_success`, `failure`, `skipped`, `cancelled`); it is matched as
+/// text and never through the task-status vocabulary.
 pub(crate) fn parse_result(body: &[u8]) -> Result<ParsedResult, DoclingError> {
     let value: Value = serde_json::from_slice(body).map_err(|_| DoclingError::Parse {
         message: "the result response is not valid".to_string(),

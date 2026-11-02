@@ -19,7 +19,7 @@ use crate::docling::DoclingConfig;
 use crate::docling::error::DoclingError;
 use crate::docling::models::{
     ConvertedDocument, InputFormat, PDF_BACKEND, ParsedResult, RemoteTaskSummary, SubmitRequest,
-    TaskStatus, VlmSettings, code_formula_options, parse_cancel_response, parse_result,
+    TaskStatusObservation, VlmSettings, code_formula_options, parse_cancel_response, parse_result,
     parse_status_response, parse_task_list, parse_task_post, parse_task_status,
     picture_description_options, vlm_pipeline_options,
 };
@@ -27,6 +27,19 @@ use crate::docling::task_id::{encode_task_id_segment, validate_task_id};
 
 /// Maximum accepted body of one submit, status, list, or cancel answer.
 const MAX_CONTROL_BODY_BYTES: usize = 1024 * 1024;
+
+/// Maximum accepted body of one conflict answer that may name a cancelled
+/// task.
+///
+/// The structured detail of a cancelled task is a small envelope, so a bound
+/// far below the control-body limit keeps a hostile answer unreadable.
+const MAX_CANCELLATION_BODY_BYTES: usize = 8192;
+
+/// The fixed message of a task the remote reports as cancelled.
+///
+/// The message names the outcome and nothing else: no remote body, no remote
+/// identifier, and no detail the service sent.
+const CANCELLED_RESULT_MESSAGE: &str = "the remote task was cancelled";
 
 /// Total ceiling for one remote list, cancel, or immediate-status call.
 ///
@@ -61,14 +74,21 @@ pub(crate) struct RemoteTaskPage {
 /// non-terminal status and a `409` both mean the remote still holds the task:
 /// await a terminal via status polling. `404` is a disappearance observation
 /// only, never proof the route supports cancellation. `401`/`403` mean the
-/// endpoint needs auth this deployment does not configure. Transport, `429`,
-/// and `5xx` are retryable.
+/// endpoint needs auth this deployment does not configure, while a `501` means
+/// the endpoint does not support queued cancellation at all. Transport, `429`,
+/// and every other `5xx` are retryable.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum RemoteCancelOutcome {
-    Terminal { observed_status: String },
+    Terminal {
+        observed_status: String,
+    },
     AwaitingTerminal,
     NotFound,
+    /// The endpoint requires an authentication this deployment does not
+    /// configure.
     Unsupported,
+    /// The endpoint does not support queued cancellation at all.
+    UnsupportedCapability,
     Retryable,
     Failed,
 }
@@ -225,7 +245,10 @@ impl DoclingClient {
     ///
     /// The long poll waits server-side for a bounded period; it is never the
     /// immediate `?wait=0` read.
-    pub(crate) async fn poll_status(&self, task_id: &str) -> Result<TaskStatus, DoclingError> {
+    pub(crate) async fn poll_status(
+        &self,
+        task_id: &str,
+    ) -> Result<TaskStatusObservation, DoclingError> {
         validate_task_id(task_id)?;
         let url = self.url(&format!("status/poll/{}", encode_task_id_segment(task_id)))?;
         let url = with_query(url, &[("wait", "30")]);
@@ -247,6 +270,12 @@ impl DoclingClient {
         validate_task_id(task_id)?;
         let url = self.url(&format!("result/{}", encode_task_id_segment(task_id)))?;
         let response = self.http.get(url).send().await.map_err(map_transport)?;
+        // The remote reports an explicitly cancelled task as a conflict. That
+        // one answer is a terminal cancellation; every other conflict keeps
+        // the plain HTTP conflict.
+        if response.status().as_u16() == 409 {
+            return Err(cancelled_result(response).await);
+        }
         let response = expect_success(response)?;
         let is_archive = response
             .headers()
@@ -313,6 +342,10 @@ impl DoclingClient {
             404 => return Ok(RemoteCancelOutcome::NotFound),
             409 => return Ok(RemoteCancelOutcome::AwaitingTerminal),
             429 => return Ok(RemoteCancelOutcome::Retryable),
+            // The remote defines this answer as a permanent capability gap:
+            // it will never cancel a queued task, so it never becomes a
+            // retry.
+            501 => return Ok(RemoteCancelOutcome::UnsupportedCapability),
             500..=599 => return Ok(RemoteCancelOutcome::Retryable),
             _ => return Ok(RemoteCancelOutcome::Failed),
         }
@@ -458,6 +491,26 @@ fn expect_success(response: reqwest::Response) -> Result<reqwest::Response, Docl
         return Ok(response);
     }
     Err(DoclingError::Http { status })
+}
+
+/// Classifies one conflict answer of the result endpoint.
+///
+/// Only the structured cancellation detail is a cancellation. An unrelated
+/// conflict, a body that is not valid JSON, and a body above the bound stay
+/// the plain HTTP conflict, so no conflict is ever mistaken for a cancelled
+/// task and no part of the body ever reaches the error.
+async fn cancelled_result(response: reqwest::Response) -> DoclingError {
+    let cancelled = match read_body(response, MAX_CANCELLATION_BODY_BYTES).await {
+        Ok(body) => crate::docling::models::is_cancelled_conflict(&body),
+        Err(_) => false,
+    };
+    if cancelled {
+        return DoclingError::TaskFailed {
+            status: "cancelled".to_string(),
+            message: CANCELLED_RESULT_MESSAGE.to_string(),
+        };
+    }
+    DoclingError::Http { status: 409 }
 }
 
 /// Reads one answer body within its bound.

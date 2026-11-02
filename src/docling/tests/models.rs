@@ -1,7 +1,7 @@
 //! The wire models of the Docling protocol.
 
 use crate::docling::models::{
-    ConversionStatus, InputFormat, OutputFormat, ParsedResult, VlmSettings, code_formula_options,
+    InputFormat, OutputFormat, ParsedResult, TaskStatus, VlmSettings, code_formula_options,
     parse_result, parse_task_list, parse_task_status, picture_description_options,
     vlm_pipeline_options,
 };
@@ -17,38 +17,50 @@ fn vlm_settings() -> VlmSettings {
 }
 
 #[test]
-fn the_known_terminal_states_are_exactly_the_documented_values() {
-    for terminal in [
-        "success",
-        "partial_success",
-        "failure",
-        "skipped",
-        "cancelled",
-    ] {
-        let status = ConversionStatus::parse(terminal).expect("known state");
-        assert!(status.is_terminal(), "{terminal} is terminal");
-        assert_eq!(status.wire_name(), terminal);
-    }
+fn the_canonical_task_states_match_the_fork_vocabulary() {
     for nonterminal in ["pending", "started"] {
-        let status = ConversionStatus::parse(nonterminal).expect("known state");
+        let status = TaskStatus::parse(nonterminal).expect("known state");
         assert!(!status.is_terminal(), "{nonterminal} is not terminal");
+        assert!(!status.is_successful(), "{nonterminal} carries no result");
+        assert_eq!(status.wire_name(), nonterminal);
+    }
+    let success = TaskStatus::parse("success").expect("known state");
+    assert!(success.is_terminal());
+    assert!(success.is_successful());
+    for unsuccessful in ["failure", "cancelled"] {
+        let status = TaskStatus::parse(unsuccessful).expect("known state");
+        assert!(status.is_terminal(), "{unsuccessful} is terminal");
+        assert!(!status.is_successful(), "{unsuccessful} carries no result");
+        assert_eq!(status.wire_name(), unsuccessful);
     }
 }
 
 #[test]
-fn a_successful_state_is_success_or_partial_success() {
+fn the_legacy_document_states_stay_accepted_as_task_states() {
+    let partial = TaskStatus::parse("partial_success").expect("legacy state");
+    assert!(partial.is_terminal());
     assert!(
-        ConversionStatus::parse("success")
-            .expect("state")
-            .is_successful()
+        partial.is_successful(),
+        "a legacy partial success still carries a result"
     );
+    assert_eq!(partial.wire_name(), "partial_success");
+
+    let skipped = TaskStatus::parse("skipped").expect("legacy state");
+    assert!(skipped.is_terminal());
+    assert!(!skipped.is_successful(), "a skipped document has no result");
+    assert_eq!(skipped.wire_name(), "skipped");
+}
+
+#[test]
+fn a_successful_state_is_success_or_partial_success() {
+    assert!(TaskStatus::parse("success").expect("state").is_successful());
     assert!(
-        ConversionStatus::parse("partial_success")
+        TaskStatus::parse("partial_success")
             .expect("state")
             .is_successful()
     );
     for terminal in ["failure", "skipped", "cancelled"] {
-        let status = ConversionStatus::parse(terminal).expect("state");
+        let status = TaskStatus::parse(terminal).expect("state");
         assert!(status.is_terminal());
         assert!(!status.is_successful(), "{terminal} carries no result");
     }
@@ -56,7 +68,7 @@ fn a_successful_state_is_success_or_partial_success() {
 
 #[test]
 fn an_unknown_future_state_stays_readable_and_non_terminal() {
-    let status = ConversionStatus::parse("mystery_future").expect("unknown state");
+    let status = TaskStatus::parse("mystery_future").expect("unknown state");
     assert_eq!(status.wire_name(), "mystery_future");
     assert!(!status.is_terminal());
     assert!(!status.is_successful());
@@ -64,19 +76,19 @@ fn an_unknown_future_state_stays_readable_and_non_terminal() {
 
 #[test]
 fn an_empty_state_is_malformed() {
-    assert!(ConversionStatus::parse("").is_err());
+    assert!(TaskStatus::parse("").is_err());
 }
 
 #[test]
 fn the_wire_spelling_is_used_instead_of_a_debug_rendering() {
     assert_eq!(
-        ConversionStatus::parse("partial_success")
+        TaskStatus::parse("partial_success")
             .expect("state")
             .wire_name(),
         "partial_success"
     );
     assert_ne!(
-        ConversionStatus::parse("partial_success")
+        TaskStatus::parse("partial_success")
             .expect("state")
             .wire_name(),
         "partialsuccess"
@@ -111,15 +123,15 @@ fn a_task_status_response_keeps_the_raw_state_and_the_failure() {
         "task_status": "failure",
         "error_message": "outer",
         "failure": {
-            "category": "content",
+            "category": "backend_failure",
             "message": "page 3 failed",
             "retryable": false,
-            "phase": "conversion"
+            "phase": "execution"
         }
     }"#;
     let status = parse_task_status(body).expect("status");
     assert_eq!(status.task_id, "task-1");
-    assert_eq!(status.task_status, ConversionStatus::Failure);
+    assert_eq!(status.task_status, TaskStatus::Failure);
     assert_eq!(status.failure_message(), Some("outer"));
 }
 
@@ -127,6 +139,36 @@ fn a_task_status_response_keeps_the_raw_state_and_the_failure() {
 fn a_task_status_response_without_a_state_is_malformed() {
     let body = br#"{"task_id": "task-1"}"#;
     assert!(parse_task_status(body).is_err());
+}
+
+/// The fork adds fields this client does not consume: the extra `task_type`
+/// and the nested `failure.details` stay tolerated, forward-compatible text
+/// stays readable, and no raw detail is stored.
+#[test]
+fn a_task_status_response_tolerates_extra_fields() {
+    let body = br#"{
+        "task_id": "task-1",
+        "task_type": "convert",
+        "task_status": "failure",
+        "error_message": "outer",
+        "failure": {
+            "category": "backend_failure",
+            "message": "the backend stopped",
+            "retryable": true,
+            "phase": "execution",
+            "details": {"worker": "gpu-1", "nested": {"attempt": 2}}
+        },
+        "unrecognized": [1, 2, 3]
+    }"#;
+    let status = parse_task_status(body).expect("status");
+    assert_eq!(status.task_id, "task-1");
+    assert_eq!(status.task_status, TaskStatus::Failure);
+    assert_eq!(status.failure_message(), Some("outer"));
+    let failure = status.failure.expect("the structured failure");
+    assert_eq!(failure.category, "backend_failure");
+    assert_eq!(failure.phase, "execution");
+    assert_eq!(failure.message, "the backend stopped");
+    assert!(failure.retryable);
 }
 
 #[test]
@@ -224,15 +266,15 @@ fn a_failed_task_result_is_a_structured_failure() {
     let body = br#"{
         "kind": "TaskFailureResult",
         "failure": {
-            "category": "content",
+            "category": "backend_failure",
             "message": "the document could not be converted",
             "retryable": false,
-            "phase": "conversion"
+            "phase": "execution"
         }
     }"#;
     match parse_result(body).expect("result") {
         ParsedResult::Failed { status, message } => {
-            assert_eq!(status, "content");
+            assert_eq!(status, "backend_failure");
             assert_eq!(message, "the document could not be converted");
         }
         other => panic!("expected a failed result, got {other:?}"),

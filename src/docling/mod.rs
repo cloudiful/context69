@@ -22,7 +22,7 @@ mod tests;
 pub(crate) use client::DoclingClient;
 pub(crate) use error::DoclingError;
 pub(crate) use models::{
-    ConversionStatus, ConvertedDocument, InputFormat, OutputFormat, SubmitRequest, TaskStatus,
+    ConvertedDocument, InputFormat, OutputFormat, SubmitRequest, TaskStatus, TaskStatusObservation,
 };
 
 pub const DEFAULT_DOCLING_BASE_URL: &str = "http://127.0.0.1:5001";
