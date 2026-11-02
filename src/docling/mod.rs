@@ -39,7 +39,30 @@ pub const DEFAULT_DOCLING_MAX_INFLIGHT: usize =
 /// authoritative default.
 pub const DEFAULT_DOCLING_OCR_PRESET: &str =
     context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT;
-pub(crate) const MAX_DOCLING_OUTPUT_BYTES: usize = 32 * 1024 * 1024;
+/// The maximum accepted body of one converted-document answer.
+///
+/// The response body, the extracted text and the JSON export are three
+/// independent bounds. None of them raises another one, and each stays at the
+/// documented 32 MiB ceiling.
+pub(crate) const MAX_DOCLING_RESPONSE_BYTES: usize = 32 * 1024 * 1024;
+/// The maximum accepted extracted text of one converted document.
+pub(crate) const MAX_DOCLING_TEXT_BYTES: usize = 32 * 1024 * 1024;
+/// The maximum accepted JSON export of one converted document.
+pub(crate) const MAX_DOCLING_JSON_BYTES: usize = 32 * 1024 * 1024;
+
+/// Renders one byte budget for an error message.
+///
+/// A whole number of mebibytes names both the exact bytes and the readable
+/// size, so an operator reads `33554432 bytes (32 MiB)` instead of a bare
+/// byte count.
+pub(crate) fn describe_limit(limit: usize) -> String {
+    const MEBIBYTE: usize = 1024 * 1024;
+    if limit >= MEBIBYTE && limit.is_multiple_of(MEBIBYTE) {
+        format!("{limit} bytes ({} MiB)", limit / MEBIBYTE)
+    } else {
+        format!("{limit} bytes")
+    }
+}
 
 fn default_docling_max_inflight() -> usize {
     DEFAULT_DOCLING_MAX_INFLIGHT

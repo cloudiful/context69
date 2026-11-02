@@ -384,6 +384,9 @@ mod tests {
     fn an_oversized_answer_and_a_mismatched_identity_are_deterministic() {
         assert_deterministic(Error::from(crate::docling::DoclingError::ResultTooLarge {
             limit: 1024,
+            kind: crate::docling::error::DoclingLimitKind::Response,
+            declared: Some(2048),
+            observed_at_least: None,
         }));
         assert_deterministic(Error::from(crate::docling::DoclingError::IdentityMismatch));
     }

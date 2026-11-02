@@ -370,7 +370,7 @@ async fn an_oversized_answer_is_rejected_with_a_declared_length() {
     assert!(
         matches!(
             error,
-            DoclingError::ResultTooLarge { limit } if limit == 1024 * 1024
+            DoclingError::ResultTooLarge { limit, .. } if limit == 1024 * 1024
         ),
         "{error}"
     );
@@ -399,7 +399,7 @@ async fn an_oversized_answer_is_rejected_without_a_declared_length() {
     assert!(
         matches!(
             error,
-            DoclingError::ResultTooLarge { limit } if limit == 1024 * 1024
+            DoclingError::ResultTooLarge { limit, .. } if limit == 1024 * 1024
         ),
         "{error}"
     );
@@ -426,9 +426,292 @@ async fn an_oversized_result_is_rejected_at_the_final_text_bound() {
     assert!(
         matches!(
             error,
-            DoclingError::ResultTooLarge { limit } if limit == 32 * 1024 * 1024
+            DoclingError::ResultTooLarge { limit, .. } if limit == 32 * 1024 * 1024
         ),
         "{error}"
+    );
+}
+
+/// The declared length of an oversized answer names the budget it exceeded.
+///
+/// The declared length comes from the answer's own metadata, so the failure
+/// reports what the remote announced and never a measured total.
+#[tokio::test]
+async fn a_declared_oversize_names_the_budget_and_the_declared_length() {
+    // One byte above the control bound, so the declared length is the reason
+    // the answer is rejected.
+    let declared = (64 * 1024 + 1) * "secret body text".len();
+    let router = Router::new().route(
+        "/v1/status/poll/task-1",
+        axum::routing::get(|| async {
+            (
+                [("content-type", "application/json")],
+                "secret body text".repeat(64 * 1024 + 1),
+            )
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .poll_status("task-1")
+        .await
+        .expect_err("an oversized answer is rejected");
+    match &error {
+        DoclingError::ResultTooLarge {
+            limit,
+            kind,
+            declared: observed_declared,
+            observed_at_least,
+        } => {
+            assert_eq!(*limit, 1024 * 1024);
+            assert_eq!(*kind, crate::docling::error::DoclingLimitKind::Control);
+            assert_eq!(*observed_declared, Some(declared as u64));
+            assert!(
+                observed_at_least.is_none(),
+                "a declared length is never a measured total: {error}"
+            );
+        }
+        other => panic!("expected an oversized answer, got {other:?}"),
+    }
+    let message = error.to_string();
+    assert!(message.contains("control body"), "{message}");
+    assert!(message.contains("1 MiB"), "{message}");
+    assert!(message.contains("1048576 bytes"), "{message}");
+    assert!(
+        !message.contains("secret body text"),
+        "the body never reaches the error: {message}"
+    );
+}
+
+/// The converted-document answer has its own budget, and a declared length
+/// above it is rejected before a single byte of the body is read.
+#[tokio::test]
+async fn a_declared_oversized_result_names_the_response_budget() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+    let declared = 40_000_000u64;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the local fake");
+    let address = listener.local_addr().expect("address");
+    tokio::spawn(async move {
+        let (mut socket, _) = listener.accept().await.expect("accept");
+        let mut chunk = [0u8; 1024];
+        let _ = socket.read(&mut chunk).await;
+        let head = format!(
+            "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {declared}\r\nconnection: close\r\n\r\n"
+        );
+        let _ = socket.write_all(head.as_bytes()).await;
+        let _ = socket.flush().await;
+        drop(socket);
+    });
+    let base = format!("http://{address}");
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+
+    let error = client
+        .fetch_result("task-1")
+        .await
+        .expect_err("an oversized result is rejected");
+    match &error {
+        DoclingError::ResultTooLarge {
+            limit,
+            kind,
+            declared: observed_declared,
+            observed_at_least,
+        } => {
+            assert_eq!(*limit, 32 * 1024 * 1024);
+            assert_eq!(*kind, crate::docling::error::DoclingLimitKind::Response);
+            assert_eq!(*observed_declared, Some(declared));
+            assert!(observed_at_least.is_none(), "{error}");
+        }
+        other => panic!("expected an oversized result, got {other:?}"),
+    }
+    let message = error.to_string();
+    assert!(message.contains("response body"), "{message}");
+    assert!(message.contains("32 MiB"), "{message}");
+    assert!(message.contains("40000000 bytes"), "{message}");
+}
+
+/// An answer without a declared length is bounded while it streams in.
+///
+/// The failure reports the bytes that had arrived when the bound was crossed,
+/// as a lower bound: the total size of the answer stays unknown.
+#[tokio::test]
+async fn a_streamed_oversize_reports_the_observed_lower_bound() {
+    let router = Router::new().route(
+        "/v1/status/poll/task-1",
+        axum::routing::get(|| async {
+            let stream = futures::stream::iter(
+                (0..2)
+                    .map(|_| Ok::<_, std::io::Error>(bytes::Bytes::from(vec![b'x'; 1024 * 1024]))),
+            );
+            axum::body::Body::from_stream(stream)
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .poll_status("task-1")
+        .await
+        .expect_err("an oversized answer is rejected");
+    match &error {
+        DoclingError::ResultTooLarge {
+            limit,
+            declared,
+            observed_at_least,
+            ..
+        } => {
+            assert_eq!(*limit, 1024 * 1024);
+            assert!(
+                declared.is_none(),
+                "a streamed answer declares no length: {error}"
+            );
+            let observed = observed_at_least.expect("the observed bytes are reported");
+            assert!(
+                observed > 1024 * 1024,
+                "the reported bytes crossed the bound: {observed}"
+            );
+            assert!(
+                observed <= 2 * 1024 * 1024,
+                "the reported bytes are a lower bound of what arrived: {observed}"
+            );
+        }
+        other => panic!("expected an oversized answer, got {other:?}"),
+    }
+    let message = error.to_string();
+    assert!(
+        message.contains("at least ") && message.contains("bytes were observed"),
+        "the failure reports a lower bound, not a total: {message}"
+    );
+}
+
+/// A body of exactly the bound is accepted, and one byte more is rejected.
+#[tokio::test]
+async fn the_control_bound_accepts_the_exact_limit_and_rejects_one_byte_more() {
+    let head = r#"{"task_id":"task-1","task_type":"convert","task_status":"pending","pad":""#;
+    let tail = r#""}"#;
+    let limit = 1024 * 1024;
+
+    let exact = format!(
+        "{head}{}{tail}",
+        "x".repeat(limit - head.len() - tail.len())
+    );
+    assert_eq!(exact.len(), limit);
+    let body = exact.clone();
+    let router = Router::new().route(
+        "/v1/status/poll/task-1",
+        axum::routing::get(move || {
+            let body = body.clone();
+            async move { ([("content-type", "application/json")], body) }
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let status = client
+        .poll_status("task-1")
+        .await
+        .expect("a body of exactly the bound is accepted");
+    assert_eq!(status.task_id, "task-1");
+
+    let over = format!(
+        "{head}{}{tail}",
+        "x".repeat(limit - head.len() - tail.len() + 1)
+    );
+    assert_eq!(over.len(), limit + 1);
+    let body = over;
+    let router = Router::new().route(
+        "/v1/status/poll/task-1",
+        axum::routing::get(move || {
+            let body = body.clone();
+            async move { ([("content-type", "application/json")], body) }
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .poll_status("task-1")
+        .await
+        .expect_err("one byte above the bound is rejected");
+    assert!(
+        matches!(
+            error,
+            DoclingError::ResultTooLarge {
+                limit,
+                declared: Some(_),
+                ..
+            } if limit == 1024 * 1024
+        ),
+        "{error}"
+    );
+}
+
+/// The bound counts bytes, not characters.
+///
+/// A body of multi-byte characters is above the byte bound long before its
+/// character count reaches it.
+#[tokio::test]
+async fn the_bound_counts_bytes_and_never_leaks_the_body() {
+    let body = "€".repeat(400 * 1024);
+    assert!(body.chars().count() < 1024 * 1024);
+    assert!(body.len() > 1024 * 1024);
+    let body = body.clone();
+    let router = Router::new().route(
+        "/v1/status/poll/task-1",
+        axum::routing::get(move || {
+            let body = body.clone();
+            async move { ([("content-type", "application/json")], body) }
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .poll_status("task-1")
+        .await
+        .expect_err("a body above the byte bound is rejected");
+    assert!(
+        matches!(error, DoclingError::ResultTooLarge { .. }),
+        "the byte bound must reject a body below the character bound: {error}"
+    );
+    assert!(
+        !error.to_string().contains('€'),
+        "the body never reaches the error: {error}"
+    );
+}
+
+/// An oversized answer never becomes valid on its own, and it costs exactly
+/// one request.
+#[tokio::test]
+async fn an_oversized_answer_is_deterministic_and_costs_one_request() {
+    let calls = Arc::new(AtomicUsize::new(0));
+    let counter = calls.clone();
+    let router = Router::new().route(
+        "/v1/result/task-1",
+        axum::routing::get(move || {
+            let counter = counter.clone();
+            async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+                let stream =
+                    futures::stream::iter((0..33).map(|_| {
+                        Ok::<_, std::io::Error>(bytes::Bytes::from(vec![b'x'; 1024 * 1024]))
+                    }));
+                axum::body::Body::from_stream(stream)
+            }
+        }),
+    );
+    let base = serve(router).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let error = client
+        .fetch_result("task-1")
+        .await
+        .expect_err("an oversized result is rejected");
+    assert!(
+        !crate::retry_policy::is_transient(&anyhow::Error::new(error.clone())),
+        "an oversized answer never waits for another attempt"
+    );
+    assert_eq!(
+        calls.load(Ordering::SeqCst),
+        1,
+        "an oversized answer is one attempt, never retried inside the client"
     );
 }
 
