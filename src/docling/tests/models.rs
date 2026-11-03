@@ -261,6 +261,58 @@ fn a_plain_document_result_carries_the_consumed_content() {
     }
 }
 
+/// A Markdown-only answer carries the Markdown alone: the outputs that were
+/// never requested are absent, not empty.
+#[test]
+fn a_markdown_only_result_carries_no_other_output() {
+    let body = br##"{
+        "document": {
+            "filename": "a.pdf",
+            "md_content": "# hi"
+        },
+        "status": "success"
+    }"##;
+    match parse_result(body).expect("result") {
+        ParsedResult::Document {
+            markdown,
+            text,
+            json,
+        } => {
+            assert_eq!(markdown.as_deref(), Some("# hi"));
+            assert!(text.is_none());
+            assert!(json.is_none());
+        }
+        other => panic!("expected a document result, got {other:?}"),
+    }
+}
+
+/// The same answer with the unrequested outputs explicitly null stays a
+/// Markdown-only result.
+#[test]
+fn a_markdown_only_result_with_null_outputs_stays_markdown_only() {
+    let body = br##"{
+        "document": {
+            "filename": "a.pdf",
+            "md_content": "# hi",
+            "text_content": null,
+            "json_content": null
+        },
+        "status": "success"
+    }"##;
+    match parse_result(body).expect("result") {
+        ParsedResult::Document {
+            markdown,
+            text,
+            json,
+        } => {
+            assert_eq!(markdown.as_deref(), Some("# hi"));
+            assert!(text.is_none());
+            assert!(json.is_none());
+        }
+        other => panic!("expected a document result, got {other:?}"),
+    }
+}
+
 #[test]
 fn a_failed_task_result_is_a_structured_failure() {
     let body = br#"{

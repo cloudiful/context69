@@ -40,6 +40,10 @@ impl InputFormat {
 }
 
 /// The output formats this client requests.
+///
+/// A PDF or DOCX conversion asks for the Markdown alone, and an XLSX
+/// conversion asks for the JSON alone. The text and JSON formats stay
+/// supported: a result of an older submission still carries them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum OutputFormat {
     Md,

@@ -16,11 +16,11 @@ use reqwest::Url;
 use reqwest::multipart;
 
 use crate::docling::DoclingConfig;
-use crate::docling::error::DoclingError;
+use crate::docling::error::{DoclingError, DoclingLimitKind};
 use crate::docling::models::{
-    ConvertedDocument, InputFormat, PDF_BACKEND, ParsedResult, RemoteTaskSummary, SubmitRequest,
-    TaskStatusObservation, VlmSettings, code_formula_options, parse_cancel_response, parse_result,
-    parse_status_response, parse_task_list, parse_task_post, parse_task_status,
+    ConvertedDocument, InputFormat, OutputFormat, PDF_BACKEND, ParsedResult, RemoteTaskSummary,
+    SubmitRequest, TaskStatusObservation, VlmSettings, code_formula_options, parse_cancel_response,
+    parse_result, parse_status_response, parse_task_list, parse_task_post, parse_task_status,
     picture_description_options, vlm_pipeline_options,
 };
 use crate::docling::task_id::{encode_task_id_segment, validate_task_id};
@@ -235,7 +235,7 @@ impl DoclingClient {
             .await
             .map_err(map_transport)?;
         let response = expect_success(response)?;
-        let body = read_body(response, MAX_CONTROL_BODY_BYTES).await?;
+        let body = read_body(response, MAX_CONTROL_BODY_BYTES, DoclingLimitKind::Control).await?;
         let task_id = parse_task_post(&body)?;
         validate_task_id(&task_id)?;
         Ok(task_id)
@@ -254,7 +254,7 @@ impl DoclingClient {
         let url = with_query(url, &[("wait", "30")]);
         let response = self.http.get(url).send().await.map_err(map_transport)?;
         let response = expect_success(response)?;
-        let body = read_body(response, MAX_CONTROL_BODY_BYTES).await?;
+        let body = read_body(response, MAX_CONTROL_BODY_BYTES, DoclingLimitKind::Control).await?;
         let status = parse_task_status(&body)?;
         if status.task_id != task_id {
             return Err(DoclingError::IdentityMismatch);
@@ -282,7 +282,12 @@ impl DoclingClient {
             .get(reqwest::header::CONTENT_TYPE)
             .and_then(|value| value.to_str().ok())
             .is_some_and(|value| value.to_ascii_lowercase().contains("application/zip"));
-        let body = read_body(response, crate::docling::MAX_DOCLING_OUTPUT_BYTES).await?;
+        let body = read_body(
+            response,
+            crate::docling::MAX_DOCLING_RESPONSE_BYTES,
+            DoclingLimitKind::Response,
+        )
+        .await?;
         if is_archive || body.starts_with(b"PK\x03\x04") {
             return Err(DoclingError::Validation {
                 parameter: "result".to_string(),
@@ -322,7 +327,7 @@ impl DoclingClient {
         );
         let response = self.http.get(url).send().await.map_err(map_transport)?;
         let response = expect_success(response)?;
-        let body = read_body(response, MAX_CONTROL_BODY_BYTES).await?;
+        let body = read_body(response, MAX_CONTROL_BODY_BYTES, DoclingLimitKind::Control).await?;
         let (items, has_more) = parse_task_list(&body)?;
         Ok(RemoteTaskPage { items, has_more })
     }
@@ -349,7 +354,7 @@ impl DoclingClient {
             500..=599 => return Ok(RemoteCancelOutcome::Retryable),
             _ => return Ok(RemoteCancelOutcome::Failed),
         }
-        let body = read_body(response, MAX_CONTROL_BODY_BYTES).await?;
+        let body = read_body(response, MAX_CONTROL_BODY_BYTES, DoclingLimitKind::Control).await?;
         let (answered_task_id, task_type, task_status) = parse_cancel_response(&body)?;
         if answered_task_id != task_id || task_type.as_deref().is_some_and(str::is_empty) {
             return Err(DoclingError::IdentityMismatch);
@@ -382,7 +387,7 @@ impl DoclingClient {
             500..=599 => return Ok(RemoteStatusOutcome::Retryable),
             _ => return Ok(RemoteStatusOutcome::Failed),
         }
-        let body = read_body(response, MAX_CONTROL_BODY_BYTES).await?;
+        let body = read_body(response, MAX_CONTROL_BODY_BYTES, DoclingLimitKind::Control).await?;
         let (answered_task_id, task_status, task_type) = parse_status_response(&body)?;
         if answered_task_id != task_id || task_type.as_deref().is_some_and(str::is_empty) {
             return Err(DoclingError::IdentityMismatch);
@@ -411,6 +416,14 @@ fn with_query(mut url: Url, pairs: &[(&str, &str)]) -> Url {
     url
 }
 
+/// The output formats the remote protocol names, in the order it names them.
+///
+/// The vocabulary is complete even though a conversion asks for one output
+/// today: the text and JSON exports stay part of the protocol, and the result
+/// of an older submission still carries them.
+const PROTOCOL_OUTPUT_FORMATS: [OutputFormat; 3] =
+    [OutputFormat::Md, OutputFormat::Text, OutputFormat::Json];
+
 /// Builds the multipart body of one conversion submission.
 fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingError> {
     let part = multipart::Part::stream(Bytes::clone(request.bytes))
@@ -424,8 +437,19 @@ fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingErr
     let mut form = multipart::Form::new()
         .part("files", part)
         .text("target_type", "inbody")
-        .text("from_formats", request.input_format.as_from_formats());
-    for format in request.output_formats {
+        .text("from_formats", request.input_format.as_from_formats())
+        // Every conversion names the image export mode explicitly, with or
+        // without a VLM bundle: the remote then exports placeholders instead
+        // of inline images.
+        .text("image_export_mode", "placeholder");
+    // The requested outputs are sent in the order the remote protocol names
+    // them, so the wire form of one document does not depend on the order the
+    // caller listed them in.
+    for format in PROTOCOL_OUTPUT_FORMATS
+        .iter()
+        .copied()
+        .filter(|format| request.output_formats.contains(format))
+    {
         form = form.text("to_formats", format.as_api_value());
     }
     if request.input_format == InputFormat::Pdf {
@@ -480,8 +504,7 @@ fn apply_vlm_config(
         .text("code_formula_custom_config", code_formula)
         .text("do_code_enrichment", "true")
         .text("do_formula_enrichment", "true")
-        .text("do_picture_description", "true")
-        .text("image_export_mode", "placeholder"))
+        .text("do_picture_description", "true"))
 }
 
 /// Turns a non-success answer into a typed failure without reading its body.
@@ -500,7 +523,13 @@ fn expect_success(response: reqwest::Response) -> Result<reqwest::Response, Docl
 /// the plain HTTP conflict, so no conflict is ever mistaken for a cancelled
 /// task and no part of the body ever reaches the error.
 async fn cancelled_result(response: reqwest::Response) -> DoclingError {
-    let cancelled = match read_body(response, MAX_CANCELLATION_BODY_BYTES).await {
+    let cancelled = match read_body(
+        response,
+        MAX_CANCELLATION_BODY_BYTES,
+        DoclingLimitKind::Cancellation,
+    )
+    .await
+    {
         Ok(body) => crate::docling::models::is_cancelled_conflict(&body),
         Err(_) => false,
     };
@@ -517,11 +546,25 @@ async fn cancelled_result(response: reqwest::Response) -> DoclingError {
 ///
 /// Both a declared length above the bound and a streamed body that grows past
 /// it are rejected, so a missing length never turns into an unbounded read.
-async fn read_body(response: reqwest::Response, limit: usize) -> Result<Bytes, DoclingError> {
+///
+/// The two rejections report different numbers on purpose: a declared length
+/// is what the answer announced, and a streamed body reports the bytes that
+/// had arrived when the bound was crossed. Neither number is a measured
+/// total, and the body itself never reaches the error.
+async fn read_body(
+    response: reqwest::Response,
+    limit: usize,
+    kind: DoclingLimitKind,
+) -> Result<Bytes, DoclingError> {
     if let Some(length) = response.content_length()
         && length > limit as u64
     {
-        return Err(DoclingError::ResultTooLarge { limit });
+        return Err(DoclingError::ResultTooLarge {
+            limit,
+            kind,
+            declared: Some(length),
+            observed_at_least: None,
+        });
     }
     let mut body = BytesMut::with_capacity(0);
     let mut stream = response.bytes_stream();
@@ -529,8 +572,14 @@ async fn read_body(response: reqwest::Response, limit: usize) -> Result<Bytes, D
         let chunk = chunk.map_err(|_| DoclingError::Transport {
             message: "the docling response could not be read".to_string(),
         })?;
-        if body.len().saturating_add(chunk.len()) > limit {
-            return Err(DoclingError::ResultTooLarge { limit });
+        let observed = body.len().saturating_add(chunk.len());
+        if observed > limit {
+            return Err(DoclingError::ResultTooLarge {
+                limit,
+                kind,
+                declared: None,
+                observed_at_least: Some(u64::try_from(observed).unwrap_or(u64::MAX)),
+            });
         }
         body.extend_from_slice(&chunk);
     }

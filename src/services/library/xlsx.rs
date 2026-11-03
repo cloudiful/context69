@@ -2,12 +2,12 @@ use std::io::{self, Write};
 
 use anyhow::Context;
 
-use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
+use crate::docling::MAX_DOCLING_JSON_BYTES;
 
 use super::*;
 
 pub(crate) fn ensure_json_output_size(value: &Value) -> Result<usize> {
-    json_output_size(value, MAX_DOCLING_OUTPUT_BYTES)
+    json_output_size(value, MAX_DOCLING_JSON_BYTES)
 }
 
 fn json_output_size(value: &Value, limit: usize) -> Result<usize> {
@@ -142,8 +142,8 @@ impl Write for LimitedWriter {
         let next = self.written.saturating_add(bytes.len());
         if next > self.limit {
             return Err(io::Error::other(format!(
-                "Docling output exceeds {} bytes",
-                self.limit
+                "docling JSON output exceeds the maximum of {}",
+                crate::docling::describe_limit(self.limit)
             )));
         }
         self.written = next;

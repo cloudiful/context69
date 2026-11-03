@@ -238,6 +238,11 @@ async fn the_provider_bundle_sends_the_vlm_fields_and_never_an_auth_header() {
         field(body, "image_export_mode").as_deref(),
         Some("placeholder")
     );
+    assert_eq!(
+        field_count(body, "image_export_mode"),
+        1,
+        "the image export mode is named exactly once"
+    );
 
     // The provider key belongs to the provider payload, never to the Docling
     // Serve authentication header.
@@ -461,6 +466,74 @@ async fn a_docx_submission_names_the_ocr_preset() {
 
     let body = &bodies(&recorded)[0];
     assert_eq!(field(body, "ocr_preset").as_deref(), Some(OCR_PRESET));
+}
+
+/// The image export mode is a conversion setting of its own: it is named for
+/// every conversion, with or without a VLM bundle, and exactly once.
+#[tokio::test]
+async fn a_submission_without_a_vlm_bundle_names_the_placeholder_export_mode() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "application/pdf",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+
+    client.submit(&request).await.expect("submit");
+
+    let body = &bodies(&recorded)[0];
+    assert_eq!(
+        field(body, "image_export_mode").as_deref(),
+        Some("placeholder"),
+        "a conversion without a VLM bundle names the export mode too"
+    );
+    assert_eq!(
+        field_count(body, "image_export_mode"),
+        1,
+        "the image export mode is named exactly once"
+    );
+}
+
+/// A Markdown-only request asks for the Markdown alone: the other outputs of
+/// the same document are never exported.
+#[tokio::test]
+async fn a_markdown_only_submission_sends_one_output_format() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "application/pdf",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+
+    client.submit(&request).await.expect("submit");
+
+    let body = &bodies(&recorded)[0];
+    assert_eq!(field_count(body, "to_formats"), 1);
+    assert!(body.contains("name=\"to_formats\"\r\n\r\nmd\r\n"));
+    assert!(
+        !body.contains("name=\"to_formats\"\r\n\r\ntext\r\n"),
+        "a Markdown-only request never asks for the text export"
+    );
+    assert!(
+        !body.contains("name=\"to_formats\"\r\n\r\njson\r\n"),
+        "a Markdown-only request never asks for the json export"
+    );
 }
 
 /// The selected preset reaches the remote service verbatim, so a custom

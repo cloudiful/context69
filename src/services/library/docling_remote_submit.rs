@@ -173,6 +173,46 @@ mod tests {
     use super::*;
     use crate::docling::DoclingError;
 
+    /// The value of one multipart text field of a recorded submission.
+    fn multipart_field(body: &str, name: &str) -> Option<String> {
+        let marker = format!("name=\"{name}\"");
+        let index = body.find(&marker)? + marker.len();
+        let rest = &body[index..];
+        let value_start = rest.find("\r\n\r\n")? + 4;
+        let value_end = rest[value_start..].find("\r\n")? + value_start;
+        Some(rest[value_start..value_end].to_string())
+    }
+
+    /// How often one multipart text field appears in a recorded submission.
+    fn multipart_field_count(body: &str, name: &str) -> usize {
+        body.matches(&format!("name=\"{name}\"")).count()
+    }
+
+    /// A local mock that records the submitted multipart body.
+    async fn recording_mock() -> (String, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let recorded: std::sync::Arc<std::sync::Mutex<Vec<String>>> =
+            std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let seen = recorded.clone();
+        let router = axum::Router::new().route(
+            "/v1/convert/file/async",
+            axum::routing::post(move |body: axum::body::Bytes| {
+                let seen = seen.clone();
+                async move {
+                    seen.lock()
+                        .expect("lock")
+                        .push(String::from_utf8_lossy(&body).to_string());
+                    axum::Json(serde_json::json!({"task_id": "lean-job"}))
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the local mock");
+        let endpoint = format!("http://{}/v1", listener.local_addr().expect("address"));
+        tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+        (endpoint, recorded)
+    }
+
     fn submit_error(error: DoclingError) -> UnifiedIngestError {
         docling_submit_error(error)
     }
@@ -213,7 +253,12 @@ mod tests {
             DoclingError::Configuration {
                 message: "the docling endpoint is not configured".to_string(),
             },
-            DoclingError::ResultTooLarge { limit: 1024 },
+            DoclingError::ResultTooLarge {
+                limit: 1024,
+                kind: crate::docling::error::DoclingLimitKind::Response,
+                declared: Some(2048),
+                observed_at_least: None,
+            },
             DoclingError::TaskFailed {
                 status: "failure".to_string(),
                 message: "broken document".to_string(),
@@ -330,6 +375,131 @@ mod tests {
             failure.message
         );
         server.await.expect("the local fake finished");
+    }
+
+    /// A PDF conversion requests the Markdown alone.
+    ///
+    /// The output policy of the common helper is what the remote receives, so
+    /// the text and JSON exports of the same document are never asked for.
+    #[tokio::test]
+    async fn a_pdf_submission_requests_only_markdown() {
+        let (endpoint, recorded) = recording_mock().await;
+        let mut settings = crate::docling::DoclingConfig::default();
+        settings.connection.base_url = endpoint;
+
+        submit_frozen_config(
+            &settings,
+            &LibraryFileKind::Pdf,
+            "test.pdf",
+            "application/pdf",
+            &bytes::Bytes::from_static(b"fake pdf"),
+        )
+        .await
+        .expect("submit");
+
+        let recorded = recorded.lock().expect("lock").clone();
+        let body = &recorded[0];
+        assert_eq!(multipart_field_count(body, "to_formats"), 1);
+        assert_eq!(
+            multipart_field(body, "to_formats").as_deref(),
+            Some("md"),
+            "{body}"
+        );
+        assert!(
+            !body.contains("name=\"to_formats\"\r\n\r\ntext\r\n"),
+            "a PDF conversion never asks for the text export: {body}"
+        );
+        assert!(
+            !body.contains("name=\"to_formats\"\r\n\r\njson\r\n"),
+            "a PDF conversion never asks for the json export: {body}"
+        );
+        assert_eq!(
+            multipart_field(body, "image_export_mode").as_deref(),
+            Some("placeholder"),
+            "{body}"
+        );
+        assert_eq!(
+            multipart_field_count(body, "image_export_mode"),
+            1,
+            "the image export mode is named exactly once: {body}"
+        );
+    }
+
+    /// The VLM bundle does not change the requested outputs, and it never adds
+    /// a second image export mode.
+    #[tokio::test]
+    async fn a_pdf_submission_with_a_vlm_bundle_keeps_the_lean_request() {
+        let (endpoint, recorded) = recording_mock().await;
+        let mut settings = crate::docling::DoclingConfig::default();
+        settings.connection.base_url = endpoint;
+        settings.vlm.openai_base_url = Some("https://provider.example/v1".to_string());
+        settings.vlm.api_key = Some("provider-secret".to_string());
+        settings.vlm.vlm_pipeline_model = Some("pipeline-model".to_string());
+        settings.vlm.picture_description_model = Some("picture-model".to_string());
+        settings.vlm.code_formula_model = Some("code-model".to_string());
+
+        submit_frozen_config(
+            &settings,
+            &LibraryFileKind::Pdf,
+            "test.pdf",
+            "application/pdf",
+            &bytes::Bytes::from_static(b"fake pdf"),
+        )
+        .await
+        .expect("submit");
+
+        let recorded = recorded.lock().expect("lock").clone();
+        let body = &recorded[0];
+        assert_eq!(multipart_field_count(body, "to_formats"), 1);
+        assert_eq!(multipart_field(body, "to_formats").as_deref(), Some("md"));
+        assert!(
+            multipart_field(body, "vlm_pipeline_custom_config").is_some(),
+            "the provider bundle still reaches the remote: {body}"
+        );
+        assert_eq!(
+            multipart_field_count(body, "image_export_mode"),
+            1,
+            "the image export mode is named exactly once: {body}"
+        );
+    }
+
+    /// An XLSX conversion keeps its JSON request and never carries the
+    /// picture-description fields.
+    #[tokio::test]
+    async fn an_xlsx_submission_requests_only_json() {
+        let (endpoint, recorded) = recording_mock().await;
+        let mut settings = crate::docling::DoclingConfig::default();
+        settings.connection.base_url = endpoint;
+
+        submit_frozen_config(
+            &settings,
+            &LibraryFileKind::Xlsx,
+            "test.xlsx",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            &bytes::Bytes::from_static(b"fake xlsx"),
+        )
+        .await
+        .expect("submit");
+
+        let recorded = recorded.lock().expect("lock").clone();
+        let body = &recorded[0];
+        assert_eq!(multipart_field_count(body, "to_formats"), 1);
+        assert_eq!(
+            multipart_field(body, "to_formats").as_deref(),
+            Some("json"),
+            "{body}"
+        );
+        assert_eq!(multipart_field(body, "ocr_preset"), None);
+        assert_eq!(multipart_field(body, "vlm_pipeline_custom_config"), None);
+        assert_eq!(
+            multipart_field(body, "picture_description_custom_config"),
+            None
+        );
+        assert_eq!(
+            multipart_field_count(body, "image_export_mode"),
+            1,
+            "the image export mode is named exactly once: {body}"
+        );
     }
 
     #[tokio::test]

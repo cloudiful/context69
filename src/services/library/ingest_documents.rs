@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde_json::json;
 
 use super::*;
-use crate::docling::MAX_DOCLING_OUTPUT_BYTES;
+use crate::docling::MAX_DOCLING_TEXT_BYTES;
 use crate::docling::{ConvertedDocument, DoclingClient, DoclingConfig, InputFormat, OutputFormat};
 
 impl LibraryService {
@@ -120,11 +120,20 @@ pub(crate) fn sections_from_converted_document(
 }
 
 fn limit_docling_text(text: String) -> IngestResult<String> {
-    if text.len() > MAX_DOCLING_OUTPUT_BYTES {
+    limit_text_within(text, MAX_DOCLING_TEXT_BYTES)
+}
+
+/// The extracted-text bound, with the budget as an argument.
+///
+/// The bound counts bytes, not characters: a document of multi-byte
+/// characters reaches the ceiling sooner than its character count says.
+fn limit_text_within(text: String, limit: usize) -> IngestResult<String> {
+    if text.len() > limit {
         return Err(IngestFailure::new(
             LibraryIngestFailureStage::Parsing,
             DomainError::payload_too_large(format!(
-                "docling output exceeds maximum of {MAX_DOCLING_OUTPUT_BYTES} bytes: {} bytes",
+                "docling extracted text exceeds the maximum of {}: {} bytes",
+                crate::docling::describe_limit(limit),
                 text.len()
             )),
         ));
@@ -145,21 +154,23 @@ pub(crate) fn docling_input_format(kind: &LibraryFileKind) -> Option<InputFormat
 }
 
 /// Output formats requested per file kind on the durable submit path.
-/// PDF/DOCX keep the full triple the inline pipeline parses; XLSX requests
-/// only JSON, matching the legacy XLSX client's `to_formats=json` form and
-/// keeping `sections_for_remote_result`'s JSON contract exact.
+///
+/// A PDF or DOCX conversion needs only Markdown: the sections are built from
+/// the Markdown, so the text and JSON exports of the same document are never
+/// read. XLSX requests only JSON, matching the legacy XLSX client's
+/// `to_formats=json` form and keeping `sections_for_remote_result`'s JSON
+/// contract exact. Plain text has no remote conversion at all.
 pub(crate) fn docling_output_formats_for_kind(kind: &LibraryFileKind) -> Vec<OutputFormat> {
     match kind {
         LibraryFileKind::Xlsx => vec![OutputFormat::Json],
-        LibraryFileKind::Pdf | LibraryFileKind::Docx | LibraryFileKind::PlainText => {
-            vec![OutputFormat::Md, OutputFormat::Text, OutputFormat::Json]
-        }
+        LibraryFileKind::Pdf | LibraryFileKind::Docx => vec![OutputFormat::Md],
+        LibraryFileKind::PlainText => Vec::new(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LibraryFileKind, docling_output_formats_for_kind};
+    use super::{LibraryFileKind, docling_output_formats_for_kind, limit_text_within};
     use crate::docling::OutputFormat;
 
     #[test]
@@ -170,13 +181,42 @@ mod tests {
         );
     }
 
+    /// A PDF or DOCX conversion needs only the Markdown: the text and JSON
+    /// exports of the same document are never read.
     #[test]
-    fn pdf_and_docx_keep_the_full_output_triple() {
-        let full = vec![OutputFormat::Md, OutputFormat::Text, OutputFormat::Json];
-        assert_eq!(docling_output_formats_for_kind(&LibraryFileKind::Pdf), full);
+    fn pdf_and_docx_request_only_markdown() {
+        assert_eq!(
+            docling_output_formats_for_kind(&LibraryFileKind::Pdf),
+            vec![OutputFormat::Md]
+        );
         assert_eq!(
             docling_output_formats_for_kind(&LibraryFileKind::Docx),
-            full
+            vec![OutputFormat::Md]
+        );
+    }
+
+    /// Plain text has no remote conversion, so it requests no output at all.
+    #[test]
+    fn plain_text_requests_no_output() {
+        assert!(
+            docling_output_formats_for_kind(&LibraryFileKind::PlainText).is_empty(),
+            "a plain text file never reaches a remote conversion"
+        );
+    }
+
+    /// The extracted-text bound counts bytes, not characters.
+    #[test]
+    fn the_extracted_text_bound_counts_bytes() {
+        // Four characters of three bytes each are twelve bytes.
+        let text = "€€€€".to_string();
+        assert_eq!(text.chars().count(), 4);
+        assert_eq!(text.len(), 12);
+
+        assert!(limit_text_within(text.clone(), 12).is_ok());
+        let failure = limit_text_within(text, 11).expect_err("twelve bytes exceed eleven");
+        assert!(
+            failure.to_string().contains("extracted text"),
+            "the failure names its own category: {failure}"
         );
     }
 }
