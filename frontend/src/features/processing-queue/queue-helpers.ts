@@ -1,5 +1,7 @@
+import { ApiError } from "@/services/api";
 import type {
   SortDirection,
+  TaskBatchGetResponse,
   TaskBatchRetryResponse,
   TaskItemResponse,
   TaskKind,
@@ -164,10 +166,13 @@ export const SOURCE_RERUN_KINDS: readonly TaskKind[] = ["file_batch", "url_batch
 export function isQueueBulkActionApplicable(
   action: QueueBulkAction,
   status: TaskStatus,
+  doclingUncertain = false,
 ): boolean {
   switch (action) {
     case "retry":
-      return status === "failed" || status === "cancelled";
+      return status === "failed"
+        || status === "cancelled"
+        || (status === "waiting" && doclingUncertain);
     case "rerun":
       return status === "succeeded";
     case "cancel":
@@ -187,6 +192,8 @@ export interface QueueBulkTarget {
   readonly action: QueueBulkAction;
   /** The status the task had when it was selected. */
   readonly status: TaskStatus;
+  /** The server's duplicate-risk flag for the selected task. */
+  readonly doclingUncertain: boolean;
   /** The readable subject captured with the selection, when one was on screen. */
   readonly subject?: string | null;
 }
@@ -267,12 +274,16 @@ export function isTerminalStatus(status: TaskStatus): boolean {
 export function availableQueueBulkActions(
   statuses: readonly TaskStatus[],
   view: TaskListView,
+  recoverableWaiting = 0,
 ): QueueBulkAction[] {
   if (view === "trash") {
     return statuses.length > 0 ? ["restore", "delete"] : [];
   }
   const actions: QueueBulkAction[] = [];
-  if (statuses.some((status) => status === "failed" || status === "cancelled")) {
+  if (
+    statuses.some((status) => status === "failed" || status === "cancelled")
+    || recoverableWaiting > 0
+  ) {
     actions.push("retry");
   }
   if (statuses.some((status) => status === "succeeded")) {
@@ -300,6 +311,7 @@ export function queueBulkActionOptions(
   t: Translate,
   statuses: readonly TaskStatus[],
   view: TaskListView,
+  recoverableWaiting = 0,
 ): QueueBulkActionOption[] {
   const count = (predicate: (status: TaskStatus) => boolean) => statuses.filter(predicate).length;
   const failed = count((status) => status === "failed");
@@ -307,15 +319,17 @@ export function queueBulkActionOptions(
   const succeeded = count((status) => status === "succeeded");
   const active = count(isActiveStatus);
 
-  return availableQueueBulkActions(statuses, view).map((action) => {
+  return availableQueueBulkActions(statuses, view, recoverableWaiting).map((action) => {
     switch (action) {
       case "retry": {
-        const eligible = failed + cancelled;
-        const label = failed > 0 && cancelled > 0
-          ? t("processingQueue.bulkActionLabels.retryMixed", { failed, cancelled })
-          : cancelled > 0
-            ? t("processingQueue.bulkActionLabels.resumeCancelled", { count: cancelled })
-            : t("processingQueue.bulkActionLabels.retryFailed", { count: failed });
+        const eligible = failed + cancelled + recoverableWaiting;
+        const label = recoverableWaiting > 0
+          ? t("processingQueue.bulkActionLabels.retryRisk", { count: eligible })
+          : failed > 0 && cancelled > 0
+            ? t("processingQueue.bulkActionLabels.retryMixed", { failed, cancelled })
+            : cancelled > 0
+              ? t("processingQueue.bulkActionLabels.resumeCancelled", { count: cancelled })
+              : t("processingQueue.bulkActionLabels.retryFailed", { count: failed });
         return { action, label, eligible };
       }
       case "rerun":
@@ -360,6 +374,7 @@ export function captureQueueBulkTargets(
   statuses: Readonly<Record<string, TaskStatus>>,
   action: QueueBulkAction,
   subjects: Readonly<Record<string, string | null>> = {},
+  uncertain: Readonly<Record<string, boolean>> = {},
 ): readonly QueueBulkTarget[] {
   const targets: QueueBulkTarget[] = [];
   const seen = new Set<string>();
@@ -372,9 +387,52 @@ export function captureQueueBulkTargets(
     if (!status) {
       continue;
     }
-    targets.push(Object.freeze({ taskId, action, status, subject: subjects[taskId] ?? null }));
+    targets.push(Object.freeze({
+      taskId,
+      action,
+      status,
+      doclingUncertain: uncertain[taskId] === true,
+      subject: subjects[taskId] ?? null,
+    }));
   }
   return Object.freeze(targets);
+}
+
+/** One batch-read request carries at most this many ids. */
+export const QUEUE_BATCH_GET_LIMIT = 100;
+
+/** The selected ids could not be re-read as a complete, owned set. */
+export class QueueRiskPrescanError extends Error {
+  constructor() {
+    super("The selected tasks could not be re-read");
+    this.name = "QueueRiskPrescanError";
+  }
+}
+
+/**
+ * Resolve the server's duplicate-risk flag for every selected id through the
+ * bounded batch-read endpoint, in chunks of at most 100 and in the requested
+ * order. Any failed chunk, or any id the caller may not read, refuses the whole
+ * operation before a mutation is sent: ids are never dropped or assumed safe.
+ */
+export async function readQueueBulkRisk(
+  ids: readonly string[],
+  fetchBatch: (taskIds: readonly string[]) => Promise<TaskBatchGetResponse>,
+): Promise<ReadonlyMap<string, boolean>> {
+  const flags = new Map<string, boolean>();
+  for (let start = 0; start < ids.length; start += QUEUE_BATCH_GET_LIMIT) {
+    const chunk = ids.slice(start, start + QUEUE_BATCH_GET_LIMIT);
+    const response = await fetchBatch(chunk);
+    const byId = new Map(response.items.map((item) => [item.task_id, item]));
+    for (const taskId of chunk) {
+      const item = byId.get(taskId);
+      if (!item || item.outcome !== "found" || !item.task) {
+        throw new QueueRiskPrescanError();
+      }
+      flags.set(taskId, item.task.docling_submission_uncertain === true);
+    }
+  }
+  return flags;
 }
 
 const BULK_CONCURRENCY = 4;
@@ -527,6 +585,11 @@ export async function runQueueBatchTasks(
           };
         }
       } catch (reason) {
+        if (reason instanceof ApiError && reason.code === "docling_submission_uncertain") {
+          // Not a per-id failure: the caller must refresh and obtain consent
+          // before any selected task is retried.
+          throw reason;
+        }
         const message = reason instanceof Error ? reason.message : String(reason);
         for (const taskId of chunk.ids) {
           const index = indexByTaskId.get(taskId);
@@ -625,7 +688,9 @@ export function summarizeQueueBulkOutcomes(
  * `retryable: false` still offers the manual action and the server decides.
  */
 export function isRecoverableTask(task: TaskResponse): boolean {
-  return task.status === "failed" || task.status === "cancelled";
+  return task.status === "failed"
+    || task.status === "cancelled"
+    || (task.status === "waiting" && task.docling_submission_uncertain === true);
 }
 
 /**

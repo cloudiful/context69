@@ -18,8 +18,8 @@ use context69_sdk::{
     CreateDocumentResultRequest, DocumentKey, DocumentResultProvenance, DocumentResultResponse,
     IngestOptions, ListDocumentResultsQuery, ListDocumentResultsResponse, RawRequest,
     SearchPagination, SearchRequest, SearchResponse, SecretPatch, SortDirection, SourcePolicy,
-    TaskBatchRerunRequest, TaskBatchRetryRequest, TaskItemStatus, TaskItemsOptions, TaskItemsQuery,
-    TaskListOptions, TaskListView, TaskSortBy,
+    TaskBatchGetOutcome, TaskBatchGetRequest, TaskBatchRerunRequest, TaskBatchRetryRequest,
+    TaskItemStatus, TaskItemsOptions, TaskItemsQuery, TaskListOptions, TaskListView, TaskSortBy,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -57,6 +57,10 @@ fn record(method: &Method, uri: &OriginalUri, headers: &HeaderMap, log: &SharedL
 
 fn task_id() -> String {
     "11111111-1111-1111-1111-111111111111".to_string()
+}
+
+fn missing_task_id() -> String {
+    "33333333-3333-3333-3333-333333333333".to_string()
 }
 
 fn file_id() -> String {
@@ -526,6 +530,25 @@ async fn test_router(log: SharedLog) -> axum::Router {
             }),
         )
         .route(
+            "/v1/tasks/batch/get",
+            post({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (
+                            StatusCode::OK,
+                            Json(json!({"items": [
+                                {"task_id": task_id(), "outcome": "found", "task": task_response_json(&task_id())},
+                                {"task_id": missing_task_id(), "outcome": "not_found"}
+                            ]})),
+                        )
+                    }
+                }
+            }),
+        )
+        .route(
             "/v1/tasks/{task_id}/rerun",
             post({
                 let log = log.clone();
@@ -769,6 +792,8 @@ fn task_list_options_defaults_and_bounds_match_canonical_contracts() {
     assert_eq!(defaults.page, 1);
     assert_eq!(defaults.page_size, 25);
     assert!(defaults.query.is_none());
+    assert!(defaults.group_path.is_none());
+    assert!(defaults.source_key.is_none());
     assert!(defaults.as_canonical_query().is_ok());
 
     let canonical: CanonicalTaskListQuery = defaults.as_canonical_query().expect("valid");
@@ -790,12 +815,16 @@ fn task_list_options_defaults_and_bounds_match_canonical_contracts() {
 
     let with_filters = TaskListOptions {
         query: Some("hello".to_string()),
+        group_path: Some("research/news".to_string()),
+        source_key: Some("rss".to_string()),
         sort_by: Some(TaskSortBy::CreatedAt),
         sort_direction: Some(SortDirection::Desc),
         ..TaskListOptions::default()
     };
     let canonical = with_filters.as_canonical_query().expect("filters");
     assert_eq!(canonical.query.as_deref(), Some("hello"));
+    assert_eq!(canonical.group_path.as_deref(), Some("research/news"));
+    assert_eq!(canonical.source_key.as_deref(), Some("rss"));
     assert!(canonical.sort_by.is_some());
     assert!(canonical.sort_direction.is_some());
 }
@@ -1058,6 +1087,37 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(last(&log).path, "/v1/tasks");
     assert!(last(&log).idempotency.is_some());
 
+    // Issue 1172 P1: an explicit caller key reaches the header verbatim, so a
+    // caller can recover the same task after a lost response.
+    let explicit_key = "Stock:business.1-2_x";
+    client
+        .submit_task_with_idempotency_key(&submit, explicit_key)
+        .await
+        .expect("submit_task_with_idempotency_key");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(last(&log).path, "/v1/tasks");
+    assert_eq!(last(&log).idempotency.as_deref(), Some(explicit_key));
+    client
+        .submit_task_with_idempotency_key(&submit, explicit_key)
+        .await
+        .expect("explicit key repeat");
+    assert_eq!(
+        last(&log).idempotency.as_deref(),
+        Some(explicit_key),
+        "a replay must send the same caller key, not a generated one"
+    );
+    for invalid in ["", "with space", "group/key", "clé"] {
+        client
+            .submit_task_with_idempotency_key(&submit, invalid)
+            .await
+            .expect_err("an invalid caller key must be refused before any request");
+        assert_eq!(
+            last(&log).idempotency.as_deref(),
+            Some(explicit_key),
+            "invalid key {invalid:?} must not reach the server"
+        );
+    }
+
     client.get_task(task_uuid).await.expect("get_task");
     assert_eq!(last(&log).method, "GET");
     assert_eq!(last(&log).path, format!("/v1/tasks/{task_uuid}"));
@@ -1094,6 +1154,26 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(query.get("page").map(String::as_str), Some("1"));
     assert_eq!(query.get("page_size").map(String::as_str), Some("25"));
     assert!(last(&log).idempotency.is_none());
+
+    // Issue 1172 P1: exact filters are sent beside the fuzzy `query`.
+    client
+        .list_tasks(&TaskListOptions {
+            group_path: Some("research".to_string()),
+            source_key: Some("rss".to_string()),
+            ..TaskListOptions::default()
+        })
+        .await
+        .expect("list_tasks exact filters");
+    let query = query_map(&last(&log).query);
+    assert_eq!(
+        query.get("group_path").map(String::as_str),
+        Some("research")
+    );
+    assert_eq!(query.get("source_key").map(String::as_str), Some("rss"));
+    assert!(
+        !query.contains_key("query"),
+        "an absent fuzzy query must stay absent"
+    );
 
     client
         .list_task_items(task_uuid, &TaskItemsOptions::default())
@@ -1157,6 +1237,7 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     client
         .batch_retry_tasks(&TaskBatchRetryRequest {
             task_ids: vec![task_uuid],
+            acknowledge_docling_duplicate_risk: false,
         })
         .await
         .expect("batch retry");
@@ -1166,11 +1247,38 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     client
         .batch_rerun_tasks(&TaskBatchRerunRequest {
             task_ids: vec![task_uuid],
+            acknowledge_docling_duplicate_risk: false,
         })
         .await
         .expect("batch rerun");
     assert_eq!(last(&log).method, "POST");
     assert_eq!(last(&log).path, "/v1/tasks/batch/rerun");
+
+    // Issue 1172 P1: one ordered batch snapshot preserves the request order,
+    // and a not-found id carries no task body.
+    let missing_uuid = Uuid::parse_str(&missing_task_id()).expect("missing uuid");
+    let batch = client
+        .batch_get_tasks(&TaskBatchGetRequest {
+            task_ids: vec![task_uuid, missing_uuid],
+        })
+        .await
+        .expect("batch get");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(last(&log).path, "/v1/tasks/batch/get");
+    assert!(last(&log).idempotency.is_none());
+    assert_eq!(batch.items.len(), 2);
+    assert_eq!(batch.items[0].task_id, task_uuid);
+    assert_eq!(batch.items[0].outcome, TaskBatchGetOutcome::Found);
+    assert_eq!(
+        batch.items[0].task.as_ref().map(|task| task.task_id),
+        Some(task_uuid)
+    );
+    assert_eq!(batch.items[1].task_id, missing_uuid);
+    assert_eq!(batch.items[1].outcome, TaskBatchGetOutcome::NotFound);
+    assert!(
+        batch.items[1].task.is_none(),
+        "a not_found id must not decode a task body"
+    );
 
     client.rerun_task(task_uuid).await.expect("rerun");
     assert_eq!(last(&log).method, "POST");

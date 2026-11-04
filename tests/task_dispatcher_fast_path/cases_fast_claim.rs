@@ -2,7 +2,9 @@ use context69::db::{CreateTaskSubmissionRequest, Database};
 use serde_json::json;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
+use crate::support::{
+    FAST_PATH_LOCK, cleanup_task, cleanup_user, own_claims, seal_test_execution, seed_test_user,
+};
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -34,12 +36,14 @@ async fn claim_items_fast_claims_and_activates_a_fresh_task() {
         .expect("create task");
     assert_eq!(item_ids.len(), 1);
 
-    let claimed = db
-        .claim_items_fast(10)
-        .await
-        .expect("fast claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
+    let claimed = own_claims(
+        db.claim_items_fast().await.expect("fast claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(claimed.len(), 1, "the fast claim returns only this item");
+    let claimed = claimed
+        .first()
         .expect("fresh item must be claimable on the fast path");
     assert_eq!(claimed.attempt_count, 1, "fast claim is attempt 1");
     assert_eq!(
@@ -57,6 +61,7 @@ async fn claim_items_fast_claims_and_activates_a_fresh_task() {
         "fast claim must activate the parent task"
     );
 
+    seal_test_execution(&db, claimed).await;
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }

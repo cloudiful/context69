@@ -393,6 +393,15 @@ mod task_source_delete {
     }
 
     async fn cleanup(db: &Database, group_id: i64, task_id: Uuid, user_id: i64) {
+        let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+            db.pool(),
+            context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+        )
+        .await
+        .expect("settle the fixture's linked executions before deleting its rows");
+        if report.has_expired_skips() {
+            eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+        }
         sqlx::query_file!(
             "tests/sql/task_execution/delete_group_sync_runs.sql",
             group_id
@@ -541,7 +550,7 @@ mod task_source_delete {
     }
 
     async fn claim_item(db: &Database, item_id: Uuid) -> crate::db::ClaimedItem {
-        db.claim_items_fast(50)
+        db.claim_items_fast()
             .await
             .expect("claim the item")
             .into_iter()

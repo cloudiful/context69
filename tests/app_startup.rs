@@ -25,6 +25,8 @@
 #[path = "app_startup/support.rs"]
 mod support;
 
+use std::panic::AssertUnwindSafe;
+
 use context69::{
     config::DEFAULT_SESSION_VALKEY_URL,
     contracts::{GroupKind, Visibility},
@@ -32,6 +34,8 @@ use context69::{
     library_store::LibraryStore,
     services::app::Context69App,
 };
+use context69_test_support::library_policy::{LibraryPolicyBaseline, finish_fixture};
+use futures::FutureExt;
 use uuid::Uuid;
 
 use crate::support::{
@@ -66,150 +70,164 @@ async fn app_startup_degrades_without_qdrant_and_reuses_persisted_runtime_settin
     assert_eq!(work_row_count(&db).await, 0, "{message}");
     let secret_keys_before = internal_secret_keys(&db).await;
 
-    // First boot: the fresh database imports the passed config into runtime
-    // settings and loads them back before vector, library, and worker startup.
-    // The scratch bootstrap admin exercises personal-group creation on this
-    // boot; the restart boot below leaves it off so no further rows appear.
-    let first_marker = Uuid::new_v4().simple().to_string();
-    let first_root = test_storage_root(&first_marker);
-    let mut first_config = test_config(&database_url, &first_marker, &first_root);
-    let bootstrap = bootstrap_admin_config(&first_marker);
-    first_config.auth.bootstrap_admin = Some(bootstrap.clone());
-    let app = Context69App::new(first_config.clone())
+    let queue = db
+        .execution_queue()
         .await
-        .expect("app startup");
-    let first_effective = app.config.clone();
-    let stored = app.db.get_runtime_settings().await.expect("read settings");
-    let stored = stored.expect("startup must persist runtime settings");
-    let store = LibraryStore::new(app.db.clone());
-    let gates = store.list_dependency_gates().await.expect("gates");
-    let signing_key = app.browser_sessions.signing_key.to_vec();
-    let session_valkey_url = app.browser_sessions.valkey_url.clone();
-    let search = app.query.search(None, search_request());
-    let search_error = search.await.err().map(|error| error.to_string());
-    let first_root_created = first_effective.file_library.storage_root.is_dir();
-    let signing_key_name = internal_secret_key_for_value(&app.db, &signing_key).await;
-    let signing_key_name = signing_key_name.expect("startup must persist the signing key");
-    // Bootstrap admin rows are read before cleanup so the path assertions
-    // below run after this run's rows are already deleted again.
-    let bootstrap_user = app
-        .db
-        .get_user_by_login_name(&bootstrap.login_name)
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
         .await
-        .expect("read bootstrap admin")
-        .expect("startup must create the bootstrap admin");
-    let bootstrap_personal = app
-        .db
-        .get_personal_group_for_user(bootstrap_user.id)
-        .await
-        .expect("read bootstrap personal group")
-        .expect("startup must create the bootstrap personal group");
-    let bootstrap_group = app
-        .db
-        .get_group_by_id(bootstrap_personal.group_id)
-        .await
-        .expect("read bootstrap personal group row")
-        .expect("bootstrap personal group row must exist");
-    drop(app);
+        .expect("capture the execution policy baseline");
 
-    // Restart on the same database: the persisted runtime settings must win
-    // over the freshly passed config (config override timing).
-    let restart_marker = Uuid::new_v4().simple().to_string();
-    let restart_root = test_storage_root(&restart_marker);
-    let restart_config = test_config(&database_url, &restart_marker, &restart_root);
-    let app = Context69App::new(restart_config.clone());
-    let app = app.await.expect("restart startup");
-    let restart_effective = app.config.clone();
-    drop(app);
-    let restart_root_created = restart_root.exists();
+    let outcome = AssertUnwindSafe(async {
+        // First boot: the fresh database imports the passed config into runtime
+        // settings and loads them back before vector, library, and worker startup.
+        // The scratch bootstrap admin exercises personal-group creation on this
+        // boot; the restart boot below leaves it off so no further rows appear.
+        let first_marker = Uuid::new_v4().simple().to_string();
+        let first_root = test_storage_root(&first_marker);
+        let mut first_config = test_config(&database_url, &first_marker, &first_root);
+        let bootstrap = bootstrap_admin_config(&first_marker);
+        first_config.auth.bootstrap_admin = Some(bootstrap.clone());
+        let app = Context69App::new(first_config.clone())
+            .await
+            .expect("app startup");
+        let first_effective = app.config.clone();
+        let stored = app.db.get_runtime_settings().await.expect("read settings");
+        let stored = stored.expect("startup must persist runtime settings");
+        let store = LibraryStore::new(app.db.clone());
+        let gates = store.list_dependency_gates().await.expect("gates");
+        let signing_key = app.browser_sessions.signing_key.to_vec();
+        let session_valkey_url = app.browser_sessions.valkey_url.clone();
+        let search = app.query.search(None, search_request());
+        let search_error = search.await.err().map(|error| error.to_string());
+        let first_root_created = first_effective.file_library.storage_root.is_dir();
+        let signing_key_name = internal_secret_key_for_value(&app.db, &signing_key).await;
+        let signing_key_name = signing_key_name.expect("startup must persist the signing key");
+        // Bootstrap admin rows are read before cleanup so the path assertions
+        // below run after this run's rows are already deleted again.
+        let bootstrap_user = app
+            .db
+            .get_user_by_login_name(&bootstrap.login_name)
+            .await
+            .expect("read bootstrap admin")
+            .expect("startup must create the bootstrap admin");
+        let bootstrap_personal = app
+            .db
+            .get_personal_group_for_user(bootstrap_user.id)
+            .await
+            .expect("read bootstrap personal group")
+            .expect("startup must create the bootstrap personal group");
+        let bootstrap_group = app
+            .db
+            .get_group_by_id(bootstrap_personal.group_id)
+            .await
+            .expect("read bootstrap personal group row")
+            .expect("bootstrap personal group row must exist");
+        drop(app);
 
-    // Clean up this run's own rows and temp roots before asserting, so a
-    // failing assertion never leaves imported runtime settings behind.
-    let settings_created = settings_before.is_none();
-    let key_created = !secret_keys_before.contains(&signing_key_name);
-    cleanup_own_rows(
-        &db,
-        settings_created,
-        key_created.then_some(signing_key_name.as_str()),
-    )
+        // Restart on the same database: the persisted runtime settings must win
+        // over the freshly passed config (config override timing).
+        let restart_marker = Uuid::new_v4().simple().to_string();
+        let restart_root = test_storage_root(&restart_marker);
+        let restart_config = test_config(&database_url, &restart_marker, &restart_root);
+        let app = Context69App::new(restart_config.clone());
+        let app = app.await.expect("restart startup");
+        let restart_effective = app.config.clone();
+        drop(app);
+        let restart_root_created = restart_root.exists();
+
+        // Clean up this run's own rows and temp roots before asserting, so a
+        // failing assertion never leaves imported runtime settings behind.
+        let settings_created = settings_before.is_none();
+        let key_created = !secret_keys_before.contains(&signing_key_name);
+        cleanup_own_rows(
+            &db,
+            settings_created,
+            key_created.then_some(signing_key_name.as_str()),
+        )
+        .await;
+        cleanup_bootstrap_admin_rows(&db, bootstrap_user.id, bootstrap_personal.group_id).await;
+        let first_used_root = first_effective.file_library.storage_root.clone();
+        let restart_used_root = restart_effective.file_library.storage_root.clone();
+        remove_test_storage_roots([first_used_root.clone(), restart_used_root.clone()]);
+
+        // Bootstrap personal group (issue 648): a root personal group stores
+        // `full_path = group_key`, stays parentless, and keeps its private kind,
+        // personal ownership, and owner membership path.
+        let expected_personal_path = format!("personal-{}", bootstrap.login_name);
+        assert_eq!(
+            bootstrap_personal.group_path, expected_personal_path,
+            "personal group path must equal its key"
+        );
+        assert_eq!(
+            bootstrap_group.group_path, expected_personal_path,
+            "personal group row path must equal its key"
+        );
+        assert_eq!(
+            bootstrap_group.parent_group_id, None,
+            "personal group must stay a root group"
+        );
+        assert_eq!(bootstrap_group.group_key, expected_personal_path);
+        assert_eq!(bootstrap_group.kind, GroupKind::Personal);
+        assert_eq!(bootstrap_group.visibility, Visibility::Private);
+        assert_eq!(bootstrap_group.owner_user_id, Some(bootstrap_user.id));
+
+        // Import timing: the first boot on a fresh database persists exactly the
+        // passed config; later boots must not re-import over existing settings.
+        if settings_created {
+            assert_runtime_settings_applied(&first_config, &stored);
+        } else {
+            let before = settings_before.as_ref().expect("checked above");
+            assert_eq!(stored.scheduler.job_id, before.scheduler.job_id);
+        }
+        // Load/apply timing: both boots run with the persisted runtime settings.
+        assert_runtime_settings_applied(&first_effective, &stored);
+        assert_runtime_settings_applied(&restart_effective, &stored);
+        assert_ne!(
+            restart_effective.scheduler.job_id,
+            restart_config.scheduler.job_id
+        );
+        assert_eq!(restart_used_root, first_used_root);
+        let (effective_ttl, passed_ttl) = (
+            first_effective.scheduler.execution_guard_ttl,
+            first_config.scheduler.execution_guard_ttl,
+        );
+        assert!(effective_ttl == passed_ttl, "guard ttl changed");
+        let url_unchanged = first_effective.app_db.url == database_url;
+        assert!(url_unchanged, "startup changed the app db url");
+
+        // Qdrant degradation: startup still succeeds and the library dependency
+        // gates record that embedding was configured but no vector runtime exists.
+        assert_open_gate(&gates, "embedding", RUNTIME_UNAVAILABLE);
+        assert_open_gate(&gates, "qdrant", RUNTIME_UNAVAILABLE);
+        assert_open_gate(&gates, "embedding_vector", RUNTIME_UNAVAILABLE);
+        assert_open_gate(&gates, "docling", DOCLING_UNCONFIGURED);
+        let search_error = search_error.expect("search must fail while degraded");
+        assert_eq!(
+            search_error, DEGRADED_SEARCH_ERROR,
+            "degraded search branch"
+        );
+
+        // Browser session runtime resolved from the database without valkey.
+        assert_eq!(session_valkey_url, DEFAULT_SESSION_VALKEY_URL);
+        assert_eq!(signing_key.len(), 64);
+        assert!(signing_key.iter().any(|byte| *byte != 0));
+
+        // File library: the persisted storage root is created on disk, and the
+        // freshly passed root on restart is never touched.
+        assert!(first_root_created, "library storage root must exist");
+        assert!(
+            !restart_root_created,
+            "restart must not create the passed root"
+        );
+
+        let message = "startup must not create task, library, or metadata-index work rows";
+        assert_eq!(work_row_count(&db).await, 0, "{message}");
+    })
+    .catch_unwind()
     .await;
-    cleanup_bootstrap_admin_rows(&db, bootstrap_user.id, bootstrap_personal.group_id).await;
-    let first_used_root = first_effective.file_library.storage_root.clone();
-    let restart_used_root = restart_effective.file_library.storage_root.clone();
-    remove_test_storage_roots([first_used_root.clone(), restart_used_root.clone()]);
-
-    // Bootstrap personal group (issue 648): a root personal group stores
-    // `full_path = group_key`, stays parentless, and keeps its private kind,
-    // personal ownership, and owner membership path.
-    let expected_personal_path = format!("personal-{}", bootstrap.login_name);
-    assert_eq!(
-        bootstrap_personal.group_path, expected_personal_path,
-        "personal group path must equal its key"
-    );
-    assert_eq!(
-        bootstrap_group.group_path, expected_personal_path,
-        "personal group row path must equal its key"
-    );
-    assert_eq!(
-        bootstrap_group.parent_group_id, None,
-        "personal group must stay a root group"
-    );
-    assert_eq!(bootstrap_group.group_key, expected_personal_path);
-    assert_eq!(bootstrap_group.kind, GroupKind::Personal);
-    assert_eq!(bootstrap_group.visibility, Visibility::Private);
-    assert_eq!(bootstrap_group.owner_user_id, Some(bootstrap_user.id));
-
-    // Import timing: the first boot on a fresh database persists exactly the
-    // passed config; later boots must not re-import over existing settings.
-    if settings_created {
-        assert_runtime_settings_applied(&first_config, &stored);
-    } else {
-        let before = settings_before.as_ref().expect("checked above");
-        assert_eq!(stored.scheduler.job_id, before.scheduler.job_id);
-    }
-    // Load/apply timing: both boots run with the persisted runtime settings.
-    assert_runtime_settings_applied(&first_effective, &stored);
-    assert_runtime_settings_applied(&restart_effective, &stored);
-    assert_ne!(
-        restart_effective.scheduler.job_id,
-        restart_config.scheduler.job_id
-    );
-    assert_eq!(restart_used_root, first_used_root);
-    let (effective_ttl, passed_ttl) = (
-        first_effective.scheduler.execution_guard_ttl,
-        first_config.scheduler.execution_guard_ttl,
-    );
-    assert!(effective_ttl == passed_ttl, "guard ttl changed");
-    let url_unchanged = first_effective.app_db.url == database_url;
-    assert!(url_unchanged, "startup changed the app db url");
-
-    // Qdrant degradation: startup still succeeds and the library dependency
-    // gates record that embedding was configured but no vector runtime exists.
-    assert_open_gate(&gates, "embedding", RUNTIME_UNAVAILABLE);
-    assert_open_gate(&gates, "qdrant", RUNTIME_UNAVAILABLE);
-    assert_open_gate(&gates, "embedding_vector", RUNTIME_UNAVAILABLE);
-    assert_open_gate(&gates, "docling", DOCLING_UNCONFIGURED);
-    let search_error = search_error.expect("search must fail while degraded");
-    assert_eq!(
-        search_error, DEGRADED_SEARCH_ERROR,
-        "degraded search branch"
-    );
-
-    // Browser session runtime resolved from the database without valkey.
-    assert_eq!(session_valkey_url, DEFAULT_SESSION_VALKEY_URL);
-    assert_eq!(signing_key.len(), 64);
-    assert!(signing_key.iter().any(|byte| *byte != 0));
-
-    // File library: the persisted storage root is created on disk, and the
-    // freshly passed root on restart is never touched.
-    assert!(first_root_created, "library storage root must exist");
-    assert!(
-        !restart_root_created,
-        "restart must not create the passed root"
-    );
-
-    let message = "startup must not create task, library, or metadata-index work rows";
-    assert_eq!(work_row_count(&db).await, 0, "{message}");
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, None, restore);
 }
 
 /// The recovery controller is owned even when this instance starts without a
@@ -237,76 +255,90 @@ async fn a_dormant_controller_activates_from_a_committed_settings_save() {
     assert_eq!(work_row_count(&db).await, 0, "{message}");
     let secret_keys_before = internal_secret_keys(&db).await;
 
-    let marker = Uuid::new_v4().simple().to_string();
-    let root = test_storage_root(&marker);
-    let app = Context69App::new(test_config(&database_url, &marker, &root))
+    let queue = db
+        .execution_queue()
         .await
-        .expect("app startup");
-    let signing_key_name =
-        internal_secret_key_for_value(&app.db, &app.browser_sessions.signing_key)
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
+        .await
+        .expect("capture the execution policy baseline");
+
+    let outcome = AssertUnwindSafe(async {
+        let marker = Uuid::new_v4().simple().to_string();
+        let root = test_storage_root(&marker);
+        let app = Context69App::new(test_config(&database_url, &marker, &root))
             .await
-            .expect("startup must persist the signing key");
-    let key_created = !secret_keys_before.contains(&signing_key_name);
+            .expect("app startup");
+        let signing_key_name =
+            internal_secret_key_for_value(&app.db, &app.browser_sessions.signing_key)
+                .await
+                .expect("startup must persist the signing key");
+        let key_created = !secret_keys_before.contains(&signing_key_name);
 
-    assert!(
-        app.vector_runtime.is_configured(),
-        "the persisted settings configure the runtime at boot"
-    );
-    let configured_generation = app.vector_runtime.generation();
+        assert!(
+            app.vector_runtime.is_configured(),
+            "the persisted settings configure the runtime at boot"
+        );
+        let configured_generation = app.vector_runtime.generation();
 
-    // Withdraw the configuration, as a deployment whose committed settings are
-    // no longer usable would be: no dependency may be probed while dormant.
-    app.vector_runtime.mark_configured(false);
-    assert!(!app.vector_runtime.is_ready());
-    let failure_before = app
-        .vector_runtime
-        .failure()
-        .map(|failure| (failure.generation, failure.message.clone()));
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    assert_eq!(
-        app.vector_runtime
+        // Withdraw the configuration, as a deployment whose committed settings are
+        // no longer usable would be: no dependency may be probed while dormant.
+        app.vector_runtime.mark_configured(false);
+        assert!(!app.vector_runtime.is_ready());
+        let failure_before = app
+            .vector_runtime
             .failure()
-            .map(|failure| (failure.generation, failure.message.clone())),
-        failure_before,
-        "a dormant controller must not probe a dependency"
-    );
-    assert_eq!(
-        app.vector_runtime.generation(),
-        configured_generation,
-        "dormancy alone must not advance a generation"
-    );
+            .map(|failure| (failure.generation, failure.message.clone()));
+        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        assert_eq!(
+            app.vector_runtime
+                .failure()
+                .map(|failure| (failure.generation, failure.message.clone())),
+            failure_before,
+            "a dormant controller must not probe a dependency"
+        );
+        assert_eq!(
+            app.vector_runtime.generation(),
+            configured_generation,
+            "dormancy alone must not advance a generation"
+        );
 
-    // The committed save reaches the same controller: one new generation, and
-    // the supervisor resumes with the saved collection.
-    let mut request = runtime_settings_request(&marker, &root);
-    request.qdrant.collection_name = format!("app_startup_reconfigured_{marker}");
-    app.settings
-        .update_runtime_settings(&request)
-        .await
-        .expect("a valid runtime settings save");
+        // The committed save reaches the same controller: one new generation, and
+        // the supervisor resumes with the saved collection.
+        let mut request = runtime_settings_request(&marker, &root);
+        request.qdrant.collection_name = format!("app_startup_reconfigured_{marker}");
+        app.settings
+            .update_runtime_settings(&request)
+            .await
+            .expect("a valid runtime settings save");
 
-    for _ in 0..250 {
-        if app.vector_runtime.is_configured() {
-            break;
+        for _ in 0..250 {
+            if app.vector_runtime.is_configured() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-    assert!(
-        app.vector_runtime.is_configured(),
-        "a valid save must activate the dormant controller"
-    );
-    assert!(
-        app.vector_runtime.generation() > configured_generation,
-        "activation must start a new generation"
-    );
-    assert!(
-        !app.vector_runtime.is_ready(),
-        "the sentinel qdrant cannot publish a ready pair"
-    );
+        assert!(
+            app.vector_runtime.is_configured(),
+            "a valid save must activate the dormant controller"
+        );
+        assert!(
+            app.vector_runtime.generation() > configured_generation,
+            "activation must start a new generation"
+        );
+        assert!(
+            !app.vector_runtime.is_ready(),
+            "the sentinel qdrant cannot publish a ready pair"
+        );
 
-    drop(app);
-    cleanup_own_rows(&db, true, key_created.then_some(signing_key_name.as_str())).await;
-    remove_test_storage_roots([root]);
-    let message = "startup must not create task, library, or metadata-index work rows";
-    assert_eq!(work_row_count(&db).await, 0, "{message}");
+        drop(app);
+        cleanup_own_rows(&db, true, key_created.then_some(signing_key_name.as_str())).await;
+        remove_test_storage_roots([root]);
+        let message = "startup must not create task, library, or metadata-index work rows";
+        assert_eq!(work_row_count(&db).await, 0, "{message}");
+    })
+    .catch_unwind()
+    .await;
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, None, restore);
 }

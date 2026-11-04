@@ -5,7 +5,7 @@
 //! that an ordinal resolves only inside its own task and survives the item's
 //! later transitions, and that the claim's reported position is the row's own.
 
-use context69::db::CreateTaskSubmissionRequest;
+use context69::db::{CreateTaskSubmissionRequest, FinishTaskItemRequest};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -92,7 +92,8 @@ async fn a_claim_reports_the_item_position_the_row_already_has() {
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = seed_task(&db, user_id).await;
 
-    let claimed = db.claim_items_fast(4).await.expect("claim items");
+    let claimed = db.claim_items_fast().await.expect("claim items");
+    assert_eq!(claimed.len(), 1, "only this fixture's head is claimable");
     let claim = claimed
         .iter()
         .find(|item| item.task_id == task_id)
@@ -111,6 +112,24 @@ async fn a_claim_reports_the_item_position_the_row_already_has() {
     assert!(
         item_ids.contains(&claim.id),
         "the claim must be one of the seeded items"
+    );
+    assert!(
+        db.finish_task_item(FinishTaskItemRequest {
+            task_id,
+            item_id: claim.id,
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            execution: claim
+                .execution_context()
+                .expect("the claim carries its execution grant"),
+            attempt_id: claim.attempt_id,
+        })
+        .await
+        .expect("finish the fixture execution"),
+        "the fixture must release its execution before deleting the item"
     );
     cleanup(&db, task_id, user_id).await;
 }

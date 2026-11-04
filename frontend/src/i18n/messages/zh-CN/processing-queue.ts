@@ -69,6 +69,7 @@ export const processingQueue = {
   // 重试作用于整个任务：接口会重新排队父任务下所有可重试的任务项，
   // 因此文案不能承诺"仅重试单个文件"。
   retryTaskScope: "重试失败项",
+  retryWaiting: "重试",
   retryAccepted: "已重新排队",
   retryFailed: "重试任务失败",
   resumeHint: "重新排队此任务的未完成项，任务历史会保留。",
@@ -103,6 +104,7 @@ export const processingQueue = {
     retryFailed: "重试 {count} 个失败项",
     resumeCancelled: "继续 {count} 个已取消项",
     retryMixed: "重试 {failed} 个失败项，继续 {cancelled} 个已取消项",
+    retryRisk: "重试/继续选中的 {count} 个任务",
     rerun: "重新处理 {count} 个源",
     cancel: "取消 {count} 个",
     trash: "移入回收站 {count} 个",
@@ -163,6 +165,12 @@ export const processingQueue = {
     trash: "将选中的 {count} 个任务移入回收站？活动任务会先取消。文件、处理文本和向量不受影响。",
     delete: "永久删除选中的 {count} 个任务？此操作不可撤销。文件、处理文本和向量不受影响。",
   },
+  riskTitle: "确认重复风险",
+  riskConfirm: "此任务之前的转换可能仍在进行。重试或重新处理会再次转换同一文件，可能产生重复结果。",
+  riskConfirmBulk: "所选任务之前的转换可能仍在进行。此操作会再次转换同一批文件，可能产生重复结果。",
+  riskAckLabel: "我了解可能产生重复",
+  riskStillInFlight: "转换仍在进行中。请刷新并查看故障排查后再试。",
+  bulkRiskUnavailable: "无法重新读取所选任务。请刷新选择后重试。",
   unknownStage: "未知",
   // 处理进度阶段（问题 52）是任务项实际执行的阶段，取自
   // `TaskItemProgress.stage`。它与上方的 `stages` 刻意分开：后者是队列阶段
@@ -216,6 +224,12 @@ export const processingQueue = {
     nextRetry: "下次重试 {time}",
     leaseExpires: "租约到期 {time}",
     activeAttempt: "进行中的尝试 {attempt}",
+    doclingSubmission: "Docling 转换",
+    doclingStates: {
+      submitting: "转换进行中",
+      submission_uncertain: "结果未知",
+      superseded: "先前的未知尝试已被替换",
+    },
     latestError: "最新错误",
     noItems: "无任务项",
   },

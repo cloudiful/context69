@@ -122,9 +122,10 @@ fn parent_status_follows_the_current_item_not_a_count_priority() {
 #[test]
 fn the_parent_projection_is_driven_by_the_items_that_exist() {
     // The claim path projects the parent through `recompute.sql`, and the
-    // admission candidate is chosen by `claim_candidates.sql`; neither mints a
-    // lease of its own. The projection is derived from the item rows alone, so
-    // a parent can never disagree with its items once it has run.
+    // candidate is chosen by `claim_candidates.sql`; neither mints a parent
+    // lease of its own, because execution capacity is the library queue policy.
+    // The projection is derived from the item rows alone, so a parent can never
+    // disagree with its items once it has run.
     let projection = code(RECOMPUTE);
     assert!(
         projection.contains("FROM context69.task_items")
@@ -134,7 +135,7 @@ fn the_parent_projection_is_driven_by_the_items_that_exist() {
     );
     assert!(
         !projection.contains("gen_random_uuid()"),
-        "the projection must not mint a lease token: the slot belongs to          admission"
+        "the projection must not mint a parent lease token"
     );
     for column in [
         "queued_count = counts.queued_count",
@@ -148,12 +149,12 @@ fn the_parent_projection_is_driven_by_the_items_that_exist() {
     }
     let candidates = code(CLAIM_CANDIDATES);
     assert!(
-        candidates.contains("attempt_count < 5"),
-        "the admission candidate must carry the attempt cap the projection          counts exhaustion by"
+        candidates.contains("execution_failure_count < 5"),
+        "the claim candidate must carry the failure budget exhaustion counts by"
     );
     assert!(
-        !candidates.contains("NULL::uuid AS lease_token"),
-        "an admission candidate must never be granted a lease of its own"
+        !candidates.contains("NULL::uuid AS lease_token") && !candidates.contains("needs_slot"),
+        "a claim candidate must never reserve a parent slot"
     );
 }
 

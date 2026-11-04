@@ -61,8 +61,8 @@ from collections import namedtuple
 from pathlib import Path
 
 # The pinned library the consumer cache must never absorb (issue 1020 P1).
-EXPECTED_REPO = "https://github.com/cloudiful/tasks"
-EXPECTED_REV = "09ca2b383cd489f5a1d8eac697e6f093adbb40b4"
+EXPECTED_REPO = "ssh://git@forgejo.cloud1ful.com:2224/crates/tasks.git"
+EXPECTED_REV = "a021c383d48f359ae6f5e56a4458b1060da0f946"
 
 # SQLx leaves its check-mode inventory beside the build cache.
 SCRATCH_DIR_NAME = "sqlx-prepare-check"
@@ -259,7 +259,7 @@ def evaluate_gate(
 
 
 def dependency_pin_ok(source: str, repo: str = EXPECTED_REPO, rev: str = EXPECTED_REV) -> bool:
-    """The resolved dependency must be the pinned public repository and revision."""
+    """The resolved dependency must be the pinned reviewed repository and revision."""
     match = re.match(r"^git\+([^?]+)\?rev=([0-9a-f]+)#(.+)$", source or "")
     if not match:
         return False

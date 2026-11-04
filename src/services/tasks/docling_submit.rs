@@ -3,81 +3,123 @@ use anyhow::Result;
 use super::TaskService;
 use super::item_processors::ProcessResult;
 
-/// Submits a Docling file and blocks the worker on the conversion (issue 650
-/// P3): submit, status polling, and result fetching are one blocking flow
-/// inside the admitted parent slot. The item lease stays alive under the
-/// runtime heartbeat (and the parent slot under the recovery tick) for the
-/// whole wait; nothing parks, and no sweep requeues.
+/// The fixed, sanitized reason of a fail-closed Docling submission.
 ///
-/// A crash between the submit and the terminal commit is resumed, not
-/// resubmitted: an active remote row for the item short-circuits straight
-/// into the poll loop, fenced by the partial unique active-row index. On
-/// terminal success the committed sections are written back into the same
-/// in-memory snapshot, so the same claim advances to `embedding` without
-/// re-entering Docling.
-pub(super) async fn submit_and_await_blocking(
+/// It never carries an endpoint, a credential, a response body or a path.
+pub(super) const UNCERTAIN_SUBMISSION_REASON: &str =
+    "the Docling dispatch outcome is unknown; acknowledgement is required";
+
+/// Runs one durable Docling submission segment of a claimed item (issue 1172
+/// P5A/P6B0). It submits once, adopts one unresolved row, or parks on the
+/// existing durable intent; it never waits inline for the whole remote job.
+///
+/// The sequence is fail-closed: an unresolved row is loaded first and either
+/// adopted (known remote id) or parked as uncertain with zero HTTP; a fresh
+/// submission persists its frozen intent before preparation, marks the
+/// dispatch attempted before `.send()`, and turns every post-dispatch failure
+/// into a durable unknown outcome instead of a resend.
+pub(super) async fn run_docling_submission_segment(
     service: &TaskService,
     task_id: uuid::Uuid,
     item: &mut crate::db::ClaimedItem,
     file_id: uuid::Uuid,
 ) -> Result<ProcessResult> {
-    submit_and_await_blocking_with_view(service, task_id, item, file_id, None).await
+    run_docling_submission_segment_with_view(service, task_id, item, file_id, None).await
 }
 
-pub(super) async fn submit_and_await_blocking_with_view(
+pub(super) async fn run_docling_submission_segment_with_view(
     service: &TaskService,
     task_id: uuid::Uuid,
     item: &mut crate::db::ClaimedItem,
     file_id: uuid::Uuid,
     view: Option<&crate::services::library::ReplacementFileAttributes>,
 ) -> Result<ProcessResult> {
-    if let Some(active) = service
+    let Some(execution) = item.execution_context() else {
+        return Ok(ProcessResult::Failed {
+            stage: "docling".to_string(),
+            message: "the claimed item carries no captured execution".to_string(),
+            retryable: false,
+        });
+    };
+    let fence = crate::db::DoclingSubmissionFence {
+        task_id,
+        item_id: item.id,
+        lease_token: item.lease_token,
+        execution_task_id: execution.task_id(),
+        generation: execution.generation,
+    };
+    let source = crate::services::library::TaskSourceRef::from_input(item.input_storage_object_id);
+
+    if let Some(job) = service
         .db()
-        .get_active_docling_remote_job_for_item(item.id)
+        .get_unresolved_docling_remote_job_for_item(item.id)
         .await?
     {
-        // Crash/restart resume: a previous worker submitted but never
-        // committed. Adopt the remote id instead of submitting a duplicate.
-        return super::docling_poll::run_docling_stage_blocking(
-            service.db(),
-            service.library(),
-            item,
-            file_id,
-            active,
-            view,
-        )
-        .await;
+        return resume_unresolved_submission(service, item, file_id, job, view).await;
     }
-    let source = crate::services::library::TaskSourceRef::from_input(item.input_storage_object_id);
-    let submitted = match view {
-        Some(view) => {
-            service
-                .library()
-                .submit_docling_remote_for_task_with_view(
-                    file_id,
-                    item.lease_token,
-                    task_id,
-                    source,
-                    Some(view),
-                )
-                .await
-        }
-        None => {
-            service
-                .library()
-                .submit_docling_remote_for_task(file_id, item.lease_token, task_id, source)
-                .await
+
+    let plan = match service
+        .library()
+        .prepare_docling_submission(file_id, source, view)
+        .await
+    {
+        Ok(plan) => plan,
+        Err(error) => {
+            return Ok(if error.retryable {
+                super::item_processors::waiting_for_error(item, error)
+            } else {
+                ProcessResult::Failed {
+                    stage: error.stage,
+                    message: error.message,
+                    retryable: false,
+                }
+            });
         }
     };
-    let submit = match submitted {
-        Ok(submit) => submit,
+
+    let now = chrono::Utc::now();
+    let intent = service
+        .db()
+        .begin_docling_submission(crate::db::DoclingSubmissionIntent {
+            fence: fence.clone(),
+            endpoint_base_url: plan.endpoint_base_url(),
+            submission_identity: &plan.identity,
+            deadline_at: now + plan.deadline_delay,
+        })
+        .await?;
+    let Some(job) = intent else {
+        // The unique unresolved index or the item fence refused the insert: a
+        // concurrent submission already owns this item, so it is reread and
+        // never sent a second time.
+        if let Some(job) = service
+            .db()
+            .get_unresolved_docling_remote_job_for_item(item.id)
+            .await?
+        {
+            return resume_unresolved_submission(service, item, file_id, job, view).await;
+        }
+        return Ok(ProcessResult::Failed {
+            stage: "docling".to_string(),
+            message: "the Docling submission intent could not be persisted".to_string(),
+            retryable: true,
+        });
+    };
+
+    let prepared = match service
+        .library()
+        .build_prepared_docling_submission(&plan, item.lease_token)
+        .await
+    {
+        Ok(prepared) => prepared,
         Err(error) => {
-            // Retryable submit failures (service down, transport) return a
-            // backoff wait that the blocking driver sleeps inline keeping
-            // the lease, then re-drives into a fresh submit.
-            if error.retryable {
-                return Ok(super::item_processors::waiting_for_error(item, error));
-            }
+            let _ = service
+                .db()
+                .mark_docling_preparation_failed(
+                    job.id,
+                    &fence,
+                    "docling preparation failed before dispatch",
+                )
+                .await;
             return Ok(ProcessResult::Failed {
                 stage: error.stage,
                 message: error.message,
@@ -85,21 +127,89 @@ pub(super) async fn submit_and_await_blocking_with_view(
             });
         }
     };
-    match service
+
+    let marked = service
         .db()
-        .create_docling_remote_job(
-            task_id,
-            item.id,
-            &submit.remote_task_id,
-            Some("submitted"),
-            Some(submit.next_poll_at),
-            Some(submit.deadline_at),
-            Some(submit.endpoint_base_url.as_str()),
-        )
+        .mark_docling_dispatch_attempted(job.id, &fence)
+        .await?;
+    if !marked {
+        // The captured execution is gone, so the durable intent can no longer be
+        // resolved by this worker: a submitting row is always a conservative
+        // unknown outcome, never an automatic retry.
+        return Ok(uncertain_result(job.id));
+    }
+    let next_poll_at = now + plan.next_poll_delay;
+    match service
+        .library()
+        .dispatch_docling_submission(prepared)
         .await
     {
-        Ok(job) => {
-            super::docling_poll::run_docling_stage_blocking(
+        Ok(remote_task_id) => {
+            let confirmed = service
+                .db()
+                .confirm_docling_submission(job.id, &fence, &remote_task_id, next_poll_at)
+                .await?;
+            match confirmed {
+                Some(confirmed) => {
+                    super::docling_poll::run_docling_stage_probe(
+                        service.db(),
+                        service.library(),
+                        item,
+                        file_id,
+                        confirmed,
+                        view,
+                    )
+                    .await
+                }
+                // The acknowledgement was lost: the durable row decides.
+                None => {
+                    match service
+                        .db()
+                        .get_unresolved_docling_remote_job_for_item(item.id)
+                        .await?
+                    {
+                        Some(job) => {
+                            resume_unresolved_submission(service, item, file_id, job, view).await
+                        }
+                        None => Ok(uncertain_result(job.id)),
+                    }
+                }
+            }
+        }
+        Err(_) => Ok(uncertain_result(job.id)),
+    }
+}
+
+/// The typed unknown outcome that never waits inline and never resubmits.
+fn uncertain_result(job_id: uuid::Uuid) -> ProcessResult {
+    ProcessResult::DoclingSubmissionUncertain {
+        job_id,
+        reason: UNCERTAIN_SUBMISSION_REASON.to_string(),
+    }
+}
+
+/// Resumes one already-persisted submission without sending anything.
+///
+/// A known `pending`/`running` row is adopted by the P4 poll path. Every other
+/// unresolved state is conservative: the dispatch may have been invoked, so
+/// the item parks as uncertain with zero HTTP.
+async fn resume_unresolved_submission(
+    service: &TaskService,
+    item: &mut crate::db::ClaimedItem,
+    file_id: uuid::Uuid,
+    job: crate::db::StoredDoclingRemoteJob,
+    view: Option<&crate::services::library::ReplacementFileAttributes>,
+) -> Result<ProcessResult> {
+    match job.status.as_str() {
+        "pending" | "running" => {
+            if job.remote_task_id.is_none() {
+                return Ok(ProcessResult::Failed {
+                    stage: "docling".to_string(),
+                    message: "the active Docling job carries no remote id".to_string(),
+                    retryable: false,
+                });
+            }
+            super::docling_poll::run_docling_stage_probe(
                 service.db(),
                 service.library(),
                 item,
@@ -109,131 +219,6 @@ pub(super) async fn submit_and_await_blocking_with_view(
             )
             .await
         }
-        Err(error) => {
-            // Lost race with a concurrent submit (unique active/remote): adopt
-            // the winner instead of failing the item. When the loser's remote
-            // differs from the winner, the orphan will never be polled, so it
-            // is enqueued for durable termination (issue #84 P2). If the
-            // outbox is unavailable no false guarantee is made: adoption still
-            // proceeds and the orphan runs out server-side unfetched.
-            let message = error.to_string().to_ascii_lowercase();
-            if (message.contains("duplicate")
-                || message.contains("unique")
-                || message.contains("already exists"))
-                && let Some(active) = service
-                    .db()
-                    .get_active_docling_remote_job_for_item(item.id)
-                    .await?
-            {
-                if active.remote_task_id != submit.remote_task_id
-                    || active.endpoint_base_url.as_deref()
-                        != Some(submit.endpoint_base_url.as_str())
-                {
-                    let orphan_job_id = uuid::Uuid::new_v4();
-                    if let Err(_enqueue_error) = service
-                        .db()
-                        .enqueue_direct_docling_cleanup(
-                            orphan_job_id,
-                            task_id,
-                            item.id,
-                            &submit.remote_task_id,
-                            Some(submit.endpoint_base_url.as_str()),
-                            "orphan",
-                        )
-                        .await
-                    {
-                        tracing::warn!(
-                            %task_id,
-                            item_id = %item.id,
-                            "docling orphan cleanup enqueue failed; adoption proceeds"
-                        );
-                    }
-                }
-                return super::docling_poll::run_docling_stage_blocking(
-                    service.db(),
-                    service.library(),
-                    item,
-                    file_id,
-                    active,
-                    view,
-                )
-                .await;
-            }
-            // Transient persist failure after a successful submit: the
-            // conversion is already running server-side under an id nobody
-            // polls yet. Retry the insert a bounded number of times before
-            // giving up; on final failure the item retries and submits a new
-            // remote task, leaving the orphaned conversion to run out
-            // server-side unfetched.
-            if is_transient_persist_error(&message) {
-                for backoff_ms in [100, 250] {
-                    tokio::time::sleep(std::time::Duration::from_millis(backoff_ms)).await;
-                    match service
-                        .db()
-                        .create_docling_remote_job(
-                            task_id,
-                            item.id,
-                            &submit.remote_task_id,
-                            Some("submitted"),
-                            Some(submit.next_poll_at),
-                            Some(submit.deadline_at),
-                            Some(submit.endpoint_base_url.as_str()),
-                        )
-                        .await
-                    {
-                        Ok(job) => {
-                            return super::docling_poll::run_docling_stage_blocking(
-                                service.db(),
-                                service.library(),
-                                item,
-                                file_id,
-                                job,
-                                view,
-                            )
-                            .await;
-                        }
-                        Err(retry_error) => {
-                            let retry_message = retry_error.to_string().to_ascii_lowercase();
-                            if !is_transient_persist_error(&retry_message) {
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-            if service
-                .db()
-                .enqueue_direct_docling_cleanup(
-                    uuid::Uuid::new_v4(),
-                    task_id,
-                    item.id,
-                    &submit.remote_task_id,
-                    Some(submit.endpoint_base_url.as_str()),
-                    "orphan",
-                )
-                .await
-                .is_err()
-            {
-                tracing::warn!(%task_id, item_id = %item.id, "docling orphan cleanup could not be persisted; remote termination unconfirmed");
-            }
-            Ok(ProcessResult::Failed {
-                stage: "docling".to_string(),
-                message: "Failed to persist Docling remote job; cleanup may be unconfirmed"
-                    .to_string(),
-                retryable: true,
-            })
-        }
+        _ => Ok(uncertain_result(job.id)),
     }
-}
-
-/// Unique-violation inserts are handled by adopting the winning row, never
-/// retried here. Everything else from the persist step is treated as
-/// transient (connection/read timeouts, serialization failures) and gets the
-/// bounded insert retry above.
-fn is_transient_persist_error(lower_message: &str) -> bool {
-    !(lower_message.contains("duplicate")
-        || lower_message.contains("unique")
-        || lower_message.contains("already exists")
-        || lower_message.contains("foreign key")
-        || lower_message.contains("violates"))
 }

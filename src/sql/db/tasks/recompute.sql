@@ -39,8 +39,9 @@ SET queued_count = counts.queued_count,
     waiting_reason = current_item.waiting_reason,
     dependency_key = current_item.dependency_key,
     next_attempt_at = current_item.next_attempt_at,
-    lease_token = CASE WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count THEN NULL ELSE t.lease_token END,
-    lease_until = CASE WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count THEN NULL ELSE t.lease_until END,
+    -- Earliest real claim, not the presence of a queued current item: a parent
+    -- whose items have never started keeps its start time absent.
+    started_at = COALESCE(t.started_at, counts.first_started_at),
     status = CASE
         WHEN t.status = 'cancelled'
              AND counts.queued_count + counts.running_count + counts.waiting_count = 0
@@ -67,7 +68,8 @@ FROM (
         count(*) FILTER (WHERE status = 'waiting')::bigint AS waiting_count,
         count(*) FILTER (WHERE status = 'succeeded')::bigint AS succeeded_count,
         count(*) FILTER (WHERE status = 'failed')::bigint AS failed_count,
-        count(*) FILTER (WHERE status = 'cancelled')::bigint AS cancelled_count
+        count(*) FILTER (WHERE status = 'cancelled')::bigint AS cancelled_count,
+        min(started_at) AS first_started_at
     FROM context69.task_items
     WHERE task_id = $1
     GROUP BY task_id

@@ -3,9 +3,9 @@
 //! `sql_contract_tests.rs` owns the pre-existing task SQL contracts. This file
 //! owns the two statements P3 introduced — the parent/item consistency snapshot
 //! and the diagnose item read — and pins the invariants that are easy to break
-//! silently: the snapshot must stay read-only, its orphan gauge must ask the
-//! same question the P1 reclaim asks, and its item ordering must not disturb
-//! the paged items endpoint.
+//! silently: the snapshot must stay read-only, its parent projection must
+//! follow the item that actually started, and its item ordering must not
+//! disturb the paged items endpoint.
 
 /// Strip comments so a contract assertion tests executable SQL, not prose.
 fn sql_code(sql: &str) -> String {
@@ -49,10 +49,8 @@ fn task_consistency_sql_is_read_only_and_scoped() {
     );
     for signal in [
         "running_parent_without_running_item_count",
-        "lease_without_running_item_count",
         "open_attempt_count",
         "near_exhaustion_count",
-        "oldest_admitted_at",
         "parent_item_mismatch_count",
     ] {
         assert!(
@@ -76,89 +74,39 @@ fn task_consistency_sql_is_read_only_and_scoped() {
 }
 
 #[test]
-fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
-    // Issue 702 P3 review: counting every live parent lease without a live
-    // item lease flagged every legitimate backoff/dependency wait. The gauge
-    // must ask the same question `maintain_claim_state.sql` asks before it
-    // reclaims a slot, so the two never disagree about what an orphan is.
-    let code = sql_code(include_str!("../../sql/db/tasks/task_consistency.sql"));
+fn the_parent_start_time_is_derived_from_the_first_item_claim() {
+    // The parent holds no admission lease, so its start time is the earliest
+    // real item claim. The projection must derive it from the item rows and
+    // keep the first value, and neither a submission nor a claim may stamp it
+    // from a second source.
+    let recompute = sql_code(include_str!("../../sql/db/tasks/recompute.sql"));
     assert!(
-        code.contains("AND (expired_running_item_exists OR NOT claimable_item_exists)"),
-        "the orphan gauge must require the same reclaim shape P1 applies"
+        recompute.contains("min(started_at) AS first_started_at"),
+        "the parent start time must come from the earliest item start"
     );
     assert!(
-        code.contains("candidate.attempt_count < 5"),
-        "claimability must match the `claim_candidates.sql` attempt cap, or an \
-         exhausted parent would be reported as holding a legitimate slot"
+        recompute.contains("started_at = COALESCE(t.started_at, counts.first_started_at)"),
+        "the parent start time must keep its first item-derived value"
     );
-    assert!(
-        code.contains("candidate.status IN ('queued', 'running', 'waiting')"),
-        "a parent with a claimable item is not an orphan"
-    );
-    assert!(
-        code.contains("lapsed.lease_until <= now()"),
-        "the crashed-worker shape needs a lapsed item lease"
-    );
-
-    // The reclaim predicate must stay pinned to the maintenance statement, so a
-    // change to one cannot silently drift from the other. The two statements
-    // alias the same tables differently, so the arms are compared per shape.
     let maintain = sql_code(include_str!("../../sql/db/tasks/maintain_claim_state.sql"));
-    for shape in [
-        "status IN ('queued', 'running', 'waiting')",
-        "attempt_count < 5",
-    ] {
-        assert!(
-            maintain.contains(shape) && code.contains(shape),
-            "both statements must keep the reclaim predicate `{shape}`"
-        );
-    }
     assert!(
-        maintain.contains("item.lease_until > now()"),
-        "the live-worker predicate must stay pinned to maintenance"
+        maintain.contains("started_at = COALESCE(t.started_at, counts.first_started_at)"),
+        "maintenance must derive the same parent start time as recompute"
     );
-}
-
-#[test]
-fn oldest_admitted_age_is_not_measured_from_the_lease_deadline() {
-    // Issue 702 P3 review: `min(lease_until)` is a future deadline, so
-    // `now - lease_until` clamped every age to zero. Admission time
-    // (`started_at`, stamped when the claim admits the parent) is the only
-    // timestamp that means "this parent has held a slot since".
-    let code = sql_code(include_str!("../../sql/db/tasks/task_consistency.sql"));
-    assert!(
-        code.contains("SELECT min(started_at) FROM verdict"),
-        "oldest_admitted_at must come from admission time"
-    );
-    assert!(
-        !code.contains("min(lease_until)"),
-        "a future lease deadline must never be read as an admission time"
-    );
-}
-
-#[test]
-fn the_admission_timestamp_the_age_reads_is_stamped_by_the_admission_claim() {
-    // Issue 702 P3 review, second half: pinning `min(started_at)` is only half
-    // the claim. If nothing stamps `tasks.started_at` at admission, the gauge
-    // is permanently NULL (or, once a submission stamped it, silently means
-    // "time since submit" instead of "time holding a slot"). Every projection
-    // test seeds `started_at` by hand, so only a cross-statement contract can
-    // catch a claim that stopped stamping it.
     let claim = sql_code(include_str!("../../sql/db/tasks/mirror_claim.sql"));
     assert!(
-        claim.contains("started_at = COALESCE(task.started_at, now())"),
-        "admission must stamp the parent admission timestamp, and must not \
-         overwrite an earlier admission on a later claim"
+        claim.contains("started_at = COALESCE(item.started_at, now())"),
+        "the item attempt timestamp follows the first-write rule"
     );
     assert!(
-        claim.contains("started_at = COALESCE(item.started_at, now())"),
-        "the item attempt timestamp follows the same first-write rule"
+        !claim.contains("task.started_at"),
+        "a claim must not stamp the parent: the parent start time is derived \
+         from the item rows"
     );
     let create = sql_code(include_str!("../../sql/db/tasks/create.sql"));
     assert!(
         !create.contains("started_at"),
-        "a submission must not stamp the admission timestamp: the gauge is \
-         defined as age since the parent was admitted, not since it was queued"
+        "a submission must not stamp a start time: queued work has not started"
     );
 }
 

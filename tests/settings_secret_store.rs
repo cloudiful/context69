@@ -54,5 +54,8 @@ mod cases_embedding_probe_bounds;
 #[path = "settings_secret_store/cases_runtime_s3.rs"]
 mod cases_runtime_s3;
 
+#[path = "settings_secret_store/cases_runtime_scheduler.rs"]
+mod cases_runtime_scheduler;
+
 #[path = "settings_secret_store/cases_search.rs"]
 mod cases_search;

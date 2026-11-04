@@ -1,0 +1,306 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Confirm one accepted Docling submission (issue 1172 P5A).\n--\n-- A parsed remote id turns the durable intent into the known-id `pending`\n-- state the P4 poll path owns. The write is fenced on the captured execution\n-- and the `submitting` status, so a lost lease or an already uncertain row\n-- changes nothing and the caller must reread the durable row instead.\n--\n-- `$1` job, `$2` item, `$3` domain task, `$4` fencing token, `$5` library\n-- task, `$6` execution generation, `$7` remote task id and `$8` next poll.\nWITH owned AS (\n    SELECT item.id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.task_id = $3\n      AND item.status = 'running'\n      AND item.lease_token = $4\n      AND item.lease_until > clock_timestamp()\n      AND item.execution_task_id = $5\n      AND item.execution_generation = $6\n)\nUPDATE context69.task_docling_remote_jobs AS job\nSET status = 'pending',\n    remote_task_id = $7,\n    remote_status = 'submitted',\n    next_poll_at = $8,\n    last_polled_at = NULL,\n    updated_at = clock_timestamp()\nWHERE job.id = $1\n  AND job.item_id = $2\n  AND job.status = 'submitting'\n  AND EXISTS (SELECT 1 FROM owned)\nRETURNING\n    job.id,\n    job.task_id,\n    job.item_id,\n    job.provider,\n    job.remote_task_id,\n    job.status,\n    job.remote_status,\n    job.attempt_count,\n    job.poll_step,\n    job.next_poll_at,\n    clock_timestamp() AS \"observed_at!\",\n    job.last_polled_at,\n    job.deadline_at,\n    job.endpoint_base_url,\n    job.lease_token,\n    job.lease_until,\n    job.last_error,\n    job.created_at,\n    job.updated_at,\n    job.finished_at,\n    job.dispatch_attempted,\n    job.submission_execution_task_id,\n    job.submission_generation,\n    job.submission_identity\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "provider",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "provider"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "remote_task_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "remote_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "remote_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "remote_status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "attempt_count",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "attempt_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "poll_step",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "poll_step"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "next_poll_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "next_poll_at"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "observed_at!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "last_polled_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "last_polled_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "deadline_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "deadline_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "endpoint_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "endpoint_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "lease_until"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "dispatch_attempted",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "dispatch_attempted"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "submission_execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "submission_execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "submission_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "submission_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "submission_identity",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "submission_identity"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "a3165c8ae0bf1908418ea1160e618c967445d68fccce242b4d8dee5da4a51f48"
+}

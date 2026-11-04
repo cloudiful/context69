@@ -55,7 +55,7 @@ pub(super) fn dependency_gate_responses(
 /// corrupt row degrades a gauge instead of failing `/healthz`.
 pub(super) fn parent_consistency_health(
     consistency: &crate::db::TaskConsistencyRow,
-    now: DateTime<Utc>,
+    _now: DateTime<Utc>,
 ) -> TaskQueueConsistencyHealth {
     TaskQueueConsistencyHealth {
         parent_count: non_negative_count(consistency.parent_count),
@@ -67,22 +67,14 @@ pub(super) fn parent_consistency_health(
         running_parent_without_running_item_count: non_negative_count(
             consistency.running_parent_without_running_item_count,
         ),
-        lease_without_running_item_count: non_negative_count(
-            consistency.lease_without_running_item_count,
-        ),
         open_attempt_count: non_negative_count(consistency.open_attempt_count),
         near_exhaustion_item_count: non_negative_count(consistency.near_exhaustion_item_count),
-        oldest_admitted_age_seconds: queue_age_seconds(consistency.oldest_admitted_at, now),
         parent_item_mismatch_count: non_negative_count(consistency.parent_item_mismatch_count),
     }
 }
 
 fn non_negative_count(value: i64) -> u64 {
     u64::try_from(value).unwrap_or(0)
-}
-
-fn queue_age_seconds(timestamp: Option<DateTime<Utc>>, now: DateTime<Utc>) -> Option<u64> {
-    timestamp.map(|timestamp| now.signed_duration_since(timestamp).num_seconds().max(0) as u64)
 }
 
 fn parse_processing_metrics(value: Value) -> Vec<LibraryProcessingMetric> {
@@ -101,7 +93,7 @@ pub(super) fn log_parent_consistency_breach(
     consistency: &crate::db::TaskConsistencyRow,
     gauges: &TaskQueueConsistencyHealth,
 ) {
-    if gauges.parent_item_mismatch_count == 0 && gauges.lease_without_running_item_count == 0 {
+    if gauges.parent_item_mismatch_count == 0 {
         return;
     }
     tracing::warn!(
@@ -110,7 +102,6 @@ pub(super) fn log_parent_consistency_breach(
         mismatch_fields = ?consistency.mismatch_fields,
         running_parent_without_running_item_count =
             gauges.running_parent_without_running_item_count,
-        lease_without_running_item_count = gauges.lease_without_running_item_count,
         "task parent projection disagrees with its items"
     );
 }
@@ -130,14 +121,11 @@ mod tests {
             dependency_waiting_parent_count: 1,
             parent_status_counts: json!([{"key": "waiting", "count": 1}]),
             running_parent_without_running_item_count: 0,
-            lease_without_running_item_count: 0,
             open_attempt_count: 1,
             near_exhaustion_item_count: 2,
-            oldest_admitted_at: None,
             parent_item_mismatch_count: 0,
             live_running_count: 1,
             current_item_id: None,
-            scoped_lease_until: None,
             mismatch_fields: json!([]),
             item_diagnostics: json!([]),
         }

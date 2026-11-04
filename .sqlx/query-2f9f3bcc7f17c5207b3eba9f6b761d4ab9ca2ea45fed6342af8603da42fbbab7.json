@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.runtime_scheduler_settings (\n    singleton,\n    interval_secs,\n    run_on_start,\n    max_concurrency,\n    job_id,\n    valkey_url,\n    interactive_max_concurrency,\n    bulk_max_concurrency,\n    maintenance_max_concurrency,\n    ingest_max_concurrency,\n    ingest_batches_per_segment,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())\nON CONFLICT (singleton) DO UPDATE\nSET interval_secs = EXCLUDED.interval_secs,\n    run_on_start = EXCLUDED.run_on_start,\n    max_concurrency = EXCLUDED.max_concurrency,\n    job_id = EXCLUDED.job_id,\n    valkey_url = EXCLUDED.valkey_url,\n    interactive_max_concurrency = EXCLUDED.interactive_max_concurrency,\n    bulk_max_concurrency = EXCLUDED.bulk_max_concurrency,\n    maintenance_max_concurrency = EXCLUDED.maintenance_max_concurrency,\n    ingest_max_concurrency = EXCLUDED.ingest_max_concurrency,\n    ingest_batches_per_segment = EXCLUDED.ingest_batches_per_segment,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Bool",
+        "Int8",
+        "Text",
+        "Text",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2f9f3bcc7f17c5207b3eba9f6b761d4ab9ca2ea45fed6342af8603da42fbbab7"
+}

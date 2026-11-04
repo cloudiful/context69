@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The persisted staged input object of one running task item (issue 1172\n-- P6B0).\n--\n-- The guard is the captured execution of the item: the fencing token of the\n-- library attempt, the library task and the execution generation, compared\n-- after the row lock was taken and against the clock of the database. A row\n-- that is not owned by this exact grant, or whose input is NULL, yields no\n-- value, and the atomic caller fails closed instead of reading the canonical\n-- file.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the library task and `$4`\n-- the execution generation.\nSELECT input_storage_object_id\nFROM context69.task_items\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND lease_until > clock_timestamp()\n  AND execution_task_id = $3\n  AND execution_generation = $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "input_storage_object_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "input_storage_object_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "126be7e4a0eb28e73a94366e36b2c332dda36b1abdc98d2526a0201341b5f8bc"
+}

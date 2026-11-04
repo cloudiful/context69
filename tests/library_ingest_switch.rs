@@ -252,7 +252,7 @@ async fn replacement_file_snapshot_and_attached_source_are_fenced() {
         .await
         .unwrap();
     let item = db
-        .claim_items_fast(50)
+        .claim_items_fast()
         .await
         .unwrap()
         .into_iter()

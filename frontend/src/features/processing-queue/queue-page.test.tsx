@@ -58,6 +58,13 @@ function renderPage(path = "/processing-queue") {
 describe("ProcessingQueuePage", () => {
   beforeEach(() => {
     installFakeEventSource();
+    vi.spyOn(apiClient, "batchGetTasks").mockImplementation(async (request) => ({
+      items: request.task_ids.map((taskId) => ({
+        task_id: taskId,
+        outcome: "found" as const,
+        task: task({ task_id: taskId }),
+      })),
+    }));
   });
 
   afterEach(() => {
@@ -281,6 +288,71 @@ describe("ProcessingQueuePage", () => {
 
     await user.click(screen.getByRole("button", { name: "Retry failed items" }));
     await waitFor(() => expect(apiClient.retryTask).toHaveBeenCalledWith("task-1"));
+  });
+
+  it("requires the risk acknowledgement before retrying a flagged waiting row", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({
+        task_id: "flagged-1",
+        file_name: "flagged.pdf",
+        status: "waiting",
+        waiting_reason: "docling",
+        docling_submission_uncertain: true,
+      }),
+    ]));
+    const retry = vi.spyOn(apiClient, "retryTask").mockResolvedValue({
+      retried_items: 1,
+      task: { task_id: "flagged-1" },
+    });
+    renderPage();
+    await screen.findByText("flagged.pdf");
+
+    // The gated retry is the primary action, and the task stays cancellable.
+    const retryButton = screen.getByRole("button", { name: /^Retry$/ });
+    expect(screen.getByRole("button", { name: "Cancel task" })).toBeInTheDocument();
+    await user.click(retryButton);
+
+    let dialog = await screen.findByRole("alertdialog");
+    expect(retry).not.toHaveBeenCalled();
+    expect(within(dialog).getByRole("button", { name: /^Retry$/ })).toBeDisabled();
+    await user.click(within(dialog).getByRole("button", { name: "Cancel" }));
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument());
+    expect(retry).not.toHaveBeenCalled();
+
+    await user.click(retryButton);
+    dialog = await screen.findByRole("alertdialog");
+    const checkbox = within(dialog).getByRole("checkbox", {
+      name: "I understand a duplicate may be created",
+    });
+    expect(checkbox).not.toBeChecked();
+    const accept = within(dialog).getByRole("button", { name: /^Retry$/ });
+    expect(accept).toBeDisabled();
+    await user.click(checkbox);
+    expect(accept).toBeEnabled();
+    await user.click(accept);
+    await waitFor(() => expect(retry).toHaveBeenCalledTimes(1));
+    expect(retry).toHaveBeenCalledWith(
+      "flagged-1",
+      { acknowledge_docling_duplicate_risk: true },
+    );
+  });
+
+  it("keeps a plain waiting row cancel-only", async () => {
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([
+      task({
+        task_id: "waiting-1",
+        file_name: "waiting.pdf",
+        status: "waiting",
+        waiting_reason: "docling",
+        docling_submission_uncertain: false,
+      }),
+    ]));
+    renderPage();
+    await screen.findByText("waiting.pdf");
+
+    expect(screen.queryByRole("button", { name: "Retry failed items" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Cancel task" })).toBeInTheDocument();
   });
 
   it("shows a task title as the primary subject and a distinct filename secondary", async () => {

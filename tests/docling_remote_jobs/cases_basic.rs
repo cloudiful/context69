@@ -32,7 +32,7 @@ async fn create_and_fetch_roundtrip() {
         .await
         .expect("get item")
         .expect("active exists");
-    assert_eq!(by_item.remote_task_id, remote_id);
+    assert_eq!(by_item.remote_task_id.as_deref(), Some(remote_id.as_str()));
     cleanup(&db, task_id, user_id).await;
 }
 

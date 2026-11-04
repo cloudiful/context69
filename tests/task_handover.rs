@@ -14,12 +14,16 @@
 //! The last case boots the real application, so it belongs to the opt-in
 //! application startup window like every other application boot.
 
+use std::panic::AssertUnwindSafe;
+
 use context69::config::Config;
 use context69::db::{ClaimedItem, Database};
 use context69::services::app::Context69App;
 use context69::services::tasks::handover::{
     HandoverBlocker, HandoverLimits, MAX_BATCH_SIZE, MAX_BATCHES, run_legacy_handover,
 };
+use context69_test_support::library_policy::{LibraryPolicyBaseline, finish_fixture};
+use futures::FutureExt;
 use uuid::Uuid;
 
 static TEST_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
@@ -170,7 +174,7 @@ async fn segment_count(db: &Database, item_id: Uuid) -> i64 {
 }
 
 async fn claim(db: &Database, item_id: Uuid) -> Option<ClaimedItem> {
-    let claimed = db.claim_items_fast(50).await.expect("claim the items");
+    let claimed = db.claim_items_fast().await.expect("claim the items");
     claimed.into_iter().find(|item| item.id == item_id)
 }
 
@@ -296,7 +300,7 @@ async fn the_handover_adopts_every_queued_and_waiting_legacy_item_with_one_segme
     );
 
     // The claims begin: the adopted items are executable.
-    let claimed = db.claim_items_fast(50).await.expect("claim the items");
+    let claimed = db.claim_items_fast().await.expect("claim the items");
     assert!(
         claimed
             .iter()
@@ -637,35 +641,56 @@ async fn the_app_startup_hands_the_legacy_items_over() {
 
     let marker = Uuid::new_v4().simple().to_string();
     let storage_root = std::env::temp_dir().join(format!("context69-handover-startup-{marker}"));
-    let mut config = Config::default();
-    config.app_db.url = context69_test_support::accessor::database_url();
-    config.qdrant.url = SENTINEL_URL.to_string();
-    config.qdrant.collection_name = format!("handover_startup_{marker}");
-    config.embedding.base_url = SENTINEL_EMBEDDING_URL.to_string();
-    config.embedding.model = format!("handover-startup-{marker}");
-    config.embedding.dimensions = 128;
-    config.file_library.storage_root = storage_root.clone();
-    config.scheduler.job_id = format!("handover-startup-{marker}");
-    config.auth.bootstrap_admin = None;
-
-    let app = Context69App::with_database(config, db.clone())
+    let queue = db
+        .execution_queue()
         .await
-        .expect("the application starts on a database with legacy items");
-    assert!(
-        app.tasks.execution_readiness().await.is_ready(),
-        "the handed-over database starts the engine"
-    );
-    drop(app);
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
+        .await
+        .expect("capture the execution policy baseline");
 
-    let (status, linked, generation) = item_state(&db, fixture.item_id).await;
-    assert_eq!(status, "waiting", "the domain status is preserved");
-    assert!(
-        linked.is_some(),
-        "the startup hook linked the legacy item before the engine started"
-    );
-    assert_eq!(generation, 1);
-    assert_eq!(segment_count(&db, fixture.item_id).await, 1);
+    let outcome = AssertUnwindSafe(async {
+        let mut config = Config::default();
+        config.app_db.url = context69_test_support::accessor::database_url();
+        config.qdrant.url = SENTINEL_URL.to_string();
+        config.qdrant.collection_name = format!("handover_startup_{marker}");
+        config.embedding.base_url = SENTINEL_EMBEDDING_URL.to_string();
+        config.embedding.model = format!("handover-startup-{marker}");
+        config.embedding.dimensions = 128;
+        config.file_library.storage_root = storage_root.clone();
+        config.scheduler.job_id = format!("handover-startup-{marker}");
+        config.auth.bootstrap_admin = None;
 
-    cleanup(&db, &[fixture]).await;
-    let _ = std::fs::remove_dir_all(&storage_root);
+        let app = Context69App::with_database(config, db.clone())
+            .await
+            .expect("the application starts on a database with legacy items");
+        assert!(
+            app.tasks.execution_readiness().await.is_ready(),
+            "the handed-over database starts the engine"
+        );
+        drop(app);
+
+        let (status, linked, generation) = item_state(&db, fixture.item_id).await;
+        assert_eq!(status, "waiting", "the domain status is preserved");
+        assert!(
+            linked.is_some(),
+            "the startup hook linked the legacy item before the engine started"
+        );
+        assert_eq!(generation, 1);
+        assert_eq!(segment_count(&db, fixture.item_id).await, 1);
+    })
+    .catch_unwind()
+    .await;
+
+    let cleanup = AssertUnwindSafe(async {
+        cleanup(&db, &[fixture]).await;
+        let _ = std::fs::remove_dir_all(&storage_root);
+    })
+    .catch_unwind()
+    .await;
+    let cleanup_error = cleanup
+        .err()
+        .map(context69_test_support::library_policy::panic_message);
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, cleanup_error, restore);
 }

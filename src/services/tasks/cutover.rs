@@ -187,6 +187,11 @@ pub enum CutoverCommand {
         /// The explicitly named items.
         item_ids: Vec<Uuid>,
     },
+    /// Converts one bounded batch of eligible unclassified backlog.
+    ReclassifyAdmission {
+        /// The batch size, 1..=1000.
+        limit: i64,
+    },
 }
 
 /// One parsed cutover invocation.
@@ -285,7 +290,7 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
 
     while let Some(argument) = args.next() {
         match argument.as_str() {
-            "inventory" | "adopt" | "finalize-interrupted" => {
+            "inventory" | "adopt" | "finalize-interrupted" | "reclassify-admission" => {
                 if command.is_some() {
                     return Err(usage("exactly one command may be given"));
                 }
@@ -328,8 +333,9 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
         }
     }
 
-    let command = command
-        .ok_or_else(|| usage("one of inventory, adopt or finalize-interrupted is required"))?;
+    let command = command.ok_or_else(|| {
+        usage("one of inventory, adopt, finalize-interrupted or reclassify-admission is required")
+    })?;
     let expect_database = expect_database.ok_or_else(|| usage("--expect-database is required"))?;
     if expect_database.trim().is_empty() {
         return Err(usage("--expect-database must not be empty"));
@@ -392,6 +398,21 @@ pub fn parse_cutover_args(args: &[String]) -> Result<CutoverCli, CutoverCliError
             } else {
                 CutoverCommand::FinalizeInterrupted { item_ids }
             }
+        }
+        "reclassify-admission" => {
+            if !workers_stopped {
+                return Err(usage("reclassify-admission requires --workers-stopped"));
+            }
+            if all || !item_ids.is_empty() || offset.is_some() {
+                return Err(usage(
+                    "reclassify-admission takes no --item, --all or --offset",
+                ));
+            }
+            let limit = limit.unwrap_or(100);
+            if !(1..=1000).contains(&limit) {
+                return Err(usage("reclassify-admission --limit must be 1..=1000"));
+            }
+            CutoverCommand::ReclassifyAdmission { limit }
         }
         other => return Err(usage(format!("unknown command `{other}`"))),
     };
@@ -546,6 +567,30 @@ pub async fn run_cutover(
                     "already_linked": outcome.already_linked,
                     "remaining_adoptable": outcome.remaining_adoptable,
                     "total_blockers": outcome.total_blockers,
+                }),
+            })
+        }
+        CutoverCommand::ReclassifyAdmission { limit } => {
+            require_quiescence(db).await?;
+            let outcome = db
+                .cutover_reclassify_admission_batch(*limit)
+                .await
+                .map_err(|error| {
+                    safety(format!(
+                        "reclassify-admission refused: {}",
+                        Sanitized(&error.to_string())
+                    ))
+                })?;
+            Ok(CutoverRunOutcome {
+                command: "reclassify-admission",
+                affected: outcome.relinked,
+                already_linked: 0,
+                metadata: serde_json::json!({
+                    "command": "reclassify-admission",
+                    "processed": outcome.processed,
+                    "relinked": outcome.relinked,
+                    "skipped_uncertain": outcome.skipped_uncertain,
+                    "remaining": outcome.remaining,
                 }),
             })
         }

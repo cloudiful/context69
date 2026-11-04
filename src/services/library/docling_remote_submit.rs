@@ -1,6 +1,6 @@
 use anyhow::Context;
-use bytes::Bytes;
-use chrono::{DateTime, Utc};
+#[cfg(test)]
+use chrono::Utc;
 use uuid::Uuid;
 
 use super::UnifiedIngestError;
@@ -39,84 +39,88 @@ fn docling_submit_failure(error: impl Into<anyhow::Error>, retryable: bool) -> U
     }
 }
 
-/// Submitted remote conversion with its due time and deadline.
-pub(crate) struct DoclingRemoteSubmit {
-    pub remote_task_id: String,
+/// One prepared Docling dispatch whose intent has not been sent yet.
+///
+/// The plan is built from the current file, the projected replacement view and
+/// the resolved Docling configuration only. It holds the frozen
+/// identity that `begin_docling_submission` persists before any HTTP send, so
+/// a dispatch can never become durable after the fact.
+pub(crate) struct DoclingSubmissionPlan {
     pub endpoint_base_url: String,
-    pub next_poll_at: DateTime<Utc>,
-    pub deadline_at: DateTime<Utc>,
+    pub identity: serde_json::Value,
+    pub next_poll_delay: chrono::Duration,
+    pub deadline_delay: chrono::Duration,
+    file: crate::domain::LibraryFileRecord,
+    kind: LibraryFileKind,
+    config: crate::docling::DoclingConfig,
+    source: TaskSourceRef,
+    output_formats: Vec<crate::docling::OutputFormat>,
 }
 
-async fn submit_frozen_config(
+impl DoclingSubmissionPlan {
+    /// The normalized endpoint this dispatch is bound to.
+    #[must_use]
+    pub(crate) fn endpoint_base_url(&self) -> &str {
+        &self.endpoint_base_url
+    }
+}
+
+/// The frozen, non-secret identity of one dispatch (issue 1172 P5A).
+///
+/// Only identifiers needed to bind the dispatch are stored: no credential, no
+/// provider base URL, no header and no document bytes.
+fn frozen_submission_identity(
+    file: &crate::domain::LibraryFileRecord,
+    source: TaskSourceRef,
+    input_format: crate::docling::InputFormat,
+    output_formats: &[crate::docling::OutputFormat],
+    endpoint_base_url: &str,
     config: &crate::docling::DoclingConfig,
-    kind: &LibraryFileKind,
-    filename: &str,
-    media_type: &str,
-    bytes: &Bytes,
-) -> Result<DoclingRemoteSubmit, UnifiedIngestError> {
-    let input_format = super::ingest_documents::docling_input_format(kind).ok_or_else(|| {
-        docling_submit_error(crate::docling::DoclingError::Validation {
-            parameter: "file".to_string(),
-            reason: "docling submit requires pdf, docx, or xlsx".to_string(),
-        })
-    })?;
-    let client =
-        super::ingest_documents::docling_client_for_config(config).map_err(docling_submit_error)?;
-    let vlm =
-        crate::docling::resolve_vlm_runtime_config(&config.vlm).map_err(docling_submit_error)?;
-    let output_formats = super::ingest_documents::docling_output_formats_for_kind(kind);
-    let request = crate::docling::SubmitRequest {
-        filename,
-        media_type,
-        bytes,
-        input_format,
-        output_formats: &output_formats,
-        vlm: vlm.as_ref(),
-        picture_description_preset: config.vlm.picture_description_preset.as_deref(),
-        ocr_preset: &config.ocr_preset,
+) -> serde_json::Value {
+    let (source_kind, storage_object_id) = match source {
+        TaskSourceRef::StoredFile => ("stored_file", None),
+        TaskSourceRef::StagedInput(id) => ("staged_input", Some(id)),
     };
-    let endpoint_base_url = crate::docling::api_base_url(&config.connection.base_url);
-    let remote_task_id = client
-        .submit(&request)
-        .await
-        .map_err(docling_submit_error)?;
-    let now = Utc::now();
-    Ok(DoclingRemoteSubmit {
-        remote_task_id,
-        endpoint_base_url,
-        next_poll_at: now
-            + chrono::Duration::from_std(config.connection.poll_interval)
-                .unwrap_or(chrono::Duration::seconds(2)),
-        deadline_at: now
-            + chrono::Duration::from_std(config.connection.task_timeout)
-                .unwrap_or(chrono::Duration::seconds(3600)),
+    serde_json::json!({
+        "file_id": file.id,
+        "storage_object_id": storage_object_id,
+        "source_kind": source_kind,
+        "sha256": &file.sha256,
+        "size_bytes": file.size_bytes,
+        "filename": &file.filename,
+        "media_type": &file.media_type,
+        "input_format": input_format.as_from_formats(),
+        "output_formats": output_formats
+            .iter()
+            .map(|format| format.as_api_value())
+            .collect::<Vec<_>>(),
+        "endpoint_base_url": endpoint_base_url,
+        "ocr_preset": &config.ocr_preset,
+        "picture_description_preset": &config.vlm.picture_description_preset,
+        "vlm_pipeline_model": &config.vlm.vlm_pipeline_model,
+        "picture_description_model": &config.vlm.picture_description_model,
+        "code_formula_model": &config.vlm.code_formula_model,
+        "poll_interval_ms": config.connection.poll_interval.as_millis() as u64,
+        "task_timeout_ms": config.connection.task_timeout.as_millis() as u64,
     })
 }
 
-impl LibraryService {
-    /// Submits one file as a whole-document async Docling task and returns
-    /// the resumable remote id. Holds the Docling permit only for the submit
-    /// POST; the task worker then polls and fetches inline while holding its
-    /// admitted parent slot (issue 650 P3).
-    pub(crate) async fn submit_docling_remote_for_task(
-        &self,
-        file_id: Uuid,
-        lease_token: Uuid,
-        task_id: Uuid,
-        source: TaskSourceRef,
-    ) -> Result<DoclingRemoteSubmit, UnifiedIngestError> {
-        self.submit_docling_remote_for_task_with_view(file_id, lease_token, task_id, source, None)
-            .await
-    }
+fn configured_delay(duration: std::time::Duration, fallback_secs: i64) -> chrono::Duration {
+    chrono::Duration::from_std(duration).unwrap_or(chrono::Duration::seconds(fallback_secs))
+}
 
-    pub(crate) async fn submit_docling_remote_for_task_with_view(
+impl LibraryService {
+    /// Builds the frozen dispatch plan of one file without reading bytes and
+    /// without any HTTP.
+    ///
+    /// A failure here is definitively pre-dispatch: the caller has not
+    /// persisted an intent yet, so nothing has to be retried remotely.
+    pub(crate) async fn prepare_docling_submission(
         &self,
         file_id: Uuid,
-        lease_token: Uuid,
-        task_id: Uuid,
         source: TaskSourceRef,
         view: Option<&super::ReplacementFileAttributes>,
-    ) -> Result<DoclingRemoteSubmit, UnifiedIngestError> {
+    ) -> Result<DoclingSubmissionPlan, UnifiedIngestError> {
         let file = self
             .store
             .get_file(file_id)
@@ -126,9 +130,47 @@ impl LibraryService {
                 crate::domain_errors::DomainError::not_found(format!("unknown file {file_id}"))
             })
             .map_err(|error| task_failure("storage", error, false))?;
-        let file = view
+        let mut file = view
             .map(|view| view.project(&file))
             .unwrap_or_else(|| file.clone());
+        // The staged source object is the physical source of an atomic run.
+        // Its immutable hash and size, not the old canonical file row, bind the
+        // dispatch identity. A missing, foreign-group or inactive-backend
+        // object fails closed before any intent or HTTP.
+        if let TaskSourceRef::StagedInput(object_id) = source {
+            let object = self
+                .store
+                .get_storage_object_by_id(object_id)
+                .await
+                .map_err(|error| task_failure("storage", error, true))?
+                .ok_or_else(|| {
+                    crate::domain_errors::DomainError::not_found(format!(
+                        "unknown staged source object {object_id}"
+                    ))
+                })
+                .map_err(|error| task_failure("storage", error, false))?;
+            if object.group_id != file.group_id {
+                return Err(task_failure(
+                    "storage",
+                    crate::domain_errors::DomainError::forbidden(
+                        "the staged source object belongs to another group",
+                    ),
+                    false,
+                ));
+            }
+            if object.storage_backend != self.storage.backend() {
+                return Err(task_failure(
+                    "storage",
+                    crate::domain_errors::DomainError::conflict(format!(
+                        "staged source object uses inactive backend {}",
+                        object.storage_backend
+                    )),
+                    false,
+                ));
+            }
+            file.sha256 = object.sha256;
+            file.size_bytes = object.size_bytes;
+        }
         let kind = storage::detect_file_kind(&file.filename, &file.media_type)
             .map_err(|error| task_failure("parsing", error, false))?;
         if !matches!(
@@ -144,9 +186,13 @@ impl LibraryService {
                 false,
             ));
         }
-        let bytes = self
-            .read_task_source_bytes(&file, source, lease_token)
-            .await?;
+        let input_format =
+            super::ingest_documents::docling_input_format(&kind).ok_or_else(|| {
+                docling_submit_error(crate::docling::DoclingError::Validation {
+                    parameter: "file".to_string(),
+                    reason: "docling submit requires pdf, docx, or xlsx".to_string(),
+                })
+            })?;
         let config = self
             .settings
             .resolve_docling_config()
@@ -156,15 +202,90 @@ impl LibraryService {
                 "docling is not configured",
             ))
             .map_err(|error| docling_submit_failure(error, false))?;
-        let permit = self
-            .acquire_docling_permit()
-            .await
+        let output_formats = super::ingest_documents::docling_output_formats_for_kind(&kind);
+        let endpoint_base_url = crate::docling::api_base_url(&config.connection.base_url);
+        let identity = frozen_submission_identity(
+            &file,
+            source,
+            input_format,
+            &output_formats,
+            &endpoint_base_url,
+            &config,
+        );
+        Ok(DoclingSubmissionPlan {
+            endpoint_base_url,
+            identity,
+            next_poll_delay: configured_delay(config.connection.poll_interval, 2),
+            deadline_delay: configured_delay(config.connection.task_timeout, 3600),
+            file,
+            kind,
+            config,
+            source,
+            output_formats,
+        })
+    }
+
+    /// Reads the source, resolves the VLM bundle and builds the prepared send.
+    ///
+    /// The request is fully built but no byte is handed to the transport. A
+    /// failure here is pre-dispatch and must close the persisted intent.
+    pub(crate) async fn build_prepared_docling_submission(
+        &self,
+        plan: &DoclingSubmissionPlan,
+        lease_token: Uuid,
+    ) -> Result<crate::docling::PreparedSubmission, UnifiedIngestError> {
+        let bytes = self
+            .read_task_source_bytes(&plan.file, plan.source, lease_token)
+            .await?;
+        let client = super::ingest_documents::docling_client_for_config(&plan.config)
             .map_err(docling_submit_error)?;
-        let submitted =
-            submit_frozen_config(&config, &kind, &file.filename, &file.media_type, &bytes).await;
+        let vlm = crate::docling::resolve_vlm_runtime_config(&plan.config.vlm)
+            .map_err(docling_submit_error)?;
+        let request = crate::docling::SubmitRequest {
+            filename: &plan.file.filename,
+            media_type: &plan.file.media_type,
+            bytes: &bytes,
+            input_format: super::ingest_documents::docling_input_format(&plan.kind).ok_or_else(
+                || {
+                    docling_submit_error(crate::docling::DoclingError::Validation {
+                        parameter: "file".to_string(),
+                        reason: "docling submit requires pdf, docx, or xlsx".to_string(),
+                    })
+                },
+            )?,
+            output_formats: &plan.output_formats,
+            vlm: vlm.as_ref(),
+            picture_description_preset: plan.config.vlm.picture_description_preset.as_deref(),
+            ocr_preset: &plan.config.ocr_preset,
+        };
+        client
+            .prepare_submission(&request)
+            .map_err(|failure| docling_submit_error(failure.into_error()))
+    }
+
+    /// Invokes one prepared dispatch while holding the Docling permit.
+    ///
+    /// Every returned failure happened after `.send()` was invoked, so the
+    /// caller must treat it as an unknown outcome and never resubmit.
+    pub(crate) async fn dispatch_docling_submission(
+        &self,
+        prepared: crate::docling::PreparedSubmission,
+    ) -> Result<String, crate::docling::SubmitFailure> {
+        let permit = match self.acquire_docling_permit().await {
+            Ok(permit) => permit,
+            Err(error) => {
+                // The permit is local: report it as a dispatch failure of its
+                // own so the caller parks the intent conservatively.
+                return Err(crate::docling::SubmitFailure::DispatchAttempted(
+                    crate::docling::DoclingError::Transport {
+                        message: error.to_string(),
+                    },
+                ));
+            }
+        };
+        let result = prepared.send().await;
         drop(permit);
-        let _ = task_id;
-        submitted
+        result
     }
 }
 
@@ -175,6 +296,64 @@ mod tests {
 
     fn submit_error(error: DoclingError) -> UnifiedIngestError {
         docling_submit_error(error)
+    }
+
+    /// The frozen identity carries the physical source facts and names the
+    /// staged object, so a resumed dispatch never binds the old canonical row
+    /// while claiming the staged source kind.
+    #[test]
+    fn the_frozen_identity_binds_the_staged_source_facts() {
+        let now = Utc::now();
+        let file = crate::domain::LibraryFileRecord {
+            id: Uuid::new_v4(),
+            group_id: 7,
+            group_key: "group".to_string(),
+            group_path: "test/group".to_string(),
+            visibility: context69_contracts::Visibility::Private,
+            folder_id: None,
+            external_id: Some("doc".to_string()),
+            source_uri: None,
+            published_at: None,
+            metadata_json: serde_json::json!({}),
+            filename: "doc.pdf".to_string(),
+            media_type: "application/pdf".to_string(),
+            size_bytes: 42,
+            sha256: "a".repeat(64),
+            storage_rel_path: "objects/staged".to_string(),
+            ingest_status: crate::contracts::LibraryIngestStatus::Succeeded,
+            error_message: None,
+            created_at: now,
+            updated_at: now,
+            ingested_at: None,
+        };
+        let staged = Uuid::new_v4();
+        let config = crate::docling::DoclingConfig::default();
+        let identity = frozen_submission_identity(
+            &file,
+            TaskSourceRef::StagedInput(staged),
+            crate::docling::InputFormat::Pdf,
+            &[crate::docling::OutputFormat::Md],
+            "http://docling.invalid/v1",
+            &config,
+        );
+        assert_eq!(identity["sha256"], file.sha256);
+        assert_eq!(identity["size_bytes"], file.size_bytes);
+        assert_eq!(identity["source_kind"], "staged_input");
+        assert_eq!(identity["storage_object_id"], staged.to_string());
+        assert_eq!(identity["filename"], "doc.pdf");
+        assert_eq!(identity["media_type"], "application/pdf");
+        assert!(identity.get("bytes").is_none());
+
+        let stored = frozen_submission_identity(
+            &file,
+            TaskSourceRef::StoredFile,
+            crate::docling::InputFormat::Pdf,
+            &[crate::docling::OutputFormat::Md],
+            "http://docling.invalid/v1",
+            &config,
+        );
+        assert_eq!(stored["source_kind"], "stored_file");
+        assert!(stored["storage_object_id"].is_null());
     }
 
     /// A provider rejection carries its own reason: the deterministic statuses
@@ -332,8 +511,70 @@ mod tests {
         server.await.expect("the local fake finished");
     }
 
+    fn seeded_file() -> crate::domain::LibraryFileRecord {
+        crate::domain::LibraryFileRecord {
+            id: Uuid::new_v4(),
+            group_id: 1,
+            group_key: "g".to_string(),
+            group_path: "/g".to_string(),
+            visibility: crate::contracts::Visibility::Public,
+            folder_id: None,
+            external_id: None,
+            source_uri: None,
+            published_at: None,
+            metadata_json: serde_json::json!({}),
+            filename: "test.pdf".to_string(),
+            media_type: "application/pdf".to_string(),
+            size_bytes: 8,
+            sha256: "a".repeat(64),
+            storage_rel_path: "objects/test.pdf".to_string(),
+            ingest_status: crate::contracts::LibraryIngestStatus::Succeeded,
+            error_message: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            ingested_at: None,
+        }
+    }
+
+    /// The frozen identity keeps only dispatch identifiers: the provider base
+    /// URL and the API key are never persisted.
+    #[test]
+    fn the_frozen_identity_keeps_identifiers_and_drops_credentials() {
+        let mut config = crate::docling::DoclingConfig::default();
+        config.vlm.openai_base_url = Some("https://provider.example/v1".to_string());
+        config.vlm.api_key = Some("provider-secret".to_string());
+        config.vlm.vlm_pipeline_model = Some("pipeline-model".to_string());
+        config.vlm.picture_description_model = Some("picture-model".to_string());
+        config.vlm.code_formula_model = Some("code-model".to_string());
+        config.vlm.picture_description_preset = Some("test-preset".to_string());
+        config.ocr_preset = "frozen-ocr".to_string();
+        let identity = frozen_submission_identity(
+            &seeded_file(),
+            TaskSourceRef::StagedInput(Uuid::new_v4()),
+            crate::docling::InputFormat::Pdf,
+            &[crate::docling::OutputFormat::Md],
+            "http://docling.example/v1",
+            &config,
+        );
+        assert_eq!(identity["endpoint_base_url"], "http://docling.example/v1");
+        assert_eq!(identity["input_format"], "pdf");
+        assert_eq!(identity["ocr_preset"], "frozen-ocr");
+        assert_eq!(identity["picture_description_preset"], "test-preset");
+        assert_eq!(identity["vlm_pipeline_model"], "pipeline-model");
+        assert_eq!(identity["picture_description_model"], "picture-model");
+        assert_eq!(identity["code_formula_model"], "code-model");
+        assert_eq!(identity["sha256"], "a".repeat(64));
+        assert_eq!(identity["size_bytes"], 8);
+        let encoded = identity.to_string();
+        assert!(
+            !encoded.contains("provider.example") && !encoded.contains("provider-secret"),
+            "the frozen identity must not carry provider credentials: {encoded}"
+        );
+    }
+
+    /// A prepared dispatch is inert until it is sent, then sends exactly once.
     #[tokio::test]
-    async fn frozen_submit_returns_bound_endpoint_and_timing() {
+    async fn a_prepared_dispatch_is_inert_until_it_is_sent() {
         use axum::{Json, Router, routing::post};
         use std::sync::{
             Arc,
@@ -362,30 +603,29 @@ mod tests {
         let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
         let mut settings = crate::docling::DoclingConfig::default();
         settings.connection.base_url = endpoint.clone();
-        settings.connection.poll_interval = std::time::Duration::from_secs(7);
-        settings.connection.task_timeout = std::time::Duration::from_secs(90);
         settings.vlm.picture_description_preset = Some("test-preset".into());
         settings.ocr_preset = "frozen-ocr".into();
-        let frozen = settings.clone();
-        settings.connection.base_url = "http://127.0.0.1:1".into();
-        settings.connection.task_timeout = std::time::Duration::from_secs(1);
-        let before = Utc::now();
-        let submit = submit_frozen_config(
-            &frozen,
-            &LibraryFileKind::Pdf,
-            "test.pdf",
-            "application/pdf",
-            &bytes::Bytes::from_static(b"fake pdf"),
-        )
-        .await
-        .unwrap();
-        let after = Utc::now();
-        assert_eq!(submit.endpoint_base_url, endpoint);
-        assert_eq!(submit.remote_task_id, "frozen-job");
-        assert!(submit.next_poll_at >= before + chrono::Duration::seconds(7));
-        assert!(submit.next_poll_at <= after + chrono::Duration::seconds(7));
-        assert!(submit.deadline_at >= before + chrono::Duration::seconds(90));
-        assert!(submit.deadline_at <= after + chrono::Duration::seconds(90));
+        let bytes = bytes::Bytes::from_static(b"fake pdf");
+        let client = crate::docling::DoclingClient::new(&settings).expect("client");
+        let output_formats = [crate::docling::OutputFormat::Md];
+        let request = crate::docling::SubmitRequest {
+            filename: "test.pdf",
+            media_type: "application/pdf",
+            bytes: &bytes,
+            input_format: crate::docling::InputFormat::Pdf,
+            output_formats: &output_formats,
+            vlm: None,
+            picture_description_preset: settings.vlm.picture_description_preset.as_deref(),
+            ocr_preset: &settings.ocr_preset,
+        };
+        let prepared = client.prepare_submission(&request).expect("prepare");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "preparation must not dispatch the submission"
+        );
+        let remote_task_id = prepared.send().await.expect("send");
+        assert_eq!(remote_task_id, "frozen-job");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         server.abort();
     }

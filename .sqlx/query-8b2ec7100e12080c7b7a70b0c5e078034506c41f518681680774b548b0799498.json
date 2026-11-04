@@ -1,0 +1,100 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Parent/item consistency snapshot (issue 702 P3).\n--\n-- `task_items` is the execution-state source of truth and every parent counter\n-- and summary field is its projection, so this statement compares the two and\n-- reports the disagreement instead of rewriting anything. It is read-only and\n-- never mutates a row: repair stays in the transitions themselves\n-- (`recompute.sql`, `mirror_claim.sql`, `maintain_claim_state.sql`).\n--\n-- `$1` scopes the statement to one task. `/healthz` passes NULL to get the\n-- whole-queue gauges; `GET /v1/tasks/{task_id}/diagnose` passes the task id to\n-- get that task's verdict plus its per-item attempt and lease forensics. Both\n-- consumers therefore share one consistency definition and one current-item\n-- ordering: the lowest-ordinal non-terminal item, exactly like\n-- `recompute.sql` and `claim_candidates.sql`. The per-item diagnostics branch is\n-- guarded on the scope filter, so the health snapshot never pays for it.\nWITH scoped_parent AS (\n    SELECT task.id,\n           task.status,\n           task.total_count,\n           task.queued_count,\n           task.running_count,\n           task.waiting_count,\n           task.succeeded_count,\n           task.failed_count,\n           task.cancelled_count,\n           task.stage,\n           task.waiting_reason,\n           task.dependency_key,\n           task.started_at\n    FROM context69.tasks task\n    WHERE ($1::uuid IS NULL OR task.id = $1::uuid)\n      AND task.deleted_at IS NULL\n),\nitem_counts AS (\n    -- One grouped pass per scoped parent. A parent with no items has no row\n    -- here; every read below coalesces, so \"created but not yet fanned out\"\n    -- reports its own mismatch instead of silently passing.\n    SELECT item.task_id,\n           count(*)::bigint AS item_count,\n           count(*) FILTER (WHERE item.status = 'queued')::bigint AS queued_count,\n           count(*) FILTER (WHERE item.status = 'running')::bigint AS running_count,\n           count(*) FILTER (WHERE item.status = 'waiting')::bigint AS waiting_count,\n           count(*) FILTER (WHERE item.status = 'succeeded')::bigint AS succeeded_count,\n           count(*) FILTER (WHERE item.status = 'failed')::bigint AS failed_count,\n           count(*) FILTER (WHERE item.status = 'cancelled')::bigint AS cancelled_count,\n           -- The worker lease is the item lease, so liveness is counted here\n           -- from the item rows rather than in a per-parent correlated\n           -- subquery. A running item with no live lease is a crashed worker\n           -- whose library attempt recovery reclaims.\n           count(*) FILTER (\n               WHERE item.status = 'running'\n                 AND (item.lease_until IS NULL OR item.lease_until > now())\n           )::bigint AS live_running_count,\n           count(*) FILTER (\n               WHERE item.status IN ('queued', 'running', 'waiting')\n                 AND item.execution_failure_count >= 4\n           )::bigint AS near_exhaustion_count\n    FROM context69.task_items item\n    WHERE item.task_id IN (SELECT parent.id FROM scoped_parent parent)\n    GROUP BY item.task_id\n),\ncurrent_item AS (\n    SELECT DISTINCT ON (item.task_id) item.task_id,\n           item.id,\n           item.status,\n           item.stage,\n           item.waiting_reason,\n           item.dependency_key\n    FROM context69.task_items item\n    WHERE item.task_id IN (SELECT parent.id FROM scoped_parent parent)\n      AND item.status IN ('queued', 'running', 'waiting')\n    ORDER BY item.task_id, item.ordinal\n),\nopen_attempts AS (\n    SELECT count(*)::bigint AS open_attempt_count\n    FROM context69.task_attempts attempt\n    WHERE attempt.task_id IN (SELECT parent.id FROM scoped_parent parent)\n      AND attempt.finished_at IS NULL\n),\nitem_diagnostics AS (\n    -- Per-item lease deadline plus attempt forensics. Guarded on the scope\n    -- filter, which is a constant: the whole branch is skipped for the\n    -- whole-queue health snapshot instead of aggregating every item.\n    SELECT item.ordinal,\n           jsonb_build_object(\n               'item_id', item.id,\n               'ordinal', item.ordinal,\n               'lease_expires_at', item.lease_until,\n               'active_attempt', active.attempt,\n               'latest_attempt', latest.attempt\n           ) AS entry\n    FROM context69.task_items item\n    LEFT JOIN LATERAL (\n        SELECT jsonb_build_object(\n                   'attempt_id', attempt.id,\n                   'attempt', attempt.attempt,\n                   'status', attempt.status,\n                   'retryable', attempt.retryable,\n                   'failure_stage', attempt.failure_stage,\n                   'error_message', attempt.error_message,\n                   'started_at', attempt.started_at,\n                   'finished_at', attempt.finished_at\n               ) AS attempt\n        FROM context69.task_attempts attempt\n        WHERE attempt.item_id = item.id\n          AND attempt.finished_at IS NULL\n        ORDER BY attempt.id DESC\n        LIMIT 1\n    ) active ON $1::uuid IS NOT NULL\n    LEFT JOIN LATERAL (\n        SELECT jsonb_build_object(\n                   'attempt_id', attempt.id,\n                   'attempt', attempt.attempt,\n                   'status', attempt.status,\n                   'retryable', attempt.retryable,\n                   'failure_stage', attempt.failure_stage,\n                   'error_message', attempt.error_message,\n                   'started_at', attempt.started_at,\n                   'finished_at', attempt.finished_at\n               ) AS attempt\n        FROM context69.task_attempts attempt\n        WHERE attempt.item_id = item.id\n        ORDER BY attempt.id DESC\n        LIMIT 1\n    ) latest ON $1::uuid IS NOT NULL\n    WHERE item.task_id IN (SELECT parent.id FROM scoped_parent parent)\n      AND $1::uuid IS NOT NULL\n),\nparent_facts AS (\n    -- One row of derived facts per scoped parent. `verdict` below turns these\n    -- into the mismatch list, so the item-derived status is computed once here\n    -- instead of twice inside a single SELECT.\n    SELECT parent.id AS task_id,\n           parent.status AS parent_status,\n           parent.status IN ('queued', 'running', 'waiting') AS is_active,\n           parent.started_at,\n           parent.total_count,\n           parent.queued_count AS parent_queued_count,\n           parent.running_count AS parent_running_count,\n           parent.waiting_count AS parent_waiting_count,\n           parent.succeeded_count AS parent_succeeded_count,\n           parent.failed_count AS parent_failed_count,\n           parent.cancelled_count AS parent_cancelled_count,\n           parent.stage AS parent_stage,\n           parent.waiting_reason AS parent_waiting_reason,\n           parent.dependency_key AS parent_dependency_key,\n           current.id AS current_item_id,\n           current.stage AS current_stage,\n           current.status AS current_status,\n           current.waiting_reason AS current_waiting_reason,\n           current.dependency_key AS current_dependency_key,\n           COALESCE(counts.item_count, 0) AS item_count,\n           COALESCE(counts.queued_count, 0) AS queued_count,\n           COALESCE(counts.running_count, 0) AS running_count,\n           COALESCE(counts.waiting_count, 0) AS waiting_count,\n           COALESCE(counts.succeeded_count, 0) AS succeeded_count,\n           COALESCE(counts.failed_count, 0) AS failed_count,\n           COALESCE(counts.cancelled_count, 0) AS cancelled_count,\n           COALESCE(counts.live_running_count, 0) AS live_running_count,\n           COALESCE(counts.near_exhaustion_count, 0) AS near_exhaustion_count,\n           -- The status the items imply, derived with exactly the CASE that\n           -- `recompute.sql` writes to the parent. A parent whose status\n           -- disagrees here is stale even when every counter matches, so the\n           -- verdict compares the two instead of trusting the parent.\n           CASE\n               WHEN parent.status = 'cancelled'\n                    AND COALESCE(counts.queued_count, 0)\n                        + COALESCE(counts.running_count, 0)\n                        + COALESCE(counts.waiting_count, 0) = 0\n                   THEN 'cancelled'\n               WHEN COALESCE(counts.cancelled_count, 0) = parent.total_count\n                   THEN 'cancelled'\n               WHEN COALESCE(counts.succeeded_count, 0)\n                    + COALESCE(counts.failed_count, 0)\n                    + COALESCE(counts.cancelled_count, 0) = parent.total_count\n                    AND COALESCE(counts.failed_count, 0) = 0\n                   THEN 'succeeded'\n               WHEN COALESCE(counts.succeeded_count, 0)\n                    + COALESCE(counts.failed_count, 0)\n                    + COALESCE(counts.cancelled_count, 0) = parent.total_count\n                   THEN 'failed'\n               WHEN current.status IS NULL THEN 'queued'\n               ELSE current.status\n           END AS derived_status\n    FROM scoped_parent parent\n    LEFT JOIN item_counts counts ON counts.task_id = parent.id\n    LEFT JOIN current_item current ON current.task_id = parent.id\n),\nverdict AS (\n    -- The mismatching fields, named so an operator sees the breach instead of\n    -- a bare boolean. Wait fields compare with NULL-safe equality: an absent\n    -- field and an empty-string field are the same fact.\n    --\n    -- `status` is compared against `derived_status`, so a stale terminal or\n    -- running status is reported even when every counter matches: counting\n    -- agreement alone would call a parent consistent while its own status\n    -- column contradicts its items.\n    --\n    -- `stage` is compared only for a parent that has left `queued`. Every other\n    -- parent summary field is a pure projection of the items, but `create.sql`\n    -- seeds a queued parent's stage with the kind's entry stage so a task that\n    -- has not been admitted yet still reports the work it is about to do.\n    -- Comparing that seed against the collapsed `processing` item column would\n    -- flag every freshly submitted task as inconsistent. Once the parent is\n    -- running or waiting, the claim and recompute transitions own the column\n    -- and any divergence is a real breach. Both values stay visible in the\n    -- diagnose response either way.\n    SELECT fact.*,\n           array_remove(\n               ARRAY[\n                   CASE WHEN fact.parent_status <> fact.derived_status\n                       THEN 'status' END,\n                   CASE WHEN fact.item_count <> fact.total_count\n                       THEN 'total_count' END,\n                   CASE WHEN fact.queued_count <> fact.parent_queued_count\n                       THEN 'queued_count' END,\n                   CASE WHEN fact.running_count <> fact.parent_running_count\n                       THEN 'running_count' END,\n                   CASE WHEN fact.waiting_count <> fact.parent_waiting_count\n                       THEN 'waiting_count' END,\n                   CASE WHEN fact.succeeded_count <> fact.parent_succeeded_count\n                       THEN 'succeeded_count' END,\n                   CASE WHEN fact.failed_count <> fact.parent_failed_count\n                       THEN 'failed_count' END,\n                   CASE WHEN fact.cancelled_count <> fact.parent_cancelled_count\n                       THEN 'cancelled_count' END,\n                   CASE WHEN fact.parent_status <> 'queued'\n                             AND COALESCE(fact.parent_stage, '')\n                                 IS DISTINCT FROM COALESCE(fact.current_stage, '')\n                       THEN 'stage' END,\n                   CASE WHEN COALESCE(fact.parent_waiting_reason, '')\n                             IS DISTINCT FROM COALESCE(fact.current_waiting_reason, '')\n                       THEN 'waiting_reason' END,\n                   CASE WHEN COALESCE(fact.parent_dependency_key, '')\n                             IS DISTINCT FROM COALESCE(fact.current_dependency_key, '')\n                       THEN 'dependency_key' END\n               ],\n               NULL\n           ) AS mismatch_fields\n    FROM parent_facts fact\n)\nSELECT\n    (SELECT count(*) FROM verdict)::bigint AS \"parent_count!\",\n    (SELECT count(*) FROM verdict WHERE is_active)::bigint AS \"active_parent_count!\",\n    (\n        SELECT count(*) FROM verdict\n        WHERE current_waiting_reason = 'dependency'\n    )::bigint AS \"dependency_waiting_parent_count!\",\n    COALESCE(\n        (SELECT jsonb_agg(jsonb_build_object('key', status.key, 'count', status.count)\n                         ORDER BY status.key)\n         FROM (\n             SELECT parent_status AS key, count(*)::bigint AS count\n             FROM verdict\n             GROUP BY parent_status\n         ) status),\n        '[]'::jsonb\n    ) AS parent_status_counts,\n    (\n        SELECT count(*) FROM verdict\n        WHERE parent_status = 'running' AND running_count = 0\n    )::bigint AS \"running_parent_without_running_item_count!\",\n    (SELECT COALESCE(sum(live_running_count), 0)::bigint FROM verdict)::bigint\n        AS \"live_running_count!\",\n    (SELECT open_attempt_count FROM open_attempts)::bigint AS \"open_attempt_count!\",\n    (\n        SELECT COALESCE(sum(near_exhaustion_count), 0)::bigint FROM verdict\n    )::bigint AS \"near_exhaustion_item_count!\",\n    (\n        SELECT count(*) FROM verdict WHERE cardinality(mismatch_fields) > 0\n    )::bigint AS \"parent_item_mismatch_count!\",\n    (SELECT current_item_id FROM verdict ORDER BY task_id LIMIT 1) AS current_item_id,\n    (\n        SELECT COALESCE(jsonb_agg(DISTINCT field ORDER BY field), '[]'::jsonb)\n        FROM (SELECT unnest(mismatch_fields) AS field FROM verdict) names\n    ) AS mismatch_fields,\n    COALESCE(\n        (SELECT jsonb_agg(diagnostics.entry ORDER BY diagnostics.ordinal)\n         FROM item_diagnostics diagnostics),\n        '[]'::jsonb\n    ) AS item_diagnostics",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "parent_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "active_parent_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "dependency_waiting_parent_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "parent_status_counts",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "running_parent_without_running_item_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "live_running_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "open_attempt_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "near_exhaustion_item_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "parent_item_mismatch_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "current_item_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "mismatch_fields",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "item_diagnostics",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8b2ec7100e12080c7b7a70b0c5e078034506c41f518681680774b548b0799498"
+}

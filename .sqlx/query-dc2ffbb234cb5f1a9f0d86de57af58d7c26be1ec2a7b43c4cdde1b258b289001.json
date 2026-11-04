@@ -1,0 +1,144 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One observation of everything the rollback-only upgrade test compares.\n--\n-- It is executed only while `context69.task_items.execution_failure_count`\n-- exists: before the fixture transaction, after the immutable migration, and\n-- after the rollback. `$1` is the fixture task id, `$2` the fixture owner id\n-- (`0` for the pre-seed baseline) and `$3` the migration version under test.\n--\n-- The application ledger is read through the connection's admitted search path\n-- with an unqualified table name, exactly as the application's own migrator\n-- resolves it. The catalog count over `public`/`context69` lets the test refuse\n-- an ambiguous ledger instead of guessing which one is the application's. The\n-- library's separate ledger schema is deliberately not listed.\nWITH ledger_tables AS (\n    SELECT n.nspname AS schema_name\n    FROM pg_class AS c\n    JOIN pg_namespace AS n ON n.oid = c.relnamespace\n    WHERE c.relname = '_sqlx_migrations'\n      AND c.relkind = 'r'\n      AND n.nspname IN ('public', 'context69')\n)\nSELECT\n    EXISTS (SELECT 1 FROM context69.users AS u WHERE u.id = $2) AS \"user_exists!\",\n    EXISTS (SELECT 1 FROM context69.tasks AS t WHERE t.id = $1) AS \"task_exists!\",\n    (SELECT count(*)::bigint FROM ledger_tables) AS \"application_ledger_count!\",\n    (\n        SELECT COALESCE(jsonb_agg(schema_name ORDER BY schema_name), '[]'::jsonb)\n        FROM ledger_tables\n    ) AS \"application_ledger_schemas!\",\n    (SELECT current_schema()) AS \"ledger_schema\",\n    (SELECT m.version FROM _sqlx_migrations AS m WHERE m.version = $3) AS \"ledger_version\",\n    (SELECT m.checksum FROM _sqlx_migrations AS m WHERE m.version = $3) AS \"ledger_checksum\",\n    (SELECT m.success FROM _sqlx_migrations AS m WHERE m.version = $3) AS \"ledger_success\",\n    (\n        SELECT COALESCE(jsonb_agg(\n            jsonb_build_object(\n                'version', m.version,\n                'description', m.description,\n                'checksum', encode(m.checksum, 'hex'),\n                'success', m.success,\n                'installed_on', m.installed_on,\n                'execution_time', m.execution_time\n            )\n            ORDER BY m.version\n        ), '[]'::jsonb)\n        FROM _sqlx_migrations AS m\n    ) AS \"ledger_rows!\",\n    (\n        SELECT COALESCE(jsonb_agg(to_jsonb(item) ORDER BY item.ordinal), '[]'::jsonb)\n        FROM context69.task_items AS item\n        WHERE item.task_id = $1\n    ) AS \"fixture_items!\",\n    (\n        SELECT COALESCE(jsonb_agg(to_jsonb(history_row) ORDER BY history_row.id), '[]'::jsonb)\n        FROM context69.task_attempts AS history_row\n        WHERE history_row.task_id = $1\n    ) AS \"fixture_history!\",\n    (\n        SELECT md5(COALESCE(string_agg(to_jsonb(item)::text, '|' ORDER BY item.id), ''))\n        FROM context69.task_items AS item\n    ) AS \"all_items_digest!\",\n    (\n        SELECT count(*) > 0\n        FROM pg_attribute AS a\n        WHERE a.attrelid = 'context69.task_items'::regclass\n          AND a.attname = 'execution_failure_count'\n          AND a.attnum > 0\n          AND NOT a.attisdropped\n    ) AS \"column_exists!\",\n    (\n        SELECT a.attnotnull\n        FROM pg_attribute AS a\n        WHERE a.attrelid = 'context69.task_items'::regclass\n          AND a.attname = 'execution_failure_count'\n          AND a.attnum > 0\n          AND NOT a.attisdropped\n    ) AS \"column_not_null\",\n    (\n        SELECT format_type(a.atttypid, a.atttypmod)\n        FROM pg_attribute AS a\n        WHERE a.attrelid = 'context69.task_items'::regclass\n          AND a.attname = 'execution_failure_count'\n          AND a.attnum > 0\n          AND NOT a.attisdropped\n    ) AS \"column_type\",\n    (\n        SELECT pg_get_expr(d.adbin, d.adrelid)\n        FROM pg_attrdef AS d\n        JOIN pg_attribute AS a\n          ON a.attrelid = d.adrelid\n         AND a.attnum = d.adnum\n        WHERE d.adrelid = 'context69.task_items'::regclass\n          AND a.attname = 'execution_failure_count'\n          AND NOT a.attisdropped\n    ) AS \"column_default\",\n    (\n        SELECT pg_get_constraintdef(c.oid)\n        FROM pg_constraint AS c\n        WHERE c.conrelid = 'context69.task_items'::regclass\n          AND c.contype = 'c'\n          AND EXISTS (\n              SELECT 1\n              FROM pg_attribute AS a\n              WHERE a.attrelid = c.conrelid\n                AND a.attnum = ANY (c.conkey)\n                AND a.attname = 'execution_failure_count'\n                AND NOT a.attisdropped\n          )\n    ) AS \"column_check\",\n    pg_get_functiondef('context69.notify_task_event()'::regprocedure) AS \"notify_function!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "user_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "application_ledger_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "application_ledger_schemas!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "ledger_schema",
+        "type_info": "Name",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 5,
+        "name": "ledger_version",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 6,
+        "name": "ledger_checksum",
+        "type_info": "Bytea",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "ledger_success",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 8,
+        "name": "ledger_rows!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "fixture_items!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 10,
+        "name": "fixture_history!",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 11,
+        "name": "all_items_digest!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 12,
+        "name": "column_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 13,
+        "name": "column_not_null",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 14,
+        "name": "column_type",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 15,
+        "name": "column_default",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 16,
+        "name": "column_check",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 17,
+        "name": "notify_function!",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "dc2ffbb234cb5f1a9f0d86de57af58d7c26be1ec2a7b43c4cdde1b258b289001"
+}

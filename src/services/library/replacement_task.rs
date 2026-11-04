@@ -14,10 +14,10 @@ use crate::domain::LibraryFileRecord;
 use crate::library_store::{LibraryStore, NewLibraryFile, TaskWriteFence, begin_task_write};
 
 use super::replacement_runner::{
-    ReplacementRunOutcome, ReplacementRunRequest, ReplacementVector, run_first_insert,
-    run_replacement,
+    ReplacementRunOutcome, ReplacementRunRequest, ReplacementVector, stage_first_insert,
+    stage_replacement,
 };
-use super::{LibraryService, UnifiedIngestError};
+use super::{LibraryService, TaskIngestStep, UnifiedIngestError};
 
 /// The outcome of one atomic first insert.
 pub enum AtomicFirstInsert {
@@ -278,17 +278,18 @@ impl LibraryService {
         .await
     }
 
-    /// Run one staged replacement from one ready vector runtime snapshot.
+    /// One bounded staging turn of a replacement task.
     ///
     /// The embedding provider and the index are captured together, so no
     /// provider from one generation is combined with an index from another. No
     /// connection is held across the embedding or Qdrant calls.
-    pub(crate) async fn run_task_replacement(
+    pub(crate) async fn stage_task_replacement(
         &self,
         db: &Database,
         fence: TaskWriteFence,
         request: &ReplacementRunRequest,
-    ) -> Result<ReplacementRunOutcome> {
+    ) -> Result<TaskIngestStep<ReplacementRunOutcome>> {
+        let batches_per_segment = self.ingest_batches_per_segment().await?;
         let (runtime, identity) = self.captured_runtime()?;
         let embedding = runtime.embedding.require_ready()?;
         let vector = ReplacementVector {
@@ -297,20 +298,25 @@ impl LibraryService {
             chunking: &self.chunking,
             identity,
         };
-        run_replacement(db, &self.store, &vector, fence, request).await
+        stage_replacement(
+            db,
+            &self.store,
+            &vector,
+            fence,
+            request,
+            batches_per_segment,
+        )
+        .await
     }
 
-    /// Run one staged atomic first insert from one ready vector runtime
-    /// snapshot.
-    ///
-    /// The snapshot is captured exactly like the replacement's, so the embedder
-    /// and the index of the run belong to the same generation.
-    pub(crate) async fn run_task_first_insert(
+    /// One bounded staging turn of an atomic first insert.
+    pub(crate) async fn stage_task_first_insert(
         &self,
         db: &Database,
         fence: TaskWriteFence,
         request: &ReplacementRunRequest,
-    ) -> Result<ReplacementRunOutcome> {
+    ) -> Result<TaskIngestStep<ReplacementRunOutcome>> {
+        let batches_per_segment = self.ingest_batches_per_segment().await?;
         let (runtime, identity) = self.captured_runtime()?;
         let embedding = runtime.embedding.require_ready()?;
         let vector = ReplacementVector {
@@ -319,6 +325,14 @@ impl LibraryService {
             chunking: &self.chunking,
             identity,
         };
-        run_first_insert(db, &self.store, &vector, fence, request).await
+        stage_first_insert(
+            db,
+            &self.store,
+            &vector,
+            fence,
+            request,
+            batches_per_segment,
+        )
+        .await
     }
 }

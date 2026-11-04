@@ -9,6 +9,7 @@ use super::{
     StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeS3Settings,
     StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
 };
+use crate::contracts::settings::SchedulerResourceLimits;
 
 impl Database {
     pub async fn runtime_settings_initialized(&self) -> Result<bool> {
@@ -83,6 +84,39 @@ impl Database {
                     .context("runtime scheduler max_concurrency must be non-negative")?,
                 job_id: scheduler.job_id,
                 valkey_url: scheduler.valkey_url,
+                resource_limits: SchedulerResourceLimits {
+                    interactive: scheduler
+                        .interactive_max_concurrency
+                        .map(|value| {
+                            u32::try_from(value)
+                                .context("runtime scheduler interactive limit must be non-negative")
+                        })
+                        .transpose()?,
+                    bulk: scheduler
+                        .bulk_max_concurrency
+                        .map(|value| {
+                            u32::try_from(value)
+                                .context("runtime scheduler bulk limit must be non-negative")
+                        })
+                        .transpose()?,
+                    maintenance: scheduler
+                        .maintenance_max_concurrency
+                        .map(|value| {
+                            u32::try_from(value)
+                                .context("runtime scheduler maintenance limit must be non-negative")
+                        })
+                        .transpose()?,
+                    ingest: scheduler
+                        .ingest_max_concurrency
+                        .map(|value| {
+                            u32::try_from(value)
+                                .context("runtime scheduler ingest limit must be non-negative")
+                        })
+                        .transpose()?,
+                },
+                ingest_batches_per_segment: validated_ingest_batches_per_segment(
+                    scheduler.ingest_batches_per_segment,
+                )?,
             },
             chunking: StoredRuntimeChunkingSettings {
                 max_chars: usize::try_from(chunking.max_chars)
@@ -136,6 +170,23 @@ impl Database {
         }))
     }
 
+    /// The configured number of ingest batches one task indexing segment
+    /// commits.
+    ///
+    /// An absent singleton row uses the application default. A persisted value
+    /// outside the accepted range fails closed instead of being clamped.
+    pub async fn get_ingest_batches_per_segment(&self) -> Result<usize> {
+        let value: Option<i32> = sqlx::query_file_scalar!(
+            "src/sql/db/runtime_settings/get_ingest_batches_per_segment.sql"
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        match value {
+            Some(value) => validated_ingest_batches_per_segment(i64::from(value)),
+            None => Ok(crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_DEFAULT),
+        }
+    }
+
     pub async fn save_runtime_settings(
         &self,
         settings: &StoredRuntimeSettings,
@@ -174,6 +225,18 @@ impl Database {
             .await?;
         self.require_quiet_vector_identity(&mut tx, settings)
             .await?;
+        // The global and per-resource admission policies are validated at the
+        // database boundary too, so a direct caller cannot persist a cap above
+        // the global maximum.
+        super::validate_execution_admission_policies(
+            settings.scheduler.max_concurrency,
+            &settings.scheduler.resource_limits,
+        )?;
+        let ingest_batches_per_segment = i32::try_from(validated_ingest_batches_per_segment(
+            i64::try_from(settings.scheduler.ingest_batches_per_segment)
+                .context("scheduler ingest_batches_per_segment too large")?,
+        )?)
+        .context("scheduler ingest_batches_per_segment too large")?;
         let embedding_dimensions = i64::try_from(settings.embedding.dimensions)
             .context("embedding dimensions too large")?;
         let embedding_timeout_secs = i64::try_from(settings.embedding.timeout_secs)
@@ -182,6 +245,27 @@ impl Database {
             .context("scheduler interval too large")?;
         let scheduler_max_concurrency = i64::try_from(settings.scheduler.max_concurrency)
             .context("scheduler max_concurrency too large")?;
+        let scheduler_limits = &settings.scheduler.resource_limits;
+        let scheduler_interactive_limit = scheduler_limits
+            .interactive
+            .map(i32::try_from)
+            .transpose()
+            .context("interactive concurrency limit too large")?;
+        let scheduler_bulk_limit = scheduler_limits
+            .bulk
+            .map(i32::try_from)
+            .transpose()
+            .context("bulk concurrency limit too large")?;
+        let scheduler_maintenance_limit = scheduler_limits
+            .maintenance
+            .map(i32::try_from)
+            .transpose()
+            .context("maintenance concurrency limit too large")?;
+        let scheduler_ingest_limit = scheduler_limits
+            .ingest
+            .map(i32::try_from)
+            .transpose()
+            .context("ingest concurrency limit too large")?;
         let chunking_max_chars =
             i64::try_from(settings.chunking.max_chars).context("chunking max_chars too large")?;
         let chunking_overlap_chars = i64::try_from(settings.chunking.overlap_chars)
@@ -227,9 +311,24 @@ impl Database {
             settings.scheduler.run_on_start,
             scheduler_max_concurrency,
             settings.scheduler.job_id,
-            settings.scheduler.valkey_url
+            settings.scheduler.valkey_url,
+            scheduler_interactive_limit,
+            scheduler_bulk_limit,
+            scheduler_maintenance_limit,
+            scheduler_ingest_limit,
+            ingest_batches_per_segment
         )
         .execute(&mut *tx)
+        .await?;
+
+        // The settings columns and their live policies commit together: the
+        // library writes both the global cap and every owned resource key
+        // through this same transaction.
+        self.apply_execution_admission_policies_in(
+            &mut tx,
+            settings.scheduler.max_concurrency,
+            &settings.scheduler.resource_limits,
+        )
         .await?;
 
         sqlx::query_file!(
@@ -397,4 +496,29 @@ impl Database {
         }
         Ok(())
     }
+}
+
+/// Validates the persisted or saved ingest batch quantum.
+///
+/// A value outside the accepted range fails closed; it is never clamped.
+fn validated_ingest_batches_per_segment(value: i64) -> Result<usize> {
+    let value = usize::try_from(value).map_err(|_| {
+        DomainError::invalid_argument(format!(
+            "runtime.scheduler.ingest_batches_per_segment {value} must be between {} and {}",
+            crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN,
+            crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX
+        ))
+    })?;
+    if !(crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN
+        ..=crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX)
+        .contains(&value)
+    {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.scheduler.ingest_batches_per_segment {value} must be between {} and {}",
+            crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN,
+            crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX
+        ))
+        .into());
+    }
+    Ok(value)
 }

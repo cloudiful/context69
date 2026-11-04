@@ -11,7 +11,7 @@ import { formatTimestamp } from "@/lib/format";
 import { QueueDiagnosePanel } from "./queue-diagnose-panel";
 import { QueueItemProgress } from "./queue-item-progress";
 import { taskItemStatusLabel, useTaskItems, itemStatuses } from "./use-task-items";
-import { queueStageLabel } from "./queue-helpers";
+import { isRecoverableTask, queueStageLabel } from "./queue-helpers";
 
 const ALL_ITEMS = "__all__";
 
@@ -65,7 +65,7 @@ export function QueueExpandedRow({
   const { t } = useTranslation();
   const [diagnoseOpen, setDiagnoseOpen] = useState(false);
   const items = useTaskItems({ taskId: task.task_id, active, parentUpdatedAt: task.updated_at });
-  const retryAvailable = task.status === "failed";
+  const retryAvailable = isRecoverableTask(task);
 
   return (
     <div className="space-y-3 p-3">
@@ -176,7 +176,9 @@ export function QueueExpandedRow({
                           onClick={() => onRetry(task)}
                         >
                           <RotateCcw aria-hidden="true" />
-                          {t("processingQueue.retryTaskScope")}
+                          {task.status === "waiting"
+                            ? t("processingQueue.retryWaiting")
+                            : t("processingQueue.retryTaskScope")}
                         </Button>
                       )
                     : null}

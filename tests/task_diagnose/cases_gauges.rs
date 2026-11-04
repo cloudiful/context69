@@ -1,157 +1,15 @@
-//! Diagnose gauge cases: the orphan, admission-age, near-exhaustion, and
-//! health-scope signals the `/healthz` payload promises.
+//! Diagnose gauge cases: the near-exhaustion and health-scope signals the
+//! `/healthz` payload promises, plus the item lease diagnostics that survive the
+//! removal of the parent admission lease (issue 1172 P2).
 //!
-//! These pin that a legitimate wait is never reported as an orphan, that the
-//! admission age comes from admission time rather than the lease deadline, that
-//! near-exhaustion fires one attempt before the claim cap, and that the
-//! whole-queue scope agrees with the single-task diagnose scope.
+//! These pin that near-exhaustion fires one attempt before the claim cap, that
+//! the whole-queue scope agrees with the single-task diagnose scope, and that
+//! the worker lease is the item lease rather than a parent slot.
 
-use chrono::SubsecRound as _;
 use context69::db::Database;
 use uuid::Uuid;
 
 use super::support::*;
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn a_waiting_parent_holding_its_slot_is_not_reported_as_an_orphan() {
-    // Issue 702 P3 review: the orphan gauge counted every live parent lease
-    // with no live item lease, so every legitimate backoff/dependency wait was
-    // flagged. `maintain_claim_state.sql` keeps those slots on purpose.
-    let (db, _suite) = locked_database().await;
-    let user_id = seed_test_user(&db).await;
-    let (waiting_task, waiting_items) = seed_task(&db, user_id).await;
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'dependency', \
-         dependency_key = 'docling', next_attempt_at = now() + interval '5 minutes' \
-         WHERE id = $1",
-    )
-    .bind(waiting_items[0])
-    .execute(db.pool())
-    .await
-    .expect("park the head item");
-    sqlx::query(
-        "UPDATE context69.tasks SET status = 'waiting', queued_count = 2, running_count = 0, \
-         waiting_count = 1, waiting_reason = 'dependency', dependency_key = 'docling', \
-         next_attempt_at = now() + interval '5 minutes', stage = 'processing', \
-         lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes' \
-         WHERE id = $1",
-    )
-    .bind(waiting_task)
-    .execute(db.pool())
-    .await
-    .expect("hold the parent slot");
-
-    let waiting = db
-        .task_consistency(Some(waiting_task))
-        .await
-        .expect("waiting consistency");
-    assert_eq!(
-        waiting.lease_without_running_item_count, 0,
-        "a parent parked on a dependency legitimately keeps its slot"
-    );
-    assert_eq!(waiting.parent_item_mismatch_count, 0);
-    assert_eq!(waiting.dependency_waiting_parent_count, 1);
-
-    // The same parent with every item past the attempt cap has nothing a claim
-    // could ever serve: that is the crashed/exhausted shape P1 reclaims.
-    sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 5, status = 'waiting' WHERE task_id = $1",
-    )
-    .bind(waiting_task)
-    .execute(db.pool())
-    .await
-    .expect("exhaust every item");
-    let exhausted = db
-        .task_consistency(Some(waiting_task))
-        .await
-        .expect("exhausted consistency");
-    assert_eq!(
-        exhausted.lease_without_running_item_count, 1,
-        "a slot nothing can claim is the orphan signal"
-    );
-    cleanup(&db, waiting_task, user_id).await;
-
-    // The other reclaim shape: a `running` item whose lease has lapsed, i.e.
-    // its worker is gone. Its siblings stay claimable, so only the lapsed
-    // lease can justify reporting the parent slot.
-    let crashed_user = seed_test_user(&db).await;
-    let (crashed, crashed_items) = seed_task(&db, crashed_user).await;
-    sqlx::query(
-        "UPDATE context69.task_items SET status = 'running', attempt_count = 1, \
-         lease_token = gen_random_uuid(), lease_until = now() - interval '1 minute', \
-         started_at = now() WHERE id = $1",
-    )
-    .bind(crashed_items[0])
-    .execute(db.pool())
-    .await
-    .expect("lapse the head item lease");
-    sqlx::query(
-        "UPDATE context69.tasks SET status = 'running', queued_count = 2, running_count = 1, \
-         lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes' \
-         WHERE id = $1",
-    )
-    .bind(crashed)
-    .execute(db.pool())
-    .await
-    .expect("hold the parent slot");
-    let crashed_row = db
-        .task_consistency(Some(crashed))
-        .await
-        .expect("crashed consistency");
-    assert_eq!(
-        crashed_row.lease_without_running_item_count, 1,
-        "a lapsed item lease means the slot is held by a worker that is gone"
-    );
-    assert_eq!(crashed_row.live_running_count, 0);
-    cleanup(&db, crashed, crashed_user).await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline() {
-    // Issue 702 P3 review: the gauge read `min(lease_until)`, a future
-    // deadline, so `now - lease_until` clamped to zero for every live parent.
-    let (db, _suite) = locked_database().await;
-    let user_id = seed_test_user(&db).await;
-    let (task_id, _item_ids) = seed_task(&db, user_id).await;
-    // Bind the admission instant from this process's clock, truncated to
-    // PostgreSQL's microsecond precision, so the assertion never depends on the
-    // host clock and the database clock agreeing. The row is stamped with
-    // exactly the timestamp compared below.
-    let expected_admitted_at =
-        (chrono::Utc::now() - chrono::Duration::minutes(90)).trunc_subsecs(6);
-    sqlx::query_file!(
-        "tests/sql/task_diagnose/admit_task_at.sql",
-        task_id,
-        expected_admitted_at,
-    )
-    .execute(db.pool())
-    .await
-    .expect("admit long ago");
-
-    let row = db
-        .task_consistency(Some(task_id))
-        .await
-        .expect("scoped consistency");
-    let admitted_at = row.oldest_admitted_at.expect("admitted timestamp");
-    assert_eq!(
-        admitted_at, expected_admitted_at,
-        "the gauge must report the exact admission instant that was bound"
-    );
-    let age = chrono::Utc::now()
-        .signed_duration_since(admitted_at)
-        .num_seconds();
-    assert!(
-        (5_400..=5_460).contains(&age),
-        "the timestamp must be the admission time (~90 min old), got {age}s"
-    );
-    assert!(
-        admitted_at < chrono::Utc::now(),
-        "a future lease deadline is not an admission time"
-    );
-    cleanup(&db, task_id, user_id).await;
-}
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -209,14 +67,13 @@ async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
     sqlx::query(
         "UPDATE context69.tasks SET status = 'waiting', queued_count = 2, running_count = 0, \
          waiting_count = 1, waiting_reason = 'dependency', dependency_key = 'docling', \
-         next_attempt_at = now() + interval '5 minutes', stage = 'processing', \
-         lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes' \
+         next_attempt_at = now() + interval '5 minutes', stage = 'processing' \
          WHERE id = $1",
     )
     .bind(waiting_task)
     .execute(db.pool())
     .await
-    .expect("hold the parent slot");
+    .expect("park the parent");
 
     let whole = db
         .task_consistency(None)
@@ -231,11 +88,6 @@ async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
         whole.dependency_waiting_parent_count,
         baseline.dependency_waiting_parent_count + 1,
         "the parked parent must reach the health dependency signal: {whole:?}"
-    );
-    assert_eq!(
-        whole.lease_without_running_item_count, baseline.lease_without_running_item_count,
-        "a dependency-waiting parent holding its slot is not an orphan in the \
-         health gauge either: {baseline:?} -> {whole:?}"
     );
     assert_eq!(
         whole.open_attempt_count,
@@ -270,9 +122,10 @@ async fn the_health_scope_agrees_with_the_diagnose_scope_on_every_parent() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
-    // claim_candidates.sql admits attempt_count < 5: attempt 4 is near
-    // exhaustion, while attempt 5 belongs to the orphan signal.
+async fn near_exhaustion_is_counted_one_failure_before_the_budget_cap() {
+    // claim_candidates.sql admits execution_failure_count < 5: 4 is near
+    // exhaustion, while attempt 5 belongs to the exhausted shape maintenance
+    // converges.
     let (db, _suite) = locked_database().await;
     let user_id = seed_test_user(&db).await;
     let (task_id, _item_ids) = seed_task(&db, user_id).await;
@@ -290,7 +143,7 @@ async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
     );
 
     sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 4 WHERE task_id = $1 AND ordinal = 0",
+        "UPDATE context69.task_items SET execution_failure_count = 4 WHERE task_id = $1 AND ordinal = 0",
     )
     .bind(task_id)
     .execute(db.pool())
@@ -303,7 +156,7 @@ async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
     );
 
     sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 5 WHERE task_id = $1 AND ordinal = 0",
+        "UPDATE context69.task_items SET execution_failure_count = 5 WHERE task_id = $1 AND ordinal = 0",
     )
     .bind(task_id)
     .execute(db.pool())
@@ -314,29 +167,66 @@ async fn near_exhaustion_is_counted_one_attempt_before_the_claim_cap() {
         1,
         "the cap itself stays in the near-exhaustion band"
     );
-    // The cap is also what makes the slot reclaimable, so the two signals must
-    // not overlap: a parent at the cap with nothing else claimable is the
-    // orphan case, not a healthy slot.
-    sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 5, status = 'waiting' WHERE task_id = $1",
-    )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("exhaust every item");
-    sqlx::query(
-        "UPDATE context69.tasks SET status = 'waiting', waiting_count = 3, queued_count = 0, \
-         lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes', \
-         stage = 'processing' WHERE id = $1",
-    )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("hold the parent slot");
-    let capped = db
+    cleanup(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn the_item_lease_is_the_worker_fence_after_the_parent_lease_is_removed() {
+    // Execution capacity is the library queue policy and the fencing token is
+    // the item lease. The parent carries no lease columns at all, so liveness
+    // must be readable from the item row alone.
+    let (db, _suite) = locked_database().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id).await;
+    claim_head_item(&db, task_id, item_ids[0], Uuid::new_v4()).await;
+
+    let row = db
         .task_consistency(Some(task_id))
         .await
-        .expect("capped consistency");
-    assert_eq!(capped.lease_without_running_item_count, 1);
+        .expect("scoped consistency");
+    assert_eq!(row.live_running_count, 1, "a live item lease is reported");
+    assert_eq!(row.parent_item_mismatch_count, 0);
+    let head = row
+        .item_diagnostics
+        .as_array()
+        .expect("item diagnostics")
+        .iter()
+        .find(|entry| entry["ordinal"] == 0)
+        .expect("head item diagnostics");
+    assert!(
+        !head["lease_expires_at"].is_null(),
+        "the item lease deadline is the worker fence: {head}"
+    );
+
+    // Lapsing the item lease removes the liveness signal without touching any
+    // parent slot, because there is none.
+    sqlx::query(
+        "UPDATE context69.task_items SET lease_until = now() - interval '1 minute' \
+         WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .execute(db.pool())
+    .await
+    .expect("lapse the item lease");
+    let lapsed = db
+        .task_consistency(Some(task_id))
+        .await
+        .expect("lapsed consistency");
+    assert_eq!(
+        lapsed.live_running_count, 0,
+        "a lapsed item lease means the worker is gone"
+    );
+    let head = lapsed
+        .item_diagnostics
+        .as_array()
+        .expect("item diagnostics")
+        .iter()
+        .find(|entry| entry["ordinal"] == 0)
+        .expect("head item diagnostics");
+    assert!(
+        !head["lease_expires_at"].is_null(),
+        "the lapsed deadline is still reported for forensics: {head}"
+    );
     cleanup(&db, task_id, user_id).await;
 }

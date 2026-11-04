@@ -1,0 +1,83 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The bounded eligible backlog the explicit admission reclassification may\n-- convert (issue 1172 P6A2).\n--\n-- The item must be a queued or waiting non-leased head of an active parent,\n-- linked to the current queue's QUEUED segment whose class is still NULL. A\n-- Docling submitting/uncertain row is reported so the caller can count it and\n-- leave it inert instead of cancelling or reclassifying an unknown outcome.\nSELECT item.id,\n       item.task_id,\n       task.kind,\n       item.execution_task_id,\n       item.execution_generation,\n       EXISTS (\n           SELECT 1\n           FROM context69.task_docling_remote_jobs job\n           WHERE job.item_id = item.id\n             AND job.status IN ('submitting', 'submission_uncertain')\n       ) AS \"docling_inert!\"\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nJOIN cloudiful_tasks.tasks old\n  ON old.id = item.execution_task_id\n AND old.namespace = 'context69'\n AND old.queue = 'items'\nWHERE item.status IN ('queued', 'waiting')\n  AND item.lease_token IS NULL\n  AND task.status IN ('queued', 'running', 'waiting')\n  AND task.deleted_at IS NULL\n  AND old.class IS NULL\n  AND old.status = 'queued'\nORDER BY task.created_at, item.id\nLIMIT $1\nFOR UPDATE OF item\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "docling_inert!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      null
+    ]
+  },
+  "hash": "09ee549f8c94cba4ddcf678508e90a1e04dbe621c33561d7e595f757da4551af"
+}

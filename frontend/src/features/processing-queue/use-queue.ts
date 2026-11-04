@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 
-import { apiClient } from "@/services/api";
+import { ApiError, apiClient } from "@/services/api";
 import type {
   SortDirection,
   TaskKind,
@@ -29,11 +29,13 @@ import {
   isSourceRerunnableTask,
   isTerminalTask,
   queueBulkActionOptions,
+  readQueueBulkRisk,
   runQueueBatchRerun,
   runQueueBatchRetry,
   runQueueBulkTasks,
   summarizeQueueBulkOutcomes,
   taskSubject,
+  QueueRiskPrescanError,
   type QueueBulkAction,
   type QueueBulkActionOption,
   type QueueBulkReport,
@@ -66,11 +68,17 @@ export function isValidTaskFocusId(value: string | null | undefined): value is s
 /** A focused task still in progress is re-read on the same cadence as its items. */
 export const FOCUSED_TASK_REFRESH_MS = TASK_ITEMS_REFRESH_MS;
 
+export interface ConfirmRisk {
+  label: string;
+}
+
 export interface ConfirmRequest {
   title: string;
   message: string;
   acceptLabel: string;
-  action: () => void;
+  /** Present only when the action needs an explicit duplicate-risk consent. */
+  risk?: ConfirmRisk;
+  action: (acknowledged: boolean) => void;
 }
 
 /**
@@ -192,6 +200,9 @@ export interface QueueState {
   selectionBusy: boolean;
   capturingSelection: boolean;
   confirm: ConfirmRequest | null;
+  /** The risk checkbox of the open confirmation; reset whenever it opens/closes. */
+  riskChecked: boolean;
+  setRiskChecked: (checked: boolean) => void;
   searchInput: string;
   setSearchInput: (value: string) => void;
   submitSearch: (event?: { preventDefault: () => void }) => void;
@@ -268,6 +279,24 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
   const bulkRunningRef = useRef(false);
   const [capturingSelection, setCapturingSelection] = useState(false);
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null);
+  const [riskChecked, setRiskChecked] = useState(false);
+
+  const openConfirm = useCallback((request: ConfirmRequest) => {
+    setRiskChecked(false);
+    setConfirm(request);
+  }, []);
+
+  const closeConfirm = useCallback(() => {
+    setConfirm(null);
+    setRiskChecked(false);
+  }, []);
+
+  // Consent belongs to one open dialog and one selection: a changed selection
+  // drops it, and a reopened dialog always starts unchecked.
+  useEffect(() => {
+    setRiskChecked(false);
+    setConfirm((current) => (current?.risk ? null : current));
+  }, [selection.ids]);
 
   const openTaskRef = useRef(options.openTask);
   openTaskRef.current = options.openTask;
@@ -465,9 +494,28 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     [selection.ids, selectionStatuses],
   );
 
+  // On-page risk flags only. Off-page ids get their flags from the bounded
+  // batch read performed when the action is requested.
+  const selectionUncertain = useMemo(() => {
+    const flags: Record<string, boolean> = {};
+    for (const task of items) {
+      if (task.task_id in selection.statuses) {
+        flags[task.task_id] = task.docling_submission_uncertain === true;
+      }
+    }
+    return flags;
+  }, [items, selection.statuses]);
+
+  const recoverableWaiting = useMemo(
+    () => selection.ids.filter(
+      (taskId) => selectionStatuses[taskId] === "waiting" && selectionUncertain[taskId] === true,
+    ).length,
+    [selection.ids, selectionStatuses, selectionUncertain],
+  );
+
   const bulkActionOptions = useMemo(
-    () => queueBulkActionOptions(t, selectedStatuses, scope.view),
-    [scope.view, selectedStatuses, t],
+    () => queueBulkActionOptions(t, selectedStatuses, scope.view, recoverableWaiting),
+    [recoverableWaiting, scope.view, selectedStatuses, t],
   );
 
   const bulkActions = useMemo(
@@ -575,7 +623,12 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     mutate: () => Promise<unknown>,
     successKey: string,
     failureKey: string,
-    options: { clearStatusOnSuccess?: boolean; viewTarget?: string | null } = {},
+    options: {
+      clearStatusOnSuccess?: boolean;
+      viewTarget?: string | null;
+      acknowledged?: boolean;
+      onRiskConflict?: () => void;
+    } = {},
   ) => {
     beginAction(task.task_id);
     try {
@@ -604,6 +657,21 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
           : undefined,
       });
     } catch (error) {
+      if (error instanceof ApiError && error.code === "docling_submission_uncertain") {
+        // The server saw a state the read did not: refresh, then either offer
+        // the same risk confirmation again or stop a live-intent retry.
+        refetchFocusedTask(task.task_id);
+        reload();
+        if (!options.acknowledged && options.onRiskConflict) {
+          options.onRiskConflict();
+        } else {
+          toast.error(t("common.error"), {
+            description: t("processingQueue.riskStillInFlight"),
+            duration: 5000,
+          });
+        }
+        return;
+      }
       toast.error(t("common.error"), {
         description: error instanceof Error ? error.message : t(failureKey),
         duration: 5000,
@@ -618,30 +686,72 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
       return;
     }
     const resumed = task.status === "cancelled";
-    void runTaskAction(
-      task,
-      () => (resumed ? apiClient.rerunTask(task.task_id) : apiClient.retryTask(task.task_id)),
-      resumed ? "processingQueue.resumeAccepted" : "processingQueue.retryAccepted",
-      resumed ? "processingQueue.resumeFailed" : "processingQueue.retryFailed",
-      // A resumed task leaves its terminal status, so a narrowing status filter
-      // would hide the row the user just recovered.
-      { clearStatusOnSuccess: resumed },
-    );
-  }, [actionIds, runTaskAction]);
+    const openRecoveryRisk = (
+      target: TaskResponse,
+      isResume: boolean,
+      retry: (acknowledged: boolean) => void,
+    ) => {
+      openConfirm({
+        title: t("processingQueue.riskTitle"),
+        message: t("processingQueue.riskConfirm"),
+        acceptLabel: t(isResume
+          ? "processingQueue.continue"
+          : target.status === "waiting"
+            ? "processingQueue.retryWaiting"
+            : "processingQueue.retryTaskScope"),
+        risk: { label: t("processingQueue.riskAckLabel") },
+        action: (acknowledged) => {
+          if (acknowledged) {
+            retry(true);
+          }
+        },
+      });
+    };
+    const run = (acknowledged: boolean) => {
+      const request = acknowledged ? { acknowledge_docling_duplicate_risk: true } : undefined;
+      void runTaskAction(
+        task,
+        () => {
+          if (resumed) {
+            return request
+              ? apiClient.rerunTask(task.task_id, request)
+              : apiClient.rerunTask(task.task_id);
+          }
+          return request
+            ? apiClient.retryTask(task.task_id, request)
+            : apiClient.retryTask(task.task_id);
+        },
+        resumed ? "processingQueue.resumeAccepted" : "processingQueue.retryAccepted",
+        resumed ? "processingQueue.resumeFailed" : "processingQueue.retryFailed",
+        // A resumed task leaves its terminal status, so a narrowing status filter
+        // would hide the row the user just recovered.
+        {
+          clearStatusOnSuccess: resumed,
+          acknowledged,
+          onRiskConflict: () => openRecoveryRisk(task, resumed, run),
+        },
+      );
+    };
+    if (task.docling_submission_uncertain === true) {
+      openRecoveryRisk(task, resumed, run);
+    } else {
+      run(false);
+    }
+  }, [actionIds, openConfirm, runTaskAction, t]);
 
   /**
    * Reprocess a succeeded task from its current source. The server creates a
    * child task that reads the source again; the parent keeps its history. The
    * response is not discarded: its child id is what "View task" opens.
    */
-  const rerunTask = useCallback((task: TaskResponse) => {
-    if (!isSourceRerunnableTask(task) || actionIds.includes(task.task_id)) {
-      return;
-    }
+  const executeRerunTask = useCallback((task: TaskResponse, acknowledged: boolean) => {
     beginAction(task.task_id);
     void (async () => {
       try {
-        const response = await apiClient.rerunTask(task.task_id);
+        const request = acknowledged ? { acknowledge_docling_duplicate_risk: true } : undefined;
+        const response = request
+          ? await apiClient.rerunTask(task.task_id, request)
+          : await apiClient.rerunTask(task.task_id);
         const childId = response.task.task_id;
         // The parent keeps its identity and its detail; the created child is
         // focused only when the operator asks for it.
@@ -658,6 +768,29 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
             : undefined,
         });
       } catch (error) {
+        if (error instanceof ApiError && error.code === "docling_submission_uncertain") {
+          refetchFocusedTask(task.task_id);
+          reload();
+          if (!acknowledged) {
+            openConfirm({
+              title: t("processingQueue.riskTitle"),
+              message: t("processingQueue.riskConfirm"),
+              acceptLabel: t("processingQueue.rerun"),
+              risk: { label: t("processingQueue.riskAckLabel") },
+              action: (consented) => {
+                if (consented) {
+                  executeRerunTask(task, true);
+                }
+              },
+            });
+          } else {
+            toast.error(t("common.error"), {
+              description: t("processingQueue.riskStillInFlight"),
+              duration: 5000,
+            });
+          }
+          return;
+        }
         toast.error(t("common.error"), {
           description: error instanceof Error ? error.message : t("processingQueue.rerunFailed"),
           duration: 5000,
@@ -666,7 +799,33 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         endAction(task.task_id);
       }
     })();
-  }, [actionIds, beginAction, endAction, refetchFocusedTask, reload, t]);
+  }, [beginAction, endAction, openConfirm, refetchFocusedTask, reload, t]);
+
+  /**
+   * Reprocess a succeeded task from its current source. The server creates a
+   * child task that reads the source again; the parent keeps its history. A
+   * flagged task asks for an explicit duplicate-risk acknowledgement first.
+   */
+  const rerunTask = useCallback((task: TaskResponse) => {
+    if (!isSourceRerunnableTask(task) || actionIds.includes(task.task_id)) {
+      return;
+    }
+    if (task.docling_submission_uncertain === true) {
+      openConfirm({
+        title: t("processingQueue.riskTitle"),
+        message: t("processingQueue.riskConfirm"),
+        acceptLabel: t("processingQueue.rerun"),
+        risk: { label: t("processingQueue.riskAckLabel") },
+        action: (acknowledged) => {
+          if (acknowledged) {
+            executeRerunTask(task, true);
+          }
+        },
+      });
+      return;
+    }
+    executeRerunTask(task, false);
+  }, [actionIds, executeRerunTask, openConfirm, t]);
 
   const cancelTask = useCallback((task: TaskResponse) => {
     if (!ACTIVE_STATUSES.includes(task.status) || actionIds.includes(task.task_id)) {
@@ -890,13 +1049,12 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     }
   }, [submitTrashTarget, t]);
 
-  const runBulkAction = useCallback(async (action: QueueBulkAction) => {
-    if (bulkAction || bulkRunningRef.current) {
-      return;
-    }
-    const targets = captureQueueBulkTargets(selection.ids, selectionStatuses, action, subjects)
-      .filter((target) => isQueueBulkActionApplicable(action, target.status));
-    if (targets.length === 0) {
+  const executeBulkAction = useCallback(async (
+    action: QueueBulkAction,
+    targets: readonly QueueBulkTarget[],
+    acknowledged: boolean,
+  ) => {
+    if (bulkAction || bulkRunningRef.current || targets.length === 0) {
       return;
     }
     bulkRunningRef.current = true;
@@ -910,7 +1068,12 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         // server retries failed and resumes cancelled items in place.
         ? await runQueueBatchRetry(
             targets,
-            (taskIds) => apiClient.batchRetryTasks([...taskIds]),
+            (taskIds) => (acknowledged
+              ? apiClient.batchRetryTasks(
+                  [...taskIds],
+                  { acknowledgeDoclingDuplicateRisk: true },
+                )
+              : apiClient.batchRetryTasks([...taskIds])),
             onProgress,
           )
         : action === "rerun"
@@ -918,7 +1081,12 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
           // own a rerunnable source; every other id is reported per item.
           ? await runQueueBatchRerun(
               targets,
-              (taskIds) => apiClient.batchRerunTasks([...taskIds]),
+              (taskIds) => (acknowledged
+                ? apiClient.batchRerunTasks(
+                    [...taskIds],
+                    { acknowledgeDoclingDuplicateRisk: true },
+                  )
+                : apiClient.batchRerunTasks([...taskIds])),
               onProgress,
             )
           : await runQueueBulkTasks(
@@ -972,6 +1140,31 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         },
       );
     } catch (error) {
+      if (error instanceof ApiError && error.code === "docling_submission_uncertain") {
+        reload();
+        refetchFocusedTask();
+        if (!acknowledged && (action === "retry" || action === "rerun")) {
+          // The server saw an unknown submission the snapshot did not: offer
+          // the same whole-operation confirmation again, unchecked.
+          openConfirm({
+            title: t(`processingQueue.bulkTitles.${action}`),
+            message: t("processingQueue.riskConfirmBulk", { count: targets.length }),
+            acceptLabel: t(`processingQueue.bulkActions.${action}`),
+            risk: { label: t("processingQueue.riskAckLabel") },
+            action: (consented) => {
+              if (consented) {
+                void executeBulkAction(action, targets, true);
+              }
+            },
+          });
+        } else {
+          toast.error(t("common.error"), {
+            description: t("processingQueue.riskStillInFlight"),
+            duration: 5000,
+          });
+        }
+        return;
+      }
       toast.error(t("common.error"), {
         description: error instanceof Error ? error.message : t("processingQueue.bulkFailed"),
         duration: 5000,
@@ -981,34 +1174,99 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
       setBulkAction(null);
       setBulkProgress(null);
     }
-  }, [bulkAction, reload, selection.ids, selectionStatuses, subjects, submitBulkTarget, refetchFocusedTask, t]);
+  }, [bulkAction, openConfirm, reload, submitBulkTarget, refetchFocusedTask, t]);
 
   const requestBulkAction = useCallback((action: QueueBulkAction) => {
-    if (bulkAction || selection.ids.length === 0) {
+    if (bulkAction || bulkRunningRef.current || selection.ids.length === 0) {
+      return;
+    }
+    const captured = captureQueueBulkTargets(
+      selection.ids,
+      selectionStatuses,
+      action,
+      subjects,
+      selectionUncertain,
+    );
+    if (action === "retry" || action === "rerun") {
+      void (async () => {
+        try {
+          // Re-read every selected id before the first mutation: a failed read,
+          // a foreign id, or an ambiguous answer refuses the whole operation.
+          const flags = await readQueueBulkRisk(
+            captured.map((target) => target.taskId),
+            (taskIds) => apiClient.batchGetTasks({ task_ids: [...taskIds] }),
+          );
+          const targets = captured
+            .map((target) => ({
+              ...target,
+              doclingUncertain: flags.get(target.taskId) === true,
+            }))
+            .filter((target) => isQueueBulkActionApplicable(
+              action,
+              target.status,
+              target.doclingUncertain,
+            ));
+          if (targets.length === 0) {
+            return;
+          }
+          if (!targets.some((target) => target.doclingUncertain)) {
+            void executeBulkAction(action, targets, false);
+            return;
+          }
+          openConfirm({
+            title: t(`processingQueue.bulkTitles.${action}`),
+            message: t("processingQueue.riskConfirmBulk", { count: targets.length }),
+            acceptLabel: t(`processingQueue.bulkActions.${action}`),
+            risk: { label: t("processingQueue.riskAckLabel") },
+            action: (acknowledged) => {
+              if (acknowledged) {
+                void executeBulkAction(action, targets, true);
+              }
+            },
+          });
+        } catch (error) {
+          toast.error(t("processingQueue.bulkFailed"), {
+            description: error instanceof QueueRiskPrescanError
+              ? t("processingQueue.bulkRiskUnavailable")
+              : error instanceof Error
+                ? error.message
+                : undefined,
+            duration: 5000,
+          });
+        }
+      })();
       return;
     }
     // The confirmation states the eligible count, not a total that includes
     // selected rows this action cannot touch.
-    const count = captureQueueBulkTargets(selection.ids, selectionStatuses, action)
+    const count = captured
       .filter((target) => isQueueBulkActionApplicable(action, target.status))
       .length;
     if (count === 0) {
       return;
     }
-    if (action === "retry" || action === "rerun" || action === "restore") {
-      void runBulkAction(action);
+    if (action === "restore") {
+      void executeBulkAction(action, captured, false);
       return;
     }
-    setConfirm({
+    openConfirm({
       title: t(`processingQueue.bulkTitles.${action}`),
       message: t(`processingQueue.bulkConfirms.${action}`, { count }),
       acceptLabel: t(`processingQueue.bulkActions.${action}`),
       action: () => {
-        setConfirm(null);
-        void runBulkAction(action);
+        void executeBulkAction(action, captured, false);
       },
     });
-  }, [bulkAction, runBulkAction, selection.ids, selectionStatuses, t]);
+  }, [
+    bulkAction,
+    executeBulkAction,
+    openConfirm,
+    selection.ids,
+    selectionStatuses,
+    selectionUncertain,
+    subjects,
+    t,
+  ]);
 
   const toggleExpanded = useCallback((taskId: string) => {
     setExpanded((current) => {
@@ -1085,11 +1343,16 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     confirmTrashTask,
     restoreTask,
     confirmDeleteTask,
+    riskChecked,
+    setRiskChecked,
     confirmAccept: () => {
       const request = confirm;
-      setConfirm(null);
-      request?.action();
+      if (!request) {
+        return;
+      }
+      closeConfirm();
+      request.action(request.risk ? riskChecked : false);
     },
-    confirmCancel: () => setConfirm(null),
+    confirmCancel: closeConfirm,
   };
 }

@@ -80,6 +80,11 @@ function statusTone(status: TaskStatus): StatusTone {
 
 /** One labeled primary action per display state, decided by task status. */
 function primaryAction(task: TaskResponse): "cancel" | "retry" | "resume" | "trash" | null {
+  // A settled unknown conversion is recoverable through the gated retry; plain
+  // waiting tasks keep their cancel-only primary action.
+  if (task.status === "waiting" && task.docling_submission_uncertain === true) {
+    return "retry";
+  }
   if (ACTIVE_STATUSES.includes(task.status)) {
     return "cancel";
   }
@@ -528,7 +533,9 @@ function TaskRow({
                     ? (
                         <Button type="button" variant="ghost" size="sm" disabled={acting} title={t("processingQueue.retryTaskScope")} onClick={() => onRecover(task)}>
                           <RotateCcw aria-hidden="true" />
-                          {t("processingQueue.retryTaskScope")}
+                          {task.status === "waiting"
+                            ? t("processingQueue.retryWaiting")
+                            : t("processingQueue.retryTaskScope")}
                         </Button>
                       )
                     : null}
@@ -540,7 +547,7 @@ function TaskRow({
                         </Button>
                       )
                     : null}
-                  {action === "cancel"
+                  {action === "cancel" || (action === "retry" && ACTIVE_STATUSES.includes(task.status))
                     ? (
                         <Button type="button" variant="ghost" size="icon-sm" disabled={acting} aria-label={t("processingQueue.cancel")} title={t("processingQueue.cancel")} onClick={() => onCancel(task)}>
                           <Ban aria-hidden="true" className="text-destructive" />

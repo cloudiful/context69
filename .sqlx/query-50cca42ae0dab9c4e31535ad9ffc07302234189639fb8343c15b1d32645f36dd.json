@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Relinks one owned queued/waiting item to a fixture-created unclassified\n-- library segment (issue 1172 P6A2 test fixture). Domain-only and guarded by\n-- the exact old pointer and generation; the library segment itself is created\n-- through the public queue API, never by a direct library metadata write.\nUPDATE context69.task_items\nSET execution_task_id = $2,\n    execution_generation = $3,\n    updated_at = now()\nWHERE id = $1\n  AND execution_task_id = $4\n  AND execution_generation = $5\n  AND status IN ('queued', 'waiting')\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "50cca42ae0dab9c4e31535ad9ffc07302234189639fb8343c15b1d32645f36dd"
+}

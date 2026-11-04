@@ -62,6 +62,21 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
             DomainError::invalid_argument("runtime.scheduler.job_id must not be empty").into(),
         );
     }
+    crate::db::validate_execution_admission_policies(
+        request.scheduler.max_concurrency,
+        &request.scheduler.resource_limits,
+    )?;
+    if !(context69_contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN
+        ..=context69_contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX)
+        .contains(&request.scheduler.ingest_batches_per_segment)
+    {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.scheduler.ingest_batches_per_segment must be between {} and {}",
+            context69_contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN,
+            context69_contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX
+        ))
+        .into());
+    }
     if request.chunking.max_chars == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.chunking.max_chars must be greater than 0",

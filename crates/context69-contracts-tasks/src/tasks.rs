@@ -1,3 +1,5 @@
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -15,7 +17,7 @@ pub use context69_contracts_core::TaskRef;
 
 pub use crate::diagnose::{
     TaskAttemptView, TaskConsistencyReport, TaskDiagnoseItem, TaskDiagnoseParent,
-    TaskDiagnoseResponse,
+    TaskDiagnoseResponse, TaskDoclingSubmissionState, TaskDoclingSubmissionView,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -157,6 +159,11 @@ pub struct TaskResponse {
     pub failure_stage: Option<String>,
     pub error_summary: Option<String>,
     pub eta_seconds: Option<i64>,
+    /// `true` while the task owns an unacknowledged Docling submission
+    /// (`submitting` or `submission_uncertain`). A risk indicator only: it never
+    /// promises that an acknowledgement is currently executable.
+    #[serde(default)]
+    pub docling_submission_uncertain: bool,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,
@@ -327,6 +334,14 @@ pub struct TaskListQuery {
     pub page_size: u32,
     #[serde(default)]
     pub query: Option<String>,
+    /// Exact group path filter (issue 1172 P1). Edges are trimmed and a blank
+    /// value means no filter, unlike the fuzzy `query` search. It only narrows
+    /// the existing authorization, so a foreign group path matches nothing.
+    #[serde(default)]
+    pub group_path: Option<String>,
+    /// Exact source key filter (issue 1172 P1), normalized like `group_path`.
+    #[serde(default)]
+    pub source_key: Option<String>,
     #[serde(default)]
     pub kind: Option<TaskKind>,
     #[serde(default)]
@@ -369,6 +384,13 @@ pub struct CanonicalTaskListQuery {
     pub page_size: u32,
     #[serde(default)]
     pub query: Option<String>,
+    /// Exact group path filter (issue 1172 P1): trimmed edges, blank means
+    /// absent, and it only narrows the existing authorization.
+    #[serde(default)]
+    pub group_path: Option<String>,
+    /// Exact source key filter (issue 1172 P1), normalized like `group_path`.
+    #[serde(default)]
+    pub source_key: Option<String>,
     #[serde(default)]
     pub kind: Option<TaskKind>,
     #[serde(default)]
@@ -404,6 +426,8 @@ impl From<CanonicalTaskListQuery> for TaskListQuery {
             page: canonical.page,
             page_size: canonical.page_size,
             query: canonical.query,
+            group_path: canonical.group_path,
+            source_key: canonical.source_key,
             kind: canonical.kind,
             status: canonical.status,
             view: Some(canonical.view),
@@ -440,6 +464,10 @@ pub const TASK_SELECTION_LIMIT: u64 = 50_000;
 pub struct TaskSelectionQuery {
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub group_path: Option<String>,
+    #[serde(default)]
+    pub source_key: Option<String>,
     #[serde(default)]
     pub kind: Option<TaskKind>,
     #[serde(default)]
@@ -631,6 +659,32 @@ pub struct RerunTaskResponse {
     pub task: TaskRef,
 }
 
+/// Optional body of `POST /v1/tasks/{task_id}/retry`.
+///
+/// An absent body means no acknowledgement: an unacknowledged Docling
+/// submission keeps refusing the retry with the code-only conflict.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskRetryRequest {
+    /// Explicit consent that a settled unknown Docling submission may be
+    /// archived so the retry can reopen its waiting item.
+    #[serde(default)]
+    pub acknowledge_docling_duplicate_risk: bool,
+}
+
+/// Optional body of `POST /v1/tasks/{task_id}/rerun`.
+///
+/// An absent body means no acknowledgement. The flag alone grants no ownership
+/// or status privilege; it only permits archiving a settled unknown submission
+/// inside the same transaction as the rerun the caller is already allowed to
+/// perform.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskRerunRequest {
+    /// Explicit consent that a settled unknown Docling submission may be
+    /// archived before its source is rerun.
+    #[serde(default)]
+    pub acknowledge_docling_duplicate_risk: bool,
+}
+
 /// Maximum number of task ids one `POST /v1/tasks/batch/retry` call accepts.
 pub const TASK_BATCH_RETRY_MAX: usize = 100;
 
@@ -644,6 +698,10 @@ pub const TASK_BATCH_RETRY_MAX: usize = 100;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskBatchRetryRequest {
     pub task_ids: Vec<Uuid>,
+    /// Explicit consent for every requested task's settled unknown Docling
+    /// submission. An unacknowledged call refuses the whole batch.
+    #[serde(default)]
+    pub acknowledge_docling_duplicate_risk: bool,
 }
 
 /// The per-id result vocabulary of a batch recovery call.
@@ -715,6 +773,10 @@ pub const TASK_BATCH_RERUN_MAX: usize = 100;
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskBatchRerunRequest {
     pub task_ids: Vec<Uuid>,
+    /// Explicit consent for every requested task's settled unknown Docling
+    /// submission. An unacknowledged call refuses the whole batch.
+    #[serde(default)]
+    pub acknowledge_docling_duplicate_risk: bool,
 }
 
 /// The per-id result vocabulary of a batch source-rerun call.
@@ -776,6 +838,49 @@ pub struct TaskBatchRerunItem {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskBatchRerunResponse {
     pub results: Vec<TaskBatchRerunItem>,
+}
+
+/// Maximum number of task ids one `POST /v1/tasks/batch/get` call accepts.
+pub const TASK_BATCH_GET_MAX: usize = 100;
+
+/// One bounded, ordered batch task snapshot request (issue 1172 P1).
+///
+/// The ids must be non-empty, unique and at most [`TASK_BATCH_GET_MAX`]; a
+/// request outside those bounds is refused as a whole before any task is read,
+/// so a bad batch never produces a partial answer. This is the caller's durable
+/// lookup after a lost task-creation response, not a subscription.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchGetRequest {
+    pub task_ids: Vec<Uuid>,
+}
+
+/// The per-id result vocabulary of a batch task snapshot call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchGetOutcome {
+    /// The task exists and the caller may read it.
+    Found,
+    /// Missing or not readable by the caller; the two are deliberately
+    /// indistinguishable so existence never leaks.
+    NotFound,
+}
+
+/// One ordered outcome of a batch task snapshot call.
+///
+/// `task` is present exactly for [`TaskBatchGetOutcome::Found`] and absent for
+/// [`TaskBatchGetOutcome::NotFound`], so a not-found id never carries a body
+/// and no default can hide an inconsistent state.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchGetItem {
+    pub task_id: Uuid,
+    pub outcome: TaskBatchGetOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub task: Option<TaskResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchGetResponse {
+    pub items: Vec<TaskBatchGetItem>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -850,9 +955,175 @@ fn default_item_limit() -> u32 {
     100
 }
 
+/// Maximum accepted length of an `Idempotency-Key` header value, in bytes.
+pub const TASK_IDEMPOTENCY_KEY_MAX_BYTES: usize = 128;
+
+/// Why a present `Idempotency-Key` value was refused.
+///
+/// The variants exist so the server can answer with one clear `400` without
+/// logging the caller's value, and the SDK can refuse a key before any request
+/// leaves the process. A blank value is [`Self::Blank`] rather than "absent":
+/// a caller that sent the header must never silently get an automatic key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskIdempotencyKeyError {
+    /// Empty after the caller trimmed the edges.
+    Blank,
+    /// Longer than [`TASK_IDEMPOTENCY_KEY_MAX_BYTES`].
+    TooLong,
+    /// A byte outside `[A-Za-z0-9._:-]`, including internal whitespace.
+    InvalidCharacter,
+}
+
+impl fmt::Display for TaskIdempotencyKeyError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Blank => write!(f, "must not be blank"),
+            Self::TooLong => write!(f, "must be at most {TASK_IDEMPOTENCY_KEY_MAX_BYTES} bytes"),
+            Self::InvalidCharacter => {
+                write!(f, "must contain only ASCII characters [A-Za-z0-9._:-]")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TaskIdempotencyKeyError {}
+
+/// Validate a present `Idempotency-Key` value, shared by the HTTP edge and the
+/// SDK so both refuse exactly the same keys (issue 1172 P1).
+///
+/// The caller trims the header's edges first and this helper validates what is
+/// left, so a blank header is refused instead of becoming absent. The key is
+/// never normalized further: case, dots, underscores, colons and dashes reach
+/// the idempotency scope verbatim.
+pub fn validate_task_idempotency_key(key: &str) -> Result<(), TaskIdempotencyKeyError> {
+    if key.is_empty() {
+        return Err(TaskIdempotencyKeyError::Blank);
+    }
+    if key.len() > TASK_IDEMPOTENCY_KEY_MAX_BYTES {
+        return Err(TaskIdempotencyKeyError::TooLong);
+    }
+    if !key
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b':' | b'-'))
+    {
+        return Err(TaskIdempotencyKeyError::InvalidCharacter);
+    }
+    Ok(())
+}
+
+/// Exact task filter value with surrounding whitespace removed (issue 1172 P1).
+///
+/// The exact `group_path`/`source_key` filters only narrow the existing
+/// authorization, and a blank value means the filter is absent, exactly like an
+/// omitted query parameter.
+pub fn normalized_task_filter(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
+}
+
 impl FileBatchItem {
     /// Canonical [`context69_contracts_library::IngestOptions`] view.
     pub fn ingest_options(&self) -> context69_contracts_library::IngestOptions {
         self.options.clone()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        TASK_BATCH_GET_MAX, TASK_IDEMPOTENCY_KEY_MAX_BYTES, TaskBatchGetItem, TaskBatchGetOutcome,
+        TaskBatchGetRequest, TaskBatchGetResponse, TaskIdempotencyKeyError, TaskResponse,
+        normalized_task_filter, validate_task_idempotency_key,
+    };
+    use uuid::Uuid;
+
+    #[test]
+    fn idempotency_key_accepts_the_documented_character_set_verbatim() {
+        for key in [
+            "a",
+            "stock:job.1-2_x",
+            "A.B_C:D-E",
+            &"k".repeat(TASK_IDEMPOTENCY_KEY_MAX_BYTES),
+        ] {
+            validate_task_idempotency_key(key).expect("a documented key must be accepted");
+        }
+        assert_eq!(
+            validate_task_idempotency_key(&"k".repeat(TASK_IDEMPOTENCY_KEY_MAX_BYTES + 1)),
+            Err(TaskIdempotencyKeyError::TooLong)
+        );
+    }
+
+    #[test]
+    fn idempotency_key_refuses_blank_and_non_ascii_bytes() {
+        assert_eq!(
+            validate_task_idempotency_key(""),
+            Err(TaskIdempotencyKeyError::Blank)
+        );
+        assert_eq!(
+            validate_task_idempotency_key("key with space"),
+            Err(TaskIdempotencyKeyError::InvalidCharacter)
+        );
+        assert_eq!(
+            validate_task_idempotency_key("group/key"),
+            Err(TaskIdempotencyKeyError::InvalidCharacter)
+        );
+        assert_eq!(
+            validate_task_idempotency_key("clé"),
+            Err(TaskIdempotencyKeyError::InvalidCharacter)
+        );
+    }
+
+    #[test]
+    fn exact_filter_values_are_trimmed_and_blank_is_absent() {
+        assert_eq!(normalized_task_filter(None), None);
+        assert_eq!(normalized_task_filter(Some("")), None);
+        assert_eq!(normalized_task_filter(Some("   ")), None);
+        assert_eq!(
+            normalized_task_filter(Some("  research/news  ")),
+            Some("research/news")
+        );
+    }
+
+    #[test]
+    fn batch_get_response_hides_the_task_body_for_not_found_ids() {
+        let request: TaskBatchGetRequest = serde_json::from_value(serde_json::json!({
+            "task_ids": [Uuid::nil()]
+        }))
+        .expect("decode batch get request");
+        assert_eq!(request.task_ids.len(), 1);
+
+        let not_found = TaskBatchGetItem {
+            task_id: Uuid::nil(),
+            outcome: TaskBatchGetOutcome::NotFound,
+            task: None,
+        };
+        let value = serde_json::to_value(TaskBatchGetResponse {
+            items: vec![not_found],
+        })
+        .expect("encode batch get response");
+        assert_eq!(
+            value["items"][0]["outcome"],
+            serde_json::json!("not_found"),
+            "the outcome vocabulary is stable on the wire"
+        );
+        assert!(
+            value["items"][0].get("task").is_none(),
+            "a not_found id must not serialize a task body"
+        );
+
+        let decoded: TaskBatchGetResponse =
+            serde_json::from_value(value).expect("decode batch get response");
+        assert_eq!(decoded.items[0].outcome, TaskBatchGetOutcome::NotFound);
+        assert!(decoded.items[0].task.is_none());
+
+        // The task field stays optional on the found side without inventing a
+        // default body for a missing one.
+        let found: TaskBatchGetItem = serde_json::from_value(serde_json::json!({
+            "task_id": Uuid::nil(),
+            "outcome": "found"
+        }))
+        .expect("a found item decodes");
+        assert!(found.task.is_none());
+        assert_eq!(TASK_BATCH_GET_MAX, 100);
+        let _: Option<TaskResponse> = found.task;
     }
 }

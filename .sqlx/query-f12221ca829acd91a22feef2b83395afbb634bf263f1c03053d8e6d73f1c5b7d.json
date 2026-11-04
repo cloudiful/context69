@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Delete the fixture documents of one owned group (issue 1172 P5A test cleanup).\n--\n-- The group id is the fixture's own unique group, so this never reaches an\n-- unrelated document. It runs only after the fixture's execution grants were\n-- quiesced and its tasks were deleted, and it replaces the file-metadata-based\n-- cleanup that missed a seeded canonical document whose metadata carries no\n-- `library_file_id`.\nDELETE FROM context69.documents\nWHERE group_id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f12221ca829acd91a22feef2b83395afbb634bf263f1c03053d8e6d73f1c5b7d"
+}

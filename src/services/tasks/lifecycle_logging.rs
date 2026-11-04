@@ -46,10 +46,10 @@ pub(super) fn lifecycle_span(item: &crate::db::ClaimedItem, stage_entry: &'stati
 
 /// An item was admitted by the claim statement.
 ///
-/// Recorded before the local worker slot is taken: a claim that cannot get a slot
-/// on this replica is still a claim the database made, and this is the line an
-/// operator correlates with the item lease. The ordinal is the one the claim
-/// statement returned, so it cannot disagree with the row being processed.
+/// Recorded for a claim the database made, before the item is spawned on this
+/// replica, and this is the line an operator correlates with the item lease.
+/// The ordinal is the one the claim statement returned, so it cannot disagree
+/// with the row being processed.
 pub(super) fn log_claim(item: &crate::db::ClaimedItem) {
     info!(
         target: "task_lifecycle",
@@ -67,11 +67,9 @@ pub(super) fn log_claim(item: &crate::db::ClaimedItem) {
 
 /// A wake found nothing claimable. Debug, because it is the common case: a submit
 /// notification on an already-drained queue, or a coalesced retry.
-pub(super) fn log_no_claimable_item(parent_capacity: usize, available_slots: usize) {
+pub(super) fn log_no_claimable_item() {
     debug!(
         target: "task_lifecycle",
-        parent_capacity,
-        available_slots,
         "task dispatcher found no claimable item"
     );
 }
@@ -79,38 +77,24 @@ pub(super) fn log_no_claimable_item(parent_capacity: usize, available_slots: usi
 /// What one dispatch pass claimed. Info when work moved, debug when the pass was
 /// a no-op, so an operator can tell "the queue drained" from "the dispatcher is
 /// idle" without raising the level of the common case.
-pub(super) fn log_claims_dispatched(
-    claimed_total: usize,
-    parent_capacity: usize,
-    available_slots: usize,
-) {
-    let inflight_count = parent_capacity.saturating_sub(available_slots);
+pub(super) fn log_claims_dispatched(claimed_total: usize) {
     if claimed_total > 0 {
         info!(
             target: "task_lifecycle",
-            claimed_total,
-            parent_capacity,
-            inflight_count,
-            available_slots,
-            "task dispatcher claimed items"
+            claimed_total, "task dispatcher claimed items"
         );
     } else {
         debug!(
             target: "task_lifecycle",
-            claimed_total,
-            parent_capacity,
-            inflight_count,
-            available_slots,
-            "task dispatcher state"
+            claimed_total, "task dispatcher state"
         );
     }
 }
 
 /// What the claim maintenance converged.
 ///
-/// Terminal convergence is info; an interrupted attempt or a revoked parent
-/// admission lease is warn, because both mean a worker died still holding a
-/// claim, and those are the two an operator has to act on.
+/// Terminal convergence is info; an interrupted expired attempt is warn,
+/// because it means a worker died still holding a claim.
 pub(super) fn log_maintenance_outcome(outcome: &crate::db::ClaimMaintenanceOutcome) {
     if outcome.exhausted_items
         + outcome.exhausted_files
@@ -132,24 +116,6 @@ pub(super) fn log_maintenance_outcome(outcome: &crate::db::ClaimMaintenanceOutco
             target: "task_lifecycle",
             expired_attempts = outcome.expired_attempts,
             "task item lease expired; attempts interrupted and items reclaimable"
-        );
-    }
-    if outcome.revoked_parent_leases > 0 {
-        // A parent slot released while its worker item lease was gone is the
-        // orphan-lease case: the slot was occupied by work nobody owned. The
-        // next claim re-admits it.
-        warn!(
-            target: "task_lifecycle",
-            renewed_parent_leases = outcome.renewed_parent_leases,
-            revoked_parent_leases = outcome.revoked_parent_leases,
-            "task parent admission lease revoked; parent lease without a live item"
-        );
-    } else if outcome.renewed_parent_leases > 0 {
-        debug!(
-            target: "task_lifecycle",
-            renewed_parent_leases = outcome.renewed_parent_leases,
-            revoked_parent_leases = outcome.revoked_parent_leases,
-            "task parent admission leases converged"
         );
     }
 }
@@ -247,6 +213,7 @@ mod tests {
             task_id: Uuid::new_v4(),
             ordinal: 7,
             attempt_count: 3,
+            execution_failure_count: 0,
             lease_token: Uuid::new_v4(),
             attempt_id: 77,
             payload: serde_json::json!({"content": "must never be logged"}),

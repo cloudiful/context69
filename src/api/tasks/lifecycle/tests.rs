@@ -58,6 +58,8 @@ fn canonical_task_list_query_requires_view_and_rejects_trashed_shape() {
         stage: None,
         waiting_reason: None,
         dependency_key: None,
+        group_path: None,
+        source_key: None,
         sort_by: None,
         sort_direction: None,
     };

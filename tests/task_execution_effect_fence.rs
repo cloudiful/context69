@@ -9,6 +9,9 @@
 
 use context69::db::{CreateTaskSubmissionRequest, Database};
 use context69::library_store::{TaskWriteDenied, TaskWriteFence};
+use context69_test_support::execution_cleanup::{
+    FixtureExecutionScope, quiesce_fixture_executions,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -78,12 +81,23 @@ async fn seed_task(db: &Database, user_id: i64, group_id: i64) -> (Uuid, Uuid) {
 }
 
 async fn claim(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
-    db.claim_items_fast(50)
-        .await
-        .expect("claim the item")
-        .into_iter()
+    let returned = db.claim_items_fast().await.expect("claim the item");
+    let claimed = returned
+        .iter()
         .find(|item| item.id == item_id)
         .expect("the item is claimed")
+        .clone();
+    for other in &returned {
+        assert!(
+            other.task_id == claimed.task_id,
+            "claim returned a grant outside this fixture: \
+             task_id={} item_id={} fixture_task={}",
+            other.task_id,
+            other.id,
+            claimed.task_id
+        );
+    }
+    claimed
 }
 
 /// Crashes the worker that holds the item: the authoritative library attempt and
@@ -120,6 +134,14 @@ async fn item_payload(db: &Database, item_id: Uuid) -> serde_json::Value {
 }
 
 async fn cleanup(db: &Database, task_id: Uuid, user_id: i64, group_id: i64) {
+    // Settle exactly this fixture's linked executions before deleting the
+    // rows they point at; unlinked and other-namespace tasks are untouched.
+    let report = quiesce_fixture_executions(db.pool(), FixtureExecutionScope::Tasks(&[task_id]))
+        .await
+        .expect("settle the fixture's linked executions");
+    if report.has_expired_skips() {
+        eprintln!("effect-fence cleanup: expired grants remain for normal recovery: {report}");
+    }
     sqlx::query_file!(
         "tests/sql/task_execution/delete_task_items_by_task.sql",
         task_id

@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_docling_remote_jobs\nSET next_poll_at = $2,\n    deadline_at = COALESCE($3, deadline_at),\n    updated_at = now()\nWHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Timestamptz"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "29bd0ba6ff8673937294d8b8bae20a711cbcc6647e3034eaade5dab5deaa4297"
+}

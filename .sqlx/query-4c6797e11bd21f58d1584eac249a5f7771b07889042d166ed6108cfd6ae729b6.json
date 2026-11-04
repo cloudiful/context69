@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Marks one exact fixture-owned unresolved submission unknown\n-- (issue 1172 P6A2). Only the job of the given task/item that is still\n-- submitting with no remote id is touched; provenance, budget and deadlines\n-- stay as they were.\nUPDATE context69.task_docling_remote_jobs job\nSET status = 'submission_uncertain',\n    last_error = $3\nFROM context69.tasks task\nWHERE job.item_id = $1\n  AND job.task_id = $2\n  AND task.id = job.task_id\n  AND job.status = 'submitting'\n  AND job.remote_task_id IS NULL\nRETURNING job.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4c6797e11bd21f58d1584eac249a5f7771b07889042d166ed6108cfd6ae729b6"
+}

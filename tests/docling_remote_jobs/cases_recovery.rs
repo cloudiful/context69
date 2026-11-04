@@ -160,7 +160,7 @@ async fn expired_lease_reclaim_adopts_the_same_remote_id() {
         .expect("reconcile");
     assert_eq!(summary.cancelled_remote_jobs, 0);
     let claimed = db
-        .claim_items_fast(50)
+        .claim_items_fast()
         .await
         .expect("fast claim")
         .into_iter()
@@ -259,7 +259,7 @@ async fn reconcile_preserves_queued_and_backoff_remote_identity() {
 /// the same content and becomes due immediately.
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn reconcile_adoption_preserves_payload_and_marks_due() {
+async fn reconcile_does_not_requeue_a_parked_docling_item() {
     let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
@@ -270,7 +270,10 @@ async fn reconcile_adoption_preserves_payload_and_marks_due() {
         .reconcile_docling_remote_state()
         .await
         .expect("reconcile");
-    assert_eq!(summary.adopted_items, 1);
+    assert_eq!(
+        summary.adopted_items, 0,
+        "the parked item belongs to its own probe cadence"
+    );
     let row = sqlx::query_file!(
         "tests/sql/docling_remote_jobs/requeued_item_state.sql",
         item_id,
@@ -278,11 +281,13 @@ async fn reconcile_adoption_preserves_payload_and_marks_due() {
     .fetch_one(db.pool())
     .await
     .expect("read item");
-    assert_eq!(row.status, "queued");
-    assert_eq!(row.waiting_reason, None);
+    assert_eq!(row.status, "waiting");
+    assert_eq!(row.waiting_reason.as_deref(), Some("docling"));
     assert_eq!(row.payload, serde_json::json!({"external_id": "a"}));
-    // Immediate scheduling is proved on the database clock: the requeue sets
-    // next_attempt_at and updated_at to the same now() in one statement.
-    assert_eq!(row.next_attempt_at, Some(row.updated_at));
+    assert!(
+        row.next_attempt_at
+            .is_some_and(|due| due > chrono::Utc::now()),
+        "recovery must not pull the probe cadence forward"
+    );
     cleanup(&db, task_id, user_id).await;
 }

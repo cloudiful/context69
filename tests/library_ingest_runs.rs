@@ -57,7 +57,7 @@ async fn fenced_identity_adoption_resolution_and_rollback() {
         .await
         .unwrap();
     let item = db
-        .claim_items_fast(50)
+        .claim_items_fast()
         .await
         .unwrap()
         .into_iter()
@@ -127,7 +127,7 @@ async fn fenced_identity_adoption_resolution_and_rollback() {
         .unwrap();
     assert!(begin_task_write(&db, fence).await.is_err());
     let next = db
-        .claim_items_fast(50)
+        .claim_items_fast()
         .await
         .unwrap()
         .into_iter()

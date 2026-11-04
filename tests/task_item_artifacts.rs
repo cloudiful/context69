@@ -36,6 +36,9 @@ use context69::db::{Database, TaskItemArtifactKind};
 use context69::library_store::LibraryStore;
 use context69::services::library::{LibraryService, LibraryServiceConfig, SourceCleanupDispatcher};
 use context69::services::settings::SettingsService;
+use context69_test_support::execution_cleanup::{
+    FixtureExecutionScope, quiesce_fixture_executions,
+};
 use context69_translation::{
     TranslationChunkPublication, TranslationDependencies, TranslationPublication,
     TranslationPublisher, TranslationReadiness, TranslationService,
@@ -388,6 +391,22 @@ async fn force_intent_due(db: &Database, object_id: Uuid) {
 }
 
 async fn cleanup(db: &Database, groups: &[i64], user_id: i64) {
+    // Settle only the linked executions of this owner's fixture groups before
+    // deleting their tasks; a group id alone never selects another owner.
+    let report = quiesce_fixture_executions(
+        db.pool(),
+        FixtureExecutionScope::Groups {
+            owner_user_id: user_id,
+            group_ids: groups,
+        },
+    )
+    .await
+    .expect("settle the fixture groups' linked executions");
+    if report.has_expired_skips() {
+        eprintln!(
+            "task-item-artifacts cleanup: expired grants remain for normal recovery: {report}"
+        );
+    }
     sqlx::query_file!(
         "tests/task_item_artifacts/delete_tasks_in_groups.sql",
         groups
@@ -1020,13 +1039,22 @@ async fn seed_running_item(
     db.produce_item_segment(item_id)
         .await
         .expect("produce the execution segment");
-    let claimed = db
-        .claim_items_fast(50)
-        .await
-        .expect("claim the seeded item")
-        .into_iter()
+    let returned = db.claim_items_fast().await.expect("claim the seeded item");
+    let claimed = returned
+        .iter()
         .find(|item| item.id == item_id)
-        .expect("the seeded item is claimed");
+        .expect("the seeded item is claimed")
+        .clone();
+    for other in &returned {
+        assert!(
+            other.task_id == claimed.task_id,
+            "claim returned a grant outside this fixture: \
+             task_id={} item_id={} fixture_task={}",
+            other.task_id,
+            other.id,
+            claimed.task_id
+        );
+    }
     let fence = context69::library_store::TaskWriteFence::from_claimed_item(&claimed)
         .expect("the claimed item carries its grant");
     (task_id, item_id, fence)
@@ -1975,6 +2003,15 @@ async fn rerun_copies_the_source_item_references_in_the_same_transaction() {
     assert_eq!(reference.2, "raw-v1");
     assert_eq!(open_intents(&db, staged.object_id).await, 0);
 
+    let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+        db.pool(),
+        context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+    )
+    .await
+    .expect("settle the source execution before deleting its item");
+    assert_eq!(report.linked_tasks, 1);
+    assert_eq!(report.sealed_attempts, 1);
+
     // Deleting the source task must not release an object the rerun still owns.
     sqlx::query_file!("tests/task_item_artifacts/delete_task.sql", task_id)
         .execute(db.pool())
@@ -1983,7 +2020,14 @@ async fn rerun_copies_the_source_item_references_in_the_same_transaction() {
     assert_eq!(object_rows(&db, staged.object_id).await, 1);
     assert_eq!(artifact_count(&db, new_items[0]).await, 1);
 
-    // Retry/resume in place leave the reference untouched.
+    let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+        db.pool(),
+        context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[new_task_id]),
+    )
+    .await
+    .expect("settle the rerun execution before deleting its item");
+    assert_eq!(report.linked_tasks, 1);
+    assert_eq!(report.queued_cancelled, 1);
     sqlx::query_file!("tests/task_item_artifacts/delete_task.sql", new_task_id)
         .execute(db.pool())
         .await
@@ -2019,6 +2063,15 @@ async fn a_concurrent_source_task_delete_cannot_produce_a_partial_rerun() {
             .await
             .expect("attach artifact")
     );
+
+    let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+        db.pool(),
+        context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+    )
+    .await
+    .expect("settle the source execution before the delete race");
+    assert_eq!(report.linked_tasks, 1);
+    assert_eq!(report.sealed_attempts, 1);
 
     // Hold the source task row, start the rerun so it blocks on that lock, then
     // delete the source task and commit. The rerun must observe no source rows

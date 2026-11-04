@@ -211,7 +211,7 @@ pub(super) async fn process_url(
                                     Ok(next) => next,
                                     Err(error) => return Ok(process_error(stage, error)),
                                 };
-                                return Ok(ProcessResult::Progressed { next });
+                                return Ok(ProcessResult::Yielded { next });
                             }
                             Ok(false) => {
                                 return Ok(super::item_processors::waiting_for_error(
@@ -419,6 +419,7 @@ mod tests {
             task_id: Uuid::new_v4(),
             ordinal: 0,
             attempt_count: 1,
+            execution_failure_count: 0,
             lease_token: Uuid::new_v4(),
             attempt_id: 1,
             payload: json!({}),

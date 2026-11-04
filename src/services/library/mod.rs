@@ -82,10 +82,23 @@ pub use ingest_switch::{
 };
 mod replacement_runner;
 mod replacement_task;
+mod stage_quantum;
 pub use replacement_runner::{
     ReplacementRunDisposition, ReplacementRunOutcome, ReplacementRunRequest,
     ReplacementSectionInput, ReplacementVector, run_first_insert, run_replacement,
 };
+
+/// One bounded turn of an ingest staging algorithm.
+///
+/// `Yielded` means the turn reached its finite work quantum while more batches
+/// remain; the caller must end its current claim and resume from the durable
+/// progress cursor. `Complete` carries the terminal outcome of the same
+/// algorithm, including the already-applied replay case.
+#[derive(Debug, Clone)]
+pub enum TaskIngestStep<T> {
+    Yielded,
+    Complete(T),
+}
 pub use replacement_task::AtomicFirstInsert;
 pub(crate) use replacement_task::{begin_ordinary_replacement, clear_ingest_cache};
 mod ingest_types;
@@ -410,6 +423,12 @@ impl LibraryService {
     /// the identity a run records belongs to the very provider that writes its
     /// points. A pair without a fingerprint has no usable identity, and the
     /// run that would use it must not write points.
+    /// The configured number of ingest batches one task indexing segment
+    /// commits, read once by the caller for that segment.
+    pub(crate) async fn ingest_batches_per_segment(&self) -> Result<usize> {
+        self.db.get_ingest_batches_per_segment().await
+    }
+
     fn captured_runtime(
         &self,
     ) -> Result<(LibraryRuntime, Option<crate::db::RegistryVectorIdentity>)> {

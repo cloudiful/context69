@@ -268,6 +268,8 @@ pub fn runtime_settings_request(
             max_concurrency: 1,
             job_id: format!("app-startup-{marker}"),
             valkey_url: None,
+            resource_limits: Default::default(),
+            ingest_batches_per_segment: 1,
         },
         chunking: RuntimeChunkingSettings {
             max_chars: 1200,

@@ -29,7 +29,6 @@ async fn fresh_task_diagnoses_consistent_with_ordered_items_and_no_attempts() {
         "the submission projection must already agree with its items"
     );
     assert_eq!(row.mismatch_fields, json!([]), "no field may disagree");
-    assert!(row.scoped_lease_until.is_none(), "no slot is held yet");
     assert_eq!(row.open_attempt_count, 0, "nothing is claimed yet");
     assert_eq!(row.near_exhaustion_item_count, 0);
 
@@ -90,10 +89,6 @@ async fn claimed_item_reports_its_open_attempt_and_lease_deadline() {
         .await
         .expect("scoped consistency");
     assert_eq!(row.open_attempt_count, 1, "the claim opened one attempt");
-    assert!(
-        row.scoped_lease_until.is_some(),
-        "a claim must hold the parent admission slot"
-    );
     assert_eq!(
         row.dependency_waiting_parent_count, 0,
         "a running parent is not parked on a dependency"
@@ -102,7 +97,7 @@ async fn claimed_item_reports_its_open_attempt_and_lease_deadline() {
         row.running_parent_without_running_item_count, 0,
         "the parent is running exactly because an item is running"
     );
-    assert_eq!(row.lease_without_running_item_count, 0);
+    assert_eq!(row.live_running_count, 1, "the item lease is live");
     assert_eq!(row.parent_item_mismatch_count, 0);
 
     let diagnostics: Vec<serde_json::Value> =
@@ -192,8 +187,7 @@ async fn skewed_parent_counters_are_named_instead_of_hidden() {
     // have. This is the projection bug the diagnose endpoint exists to surface.
     sqlx::query(
         "UPDATE context69.tasks SET queued_count = 0, running_count = 1, \
-         status = 'running', lease_token = gen_random_uuid(), \
-         lease_until = now() + interval '8 minutes' WHERE id = $1",
+         status = 'running' WHERE id = $1",
     )
     .bind(task_id)
     .execute(db.pool())
@@ -225,11 +219,6 @@ async fn skewed_parent_counters_are_named_instead_of_hidden() {
         row.running_parent_without_running_item_count, 1,
         "a running parent with no running item is its own signal"
     );
-    assert_eq!(
-        row.lease_without_running_item_count, 0,
-        "the items are still queued and claimable, so the parent keeps its slot \
-         legitimately even though its counters say otherwise: {row:?}"
-    );
 
     // The whole-queue scope carries the same gauges, so `/healthz` sees this
     // task too. The scratch database may hold rows from other runs, so the
@@ -258,7 +247,6 @@ async fn skewed_parent_counters_are_named_instead_of_hidden() {
     // rows present they name an arbitrary parent, which is why neither
     // consumer reads them there.
     if after.parent_count == 0 {
-        assert!(after.scoped_lease_until.is_none());
         assert!(after.current_item_id.is_none());
     }
 }

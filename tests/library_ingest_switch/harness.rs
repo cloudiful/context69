@@ -122,7 +122,7 @@ impl SwitchFixture {
         let mut item = None;
         for _ in 0..20 {
             item = db
-                .claim_items_fast(500)
+                .claim_items_fast()
                 .await
                 .unwrap()
                 .into_iter()

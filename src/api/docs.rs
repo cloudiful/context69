@@ -70,13 +70,13 @@ use crate::api::{
         __path_wake_docling_cleanup,
     },
     tasks::{
-        __path_batch_rerun_tasks, __path_batch_retry_tasks, __path_cancel_task,
-        __path_clear_task_history, __path_delete_task, __path_diagnose_task, __path_ensure_scope,
-        __path_get_task, __path_list_task_items, __path_list_task_selection, __path_list_tasks,
-        __path_rerun_task, __path_restore_task, __path_retry_task, __path_stream_tasks,
-        __path_submit_delete_batch, __path_submit_file_batch, __path_submit_task,
-        __path_submit_text_batch, __path_submit_url_batch, __path_submit_vector_index_rebuild,
-        __path_trash_task,
+        __path_batch_get_tasks, __path_batch_rerun_tasks, __path_batch_retry_tasks,
+        __path_cancel_task, __path_clear_task_history, __path_delete_task, __path_diagnose_task,
+        __path_ensure_scope, __path_get_task, __path_list_task_items, __path_list_task_selection,
+        __path_list_tasks, __path_rerun_task, __path_restore_task, __path_retry_task,
+        __path_stream_tasks, __path_submit_delete_batch, __path_submit_file_batch,
+        __path_submit_task, __path_submit_text_batch, __path_submit_url_batch,
+        __path_submit_vector_index_rebuild, __path_trash_task,
     },
     translations::{
         __path_get_group_translation_settings, __path_get_translation_settings,
@@ -113,7 +113,8 @@ use crate::contracts::{
     RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, SearchMode,
     SecretPatch, SortDirection, SortOrder, SourceConfigInput, SourceConnectionResponse,
     SourceFolderResponse, SourcePageQuery, SourcePageResponse, SourcePolicy, SourceStatus,
-    SyncOutcome, TaskAttemptView, TaskBatchRerunItem, TaskBatchRerunOutcome, TaskBatchRerunReason,
+    SyncOutcome, TaskAttemptView, TaskBatchGetItem, TaskBatchGetOutcome, TaskBatchGetRequest,
+    TaskBatchGetResponse, TaskBatchRerunItem, TaskBatchRerunOutcome, TaskBatchRerunReason,
     TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryItem, TaskBatchRetryOutcome,
     TaskBatchRetryReason, TaskBatchRetryRequest, TaskBatchRetryResponse, TaskConsistencyReport,
     TaskDiagnoseItem, TaskDiagnoseParent, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus,
@@ -127,6 +128,9 @@ use crate::contracts::{
     UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
     UpdateTranslationSettingsRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
     UrlBatchRequest,
+};
+use context69_contracts::tasks::{
+    TaskDoclingSubmissionState, TaskDoclingSubmissionView, TaskRerunRequest, TaskRetryRequest,
 };
 
 use crate::contracts::sources::{
@@ -250,6 +254,7 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         retry_task,
         batch_retry_tasks,
         batch_rerun_tasks,
+        batch_get_tasks,
         rerun_task,
         cancel_task,
         trash_task,
@@ -419,7 +424,11 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         TaskProgress,
         TaskRef,
         TaskResponse,
+        TaskRetryRequest,
         TaskRetryResponse,
+        TaskRerunRequest,
+        TaskDoclingSubmissionState,
+        TaskDoclingSubmissionView,
         TaskBatchRetryRequest,
         TaskBatchRetryResponse,
         TaskBatchRetryItem,
@@ -430,6 +439,10 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         TaskBatchRerunItem,
         TaskBatchRerunOutcome,
         TaskBatchRerunReason,
+        TaskBatchGetRequest,
+        TaskBatchGetResponse,
+        TaskBatchGetItem,
+        TaskBatchGetOutcome,
         TaskSelectionItem,
         TaskSelectionQuery,
         TaskSelectionResponse,
@@ -457,7 +470,8 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         DeleteBatchRequest,
         GroupSortBy,
         MemberSortBy,
-        MemberPageQuery
+        MemberPageQuery,
+        crate::contracts::settings::SchedulerResourceLimits
     ))
 )]
 pub struct ApiDoc;

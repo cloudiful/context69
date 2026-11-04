@@ -1,12 +1,11 @@
-//! Regression tests for durable parent-task admission (issue 650 P2).
+//! Regression tests for global task execution admission (issue 1172 P2F).
 //!
-//! A parent task owns exactly one global processing slot, carried by the
-//! durable task lease (`tasks.lease_token`/`tasks.lease_until`), for its whole
-//! lifetime. These tests pin the admission contract at the database boundary
-//! (no live dispatcher): the capacity (`scheduler.max_concurrency`) bounds how
-//! many parents are admitted across replicas, one admitted parent claims at
-//! most one item per claim, a retrying parent keeps its slot, and a parent
-//! whose worker lease is gone is reclaimed.
+//! The durable library queue policy is the only execution-capacity owner: the
+//! namespace `context69` queue `items` bounds how many attempts run at once
+//! across every replica, and the domain parent holds no admission slot. These
+//! tests pin that contract at the database boundary (no live dispatcher):
+//! concurrent claimers never exceed the policy, a capped claim leaves queued
+//! work untouched, and releasing an attempt admits the next queued task.
 //!
 //! Like the other task suites these run only when
 //! `CONTEXT69_TEST_DATABASE_URL` points at a scratch database (migrations are
@@ -14,10 +13,9 @@
 //! primitive over that shared scratch database, so the file serializes its own
 //! cases.
 
-use chrono::{DateTime, Duration, Utc};
-use context69::db::{
-    CreateTaskSubmissionRequest, Database, FinishTaskItemRequest, WaitTaskItemRequest,
-};
+use cloudiful_tasks::{Failure, QueuePolicy};
+use context69::db::{ClaimedItem, CreateTaskSubmissionRequest, Database, FinishTaskItemRequest};
+use futures::FutureExt;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -72,52 +70,6 @@ async fn seed_task(
     (task_id, item_ids)
 }
 
-async fn cleanup(db: &Database, task_ids: &[Uuid], user_id: i64) {
-    for task_id in task_ids {
-        sqlx::query_file!(
-            "tests/sql/task_execution/delete_task_items_by_task.sql",
-            task_id
-        )
-        .execute(db.pool())
-        .await
-        .expect("clean up task items");
-        sqlx::query_file!("tests/sql/task_execution/delete_task_by_id.sql", task_id)
-            .execute(db.pool())
-            .await
-            .expect("clean up task");
-    }
-    sqlx::query_file!(
-        "tests/sql/task_execution/delete_user_idempotency_keys.sql",
-        user_id
-    )
-    .execute(db.pool())
-    .await
-    .expect("clean up idempotency keys");
-    sqlx::query_file!("tests/sql/task_execution/delete_user.sql", user_id)
-        .execute(db.pool())
-        .await
-        .expect("clean up user");
-}
-
-/// Reads the durable admission lease of a task.
-async fn parent_lease(db: &Database, task_id: Uuid) -> (Option<Uuid>, Option<DateTime<Utc>>) {
-    let row = sqlx::query_file!(
-        "tests/sql/task_execution/read_parent_mirror_lease.sql",
-        task_id
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("load task lease");
-    (row.lease_token, row.lease_until)
-}
-
-async fn held_parent_leases(db: &Database) -> i64 {
-    sqlx::query_file_scalar!("tests/sql/task_execution/count_live_parent_slots.sql",)
-        .fetch_one(db.pool())
-        .await
-        .expect("count held parent leases")
-}
-
 async fn item_status(db: &Database, item_id: Uuid) -> String {
     sqlx::query_file_scalar!("tests/sql/task_execution/read_item_status.sql", item_id)
         .fetch_one(db.pool())
@@ -125,371 +77,249 @@ async fn item_status(db: &Database, item_id: Uuid) -> String {
         .expect("load item status")
 }
 
-/// Makes a parked parent claimable again without waiting out its next attempt.
-async fn make_due(db: &Database, task_id: Uuid, item_id: Uuid) {
-    sqlx::query_file!(
-        "tests/sql/task_execution/make_item_attempt_due.sql",
-        item_id
-    )
-    .execute(db.pool())
+async fn item_attempt_count(db: &Database, item_id: Uuid) -> i32 {
+    sqlx::query_scalar("SELECT attempt_count FROM context69.task_items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("load item attempt count")
+}
+
+async fn parent_started_at(db: &Database, task_id: Uuid) -> Option<chrono::DateTime<chrono::Utc>> {
+    sqlx::query_scalar("SELECT started_at FROM context69.tasks WHERE id = $1")
+        .bind(task_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("load parent start time")
+}
+
+async fn finish(db: &Database, item: context69::db::ClaimedItem) {
+    db.finish_task_item(FinishTaskItemRequest {
+        task_id: item.task_id,
+        item_id: item.id,
+        status: "succeeded",
+        resource_id: None,
+        failure_stage: None,
+        error_message: None,
+        retryable: true,
+        execution: item
+            .execution_context()
+            .expect("the claimed item carries its captured execution"),
+        attempt_id: item.attempt_id,
+    })
     .await
-    .expect("make item due");
+    .expect("finish the claimed item");
+}
+
+/// Assert every grant a claim returned belongs to this test's known fixtures
+/// and return them all, so no sibling grant is silently dropped.
+fn own_claims(
+    returned: Vec<ClaimedItem>,
+    fixture_tasks: &[Uuid],
+    fixture_items: &[Uuid],
+) -> Vec<ClaimedItem> {
+    for item in &returned {
+        assert!(
+            fixture_tasks.contains(&item.task_id) && fixture_items.contains(&item.id),
+            "claim returned a grant outside this test's fixtures: \
+             task_id={} item_id={} fixture_tasks={fixture_tasks:?} fixture_items={fixture_items:?}",
+            item.task_id,
+            item.id
+        );
+    }
+    returned
+}
+
+/// Seal the exact live library attempt this test owns before its domain rows
+/// are deleted. An already terminal or expired grant is confirmed from scoped
+/// library history, never inferred from `LeaseLost` and never renewed.
+async fn seal_test_execution(db: &Database, item: &ClaimedItem) {
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    let queue = db
+        .execution_queue()
+        .await
+        .expect("load the execution queue");
+    let result = queue
+        .fail(
+            &execution.attempt,
+            &Failure::permanent(Some(json!({"reason": "context69_test_cleanup"}))),
+        )
+        .await;
+    match result {
+        Ok(_) => {}
+        Err(
+            error @ (cloudiful_tasks::Error::LeaseLost { .. }
+            | cloudiful_tasks::Error::InvalidTaskState { .. }),
+        ) => {
+            let attempts = queue
+                .attempts(execution.attempt.task_id(), 16)
+                .await
+                .expect("read the captured task attempts");
+            let sealed = attempts.iter().any(|attempt| {
+                attempt.id() == execution.attempt.id() && attempt.status().is_sealed()
+            });
+            assert!(
+                sealed,
+                "test cleanup must seal the captured attempt or confirm it already sealed: {error}"
+            );
+        }
+        Err(error) => panic!("test cleanup could not seal the captured attempt: {error}"),
+    }
+}
+
+/// Failure-safe teardown for the admission case that owns the global policy.
+///
+/// It records only this test's tasks, user and grants, seals the grants before
+/// deleting their rows, and restores the queue policy observed before the test
+/// ran instead of blindly freeing the queue. Release is always awaited on the
+/// test task; on a body panic the original failure is propagated afterwards.
+struct AdmissionScope<'a> {
+    db: &'a Database,
+    previous_policy: QueuePolicy,
+    claims: Vec<ClaimedItem>,
+    tasks: Vec<Uuid>,
+    users: Vec<i64>,
+}
+
+impl<'a> AdmissionScope<'a> {
+    async fn new(db: &'a Database) -> Self {
+        let previous_policy = db
+            .execution_queue()
+            .await
+            .expect("load the execution queue")
+            .policy()
+            .await
+            .expect("read the queue policy");
+        Self {
+            db,
+            previous_policy,
+            claims: Vec::new(),
+            tasks: Vec::new(),
+            users: Vec::new(),
+        }
+    }
+
+    fn own_claims(
+        &mut self,
+        returned: Vec<ClaimedItem>,
+        fixture_tasks: &[Uuid],
+        fixture_items: &[Uuid],
+    ) -> Vec<ClaimedItem> {
+        let returned = own_claims(returned, fixture_tasks, fixture_items);
+        self.claims.extend(returned.iter().cloned());
+        returned
+    }
+
+    fn track_task(&mut self, task_id: Uuid) {
+        self.tasks.push(task_id);
+    }
+
+    fn track_user(&mut self, user_id: i64) {
+        self.users.push(user_id);
+    }
+
+    async fn finish<T>(mut self, outcome: Result<T, Box<dyn std::any::Any + Send>>) -> T {
+        let errors = self.release().await;
+        match outcome {
+            Ok(value) => {
+                assert!(
+                    errors.is_empty(),
+                    "admission teardown failed: {}",
+                    errors.join("; ")
+                );
+                value
+            }
+            Err(payload) => {
+                if !errors.is_empty() {
+                    eprintln!("admission teardown also failed: {}", errors.join("; "));
+                }
+                std::panic::resume_unwind(payload)
+            }
+        }
+    }
+
+    async fn release(&mut self) -> Vec<String> {
+        let mut errors = Vec::new();
+        for item in std::mem::take(&mut self.claims) {
+            let sealed = std::panic::AssertUnwindSafe(seal_test_execution(self.db, &item))
+                .catch_unwind()
+                .await;
+            match sealed {
+                Ok(()) => {}
+                Err(payload) => {
+                    let detail = payload
+                        .downcast_ref::<String>()
+                        .cloned()
+                        .or_else(|| {
+                            payload
+                                .downcast_ref::<&str>()
+                                .map(|text| (*text).to_owned())
+                        })
+                        .unwrap_or_else(|| "non-string panic".to_owned());
+                    errors.push(format!(
+                        "seal grant task_id={} item_id={} panicked: {detail}",
+                        item.task_id, item.id
+                    ));
+                }
+            }
+        }
+        for task_id in std::mem::take(&mut self.tasks) {
+            if let Err(error) = try_delete_task(self.db, task_id).await {
+                errors.push(error);
+            }
+        }
+        for user_id in std::mem::take(&mut self.users) {
+            if let Err(error) = try_delete_user(self.db, user_id).await {
+                errors.push(error);
+            }
+        }
+        if let Err(error) = self.restore_policy().await {
+            errors.push(error);
+        }
+        errors
+    }
+
+    async fn restore_policy(&self) -> Result<(), String> {
+        self.db
+            .execution_queue()
+            .await
+            .map_err(|error| format!("load the execution queue: {error}"))?
+            .set_policy(self.previous_policy)
+            .await
+            .map_err(|error| format!("restore the captured queue policy: {error}"))
+    }
+}
+
+async fn try_delete_task(db: &Database, task_id: Uuid) -> Result<(), String> {
     sqlx::query_file!(
-        "tests/sql/task_execution/make_parent_attempt_due.sql",
+        "tests/sql/task_execution/delete_task_items_by_task.sql",
         task_id
     )
     .execute(db.pool())
     .await
-    .expect("make task due");
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn parent_capacity_blocks_the_next_parent_and_claims_one_item_per_parent() {
-    let db = connect().await;
-    let _guard = ADMISSION_LOCK.lock().await;
-    let user_id = seed_test_user(&db).await;
-    let (task_a, items_a) =
-        seed_task(&db, user_id, &[json!({"external_id": "a"})], "capacity-a").await;
-    let (task_b, items_b) =
-        seed_task(&db, user_id, &[json!({"external_id": "b"})], "capacity-b").await;
-    let (task_c, items_c) =
-        seed_task(&db, user_id, &[json!({"external_id": "c"})], "capacity-c").await;
-
-    let held_before = held_parent_leases(&db).await;
-    assert_eq!(
-        held_before, 0,
-        "the parent admission suite expects an idle scratch database"
-    );
-
-    // Capacity 2 across three pending parents: the two oldest are admitted.
-    let claimed = db.claim_items(2).await.expect("claim with capacity 2");
-    let claimed_ids = claimed.iter().map(|item| item.id).collect::<Vec<_>>();
-    let claimed_tasks = claimed.iter().map(|item| item.task_id).collect::<Vec<_>>();
-    assert_eq!(
-        claimed.len(),
-        2,
-        "capacity 2 must admit exactly two parents, not two items of one parent"
-    );
-    assert_eq!(
-        claimed_tasks
-            .iter()
-            .collect::<std::collections::HashSet<_>>()
-            .len(),
-        2,
-        "each admitted parent claims exactly one item"
-    );
-    assert!(claimed_tasks.contains(&task_a) && claimed_tasks.contains(&task_b));
-    assert!(
-        !claimed_ids.contains(&items_c[0]),
-        "the third parent must not start any work while both slots are held"
-    );
-
-    let third = parent_lease(&db, task_c).await;
-    assert!(
-        third.0.is_none() && third.1.is_none(),
-        "the blocked parent must not hold an admission lease"
-    );
-    assert_eq!(
-        item_status(&db, items_c[0]).await,
-        "queued",
-        "the blocked parent's item must stay queued"
-    );
-    let third_status: String =
-        sqlx::query_file_scalar!("tests/sql/task_execution/read_parent_status.sql", task_c)
-            .fetch_one(db.pool())
-            .await
-            .expect("load blocked task status");
-    assert_eq!(
-        third_status, "queued",
-        "the blocked parent must not be pre-activated"
-    );
-
-    for (task_id, expect_lease) in [(task_a, true), (task_b, true)] {
-        let (token, until) = parent_lease(&db, task_id).await;
-        assert_eq!(
-            token.is_some(),
-            expect_lease,
-            "an admitted parent must hold a durable slot lease"
-        );
-        assert!(
-            until.map(|until| until > Utc::now()).unwrap_or(false),
-            "an admitted parent's slot lease must be live"
-        );
-    }
-
-    // Both slots are still held, so a further claim admits nobody: the third
-    // parent stays blocked and the in-flight parents keep their items running.
-    let extra = db.claim_items(2).await.expect("claim while full");
-    assert!(
-        extra.iter().all(|item| item.task_id != task_c),
-        "a full capacity must not admit the next parent"
-    );
-    assert_eq!(held_parent_leases(&db).await, 2);
-    assert!(items_a.len() == 1 && items_b.len() == 1);
-
-    cleanup(&db, &[task_a, task_b, task_c], user_id).await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn admitted_parent_keeps_its_slot_through_a_retry_wait() {
-    let db = connect().await;
-    let _guard = ADMISSION_LOCK.lock().await;
-    let user_id = seed_test_user(&db).await;
-    let (task_a, items_a) = seed_task(
-        &db,
-        user_id,
-        &[json!({"external_id": "a0"}), json!({"external_id": "a1"})],
-        "retry-slot-a",
-    )
-    .await;
-    let (task_b, items_b) =
-        seed_task(&db, user_id, &[json!({"external_id": "b"})], "retry-slot-b").await;
-    assert_eq!(
-        held_parent_leases(&db).await,
-        0,
-        "the parent admission suite expects an idle scratch database"
-    );
-
-    let first = db
-        .claim_items(1)
-        .await
-        .expect("claim with capacity 1")
-        .into_iter()
-        .find(|item| item.task_id == task_a)
-        .expect("the oldest parent must be admitted first");
-    assert_eq!(
-        first.id, items_a[0],
-        "the first item of the admitted parent is claimed"
-    );
-    let (token_before, until_before) = parent_lease(&db, task_a).await;
-    let token_before = token_before.expect("admitted parent holds a lease");
-    let until_before = until_before.expect("admitted parent holds a lease");
-    assert_eq!(
-        item_status(&db, items_a[1]).await,
-        "queued",
-        "a second item of the same parent must not share the first claim"
-    );
-
-    // Park the running item on a retryable wait. The parent keeps its slot.
-    assert!(
-        db.wait_task_item(WaitTaskItemRequest {
-            task_id: task_a,
-            item_id: items_a[0],
-            execution: first
-                .execution_context()
-                .expect("the claimed item carries its captured execution"),
-            waiting_reason: "backoff",
-            dependency_key: None,
-            next_attempt_at: Utc::now() + Duration::seconds(60),
-            error_message: Some("transient"),
-        })
-        .await
-        .expect("park item"),
-        "parking the running item must succeed"
-    );
-    let (token_waiting, until_waiting) = parent_lease(&db, task_a).await;
-    assert_eq!(
-        token_waiting,
-        Some(token_before),
-        "a retry wait must not release the parent slot"
-    );
-    assert_eq!(
-        until_waiting,
-        Some(until_before),
-        "a retry wait must not shorten the parent lease"
-    );
-    assert!(
-        !db.claim_items(1)
-            .await
-            .expect("claim while the parent waits")
-            .iter()
-            .any(|item| item.task_id == task_b),
-        "a waiting parent must not yield its slot to the next parent"
-    );
-
-    // The due retry resumes inside the same slot: the parked item is claimed
-    // again with a fresh item lease while the parent keeps its slot lease.
-    make_due(&db, task_a, items_a[0]).await;
-    let resumed = db
-        .claim_items(1)
-        .await
-        .expect("claim the due retry")
-        .into_iter()
-        .find(|item| item.task_id == task_a)
-        .expect("a due retry of the admitted parent must be claimed");
-    assert_eq!(
-        resumed.id, items_a[0],
-        "the retry resumes the parked item of the admitted parent"
-    );
-    assert_ne!(
-        resumed.lease_token, first.lease_token,
-        "a retry must mint a fresh item lease"
-    );
-    let (token_after_retry, _) = parent_lease(&db, task_a).await;
-    assert_eq!(
-        token_after_retry,
-        Some(token_before),
-        "resuming a retry must keep the same parent slot lease"
-    );
-
-    // Finishing that item advances the parent to its next item without ever
-    // taking a second slot.
-    assert!(
-        db.finish_task_item(FinishTaskItemRequest {
-            task_id: task_a,
-            item_id: items_a[0],
-            status: "succeeded",
-            resource_id: None,
-            failure_stage: None,
-            error_message: None,
-            retryable: true,
-            execution: resumed
-                .execution_context()
-                .expect("the claimed item carries its captured execution"),
-            attempt_id: resumed.attempt_id,
-        })
-        .await
-        .expect("finish first item"),
-        "finishing with the current lease token must succeed"
-    );
-    let advanced_items = db.claim_items(1).await.expect("claim the next item");
-    let advanced = advanced_items
-        .into_iter()
-        .find(|item| item.task_id == task_a)
-        .expect("the admitted parent must advance to its next item");
-    assert_eq!(
-        advanced.id, items_a[1],
-        "the admitted parent advances to its next item, one at a time"
-    );
-    let (token_advanced, _) = parent_lease(&db, task_a).await;
-    assert_eq!(
-        token_advanced,
-        Some(token_before),
-        "advancing inside the parent must keep the same parent slot lease"
-    );
-    assert!(
-        !db.claim_items(1)
-            .await
-            .expect("claim after advancing")
-            .iter()
-            .any(|item| item.task_id == task_b),
-        "the second parent must still be blocked by the admitted parent"
-    );
-    let (_, second_lease) = parent_lease(&db, task_b).await;
-    assert!(second_lease.is_none(), "the blocked parent holds no slot");
-    assert_eq!(item_status(&db, items_b[0]).await, "queued");
-
-    // Terminal state releases the slot for the next parent.
-    assert!(
-        db.finish_task_item(FinishTaskItemRequest {
-            task_id: task_a,
-            item_id: items_a[1],
-            status: "succeeded",
-            resource_id: None,
-            failure_stage: None,
-            error_message: None,
-            retryable: true,
-            execution: advanced
-                .execution_context()
-                .expect("the claimed item carries its captured execution"),
-            attempt_id: advanced.attempt_id,
-        })
-        .await
-        .expect("finish second item"),
-        "finishing the last item must succeed"
-    );
-    let (finished_token, finished_until) = parent_lease(&db, task_a).await;
-    assert!(
-        finished_token.is_none() && finished_until.is_none(),
-        "a terminal parent must release its slot lease"
-    );
-    assert!(
-        db.claim_items(1)
-            .await
-            .expect("claim after the parent finished")
-            .iter()
-            .any(|item| item.task_id == task_b),
-        "the freed slot must admit the next parent"
-    );
-
-    cleanup(&db, &[task_a, task_b], user_id).await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn expired_parent_lease_frees_the_slot_for_the_next_parent() {
-    let db = connect().await;
-    let _guard = ADMISSION_LOCK.lock().await;
-    let user_id = seed_test_user(&db).await;
-    let (task_a, items_a) = seed_task(
-        &db,
-        user_id,
-        &[json!({"external_id": "a"})],
-        "expired-slot-a",
-    )
-    .await;
-    let (task_b, items_b) = seed_task(
-        &db,
-        user_id,
-        &[json!({"external_id": "b"})],
-        "expired-slot-b",
-    )
-    .await;
-    assert_eq!(
-        held_parent_leases(&db).await,
-        0,
-        "the parent admission suite expects an idle scratch database"
-    );
-
-    let admitted = db
-        .claim_items(1)
-        .await
-        .expect("claim with capacity 1")
-        .into_iter()
-        .find(|item| item.task_id == task_a)
-        .expect("the oldest parent must be admitted first");
-
-    // The crashed owner parks its item and leaves an expired parent lease.
-    assert!(
-        db.wait_task_item(WaitTaskItemRequest {
-            task_id: task_a,
-            item_id: items_a[0],
-            execution: admitted
-                .execution_context()
-                .expect("the claimed item carries its captured execution"),
-            waiting_reason: "dependency",
-            dependency_key: Some("docling"),
-            next_attempt_at: Utc::now() + Duration::hours(1),
-            error_message: None,
-        })
-        .await
-        .expect("park item"),
-        "parking the item must succeed"
-    );
-    sqlx::query_file!("tests/sql/task_execution/expire_parent_lease.sql", task_a)
+    .map_err(|error| format!("clean up task items: {error}"))?;
+    sqlx::query_file!("tests/sql/task_execution/delete_task_by_id.sql", task_id)
         .execute(db.pool())
         .await
-        .expect("expire parent lease");
+        .map_err(|error| format!("clean up task: {error}"))?;
+    Ok(())
+}
 
-    let claimed = db.claim_items(1).await.expect("reclaim the slot");
-    assert!(
-        claimed.iter().any(|item| item.task_id == task_b),
-        "an expired parent lease must free the slot for the next parent"
-    );
-    assert!(
-        claimed.iter().all(|item| item.task_id != task_a),
-        "a parent with no due work must not be re-admitted"
-    );
-    let (_, expired) = parent_lease(&db, task_a).await;
-    assert!(
-        expired.map(|until| until <= Utc::now()).unwrap_or(true),
-        "the parked parent must not hold a live slot lease"
-    );
-    assert_eq!(item_status(&db, items_b[0]).await, "running");
-
-    cleanup(&db, &[task_a, task_b], user_id).await;
+async fn try_delete_user(db: &Database, user_id: i64) -> Result<(), String> {
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_user_idempotency_keys.sql",
+        user_id
+    )
+    .execute(db.pool())
+    .await
+    .map_err(|error| format!("clean up idempotency keys: {error}"))?;
+    sqlx::query_file!("tests/sql/task_execution/delete_user.sql", user_id)
+        .execute(db.pool())
+        .await
+        .map_err(|error| format!("clean up user: {error}"))?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -497,242 +327,105 @@ async fn expired_parent_lease_frees_the_slot_for_the_next_parent() {
 async fn concurrent_admissions_do_not_oversell_the_parent_capacity() {
     let db = connect().await;
     let _guard = ADMISSION_LOCK.lock().await;
-    let user_id = seed_test_user(&db).await;
-    let mut task_ids = Vec::new();
-    for index in 0..3 {
-        let (task_id, _) = seed_task(
-            &db,
-            user_id,
-            &[json!({"external_id": format!("concurrent-{index}")})],
-            &format!("concurrent-{index}"),
-        )
-        .await;
-        task_ids.push(task_id);
-    }
-    assert_eq!(
-        held_parent_leases(&db).await,
-        0,
-        "the parent admission suite expects an idle scratch database"
-    );
-
-    // Eight concurrent admissions, as several replicas would run them. The
-    // advisory admission lock must serialize the capacity check so the total
-    // never exceeds the configured capacity.
-    let capacity = 2i64;
-    let mut claims = Vec::new();
-    for _ in 0..8 {
-        let db = db.clone();
-        claims.push(tokio::spawn(async move { db.claim_items(capacity).await }));
-    }
-    let mut admitted = std::collections::HashSet::new();
-    for claim in claims {
-        let items = claim.await.expect("join claim").expect("claim succeeds");
-        for item in items {
-            if task_ids.contains(&item.task_id) {
-                admitted.insert(item.task_id);
-            }
+    let mut scope = AdmissionScope::new(&db).await;
+    let outcome = std::panic::AssertUnwindSafe(async {
+        let user_id = seed_test_user(&db).await;
+        scope.track_user(user_id);
+        let mut seeded = Vec::new();
+        for index in 0..3 {
+            let (task_id, items) = seed_task(
+                &db,
+                user_id,
+                &[json!({"external_id": format!("concurrent-{index}")})],
+                &format!("concurrent-{index}"),
+            )
+            .await;
+            scope.track_task(task_id);
+            seeded.push((task_id, items));
         }
-    }
+        let fixture_tasks: Vec<Uuid> = seeded.iter().map(|(task_id, _)| *task_id).collect();
+        let fixture_items: Vec<Uuid> = seeded
+            .iter()
+            .flat_map(|(_, item_ids)| item_ids.iter().copied())
+            .collect();
 
-    assert!(
-        admitted.len() <= usize::try_from(capacity).unwrap(),
-        "concurrent admissions must never oversell the global parent capacity"
-    );
-    assert!(
-        !admitted.is_empty(),
-        "at least one of the queued parents must be admitted"
-    );
-    let held_after = held_parent_leases(&db).await;
-    assert!(
-        held_after <= capacity,
-        "the durable held-slot count must stay within the configured capacity"
-    );
-
-    cleanup(&db, &task_ids, user_id).await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn admission_candidate_without_a_claimed_item_never_takes_a_slot() {
-    let db = connect().await;
-    let _guard = ADMISSION_LOCK.lock().await;
-    let user_id = seed_test_user(&db).await;
-    let (task_id, items) = seed_task(
-        &db,
-        user_id,
-        &[json!({"external_id": "locked"})],
-        "slot-without-claim",
-    )
-    .await;
-    assert_eq!(held_parent_leases(&db).await, 0);
-
-    // Hold the item row in a second connection so the claim's
-    // `FOR UPDATE ... SKIP LOCKED` cannot take it while the parent is still an
-    // admission candidate. The parent is then the only candidate, so a parent
-    // UPDATE that ignored the claim would hand it the whole global capacity.
-    let mut blocker = db.pool().begin().await.expect("begin the item lock");
-    sqlx::query_file_scalar!("tests/sql/task_execution/lock_item_row.sql", items[0])
-        .fetch_one(&mut *blocker)
-        .await
-        .expect("lock the claimable item row");
-
-    let claimed = db
-        .claim_items_fast(1)
-        .await
-        .expect("fast claim while the item is locked");
-    assert!(
-        claimed.iter().all(|item| item.task_id != task_id),
-        "a locked item must not be claimed"
-    );
-    let (token, until) = parent_lease(&db, task_id).await;
-    assert!(
-        token.is_none() && until.is_none(),
-        "a parent must not hold a concurrency slot without a successfully claimed item"
-    );
-    assert_eq!(held_parent_leases(&db).await, 0);
-    let status: String =
-        sqlx::query_file_scalar!("tests/sql/task_execution/read_parent_status.sql", task_id)
-            .fetch_one(db.pool())
+        let capacity = 2;
+        db.apply_execution_queue_policy(capacity)
             .await
-            .expect("load task status");
-    assert_eq!(
-        status, "queued",
-        "an unclaimed parent must not be pre-activated"
-    );
-    blocker.rollback().await.expect("release the item lock");
+            .expect("set the global queue policy");
 
-    // The same parent is admitted as soon as its item can actually be claimed.
-    let claimed = db
-        .claim_items_fast(1)
-        .await
-        .expect("fast claim after the item is free");
-    assert!(
-        claimed.iter().any(|item| item.task_id == task_id),
-        "the parent must be admitted once its item is claimable"
-    );
-    let (token, until) = parent_lease(&db, task_id).await;
-    assert!(
-        token.is_some() && until.map(|until| until > Utc::now()).unwrap_or(false),
-        "a parent with a claimed item holds a live slot"
-    );
+        // Eight concurrent claimers, as several replicas would run them. The
+        // durable queue policy serializes the capacity check, so the total never
+        // exceeds it.
+        let mut claims = Vec::new();
+        for _ in 0..8 {
+            let db = db.clone();
+            claims.push(tokio::spawn(async move { db.claim_items().await }));
+        }
+        let mut admitted = Vec::new();
+        for claim in claims {
+            let items = claim.await.expect("join claim").expect("claim succeeds");
+            admitted.extend(scope.own_claims(items, &fixture_tasks, &fixture_items));
+        }
 
-    cleanup(&db, &[task_id], user_id).await;
-}
+        assert_eq!(
+            admitted.len(),
+            capacity,
+            "the global queue policy admits exactly its capacity, never more"
+        );
+        let admitted_tasks = admitted
+            .iter()
+            .map(|item| item.task_id)
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(
+            admitted_tasks.len(),
+            capacity,
+            "each admitted attempt belongs to a distinct parent"
+        );
 
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn maintenance_renews_and_revokes_parent_leases() {
-    let db = connect().await;
-    let _guard = ADMISSION_LOCK.lock().await;
-    let user_id = seed_test_user(&db).await;
-    let (task_id, _item_ids) = seed_task(
-        &db,
-        user_id,
-        &[json!({"external_id": "maintain"})],
-        "maintain-a",
-    )
+        // The queued work is untouched: it never started and holds no attempt.
+        let queued = seeded
+            .iter()
+            .find(|entry| !admitted_tasks.contains(&entry.0))
+            .expect("one seeded parent stays queued");
+        let (queued_task, queued_items) = queued;
+        assert_eq!(item_status(&db, queued_items[0]).await, "queued");
+        assert_eq!(
+            item_attempt_count(&db, queued_items[0]).await,
+            0,
+            "a capped claim never increments a queued item"
+        );
+        assert!(
+            parent_started_at(&db, *queued_task).await.is_none(),
+            "queued work has not started, so the parent has no start time"
+        );
+
+        // Releasing the admitted attempts admits the queued parent on the next
+        // claim; a merely nonempty result would not prove that.
+        for item in admitted {
+            finish(&db, item).await;
+        }
+        let after = scope.own_claims(
+            db.claim_items().await.expect("claim after release"),
+            &fixture_tasks,
+            &fixture_items,
+        );
+        let queued_claim = after
+            .iter()
+            .find(|item| item.task_id == *queued_task && item.id == queued_items[0])
+            .expect("the queued parent becomes claimable once capacity is released");
+        assert_eq!(queued_claim.attempt_count, 1, "the released slot admits it");
+        let admitted_queued = after
+            .into_iter()
+            .find(|item| item.task_id == *queued_task)
+            .expect("the queued claim is owned");
+        assert!(
+            parent_started_at(&db, *queued_task).await.is_some(),
+            "the first real claim stamps the parent start time"
+        );
+        finish(&db, admitted_queued).await;
+    })
+    .catch_unwind()
     .await;
-    assert_eq!(
-        held_parent_leases(&db).await,
-        0,
-        "the parent admission suite expects an idle scratch database"
-    );
-
-    let claimed = db
-        .claim_items(1)
-        .await
-        .expect("claim with capacity 1")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("fresh parent must be admitted");
-    let (token, _) = parent_lease(&db, task_id).await;
-    let token = token.expect("admitted parent holds a lease");
-
-    // A live worker item lease keeps the parent slot alive even when no claim
-    // runs (for example because the local worker pool is full).
-    sqlx::query_file!("tests/sql/task_execution/extend_parent_lease.sql", task_id)
-        .execute(db.pool())
-        .await
-        .expect("shorten parent lease");
-
-    let outcome = db
-        .maintain_claim_state()
-        .await
-        .expect("maintenance succeeds");
-    assert!(
-        outcome.renewed_parent_leases >= 1,
-        "a live worker item lease must renew its parent slot"
-    );
-    let (renewed_token, renewed_until) = parent_lease(&db, task_id).await;
-    assert_eq!(renewed_token, Some(token), "renewal keeps the slot token");
-    assert!(
-        renewed_until
-            .map(|until| until > Utc::now() + Duration::minutes(7))
-            .unwrap_or(false),
-        "renewal must extend the parent lease"
-    );
-
-    // The worker dies: once its item lease is expired, maintenance releases the
-    // parent slot instead of waiting out the full parent lease TTL.
-    // The worker crashes: the authoritative library attempt and its domain
-    // mirror expire together.
-    crash_holder(&db, &claimed).await;
-    let outcome = db
-        .maintain_claim_state()
-        .await
-        .expect("maintenance succeeds");
-    assert!(
-        outcome.revoked_parent_leases >= 1,
-        "an expired worker item lease must release its parent slot"
-    );
-    let (revoked_token, revoked_until) = parent_lease(&db, task_id).await;
-    assert!(
-        revoked_token.is_none() && revoked_until.is_none(),
-        "the released parent slot must not keep a lease"
-    );
-
-    // The slot is recoverable: the same parent is re-admitted and its item is
-    // reclaimed with a fresh attempt.
-    let reclaimed = db
-        .claim_items(1)
-        .await
-        .expect("reclaim after revocation")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("a revoked parent with a dead worker must be reclaimable");
-    assert_eq!(
-        reclaimed.attempt_count, 2,
-        "recovery must count a new attempt for the reclaimed item"
-    );
-    assert_ne!(
-        reclaimed.lease_token, claimed.lease_token,
-        "recovery must mint a fresh item lease"
-    );
-
-    cleanup(&db, &[task_id], user_id).await;
-}
-
-/// Crashes the worker that holds the item.
-///
-/// The authoritative lease is the library attempt: the crash expires that
-/// attempt, and the domain mirror of it expires with it. Backdating only the
-/// domain mirror would not be a library crash, and no takeover would be
-/// authorized by it.
-async fn crash_holder(db: &Database, item: &context69::db::ClaimedItem) {
-    {
-        let execution = item
-            .execution_context()
-            .expect("the claimed item carries its captured execution");
-        sqlx::query_file!(
-            "tests/sql/task_execution/expire_library_attempt_by_id.sql",
-            execution.attempt_id()
-        )
-        .execute(db.pool())
-        .await
-        .expect("expire the library attempt");
-        sqlx::query_file!("tests/sql/task_execution/expire_item_lease.sql", item.id)
-            .execute(db.pool())
-            .await
-            .expect("expire the domain mirror");
-    }
+    scope.finish(outcome).await;
 }

@@ -19,7 +19,7 @@ pub(crate) mod task_id;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use client::DoclingClient;
+pub(crate) use client::{DoclingClient, PreparedSubmission, SubmitFailure};
 pub(crate) use error::DoclingError;
 pub(crate) use models::{
     ConvertedDocument, InputFormat, OutputFormat, SubmitRequest, TaskStatus, TaskStatusObservation,

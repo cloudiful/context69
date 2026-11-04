@@ -18,6 +18,12 @@ pub(super) fn validate_scheduler_config(config: &SchedulerConfig) -> Result<()> 
     if config.max_concurrency == 0 {
         return Err(anyhow!("scheduler.max_concurrency must be greater than 0"));
     }
+    if config.max_concurrency > crate::contracts::settings::SCHEDULER_MAX_CONCURRENCY as usize {
+        return Err(anyhow!(
+            "scheduler.max_concurrency must not exceed {}",
+            crate::contracts::settings::SCHEDULER_MAX_CONCURRENCY
+        ));
+    }
     if config.execution_guard_ttl.as_secs() == 0 {
         return Err(anyhow!(
             "scheduler.execution_guard_ttl_secs must be greater than 0"
@@ -26,6 +32,16 @@ pub(super) fn validate_scheduler_config(config: &SchedulerConfig) -> Result<()> 
     if config.execution_guard_renew_interval.as_secs() == 0 {
         return Err(anyhow!(
             "scheduler.execution_guard_renew_interval_secs must be greater than 0"
+        ));
+    }
+    if !(crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN
+        ..=crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX)
+        .contains(&config.ingest_batches_per_segment)
+    {
+        return Err(anyhow!(
+            "scheduler.ingest_batches_per_segment must be between {} and {}",
+            crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MIN,
+            crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_MAX
         ));
     }
     if config.execution_guard_renew_interval >= config.execution_guard_ttl {
@@ -215,4 +231,46 @@ pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result
         return Err(anyhow!("secret_store.key_version must be greater than 0"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod ingest_quantum_tests {
+    use std::time::Duration;
+
+    use super::validate_scheduler_config;
+    use crate::config::SchedulerConfig;
+
+    fn scheduler(quantum: usize) -> SchedulerConfig {
+        SchedulerConfig {
+            interval: Duration::from_secs(300),
+            run_on_start: true,
+            max_concurrency: 1,
+            job_id: "context69-sync".to_string(),
+            valkey_url: None,
+            execution_guard_ttl: Duration::from_secs(60),
+            execution_guard_renew_interval: Duration::from_secs(20),
+            ingest_batches_per_segment: quantum,
+        }
+    }
+
+    #[test]
+    fn the_ingest_quantum_accepts_the_configured_bounds() {
+        assert!(validate_scheduler_config(&scheduler(1)).is_ok());
+        assert!(validate_scheduler_config(&scheduler(2)).is_ok());
+        assert!(validate_scheduler_config(&scheduler(64)).is_ok());
+    }
+
+    #[test]
+    fn the_ingest_quantum_refuses_values_outside_the_bounds() {
+        for invalid in [0usize, 65] {
+            let error = validate_scheduler_config(&scheduler(invalid))
+                .expect_err("an out-of-range quantum is refused");
+            assert!(
+                error
+                    .to_string()
+                    .contains("scheduler.ingest_batches_per_segment must be between"),
+                "{error}"
+            );
+        }
+    }
 }

@@ -152,16 +152,16 @@ fn health_probe_operations_are_registered_as_public_paths() {
 fn registry_is_sorted_unique_and_complete() {
     assert_eq!(
         OPERATIONS.len(),
-        141,
-        "registry must cover all 141 operations"
+        142,
+        "registry must cover all 142 operations"
     );
     let ids = operation_ids();
-    assert_eq!(ids.len(), 141);
+    assert_eq!(ids.len(), 142);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "OPERATIONS must be sorted by operation_id");
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 141, "operation ids must be unique");
+    assert_eq!(unique.len(), 142, "operation ids must be unique");
     for op in OPERATIONS {
         assert!(!op.id.is_empty());
         assert!(["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&op.method));
@@ -176,7 +176,7 @@ fn registry_is_sorted_unique_and_complete() {
 #[test]
 fn registry_matches_openapi_exactly_with_no_omission() {
     let openapi = openapi_operations();
-    assert_eq!(openapi.len(), 141, "OpenAPI must expose 141 operations");
+    assert_eq!(openapi.len(), 142, "OpenAPI must expose 142 operations");
     let registry: Vec<(String, String, String)> = OPERATIONS
         .iter()
         .map(|op| {
@@ -225,6 +225,88 @@ fn registry_matches_openapi_exactly_with_no_omission() {
     }
 }
 
+/// The schema name a request body exposes.
+///
+/// A direct `$ref` keeps its name. An optional body is emitted as an
+/// unambiguous nullable union of exactly one `null` variant and one `$ref`,
+/// which also names its schema. Any other variant mix keeps the existing
+/// inline marker instead of guessing at a first reference.
+fn request_schema_name(schema: &Value) -> String {
+    if let Some(reference) = schema.get("$ref").and_then(Value::as_str) {
+        return reference.rsplit('/').next().expect("ref").to_string();
+    }
+    let Some(variants) = schema.get("oneOf").and_then(Value::as_array) else {
+        return "inline-json".to_string();
+    };
+    if variants.len() != 2 {
+        return "inline-json".to_string();
+    }
+    let mut nullable = false;
+    let mut reference = None;
+    for variant in variants {
+        if variant.get("type").and_then(Value::as_str) == Some("null") {
+            nullable = true;
+        } else if let Some(found) = variant.get("$ref").and_then(Value::as_str) {
+            reference = Some(found.rsplit('/').next().expect("ref").to_string());
+        } else {
+            return "inline-json".to_string();
+        }
+    }
+    match reference {
+        Some(name) if nullable => name,
+        _ => "inline-json".to_string(),
+    }
+}
+
+#[test]
+fn request_schema_name_reads_only_direct_and_nullable_refs() {
+    assert_eq!(
+        request_schema_name(&json!({ "$ref": "#/components/schemas/TaskRetryRequest" })),
+        "TaskRetryRequest"
+    );
+    assert_eq!(
+        request_schema_name(&json!({
+            "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/components/schemas/TaskRerunRequest" }
+            ]
+        })),
+        "TaskRerunRequest"
+    );
+    assert_eq!(
+        request_schema_name(&json!({
+            "oneOf": [
+                { "$ref": "#/components/schemas/First" },
+                { "$ref": "#/components/schemas/Second" }
+            ]
+        })),
+        "inline-json",
+        "an ambiguous union never guesses a reference"
+    );
+    assert_eq!(
+        request_schema_name(&json!({
+            "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/components/schemas/Only" },
+                { "type": "string" }
+            ]
+        })),
+        "inline-json",
+        "a nullable reference must be the only other variant"
+    );
+    assert_eq!(
+        request_schema_name(&json!({ "type": "object" })),
+        "inline-json"
+    );
+    assert_eq!(
+        request_schema_name(&json!({
+            "oneOf": [{ "type": "null" }, { "type": "string" }]
+        })),
+        "inline-json",
+        "a non-reference variant stays inline"
+    );
+}
+
 #[test]
 fn registry_request_response_names_match_openapi_refs() {
     let document: Value = serde_json::from_str(OPENAPI_JSON).expect("openapi parses");
@@ -239,11 +321,7 @@ fn registry_request_response_names_match_openapi_refs() {
                     .expect("content");
                 if let Some(json) = content.get("application/json") {
                     let schema = json.get("schema").expect("schema");
-                    schema
-                        .get("$ref")
-                        .and_then(|v| v.as_str())
-                        .map(|r| r.rsplit('/').next().expect("ref").to_string())
-                        .unwrap_or_else(|| "inline-json".to_string())
+                    request_schema_name(schema)
                 } else if content.contains_key("multipart/form-data") {
                     "multipart-form".to_string()
                 } else {

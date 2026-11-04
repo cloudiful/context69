@@ -6487,6 +6487,24 @@
             }
           },
           {
+            "name": "group_path",
+            "in": "query",
+            "description": "Exact group path filter (issue 1172 P1): trimmed edges, blank means\nabsent, and it only narrows the existing authorization.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_key",
+            "in": "query",
+            "description": "Exact source key filter (issue 1172 P1), normalized like `group_path`.",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "kind",
             "in": "query",
             "required": false,
@@ -6611,6 +6629,44 @@
         }
       }
     },
+    "/v1/tasks/batch/get": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_get_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchGetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchGetResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/batch/rerun": {
       "post": {
         "tags": [],
@@ -6637,6 +6693,16 @@
             }
           },
           "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -6675,6 +6741,16 @@
             }
           },
           "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -6732,6 +6808,22 @@
         "parameters": [
           {
             "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "group_path",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "source_key",
             "in": "query",
             "required": false,
             "schema": {
@@ -7076,6 +7168,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TaskRerunRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "",
@@ -7184,6 +7292,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/TaskRetryRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "",
@@ -7482,6 +7606,7 @@
           "forbidden",
           "not_found",
           "conflict",
+          "docling_submission_uncertain",
           "payload_too_large",
           "unprocessable_entity",
           "rate_limited",
@@ -7754,6 +7879,13 @@
               "null"
             ]
           },
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact group path filter (issue 1172 P1): trimmed edges, blank means\nabsent, and it only narrows the existing authorization."
+          },
           "kind": {
             "oneOf": [
               {
@@ -7801,6 +7933,13 @@
                 "$ref": "#/components/schemas/SortDirection"
               }
             ]
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact source key filter (issue 1172 P1), normalized like `group_path`."
           },
           "stage": {
             "type": [
@@ -12283,6 +12422,12 @@
           "job_id"
         ],
         "properties": {
+          "ingest_batches_per_segment": {
+            "type": "integer",
+            "description": "How many ingest batches one task indexing segment commits before it\nyields. A missing older payload keeps the default of one.",
+            "default": 1,
+            "minimum": 0
+          },
           "interval_secs": {
             "type": "integer",
             "format": "int64",
@@ -12294,6 +12439,9 @@
           "max_concurrency": {
             "type": "integer",
             "minimum": 0
+          },
+          "resource_limits": {
+            "$ref": "#/components/schemas/SchedulerResourceLimits"
           },
           "run_on_start": {
             "type": "boolean"
@@ -12335,6 +12483,45 @@
           },
           "scheduler": {
             "$ref": "#/components/schemas/RuntimeSchedulerSettings"
+          }
+        }
+      },
+      "SchedulerResourceLimits": {
+        "type": "object",
+        "description": "Optional per-resource concurrency ceilings of the task execution queue.\n\nEach ceiling is an independent resource limit, not a second task class. An\nabsent value follows the global scheduler concurrency; the global cap always\nbounds every claim.",
+        "properties": {
+          "bulk": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "ingest": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "The shared ingest resource, not a fourth task class.",
+            "minimum": 0
+          },
+          "interactive": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          },
+          "maintenance": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -13212,6 +13399,71 @@
           }
         }
       },
+      "TaskBatchGetItem": {
+        "type": "object",
+        "description": "One ordered outcome of a batch task snapshot call.\n\n`task` is present exactly for [`TaskBatchGetOutcome::Found`] and absent for\n[`TaskBatchGetOutcome::NotFound`], so a not-found id never carries a body\nand no default can hide an inconsistent state.",
+        "required": [
+          "task_id",
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/TaskBatchGetOutcome"
+          },
+          "task": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskResponse"
+              }
+            ]
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TaskBatchGetOutcome": {
+        "type": "string",
+        "description": "The per-id result vocabulary of a batch task snapshot call.",
+        "enum": [
+          "found",
+          "not_found"
+        ]
+      },
+      "TaskBatchGetRequest": {
+        "type": "object",
+        "description": "One bounded, ordered batch task snapshot request (issue 1172 P1).\n\nThe ids must be non-empty, unique and at most [`TASK_BATCH_GET_MAX`]; a\nrequest outside those bounds is refused as a whole before any task is read,\nso a bad batch never produces a partial answer. This is the caller's durable\nlookup after a lost task-creation response, not a subscription.",
+        "required": [
+          "task_ids"
+        ],
+        "properties": {
+          "task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "TaskBatchGetResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskBatchGetItem"
+            }
+          }
+        }
+      },
       "TaskBatchRerunItem": {
         "type": "object",
         "description": "One ordered outcome of a batch source-rerun call.",
@@ -13274,6 +13526,10 @@
           "task_ids"
         ],
         "properties": {
+          "acknowledge_docling_duplicate_risk": {
+            "type": "boolean",
+            "description": "Explicit consent for every requested task's settled unknown Docling\nsubmission. An unacknowledged call refuses the whole batch."
+          },
           "task_ids": {
             "type": "array",
             "items": {
@@ -13358,6 +13614,10 @@
           "task_ids"
         ],
         "properties": {
+          "acknowledge_docling_duplicate_risk": {
+            "type": "boolean",
+            "description": "Explicit consent for every requested task's settled unknown Docling\nsubmission. An unacknowledged call refuses the whole batch."
+          },
           "task_ids": {
             "type": "array",
             "items": {
@@ -13455,6 +13715,17 @@
               "null"
             ]
           },
+          "docling_submission": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskDoclingSubmissionView",
+                "description": "The latest Docling submission history row of this item, if any.\n\nExposes only the state, the dispatch-attempted diagnostic and the two\ntimestamps: never the frozen identity, endpoint, remote id or error."
+              }
+            ]
+          },
           "error_message": {
             "type": [
               "string",
@@ -13537,7 +13808,7 @@
       },
       "TaskDiagnoseParent": {
         "type": "object",
-        "description": "Parent projection for `GET /v1/tasks/{task_id}/diagnose`.\n\nCarries the stored parent row plus the admission lease deadline. The lease\ntoken itself is never projected: it authorizes writes and has no diagnostic\nvalue.",
+        "description": "Parent projection for `GET /v1/tasks/{task_id}/diagnose`.\n\nCarries the stored parent row only. Execution capacity belongs to the\nlibrary attempt admission, so the parent holds no admission lease to project.",
         "required": [
           "task_id",
           "kind",
@@ -13556,6 +13827,10 @@
               "string",
               "null"
             ]
+          },
+          "docling_submission_uncertain": {
+            "type": "boolean",
+            "description": "`true` while any of the task's items owns an unacknowledged Docling\nsubmission. A risk indicator, not an executability promise."
           },
           "error_summary": {
             "type": [
@@ -13578,14 +13853,6 @@
           },
           "kind": {
             "$ref": "#/components/schemas/TaskKind"
-          },
-          "lease_expires_at": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "format": "date-time",
-            "description": "Deadline of the durable parent admission slot, absent when no slot is\nheld."
           },
           "next_attempt_at": {
             "type": [
@@ -13666,6 +13933,44 @@
           },
           "task": {
             "$ref": "#/components/schemas/TaskDiagnoseParent"
+          }
+        }
+      },
+      "TaskDoclingSubmissionState": {
+        "type": "string",
+        "description": "One Docling submission history state as an operator sees it.",
+        "enum": [
+          "submitting",
+          "submission_uncertain",
+          "superseded"
+        ]
+      },
+      "TaskDoclingSubmissionView": {
+        "type": "object",
+        "description": "Safe projection of one item's latest Docling submission history row.",
+        "required": [
+          "state",
+          "dispatch_attempted",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "dispatch_attempted": {
+            "type": "boolean",
+            "description": "Whether the prepared send was invoked. Diagnostic only: `false` never\nproves the dispatch was not sent."
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/TaskDoclingSubmissionState"
           }
         }
       },
@@ -13941,6 +14246,13 @@
               "null"
             ]
           },
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact group path filter (issue 1172 P1). Edges are trimmed and a blank\nvalue means no filter, unlike the fuzzy `query` search. It only narrows\nthe existing authorization, so a foreign group path matches nothing."
+          },
           "kind": {
             "oneOf": [
               {
@@ -13986,6 +14298,13 @@
                 "$ref": "#/components/schemas/SortDirection"
               }
             ]
+          },
+          "source_key": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Exact source key filter (issue 1172 P1), normalized like `group_path`."
           },
           "stage": {
             "type": [
@@ -14108,7 +14427,6 @@
           "dependency_waiting_parent_count",
           "parent_status_counts",
           "running_parent_without_running_item_count",
-          "lease_without_running_item_count",
           "open_attempt_count",
           "near_exhaustion_item_count",
           "parent_item_mismatch_count"
@@ -14126,25 +14444,10 @@
             "description": "Active parents whose `current` item is parked on a dependency gate.",
             "minimum": 0
           },
-          "lease_without_running_item_count": {
-            "type": "integer",
-            "format": "int64",
-            "description": "Parents holding a durable admission lease with no live item lease:\nthe slot is occupied but no worker owns the work.",
-            "minimum": 0
-          },
           "near_exhaustion_item_count": {
             "type": "integer",
             "format": "int64",
             "description": "Items at or one attempt below the five-attempt cap.",
-            "minimum": 0
-          },
-          "oldest_admitted_age_seconds": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "Age of the oldest admitted parent lease.",
             "minimum": 0
           },
           "open_attempt_count": {
@@ -14199,6 +14502,16 @@
           }
         }
       },
+      "TaskRerunRequest": {
+        "type": "object",
+        "description": "Optional body of `POST /v1/tasks/{task_id}/rerun`.\n\nAn absent body means no acknowledgement. The flag alone grants no ownership\nor status privilege; it only permits archiving a settled unknown submission\ninside the same transaction as the rerun the caller is already allowed to\nperform.",
+        "properties": {
+          "acknowledge_docling_duplicate_risk": {
+            "type": "boolean",
+            "description": "Explicit consent that a settled unknown Docling submission may be\narchived before its source is rerun."
+          }
+        }
+      },
       "TaskResponse": {
         "type": "object",
         "required": [
@@ -14228,6 +14541,10 @@
               "string",
               "null"
             ]
+          },
+          "docling_submission_uncertain": {
+            "type": "boolean",
+            "description": "`true` while the task owns an unacknowledged Docling submission\n(`submitting` or `submission_uncertain`). A risk indicator only: it never\npromises that an acknowledgement is currently executable."
           },
           "document_title": {
             "type": [
@@ -14322,6 +14639,16 @@
           }
         }
       },
+      "TaskRetryRequest": {
+        "type": "object",
+        "description": "Optional body of `POST /v1/tasks/{task_id}/retry`.\n\nAn absent body means no acknowledgement: an unacknowledged Docling\nsubmission keeps refusing the retry with the code-only conflict.",
+        "properties": {
+          "acknowledge_docling_duplicate_risk": {
+            "type": "boolean",
+            "description": "Explicit consent that a settled unknown Docling submission may be\narchived so the retry can reopen its waiting item."
+          }
+        }
+      },
       "TaskRetryResponse": {
         "type": "object",
         "required": [
@@ -14368,6 +14695,12 @@
               "null"
             ]
           },
+          "group_path": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "kind": {
             "oneOf": [
               {
@@ -14379,6 +14712,12 @@
             ]
           },
           "query": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_key": {
             "type": [
               "string",
               "null"

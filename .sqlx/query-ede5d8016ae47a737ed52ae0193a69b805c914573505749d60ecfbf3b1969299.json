@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Durably mark that the prepared dispatch is about to be invoked (issue 1172 P5A).\n--\n-- The flag is diagnostic evidence only: it never authorizes an automatic\n-- retry, because a set flag proves the send was invoked and a cleared flag\n-- does not prove it was not. The captured-execution guard and the\n-- `submitting` status are the only write authority.\n--\n-- `$1` job, `$2` item, `$3` domain task, `$4` fencing token, `$5` library\n-- task and `$6` execution generation.\nWITH owned AS (\n    SELECT item.id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.task_id = $3\n      AND item.status = 'running'\n      AND item.lease_token = $4\n      AND item.lease_until > clock_timestamp()\n      AND item.execution_task_id = $5\n      AND item.execution_generation = $6\n)\nUPDATE context69.task_docling_remote_jobs AS job\nSET dispatch_attempted = true,\n    updated_at = clock_timestamp()\nWHERE job.id = $1\n  AND job.item_id = $2\n  AND job.status = 'submitting'\n  AND EXISTS (SELECT 1 FROM owned)\nRETURNING job.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ede5d8016ae47a737ed52ae0193a69b805c914573505749d60ecfbf3b1969299"
+}

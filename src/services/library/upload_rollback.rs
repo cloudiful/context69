@@ -583,7 +583,7 @@ mod task_compensation {
     }
 
     async fn claim(db: &Database, item_id: Uuid) -> crate::db::ClaimedItem {
-        db.claim_items_fast(50)
+        db.claim_items_fast()
             .await
             .expect("claim the item")
             .into_iter()
@@ -633,6 +633,15 @@ mod task_compensation {
     }
 
     async fn cleanup(db: &Database, group_id: i64, task_id: Uuid, item_ids: &[Uuid]) {
+        let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+            db.pool(),
+            context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+        )
+        .await
+        .expect("settle the fixture's linked executions before deleting its rows");
+        if report.has_expired_skips() {
+            eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+        }
         for id in item_ids {
             sqlx::query_file!("tests/sql/task_execution/delete_task_item_by_id.sql", id)
                 .execute(db.pool())

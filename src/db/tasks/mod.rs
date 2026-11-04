@@ -26,13 +26,19 @@ pub use artifact_backfill::{
     RestoreTaskItemArtifactInlineRequest,
 };
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
-pub use docling_remote_jobs::StoredDoclingRemoteJob;
+pub use docling_remote_jobs::{
+    DoclingRiskAck, DoclingSubmissionFence, DoclingSubmissionIntent, DoclingSubmissionOutcome,
+    LockedDoclingUncertainty, ParkSubmissionUncertainRequest, StoredDoclingRemoteJob,
+    StoredDoclingSubmissionView, UnresolvedDoclingSubmission,
+};
 pub use execution::{ExecutionContext, SegmentPayload};
 pub use types::{
     AttachTaskItemArtifactRequest, ClaimMaintenanceOutcome, ClaimedItem,
-    CreateTaskSubmissionRequest, FinishTaskItemRequest, StoredTask, StoredTaskAttempt,
-    StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef,
-    TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter, WaitTaskItemRequest,
+    CreateTaskSubmissionRequest, DoclingProbeOutcome, DoclingProbeUpdate, FailTaskItemOutcome,
+    FailTaskItemRequest, FinishTaskItemRequest, StoredTask, StoredTaskAttempt, StoredTaskItem,
+    TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef,
+    TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,
+    TimeoutDoclingProbeRequest, WaitTaskItemRequest,
 };
 
 /// Every item of the collapsed pipeline (issue 529 Task 4) is created in the

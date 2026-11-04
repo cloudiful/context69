@@ -7,6 +7,8 @@
 
 pub mod accessor;
 pub mod config;
+pub mod execution_cleanup;
+pub mod library_policy;
 pub mod runner;
 
 /// Environment variable an operator may set to select the test database

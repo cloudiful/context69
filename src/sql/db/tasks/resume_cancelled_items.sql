@@ -49,7 +49,7 @@ WITH RECURSIVE inherited_groups AS (
         END,
         status = 'queued',
         stage = 'processing',
-        attempt_count = 0,
+        execution_failure_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

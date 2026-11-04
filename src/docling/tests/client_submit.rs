@@ -491,3 +491,122 @@ async fn a_selected_ocr_preset_is_sent_verbatim() {
     );
     assert_eq!(field_count(body, "ocr_preset"), 1);
 }
+
+/// Preparing a submission builds the request but hands nothing to the
+/// transport: the local service records no request until `send` is invoked.
+#[tokio::test]
+async fn a_prepared_submission_sends_nothing_until_it_is_sent() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "application/pdf",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+
+    let prepared = client.prepare_submission(&request).expect("prepare");
+    assert!(
+        requests(&recorded).is_empty(),
+        "preparation must not dispatch the submission"
+    );
+
+    let task_id = prepared.send().await.expect("send");
+    assert_eq!(task_id, "task-1");
+    assert_eq!(requests(&recorded).len(), 1);
+}
+
+/// A request that cannot be built is a preparation failure: it is reported
+/// before any dispatch is invoked, so the service sees no request at all.
+#[tokio::test]
+async fn a_preparation_failure_never_reaches_the_service() {
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task-1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "not a media type",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+
+    match client.prepare_submission(&request) {
+        Ok(_) => panic!("an invalid media type must fail during preparation"),
+        Err(crate::docling::SubmitFailure::Preparation(DoclingError::Validation {
+            parameter,
+            ..
+        })) => assert_eq!(parameter, "file"),
+        Err(other) => panic!("unexpected preparation failure: {other:?}"),
+    }
+    assert!(
+        requests(&recorded).is_empty(),
+        "a preparation failure never dispatches"
+    );
+}
+
+/// Every failure after `.send()` is dispatch-attempted, including a
+/// transport error and a malformed acknowledgement.
+#[tokio::test]
+async fn every_failure_after_dispatch_is_dispatch_attempted() {
+    use crate::docling::SubmitFailure;
+
+    let recorded: Recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let base = serve(submit_router(recorded.clone(), "task 1").await).await;
+    let client = DoclingClient::new(&settings(&base)).expect("client");
+    let bytes = bytes::Bytes::from_static(b"fake pdf");
+    let request = submission(
+        "test.pdf",
+        "application/pdf",
+        &bytes,
+        InputFormat::Pdf,
+        &[OutputFormat::Md],
+        None,
+        None,
+        OCR_PRESET,
+    );
+    let failure = client
+        .prepare_submission(&request)
+        .expect("prepare")
+        .send()
+        .await
+        .expect_err("a spaced id is rejected");
+    assert!(
+        failure.is_dispatch_attempted(),
+        "a malformed acknowledgement is dispatch-attempted"
+    );
+    assert!(matches!(failure, SubmitFailure::DispatchAttempted(_)));
+    assert_eq!(requests(&recorded).len(), 1);
+
+    let closed = {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind a closed port");
+        listener.local_addr().expect("closed address")
+    };
+    let unreachable = DoclingClient::new(&settings(&format!("http://{closed}"))).expect("client");
+    let failure = unreachable
+        .prepare_submission(&request)
+        .expect("prepare")
+        .send()
+        .await
+        .expect_err("an unreachable service fails the dispatch");
+    assert!(
+        failure.is_dispatch_attempted(),
+        "a transport failure is dispatch-attempted"
+    );
+    assert!(matches!(
+        failure,
+        SubmitFailure::DispatchAttempted(DoclingError::Transport { .. })
+    ));
+}

@@ -22,10 +22,16 @@
 #[path = "vector_registry_barrier/support.rs"]
 mod support;
 
+use std::panic::AssertUnwindSafe;
+
 use context69::db::{
     AdmissionOutcome, RebuildBarrierState, RebuildRefusalReason, RebuildStartOutcome,
     RegistryQuotaOverride,
 };
+use context69_test_support::library_policy::{
+    LibraryPolicyBaseline, finish_fixture, panic_message,
+};
+use futures::FutureExt;
 use uuid::Uuid;
 
 use support::{
@@ -694,143 +700,158 @@ async fn the_settings_save_refuses_an_identity_change_a_rebuild_or_a_staged_run_
     let db = connect().await;
     reset_barrier(&db).await;
     clear_registry_entries(&db).await;
-    seed_runtime_settings(
-        &db,
-        "http://qdrant.example:6333",
-        COLLECTION,
-        "https://embeddings.example/v1",
-        "model-a",
-        8,
-    )
+    let queue = db
+        .execution_queue()
+        .await
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
+        .await
+        .expect("capture the execution policy baseline");
+
+    let outcome = AssertUnwindSafe(async {
+        seed_runtime_settings(
+            &db,
+            "http://qdrant.example:6333",
+            COLLECTION,
+            "https://embeddings.example/v1",
+            "model-a",
+            8,
+        )
+        .await;
+
+        let stored = db
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings")
+            .expect("the runtime settings exist");
+
+        // A credential or timeout change does not move the vector space, so it is
+        // never blocked by a rebuild or by a staged run.
+        let mut credential_only = stored.clone();
+        credential_only.embedding.timeout_secs = 42;
+        db.save_runtime_settings(&credential_only)
+            .await
+            .expect("a credential-only save is never blocked");
+
+        // An identity change is refused while an unresolved run holds staged
+        // points.
+        let entry = registry_entry(Uuid::new_v4());
+        let mut tx = db.pool().begin().await.expect("begin admission");
+        let admitted = db
+            .admit_search_registry_entry_checked_in(
+                &entry,
+                Some(&identity(
+                    &fingerprint(
+                        "http://qdrant.example:6333",
+                        COLLECTION,
+                        "https://embeddings.example/v1",
+                        "model-a",
+                        8,
+                    ),
+                    COLLECTION,
+                )),
+                0,
+                RegistryQuotaOverride::exact([1000, 1000, 1000]),
+                &mut tx,
+            )
+            .await
+            .expect("admit the staging entry");
+        assert!(matches!(admitted, AdmissionOutcome::Admitted(_)));
+        tx.commit().await.expect("commit the admission");
+
+        let mut changed = stored.clone();
+        changed.embedding.model = "model-b".to_string();
+        assert!(
+            db.save_runtime_settings(&changed).await.is_err(),
+            "a staged run refuses an identity change"
+        );
+
+        // The stored configuration is untouched by the refused save.
+        let after = db
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings")
+            .expect("the runtime settings exist");
+        assert_eq!(
+            after.embedding.model, stored.embedding.model,
+            "the refused save changed nothing"
+        );
+
+        // Once the run resolved, the same change is allowed.
+        let mut tx = db.pool().begin().await.expect("begin transition");
+        db.transition_search_registry_entry_in(entry.run_id, "staging", "retired", None, &mut tx)
+            .await
+            .expect("retire the staging entry");
+        tx.commit().await.expect("commit the transition");
+        let (stale_owner, stale_token) = seed_task_item(&db, "running").await;
+        let mut rebuild_tx = db.pool().begin().await.expect("begin the stale rebuild");
+        let captured = db
+            .read_persisted_vector_identity_in(&mut rebuild_tx)
+            .await
+            .expect("read the identity the rebuild captured")
+            .expect("the identity exists");
+        db.save_runtime_settings(&changed)
+            .await
+            .expect("the identity change is allowed once no run holds staged points");
+        // The authoritative begin reads the persisted identity after it takes the
+        // epoch lock, so the commit above must be visible as a changed identity.
+        let stale_start = db
+            .begin_rebuild_checked_in(
+                &mut rebuild_tx,
+                stale_owner,
+                stale_token,
+                &captured.embedding_fingerprint,
+                &captured.collection_name,
+            )
+            .await
+            .expect("attempt admission after the intervening settings commit");
+        rebuild_tx
+            .rollback()
+            .await
+            .expect("leave the barrier unchanged");
+        assert!(
+            matches!(stale_start, RebuildStartOutcome::Refused(_)),
+            "a settings commit between the service identity read and the epoch lock must refuse the stale rebuild: {stale_start:?}"
+        );
+
+        // A destination change is refused while a rebuild owns the barrier.
+        let (owner, owner_token) = seed_task_item(&db, "running").await;
+        let mut tx = db.pool().begin().await.expect("begin rebuild");
+        db.begin_rebuild_in(&mut tx, owner, owner_token, FINGERPRINT, COLLECTION)
+            .await
+            .expect("start the rebuild");
+        tx.commit().await.expect("commit the rebuild start");
+        let mut destination = changed.clone();
+        destination.qdrant.collection_name = "another-collection".to_string();
+        assert!(
+            db.save_runtime_settings(&destination).await.is_err(),
+            "a running rebuild refuses a destination change"
+        );
+
+        // A failed rebuild keeps the barrier closed as well.
+        let mut tx = db.pool().begin().await.expect("begin failure");
+        db.fail_rebuild_in(&mut tx, owner, Uuid::new_v4(), "the rebuild failed")
+            .await
+            .expect("record the failure");
+        tx.commit().await.expect("commit the failure");
+        assert!(
+            db.save_runtime_settings(&destination).await.is_err(),
+            "a failed rebuild refuses a destination change"
+        );
+    })
+    .catch_unwind()
     .await;
 
-    let stored = db
-        .get_runtime_settings()
-        .await
-        .expect("read the runtime settings")
-        .expect("the runtime settings exist");
-
-    // A credential or timeout change does not move the vector space, so it is
-    // never blocked by a rebuild or by a staged run.
-    let mut credential_only = stored.clone();
-    credential_only.embedding.timeout_secs = 42;
-    db.save_runtime_settings(&credential_only)
-        .await
-        .expect("a credential-only save is never blocked");
-
-    // An identity change is refused while an unresolved run holds staged
-    // points.
-    let entry = registry_entry(Uuid::new_v4());
-    let mut tx = db.pool().begin().await.expect("begin admission");
-    let admitted = db
-        .admit_search_registry_entry_checked_in(
-            &entry,
-            Some(&identity(
-                &fingerprint(
-                    "http://qdrant.example:6333",
-                    COLLECTION,
-                    "https://embeddings.example/v1",
-                    "model-a",
-                    8,
-                ),
-                COLLECTION,
-            )),
-            0,
-            RegistryQuotaOverride::exact([1000, 1000, 1000]),
-            &mut tx,
-        )
-        .await
-        .expect("admit the staging entry");
-    assert!(matches!(admitted, AdmissionOutcome::Admitted(_)));
-    tx.commit().await.expect("commit the admission");
-
-    let mut changed = stored.clone();
-    changed.embedding.model = "model-b".to_string();
-    assert!(
-        db.save_runtime_settings(&changed).await.is_err(),
-        "a staged run refuses an identity change"
-    );
-
-    // The stored configuration is untouched by the refused save.
-    let after = db
-        .get_runtime_settings()
-        .await
-        .expect("read the runtime settings")
-        .expect("the runtime settings exist");
-    assert_eq!(
-        after.embedding.model, stored.embedding.model,
-        "the refused save changed nothing"
-    );
-
-    // Once the run resolved, the same change is allowed.
-    let mut tx = db.pool().begin().await.expect("begin transition");
-    db.transition_search_registry_entry_in(entry.run_id, "staging", "retired", None, &mut tx)
-        .await
-        .expect("retire the staging entry");
-    tx.commit().await.expect("commit the transition");
-    let (stale_owner, stale_token) = seed_task_item(&db, "running").await;
-    let mut rebuild_tx = db.pool().begin().await.expect("begin the stale rebuild");
-    let captured = db
-        .read_persisted_vector_identity_in(&mut rebuild_tx)
-        .await
-        .expect("read the identity the rebuild captured")
-        .expect("the identity exists");
-    db.save_runtime_settings(&changed)
-        .await
-        .expect("the identity change is allowed once no run holds staged points");
-    // The authoritative begin reads the persisted identity after it takes the
-    // epoch lock, so the commit above must be visible as a changed identity.
-    let stale_start = db
-        .begin_rebuild_checked_in(
-            &mut rebuild_tx,
-            stale_owner,
-            stale_token,
-            &captured.embedding_fingerprint,
-            &captured.collection_name,
-        )
-        .await
-        .expect("attempt admission after the intervening settings commit");
-    rebuild_tx
-        .rollback()
-        .await
-        .expect("leave the barrier unchanged");
-    assert!(
-        matches!(stale_start, RebuildStartOutcome::Refused(_)),
-        "a settings commit between the service identity read and the epoch lock must refuse the stale rebuild: {stale_start:?}"
-    );
-
-    // A destination change is refused while a rebuild owns the barrier.
-    let (owner, owner_token) = seed_task_item(&db, "running").await;
-    let mut tx = db.pool().begin().await.expect("begin rebuild");
-    db.begin_rebuild_in(&mut tx, owner, owner_token, FINGERPRINT, COLLECTION)
-        .await
-        .expect("start the rebuild");
-    tx.commit().await.expect("commit the rebuild start");
-    let mut destination = changed.clone();
-    destination.qdrant.collection_name = "another-collection".to_string();
-    assert!(
-        db.save_runtime_settings(&destination).await.is_err(),
-        "a running rebuild refuses a destination change"
-    );
-
-    // A failed rebuild keeps the barrier closed as well.
-    let mut tx = db.pool().begin().await.expect("begin failure");
-    db.fail_rebuild_in(&mut tx, owner, Uuid::new_v4(), "the rebuild failed")
-        .await
-        .expect("record the failure");
-    tx.commit().await.expect("commit the failure");
-    assert!(
-        db.save_runtime_settings(&destination).await.is_err(),
-        "a failed rebuild refuses a destination change"
-    );
+    let cleanup = AssertUnwindSafe(async {
+        clear_runtime_settings(&db).await;
+    })
+    .catch_unwind()
+    .await;
+    let cleanup_error = cleanup.err().map(panic_message);
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, cleanup_error, restore);
 }
 
-/// The completion waits for the epoch before it writes the identity.
-///
-/// The canonical order is item, epoch, vector identity row, and the settings
-/// save takes the same order. A completion that wrote the identity row before
-/// it took the epoch could deadlock against a settings save that holds the
-/// epoch and waits for that row.
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn the_completion_waits_for_the_epoch_before_it_writes_the_identity() {

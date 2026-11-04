@@ -58,6 +58,15 @@ pub struct LibraryIngestRun {
     pub retired_at: Option<DateTime<Utc>>,
 }
 
+/// The bounded staging cursor and plan identity of one current run.
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::FromRow)]
+pub struct LibraryIngestRunStageProgress {
+    pub batch_id: Uuid,
+    pub generation: i64,
+    pub staged_batches_written: i64,
+    pub staged_plan_fingerprint: Option<String>,
+}
+
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct RunSectionRow {
     file_id: Uuid,
@@ -469,6 +478,62 @@ impl Database {
             .await?
             .map(TryInto::try_into)
             .transpose()
+    }
+
+    /// The current bounded staging cursor and plan identity of one item run.
+    ///
+    /// Only the non-retired current run is returned. A missing row is a
+    /// refusal for the atomic staging kernel, never an implicit zero.
+    pub async fn read_library_ingest_run_stage_progress(
+        &self,
+        item_id: Uuid,
+    ) -> Result<Option<LibraryIngestRunStageProgress>> {
+        Ok(sqlx::query_file_as!(
+            LibraryIngestRunStageProgress,
+            "src/sql/db/library_ingest_runs/read_stage_progress.sql",
+            item_id
+        )
+        .fetch_optional(self.pool())
+        .await?)
+    }
+
+    /// Advances the bounded staging cursor by exactly one verified batch.
+    ///
+    /// The write runs inside the captured item grant, rechecks the adopted run
+    /// and refuses a stale count or a different plan fingerprint. `false` means
+    /// the advance did not match exactly one row and the caller must fail
+    /// closed without switching.
+    pub async fn advance_library_ingest_run_stage_progress(
+        &self,
+        fence: TaskWriteFence,
+        run: &LibraryIngestRun,
+        expected_previous: i64,
+        plan_fingerprint: &str,
+    ) -> Result<bool> {
+        let mut write = crate::library_store::begin_task_write(self, fence).await?;
+        self.verify_current_library_ingest_run_in(&mut write, run)
+            .await?;
+        let next: Option<i64> = sqlx::query_file_scalar!(
+            "src/sql/db/library_ingest_runs/advance_stage_progress.sql",
+            fence.item_id(),
+            run.batch_id,
+            fence.token(),
+            fence.execution_task_id(),
+            fence.generation(),
+            plan_fingerprint,
+            expected_previous,
+        )
+        .fetch_optional(write.connection())
+        .await?;
+        if next.is_none() {
+            write.rollback().await;
+            return Ok(false);
+        }
+        ensure!(
+            write.commit().await?,
+            "the grant no longer authorizes the staging progress advance"
+        );
+        Ok(true)
     }
 
     /// Every run row of the item, oldest generation first.

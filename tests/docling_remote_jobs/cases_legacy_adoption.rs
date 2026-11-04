@@ -29,7 +29,7 @@ async fn item_state(
 /// lease adopts the retained remote identity.
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
+async fn recovery_leaves_a_legacy_park_for_its_own_probe() {
     let db = connect().await;
     let _guard = LOCK.lock().await;
     let user_id = seed_user(&db).await;
@@ -52,7 +52,7 @@ async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
         .await
         .expect("make waiting due");
     assert!(
-        !db.claim_items_fast(10)
+        !db.claim_items_fast()
             .await
             .expect("fast claim")
             .iter()
@@ -63,30 +63,22 @@ async fn dispatcher_excludes_legacy_park_until_recovery_adopts_it() {
         .reconcile_docling_remote_state()
         .await
         .expect("reconcile");
-    assert_eq!(summary.adopted_items, 1, "the legacy park is adopted");
+    assert_eq!(
+        summary.adopted_items, 0,
+        "recovery no longer requeues ordinary Docling parks"
+    );
     assert_eq!(summary.cancelled_remote_jobs, 0);
     let (status, reason, _) = item_state(&db, item_id).await;
-    assert_eq!(status, "queued");
-    assert_eq!(reason, None);
-    let retained = db
-        .get_active_docling_remote_job_for_item(item_id)
-        .await
-        .unwrap()
-        .unwrap();
+    assert_eq!(status, "waiting");
+    assert_eq!(reason.as_deref(), Some("docling"));
     assert!(
-        db.claim_items_fast(10)
+        db.claim_items_fast()
             .await
             .unwrap()
             .iter()
-            .any(|item| item.id == item_id)
+            .all(|item| item.id != item_id),
+        "a park without a captured endpoint stays unclaimable"
     );
-    let adopted = db
-        .get_active_docling_remote_job_for_item(item_id)
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(adopted.id, retained.id);
-    assert_eq!(adopted.remote_task_id, retained.remote_task_id);
     cleanup(&db, task_id, user_id).await;
 }
 
@@ -121,7 +113,7 @@ async fn dispatcher_never_claims_waiting_docling_items() {
         .await
         .expect("make waiting due");
     assert!(
-        !db.claim_items_fast(10)
+        !db.claim_items_fast()
             .await
             .expect("fast claim")
             .iter()

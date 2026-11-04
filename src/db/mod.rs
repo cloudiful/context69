@@ -63,15 +63,20 @@ pub use search_registry::{
     AdmissionOutcome, RebuildBarrier, RebuildBarrierState, RebuildRefusalReason,
     RebuildStartOutcome, RegistryVectorIdentity,
 };
+pub(crate) use tasks::execution::validate_execution_admission_policies;
 pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,
-    ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow, DoclingRecoverySummary,
-    ExecutionContext, FinishTaskItemRequest, RemainingArtifactReferences,
-    RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
-    StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
-    TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,
-    WaitTaskItemRequest,
+    ClaimedItem, CreateTaskSubmissionRequest, DoclingProbeOutcome, DoclingProbeUpdate,
+    DoclingRecoveryRow, DoclingRecoverySummary, DoclingRiskAck, DoclingSubmissionFence,
+    DoclingSubmissionIntent, DoclingSubmissionOutcome, ExecutionContext, FailTaskItemOutcome,
+    FailTaskItemRequest, FinishTaskItemRequest, LockedDoclingUncertainty,
+    ParkSubmissionUncertainRequest, RemainingArtifactReferences,
+    RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob,
+    StoredDoclingSubmissionView, StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow,
+    TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef, TaskItemArtifactRow,
+    TaskItemDiagnostic, TaskItemOrder, TaskListFilter, TimeoutDoclingProbeRequest,
+    UnresolvedDoclingSubmission, WaitTaskItemRequest,
 };
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
@@ -191,6 +196,8 @@ pub struct StoredRuntimeSchedulerSettings {
     pub max_concurrency: usize,
     pub job_id: String,
     pub valkey_url: Option<String>,
+    pub resource_limits: crate::contracts::settings::SchedulerResourceLimits,
+    pub ingest_batches_per_segment: usize,
 }
 
 #[derive(Debug, Clone)]

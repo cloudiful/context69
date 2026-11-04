@@ -10,6 +10,19 @@ use super::{TaskService, TaskSubmission};
 
 impl TaskService {
     pub async fn submit(&self, request: TaskSubmission) -> Result<TaskRef> {
+        // A present caller key is validated before any staging, database or
+        // provider work. The HTTP edge already applies the same rule; this
+        // keeps an internal caller from silently losing a key to trimming.
+        let key = match request.idempotency_key.as_deref() {
+            Some(value) => {
+                let key = value.trim();
+                context69_contracts::validate_task_idempotency_key(key).map_err(|error| {
+                    DomainError::invalid_argument(format!("invalid Idempotency-Key: {error}"))
+                })?;
+                Some(key)
+            }
+            None => None,
+        };
         if request.payloads.is_empty() {
             return Err(
                 DomainError::invalid_argument("a task must contain at least one item").into(),
@@ -81,11 +94,6 @@ impl TaskService {
                 return Err(error);
             }
         }
-        let key = request
-            .idempotency_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty());
         let task_id = Uuid::new_v4();
         let submission = self
             .db

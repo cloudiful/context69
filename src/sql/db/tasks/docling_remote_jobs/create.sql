@@ -27,6 +27,7 @@ RETURNING
     status,
     remote_status,
     attempt_count,
+    poll_step,
     next_poll_at,
     last_polled_at,
     deadline_at,
@@ -36,4 +37,9 @@ RETURNING
     last_error,
     created_at,
     updated_at,
-    finished_at
+    finished_at,
+    dispatch_attempted,
+    submission_execution_task_id,
+    submission_generation,
+    submission_identity,
+    clock_timestamp() AS "observed_at!"

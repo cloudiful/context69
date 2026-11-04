@@ -22,7 +22,6 @@ mod runner_cases {
     use anyhow::Result;
     use async_trait::async_trait;
     use qdrant_points_mock::QdrantPointsMock;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use uuid::Uuid;
 
@@ -75,6 +74,39 @@ mod runner_cases {
         }
     }
 
+    /// An embedder that fails exactly one batch call and counts every call.
+    struct FaultingEmbedding {
+        calls: AtomicUsize,
+        fail_on: usize,
+    }
+
+    impl FaultingEmbedding {
+        fn new(fail_on: usize) -> Self {
+            Self {
+                calls: AtomicUsize::new(0),
+                fail_on,
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for FaultingEmbedding {
+        async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+            let call = self.calls.fetch_add(1, Ordering::SeqCst) + 1;
+            if call == self.fail_on {
+                anyhow::bail!("transient embedding outage");
+            }
+            Ok(texts
+                .iter()
+                .map(|text| vec![text.len() as f32; DIMENSIONS])
+                .collect())
+        }
+    }
+
     /// One prepared runner input for a section.
     fn section_input(section_key: &str, external_id: &str, body: &str) -> ReplacementSectionInput {
         ReplacementSectionInput {
@@ -109,7 +141,7 @@ mod runner_cases {
 
     async fn run(
         fixture: &harness::SwitchFixture,
-        embedding: &FakeEmbedding,
+        embedding: &dyn EmbeddingProvider,
         mock: &QdrantPointsMock,
         caps: [i64; 3],
         sections: Vec<ReplacementSectionInput>,
@@ -119,7 +151,7 @@ mod runner_cases {
 
     async fn run_with_source(
         fixture: &harness::SwitchFixture,
-        embedding: &FakeEmbedding,
+        embedding: &dyn EmbeddingProvider,
         mock: &QdrantPointsMock,
         caps: [i64; 3],
         sections: Vec<ReplacementSectionInput>,
@@ -207,6 +239,160 @@ mod runner_cases {
         .execute(fixture.db.pool())
         .await
         .unwrap();
+    }
+
+    /// The direct non-task complete API still writes every batch and switches
+    /// in one call, without a finite turn.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn an_unbounded_complete_call_writes_every_batch_in_one_turn() {
+        let fixture = harness::SwitchFixture::new().await;
+        let mock = QdrantPointsMock::start().await;
+        let embedding = FakeEmbedding::new(0);
+        let sections = vec![
+            section_input("one", "one-external", "first body"),
+            section_input("two", "two-external", "second body"),
+            section_input("three", "three-external", "third body"),
+        ];
+        let outcome = run(&fixture, &embedding, &mock, [1000, 1000, 1000], sections)
+            .await
+            .expect("the unbounded call completes");
+        assert_eq!(outcome.disposition, ReplacementRunDisposition::Switched);
+        assert_eq!(outcome.document_ids.len(), 3);
+        assert_eq!(
+            mock.upsert_calls().len(),
+            3,
+            "one insert-only upsert per batch in the same call"
+        );
+    }
+
+    fn three_sections() -> Vec<ReplacementSectionInput> {
+        vec![
+            section_input("one", "one-external", "first body"),
+            section_input("two", "two-external", "second body"),
+            section_input("three", "three-external", "third body"),
+        ]
+    }
+
+    /// A failed later batch leaves the durable cursor and the old canonical
+    /// facts intact; the resume embeds only the failed batch and its suffix.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_failed_batch_resumes_only_the_uncommitted_suffix() {
+        let fixture = harness::SwitchFixture::new().await;
+        let mock = QdrantPointsMock::start().await;
+        let sections = three_sections();
+        let old = fixture.file_record().await;
+        let failing = FaultingEmbedding::new(2);
+        let error = run(
+            &fixture,
+            &failing,
+            &mock,
+            [1000, 1000, 1000],
+            sections.clone(),
+        )
+        .await
+        .expect_err("the second batch fails");
+        assert!(error.to_string().contains("transient embedding outage"));
+        let progress = fixture
+            .db
+            .read_library_ingest_run_stage_progress(fixture.item_id)
+            .await
+            .expect("read the staging progress")
+            .expect("the staging progress exists");
+        assert_eq!(progress.staged_batches_written, 1);
+        let unchanged = fixture.file_record().await;
+        assert_eq!(unchanged.sha256, old.sha256, "the old facts remain");
+        assert_eq!(unchanged.size_bytes, old.size_bytes);
+
+        let good = FaultingEmbedding::new(usize::MAX);
+        let outcome = run(&fixture, &good, &mock, [1000, 1000, 1000], sections)
+            .await
+            .expect("the resume completes");
+        assert_eq!(outcome.disposition, ReplacementRunDisposition::Switched);
+        assert_eq!(
+            good.calls(),
+            2,
+            "only the failed batch and its suffix are embedded"
+        );
+        assert_eq!(mock.upsert_calls().len(), 3, "every batch is written once");
+    }
+
+    /// A cancelled checkpointed run cannot advance or publish, and its history
+    /// stays an unresolved retirement.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_checkpointed_cancelled_run_cannot_advance_or_publish() {
+        let fixture = harness::SwitchFixture::new().await;
+        let mock = QdrantPointsMock::start().await;
+        let sections = three_sections();
+        let old = fixture.file_record().await;
+        let failing = FaultingEmbedding::new(2);
+        run(
+            &fixture,
+            &failing,
+            &mock,
+            [1000, 1000, 1000],
+            sections.clone(),
+        )
+        .await
+        .expect_err("the second batch fails");
+        let progress = fixture
+            .db
+            .read_library_ingest_run_stage_progress(fixture.item_id)
+            .await
+            .expect("read the staging progress")
+            .expect("the staging progress exists");
+        assert_eq!(progress.staged_batches_written, 1);
+        sqlx::query_file!(
+            "tests/sql/task_execution/seed_group_membership.sql",
+            fixture.group,
+            fixture.user
+        )
+        .execute(fixture.db.pool())
+        .await
+        .expect("seed the fixture owner membership");
+
+        assert!(
+            fixture
+                .db
+                .cancel_task(fixture.task_id, fixture.user)
+                .await
+                .expect("cancel the fixture task")
+        );
+        let good = FaultingEmbedding::new(usize::MAX);
+        run(&fixture, &good, &mock, [1000, 1000, 1000], sections)
+            .await
+            .expect_err("the cancelled run refuses to advance");
+        assert_eq!(good.calls(), 0, "no batch is embedded after cancellation");
+        assert_eq!(
+            mock.upsert_calls().len(),
+            1,
+            "only the first batch was ever upserted"
+        );
+        let unchanged = fixture.file_record().await;
+        assert_eq!(
+            unchanged.sha256, old.sha256,
+            "the cancellation publishes nothing"
+        );
+        assert_eq!(unchanged.size_bytes, old.size_bytes);
+        let current = fixture
+            .db
+            .read_library_ingest_run(fixture.item_id)
+            .await
+            .expect("read the current run");
+        assert!(current.is_none(), "the cancelled run is retired");
+        let history = fixture
+            .db
+            .read_library_ingest_run_history(fixture.item_id)
+            .await
+            .expect("read the run history");
+        assert!(
+            history
+                .iter()
+                .any(|run| run.retired_at.is_some() && run.resolved_at.is_none()),
+            "the retired history stays unresolved"
+        );
     }
 
     /// The happy path: a changed and a new section switch together, every
@@ -1254,9 +1440,4 @@ mod runner_cases {
             "the tombstone covers the historical translation id"
         );
     }
-
-    /// Unused-import guard for the shared fixture helper types this module
-    /// keeps for the cases above.
-    #[allow(dead_code)]
-    fn retain_imports(_: Option<Arc<()>>) {}
 }

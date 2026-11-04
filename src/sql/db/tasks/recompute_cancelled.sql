@@ -12,8 +12,6 @@ SET queued_count = counts.queued_count,
     waiting_reason = NULL,
     dependency_key = NULL,
     next_attempt_at = NULL,
-    lease_token = NULL,
-    lease_until = NULL,
     updated_at = now()
 FROM (
     SELECT task_id,

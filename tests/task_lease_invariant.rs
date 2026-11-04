@@ -8,7 +8,8 @@
 //! These tests run only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). They are skipped otherwise.
 
-use context69::db::{CreateTaskSubmissionRequest, Database};
+use cloudiful_tasks::{Failure, QueuePolicy};
+use context69::db::{ClaimedItem, CreateTaskSubmissionRequest, Database, FinishTaskItemRequest};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -53,6 +54,65 @@ async fn cleanup_task(db: &Database, task_id: Uuid, user_id: i64) {
         .expect("clean up user");
 }
 
+/// Assert every grant a claim returned belongs to this test's known fixtures
+/// and return them all, so no sibling grant is silently dropped.
+fn own_claims(
+    returned: Vec<ClaimedItem>,
+    fixture_tasks: &[Uuid],
+    fixture_items: &[Uuid],
+) -> Vec<ClaimedItem> {
+    for item in &returned {
+        assert!(
+            fixture_tasks.contains(&item.task_id) && fixture_items.contains(&item.id),
+            "claim returned a grant outside this test's fixtures: \
+             task_id={} item_id={} fixture_tasks={fixture_tasks:?} fixture_items={fixture_items:?}",
+            item.task_id,
+            item.id
+        );
+    }
+    returned
+}
+
+/// Seal the exact live library attempt this test owns before its domain rows
+/// are deleted. It uses the captured grant itself: an already terminal or
+/// expired grant is confirmed from scoped library history, never inferred from
+/// `LeaseLost` and never renewed.
+async fn seal_test_execution(db: &Database, item: &ClaimedItem) {
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    let queue = db
+        .execution_queue()
+        .await
+        .expect("load the execution queue");
+    let result = queue
+        .fail(
+            &execution.attempt,
+            &Failure::permanent(Some(json!({"reason": "context69_test_cleanup"}))),
+        )
+        .await;
+    match result {
+        Ok(_) => {}
+        Err(
+            error @ (cloudiful_tasks::Error::LeaseLost { .. }
+            | cloudiful_tasks::Error::InvalidTaskState { .. }),
+        ) => {
+            let attempts = queue
+                .attempts(execution.attempt.task_id(), 16)
+                .await
+                .expect("read the captured task attempts");
+            let sealed = attempts.iter().any(|attempt| {
+                attempt.id() == execution.attempt.id() && attempt.status().is_sealed()
+            });
+            assert!(
+                sealed,
+                "test cleanup must seal the captured attempt or confirm it already sealed: {error}"
+            );
+        }
+        Err(error) => panic!("test cleanup could not seal the captured attempt: {error}"),
+    }
+}
+
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
@@ -85,13 +145,13 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
     assert!(!reused, "fresh idempotency key must create a new task");
     assert_eq!(item_ids.len(), 1);
 
-    let first = db
-        .claim_items(10)
-        .await
-        .expect("first claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("item must be claimed");
+    let first = own_claims(
+        db.claim_items().await.expect("first claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(first.len(), 1, "the first claim returns one item");
+    let first = first.into_iter().next().expect("item must be claimed");
     assert_eq!(first.attempt_count, 1, "first claim is attempt 1");
     let task = db
         .get_task_internal(task_id)
@@ -106,13 +166,22 @@ async fn expired_item_lease_is_reclaimable_and_recycles_the_attempt() {
     // Simulate a worker crash: the authoritative library attempt and its
     // domain mirror expire without any finish call.
     crash_holder(&db, &first).await;
+    // The crashed grant is expired, so the API cannot seal it: its history
+    // stays for normal recovery and is neither forged, renewed nor swept.
+    eprintln!(
+        "lease_invariant: expired grant task_id={} item_id={} reported for normal recovery",
+        first.task_id, first.id
+    );
 
-    let second = db
-        .claim_items(10)
-        .await
-        .expect("second claim")
+    let second = own_claims(
+        db.claim_items().await.expect("second claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(second.len(), 1, "the second claim returns one item");
+    let second = second
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("expired item must be reclaimable");
     assert_eq!(
         second.attempt_count, 2,
@@ -207,7 +276,16 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
     .await
     .expect("set attempt count");
 
-    let claimed = db.claim_items(10).await.expect("claim items");
+    let claimed = own_claims(
+        db.claim_items().await.expect("claim items"),
+        &[task_id],
+        &item_ids,
+    );
+    // A returned grant here is the defect under test; seal it before asserting
+    // so the failing case cannot leak it.
+    for grant in &claimed {
+        seal_test_execution(&db, grant).await;
+    }
     assert!(
         claimed.iter().all(|item| item.task_id != task_id),
         "an item at the attempt cap must never be claimed again"
@@ -308,28 +386,6 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
         task.cancelled_count, counts.cancelled,
         "cancelled_count must match items"
     );
-    let lease_token: Option<uuid::Uuid> = sqlx::query_file_scalar!(
-        "tests/sql/task_execution/read_parent_lease_token.sql",
-        task_id
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("load lease_token");
-    assert!(
-        lease_token.is_none(),
-        "terminal exhausted task must clear lease_token"
-    );
-    let lease_until: Option<chrono::DateTime<chrono::Utc>> = sqlx::query_file_scalar!(
-        "tests/sql/task_execution/read_parent_lease_until.sql",
-        task_id
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("load lease_until");
-    assert!(
-        lease_until.is_none(),
-        "terminal exhausted task must clear lease_until"
-    );
     let item_status: String =
         sqlx::query_file_scalar!("tests/sql/task_execution/read_item_status.sql", item_ids[0])
             .fetch_one(db.pool())
@@ -346,7 +402,14 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
     assert_eq!(item_stage.as_deref(), Some("attempts"));
 
     // Idempotent second claim must keep counters stable and not resurrect.
-    let second_claimed = db.claim_items(10).await.expect("second claim");
+    let second_claimed = own_claims(
+        db.claim_items().await.expect("second claim"),
+        &[task_id],
+        &item_ids,
+    );
+    for grant in &second_claimed {
+        seal_test_execution(&db, grant).await;
+    }
     assert!(
         second_claimed.iter().all(|item| item.task_id != task_id),
         "second claim must still not return exhausted items"
@@ -365,7 +428,7 @@ async fn exhausted_items_are_failed_and_never_claimed_again() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn stage_progress_resets_the_attempt_count() {
+async fn stage_progress_keeps_the_claim_ordinal_and_failure_budget() {
     let url = context69_test_support::accessor::database_url();
     let db = Database::connect(&url)
         .await
@@ -394,13 +457,13 @@ async fn stage_progress_resets_the_attempt_count() {
         .expect("create task");
     assert_eq!(item_ids.len(), 1);
 
-    let first = db
-        .claim_items(10)
-        .await
-        .expect("first claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("item must be claimed");
+    let first = own_claims(
+        db.claim_items().await.expect("first claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(first.len(), 1, "the first claim returns one item");
+    let first = first.into_iter().next().expect("item must be claimed");
     assert_eq!(first.attempt_count, 1);
 
     // Stage transitions are progress, not failures: they must not consume
@@ -418,17 +481,30 @@ async fn stage_progress_resets_the_attempt_count() {
         .expect("progress item")
     );
 
-    let second = db
-        .claim_items(10)
-        .await
-        .expect("second claim")
+    let second = own_claims(
+        db.claim_items().await.expect("second claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(second.len(), 1, "the second claim returns one item");
+    let second = second
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("progressed item must be claimable again");
     assert_eq!(
-        second.attempt_count, 1,
-        "progress must reset the attempt count for the next stage"
+        second.attempt_count, 2,
+        "progress must not reset the monotonic claim ordinal"
     );
+    assert_eq!(
+        second.execution_failure_count, 0,
+        "progress must not consume the execution failure budget"
+    );
+
+    // The progressed attempt is already closed; the successor still holds the
+    // live grant and must be sealed before its fixture is deleted.
+    for grant in [&first, &second] {
+        seal_test_execution(&db, grant).await;
+    }
 
     cleanup_task(&db, task_id, user_id).await;
 }
@@ -462,13 +538,13 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
         .await
         .expect("create task");
 
-    let claimed = db
-        .claim_items(10)
-        .await
-        .expect("claim item")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("item must be claimed");
+    let claimed = own_claims(
+        db.claim_items().await.expect("claim item"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(claimed.len(), 1, "the claim returns one item");
+    let claimed = claimed.into_iter().next().expect("item must be claimed");
 
     // `task_attempts` is append-only forensics, and recovery may already have
     // closed this attempt before the worker reported its outcome. The item
@@ -512,18 +588,6 @@ async fn a_finished_attempt_does_not_hide_the_item_finish_from_the_parent() {
     );
     assert_eq!(task.succeeded_count, 1, "the parent must count the item");
     assert_eq!(task.running_count, 0);
-    let lease_token: Option<Uuid> = sqlx::query_file_scalar!(
-        "tests/sql/task_execution/read_parent_lease_token.sql",
-        task_id
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("load lease_token");
-    assert!(
-        lease_token.is_none(),
-        "a terminal parent must release its slot"
-    );
-
     cleanup_task(&db, task_id, user_id).await;
 }
 
@@ -565,13 +629,11 @@ async fn items_of_one_parent_are_claimed_one_at_a_time() {
     // A parent task owns one global slot (issue 650 P2): a single claim takes
     // exactly one item of the parent, in ordinal order, even though more items
     // are due.
-    let first = db
-        .claim_items(100)
-        .await
-        .expect("first claim")
-        .into_iter()
-        .filter(|item| item.task_id == task_id)
-        .collect::<Vec<_>>();
+    let first = own_claims(
+        db.claim_items().await.expect("first claim"),
+        &[task_id],
+        &item_ids,
+    );
     assert_eq!(
         first.len(),
         1,
@@ -610,19 +672,23 @@ async fn items_of_one_parent_are_claimed_one_at_a_time() {
         .expect("finish first item"),
         "finishing with the current lease token must succeed"
     );
-    let second = db
-        .claim_items(100)
-        .await
-        .expect("second claim")
-        .into_iter()
-        .filter(|item| item.task_id == task_id)
-        .collect::<Vec<_>>();
+    let second = own_claims(
+        db.claim_items().await.expect("second claim"),
+        &[task_id],
+        &item_ids,
+    );
     assert_eq!(second.len(), 1, "the parent claims its next item");
     assert_eq!(second[0].id, item_ids[1], "items advance by ordinal");
     assert_ne!(
         second[0].lease_token, first[0].lease_token,
         "each claimed item must hold an independent lease"
     );
+
+    // The finished first grant is already closed; the second live grant must be
+    // sealed before the fixture rows are deleted.
+    for grant in [&first[0], &second[0]] {
+        seal_test_execution(&db, grant).await;
+    }
 
     cleanup_task(&db, task_id, user_id).await;
 }
@@ -640,7 +706,7 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
     let _claim_guard = CLAIM_LOCK.lock().await;
 
     let user_id = seed_test_user(&db).await;
-    let (task_a, _, _) = db
+    let (task_a, _, item_ids_a) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id: Uuid::new_v4(),
             user_id,
@@ -655,7 +721,7 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
         })
         .await
         .expect("create task a");
-    let (task_b, _, _) = db
+    let (task_b, _, item_ids_b) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id: Uuid::new_v4(),
             user_id,
@@ -671,62 +737,98 @@ async fn limited_claim_does_not_activate_unclaimed_parent_tasks() {
         .await
         .expect("create task b");
 
-    // Capacity 1 admits at most one parent: the other seeded parent must not be
-    // activated (and no parent is pre-activated when a foreign lease already
-    // holds the single slot).
-    let claimed = db.claim_items(1).await.expect("claim one parent");
+    // The durable queue policy is the only capacity owner: a policy of one
+    // never admits more than one attempt, and the other seeded parent must not
+    // be activated. Another case may already hold the single attempt, so no
+    // claim is also a valid outcome; the activation assertions then cover both
+    // seeded parents.
+    db.apply_execution_queue_policy(1)
+        .await
+        .expect("set the global queue policy to one");
+    let claimed = own_claims(
+        db.claim_items().await.expect("claim one parent"),
+        &[task_a, task_b],
+        &[item_ids_a[0], item_ids_b[0]],
+    );
     assert!(
         claimed.len() <= 1,
-        "a capacity of one must never admit more than one parent"
+        "a global queue policy of one must never admit more than one attempt"
     );
-    let claimed_task = claimed.first().map(|item| item.task_id);
-    assert!(
-        claimed_task.is_none() || claimed_task == Some(task_a) || claimed_task == Some(task_b),
-        "the claimed item must belong to one of the two seeded tasks"
-    );
-    let unclaimed_task = match claimed_task {
-        Some(task) if task == task_a => task_b,
-        _ => task_a,
+
+    let unclaimed_tasks: Vec<Uuid> = match claimed.into_iter().next() {
+        Some(item) => {
+            assert!(
+                item.task_id == task_a || item.task_id == task_b,
+                "the claimed item must belong to one of the two seeded tasks"
+            );
+            let claimed_status: String = sqlx::query_file_scalar!(
+                "tests/sql/task_execution/read_parent_status.sql",
+                item.task_id
+            )
+            .fetch_one(db.pool())
+            .await
+            .expect("load claimed task status");
+            assert_eq!(
+                claimed_status, "running",
+                "claiming an item must activate only its own parent task"
+            );
+            let unclaimed_task = if item.task_id == task_a {
+                task_b
+            } else {
+                task_a
+            };
+            db.finish_task_item(FinishTaskItemRequest {
+                task_id: item.task_id,
+                item_id: item.id,
+                status: "succeeded",
+                resource_id: None,
+                failure_stage: None,
+                error_message: None,
+                retryable: true,
+                execution: item
+                    .execution_context()
+                    .expect("the claimed item carries its captured execution"),
+                attempt_id: item.attempt_id,
+            })
+            .await
+            .expect("finish the claimed item so the shared policy is not left full");
+            vec![unclaimed_task]
+        }
+        None => vec![task_a, task_b],
     };
 
-    if let Some(claimed_task) = claimed_task {
-        let claimed_status: String = sqlx::query_file_scalar!(
+    for unclaimed_task in unclaimed_tasks {
+        let unclaimed_status: String = sqlx::query_file_scalar!(
             "tests/sql/task_execution/read_parent_status.sql",
-            claimed_task
+            unclaimed_task
         )
         .fetch_one(db.pool())
         .await
-        .expect("load claimed task status");
+        .expect("load unclaimed task status");
         assert_eq!(
-            claimed_status, "running",
-            "claiming an item must activate only its own parent task"
+            unclaimed_status, "queued",
+            "an unclaimed parent task must stay queued instead of being pre-activated"
+        );
+
+        let item_status: String = sqlx::query_file_scalar!(
+            "tests/sql/task_execution/read_task_item_status.sql",
+            unclaimed_task
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("load unclaimed item status");
+        assert_eq!(
+            item_status, "queued",
+            "the unclaimed item must remain queued"
         );
     }
 
-    let unclaimed_status: String = sqlx::query_file_scalar!(
-        "tests/sql/task_execution/read_parent_status.sql",
-        unclaimed_task
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("load unclaimed task status");
-    assert_eq!(
-        unclaimed_status, "queued",
-        "an unclaimed parent task must stay queued instead of being pre-activated"
-    );
-
-    let item_status: String = sqlx::query_file_scalar!(
-        "tests/sql/task_execution/read_task_item_status.sql",
-        unclaimed_task
-    )
-    .fetch_one(db.pool())
-    .await
-    .expect("load unclaimed item status");
-    assert_eq!(
-        item_status, "queued",
-        "the unclaimed item must remain queued"
-    );
-
+    db.execution_queue()
+        .await
+        .expect("load the execution queue")
+        .set_policy(QueuePolicy::unlimited())
+        .await
+        .expect("restore the unlimited queue policy");
     cleanup_task(&db, task_a, user_id).await;
     cleanup_task(&db, task_b, user_id).await;
 }
@@ -774,12 +876,15 @@ async fn claiming_a_due_waiting_item_activates_its_parent_task() {
     .await
     .expect("park item as waiting");
 
-    let claimed = db
-        .claim_items(10)
-        .await
-        .expect("claim items")
+    let claimed = own_claims(
+        db.claim_items().await.expect("claim items"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(claimed.len(), 1, "the claim returns one item");
+    let claimed = claimed
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("a due waiting item must be claimable");
     assert_eq!(claimed.attempt_count, 1);
 
@@ -793,6 +898,7 @@ async fn claiming_a_due_waiting_item_activates_its_parent_task() {
         "claiming a due waiting item must activate its waiting parent task"
     );
 
+    seal_test_execution(&db, &claimed).await;
     cleanup_task(&db, task_id, user_id).await;
 }
 

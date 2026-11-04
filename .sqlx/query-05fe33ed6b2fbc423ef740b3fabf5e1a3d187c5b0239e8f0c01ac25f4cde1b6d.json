@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.task_docling_remote_jobs\nSET submission_execution_task_id = $2,\n    submission_generation = $3,\n    updated_at = now()\nWHERE id = $1\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "05fe33ed6b2fbc423ef740b3fabf5e1a3d187c5b0239e8f0c01ac25f4cde1b6d"
+}

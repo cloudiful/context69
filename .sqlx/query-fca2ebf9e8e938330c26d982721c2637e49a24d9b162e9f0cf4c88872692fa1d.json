@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Relinks one queued or waiting item from its old terminal segment to a fresh\n-- segment (issue 1172 P6A2).\n--\n-- The update is fenced by the exact old pointer and generation and by the old\n-- segment being terminal. A changed pointer, a moved generation, a running or\n-- terminal item, or an old segment that did not end refuses the update, so a\n-- caller can roll the whole batch back instead of overwriting a live fence.\nUPDATE context69.task_items item\nSET execution_task_id = $4,\n    execution_generation = $5,\n    updated_at = now()\nWHERE item.id = $1\n  AND item.execution_task_id = $2\n  AND item.execution_generation = $3\n  AND item.status IN ('queued', 'waiting')\n  AND EXISTS (\n      SELECT 1\n      FROM cloudiful_tasks.tasks old\n      WHERE old.id = $2\n        AND old.namespace = 'context69'\n        AND old.queue = 'items'\n        AND old.status IN ('succeeded', 'failed', 'cancelled')\n  )\nRETURNING item.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "fca2ebf9e8e938330c26d982721c2637e49a24d9b162e9f0cf4c88872692fa1d"
+}

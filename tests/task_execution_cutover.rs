@@ -10,11 +10,13 @@
 //! preserving the domain state, a live lease still refuses every write, and the
 //! finalize closes an abandoned running item atomically without replaying it.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69::db::{CreateTaskSubmissionRequest, Database};
+use cloudiful_tasks::{EnqueueOutcome, EnqueueRequest, TaskId, TaskKind};
+use context69::db::{CreateTaskSubmissionRequest, Database, SegmentPayload};
 use context69::services::tasks::cutover::{
     CutoverCli, CutoverCliErrorKind, CutoverCommand, MAX_HANDOVER_ITEMS, MAX_INVENTORY_PAGE,
     parse_cutover_args, run_cutover,
@@ -34,7 +36,12 @@ use context69::{
         translation::TranslationPublisherAdapter,
     },
 };
+use context69_test_support::execution_cleanup::{
+    FixtureExecutionScope, quiesce_fixture_executions,
+};
+use context69_test_support::library_policy::finish_fixture;
 use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
+use futures::FutureExt;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -122,7 +129,6 @@ async fn build_task_service(db: &Database) -> TaskService {
         sync: sync.clone(),
         source_folders: SourceFoldersService::new(db.clone(), library, sync),
         translation,
-        concurrency: 1,
     })
 }
 
@@ -293,7 +299,7 @@ async fn segment_count(db: &Database, item_id: Uuid) -> i64 {
 }
 
 async fn claim(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
-    let claimed = db.claim_items_fast(50).await.expect("claim the item");
+    let claimed = db.claim_items_fast().await.expect("claim the item");
     assert_eq!(
         claimed.len(),
         1,
@@ -305,46 +311,130 @@ async fn claim(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
         .expect("the item is claimed")
 }
 
+/// Deterministically makes an owned item point at a fresh queued library
+/// segment with default (unclassified) metadata.
+///
+/// The classified segment is cancelled through the public queue API first, the
+/// unclassified segment is enqueued with the normal payload and idempotency key,
+/// and only then is the domain pointer relinked under its exact old fence. No
+/// library row is updated directly.
+async fn seed_unclassified_legacy_link(db: &Database, fixture: &Fixture) -> (Uuid, i64) {
+    let (_, old_segment, old_generation) = item_row(db, fixture.item_id).await;
+    let old_segment = old_segment.expect("the item starts linked");
+    let queue = db
+        .execution_queue()
+        .await
+        .expect("load the execution queue");
+    let mut tx = db.pool().begin().await.expect("begin the fixture");
+    queue
+        .request_cancel_in(&mut tx, TaskId::from_uuid(old_segment))
+        .await
+        .expect("cancel the classified segment");
+    let generation = old_generation + 1;
+    let payload = SegmentPayload::new(fixture.item_id, fixture.task_id, generation);
+    let request = EnqueueRequest::new(
+        TaskKind::new("context69.item").expect("the segment kind is valid"),
+        payload.to_value(),
+    )
+    .with_idempotency_key(SegmentPayload::idempotency_key(fixture.item_id, generation))
+    .expect("the segment key is valid");
+    let segment = match queue
+        .enqueue_in(&mut tx, request)
+        .await
+        .expect("enqueue the unclassified fixture segment")
+    {
+        EnqueueOutcome::Created(task) | EnqueueOutcome::Existing(task) => task.id().as_uuid(),
+    };
+    let linked = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/admission_seed_legacy_link.sql",
+        fixture.item_id,
+        segment,
+        generation,
+        old_segment,
+        old_generation
+    )
+    .fetch_optional(&mut *tx)
+    .await
+    .expect("relink the domain item");
+    assert!(linked.is_some(), "the exact old pointer must still match");
+    tx.commit().await.expect("commit the fixture");
+    (segment, generation)
+}
+
+async fn install_admission_fault(db: &Database) {
+    sqlx::raw_sql(include_str!("sql/task_execution/admission_fault_setup.sql"))
+        .execute(db.pool())
+        .await
+        .expect("install the test-only admission fault guard");
+}
+
+async fn arm_admission_fault(db: &Database, item_id: Uuid, mode: &str) {
+    sqlx::query_file!(
+        "tests/sql/task_execution/admission_fault_seed.sql",
+        item_id,
+        mode
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("arm the test-only admission fault guard");
+}
+
+async fn cleanup_admission_fault(db: &Database) -> std::result::Result<(), String> {
+    sqlx::raw_sql(include_str!(
+        "sql/task_execution/admission_fault_cleanup.sql"
+    ))
+    .execute(db.pool())
+    .await
+    .map_err(|error| format!("remove the test-only admission fault guard: {error}"))?;
+    Ok(())
+}
+
 async fn cleanup(db: &Database, fixture: &Fixture) {
+    if let Err(error) = try_cleanup(db, fixture).await {
+        panic!("{error}");
+    }
+}
+
+/// Ends the fixture through the public library API before its domain rows are
+/// deleted. Terminal library history is preserved; no library row is deleted
+/// directly and no unlinked task is swept.
+async fn try_cleanup(db: &Database, fixture: &Fixture) -> std::result::Result<(), String> {
+    quiesce_fixture_executions(db.pool(), FixtureExecutionScope::Tasks(&[fixture.task_id]))
+        .await
+        .map_err(|error| format!("quiesce the fixture executions: {error}"))?;
     sqlx::query_file!(
         "tests/sql/task_execution/delete_task_items_by_task.sql",
         fixture.task_id
     )
     .execute(db.pool())
     .await
-    .expect("delete the task items");
+    .map_err(|error| format!("delete the task items: {error}"))?;
     sqlx::query_file!(
         "tests/sql/task_execution/delete_task_by_id.sql",
         fixture.task_id
     )
     .execute(db.pool())
     .await
-    .expect("delete the task");
+    .map_err(|error| format!("delete the task: {error}"))?;
     sqlx::query_file!(
         "tests/sql/task_execution/delete_group_files.sql",
         fixture.group_id
     )
     .execute(db.pool())
     .await
-    .expect("delete the files");
-    sqlx::query_file!(
-        "tests/sql/task_execution/delete_library_tasks_for_item.sql",
-        fixture.item_id.to_string()
-    )
-    .execute(db.pool())
-    .await
-    .expect("delete the library task");
+    .map_err(|error| format!("delete the files: {error}"))?;
     sqlx::query_file!(
         "tests/sql/task_execution/delete_group.sql",
         fixture.group_id
     )
     .execute(db.pool())
     .await
-    .expect("delete the group");
+    .map_err(|error| format!("delete the group: {error}"))?;
     sqlx::query_file!("tests/sql/task_execution/delete_user.sql", fixture.user_id)
         .execute(db.pool())
         .await
-        .expect("delete the user");
+        .map_err(|error| format!("delete the user: {error}"))?;
+    Ok(())
 }
 
 #[tokio::test]
@@ -824,7 +914,7 @@ async fn adopt_preserves_a_docling_wait_without_making_it_claimable() {
 
     // Adoption links a segment; it does not admit the item. The domain
     // admission still excludes the Docling wait.
-    let claimed = db.claim_items_fast(50).await.expect("claim nothing");
+    let claimed = db.claim_items_fast().await.expect("claim nothing");
     assert!(
         claimed.iter().all(|item| item.id != fixture.item_id),
         "a Docling wait is not claimable, with or without a fresh segment"
@@ -888,6 +978,8 @@ async fn a_live_execution_lease_refuses_every_handover_write() {
     let legacy = seed_task(&db, false).await;
     detach_segment(&db, legacy.item_id).await;
     set_item(&db, legacy.item_id, "queued", None).await;
+    let backlog = seed_task(&db, false).await;
+    seed_unclassified_legacy_link(&db, &backlog).await;
 
     let leases = db
         .cutover_live_execution_leases()
@@ -906,7 +998,7 @@ async fn a_live_execution_lease_refuses_every_handover_write() {
         command: CutoverCommand::Adopt {
             item_ids: vec![legacy.item_id],
         },
-        expect_database: database,
+        expect_database: database.clone(),
         workers_stopped: true,
     };
     let refusal = run_cutover(&db, &cli)
@@ -914,9 +1006,19 @@ async fn a_live_execution_lease_refuses_every_handover_write() {
         .expect_err("the tool refuses a live lease");
     assert_eq!(refusal.kind, CutoverCliErrorKind::Safety);
     assert_eq!(refusal.exit_code(), 3);
+    let reclassify = CutoverCli {
+        command: CutoverCommand::ReclassifyAdmission { limit: 10 },
+        expect_database: database,
+        workers_stopped: true,
+    };
+    let refusal = run_cutover(&db, &reclassify)
+        .await
+        .expect_err("reclassification also refuses a live lease");
+    assert_eq!(refusal.kind, CutoverCliErrorKind::Safety);
 
     cleanup(&db, &live).await;
     cleanup(&db, &legacy).await;
+    cleanup(&db, &backlog).await;
 }
 
 #[tokio::test]
@@ -1005,7 +1107,7 @@ async fn finalize_interrupted_closes_an_abandoned_running_item_atomically() {
     cleanup(&db, &fixture).await;
 
     // The failure follows the domain retry policy of a lease failure: an item
-    // whose attempt budget is exhausted is not retryable.
+    // whose execution-failure budget is exhausted is not retryable.
     let exhausted = seed_task(&db, false).await;
     claim(&db, exhausted.item_id).await;
     detach_segment(&db, exhausted.item_id).await;
@@ -1274,4 +1376,212 @@ fn the_configured_database_name_is_read_but_never_echoed() {
         redacted.contains("postgres://db.internal:5432/context69"),
         "{redacted}"
     );
+}
+
+/// The explicit reclassification converts one unclassified queued backlog item,
+/// preserves its history, and is a no-op after completion (issue 1172 P6A2).
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn reclassify_admission_converts_unclassified_backlog_and_repeats_as_a_no_op() {
+    let _guard = TEST_LOCK.lock().await;
+    let db = connect().await;
+    let fixture = seed_task(&db, false).await;
+    let (old_segment, old_generation) = seed_unclassified_legacy_link(&db, &fixture).await;
+    let segments_before_reclassification = segment_count(&db, fixture.item_id).await;
+
+    let outcome = db
+        .cutover_reclassify_admission_batch(10)
+        .await
+        .expect("reclassify the bounded backlog");
+    assert_eq!(outcome.processed, 1);
+    assert_eq!(outcome.relinked, 1);
+    assert_eq!(outcome.skipped_uncertain, 0);
+    assert_eq!(outcome.remaining, 0);
+
+    let (_, new_segment, new_generation) = item_row(&db, fixture.item_id).await;
+    let new_segment = new_segment.expect("the item is relinked");
+    assert_ne!(new_segment, old_segment);
+    assert_eq!(new_generation, old_generation + 1);
+    let metadata = sqlx::query_file!(
+        "tests/sql/task_execution/admission_read_segment.sql",
+        new_segment
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the new admission metadata");
+    assert_eq!(metadata.class.as_deref(), Some("interactive"));
+    assert_eq!(
+        metadata.resources,
+        vec!["ingest".to_string(), "interactive".to_string()]
+    );
+    assert_eq!(metadata.status, "queued");
+    let old_metadata = sqlx::query_file!(
+        "tests/sql/task_execution/admission_read_segment.sql",
+        old_segment
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the old segment");
+    assert_eq!(old_metadata.status, "cancelled");
+    assert_eq!(old_metadata.class, None);
+    let segments_after_reclassification = segment_count(&db, fixture.item_id).await;
+    assert_eq!(
+        segments_after_reclassification,
+        segments_before_reclassification + 1,
+        "reclassification retains the original and legacy history and adds one segment"
+    );
+
+    let repeated = db
+        .cutover_reclassify_admission_batch(10)
+        .await
+        .expect("a completed reclassification is a no-op");
+    assert_eq!(repeated.processed, 0);
+    assert_eq!(repeated.relinked, 0);
+    assert_eq!(repeated.remaining, 0);
+    assert_eq!(
+        segment_count(&db, fixture.item_id).await,
+        segments_after_reclassification,
+        "repeating the operation creates no additional segment"
+    );
+
+    cleanup(&db, &fixture).await;
+}
+
+/// An unresolved Docling submission is never cancelled or reclassified by the
+/// explicit backlog command; it is reported as skipped (issue 1172 P6A2).
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn reclassify_admission_skips_a_docling_unknown_outcome_as_inert() {
+    let _guard = TEST_LOCK.lock().await;
+    let db = connect().await;
+    let fixture = seed_task(&db, false).await;
+    let (old_segment, old_generation) = seed_unclassified_legacy_link(&db, &fixture).await;
+    sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/seed_submitting_job.sql",
+        fixture.task_id,
+        fixture.item_id,
+        false,
+        Some(old_segment),
+        Some(old_generation),
+        json!({ "fixture": true }),
+        "http://docling.invalid/v1",
+        chrono::Utc::now() + chrono::Duration::hours(1),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("seed an unresolved submission");
+    sqlx::query_file!(
+        "tests/sql/task_execution/admission_mark_submission_uncertain.sql",
+        fixture.item_id,
+        fixture.task_id,
+        "seeded unknown outcome"
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("mark the submission unknown");
+
+    let outcome = db
+        .cutover_reclassify_admission_batch(10)
+        .await
+        .expect("the bounded scan reports the inert row");
+    assert_eq!(outcome.processed, 1);
+    assert_eq!(outcome.relinked, 0);
+    assert_eq!(outcome.skipped_uncertain, 1);
+    let (_, linked, generation) = item_row(&db, fixture.item_id).await;
+    assert_eq!(linked, Some(old_segment));
+    assert_eq!(generation, old_generation);
+    let metadata = sqlx::query_file!(
+        "tests/sql/task_execution/admission_read_segment.sql",
+        old_segment
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the untouched segment");
+    assert_eq!(metadata.status, "queued");
+    assert_eq!(metadata.class, None);
+
+    cleanup(&db, &fixture).await;
+}
+
+/// A failed relink fence rolls the whole explicit reclassification transaction
+/// back: the old segment stays queued, the original pointer/generation survive,
+/// and no new segment commits (issue 1172 P6A2).
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn reclassify_admission_rolls_back_when_the_relink_guard_refuses() {
+    let _guard = TEST_LOCK.lock().await;
+    let db = connect().await;
+    let mut fixture: Option<Fixture> = None;
+    let outcome = AssertUnwindSafe(async {
+        install_admission_fault(&db).await;
+        fixture = Some(seed_task(&db, false).await);
+        let seeded = fixture.as_ref().expect("the fixture was just seeded");
+        let (old_segment, old_generation) = seed_unclassified_legacy_link(&db, seeded).await;
+        let segments_before = segment_count(&db, seeded.item_id).await;
+        arm_admission_fault(&db, seeded.item_id, "relink").await;
+
+        let error = db
+            .cutover_reclassify_admission_batch(10)
+            .await
+            .expect_err("the relink guard refuses the batch");
+        assert!(
+            error
+                .to_string()
+                .contains("changed during reclassification")
+        );
+        assert_eq!(
+            segment_count(&db, seeded.item_id).await,
+            segments_before,
+            "the refused batch commits no fresh segment"
+        );
+        let (_, pointer, generation) = item_row(&db, seeded.item_id).await;
+        assert_eq!(pointer, Some(old_segment));
+        assert_eq!(generation, old_generation);
+        let metadata = sqlx::query_file!(
+            "tests/sql/task_execution/admission_read_segment.sql",
+            old_segment
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("read the rolled-back segment");
+        assert_eq!(metadata.status, "queued");
+        assert_eq!(metadata.class, None);
+
+        cleanup_admission_fault(&db)
+            .await
+            .expect("drop the test-only fault guard");
+        let positive = db
+            .cutover_reclassify_admission_batch(10)
+            .await
+            .expect("the normal relink succeeds after the guard is removed");
+        assert!(
+            positive.relinked >= 1,
+            "the normal relink commits the batch"
+        );
+        let (_, fresh_segment, fresh_generation) = item_row(&db, seeded.item_id).await;
+        let fresh_segment = fresh_segment.expect("the positive control links a fresh segment");
+        assert_ne!(fresh_segment, old_segment);
+        assert!(fresh_generation > old_generation);
+        let classifier = sqlx::query_file!(
+            "tests/sql/task_execution/admission_read_segment.sql",
+            fresh_segment
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("read the reclassified segment");
+        assert_eq!(classifier.class.as_deref(), Some("interactive"));
+    })
+    .catch_unwind()
+    .await;
+
+    let mut cleanup_error = cleanup_admission_fault(&db).await.err();
+    if let Some(seeded) = fixture.as_ref() {
+        if let Err(error) = try_cleanup(&db, seeded).await {
+            cleanup_error = Some(match cleanup_error {
+                Some(existing) => format!("{existing}; {error}"),
+                None => error,
+            });
+        }
+    }
+    finish_fixture(outcome, cleanup_error, Ok(()));
 }

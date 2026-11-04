@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Milliseconds until the dispatcher must probe a known Docling job again.\n--\n-- Only live parked Docling items with an active known job, a captured endpoint,\n-- an active parent and failure budget left are candidates. The due instant is\n-- the earliest of the item's own retry time, the job's next poll and its\n-- deadline, all measured against one database-clock observation. An expired\n-- deadline therefore wins even when the next poll is later. No candidate\n-- returns NULL, which means \"no wake\": the dispatcher keeps its ordinary\n-- periodic tick.\nWITH observed AS (\n    SELECT clock_timestamp() AS at\n)\nSELECT min(\n    GREATEST(\n        0,\n        (\n            EXTRACT(EPOCH FROM (\n                LEAST(\n                    COALESCE(item.next_attempt_at, observed.at),\n                    job.next_poll_at,\n                    COALESCE(job.deadline_at, job.next_poll_at)\n                ) - observed.at\n            )) * 1000\n        )::bigint\n    )\n) AS \"remaining_ms\"\nFROM context69.task_docling_remote_jobs AS job\nJOIN context69.task_items AS item ON item.id = job.item_id\nJOIN context69.tasks AS task ON task.id = job.task_id\nCROSS JOIN observed\nWHERE job.status IN ('pending', 'running')\n  AND job.endpoint_base_url IS NOT NULL\n  AND item.status = 'waiting'\n  AND COALESCE(item.waiting_reason, '') = 'docling'\n  AND item.execution_failure_count < 5\n  AND task.status IN ('queued', 'running', 'waiting')\n  AND task.deleted_at IS NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "remaining_ms",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9dc62e53604beeda74cba94047371d3942e29369f5b6a0b7413f0884bc934584"
+}

@@ -112,6 +112,7 @@ fn task_stream_event_frames_carry_snapshot_update_done_error_shapes() {
         deleted_at: None,
         file_name: None,
         document_title: None,
+        docling_submission_uncertain: false,
     };
     let snapshot = TaskStreamSnapshot {
         tasks: vec![task.clone()],
@@ -226,6 +227,7 @@ fn coalescer_test_task(
         deleted_at: None,
         file_name: None,
         document_title: None,
+        docling_submission_uncertain: false,
     }
 }
 

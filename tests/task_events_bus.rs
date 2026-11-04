@@ -370,6 +370,28 @@ async fn heartbeat_update_is_throttled() {
         "lease revocation (lease_token change) must still emit despite same status"
     );
 
+    // A counter-only change is not heartbeat churn: the failure budget is
+    // business state and must still notify even when nothing else changes.
+    sqlx::query(
+        "UPDATE context69.task_items SET execution_failure_count = 1, \
+         updated_at = now() WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("advance the failure budget");
+    let counter = wait_for_event_matching(
+        &mut receiver,
+        task_id,
+        |event| event.item_id == Some(item_id),
+        Duration::from_secs(10),
+    )
+    .await;
+    assert!(
+        counter.is_some(),
+        "a counter-only failure-budget change must still emit"
+    );
+
     cleanup_task(&db, task_id, user_id).await;
 }
 
@@ -551,9 +573,9 @@ async fn maintain_claim_state_path_emits_event() {
     let user_id = seed_test_user(&db).await;
     let (task_id, item_ids) = create_text_task(&db, user_id, "bus-maintain-hash", 1).await;
     let item_id = item_ids[0];
-    // Exhausted predicate: queued with attempt_count >= 5 on a queued task.
+    // Exhausted predicate: queued with execution_failure_count >= 5.
     sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 5, status = 'queued', \
+        "UPDATE context69.task_items SET execution_failure_count = 5, status = 'queued', \
          next_attempt_at = NULL WHERE id = $1",
     )
     .bind(item_id)

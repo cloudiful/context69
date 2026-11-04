@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Reopen the acknowledged waiting Docling items of one owned task\n-- (issue 1172 P5B1).\n--\n-- This is the same manual-retry reset as `retry_items.sql`, restricted to the\n-- exact archived item ids and to items still parked on `waiting/docling`. An\n-- item in any other state is left alone, so the statement is idempotent and a\n-- subsequently cancelled item is never resurrected. `$1` task, `$2` caller,\n-- `$3` archived item ids.\nWITH RECURSIVE inherited_groups AS (\n    SELECT gm.group_id,\n           CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END AS role_rank\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $2\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n), allowed AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE task.id = $1\n      AND (\n          (task.group_id IS NULL AND task.user_id = $2)\n          OR EXISTS (\n              SELECT 1\n              FROM inherited_groups\n              WHERE inherited_groups.group_id = task.group_id\n                AND inherited_groups.role_rank >= 2\n          )\n      )\n), reopened AS (\n    UPDATE context69.task_items item\n    SET payload = CASE\n            WHEN task.kind = 'translation' THEN item.payload - 'job_ids'\n            ELSE item.payload\n        END,\n        status = 'queued',\n        stage = 'processing',\n        execution_failure_count = 0,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        next_attempt_at = now(),\n        failure_stage = NULL,\n        error_message = NULL,\n        retryable = TRUE,\n        waiting_since = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        finished_at = NULL,\n        updated_at = now()\n    FROM context69.tasks task\n    WHERE item.task_id IN (SELECT id FROM allowed)\n      AND item.task_id = task.id\n      AND item.id = ANY($3::uuid[])\n      AND item.status = 'waiting'\n      AND item.waiting_reason = 'docling'\n      AND (\n          item.file_id IS NULL\n          OR NOT EXISTS (\n              SELECT 1\n              FROM context69.task_items active\n              WHERE active.file_id = item.file_id\n                AND active.id <> item.id\n                AND active.status IN ('queued', 'running', 'waiting')\n          )\n      )\n    RETURNING item.id, item.execution_task_id\n)\nSELECT id, execution_task_id FROM reopened ORDER BY id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "34836da0996fed2039605bc3309ac54bdf09a85909286e0f84b69d334fe280f3"
+}

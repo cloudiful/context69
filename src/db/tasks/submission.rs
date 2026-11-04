@@ -5,7 +5,7 @@ use crate::db::Database;
 use crate::db::task_file_dedup::{FileDedupDecision, declared_file_id, resolve_file_dedup};
 
 use super::INITIAL_ITEM_STAGE;
-use super::execution::FIRST_GENERATION;
+use super::execution::{ExecutionClass, FIRST_GENERATION};
 use super::types::{CreateTaskSubmissionRequest, StoredIdempotencyKey, StoredInputStorageObject};
 
 impl Database {
@@ -69,12 +69,24 @@ impl Database {
         let retained_indices = match resolution.decide(payloads.len())? {
             FileDedupDecision::Retain(indices) => indices,
             FileDedupDecision::Reuse(active_task_id) => {
+                let bound_task_id = match idempotency_key {
+                    Some(key) => {
+                        bind_idempotency_key(&mut tx, user_id, key, request_hash, active_task_id)
+                            .await?
+                            .unwrap_or(active_task_id)
+                    }
+                    None => active_task_id,
+                };
                 let item_ids =
-                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", active_task_id)
+                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", bound_task_id)
                         .fetch_all(&mut *tx)
                         .await?;
-                tx.rollback().await?;
-                return Ok((active_task_id, true, item_ids));
+                if bound_task_id == active_task_id {
+                    tx.commit().await?;
+                } else {
+                    tx.rollback().await?;
+                }
+                return Ok((bound_task_id, true, item_ids));
             }
         };
 
@@ -139,6 +151,7 @@ impl Database {
         }
         let mut item_ids = Vec::with_capacity(retained_indices.len());
         let queue = self.execution_queue().await?;
+        let class = ExecutionClass::for_task_kind(super::execution::task_kind_from_db(kind)?);
         for (ordinal, index) in retained_indices.iter().enumerate() {
             let payload = &payloads[*index];
             let item_id = Uuid::new_v4();
@@ -149,6 +162,7 @@ impl Database {
                 queue,
                 &mut tx,
                 super::execution::SegmentPayload::new(item_id, task_id, FIRST_GENERATION),
+                class,
             )
             .await?;
             sqlx::query_file!(
@@ -167,40 +181,59 @@ impl Database {
             .await?;
         }
 
-        if let Some(key) = idempotency_key {
-            sqlx::query_file!(
-                "src/sql/db/tasks/idempotency_put.sql",
-                user_id,
-                key,
-                request_hash,
-                task_id
-            )
-            .execute(&mut *tx)
-            .await?;
-            let existing = sqlx::query_file_as!(
-                StoredIdempotencyKey,
-                "src/sql/db/tasks/idempotency_get.sql",
-                user_id,
-                key
-            )
-            .fetch_one(&mut *tx)
-            .await?;
-            if existing.task_id != task_id {
-                if existing.request_hash != request_hash {
-                    return Err(crate::domain_errors::DomainError::conflict(
-                        "idempotency key was already used with a different request",
-                    )
-                    .into());
-                }
-                let item_ids =
-                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", existing.task_id)
-                        .fetch_all(&mut *tx)
-                        .await?;
-                tx.rollback().await?;
-                return Ok((existing.task_id, true, item_ids));
-            }
+        if let Some(key) = idempotency_key
+            && let Some(winner) =
+                bind_idempotency_key(&mut tx, user_id, key, request_hash, task_id).await?
+        {
+            let item_ids = sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", winner)
+                .fetch_all(&mut *tx)
+                .await?;
+            tx.rollback().await?;
+            return Ok((winner, true, item_ids));
         }
         tx.commit().await?;
         Ok((task_id, false, item_ids))
     }
+}
+
+/// Binds an accepted submission's idempotency key inside the caller's
+/// transaction, and reports the task that already won the key.
+///
+/// The insert is checked SQL and conflicts without overwriting an accepted
+/// hash. The body hash is always compared before the task id: an active file
+/// can deduplicate two different requests onto the same task, so a matching
+/// task id alone never proves a matching request. A same-hash winner returns its
+/// task id so the caller can roll back its own candidate rows; a different hash
+/// is a conflict.
+async fn bind_idempotency_key(
+    connection: &mut sqlx::PgConnection,
+    user_id: i64,
+    key: &str,
+    request_hash: &str,
+    task_id: Uuid,
+) -> Result<Option<Uuid>> {
+    sqlx::query_file!(
+        "src/sql/db/tasks/idempotency_put.sql",
+        user_id,
+        key,
+        request_hash,
+        task_id
+    )
+    .execute(&mut *connection)
+    .await?;
+    let existing = sqlx::query_file_as!(
+        StoredIdempotencyKey,
+        "src/sql/db/tasks/idempotency_get.sql",
+        user_id,
+        key
+    )
+    .fetch_one(&mut *connection)
+    .await?;
+    if existing.request_hash != request_hash {
+        return Err(crate::domain_errors::DomainError::conflict(
+            "idempotency key was already used with a different request",
+        )
+        .into());
+    }
+    Ok((existing.task_id != task_id).then_some(existing.task_id))
 }

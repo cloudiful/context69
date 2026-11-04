@@ -22,6 +22,12 @@ export type DraftRuntimeSettings = {
     max_concurrency: number;
     job_id: string;
     valkey_url: string;
+    ingest_batches_per_segment: number;
+    /** Blank means the resource follows the global concurrency. */
+    interactive: string;
+    bulk: string;
+    maintenance: string;
+    ingest: string;
   };
   chunking: {
     max_chars: number;

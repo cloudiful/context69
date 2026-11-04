@@ -399,7 +399,8 @@ mod integration {
     use context69::qdrant_index::QdrantIndex;
     use context69::services::library::{
         IndexingCheckpoint, LibraryService, LibraryServiceConfig, PipelineProgressStage,
-        parse_indexing_checkpoint, parse_pipeline_progress, payload_with_checkpoint,
+        TaskIngestStep, parse_indexing_checkpoint, parse_pipeline_progress,
+        payload_with_checkpoint,
     };
     use context69::services::settings::SettingsService;
     use context69_namespace::GroupRecord;
@@ -415,6 +416,13 @@ mod integration {
         atomic::{AtomicUsize, Ordering},
     };
     use uuid::Uuid;
+
+    fn completed(step: TaskIngestStep<Value>) -> Value {
+        match step {
+            TaskIngestStep::Complete(value) => value,
+            TaskIngestStep::Yielded => panic!("an unbounded checkpoint call yielded"),
+        }
+    }
 
     struct NoopCallbacks;
 
@@ -789,17 +797,19 @@ mod integration {
             .expect("complete checkpoint");
         assert_eq!(parse_indexing_checkpoint(&payload), checkpoint);
 
-        let result = service
-            .persist_file_sections_for_task_with_checkpoint(
-                file_id,
-                &sections,
-                item_id,
-                lease_token,
-                &payload,
-                1,
-            )
-            .await
-            .expect("completed checkpoint resumes and finalizes");
+        let result = completed(
+            service
+                .persist_file_sections_for_task_with_checkpoint(
+                    file_id,
+                    &sections,
+                    item_id,
+                    lease_token,
+                    &payload,
+                    1,
+                )
+                .await
+                .expect("completed checkpoint resumes and finalizes"),
+        );
         let resumed_progress = parse_pipeline_progress(&result).expect("resumed progress");
         assert_eq!(resumed_progress.stage, PipelineProgressStage::Indexing);
         assert_eq!(resumed_progress.completed_chunks, Some(33));

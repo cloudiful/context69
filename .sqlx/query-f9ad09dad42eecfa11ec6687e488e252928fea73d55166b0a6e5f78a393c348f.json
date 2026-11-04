@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Expire one known Docling remote job whose deadline has passed.\n--\n-- The item guard is the captured execution, exactly like `record_probe.sql`.\n-- The job must still be active and its deadline must have passed on the\n-- database clock, so a refused or not-due predicate rolls the caller's library\n-- seal back instead of timing out early. The same statement records exactly one\n-- durable cleanup row with the real remote identity and the `deadline` reason;\n-- the existing unique index makes a repeat insert idempotent.\n--\n-- `$1` is the job, `$2` the item, `$3` the task, `$4` the fencing token,\n-- `$5` the library task, `$6` the execution generation and `$7` the error.\nWITH owned AS (\n    SELECT item.id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.task_id = $3\n      AND item.status = 'running'\n      AND item.lease_token = $4\n      AND item.lease_until > clock_timestamp()\n      AND item.execution_task_id = $5\n      AND item.execution_generation = $6\n),\ntimed_out AS (\n    UPDATE context69.task_docling_remote_jobs AS job\n    SET status = 'timed_out',\n        remote_status = COALESCE(job.remote_status, job.status),\n        last_error = COALESCE($7, job.last_error, 'remote job deadline exceeded'),\n        last_polled_at = clock_timestamp(),\n        finished_at = clock_timestamp(),\n        lease_token = NULL,\n        lease_until = NULL,\n        updated_at = clock_timestamp()\n    WHERE job.id = $1\n      AND job.item_id = $2\n      AND job.task_id = $3\n      AND job.status IN ('pending', 'running')\n      AND job.deadline_at IS NOT NULL\n      AND job.deadline_at <= clock_timestamp()\n      AND EXISTS (SELECT 1 FROM owned)\n    RETURNING\n        job.id,\n        job.task_id,\n        job.item_id,\n        job.remote_task_id,\n        job.endpoint_base_url\n), cleanup AS (\n    INSERT INTO context69.task_docling_remote_cleanup (\n        remote_job_id,\n        task_id,\n        item_id,\n        remote_task_id,\n        endpoint_base_url,\n        reason\n    )\n    SELECT id, task_id, item_id, remote_task_id, endpoint_base_url, 'deadline'\n    FROM timed_out\n    ON CONFLICT DO NOTHING\n    RETURNING id\n)\nSELECT EXISTS (SELECT 1 FROM timed_out) AS \"timed_out!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "timed_out!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f9ad09dad42eecfa11ec6687e488e252928fea73d55166b0a6e5f78a393c348f"
+}

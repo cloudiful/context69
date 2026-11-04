@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Bulk-seeds unlinked domain heads for the minority-class candidate-bound\n-- regression (issue 1172 P6A2).\n--\n-- Domain rows only: every seeded item is linked through the public bounded\n-- cutover adoption API, which produces its library segment with the public\n-- enqueue call. No library row is inserted or updated here.\nWITH inserted AS (\n    INSERT INTO context69.tasks\n        (id, user_id, group_id, kind, status, group_path, total_count, queued_count, created_at)\n    SELECT gen_random_uuid(), $1, NULL, $3, 'queued', 'test/admission-many',\n           1, 1, now() - interval '2 days'\n    FROM generate_series(1::bigint, $2)\n    RETURNING id\n)\nINSERT INTO context69.task_items\n    (id, task_id, ordinal, payload, status, created_at)\nSELECT gen_random_uuid(), id, 1, '{}'::jsonb, 'queued', now() - interval '2 days'\nFROM inserted\nRETURNING id AS item_id, task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3c1d6ead087514a3b6328cb0853892719b07c5d220ff67a0f4e705cbd8499bb9"
+}

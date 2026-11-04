@@ -19,7 +19,6 @@ use crate::{
 use super::{
     library_startup::LibraryStartup,
     services_init::ServicesInit,
-    task_worker_capacity,
     vector_runtime::{
         EmbeddingRuntimeReloader, EmbeddingRuntimeReloaderContext, EmbeddingSettingsGuard,
         EmbeddingTransitionApplier, VectorRuntime,
@@ -221,6 +220,16 @@ pub async fn start(
     // controller that owns this process's vector lifetime.
     MetadataPayloadSyncWorker::new(db.clone(), vector.vector.clone())
         .spawn(vector.recovery.shutdown_token());
+    // The durable task queue policy is the only execution capacity owner. A
+    // runtime settings save installs the committed value here; a failed hot
+    // apply is reported to the saver and repaired by startup or the next save.
+    settings.set_runtime_scheduler_applier(Some(Arc::new({
+        let db = db.clone();
+        move |global, limits| {
+            let db = db.clone();
+            Box::pin(async move { db.apply_execution_admission_policies(global, &limits).await })
+        }
+    })));
     let tasks = TaskService::new(TaskServiceDependencies {
         db: db.clone(),
         namespace: namespace.clone(),
@@ -229,9 +238,27 @@ pub async fn start(
         sync: services.sync.clone(),
         source_folders: startup.source_folders.clone(),
         translation: services.translation.clone(),
-        concurrency: task_worker_capacity(config),
     })
     .with_settings(settings.clone());
+    // Applied before the first dispatch so no claim ever runs under an
+    // unconfigured policy window.
+    let (scheduler_max_concurrency, scheduler_resource_limits) = db
+        .get_runtime_settings()
+        .await?
+        .map(|stored| {
+            (
+                stored.scheduler.max_concurrency,
+                stored.scheduler.resource_limits,
+            )
+        })
+        .unwrap_or_else(|| {
+            (
+                config.scheduler.max_concurrency,
+                crate::contracts::settings::SchedulerResourceLimits::default(),
+            )
+        });
+    db.apply_execution_admission_policies(scheduler_max_concurrency, &scheduler_resource_limits)
+        .await?;
     tasks.resume_pending();
     tasks.start_maintenance();
     tasks.start_event_bus();
@@ -274,7 +301,6 @@ pub struct UpgradeRecoveryServices<'a> {
 
 pub async fn start_upgrade_recovery(
     db: &Database,
-    config: &Config,
     vector: &VectorRuntime,
     services: UpgradeRecoveryServices<'_>,
 ) -> BackgroundTasks {
@@ -292,7 +318,6 @@ pub async fn start_upgrade_recovery(
         sync: services.sync.clone(),
         source_folders: startup.source_folders.clone(),
         translation: services.translation.clone(),
-        concurrency: task_worker_capacity(config),
     })
     .with_settings(services.settings.clone());
     BackgroundTasks {

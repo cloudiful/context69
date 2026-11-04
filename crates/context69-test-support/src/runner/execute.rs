@@ -63,6 +63,47 @@ pub fn plan(manifest: &TestManifest, opt_ins: &[TestClass]) -> Vec<PlannedTarget
         .collect()
 }
 
+/// Restrict an existing full plan to exact requested target labels.
+///
+/// An empty request returns the identical full plan. A label must be known to
+/// the manifest and enabled by the current opt-in selection; an unknown label
+/// or a known opt-in that was not requested is refused instead of being
+/// silently added. The result keeps the full plan's order and never repeats a
+/// target, so scoped and full runs share one execution algorithm.
+///
+/// # Errors
+///
+/// Returns a redacted refusal message for an unknown or not-enabled label.
+pub fn select_plan(
+    manifest: &TestManifest,
+    opt_ins: &[TestClass],
+    requested: &[String],
+) -> Result<Vec<PlannedTarget>, String> {
+    let planned = plan(manifest, opt_ins);
+    if requested.is_empty() {
+        return Ok(planned);
+    }
+    let known = manifest.target_labels();
+    let mut positions = Vec::with_capacity(requested.len());
+    for label in requested {
+        if !known.iter().any(|candidate| candidate == label) {
+            return Err(format!("unknown target label: {label}"));
+        }
+        let Some(position) = planned.iter().position(|target| &target.label == label) else {
+            return Err(format!(
+                "target label {label} is not enabled by the current invocation"
+            ));
+        };
+        positions.push(position);
+    }
+    positions.sort_unstable();
+    positions.dedup();
+    Ok(positions
+        .into_iter()
+        .map(|position| planned[position].clone())
+        .collect())
+}
+
 /// Build arguments that select exactly the requested ignored tests with libtest.
 ///
 /// Libtest treats each positional filter as one exact test name, while
@@ -96,12 +137,11 @@ pub async fn run(
     observation: &PreflightObservation,
     decision: &ResetDecision,
     executables: &[TestExecutable],
-    manifest: &TestManifest,
-    opt_ins: &[TestClass],
+    planned: &[PlannedTarget],
 ) -> Result<Vec<TargetOutcome>, String> {
     let redactor = endpoint.redactor();
     let mut outcomes = Vec::new();
-    for entry in plan(manifest, opt_ins) {
+    for entry in planned {
         let Some(outcome) = execute_target(
             run_dir,
             endpoint,

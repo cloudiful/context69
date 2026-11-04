@@ -16,7 +16,7 @@ async fn main() -> ExitCode {
         Err(message) => {
             eprintln!("{message}");
             eprintln!(
-                "usage: context69-backend-test-runner [--preflight | --list] [--authorize-reset]"
+                "usage: context69-backend-test-runner [--preflight | --list] [--authorize-reset] [--target LABEL ...]"
             );
             return ExitCode::from(exit::USAGE as u8);
         }
@@ -45,7 +45,18 @@ fn code_for(status: runner::output::RunStatus) -> i32 {
 }
 
 fn report(summary: &runner::output::RunSummary) {
-    println!("backend test run {}: {:?}", summary.run_id, summary.status);
+    if summary.scope == runner::output::RunScope::Targets {
+        println!(
+            "backend test run {}: {:?} (scope: targets, requested={}, selected={} targets, {} ordinary tests)",
+            summary.run_id,
+            summary.status,
+            labels(&summary.requested_targets),
+            summary.resolved_targets.len(),
+            summary.selected_ordinary_tests
+        );
+    } else {
+        println!("backend test run {}: {:?}", summary.run_id, summary.status);
+    }
     if let Some(fingerprint) = &summary.endpoint_fingerprint {
         println!(
             "target: {fingerprint} via {}",
@@ -57,6 +68,14 @@ fn report(summary: &runner::output::RunSummary) {
     }
     for failure in &summary.failures {
         println!("  failure: {failure}");
+    }
+}
+
+fn labels(labels: &[String]) -> String {
+    if labels.is_empty() {
+        "-".to_owned()
+    } else {
+        labels.join(",")
     }
 }
 

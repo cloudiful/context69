@@ -15,6 +15,7 @@ use context69_db_schema::MIGRATOR;
 use sqlx::postgres::PgPool;
 
 use crate::config::Endpoint;
+use crate::execution_cleanup::{self, ExecutionCleanupError};
 
 use super::preflight::{self, PreflightObservation, ResetDecision};
 
@@ -91,6 +92,21 @@ pub async fn reset_owned_schema(
     }
 
     let pool = PgPool::connect_with(preflight::connect_options(endpoint)?).await?;
+
+    // End only the library executions precisely linked to the owned items that
+    // this reset is about to delete. This runs after the authorization above and
+    // before the destructive statement, so an unauthorized or refused reset
+    // performs neither cleanup nor DDL. Expired grants cannot be sealed through
+    // the API; they are reported and left to normal recovery instead of being
+    // forged or globally recovered.
+    let cleanup = execution_cleanup::quiesce_linked_executions(&pool).await?;
+    if cleanup.has_expired_skips() {
+        eprintln!(
+            "test reset: linked execution cleanup reported expired grants as skipped, \
+             not sealed: {cleanup}"
+        );
+    }
+
     sqlx::raw_sql(RESET_SQL).execute(&pool).await?;
 
     // A shared ledger is never emptied: only the pairs this build ships are
@@ -166,12 +182,19 @@ impl std::fmt::Display for ResetRefused {
 #[derive(Debug)]
 pub enum ResetError {
     Refused(ResetRefused),
+    Cleanup(ExecutionCleanupError),
     Database(sqlx::Error),
 }
 
 impl From<ResetRefused> for ResetError {
     fn from(refused: ResetRefused) -> Self {
         Self::Refused(refused)
+    }
+}
+
+impl From<ExecutionCleanupError> for ResetError {
+    fn from(error: ExecutionCleanupError) -> Self {
+        Self::Cleanup(error)
     }
 }
 
@@ -185,6 +208,9 @@ impl std::fmt::Display for ResetError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Refused(refused) => write!(f, "{refused}"),
+            Self::Cleanup(error) => {
+                write!(f, "linked execution cleanup refused the reset: {error}")
+            }
             Self::Database(_) => f.write_str("the owned-schema reset did not complete"),
         }
     }

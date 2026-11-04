@@ -3,7 +3,10 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, seed_test_user};
+use crate::support::{
+    FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, own_claims, seal_test_execution,
+    seed_test_user,
+};
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -33,13 +36,22 @@ async fn claim_items_compatibility_path_still_converges_exhausted_state() {
         })
         .await
         .expect("create task");
-    sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
+    sqlx::query("UPDATE context69.task_items SET execution_failure_count = 5 WHERE id = $1")
         .bind(item_ids[0])
         .execute(db.pool())
         .await
         .expect("set exhausted attempt count");
 
-    let claimed = db.claim_items(100).await.expect("compat claim");
+    let claimed = own_claims(
+        db.claim_items().await.expect("compat claim"),
+        &[task_id],
+        &item_ids,
+    );
+    // A returned grant would be a defect; seal it before asserting so the
+    // failing case cannot leak the grant it just proved unexpected.
+    for grant in &claimed {
+        seal_test_execution(&db, grant).await;
+    }
     assert!(
         claimed.iter().all(|item| item.task_id != task_id),
         "compatibility claim_items must not return exhausted items"
@@ -142,18 +154,53 @@ async fn claim_items_compatibility_path_still_converges_exhausted_state() {
         task.cancelled_count, cancelled,
         "cancelled_count must match items"
     );
-    let lease_token: Option<uuid::Uuid> =
-        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
-            .bind(task_id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load lease_token");
-    assert!(
-        lease_token.is_none(),
-        "terminal task must clear lease_token via compatibility path"
+    // The parent holds no admission lease, so the compatibility path must clear
+    // the item leases and close every attempt it opened.
+    let item_leases: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM context69.task_items \
+         WHERE task_id = $1 AND (lease_token IS NOT NULL OR lease_until IS NOT NULL)",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count remaining item leases");
+    assert_eq!(
+        item_leases, 0,
+        "the compatibility path must clear the terminal item leases"
+    );
+    let open_attempts: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM context69.task_attempts \
+         WHERE task_id = $1 AND finished_at IS NULL",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count open attempts");
+    assert_eq!(
+        open_attempts, 0,
+        "the compatibility path must leave no open attempt"
+    );
+    let running_items: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM context69.task_items \
+         WHERE task_id = $1 AND status = 'running'",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count running items");
+    assert_eq!(
+        running_items, 0,
+        "the compatibility path must leave no running item"
     );
     // Idempotent second compatibility claim must not drift counters.
-    let second = db.claim_items(100).await.expect("second compat claim");
+    let second = own_claims(
+        db.claim_items().await.expect("second compat claim"),
+        &[task_id],
+        &item_ids,
+    );
+    for grant in &second {
+        seal_test_execution(&db, grant).await;
+    }
     assert!(
         second.iter().all(|item| item.task_id != task_id),
         "second compat claim must still not return exhausted items"
@@ -203,23 +250,24 @@ async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent()
         .await
         .expect("create partial task");
     assert_eq!(item_ids.len(), 2);
-    sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
+    sqlx::query("UPDATE context69.task_items SET execution_failure_count = 5 WHERE id = $1")
         .bind(item_ids[0])
         .execute(db.pool())
         .await
         .expect("exhaust first item");
     sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 0, status = 'queued' WHERE id = $1",
+        "UPDATE context69.task_items SET execution_failure_count = 0, status = 'queued' WHERE id = $1",
     )
     .bind(item_ids[1])
     .execute(db.pool())
     .await
     .expect("keep second queued");
 
-    let claimed = db
-        .claim_items(100)
-        .await
-        .expect("compat claim with partial");
+    let claimed = own_claims(
+        db.claim_items().await.expect("compat claim with partial"),
+        &[task_id],
+        &item_ids,
+    );
     assert!(
         claimed.iter().all(|item| item.id != item_ids[0]),
         "exhausted item must never be claimed via compat path"
@@ -309,6 +357,17 @@ async fn claim_items_compatibility_path_keeps_partial_task_counters_consistent()
     assert_eq!(task.failed_count, failed);
     assert_eq!(task.cancelled_count, cancelled);
 
+    // The queued sibling was claimed through the compatibility path and still
+    // holds its live grant; seal every grant this claim returned before
+    // deleting the fixture.
+    assert!(
+        claimed.iter().any(|item| item.id == item_ids[1]),
+        "the partial task's queued sibling must be the claimed grant"
+    );
+    for grant in &claimed {
+        seal_test_execution(&db, grant).await;
+    }
+
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
@@ -343,25 +402,28 @@ async fn claim_items_compatibility_path_recycles_an_expired_attempt() {
         .expect("create task");
     let item_id = item_ids[0];
 
-    let first = db
-        .claim_items(10)
-        .await
-        .expect("first claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("fresh item claimable");
+    let first = own_claims(
+        db.claim_items().await.expect("first claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(first.len(), 1, "the first claim returns only this item");
+    let first = first.into_iter().next().expect("fresh item claimable");
     assert_eq!(first.attempt_count, 1);
 
     // The worker crashes: the authoritative library attempt and its domain
     // mirror expire together.
     crash_holder(&db, &first).await;
 
-    let second = db
-        .claim_items(10)
-        .await
-        .expect("second claim")
+    let second = own_claims(
+        db.claim_items().await.expect("second claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(second.len(), 1, "the second claim returns only this item");
+    let second = second
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("expired item must be claimable via compatibility path");
     assert_eq!(
         second.attempt_count, 2,
@@ -385,6 +447,9 @@ async fn claim_items_compatibility_path_recycles_an_expired_attempt() {
         interrupted, 1,
         "compatibility claim_items must interrupt the abandoned attempt"
     );
+
+    // The recycled claim owns a fresh live grant after the crashed one expired.
+    seal_test_execution(&db, &second).await;
 
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;

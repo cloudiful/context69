@@ -87,7 +87,7 @@ async fn cross_group_item_does_not_project_status_onto_foreign_file() {
             .expect("load item");
     // The item is claimed through the library, so the transition is fenced by
     // the very attempt the claim holds.
-    let claimed = db.claim_items_fast(10).await.expect("claim the item");
+    let claimed = db.claim_items_fast().await.expect("claim the item");
     let claimed = claimed
         .into_iter()
         .find(|item| item.id == item_id)

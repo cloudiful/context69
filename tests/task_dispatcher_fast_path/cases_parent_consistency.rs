@@ -3,17 +3,19 @@
 //! These pin the invariants issue 702 P1 asks for at the database boundary (no
 //! live dispatcher): the parent counters move with the claim in the same
 //! transaction, the current item is the head-of-line item under every recompute
-//! path, and a slot that no claim can ever serve is released.
+//! path, and the parent start time only exists after a real claim (issue 1172
+//! P2). The parent holds no admission slot, so nothing here asserts one.
 
 use chrono::{Duration, Utc};
 use context69::db::{
     CreateTaskSubmissionRequest, Database, FinishTaskItemRequest, WaitTaskItemRequest,
 };
 use serde_json::json;
-use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, seed_test_user};
+use crate::support::{
+    FAST_PATH_LOCK, cleanup_task, cleanup_user, own_claims, seal_test_execution, seed_test_user,
+};
 
 async fn seed_task(
     db: &Database,
@@ -87,19 +89,29 @@ async fn claiming_an_item_moves_the_parent_counters_in_the_same_transaction() {
     )
     .await;
 
-    let claimed = db
-        .claim_items_fast(10)
-        .await
-        .expect("fast claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("fresh parent must claim its head-of-line item");
+    let queued = parent(&db, task_id).await;
+    assert!(
+        queued.started_at.is_none(),
+        "a parent whose items have not started has no start time"
+    );
+
+    let mut claims = own_claims(
+        db.claim_items_fast().await.expect("fast claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(claims.len(), 1, "only the head-of-line item is eligible");
+    let claimed = claims.remove(0);
     assert_eq!(claimed.id, item_ids[0]);
 
     // No `recompute_task` call: the claim statement alone must already leave the
     // parent agreeing with its items.
     let task = parent(&db, task_id).await;
     assert_eq!(task.status, "running", "a claimed parent is running");
+    assert!(
+        task.started_at.is_some(),
+        "the first real claim stamps the parent start time"
+    );
     assert_eq!(task.running_count, 1, "one item is running");
     assert_eq!(
         task.queued_count, 2,
@@ -150,6 +162,7 @@ async fn claiming_an_item_moves_the_parent_counters_in_the_same_transaction() {
     assert_eq!(task.queued_count, 2);
     assert_eq!(task.running_count, 0);
 
+    seal_test_execution(&db, &claimed).await;
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
@@ -175,13 +188,14 @@ async fn head_of_line_waiting_drives_the_parent_and_blocks_later_items() {
     .await;
     let next_attempt_at = Utc::now() + Duration::minutes(5);
 
-    let first = db
-        .claim_items_fast(10)
-        .await
-        .expect("fast claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("fresh parent must claim");
+    let mut claims = own_claims(
+        db.claim_items_fast().await.expect("fast claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(claims.len(), 1, "only the head-of-line item is eligible");
+    let first = claims.remove(0);
+    assert_eq!(first.id, item_ids[0]);
     assert!(
         db.wait_task_item(WaitTaskItemRequest {
             task_id,
@@ -220,122 +234,21 @@ async fn head_of_line_waiting_drives_the_parent_and_blocks_later_items() {
     assert_eq!(task.running_count, 0);
 
     // The queued sibling must stay behind the head of line.
-    let next = db.claim_items_fast(10).await.expect("fast claim");
+    let next = own_claims(
+        db.claim_items_fast().await.expect("fast claim"),
+        &[task_id],
+        &item_ids,
+    );
+    for claim in &next {
+        seal_test_execution(&db, claim).await;
+    }
     assert!(
-        next.iter().all(|item| item.task_id != task_id),
+        next.is_empty(),
         "a parent parked on a retry must not start its later sibling"
     );
     assert_eq!(item_counts(&db, task_id).await.0, 1);
 
-    cleanup_task(&db, task_id, user_id).await;
-    cleanup_user(&db, user_id).await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn maintenance_releases_a_parent_slot_no_claim_can_serve() {
-    let url = context69_test_support::accessor::database_url();
-    let _guard = FAST_PATH_LOCK.lock().await;
-    let db = Database::connect(&url)
-        .await
-        .expect("connect test database");
-    context69_db_schema::bootstrap_library_schema(db.pool())
-        .await
-        .expect("bootstrap the library schema");
-    let user_id = seed_test_user(&db).await;
-    let (task_id, item_ids) = seed_task(
-        &db,
-        user_id,
-        &[json!({"external_id": "orphan"})],
-        "orphan-slot",
-    )
-    .await;
-
-    // An admitted parent whose current item is past the attempt cap and still
-    // parked in the future: the claim path excludes it and maintenance's
-    // exhaustion pass skips it until it is due, so nothing can ever use this
-    // slot again while the lease is held.
-    sqlx::query(
-        "UPDATE context69.task_items \
-         SET attempt_count = 5, next_attempt_at = now() + interval '1 hour' WHERE id = $1",
-    )
-    .bind(item_ids[0])
-    .execute(db.pool())
-    .await
-    .expect("park the item past the attempt cap");
-    sqlx::query(
-        "UPDATE context69.tasks \
-         SET lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes' \
-         WHERE id = $1",
-    )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("grant a slot to the orphaned parent");
-
-    let outcome = db
-        .maintain_claim_state()
-        .await
-        .expect("maintenance succeeds");
-    assert!(
-        outcome.revoked_parent_leases >= 1,
-        "maintenance must release a parent slot no claim can serve"
-    );
-    let (token, until) = parent_lease(&db, task_id).await;
-    assert!(
-        token.is_none() && until.is_none(),
-        "the reclaimed parent must not keep a lease"
-    );
-
-    cleanup_task(&db, task_id, user_id).await;
-    cleanup_user(&db, user_id).await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn maintenance_keeps_a_parent_slot_for_a_scheduled_retry() {
-    let url = context69_test_support::accessor::database_url();
-    let _guard = FAST_PATH_LOCK.lock().await;
-    let db = Database::connect(&url)
-        .await
-        .expect("connect test database");
-    context69_db_schema::bootstrap_library_schema(db.pool())
-        .await
-        .expect("bootstrap the library schema");
-    let user_id = seed_test_user(&db).await;
-    let (task_id, item_ids) =
-        seed_task(&db, user_id, &[json!({"external_id": "keep"})], "keep-slot").await;
-
-    // The mirror image of the orphan: a retryable wait with attempts left must
-    // keep its slot, because the claim path will resume it when it comes due.
-    sqlx::query(
-        "UPDATE context69.task_items \
-         SET status = 'waiting', waiting_reason = 'backoff', \
-             next_attempt_at = now() + interval '1 hour', attempt_count = 1 WHERE id = $1",
-    )
-    .bind(item_ids[0])
-    .execute(db.pool())
-    .await
-    .expect("park the item on a retry");
-    sqlx::query(
-        "UPDATE context69.tasks \
-         SET lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes' \
-         WHERE id = $1",
-    )
-    .bind(task_id)
-    .execute(db.pool())
-    .await
-    .expect("grant a slot to the waiting parent");
-
-    db.maintain_claim_state()
-        .await
-        .expect("maintenance succeeds");
-    let (token, until) = parent_lease(&db, task_id).await;
-    assert!(
-        token.is_some() && until.map(|until| until > Utc::now()).unwrap_or(false),
-        "a parent waiting for a scheduled retry must keep its slot"
-    );
-
+    seal_test_execution(&db, &first).await;
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
@@ -381,16 +294,4 @@ async fn a_new_git_index_task_starts_in_the_indexing_stage() {
 
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
-}
-
-async fn parent_lease(
-    db: &Database,
-    task_id: Uuid,
-) -> (Option<Uuid>, Option<chrono::DateTime<Utc>>) {
-    let row = sqlx::query("SELECT lease_token, lease_until FROM context69.tasks WHERE id = $1")
-        .bind(task_id)
-        .fetch_one(db.pool())
-        .await
-        .expect("load task lease");
-    (row.get("lease_token"), row.get("lease_until"))
 }

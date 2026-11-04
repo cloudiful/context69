@@ -52,7 +52,7 @@ WITH RECURSIVE inherited_groups AS (
         -- A resume restarts the collapsed item at `processing`; the worker
         -- re-derives its own progress from payload/file state.
         stage = 'processing',
-        attempt_count = 0,
+        execution_failure_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

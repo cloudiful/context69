@@ -19,7 +19,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69::db::{CreateTaskSubmissionRequest, Database};
+use chrono::{Duration, Utc};
+use context69::db::{CreateTaskSubmissionRequest, Database, DoclingRiskAck};
 use context69::{
     chunking::ChunkingConfig,
     config::FileLibraryConfig,
@@ -111,7 +112,6 @@ async fn build_task_service(db: &Database) -> TaskService {
         sync: sync.clone(),
         source_folders: SourceFoldersService::new(db.clone(), library, sync),
         translation,
-        concurrency: 1,
     })
 }
 
@@ -521,4 +521,123 @@ async fn idempotency_binding(db: &Database, user_id: i64, key: &str) -> Option<U
     .fetch_optional(db.pool())
     .await
     .expect("read the idempotency binding")
+}
+
+/// An acknowledged failed fork archives the settled unknown submission inside
+/// the rerun transaction and leaves that parked item inert.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn rerun_task_with_ack_archives_the_settled_unknown_submission() {
+    let url = context69_test_support::accessor::database_url();
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    let user_id = seed_test_user(&db).await;
+    let (task_id, _, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/rerun-ack"),
+            source_key: None,
+            payloads: &[
+                json!({"external_id": "failed"}),
+                json!({"external_id": "parked"}),
+            ],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "rerun-ack-hash",
+        })
+        .await
+        .expect("create task");
+    let (failed_item, parked_item) = (item_ids[0], item_ids[1]);
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'failed', attempt_count = 2, \
+         failure_stage = 'storage', error_message = 'boom', finished_at = now() WHERE id = $1",
+    )
+    .bind(failed_item)
+    .execute(db.pool())
+    .await
+    .expect("fail the first item");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'docling', \
+         stage = 'docling', finished_at = NULL, lease_token = NULL, lease_until = NULL, \
+         next_attempt_at = NULL WHERE id = $1",
+    )
+    .bind(parked_item)
+    .execute(db.pool())
+    .await
+    .expect("park the second item");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'failed', failed_count = 1, waiting_count = 1, \
+         queued_count = 0, finished_at = now() WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("mark the source task failed");
+    let job_id: Uuid = sqlx::query_file_scalar!(
+        "tests/sql/docling_remote_jobs/seed_submitting_job.sql",
+        task_id,
+        parked_item,
+        true,
+        Option::<Uuid>::None,
+        Option::<i64>::None,
+        json!({ "fixture": true }),
+        "http://docling.invalid/v1",
+        Utc::now() + Duration::hours(1),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("seed the unknown submission");
+    sqlx::query(
+        "UPDATE context69.task_docling_remote_jobs SET status = 'submission_uncertain' \
+         WHERE id = $1",
+    )
+    .bind(job_id)
+    .execute(db.pool())
+    .await
+    .expect("mark the seeded submission uncertain");
+
+    let (new_task_id, _) = db
+        .rerun_task_with_ack(task_id, Some(user_id), DoclingRiskAck::Acknowledged)
+        .await
+        .expect("the acknowledged failed fork is accepted");
+    assert_ne!(new_task_id, task_id, "the failed fork creates a fresh task");
+
+    let history = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/read_submission_history.sql",
+        task_id
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("read the retained history");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].id, job_id);
+    assert_eq!(history[0].job_status, "superseded");
+    assert!(history[0].finished_at.is_some());
+    assert_eq!(history[0].item_status, "waiting");
+    assert_eq!(history[0].item_waiting_reason.as_deref(), Some("docling"));
+
+    for task in [task_id, new_task_id] {
+        sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
+            .bind(task)
+            .execute(db.pool())
+            .await
+            .expect("clean up task items");
+        sqlx::query("DELETE FROM context69.tasks WHERE id = $1")
+            .bind(task)
+            .execute(db.pool())
+            .await
+            .expect("clean up task");
+    }
+    sqlx::query("DELETE FROM context69.users WHERE id = $1")
+        .bind(user_id)
+        .execute(db.pool())
+        .await
+        .expect("clean up user");
 }

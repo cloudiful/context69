@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Library tasks precisely linked to the Context69 items a reset is about to\n-- delete.\n--\n-- The link is the segment payload's item id against the owned domain item id,\n-- restricted to the Context69 namespace. A task of another namespace, or one\n-- whose payload is not an owned item, is never selected. The queue name is\n-- returned per task so the caller opens the queue each fact actually belongs\n-- to instead of assuming the current queue layout.\n--\n-- $1 is the last task id of the previous page (NULL starts at the beginning),\n-- $2 the bounded page size. Ordering by id makes the pages deterministic while\n-- the caller only reads; library history is never deleted here.\nSELECT task.namespace,\n       task.queue,\n       task.id AS task_id\nFROM cloudiful_tasks.tasks task\nJOIN context69.task_items item\n  ON item.id::text = task.payload->>'item_id'\nWHERE task.namespace = 'context69'\n  AND ($1::uuid IS NULL OR task.id > $1::uuid)\nORDER BY task.id\nLIMIT $2;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "namespace",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "namespace"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "queue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "queue"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "515e5052b402de4d36044ff68dcdc4db63a201ff9bee2c661b98eb0923b6274b"
+}

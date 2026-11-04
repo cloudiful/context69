@@ -55,7 +55,9 @@ async fn terminal_recovery_captures_deadline_and_failure_but_not_new_attempt() {
                     "permanent_failure"
                 })
                 .into(),
-                job.remote_task_id,
+                job.remote_task_id
+                    .clone()
+                    .expect("the seeded job has a known id"),
                 job.endpoint_base_url
             )
         );

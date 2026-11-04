@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The parked transition of one task item (issue 1020 P2).\n--\n-- The guard is the captured execution of the item, like the terminal\n-- transition: the fencing token of the library attempt, the library task and\n-- the execution generation, compared after the row lock was taken and against\n-- the clock of the database.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the waiting reason, `$4` the\n-- dependency key, `$5` the retry time, `$6` the error message, `$7` the\n-- library task and `$8` the execution generation.\n--\n-- `$9` is an explicit next execution-failure budget, `$10` an optional expected\n-- budget guard and `$11` an optional parent fence. A plain park never keys on a\n-- freeform reason string and preserves the budget; only the dedicated failure\n-- transition supplies a next value.\nWITH waiting AS (\n    UPDATE context69.task_items\n    SET status = 'waiting',\n        execution_failure_count = CASE\n            WHEN $9::integer IS NULL THEN execution_failure_count\n            ELSE LEAST(GREATEST($9::integer, 0), 5)\n        END,\n        waiting_reason = $3,\n        dependency_key = $4,\n        next_attempt_at = $5,\n        lease_token = NULL,\n        lease_until = NULL,\n        error_message = $6,\n        waiting_since = COALESCE(waiting_since, now()),\n        updated_at = now()\n    WHERE id = $1\n      AND lease_token = $2\n      AND status = 'running'\n      AND lease_until > clock_timestamp()\n      AND execution_task_id = $7\n      AND execution_generation = $8\n      AND ($10::integer IS NULL OR execution_failure_count = $10::integer)\n      AND ($11::uuid IS NULL OR task_id = $11::uuid)\n    RETURNING id\n),\nattempt_waited AS (\n    UPDATE context69.task_attempts\n    SET status = 'waiting',\n        error_message = $6,\n        finished_at = now()\n    WHERE item_id = $1\n      AND finished_at IS NULL\n      AND EXISTS (SELECT 1 FROM waiting)\n    RETURNING id\n)\nSELECT EXISTS (SELECT 1 FROM waiting) AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Timestamptz",
+        "Text",
+        "Uuid",
+        "Int8",
+        "Int4",
+        "Int4",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "d528b2757ae85ade458150c415dcf44440276b24ccfe8b3302f33055ff1948ac"
+}

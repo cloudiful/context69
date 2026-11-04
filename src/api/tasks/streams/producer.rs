@@ -104,6 +104,8 @@ pub(super) async fn run_task_stream(
             stage: None,
             waiting_reason: None,
             dependency_key: None,
+            group_path: None,
+            source_key: None,
             sort_by: None,
             sort_direction: None,
         };

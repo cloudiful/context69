@@ -85,6 +85,13 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     max_concurrency: 4,
     run_on_start: true,
     valkey_url: "redis://valkey:6379/0",
+    ingest_batches_per_segment: 1,
+    resource_limits: {
+      interactive: 2,
+      bulk: null,
+      maintenance: null,
+      ingest: 1,
+    },
   },
   chunking: { max_chars: 1200, overlap_chars: 200 },
   requires_rebuild: false,
@@ -416,6 +423,8 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             max_concurrency: payload.scheduler.max_concurrency,
             run_on_start: payload.scheduler.run_on_start,
             valkey_url: payload.scheduler.valkey_url ?? null,
+            ingest_batches_per_segment: payload.scheduler.ingest_batches_per_segment,
+            resource_limits: payload.scheduler.resource_limits ?? state.runtime.scheduler.resource_limits,
           },
           chunking: payload.chunking,
           // Only an explicit same-space acknowledgement clears a pending

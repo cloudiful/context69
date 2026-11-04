@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Archive the validated unknown Docling submissions of one task (issue 1172 P5B1).\n--\n-- Only the exact `submission_uncertain` rows already validated and locked by\n-- the caller are archived. Provenance, frozen identity, dispatch flag,\n-- `created_at`, `last_error`, remote status and the remote id stay untouched:\n-- the row becomes `superseded` with a finish timestamp so the history and the\n-- original diagnostic survive. `$1` task, `$2` validated job ids.\nUPDATE context69.task_docling_remote_jobs AS job\nSET status = 'superseded',\n    remote_status = COALESCE(job.remote_status, job.status),\n    finished_at = now(),\n    updated_at = now()\nWHERE job.task_id = $1\n  AND job.id = ANY($2::uuid[])\n  AND job.status = 'submission_uncertain'\nRETURNING job.item_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "df7b185d7ece5b952c99c2a9957ffeaff01767516110dfede48c69098fa5e9de"
+}

@@ -9,7 +9,6 @@
 WITH progressed AS (
     UPDATE context69.task_items
     SET status = 'queued',
-        attempt_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

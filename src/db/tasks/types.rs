@@ -9,18 +9,15 @@ use super::execution::ExecutionContext;
 /// Counts of rows each step of `maintain_claim_state` touched. Returned
 /// to the dispatcher so startup/recovery logs can surface exhausted or
 /// expired recovery work without an extra round trip.
+///
+/// The parent holds no admission lease (issue 1172 P2), so this outcome has no
+/// parent-slot counter: execution capacity is the library queue policy.
 #[derive(Debug, Clone, FromRow, Default)]
 pub struct ClaimMaintenanceOutcome {
     pub exhausted_items: i64,
     pub exhausted_files: i64,
     pub exhausted_tasks: i64,
     pub expired_attempts: i64,
-    /// Admitted parent-task slots renewed because a worker still runs one of
-    /// their items (issue 650 P2).
-    pub renewed_parent_leases: i64,
-    /// Admitted parent-task slots released because their worker item lease
-    /// expired (issue 650 P2).
-    pub revoked_parent_leases: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -59,6 +56,10 @@ pub struct StoredTask {
     /// `title` or the library file's `metadata_json.title`. `None` when neither
     /// carries one.
     pub document_title: Option<String>,
+    /// `true` while any item of the task owns an unacknowledged Docling
+    /// submission (`submitting` or `submission_uncertain`). A risk indicator,
+    /// never a promise that the acknowledgement is currently executable.
+    pub docling_submission_uncertain: bool,
 }
 
 /// A task item listed for inspection.
@@ -103,7 +104,11 @@ pub struct ClaimedItem {
     /// correlate a transition with item position; a caller never has to read it
     /// back.
     pub ordinal: i32,
+    /// The monotonic claim ordinal, never reset by progress or manual resume.
     pub attempt_count: i32,
+    /// The internal committed-execution failure budget (0..5). This is the
+    /// only exhaustion and failure-backoff input.
+    pub execution_failure_count: i32,
     pub lease_token: Uuid,
     pub attempt_id: i64,
     pub payload: Value,
@@ -193,18 +198,13 @@ pub struct TaskConsistencyRow {
     pub dependency_waiting_parent_count: i64,
     pub parent_status_counts: Value,
     pub running_parent_without_running_item_count: i64,
-    pub lease_without_running_item_count: i64,
     pub open_attempt_count: i64,
     pub near_exhaustion_item_count: i64,
-    pub oldest_admitted_at: Option<DateTime<Utc>>,
     pub parent_item_mismatch_count: i64,
     /// Item leases of the scoped parent that are still live. Used by tests and
     /// diagnostics to tell "no item is running" from "the item's worker is gone".
     pub live_running_count: i64,
     pub current_item_id: Option<Uuid>,
-    /// Deadline of the scoped parent's admission lease. Meaningful only for a
-    /// single-task scope; `None` for the whole-queue scope.
-    pub scoped_lease_until: Option<DateTime<Utc>>,
     /// Names of the disagreeing parent fields, empty when the parent agrees
     /// with its items.
     pub mismatch_fields: Value,
@@ -288,6 +288,11 @@ impl TaskItemOrder {
 pub struct TaskListFilter<'a> {
     pub user_id: i64,
     pub query: Option<&'a str>,
+    /// Exact group path filter (issue 1172 P1), already trimmed; `None` when
+    /// the caller supplied no filter or a blank one.
+    pub group_path: Option<&'a str>,
+    /// Exact source key filter (issue 1172 P1), already trimmed.
+    pub source_key: Option<&'a str>,
     pub kind: Option<&'a str>,
     pub status: Option<&'a str>,
     pub stage: Option<&'a str>,
@@ -305,6 +310,10 @@ pub struct TaskListFilter<'a> {
 pub struct TaskCountFilter<'a> {
     pub user_id: i64,
     pub query: Option<&'a str>,
+    /// Exact group path filter (issue 1172 P1), already trimmed.
+    pub group_path: Option<&'a str>,
+    /// Exact source key filter (issue 1172 P1), already trimmed.
+    pub source_key: Option<&'a str>,
     pub kind: Option<&'a str>,
     pub status: Option<&'a str>,
     pub stage: Option<&'a str>,
@@ -348,6 +357,85 @@ pub struct WaitTaskItemRequest<'a> {
     pub dependency_key: Option<&'a str>,
     pub next_attempt_at: DateTime<Utc>,
     pub error_message: Option<&'a str>,
+}
+
+/// Grouped arguments for one committed failed execution segment.
+///
+/// Unlike a plain terminal finish, this transition owns the failure budget:
+/// the request carries the budget snapshot the worker read, and the
+/// transaction advances or exhausts it exactly once. The library is sealed
+/// (or deferred) before the guarded domain write, so the two never disagree.
+#[derive(Debug, Clone)]
+pub struct FailTaskItemRequest<'a> {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub failure_stage: &'a str,
+    pub error_message: &'a str,
+    /// The captured execution of the item. A request without it is refused.
+    pub execution: ExecutionContext,
+    pub attempt_id: i64,
+    /// The committed failure budget snapshot this worker observed.
+    pub current_failure_count: i32,
+    /// The backoff deadline used when the budget is not exhausted.
+    pub next_attempt_at: DateTime<Utc>,
+}
+
+/// What [`crate::db::Database::fail_task_item`] committed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FailTaskItemOutcome {
+    /// The segment failed and the item parks on the supplied backoff.
+    Waiting { next_attempt_at: DateTime<Utc> },
+    /// The fifth committed failure sealed the segment permanently.
+    Exhausted,
+    /// The library actually cancelled the segment; the domain follows it.
+    Cancelled,
+    /// The captured lease is gone; nothing was written.
+    LeaseLost,
+    /// The guarded domain write matched nothing; nothing was written.
+    Stale,
+}
+
+/// The probe bookkeeping one parked Docling observation commits.
+///
+/// The remote job owns the cadence: `poll_step` is the normal
+/// [2, 5, 15, 30]-second schedule, and `error_count` is the separate
+/// consecutive transport-error count that resets on any successful status
+/// observation. Both are persisted together with the item park.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DoclingProbeUpdate {
+    pub job_id: Uuid,
+    pub remote_status: String,
+    pub poll_step: i32,
+    pub error_count: i32,
+    pub last_error: Option<String>,
+    pub next_poll_at: DateTime<Utc>,
+}
+
+/// One committed Docling probe transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DoclingProbeOutcome {
+    /// The probe was persisted and the item parked on its next due time.
+    Parked,
+    /// The deadline passed; the item failed and one cleanup row was queued.
+    TimedOut,
+    /// The library actually cancelled the segment; the domain followed it.
+    Cancelled,
+    /// The captured lease is gone; nothing was written.
+    LeaseLost,
+    /// A guarded write matched nothing; nothing was written.
+    Stale,
+}
+
+/// Grouped arguments for one rolled-back-or-committed Docling deadline expiry.
+#[derive(Debug, Clone)]
+pub struct TimeoutDoclingProbeRequest<'a> {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    /// The captured execution of the item. A request without it is refused.
+    pub execution: ExecutionContext,
+    pub attempt_id: i64,
+    pub job_id: Uuid,
+    pub error_message: &'a str,
 }
 
 /// The extractable task-item artifact kinds (issue #975 P1 pairs).

@@ -79,7 +79,7 @@ impl RetirementFixture {
             .await
             .unwrap();
         let item = db
-            .claim_items_fast(50)
+            .claim_items_fast()
             .await
             .unwrap()
             .into_iter()
@@ -463,7 +463,7 @@ async fn a_retry_allocates_a_fresh_generation_and_keeps_history() {
     assert_eq!(retried, vec![fixture.item_id]);
     let next = fixture
         .db
-        .claim_items_fast(50)
+        .claim_items_fast()
         .await
         .unwrap()
         .into_iter()

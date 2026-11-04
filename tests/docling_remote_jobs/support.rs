@@ -1,5 +1,8 @@
 use chrono::{Duration, Utc};
 use context69::db::{CreateTaskSubmissionRequest, Database};
+use context69_test_support::execution_cleanup::{
+    FixtureExecutionScope, quiesce_fixture_executions,
+};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -46,10 +49,9 @@ pub async fn seed_task(db: &Database, user_id: i64) -> (Uuid, Uuid) {
     (task_id, items[0])
 }
 
-/// Parks an item as waiting on the durable remote job, mirroring the pre-P3
-/// worker submit path (`waiting_reason='docling'`) so legacy-row adoption and
-/// dispatcher-exclusion tests start from the same state production rows were
-/// left in before the blocking worker flow.
+/// Parks an item as waiting on a known Docling job (`waiting_reason='docling'`)
+/// with a future due time, so only the test's own owner is claimable and the
+/// probe cadence stays under the dispatcher's control.
 pub async fn park_item_for_sweep(db: &Database, item_id: Uuid) {
     sqlx::query_file!("tests/sql/task_execution/park_item_on_docling.sql", item_id)
         .execute(db.pool())
@@ -57,7 +59,17 @@ pub async fn park_item_for_sweep(db: &Database, item_id: Uuid) {
         .expect("park item");
 }
 
+/// Settles exactly this fixture's linked executions before any domain row is
+/// deleted, then removes the known task/user fixture rows. Expired grants are
+/// reported as visible skips and left to normal library recovery; a settlement
+/// error refuses the deletion instead of hiding a live grant.
 pub async fn cleanup(db: &Database, task_id: Uuid, user_id: i64) {
+    let report = quiesce_fixture_executions(db.pool(), FixtureExecutionScope::Tasks(&[task_id]))
+        .await
+        .expect("settle the fixture's linked executions before deleting its rows");
+    if report.has_expired_skips() {
+        eprintln!("docling fixture cleanup: expired grants remain for normal recovery: {report}");
+    }
     sqlx::query_file!(
         "tests/sql/task_execution/delete_task_items_by_task.sql",
         task_id
@@ -133,13 +145,26 @@ pub async fn delete_cleanup_rows(db: &Database, task_id: Uuid) {
 }
 
 /// Claims the item through the library and returns the captured execution.
+/// Claims the one expected fixture item, refusing to discard any other grant
+/// the global claim may return. An unexpected owner is surfaced with its
+/// task/item ids and is never sealed here; the fixture is not allowed to hide
+/// unrelated work behind a `.find`.
 pub async fn claim_item(db: &Database, item_id: Uuid) -> context69::db::ClaimedItem {
-    db.claim_items_fast(50)
-        .await
-        .expect("claim the item")
-        .into_iter()
-        .find(|row| row.id == item_id)
-        .expect("the item is claimed")
+    let returned = db.claim_items_fast().await.expect("claim the item");
+    let mut claimed = None;
+    let mut unexpected = Vec::new();
+    for row in returned {
+        if row.id == item_id {
+            claimed = Some(row);
+        } else {
+            unexpected.push((row.task_id, row.id));
+        }
+    }
+    assert!(
+        unexpected.is_empty(),
+        "claim returned grants outside the expected fixture item {item_id}: {unexpected:?}"
+    );
+    claimed.unwrap_or_else(|| panic!("the expected fixture item {item_id} was not claimed"))
 }
 
 /// Crashes the worker that holds the item.

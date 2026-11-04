@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use context69_test_support::config::Endpoint;
 use context69_test_support::runner::lock::{self, Admission, LockKeys};
-use context69_test_support::runner::output::RunDir;
+use context69_test_support::runner::output::{RunDir, RunScope, RunStatus, RunSummary};
 use context69_test_support::runner::process;
 use context69_test_support::runner::{self, Mode};
 
@@ -279,4 +279,130 @@ fn wait_for_exit(pid: i32, budget: Duration) -> bool {
         std::thread::sleep(Duration::from_millis(20));
     }
     false
+}
+
+#[test]
+fn target_scope_defaults_to_the_full_plan() {
+    assert!(invocation(&[]).expect("valid").selected_targets.is_empty());
+}
+
+#[test]
+fn repeated_exact_targets_preserve_request_order_up_to_the_bound() {
+    let parsed = invocation(&[
+        "--target",
+        "context69-aaa_storage",
+        "--target",
+        "context69-bbb_queue",
+    ])
+    .expect("two exact labels are valid");
+    assert_eq!(
+        parsed.selected_targets,
+        vec![
+            "context69-aaa_storage".to_owned(),
+            "context69-bbb_queue".to_owned()
+        ]
+    );
+
+    let many: Vec<String> = (0..20)
+        .flat_map(|index| ["--target".to_owned(), format!("context69-target{index}")])
+        .collect();
+    assert_eq!(
+        runner::parse_invocation(&many)
+            .expect("twenty labels are valid")
+            .selected_targets
+            .len(),
+        20
+    );
+    let mut too_many = many;
+    too_many.push("--target".to_owned());
+    too_many.push("context69-target20".to_owned());
+    let error = runner::parse_invocation(&too_many).expect_err("twenty-one labels are refused");
+    assert!(error.contains("at most 20"), "{error}");
+}
+
+#[test]
+fn malformed_repeated_or_mode_conflicting_target_scope_is_refused() {
+    assert!(invocation(&["--target"]).is_err());
+    assert!(invocation(&["--target", ""]).is_err());
+    assert!(invocation(&["--target", "--authorize-reset"]).is_err());
+    assert!(
+        invocation(&[
+            "--target",
+            "context69-aaa_storage",
+            "--target",
+            "context69-aaa_storage"
+        ])
+        .is_err()
+    );
+    for args in [
+        vec!["--list", "--target", "context69-aaa_storage"],
+        vec!["--target", "context69-aaa_storage", "--list"],
+        vec!["--preflight", "--target", "context69-aaa_storage"],
+    ] {
+        assert!(invocation(&args).is_err(), "{args:?}");
+    }
+    assert!(
+        invocation(&["--target", "context69-aaa_storage", "--authorize-reset"])
+            .expect("a scoped authorized run is valid")
+            .reset_authorized
+    );
+}
+
+#[test]
+fn unsupported_scoping_bypasses_remain_refused() {
+    for flag in ["--from-target", "--skip-pure", "--no-reset"] {
+        let error = invocation(&[flag]).expect_err("bypass flags stay unsupported");
+        assert!(error.contains("unsupported argument"), "{error}");
+    }
+}
+
+#[test]
+fn run_summary_distinguishes_full_and_scoped_reports() {
+    let mut full = RunSummary::new("full-run".to_owned());
+    assert_eq!(full.scope, RunScope::Full);
+    full.record(full.scope.completion_label());
+    let rendered = serde_json::to_value(&full).expect("full summary serializes");
+    assert_eq!(rendered["scope"], "full");
+    assert_eq!(rendered["actions"][0], "sequence:complete");
+
+    let mut scoped = RunSummary::new("scoped-run".to_owned());
+    scoped.scope = RunScope::Targets;
+    scoped.requested_targets = vec![
+        "context69-bbb_queue".to_owned(),
+        "context69-aaa_storage".to_owned(),
+    ];
+    scoped.resolved_targets = vec![
+        "context69-aaa_storage".to_owned(),
+        "context69-bbb_queue".to_owned(),
+    ];
+    scoped.selected_ordinary_tests = 3;
+    scoped.database_tests = 730;
+    scoped.record(scoped.scope.completion_label());
+    let rendered = serde_json::to_value(&scoped).expect("scoped summary serializes");
+    assert_eq!(rendered["scope"], "targets");
+    assert_eq!(rendered["requested_targets"][0], "context69-bbb_queue");
+    assert_eq!(rendered["resolved_targets"][0], "context69-aaa_storage");
+    assert_eq!(rendered["selected_ordinary_tests"], 3);
+    assert_eq!(
+        rendered["database_tests"], 730,
+        "the existing whole-manifest classification field is unchanged"
+    );
+    assert_eq!(rendered["actions"][0], "sequence:scoped-complete");
+    assert_ne!(
+        RunScope::Full.completion_label(),
+        RunScope::Targets.completion_label(),
+        "a scoped pass can never carry the full-gate completion label"
+    );
+
+    scoped.status = RunStatus::Failed;
+    scoped.failures.push("target failed".to_owned());
+    assert!(
+        !scoped
+            .actions
+            .iter()
+            .any(|action| action == "sequence:complete"),
+        "a failed scoped run never carries the full-gate completion label"
+    );
+    let rendered = serde_json::to_value(&scoped).expect("failed scoped summary serializes");
+    assert_eq!(rendered["status"], "failed");
 }

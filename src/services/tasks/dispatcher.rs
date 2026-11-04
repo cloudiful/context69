@@ -19,6 +19,31 @@ use super::lifecycle_logging::{
 
 const RECOVERY_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Minimum delay for a due known Docling probe, so a past-due or
+/// full-capacity queue recomputes instead of spinning.
+const MIN_PROBE_DELAY: Duration = Duration::from_secs(1);
+
+fn probe_delay(remaining_ms: Option<i64>) -> Duration {
+    match remaining_ms {
+        Some(remaining_ms) => {
+            let millis = remaining_ms.max(MIN_PROBE_DELAY.as_millis() as i64) as u64;
+            Duration::from_millis(millis)
+        }
+        None => RECOVERY_INTERVAL,
+    }
+}
+
+async fn next_probe_wait(service: &TaskService) -> tokio::time::Sleep {
+    let delay = match service.db().next_docling_probe_delay().await {
+        Ok(remaining_ms) => probe_delay(remaining_ms),
+        Err(error) => {
+            tracing::warn!(%error, "failed to read the next Docling probe delay");
+            RECOVERY_INTERVAL
+        }
+    };
+    tokio::time::sleep(delay)
+}
+
 /// Owned completion of the dispatcher loop.
 ///
 /// Awaiting it proves the loop can no longer claim work; it does not wait for
@@ -67,6 +92,7 @@ pub(super) fn start_with_shutdown(
         if !shutdown.is_cancelled() {
             dispatch_available(&service, &shutdown).await;
         }
+        let mut probe = Box::pin(next_probe_wait(&service).await);
 
         let mut recovery = interval(RECOVERY_INTERVAL);
         recovery.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -84,6 +110,15 @@ pub(super) fn start_with_shutdown(
                     // periodic recovery tick so spammed submit/retry/finish
                     // notifications avoid the exhausted/expired work.
                     dispatch_available(&service, &shutdown).await;
+                    probe = Box::pin(next_probe_wait(&service).await);
+                }
+                _ = &mut probe => {
+                    // Known Docling job due: the same claim loop takes the
+                    // parked item and one probe runs inside its segment. The
+                    // delay is recomputed from the database clock after every
+                    // dispatch, so a past-due job never busy-spins.
+                    dispatch_available(&service, &shutdown).await;
+                    probe = Box::pin(next_probe_wait(&service).await);
                 }
                 _ = recovery.tick() => {
                     // Recovery tick: maintenance must converge exhausted
@@ -96,6 +131,7 @@ pub(super) fn start_with_shutdown(
                         break;
                     }
                     dispatch_available(&service, &shutdown).await;
+                    probe = Box::pin(next_probe_wait(&service).await);
                 }
             }
         }
@@ -110,91 +146,77 @@ pub(super) fn start_with_shutdown(
 trait TaskClaimSource {
     type Item;
 
-    fn available_worker_slots(&self) -> usize;
-    fn claim_capacity(&self) -> i64;
-    async fn claim_items(&self, capacity: i64) -> Result<Vec<Self::Item>>;
-    fn dispatch_item(&self, item: Self::Item) -> bool;
+    async fn claim_items(&self) -> Result<(Vec<Self::Item>, usize)>;
+    fn dispatch_item(&self, item: Self::Item);
     fn log_no_claimable(&self);
 }
 
 impl TaskClaimSource for TaskService {
     type Item = crate::db::ClaimedItem;
 
-    fn available_worker_slots(&self) -> usize {
-        self.available_worker_slots()
+    // Execution capacity is the library queue policy: the claim asks for work
+    // and the library grants nothing while the durable cap is full, so this
+    // loop never carries a second capacity estimate.
+    async fn claim_items(&self) -> Result<(Vec<Self::Item>, usize)> {
+        let outcome = self.db().claim_items_fast_dispatch().await?;
+        Ok((outcome.claimed, outcome.unclassified))
     }
 
-    // The durable parent-task capacity is global: every replica passes the same
-    // configured `scheduler.max_concurrency`, and the database admits at most
-    // that many parents across all replicas. The local semaphore only bounds
-    // this replica's workers.
-    fn claim_capacity(&self) -> i64 {
-        i64::try_from(self.worker_capacity()).unwrap_or(i64::MAX)
-    }
-
-    async fn claim_items(&self, capacity: i64) -> Result<Vec<Self::Item>> {
-        self.db().claim_items_fast(capacity).await
-    }
-
-    fn dispatch_item(&self, item: Self::Item) -> bool {
+    fn dispatch_item(&self, item: Self::Item) {
         log_claim(&item);
-        let Ok(permit) = self.worker_slots().try_acquire_owned() else {
-            return false;
-        };
-        self.spawn_item(item, permit);
-        true
+        self.spawn_item(item);
     }
 
     fn log_no_claimable(&self) {
-        log_no_claimable_item(self.worker_capacity(), self.available_worker_slots());
+        log_no_claimable_item();
     }
 }
 
 async fn dispatch_available(service: &TaskService, shutdown: &CancellationToken) {
     let claimed_total = dispatch_claims(service, shutdown).await;
-    log_claims_dispatched(
-        claimed_total,
-        service.worker_capacity(),
-        service.available_worker_slots(),
-    );
+    log_claims_dispatched(claimed_total);
 }
 
-/// Claim until the queue drains, the replica runs out of slots, or shutdown is
-/// observed.
+/// Claim until the library grants nothing, or shutdown is observed.
 ///
 /// The cancellation check sits before each claim, so a claim already issued when
 /// the token fires is still dispatched as owned work: the durable lease exists
 /// from that point on, and abandoning it locally would hide work the database
 /// already admitted. No further claim is issued after the token is observed.
+/// A full queue policy is simply an empty grant, so the loop needs no local
+/// capacity estimate.
 async fn dispatch_claims<S: TaskClaimSource>(source: &S, shutdown: &CancellationToken) -> usize {
     let mut claimed_total = 0usize;
+    let mut reported_unclassified = false;
     loop {
         if shutdown.is_cancelled() {
             break;
         }
-        if source.available_worker_slots() == 0 {
-            break;
-        }
-        // Hot path: only the admission claim statement runs (plus the
-        // admission lock that serializes it across replicas). Maintenance
-        // lives on the recovery tick so notification-driven wakes (submit,
-        // retry, finish, worker release) avoid the exhausted/expired
-        // UPDATE CTEs that used to run on every wake.
-        let items = match source.claim_items(source.claim_capacity()).await {
-            Ok(items) => items,
+        // Hot path: only the claim statement and the bounded expired-segment
+        // recovery inside it run. Maintenance lives on the recovery tick so
+        // notification-driven wakes (submit, retry, finish, worker release)
+        // avoid the exhausted/expired UPDATE CTEs that used to run on every
+        // wake.
+        let (items, unclassified) = match source.claim_items().await {
+            Ok(outcome) => outcome,
             Err(error) => {
                 tracing::warn!(%error, "failed to claim context69 task items");
                 break;
             }
         };
+        if unclassified > 0 && !reported_unclassified {
+            reported_unclassified = true;
+            tracing::warn!(
+                unclassified,
+                "eligible task heads have no valid admission class; they are not claimed and require the explicit task_execution_cutover reclassify-admission command"
+            );
+        }
         if items.is_empty() {
             source.log_no_claimable();
             break;
         }
         for item in items {
-            if !source.dispatch_item(item) {
-                break;
-            }
+            source.dispatch_item(item);
             claimed_total += 1;
         }
     }
@@ -217,53 +239,38 @@ async fn run_maintenance(service: &TaskService) {
 #[cfg(test)]
 mod tests {
     use std::sync::{
-        Arc, Mutex,
+        Mutex,
         atomic::{AtomicUsize, Ordering},
     };
     use std::time::Duration;
 
     use anyhow::Result;
-    use futures::{StreamExt, stream::FuturesUnordered};
-    use tokio::{
-        sync::{Notify, Semaphore},
-        time::timeout,
-    };
+    use tokio::{sync::Notify, time::timeout};
     use tokio_util::sync::CancellationToken;
 
-    use super::dispatch_claims;
+    use super::{RECOVERY_INTERVAL, dispatch_claims, probe_delay};
 
-    #[tokio::test]
-    async fn many_pending_tasks_never_create_more_workers_than_slots() {
-        for capacity in [1, 2, 4] {
-            let semaphore = Arc::new(Semaphore::new(capacity));
-            let active = Arc::new(AtomicUsize::new(0));
-            let peak = Arc::new(AtomicUsize::new(0));
-            let mut workers = FuturesUnordered::new();
-            let mut remaining = 10_000usize;
-
-            while remaining > 0 || !workers.is_empty() {
-                while remaining > 0 {
-                    let Ok(permit) = semaphore.clone().try_acquire_owned() else {
-                        break;
-                    };
-                    remaining -= 1;
-                    let active = Arc::clone(&active);
-                    let peak = Arc::clone(&peak);
-                    workers.push(async move {
-                        let current = active.fetch_add(1, Ordering::AcqRel) + 1;
-                        peak.fetch_max(current, Ordering::AcqRel);
-                        tokio::task::yield_now().await;
-                        active.fetch_sub(1, Ordering::AcqRel);
-                        drop(permit);
-                    });
-                }
-
-                workers.next().await;
-            }
-
-            assert!(peak.load(Ordering::Acquire) <= capacity);
-            assert_eq!(active.load(Ordering::Acquire), 0);
-        }
+    #[test]
+    fn a_due_probe_waits_at_least_one_second_and_absent_work_defers_to_recovery() {
+        assert_eq!(
+            probe_delay(Some(0)),
+            std::time::Duration::from_secs(1),
+            "a past-due job must not busy-spin"
+        );
+        assert_eq!(
+            probe_delay(Some(-50)),
+            std::time::Duration::from_secs(1),
+            "a negative remaining delay is clamped to the floor"
+        );
+        assert_eq!(
+            probe_delay(Some(2_500)),
+            std::time::Duration::from_millis(2_500)
+        );
+        assert_eq!(
+            probe_delay(None),
+            RECOVERY_INTERVAL,
+            "no known job keeps the ordinary recovery cadence"
+        );
     }
 
     #[tokio::test]
@@ -287,14 +294,12 @@ mod tests {
         claim_calls: AtomicUsize,
         dispatched: Mutex<Vec<usize>>,
         cancel_on_claim: Option<CancellationToken>,
-        slots: usize,
     }
 
     impl FakeClaimSource {
         fn with_batches(batches: Vec<Vec<usize>>) -> Self {
             Self {
                 batches: Mutex::new(batches),
-                slots: 4,
                 ..Self::default()
             }
         }
@@ -303,30 +308,21 @@ mod tests {
     impl super::TaskClaimSource for FakeClaimSource {
         type Item = usize;
 
-        fn available_worker_slots(&self) -> usize {
-            self.slots
-        }
-
-        fn claim_capacity(&self) -> i64 {
-            4
-        }
-
-        async fn claim_items(&self, _capacity: i64) -> Result<Vec<Self::Item>> {
+        async fn claim_items(&self) -> Result<(Vec<Self::Item>, usize)> {
             self.claim_calls.fetch_add(1, Ordering::SeqCst);
             if let Some(shutdown) = self.cancel_on_claim.as_ref() {
                 shutdown.cancel();
             }
             let mut batches = self.batches.lock().expect("fake batches");
             if batches.is_empty() {
-                Ok(Vec::new())
+                Ok((Vec::new(), 0))
             } else {
-                Ok(batches.remove(0))
+                Ok((batches.remove(0), 0))
             }
         }
 
-        fn dispatch_item(&self, item: Self::Item) -> bool {
+        fn dispatch_item(&self, item: Self::Item) {
             self.dispatched.lock().expect("fake dispatched").push(item);
-            true
         }
 
         fn log_no_claimable(&self) {}
@@ -357,7 +353,6 @@ mod tests {
         let source = FakeClaimSource {
             batches: Mutex::new(vec![vec![1, 2], vec![3]]),
             cancel_on_claim: Some(shutdown.clone()),
-            slots: 4,
             ..FakeClaimSource::default()
         };
 

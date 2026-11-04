@@ -7,7 +7,7 @@ use anyhow::Result;
 use context69_contracts::TaskKind;
 use context69_translation::TranslationService;
 use serde_json::Value;
-use tokio::sync::{Notify, OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{Notify, watch};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
@@ -73,8 +73,10 @@ pub struct TaskService {
     source_folders: SourceFoldersService,
     translation: TranslationService,
     settings: SettingsService,
-    worker_slots: Arc<Semaphore>,
-    worker_capacity: usize,
+    /// Number of locally spawned item workers, used only by shutdown and
+    /// `wait_until_idle`. It is liveness bookkeeping, never admission: the
+    /// library queue policy owns execution capacity.
+    in_flight: Arc<watch::Sender<usize>>,
     dispatch_notify: Arc<Notify>,
     dispatcher_started: Arc<AtomicBool>,
     dispatch_stop: Arc<DispatchStop>,
@@ -102,13 +104,10 @@ pub struct TaskSubmission {
     pub idempotency_key: Option<String>,
 }
 
-pub(crate) fn normalize_task_worker_concurrency(concurrency: usize) -> usize {
-    // Shared task worker pool is driven by scheduler.max_concurrency.
-    // Preserve at least one worker for direct constructor inputs.
-    concurrency.max(1)
-}
-
 /// Grouped dependencies for constructing a [`TaskService`].
+///
+/// There is no local worker-capacity input: execution capacity is the durable
+/// library queue policy, applied at startup and on a runtime settings save.
 #[derive(Clone)]
 pub struct TaskServiceDependencies {
     pub db: Database,
@@ -118,7 +117,6 @@ pub struct TaskServiceDependencies {
     pub sync: SyncService,
     pub source_folders: SourceFoldersService,
     pub translation: TranslationService,
-    pub concurrency: usize,
 }
 
 impl TaskService {
@@ -131,9 +129,7 @@ impl TaskService {
             sync,
             source_folders,
             translation,
-            concurrency,
         } = dependencies;
-        let worker_capacity = normalize_task_worker_concurrency(concurrency);
         let (task_event_bus, _) = tokio::sync::broadcast::channel(
             crate::services::tasks::events::TASK_EVENT_BUS_CAPACITY,
         );
@@ -151,8 +147,7 @@ impl TaskService {
             sync,
             source_folders,
             translation,
-            worker_slots: Arc::new(Semaphore::new(worker_capacity)),
-            worker_capacity,
+            in_flight: Arc::new(watch::channel(0).0),
             dispatch_notify: Arc::new(Notify::new()),
             dispatcher_started: Arc::new(AtomicBool::new(false)),
             dispatch_stop: Arc::new(DispatchStop::new()),
@@ -216,10 +211,20 @@ impl TaskService {
         self.dispatch_stop.wait().await;
     }
 
-    /// Wait until no item worker holds a slot. Callers must stop the dispatcher
-    /// first so no new worker can take a slot while this waits.
+    /// Wait until no item worker spawned by this service is running. Callers
+    /// must stop the dispatcher first so no new worker can start while this
+    /// waits. The count is local liveness, not an admission limit.
     pub async fn wait_until_idle(&self) {
-        wait_for_all_slots(&self.worker_slots, self.worker_capacity).await;
+        let mut in_flight = self.in_flight.subscribe();
+        loop {
+            let running = *in_flight.borrow_and_update();
+            if running == 0 {
+                break;
+            }
+            if in_flight.changed().await.is_err() {
+                break;
+            }
+        }
     }
 
     pub fn start_maintenance(&self) {
@@ -282,25 +287,16 @@ impl TaskService {
         &self.dispatch_notify
     }
 
-    pub(super) fn available_worker_slots(&self) -> usize {
-        self.worker_slots.available_permits()
-    }
-
-    pub(super) fn worker_slots(&self) -> Arc<Semaphore> {
-        Arc::clone(&self.worker_slots)
-    }
-
-    pub(super) fn worker_capacity(&self) -> usize {
-        self.worker_capacity
-    }
-
-    pub(super) fn spawn_item(&self, item: crate::db::ClaimedItem, permit: OwnedSemaphorePermit) {
+    pub(super) fn spawn_item(&self, item: crate::db::ClaimedItem) {
         let service = self.clone();
+        service.in_flight.send_modify(|count| *count += 1);
         tokio::spawn(async move {
             if let Err(error) = runtime_driver::run_item(&service, item).await {
                 tracing::warn!(%error, "context69 task item worker failed");
             }
-            drop(permit);
+            service
+                .in_flight
+                .send_modify(|count| *count = count.saturating_sub(1));
             service.notify_dispatch();
         });
     }
@@ -435,31 +431,12 @@ impl DispatcherCompletion {
     }
 }
 
-async fn wait_for_all_slots(slots: &Arc<Semaphore>, capacity: usize) {
-    let permits = u32::try_from(capacity).unwrap_or(u32::MAX);
-    if let Ok(permits) = slots.clone().acquire_many_owned(permits).await {
-        drop(permits);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::time::{Duration, Instant};
+    use std::time::Duration;
 
-    use tokio::sync::Semaphore;
-
-    use super::{
-        DispatchStop, DispatcherCompletion, normalize_task_worker_concurrency, wait_for_all_slots,
-    };
-
-    #[test]
-    fn task_worker_concurrency_clamps_zero_and_preserves_capacity() {
-        assert_eq!(normalize_task_worker_concurrency(0), 1);
-        assert_eq!(normalize_task_worker_concurrency(1), 1);
-        assert_eq!(normalize_task_worker_concurrency(8), 8);
-        assert_eq!(normalize_task_worker_concurrency(2), 2);
-    }
+    use super::{DispatchStop, DispatcherCompletion};
 
     #[tokio::test]
     async fn interrupted_completion_wait_keeps_the_dispatcher_handle_owned() {
@@ -557,36 +534,5 @@ mod tests {
             .expect("the owned loop completion is joinable");
         loop_done_rx.await.expect("the claim loop exited");
         held_listener.abort();
-    }
-
-    #[tokio::test]
-    async fn idle_wait_returns_when_every_slot_is_free() {
-        let slots = Arc::new(Semaphore::new(2));
-
-        let started = Instant::now();
-        wait_for_all_slots(&slots, 2).await;
-
-        assert!(started.elapsed() < Duration::from_secs(1));
-        assert_eq!(slots.available_permits(), 2);
-    }
-
-    #[tokio::test]
-    async fn idle_wait_blocks_until_the_held_slot_is_released() {
-        let slots = Arc::new(Semaphore::new(2));
-        let held = slots
-            .clone()
-            .try_acquire_owned()
-            .expect("second slot is free");
-        let release = tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(50)).await;
-            drop(held);
-        });
-
-        let started = Instant::now();
-        wait_for_all_slots(&slots, 2).await;
-        release.await.expect("releaser");
-
-        assert!(started.elapsed() >= Duration::from_millis(50));
-        assert_eq!(slots.available_permits(), 2);
     }
 }

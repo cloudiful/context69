@@ -73,7 +73,7 @@ async fn run_path_case(
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -207,7 +207,7 @@ async fn text_batch_resumes_at_indexing_after_persisted_sections() {
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -379,7 +379,7 @@ async fn artifact_sections_resolve_to_the_identical_json_without_an_inline_copy(
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -468,7 +468,7 @@ async fn a_corrupt_sections_artifact_errors_instead_of_reporting_no_sections() {
         .await
         .expect("create task");
     let item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -535,7 +535,7 @@ async fn a_later_progress_save_never_reintroduces_the_externalized_sections() {
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -647,7 +647,7 @@ async fn a_backfilled_download_artifact_feeds_the_url_storage_stage_without_a_se
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -870,7 +870,7 @@ async fn an_oversized_download_fails_the_item_and_a_manual_retry_succeeds() {
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -976,7 +976,7 @@ async fn an_oversized_download_fails_the_item_and_a_manual_retry_succeeds() {
         .expect("retry the failed item");
     assert_eq!(reopened, vec![item.id]);
     let mut retried = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim the retried item")
         .into_iter()
@@ -1069,7 +1069,7 @@ async fn a_transient_download_failure_schedules_the_backoff() {
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()
@@ -1181,7 +1181,7 @@ async fn an_unusable_sections_reference_errors_instead_of_reconverting() {
         .await
         .expect("create task");
     let mut item = db
-        .claim_items(50)
+        .claim_items()
         .await
         .expect("claim item")
         .into_iter()

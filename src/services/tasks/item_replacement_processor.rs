@@ -23,8 +23,38 @@ use crate::db::{ClaimedItem, IngestRunMode, IngestRunSource};
 use crate::library_store::TaskWriteFence;
 use crate::services::library::{
     AtomicFirstInsert, AtomicFirstInsertFile, IngestSection, ReplacementRunRequest,
-    ReplacementSectionInput, TaskSourceRef,
+    ReplacementSectionInput, TaskIngestStep, TaskSourceRef,
 };
+
+/// Refuses an atomic segment whose captured staged pointer is missing or no
+/// longer the persisted input of its captured grant.
+///
+/// A run-owning item may only read the object its exact execution persisted.
+/// A missing pointer must never fall back to the canonical file, and a stale,
+/// same-group-other or foreign pointer must never reach a remote intent or a
+/// canonical write. The check runs before every atomic source read.
+async fn require_persisted_atomic_input(
+    service: &TaskService,
+    item: &ClaimedItem,
+) -> anyhow::Result<Option<ProcessResult>> {
+    let Some(execution) = item.execution_context() else {
+        return Ok(Some(terminal(
+            "storage",
+            "task item has no captured execution",
+        )));
+    };
+    let persisted = service
+        .db()
+        .get_item_input_storage_object(item.id, &execution)
+        .await?;
+    match (item.input_storage_object_id, persisted) {
+        (Some(captured), Some(persisted)) if captured == persisted => Ok(None),
+        _ => Ok(Some(terminal(
+            "storage",
+            "the atomic source is missing or does not match the persisted item grant",
+        ))),
+    }
+}
 
 /// The atomic branch of one ordinary task item.
 ///
@@ -39,6 +69,9 @@ pub(super) async fn process_atomic_ingest(
     item: &mut crate::db::ClaimedItem,
     mode: IngestRunMode,
 ) -> anyhow::Result<ProcessResult> {
+    if let Some(refusal) = require_persisted_atomic_input(service, item).await? {
+        return Ok(refusal);
+    }
     match mode {
         IngestRunMode::Replacement => {
             process_ordinary_replacement(service, group, task, item).await
@@ -50,22 +83,42 @@ pub(super) async fn process_atomic_ingest(
 /// The staged source object of one first insert.
 ///
 /// The bytes of the task are staged before the transaction, so the file that
-/// the transaction creates already points at the object that holds them. An
-/// item that already carries a staged object keeps it: the bytes were staged
-/// from the same source.
+/// the transaction creates already points at the object that holds them. The
+/// captured item carries that object as its physical source, so the resumed
+/// atomic segment binds its identity to the same staged object instead of
+/// falling back to the canonical row. An item that already carries a staged
+/// object keeps it: the bytes were staged from the same source.
 pub(super) async fn stage_first_insert_source(
     service: &TaskService,
     group_id: i64,
-    item: &ClaimedItem,
+    item: &mut ClaimedItem,
     upload: &crate::services::library::UploadedLibraryFile,
 ) -> anyhow::Result<Uuid> {
     if let Some(object_id) = item.input_storage_object_id {
         return Ok(object_id);
     }
-    service
+    let staged = service
         .library()
         .stage_file_for_task_input(group_id, upload.clone())
-        .await
+        .await?;
+    let execution = item.execution_context().ok_or_else(|| {
+        crate::domain_errors::DomainError::conflict("task item has no captured execution")
+    })?;
+    if !service
+        .db()
+        .set_task_item_input_storage_object(item.id, &execution, staged, &item.payload)
+        .await?
+    {
+        let _ = service
+            .library()
+            .release_task_input_staging(staged, None)
+            .await;
+        anyhow::bail!(crate::domain_errors::DomainError::conflict(
+            "task item lease was lost while saving staged first-insert input"
+        ));
+    }
+    item.input_storage_object_id = Some(staged);
+    Ok(staged)
 }
 
 /// Claims the atomic first insert of one ordinary task item.
@@ -113,7 +166,7 @@ pub(super) async fn claim_atomic_first_insert(
                 Ok(next) => next,
                 Err(error) => return Ok(process_error("storage", error)),
             };
-            Ok(ProcessResult::Progressed { next })
+            Ok(ProcessResult::Yielded { next })
         }
         Ok(AtomicFirstInsert::Existing(_existing)) => Ok(waiting_for_error(
             item,
@@ -198,7 +251,11 @@ pub(super) async fn process_atomic_first_insert(
     } else {
         match service
             .library()
-            .prepare_task_source_sections(file_id, TaskSourceRef::StoredFile, item.lease_token)
+            .prepare_task_source_sections(
+                file_id,
+                TaskSourceRef::from_input(item.input_storage_object_id),
+                item.lease_token,
+            )
             .await
         {
             Ok(sections) => sections,
@@ -233,10 +290,10 @@ pub(super) async fn process_atomic_first_insert(
     let fence = TaskWriteFence::from_claimed_item(item)?;
     match service
         .library()
-        .run_task_first_insert(service.db(), fence, &request)
+        .stage_task_first_insert(service.db(), fence, &request)
         .await
     {
-        Ok(_outcome) => {
+        Ok(TaskIngestStep::Complete(_outcome)) => {
             set_file(service.db(), task.id, item, file_id).await?;
             item.input_storage_object_id = None;
             // The staged object is the live source of the created file now, so
@@ -249,6 +306,7 @@ pub(super) async fn process_atomic_first_insert(
             }
             Ok(ProcessResult::Succeeded(Some(file_id.to_string())))
         }
+        Ok(TaskIngestStep::Yielded) => Ok(ProcessResult::Yielded { next: "indexing" }),
         Err(error) => Ok(process_error("first_insert", error)),
     }
 }
@@ -440,10 +498,10 @@ pub(super) async fn process_ordinary_replacement(
     let fence = TaskWriteFence::from_claimed_item(item)?;
     match service
         .library()
-        .run_task_replacement(service.db(), fence, &request)
+        .stage_task_replacement(service.db(), fence, &request)
         .await
     {
-        Ok(_outcome) => {
+        Ok(TaskIngestStep::Complete(_outcome)) => {
             set_file(service.db(), task.id, item, file_id).await?;
             item.input_storage_object_id = None;
             if let Some(object_id) = staged_object {
@@ -454,6 +512,7 @@ pub(super) async fn process_ordinary_replacement(
             }
             Ok(ProcessResult::Succeeded(Some(file_id.to_string())))
         }
+        Ok(TaskIngestStep::Yielded) => Ok(ProcessResult::Yielded { next: "indexing" }),
         Err(error) => Ok(process_error("replacement", error)),
     }
 }
@@ -473,7 +532,7 @@ async fn resolved_sections_with_view(
     let value = match existing {
         Some(value) => value,
         None => {
-            match super::docling_submit::submit_and_await_blocking_with_view(
+            match super::docling_submit::run_docling_submission_segment_with_view(
                 service, task.id, item, file_id, view,
             )
             .await?
@@ -623,10 +682,10 @@ pub(super) async fn process_replacement(
     let fence = TaskWriteFence::from_claimed_item(item)?;
     match service
         .library()
-        .run_task_replacement(service.db(), fence, &request)
+        .stage_task_replacement(service.db(), fence, &request)
         .await
     {
-        Ok(_outcome) => {
+        Ok(TaskIngestStep::Complete(_outcome)) => {
             // Only after the switch committed is the staged reference cleared
             // and the staged object bound to the live file.
             set_file(service.db(), task.id, item, file_id).await?;
@@ -639,6 +698,7 @@ pub(super) async fn process_replacement(
             }
             Ok(ProcessResult::Succeeded(Some(file_id.to_string())))
         }
+        Ok(TaskIngestStep::Yielded) => Ok(ProcessResult::Yielded { next: "indexing" }),
         Err(error) => Ok(process_error("replacement", error)),
     }
 }
@@ -661,8 +721,10 @@ async fn resolved_sections(
     let value = match existing {
         Some(value) => value,
         None => {
-            match super::docling_submit::submit_and_await_blocking(service, task.id, item, file_id)
-                .await?
+            match super::docling_submit::run_docling_submission_segment(
+                service, task.id, item, file_id,
+            )
+            .await?
             {
                 ProcessResult::Progressed { .. } => {
                     match resolved_section_payload(service, item).await {

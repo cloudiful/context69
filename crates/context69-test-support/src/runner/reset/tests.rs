@@ -705,3 +705,36 @@ fn a_refused_admission_never_reaches_the_first_fixture_write() {
     .expect("a fully admitted fixture proceeds");
     assert!(wrote, "the admitted fixture reaches its first write");
 }
+
+/// An unauthorized reset must not even connect: the linked-execution cleanup and
+/// every DDL statement follow the authorization gate. The endpoint is
+/// deliberately unreachable, so reaching the connection would fail with a
+/// different error instead of `Refused`.
+#[tokio::test]
+async fn an_unauthorized_reset_performs_neither_cleanup_nor_ddl() {
+    let endpoint = Endpoint::parse("postgres://test:test@127.0.0.1:1/owned_test")
+        .expect("parse an unreachable test endpoint");
+    let ledgers = preflight::LedgerView {
+        ledgers: Vec::new(),
+        public_ledger_rows: Vec::new(),
+    };
+
+    for authorization in [
+        super::ResetAuthorization::new(preflight::ResetDecision::refusing(Vec::new()), true),
+        super::ResetAuthorization::new(
+            preflight::ResetDecision {
+                allowed: true,
+                refusals: Vec::new(),
+            },
+            false,
+        ),
+    ] {
+        let error = super::reset_owned_schema(&endpoint, authorization, &ledgers)
+            .await
+            .expect_err("an unauthorized reset must be refused");
+        assert!(
+            matches!(error, super::ResetError::Refused(_)),
+            "an unauthorized reset must refuse before cleanup or DDL, got {error:?}"
+        );
+    }
+}

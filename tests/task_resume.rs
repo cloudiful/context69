@@ -99,6 +99,16 @@ async fn record_attempt(db: &Database, task_id: Uuid, item_id: Uuid) -> i64 {
     .get("id")
 }
 
+async fn item_failure_budget(db: &Database, item_id: Uuid) -> i32 {
+    sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_execution_failure_budget.sql",
+        item_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the execution failure budget")
+}
+
 async fn item_row(
     db: &Database,
     item_id: Uuid,
@@ -260,8 +270,13 @@ async fn resume_reopens_the_same_task_without_inserting_a_replacement() {
         "resume must keep the item's own payload"
     );
     assert_eq!(
+        item_failure_budget(&db, item_ids[1]).await,
+        0,
+        "resume resets only the execution failure budget"
+    );
+    assert_eq!(
         attempt_count, 0,
-        "resume restarts the attempt counter for the next claim"
+        "resume keeps the monotonic claim ordinal of the never-claimed fixture"
     );
 
     let attempts =
@@ -325,8 +340,13 @@ async fn repeated_resume_is_idempotent() {
     let (status, _, _, _, attempt_count) = item_row(&db, item_ids[0]).await;
     assert_eq!(status, "queued");
     assert_eq!(
+        item_failure_budget(&db, item_ids[0]).await,
+        0,
+        "a repeated resume must not consume the failure budget again"
+    );
+    assert_eq!(
         attempt_count, 0,
-        "a repeated resume must not restart the attempt counter again"
+        "resume keeps the monotonic claim ordinal of the never-claimed fixture"
     );
 
     cleanup(&db, user_id, task_id).await;
@@ -373,8 +393,13 @@ async fn concurrent_resume_reopens_each_item_once() {
         let (status, _, _, _, attempt_count) = item_row(&db, item_id).await;
         assert_eq!(status, "queued");
         assert_eq!(
+            item_failure_budget(&db, item_id).await,
+            0,
+            "only the resume that won the item may reset the failure budget"
+        );
+        assert_eq!(
             attempt_count, 0,
-            "only the resume that won the item may restart its attempt counter"
+            "resume keeps the monotonic claim ordinal of the never-claimed fixture"
         );
     }
 
@@ -529,7 +554,7 @@ async fn resume_of_a_legacy_item_opens_its_segment_and_the_item_is_claimable() {
 
     // The reopened item is claimable right away.
     let claimed = db
-        .claim_items_fast(50)
+        .claim_items_fast()
         .await
         .expect("claim the items")
         .into_iter()

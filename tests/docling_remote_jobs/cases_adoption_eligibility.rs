@@ -37,7 +37,7 @@ async fn due_remote_owners_are_claimed_once_with_identity_retained() {
             .await
             .unwrap();
         }
-        let (first, second) = tokio::join!(db.claim_items_fast(10), db.claim_items_fast(10));
+        let (first, second) = tokio::join!(db.claim_items_fast(), db.claim_items_fast());
         let claims = first
             .unwrap()
             .into_iter()
@@ -77,7 +77,7 @@ async fn unused_detach_is_exact_job_and_live_lease_fenced() {
         .await
         .unwrap();
     let owner = db
-        .claim_items_fast(10)
+        .claim_items_fast()
         .await
         .unwrap()
         .into_iter()
@@ -133,7 +133,9 @@ async fn unused_detach_is_exact_job_and_live_lease_fenced() {
             captured.reason
         ),
         (
-            job.remote_task_id,
+            job.remote_task_id
+                .clone()
+                .expect("the seeded job has a known id"),
             job.endpoint_base_url,
             "orphan".to_string()
         )

@@ -38,6 +38,9 @@ WHERE (
   AND ($5::text IS NULL OR task.stage = $5)
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
+  -- Issue 1172 P1: exact, already-trimmed group/source filters; blank is NULL.
+  AND ($9::text IS NULL OR task.group_path = $9)
+  AND ($10::text IS NULL OR task.source_key = $10)
   AND (
       ($8::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
       OR ($8::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')

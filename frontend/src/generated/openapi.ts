@@ -1630,6 +1630,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/batch/get": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_get_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/batch/rerun": {
         parameters: {
             query?: never;
@@ -1913,7 +1929,7 @@ export interface components {
         /** @enum {string} */
         AdminUserSortBy: "login_name" | "display_name" | "created_at";
         /** @enum {string} */
-        ApiErrorCode: "invalid_argument" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "payload_too_large" | "unprocessable_entity" | "rate_limited" | "upstream_error" | "unavailable" | "upstream_timeout" | "internal";
+        ApiErrorCode: "invalid_argument" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "docling_submission_uncertain" | "payload_too_large" | "unprocessable_entity" | "rate_limited" | "upstream_error" | "unavailable" | "upstream_timeout" | "internal";
         /**
          * @description v0.15 error envelope kept for wire compatibility.
          *
@@ -1995,6 +2011,11 @@ export interface components {
          */
         CanonicalTaskListQuery: {
             dependency_key?: string | null;
+            /**
+             * @description Exact group path filter (issue 1172 P1): trimmed edges, blank means
+             *     absent, and it only narrows the existing authorization.
+             */
+            group_path?: string | null;
             kind?: null | components["schemas"]["TaskKind"];
             /** Format: int32 */
             page?: number;
@@ -2003,6 +2024,8 @@ export interface components {
             query?: string | null;
             sort_by?: null | components["schemas"]["TaskSortBy"];
             sort_direction?: null | components["schemas"]["SortDirection"];
+            /** @description Exact source key filter (issue 1172 P1), normalized like `group_path`. */
+            source_key?: string | null;
             stage?: string | null;
             status?: null | components["schemas"]["TaskStatus"];
             view: components["schemas"]["TaskListView"];
@@ -3796,10 +3819,17 @@ export interface components {
             region: string;
         };
         RuntimeSchedulerSettings: {
+            /**
+             * @description How many ingest batches one task indexing segment commits before it
+             *     yields. A missing older payload keeps the default of one.
+             * @default 1
+             */
+            ingest_batches_per_segment: number;
             /** Format: int64 */
             interval_secs: number;
             job_id: string;
             max_concurrency: number;
+            resource_limits?: components["schemas"]["SchedulerResourceLimits"];
             run_on_start: boolean;
             valkey_url?: string | null;
         };
@@ -3815,6 +3845,26 @@ export interface components {
              */
             requires_rebuild: boolean;
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
+        };
+        /**
+         * @description Optional per-resource concurrency ceilings of the task execution queue.
+         *
+         *     Each ceiling is an independent resource limit, not a second task class. An
+         *     absent value follows the global scheduler concurrency; the global cap always
+         *     bounds every claim.
+         */
+        SchedulerResourceLimits: {
+            /** Format: int32 */
+            bulk?: number | null;
+            /**
+             * Format: int32
+             * @description The shared ingest resource, not a fourth task class.
+             */
+            ingest?: number | null;
+            /** Format: int32 */
+            interactive?: number | null;
+            /** Format: int32 */
+            maintenance?: number | null;
         };
         ScopeMetadataIndex: components["schemas"]["CreateMetadataIndexRequest"] & {
             source_key: string;
@@ -4136,6 +4186,38 @@ export interface components {
             started_at: string;
             status: string;
         };
+        /**
+         * @description One ordered outcome of a batch task snapshot call.
+         *
+         *     `task` is present exactly for [`TaskBatchGetOutcome::Found`] and absent for
+         *     [`TaskBatchGetOutcome::NotFound`], so a not-found id never carries a body
+         *     and no default can hide an inconsistent state.
+         */
+        TaskBatchGetItem: {
+            outcome: components["schemas"]["TaskBatchGetOutcome"];
+            task?: null | components["schemas"]["TaskResponse"];
+            /** Format: uuid */
+            task_id: string;
+        };
+        /**
+         * @description The per-id result vocabulary of a batch task snapshot call.
+         * @enum {string}
+         */
+        TaskBatchGetOutcome: "found" | "not_found";
+        /**
+         * @description One bounded, ordered batch task snapshot request (issue 1172 P1).
+         *
+         *     The ids must be non-empty, unique and at most [`TASK_BATCH_GET_MAX`]; a
+         *     request outside those bounds is refused as a whole before any task is read,
+         *     so a bad batch never produces a partial answer. This is the caller's durable
+         *     lookup after a lost task-creation response, not a subscription.
+         */
+        TaskBatchGetRequest: {
+            task_ids: string[];
+        };
+        TaskBatchGetResponse: {
+            items: components["schemas"]["TaskBatchGetItem"][];
+        };
         /** @description One ordered outcome of a batch source-rerun call. */
         TaskBatchRerunItem: {
             outcome: components["schemas"]["TaskBatchRerunOutcome"];
@@ -4168,6 +4250,11 @@ export interface components {
          *     every requested id keeps its position in the response.
          */
         TaskBatchRerunRequest: {
+            /**
+             * @description Explicit consent for every requested task's settled unknown Docling
+             *     submission. An unacknowledged call refuses the whole batch.
+             */
+            acknowledge_docling_duplicate_risk?: boolean;
             task_ids: string[];
         };
         TaskBatchRerunResponse: {
@@ -4206,6 +4293,11 @@ export interface components {
          *     id keeps its position in the response.
          */
         TaskBatchRetryRequest: {
+            /**
+             * @description Explicit consent for every requested task's settled unknown Docling
+             *     submission. An unacknowledged call refuses the whole batch.
+             */
+            acknowledge_docling_duplicate_risk?: boolean;
             task_ids: string[];
         };
         TaskBatchRetryResponse: {
@@ -4243,6 +4335,7 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             dependency_key?: string | null;
+            docling_submission?: null | components["schemas"]["TaskDoclingSubmissionView"];
             error_message?: string | null;
             failure_stage?: string | null;
             /** Format: date-time */
@@ -4269,25 +4362,23 @@ export interface components {
         /**
          * @description Parent projection for `GET /v1/tasks/{task_id}/diagnose`.
          *
-         *     Carries the stored parent row plus the admission lease deadline. The lease
-         *     token itself is never projected: it authorizes writes and has no diagnostic
-         *     value.
+         *     Carries the stored parent row only. Execution capacity belongs to the
+         *     library attempt admission, so the parent holds no admission lease to project.
          */
         TaskDiagnoseParent: {
             /** Format: date-time */
             created_at: string;
             dependency_key?: string | null;
+            /**
+             * @description `true` while any of the task's items owns an unacknowledged Docling
+             *     submission. A risk indicator, not an executability promise.
+             */
+            docling_submission_uncertain?: boolean;
             error_summary?: string | null;
             failure_stage?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
             kind: components["schemas"]["TaskKind"];
-            /**
-             * Format: date-time
-             * @description Deadline of the durable parent admission slot, absent when no slot is
-             *     held.
-             */
-            lease_expires_at?: string | null;
             /** Format: date-time */
             next_attempt_at?: string | null;
             progress: components["schemas"]["TaskProgress"];
@@ -4320,6 +4411,24 @@ export interface components {
             /** Format: date-time */
             observed_at: string;
             task: components["schemas"]["TaskDiagnoseParent"];
+        };
+        /**
+         * @description One Docling submission history state as an operator sees it.
+         * @enum {string}
+         */
+        TaskDoclingSubmissionState: "submitting" | "submission_uncertain" | "superseded";
+        /** @description Safe projection of one item's latest Docling submission history row. */
+        TaskDoclingSubmissionView: {
+            /** Format: date-time */
+            created_at: string;
+            /**
+             * @description Whether the prepared send was invoked. Diagnostic only: `false` never
+             *     proves the dispatch was not sent.
+             */
+            dispatch_attempted: boolean;
+            /** Format: date-time */
+            finished_at?: string | null;
+            state: components["schemas"]["TaskDoclingSubmissionState"];
         };
         /**
          * @description Truthful, stage-local progress for one running task item (issue 52).
@@ -4445,6 +4554,12 @@ export interface components {
          */
         TaskListQuery: {
             dependency_key?: string | null;
+            /**
+             * @description Exact group path filter (issue 1172 P1). Edges are trimmed and a blank
+             *     value means no filter, unlike the fuzzy `query` search. It only narrows
+             *     the existing authorization, so a foreign group path matches nothing.
+             */
+            group_path?: string | null;
             kind?: null | components["schemas"]["TaskKind"];
             /** Format: int32 */
             page?: number;
@@ -4453,6 +4568,8 @@ export interface components {
             query?: string | null;
             sort_by?: null | components["schemas"]["TaskSortBy"];
             sort_direction?: null | components["schemas"]["SortDirection"];
+            /** @description Exact source key filter (issue 1172 P1), normalized like `group_path`. */
+            source_key?: string | null;
             stage?: string | null;
             status?: null | components["schemas"]["TaskStatus"];
             view?: null | components["schemas"]["TaskListView"];
@@ -4503,20 +4620,9 @@ export interface components {
             dependency_waiting_parent_count: number;
             /**
              * Format: int64
-             * @description Parents holding a durable admission lease with no live item lease:
-             *     the slot is occupied but no worker owns the work.
-             */
-            lease_without_running_item_count: number;
-            /**
-             * Format: int64
              * @description Items at or one attempt below the five-attempt cap.
              */
             near_exhaustion_item_count: number;
-            /**
-             * Format: int64
-             * @description Age of the oldest admitted parent lease.
-             */
-            oldest_admitted_age_seconds?: number | null;
             /**
              * Format: int64
              * @description `task_attempts` rows without `finished_at`; every live claim has one.
@@ -4545,6 +4651,21 @@ export interface components {
             /** Format: uuid */
             task_id: string;
         };
+        /**
+         * @description Optional body of `POST /v1/tasks/{task_id}/rerun`.
+         *
+         *     An absent body means no acknowledgement. The flag alone grants no ownership
+         *     or status privilege; it only permits archiving a settled unknown submission
+         *     inside the same transaction as the rerun the caller is already allowed to
+         *     perform.
+         */
+        TaskRerunRequest: {
+            /**
+             * @description Explicit consent that a settled unknown Docling submission may be
+             *     archived before its source is rerun.
+             */
+            acknowledge_docling_duplicate_risk?: boolean;
+        };
         TaskResponse: {
             /** Format: date-time */
             created_at: string;
@@ -4556,6 +4677,12 @@ export interface components {
              */
             deleted_at?: string | null;
             dependency_key?: string | null;
+            /**
+             * @description `true` while the task owns an unacknowledged Docling submission
+             *     (`submitting` or `submission_uncertain`). A risk indicator only: it never
+             *     promises that an acknowledgement is currently executable.
+             */
+            docling_submission_uncertain?: boolean;
             /**
              * @description Document title of the same focus item, `None` when the item and its
              *     file carry no title.
@@ -4588,6 +4715,19 @@ export interface components {
             updated_at: string;
             waiting_reason?: string | null;
         };
+        /**
+         * @description Optional body of `POST /v1/tasks/{task_id}/retry`.
+         *
+         *     An absent body means no acknowledgement: an unacknowledged Docling
+         *     submission keeps refusing the retry with the code-only conflict.
+         */
+        TaskRetryRequest: {
+            /**
+             * @description Explicit consent that a settled unknown Docling submission may be
+             *     archived so the retry can reopen its waiting item.
+             */
+            acknowledge_docling_duplicate_risk?: boolean;
+        };
         TaskRetryResponse: {
             /** Format: int64 */
             retried_items: number;
@@ -4613,8 +4753,10 @@ export interface components {
          */
         TaskSelectionQuery: {
             dependency_key?: string | null;
+            group_path?: string | null;
             kind?: null | components["schemas"]["TaskKind"];
             query?: string | null;
+            source_key?: string | null;
             stage?: string | null;
             status?: null | components["schemas"]["TaskStatus"];
             /**
@@ -9925,6 +10067,13 @@ export interface operations {
                 page?: number;
                 page_size?: number;
                 query?: string;
+                /**
+                 * @description Exact group path filter (issue 1172 P1): trimmed edges, blank means
+                 *     absent, and it only narrows the existing authorization.
+                 */
+                group_path?: string;
+                /** @description Exact source key filter (issue 1172 P1), normalized like `group_path`. */
+                source_key?: string;
                 kind?: components["schemas"]["TaskKind"];
                 status?: components["schemas"]["TaskStatus"];
                 view: components["schemas"]["TaskListView"];
@@ -9989,6 +10138,37 @@ export interface operations {
             };
         };
     };
+    batch_get_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchGetRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchGetResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     batch_rerun_tasks: {
         parameters: {
             query?: never;
@@ -10011,6 +10191,14 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10042,6 +10230,14 @@ export interface operations {
                 };
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -10086,6 +10282,8 @@ export interface operations {
         parameters: {
             query: {
                 query?: string;
+                group_path?: string;
+                source_key?: string;
                 kind?: components["schemas"]["TaskKind"];
                 status?: components["schemas"]["TaskStatus"];
                 /**
@@ -10316,7 +10514,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["TaskRerunRequest"];
+            };
+        };
         responses: {
             202: {
                 headers: {
@@ -10398,7 +10600,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["TaskRetryRequest"];
+            };
+        };
         responses: {
             202: {
                 headers: {

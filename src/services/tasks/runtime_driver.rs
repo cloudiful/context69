@@ -10,7 +10,6 @@ use crate::domain_errors::DomainError;
 
 use anyhow::{Context, Result};
 use chrono::Utc;
-use std::borrow::Cow;
 use tracing::{Instrument, info, warn};
 use uuid::Uuid;
 
@@ -82,29 +81,24 @@ async fn work_body_gate() {
 pub(super) struct AttemptFailure<'a> {
     stage: &'a str,
     message: &'a str,
-    wait_message: Cow<'a, str>,
     retryable: bool,
 }
 
 impl<'a> AttemptFailure<'a> {
-    /// A failed stage result: the waiting attempt records the stage with its
-    /// message.
+    /// A failed stage result that names the stage it failed in.
     pub(super) fn stage_result(stage: &'a str, message: &'a str, retryable: bool) -> Self {
         Self {
             stage,
             message,
-            wait_message: Cow::Owned(format!("{stage}: {message}")),
             retryable,
         }
     }
 
-    /// A worker error that escaped the stage: the waiting attempt records the
-    /// error alone.
+    /// A worker error that escaped the stage.
     pub(super) fn worker_error(stage: &'a str, message: &'a str, retryable: bool) -> Self {
         Self {
             stage,
             message,
-            wait_message: Cow::Borrowed(message),
             retryable,
         }
     }
@@ -135,24 +129,36 @@ pub(super) async fn route_failed_attempt(
         return Ok(());
     };
     if failure.retryable {
-        let next_attempt_at = backoff_until(item.attempt_count);
-        if !service
+        let prospective = (item.execution_failure_count + 1).min(5);
+        let next_attempt_at = backoff_until(prospective);
+        match service
             .db()
-            .wait_task_item(crate::db::WaitTaskItemRequest {
+            .fail_task_item(crate::db::FailTaskItemRequest {
                 task_id: item.task_id,
                 item_id: item.id,
+                failure_stage: failure.stage,
+                error_message: failure.message,
                 execution,
-                waiting_reason: "backoff",
-                dependency_key: None,
+                attempt_id: item.attempt_id,
+                current_failure_count: item.execution_failure_count,
                 next_attempt_at,
-                error_message: Some(failure.wait_message.as_ref()),
             })
             .await?
         {
-            return Ok(());
+            crate::db::FailTaskItemOutcome::Waiting { next_attempt_at } => {
+                log_attempt("retry_scheduled");
+                log_retry_scheduled(next_attempt_at);
+            }
+            crate::db::FailTaskItemOutcome::Exhausted => {
+                log_attempt("failed");
+                log_item_finished("failed");
+            }
+            crate::db::FailTaskItemOutcome::Cancelled => {
+                log_attempt("cancelled");
+                log_item_finished("cancelled");
+            }
+            crate::db::FailTaskItemOutcome::LeaseLost | crate::db::FailTaskItemOutcome::Stale => {}
         }
-        log_attempt("retry_scheduled");
-        log_retry_scheduled(next_attempt_at);
         return Ok(());
     }
     if !service
@@ -272,8 +278,8 @@ async fn drive_claimed_item(
         return Ok(());
     };
     // Retryable waits stay inline (issue 650 P3): the driver sleeps keeping
-    // the admitted parent/item lease and re-drives, so only a terminal
-    // outcome or an over-budget wait reaches the commit path below.
+    // the admitted item lease and re-drives, so only a terminal outcome or an
+    // over-budget wait reaches the commit path below.
     //
     // The work runs in its own task, so a heartbeat that loses the claim can
     // drop the work instead of only stopping the renewal.
@@ -312,6 +318,7 @@ async fn drive_claimed_item(
     };
     run.heartbeat.abort();
 
+    let mut parked_docling = false;
     match result {
         Ok(ProcessResult::Succeeded(resource_id)) => {
             if !route_succeeded_attempt(service, &item, resource_id.as_deref()).await? {
@@ -360,6 +367,23 @@ async fn drive_claimed_item(
                 return Ok(());
             }
         }
+        // The claim ends at a durable segment boundary: the library attempt is
+        // completed as deferred, never as a business success, and the item is
+        // queued due now. The next claim continues from the persisted run row.
+        Ok(ProcessResult::Yielded { next }) => {
+            tracing::debug!(
+                target: "task_lifecycle",
+                next_stage = next,
+                "task item yielded at a durable segment boundary"
+            );
+            if !service
+                .db()
+                .progress_task_item(item.task_id, item.id, &execution, item.attempt_id)
+                .await?
+            {
+                return Ok(());
+            }
+        }
         Ok(ProcessResult::Waiting {
             reason,
             dependency_key,
@@ -390,6 +414,99 @@ async fn drive_claimed_item(
                     message.as_deref(),
                 ),
                 None => log_waiting(&reason, next_attempt_at, message.as_deref()),
+            }
+        }
+        Ok(ProcessResult::DoclingWaiting(probe)) => {
+            let next_attempt_at = probe.next_poll_at;
+            let last_error = probe.last_error.clone();
+            let outcome = service
+                .db()
+                .park_docling_probe(
+                    crate::db::WaitTaskItemRequest {
+                        task_id: item.task_id,
+                        item_id: item.id,
+                        execution: execution.clone(),
+                        waiting_reason: "docling",
+                        dependency_key: None,
+                        next_attempt_at,
+                        error_message: last_error.as_deref(),
+                    },
+                    item.attempt_id,
+                    probe,
+                )
+                .await?;
+            match outcome {
+                crate::db::DoclingProbeOutcome::Parked => {
+                    log_attempt("waiting");
+                    log_waiting("docling", next_attempt_at, last_error.as_deref());
+                    parked_docling = true;
+                }
+                crate::db::DoclingProbeOutcome::Cancelled => {
+                    log_attempt("cancelled");
+                    log_item_finished("cancelled");
+                }
+                crate::db::DoclingProbeOutcome::LeaseLost
+                | crate::db::DoclingProbeOutcome::Stale => return Ok(()),
+                crate::db::DoclingProbeOutcome::TimedOut => {}
+            }
+        }
+        Ok(ProcessResult::DoclingSubmissionUncertain { job_id, reason }) => {
+            let outcome = service
+                .db()
+                .park_submission_uncertain(crate::db::ParkSubmissionUncertainRequest {
+                    task_id: item.task_id,
+                    item_id: item.id,
+                    execution: execution.clone(),
+                    attempt_id: item.attempt_id,
+                    job_id,
+                    reason: &reason,
+                })
+                .await?;
+            match outcome {
+                crate::db::DoclingSubmissionOutcome::Parked => {
+                    log_attempt("waiting");
+                    info!(
+                        target: "task_lifecycle",
+                        status = "waiting",
+                        reason = "docling",
+                        job_id = %job_id,
+                        message = %reason,
+                        "task item parked on a fail-closed Docling submission"
+                    );
+                    parked_docling = true;
+                }
+                crate::db::DoclingSubmissionOutcome::Cancelled => {
+                    log_attempt("cancelled");
+                    log_item_finished("cancelled");
+                }
+                crate::db::DoclingSubmissionOutcome::LeaseLost
+                | crate::db::DoclingSubmissionOutcome::Stale => return Ok(()),
+            }
+        }
+        Ok(ProcessResult::DoclingTimedOut { job_id, reason }) => {
+            let outcome = service
+                .db()
+                .timeout_docling_probe(crate::db::TimeoutDoclingProbeRequest {
+                    task_id: item.task_id,
+                    item_id: item.id,
+                    execution: execution.clone(),
+                    attempt_id: item.attempt_id,
+                    job_id,
+                    error_message: &reason,
+                })
+                .await?;
+            match outcome {
+                crate::db::DoclingProbeOutcome::TimedOut => {
+                    log_attempt("failed");
+                    log_item_finished("failed");
+                }
+                crate::db::DoclingProbeOutcome::Cancelled => {
+                    log_attempt("cancelled");
+                    log_item_finished("cancelled");
+                }
+                crate::db::DoclingProbeOutcome::Parked
+                | crate::db::DoclingProbeOutcome::LeaseLost
+                | crate::db::DoclingProbeOutcome::Stale => return Ok(()),
             }
         }
         Ok(ProcessResult::Failed {
@@ -451,7 +568,7 @@ async fn drive_claimed_item(
         .next_attempt_at
         .map(|next_attempt_at| next_attempt_at <= Utc::now())
         .unwrap_or(true);
-    if (task.status == "queued" || task.status == "waiting") && due {
+    if parked_docling || ((task.status == "queued" || task.status == "waiting") && due) {
         service.notify_dispatch();
     }
     if matches!(task.status.as_str(), "succeeded" | "failed" | "cancelled") {

@@ -9,7 +9,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use context69_contracts::{ApiErrorResponse, ScopeSpec};
+use context69_contracts::{ApiErrorResponse, ScopeSpec, validate_task_idempotency_key};
 
 use super::{
     ApiState,
@@ -17,6 +17,7 @@ use super::{
     errors::task_error,
     group_access::{group_access_error_response, group_for_user, require_group_role},
 };
+use crate::domain_errors::DomainError;
 use crate::services::tasks::TaskSubmission;
 
 mod lifecycle;
@@ -64,11 +65,31 @@ async fn managed_group(
     Ok(group)
 }
 
-fn idempotency_key(headers: &HeaderMap) -> Option<String> {
-    headers
-        .get("idempotency-key")
-        .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
+/// Parse and validate the caller's `Idempotency-Key` header.
+///
+/// An absent header stays absent, so the ordinary automatic key still applies.
+/// A present header must survive the shared contracts rule: the edges are
+/// trimmed first and a blank, non-ASCII, internally spaced, slashed or
+/// oversized value is refused as `400` before any group, task, database or
+/// provider work. The key never becomes absent, and it is never normalized
+/// beyond trimming, so a replay sends the same idempotency scope.
+fn idempotency_key(headers: &HeaderMap) -> Result<Option<String>, Response> {
+    let Some(value) = headers.get("idempotency-key") else {
+        return Ok(None);
+    };
+    let value = value.to_str().map_err(|_| {
+        task_error(
+            DomainError::invalid_argument(
+                "Idempotency-Key must be ASCII text: must contain only ASCII characters [A-Za-z0-9._:-]",
+            )
+            .into(),
+        )
+    })?;
+    let key = value.trim();
+    validate_task_idempotency_key(key).map_err(|error| {
+        task_error(
+            DomainError::invalid_argument(format!("invalid Idempotency-Key: {error}")).into(),
+        )
+    })?;
+    Ok(Some(key.to_owned()))
 }

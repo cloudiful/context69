@@ -215,6 +215,41 @@ pub struct UpdateRuntimeEmbeddingSettings {
     pub confirm_vector_space_unchanged: bool,
 }
 
+/// The default number of ingest batches one task indexing segment commits.
+pub const INGEST_BATCHES_PER_SEGMENT_DEFAULT: usize = 1;
+
+/// The smallest accepted number of ingest batches per task segment.
+pub const INGEST_BATCHES_PER_SEGMENT_MIN: usize = 1;
+
+/// The largest accepted number of ingest batches per task segment.
+pub const INGEST_BATCHES_PER_SEGMENT_MAX: usize = 64;
+
+fn default_ingest_batches_per_segment() -> usize {
+    INGEST_BATCHES_PER_SEGMENT_DEFAULT
+}
+
+/// The largest allowed global scheduler concurrency and the ceiling of every
+/// explicit per-resource limit.
+pub const SCHEDULER_MAX_CONCURRENCY: u32 = 1024;
+
+/// Optional per-resource concurrency ceilings of the task execution queue.
+///
+/// Each ceiling is an independent resource limit, not a second task class. An
+/// absent value follows the global scheduler concurrency; the global cap always
+/// bounds every claim.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+pub struct SchedulerResourceLimits {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interactive: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bulk: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maintenance: Option<u32>,
+    /// The shared ingest resource, not a fourth task class.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ingest: Option<u32>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeSchedulerSettings {
     pub interval_secs: u64,
@@ -223,6 +258,13 @@ pub struct RuntimeSchedulerSettings {
     pub job_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub valkey_url: Option<String>,
+    #[serde(default)]
+    pub resource_limits: SchedulerResourceLimits,
+    /// How many ingest batches one task indexing segment commits before it
+    /// yields. A missing older payload keeps the default of one.
+    #[serde(default = "default_ingest_batches_per_segment")]
+    #[schema(default = 1)]
+    pub ingest_batches_per_segment: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
@@ -425,7 +467,8 @@ fn default_docling_max_inflight() -> usize {
 mod tests {
     use super::{
         DOCLING_MAX_INFLIGHT_DEFAULT, DOCLING_OCR_PRESET_DEFAULT, DoclingSettingsResponse,
-        UpdateDoclingSettingsRequest, default_docling_max_inflight,
+        INGEST_BATCHES_PER_SEGMENT_DEFAULT, RuntimeSchedulerSettings, UpdateDoclingSettingsRequest,
+        default_docling_max_inflight,
     };
     use utoipa::PartialSchema;
 
@@ -446,6 +489,62 @@ mod tests {
                     .collect()
             })
             .unwrap_or_default()
+    }
+
+    fn scheduler_value(extra: serde_json::Value) -> serde_json::Value {
+        let mut value = serde_json::json!({
+            "interval_secs": 300,
+            "run_on_start": true,
+            "max_concurrency": 1,
+            "job_id": "context69-sync"
+        });
+        if let (Some(target), Some(extra)) = (value.as_object_mut(), extra.as_object()) {
+            for (key, value) in extra {
+                target.insert(key.clone(), value.clone());
+            }
+        }
+        value
+    }
+
+    #[test]
+    fn an_absent_ingest_quantum_defaults_to_one() {
+        assert_eq!(INGEST_BATCHES_PER_SEGMENT_DEFAULT, 1);
+        let settings: RuntimeSchedulerSettings =
+            serde_json::from_value(scheduler_value(serde_json::json!({})))
+                .expect("a scheduler payload without the new field");
+        assert_eq!(settings.ingest_batches_per_segment, 1);
+        let explicit: RuntimeSchedulerSettings = serde_json::from_value(scheduler_value(
+            serde_json::json!({"ingest_batches_per_segment": 64}),
+        ))
+        .expect("a scheduler payload with an explicit quantum");
+        assert_eq!(explicit.ingest_batches_per_segment, 64);
+    }
+
+    #[test]
+    fn an_invalid_ingest_quantum_type_is_rejected() {
+        for invalid in [
+            serde_json::json!(null),
+            serde_json::json!(1.5),
+            serde_json::json!("2"),
+        ] {
+            assert!(
+                serde_json::from_value::<RuntimeSchedulerSettings>(scheduler_value(
+                    serde_json::json!({"ingest_batches_per_segment": invalid})
+                ))
+                .is_err(),
+                "the quantum must reject {invalid}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_generated_schema_documents_the_ingest_quantum_default() {
+        let schema = serde_json::to_value(RuntimeSchedulerSettings::schema())
+            .expect("the scheduler schema serializes");
+        assert_eq!(
+            schema["properties"]["ingest_batches_per_segment"]["default"],
+            serde_json::json!(1)
+        );
     }
 
     #[test]

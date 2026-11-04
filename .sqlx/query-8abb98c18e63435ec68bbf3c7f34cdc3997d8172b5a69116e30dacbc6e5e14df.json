@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Library tasks linked to one bounded fixture execution scope.\n--\n-- The link is the same precise one the reset cleanup uses: a library task in\n-- the Context69 namespace whose payload item id equals an owned\n-- `context69.task_items` row. This query restricts that link further to the\n-- caller's fixture:\n--\n--   * exact fixture parent task ids ($1), or\n--   * exact fixture groups ($3) fenced by their owner user id ($2), so a group\n--     id alone can never select another owner's task.\n--\n-- Empty arrays and a NULL owner select nothing, so an empty scope can never\n-- broaden to every task. The namespace is fixed, never caller supplied.\n-- $4 is the last task id of the previous page (NULL starts at the beginning),\n-- $5 the bounded page size. Library history is never deleted here.\nSELECT task.namespace,\n       task.queue,\n       task.id AS task_id\nFROM cloudiful_tasks.tasks task\nJOIN context69.task_items item\n  ON item.id::text = task.payload->>'item_id'\nJOIN context69.tasks parent\n  ON parent.id = item.task_id\nWHERE task.namespace = 'context69'\n  AND (\n      parent.id = ANY($1::uuid[])\n      OR (\n          $2::bigint IS NOT NULL\n          AND parent.user_id = $2\n          AND parent.group_id = ANY($3::bigint[])\n      )\n  )\n  AND ($4::uuid IS NULL OR task.id > $4::uuid)\nORDER BY task.id\nLIMIT $5;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "namespace",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "namespace"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "queue",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "queue"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8",
+        "Int8Array",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8abb98c18e63435ec68bbf3c7f34cdc3997d8172b5a69116e30dacbc6e5e14df"
+}

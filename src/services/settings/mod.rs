@@ -76,6 +76,20 @@ pub type RuntimeEmbeddingApplier = Arc<
         + Sync,
 >;
 
+/// Applies the committed global and per-resource scheduler ceilings to the
+/// durable task queue policies before the save reports success. The settings row
+/// is already committed atomically with those policies when it runs, so the hook
+/// is an idempotent reconciliation; its failure is reported to the saver, and
+/// startup or the next successful save repairs it.
+pub type RuntimeSchedulerApplier = Arc<
+    dyn Fn(
+            usize,
+            crate::contracts::settings::SchedulerResourceLimits,
+        ) -> Pin<Box<dyn Future<Output = Result<()>> + Send>>
+        + Send
+        + Sync,
+>;
+
 /// The outcome of one authoritative runtime-configuration refresh.
 ///
 /// A deferred refresh is distinguishable from an applied one, so a caller never
@@ -183,6 +197,9 @@ pub struct SettingsService {
     runtime_embedding_guard: Option<RuntimeEmbeddingGuard>,
     /// Applies a confirmed same-space identity transition to the live runtime.
     runtime_embedding_applier: Option<RuntimeEmbeddingApplier>,
+    /// Applies the committed scheduler concurrency to the durable task queue
+    /// policy. Installed only by the running application.
+    runtime_scheduler_applier: Option<RuntimeSchedulerApplier>,
     /// The shared exclusion an identity transition takes for the whole save.
     runtime_embedding_transition: Option<RuntimeEmbeddingTransition>,
     /// Reports a runtime-side rebuild requirement (populated vectors with no
@@ -238,6 +255,7 @@ impl SettingsService {
             runtime_settings_observer: None,
             runtime_embedding_guard: None,
             runtime_embedding_applier: None,
+            runtime_scheduler_applier: None,
             runtime_embedding_transition: None,
             runtime_requires_rebuild: None,
             runtime_rebuild_in_progress: None,
@@ -274,6 +292,12 @@ impl SettingsService {
     /// failure is reported to the caller as a runtime reconciliation failure.
     pub fn set_runtime_embedding_applier(&mut self, applier: Option<RuntimeEmbeddingApplier>) {
         self.runtime_embedding_applier = applier;
+    }
+
+    /// Installs the awaited hot-apply hook for the durable task execution
+    /// capacity. The settings row is already committed when it runs.
+    pub fn set_runtime_scheduler_applier(&mut self, applier: Option<RuntimeSchedulerApplier>) {
+        self.runtime_scheduler_applier = applier;
     }
 
     /// Installs the shared exclusion that keeps an identity transition, a live
@@ -532,6 +556,18 @@ impl SettingsService {
                 candidate_identity.clone(),
                 stored.clone(),
                 embedding_api_key.clone(),
+            )
+            .await?;
+        }
+
+        // The durable task execution capacity is the library queue policy. The
+        // row is committed; a failed apply is reported to the caller instead of
+        // pretending the save took effect, and startup or the next save repairs
+        // it.
+        if let Some(applier) = &self.runtime_scheduler_applier {
+            applier(
+                stored.scheduler.max_concurrency,
+                stored.scheduler.resource_limits.clone(),
             )
             .await?;
         }
@@ -966,6 +1002,7 @@ mod tests {
         ConfigRefreshOutcome, RuntimeConfigRefresher, RuntimeEmbeddingTransition,
         reconcile_runtime_refreshes, refresh_runtime_configuration_under_lock,
     };
+    use crate::contracts::settings::SchedulerResourceLimits;
     use crate::{
         contracts::{
             DoclingSettingsSource, RuntimeChunkingSettings, RuntimeQdrantSettings,
@@ -1037,6 +1074,8 @@ mod tests {
                 max_concurrency: 1,
                 job_id: "context69-sync".to_string(),
                 valkey_url: Some("redis://valkey:6379/0".to_string()),
+                resource_limits: Default::default(),
+                ingest_batches_per_segment: 1,
             },
             chunking: RuntimeChunkingSettings {
                 max_chars: 1200,
@@ -2087,5 +2126,61 @@ mod tests {
             "the same reservation succeeds once the rebuild settles"
         );
         runtime.end_identity_transition();
+    }
+
+    #[test]
+    fn scheduler_resource_limits_accept_missing_and_bounded_values() {
+        let mut request = sample_runtime_request();
+        request.scheduler.max_concurrency = 4;
+        request.scheduler.resource_limits = SchedulerResourceLimits {
+            interactive: Some(1),
+            bulk: None,
+            maintenance: Some(4),
+            ingest: Some(2),
+        };
+        validate_runtime_settings_request(&request).expect("bounded limits are valid");
+    }
+
+    #[test]
+    fn scheduler_resource_limits_reject_a_cap_above_the_global_concurrency() {
+        let mut request = sample_runtime_request();
+        request.scheduler.max_concurrency = 4;
+        request.scheduler.resource_limits.bulk = Some(5);
+        let error = validate_runtime_settings_request(&request)
+            .expect_err("a cap above the global concurrency is refused");
+        assert!(
+            error
+                .to_string()
+                .contains("resource_limits.bulk must not exceed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn scheduler_resource_limits_reject_lowering_the_global_below_an_explicit_cap() {
+        let mut request = sample_runtime_request();
+        request.scheduler.max_concurrency = 1;
+        request.scheduler.resource_limits.ingest = Some(2);
+        let error = validate_runtime_settings_request(&request)
+            .expect_err("lowering the global below a cap is refused");
+        assert!(
+            error
+                .to_string()
+                .contains("resource_limits.ingest must not exceed"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn scheduler_global_concurrency_above_the_ceiling_is_refused() {
+        let mut request = sample_runtime_request();
+        request.scheduler.max_concurrency =
+            crate::contracts::settings::SCHEDULER_MAX_CONCURRENCY as usize + 1;
+        let error = validate_runtime_settings_request(&request)
+            .expect_err("a global concurrency above the ceiling is refused");
+        assert!(
+            error.to_string().contains("must not exceed 1024"),
+            "{error}"
+        );
     }
 }

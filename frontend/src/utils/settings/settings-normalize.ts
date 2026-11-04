@@ -39,6 +39,13 @@ export function normalizeRuntimePayload(
       max_concurrency: Number(value.scheduler.max_concurrency),
       job_id: value.scheduler.job_id.trim(),
       valkey_url: cleanOptional(value.scheduler.valkey_url ?? ""),
+      ingest_batches_per_segment: Number(value.scheduler.ingest_batches_per_segment),
+      resource_limits: {
+        interactive: parseOptionalLimit(value.scheduler.interactive),
+        bulk: parseOptionalLimit(value.scheduler.bulk),
+        maintenance: parseOptionalLimit(value.scheduler.maintenance),
+        ingest: parseOptionalLimit(value.scheduler.ingest),
+      },
     },
     chunking: {
       max_chars: Number(value.chunking.max_chars),
@@ -102,4 +109,13 @@ export function normalizeDoclingPayload(
 function cleanOptional(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/** Blank follows the global concurrency; a value is never coerced to zero. */
+function parseOptionalLimit(value: string | null | undefined): number | undefined {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+  return Number(trimmed);
 }

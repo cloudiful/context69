@@ -603,6 +603,12 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::item_file_processors::tests::dependency_wait::a_long_legacy_indexing_segment_yields_before_translation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::item_git_index_processor::tests::failed_blob_fetch_retries_and_keeps_the_prior_generation",
       "class": "db"
     },
@@ -771,12 +777,6 @@
     {
       "package": "context69",
       "target": "docling_remote_jobs",
-      "test": "cases_legacy_adoption::dispatcher_excludes_legacy_park_until_recovery_adopts_it",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "docling_remote_jobs",
       "test": "cases_legacy_adoption::dispatcher_never_claims_waiting_docling_items",
       "class": "db"
     },
@@ -790,12 +790,6 @@
       "package": "context69",
       "target": "docling_remote_jobs",
       "test": "cases_recovery::expired_lease_reclaim_adopts_the_same_remote_id",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "docling_remote_jobs",
-      "test": "cases_recovery::reconcile_adoption_preserves_payload_and_marks_due",
       "class": "db"
     },
     {
@@ -1198,6 +1192,24 @@
       "package": "context69",
       "target": "library_ingest_retry",
       "test": "integration::indexing_parks_on_a_missing_pair_and_resumes_without_duplicate_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
+      "test": "integration::a_long_legacy_indexing_run_yields_one_batch_per_turn_without_reembedding_the_prefix",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
+      "test": "integration::a_two_batch_legacy_quantum_commits_two_batches_per_turn",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "library_ingest_retry",
+      "test": "integration::a_hot_legacy_quantum_change_applies_to_the_next_segment",
       "class": "db"
     },
     {
@@ -1893,24 +1905,6 @@
     {
       "package": "context69",
       "target": "task_diagnose",
-      "test": "cases_gauges::a_waiting_parent_holding_its_slot_is_not_reported_as_an_orphan",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_diagnose",
-      "test": "cases_gauges::near_exhaustion_is_counted_one_attempt_before_the_claim_cap",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_diagnose",
-      "test": "cases_gauges::oldest_admitted_age_is_measured_from_admission_not_the_lease_deadline",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_diagnose",
       "test": "cases_gauges::the_health_scope_agrees_with_the_diagnose_scope_on_every_parent",
       "class": "db"
     },
@@ -2074,18 +2068,6 @@
       "package": "context69",
       "target": "task_dispatcher_fast_path",
       "test": "cases_parent_consistency::head_of_line_waiting_drives_the_parent_and_blocks_later_items",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_dispatcher_fast_path",
-      "test": "cases_parent_consistency::maintenance_keeps_a_parent_slot_for_a_scheduled_retry",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_dispatcher_fast_path",
-      "test": "cases_parent_consistency::maintenance_releases_a_parent_slot_no_claim_can_serve",
       "class": "db"
     },
     {
@@ -2540,12 +2522,6 @@
     },
     {
       "package": "context69",
-      "target": "task_lease_invariant",
-      "test": "stage_progress_resets_the_attempt_count",
-      "class": "db"
-    },
-    {
-      "package": "context69",
       "target": "task_list_views",
       "test": "a_row_projects_the_focus_item_file_name_and_document_title",
       "class": "db"
@@ -2571,37 +2547,7 @@
     {
       "package": "context69",
       "target": "task_parent_admission",
-      "test": "admission_candidate_without_a_claimed_item_never_takes_a_slot",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_parent_admission",
-      "test": "admitted_parent_keeps_its_slot_through_a_retry_wait",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_parent_admission",
       "test": "concurrent_admissions_do_not_oversell_the_parent_capacity",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_parent_admission",
-      "test": "expired_parent_lease_frees_the_slot_for_the_next_parent",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_parent_admission",
-      "test": "maintenance_renews_and_revokes_parent_leases",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "task_parent_admission",
-      "test": "parent_capacity_blocks_the_next_parent_and_claims_one_item_per_parent",
       "class": "db"
     },
     {
@@ -3621,6 +3567,24 @@
     {
       "package": "context69",
       "target": "replacement_runner",
+      "test": "runner_cases::an_unbounded_complete_call_writes_every_batch_in_one_turn",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_failed_batch_resumes_only_the_uncommitted_suffix",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_checkpointed_cancelled_run_cannot_advance_or_publish",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
       "test": "runner_cases::an_admission_refusal_sends_no_upsert",
       "class": "db"
     },
@@ -3818,6 +3782,42 @@
     },
     {
       "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_pdf_replacement_dispatches_the_new_staged_identity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::an_unknown_replacement_dispatch_never_resubmits",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_long_ordinary_replacement_commits_one_batch_per_claim_and_skips_the_prefix",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_two_batch_quantum_commits_two_batches_in_the_first_staging_turn",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_hot_quantum_change_applies_to_the_next_segment_not_the_current_one",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_changed_staged_source_refuses_the_checkpointed_prefix",
+      "class": "db"
+    },
+    {
+      "package": "context69",
       "target": "atomic_first_insert",
       "test": "atomic_first_insert_cases::the_first_insert_binds_the_file_the_item_and_the_run_together",
       "class": "db"
@@ -3868,6 +3868,36 @@
       "package": "context69",
       "target": "atomic_first_insert",
       "test": "atomic_first_insert_cases::an_ordinary_file_first_insert_switches_through_the_atomic_path",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_first_insert_pdf_parks_under_the_global_cap_and_publishes_new_facts",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::an_unknown_first_insert_dispatch_never_resubmits",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_mismatched_staged_pointer_refuses_before_dispatch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_long_first_insert_commits_one_batch_per_claim_and_skips_the_prefix",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_long_pdf_result_reuses_one_submit_and_one_fetch_across_turns",
       "class": "db"
     },
     {
@@ -4054,6 +4084,510 @@
       "package": "context69",
       "target": "docling_source_rerun",
       "test": "docling_source_rerun_cases::a_retryable_poll_failure_adopts_the_submitted_job_without_a_second_submit",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_legacy_adoption::recovery_leaves_a_legacy_park_for_its_own_probe",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::a_job_of_another_item_cannot_be_projected_by_this_claim",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::a_library_cancellation_wins_without_budget_or_probe_changes",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::a_parked_probe_releases_capacity_for_another_ready_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::a_reclaimed_known_probe_adopts_the_same_remote_id",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::a_stale_generation_writes_no_probe_and_leaves_the_item_running",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::an_expired_deadline_times_out_once_with_one_cleanup_row",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::more_than_five_probe_parks_keep_the_zero_failure_budget_and_monotonic_claims",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::parking_a_known_probe_releases_the_library_attempt",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_park_probe::the_next_probe_delay_follows_the_database_clock_and_deadline",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_recovery::reconcile_does_not_requeue_a_parked_docling_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::a_batch_recovery_is_refused_whole_before_any_task_mutates",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::a_durable_intent_stays_fail_closed_until_a_known_id_is_confirmed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::a_foreign_or_stale_owner_cannot_resolve_a_current_intent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::a_foreign_uncertain_submission_is_not_disclosed_by_batch_recovery",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::a_library_cancellation_wins_without_changing_the_intent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::a_lost_submission_response_parks_uncertain_and_reentry_never_resends",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::acknowledged_reopen_creates_a_distinct_future_intent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_acknowledged_cancelled_resume_archives_and_reopens_the_settled_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_acknowledged_retry_archives_and_reopens_a_settled_uncertain_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_acknowledged_retry_leaves_an_unrelated_known_job_untouched",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_acknowledged_retry_refuses_a_live_submitting_intent",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_interrupted_submitting_segment_recovers_as_an_inert_park",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_unacknowledged_retry_refuses_a_settled_uncertain_item_without_mutation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_unknown_dispatch_outcome_parks_without_a_due_time",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_unmarked_interrupted_submitting_segment_also_recovers_as_an_inert_park",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::concurrent_acknowledged_retries_archive_and_reopen_only_once",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::read_projections_agree_and_the_diagnose_view_keeps_the_diagnostic",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::a_failed_hot_apply_reports_failure_and_the_next_save_repairs_it",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::the_ingest_batch_quantum_roundtrips_without_changing_the_queue_policy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::a_runtime_save_applies_its_scheduler_concurrency_to_the_queue_policy",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::a_second_queue_handle_observes_the_committed_limits",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::a_transaction_failure_rolls_back_settings_and_policies_together",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::clearing_a_resource_limit_restores_global_follow_without_touching_the_others",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::invalid_resource_bounds_refuse_the_save_without_rewriting_settings_or_policies",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_runtime_scheduler::the_database_save_rejects_an_invalid_cap_before_writing_anything",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_get",
+      "test": "batch_get_keeps_order_and_reports_missing_and_foreign_ids_as_not_found",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_get",
+      "test": "batch_get_reads_inherited_group_tasks_without_leaking_others",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "a_later_source_conflict_rolls_back_the_archive",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "an_acknowledged_batch_rerun_archives_and_keeps_the_parked_item",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "an_acknowledged_batch_rerun_refuses_a_live_submitting_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "an_acknowledged_single_rerun_archives_a_settled_unknown_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_batch_rerun",
+      "test": "an_unacknowledged_batch_rerun_refuses_a_settled_unknown_source",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_gauges::near_exhaustion_is_counted_one_failure_before_the_budget_cap",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_diagnose",
+      "test": "cases_gauges::the_item_lease_is_the_worker_fence_after_the_parent_lease_is_removed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::classified_work_is_claimed_while_unclassified_heads_are_only_reported",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::minority_classes_are_served_past_the_per_class_candidate_bound",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::mirrored_claim_refusal_rolls_back_the_library_batch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::mixed_classes_rotate_under_global_cap_one_across_two_instances",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::per_class_cap_is_shared_by_two_instances_and_never_exceeds_global",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::repeated_capped_promotion_does_not_mint_attempts_or_segments",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::shared_ingest_cap_bounds_every_class_without_weakening_the_global_cap",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::a_capped_claim_by_id_none_does_not_mint_a_segment_or_increment",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::claim_items_fast_drains_until_empty_without_local_capacity",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::linked_execution_cleanup_reports_expired_grants_without_sealing_them",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::linked_execution_cleanup_seals_live_work_and_leaves_unlinked_tasks_alone",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::one_fast_claim_recovers_an_expired_segment_and_claims_the_next_generation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::policy_cap_is_global_across_two_queue_instances",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::policy_update_raises_the_cap_for_the_next_claim",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::queued_work_is_not_claimed_before_it_is_due_and_starts_only_then",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::scoped_execution_cleanup_is_bounded_and_repeatable",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_queue_capacity::the_queue_policy_row_matches_the_applied_cap",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "reclassify_admission_converts_unclassified_backlog_and_repeats_as_a_no_op",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "reclassify_admission_rolls_back_when_the_relink_guard_refuses",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "reclassify_admission_skips_a_docling_unknown_outcome_as_inert",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_failure_budget_migration",
+      "test": "the_failure_budget_migration_backfills_historical_rows_and_rolls_back",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_library_cancellation_wins_over_a_committed_failure",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "committed_failures_advance_the_failure_budget_and_exhaust_at_five",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "ordinary_waits_exceed_five_claims_without_consuming_the_failure_budget",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_idempotency",
+      "test": "a_present_invalid_key_is_refused_before_submission",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_idempotency",
+      "test": "an_absent_key_keeps_distinct_submissions",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_idempotency",
+      "test": "the_same_caller_key_and_body_replays_the_task_and_a_changed_body_conflicts",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_lease_invariant",
+      "test": "stage_progress_keeps_the_claim_ordinal_and_failure_budget",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_list_views",
+      "test": "exact_group_and_source_filters_agree_between_list_count_and_selection",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_rerun",
+      "test": "rerun_task_with_ack_archives_the_settled_unknown_submission",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_admission_fairness::queued_metadata_mismatch_or_missing_ingest_is_reported_not_claimed",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::a_losing_new_submission_rolls_back_and_returns_the_winner",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::concurrent_different_hashes_never_override_the_winner",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::concurrent_reuse_bindings_agree_on_one_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::replay_after_terminal_returns_the_bound_task_and_changed_hashes_conflict",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_file_dedup",
+      "test": "cases_overlap::reusing_an_active_file_binds_a_fresh_idempotency_key",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::acknowledged_history_never_blocks_a_repeated_ack_or_a_failed_peer",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::an_in_flight_peer_refuses_the_whole_acknowledged_batch",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_uncertainty::batch_acknowledged_retry_recovers_a_settled_waiting_uncertainty",
       "class": "db"
     }
   ]

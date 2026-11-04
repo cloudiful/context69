@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Simulate the passage of the retry time of one exhausted item.\n--\n-- The item and its parent task carry the same retry time: the parent copy is\n-- what the maintenance reads to decide whether the task is due, so the\n-- fixture moves both. Without that the case would depend on the clock of the\n-- application host and the clock of the database being aligned, which is no\n-- property of the exhaustion at all.\nWITH exhausted AS (\n    UPDATE context69.task_items\n    SET execution_failure_count = 5,\n        next_attempt_at = now() - interval '1 second'\n    WHERE id = $1\n    RETURNING task_id\n)\nUPDATE context69.tasks\nSET next_attempt_at = now() - interval '1 second'\nWHERE id IN (SELECT task_id FROM exhausted)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "62d6667af691a61f57dd05cba051c01efcf8b4fb7e61b5489b075f97ead7d83d"
+}

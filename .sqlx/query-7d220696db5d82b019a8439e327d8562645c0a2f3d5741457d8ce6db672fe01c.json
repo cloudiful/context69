@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.tasks\nSET status = 'cancelled',\n    next_attempt_at = NULL,\n    finished_at = now(),\n    updated_at = now()\nWHERE status IN ('queued', 'running', 'waiting')\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7d220696db5d82b019a8439e327d8562645c0a2f3d5741457d8ce6db672fe01c"
+}

@@ -23,8 +23,14 @@ mod harness;
 #[path = "replacement_runner/qdrant_points_mock.rs"]
 mod qdrant_points_mock;
 
+use std::panic::AssertUnwindSafe;
+
 use context69::db::{AdmissionOutcome, Database, RegistryQuotaOverride};
 use context69_search::SearchRegistryEntry;
+use context69_test_support::library_policy::{
+    LibraryPolicyBaseline, finish_fixture, panic_message,
+};
+use futures::FutureExt;
 use uuid::Uuid;
 
 use support::{clear_file_library_settings, connect, runtime_settings, store_quota, stored_quota};
@@ -55,23 +61,41 @@ async fn a_boot_seeds_the_configured_capacity_policy() {
     let db = connect().await;
     clear_file_library_settings(&db).await;
     let had_identity = support::identity_rows_exist(&db).await;
-
-    // The configuration of a deployment carries the policy, and the boot
-    // writes it into the runtime row the admission reads.
-    db.save_runtime_settings(&runtime_settings(&db, Some((4096, 2048, 1024))).await)
+    let queue = db
+        .execution_queue()
         .await
-        .expect("seed the runtime settings");
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
+        .await
+        .expect("capture the execution policy baseline");
 
-    assert_eq!(stored_quota(&db).await, (4096, 2048, 1024));
-    let policy = db.read_registry_quota().await.expect("read the policy");
-    assert_eq!(policy.max_ids_total, 4096);
-    assert_eq!(policy.max_ids_per_file, 2048);
-    assert_eq!(policy.max_ids_per_run, 1024);
+    let outcome = AssertUnwindSafe(async {
+        // The configuration of a deployment carries the policy, and the boot
+        // writes it into the runtime row the admission reads.
+        db.save_runtime_settings(&runtime_settings(&db, Some((4096, 2048, 1024))).await)
+            .await
+            .expect("seed the runtime settings");
 
-    clear_file_library_settings(&db).await;
-    if !had_identity {
-        support::clear_identity_rows(&db).await;
-    }
+        assert_eq!(stored_quota(&db).await, (4096, 2048, 1024));
+        let policy = db.read_registry_quota().await.expect("read the policy");
+        assert_eq!(policy.max_ids_total, 4096);
+        assert_eq!(policy.max_ids_per_file, 2048);
+        assert_eq!(policy.max_ids_per_run, 1024);
+    })
+    .catch_unwind()
+    .await;
+
+    let cleanup = AssertUnwindSafe(async {
+        clear_file_library_settings(&db).await;
+        if !had_identity {
+            support::clear_identity_rows(&db).await;
+        }
+    })
+    .catch_unwind()
+    .await;
+    let cleanup_error = cleanup.err().map(panic_message);
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, cleanup_error, restore);
 }
 
 #[tokio::test]
@@ -110,18 +134,36 @@ async fn a_client_without_the_setting_keeps_the_stored_policy() {
     clear_file_library_settings(&db).await;
     let had_identity = support::identity_rows_exist(&db).await;
     store_quota(&db, (4096, 2048, 1024)).await;
-
-    // A request that does not mention the caps keeps the stored ones.
-    db.save_runtime_settings(&runtime_settings(&db, None).await)
+    let queue = db
+        .execution_queue()
         .await
-        .expect("save the settings without the capacity caps");
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
+        .await
+        .expect("capture the execution policy baseline");
 
-    assert_eq!(stored_quota(&db).await, (4096, 2048, 1024));
+    let outcome = AssertUnwindSafe(async {
+        // A request that does not mention the caps keeps the stored ones.
+        db.save_runtime_settings(&runtime_settings(&db, None).await)
+            .await
+            .expect("save the settings without the capacity caps");
 
-    clear_file_library_settings(&db).await;
-    if !had_identity {
-        support::clear_identity_rows(&db).await;
-    }
+        assert_eq!(stored_quota(&db).await, (4096, 2048, 1024));
+    })
+    .catch_unwind()
+    .await;
+
+    let cleanup = AssertUnwindSafe(async {
+        clear_file_library_settings(&db).await;
+        if !had_identity {
+            support::clear_identity_rows(&db).await;
+        }
+    })
+    .catch_unwind()
+    .await;
+    let cleanup_error = cleanup.err().map(panic_message);
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, cleanup_error, restore);
 }
 
 #[tokio::test]

@@ -278,6 +278,115 @@ test.describe("react settings", () => {
     await expect(page.getByLabel("Max Characters")).toHaveValue("1200");
   });
 
+  test("edits, saves and validates the optional scheduler resource limits", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
+
+    await page.goto("/settings/runtime");
+    const interactive = page.getByLabel("Interactive Limit");
+    const bulk = page.getByLabel("Bulk Limit");
+    const maintenance = page.getByLabel("Maintenance Limit");
+    const ingest = page.getByLabel("Processing Limit");
+    const batches = page.getByLabel("Ingest batches per turn");
+
+    // The normal default is blank: every resource follows the global cap.
+    await expect(interactive).toHaveValue("");
+    await expect(bulk).toHaveValue("");
+    await expect(maintenance).toHaveValue("");
+    await expect(ingest).toHaveValue("");
+    await expect(batches).toHaveValue("1");
+    await page.locator("#settings-scheduler").screenshot({
+      path: "test-results/p6b2/ingest-batches-default.png",
+    });
+
+    await interactive.fill("2");
+    await bulk.fill("3");
+    await ingest.fill("1");
+    await batches.fill("2");
+    await expect(page.getByText("Enter a whole number from 1 to 4.")).toHaveCount(0);
+    await expect(page.getByText("Enter a whole number from 1 to 64.")).toHaveCount(0);
+    await page.locator("#settings-scheduler").screenshot({
+      path: "test-results/p6b2/ingest-batches-explicit.png",
+    });
+
+    await page.getByTestId("settings-save").click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "PUT" && call.path === "/v1/settings/runtime"
+    )).length).toBe(1);
+    const runtimePut = transport.calls.find((call) => (
+      call.method === "PUT" && call.path === "/v1/settings/runtime"
+    ));
+    const body = runtimePut?.body as {
+      scheduler: {
+        max_concurrency: number;
+        ingest_batches_per_segment: number;
+        resource_limits?: Record<string, number>;
+      };
+    };
+    expect(body.scheduler.max_concurrency).toBe(4);
+    expect(body.scheduler.ingest_batches_per_segment).toBe(2);
+    expect(body.scheduler.resource_limits).toEqual({ interactive: 2, bulk: 3, ingest: 1 });
+    await expect(page.getByText("Settings saved").first()).toBeVisible();
+
+    await expect(interactive).toHaveValue("2");
+    await expect(bulk).toHaveValue("3");
+    await expect(maintenance).toHaveValue("");
+    await expect(ingest).toHaveValue("1");
+    await expect(batches).toHaveValue("2");
+
+    // A cap above the global concurrency is reported inline and never coerced.
+    await bulk.fill("9");
+    await expect(page.getByText("Enter a whole number from 1 to 4.")).toBeVisible();
+    await expect(bulk).toHaveValue("9");
+    await page.locator("#settings-scheduler").screenshot({
+      path: "test-results/p6a1/resource-limit-validation.png",
+    });
+    expect(transport.calls.filter((call) => (
+      call.method === "PUT" && call.path === "/v1/settings/runtime"
+    ))).toHaveLength(1);
+
+    await bulk.fill("4");
+    await expect(page.getByText("Enter a whole number from 1 to 4.")).toHaveCount(0);
+
+    // A quantum outside 1..=64 is reported inline and never coerced or sent.
+    await batches.fill("65");
+    await expect(page.getByText("Enter a whole number from 1 to 64.")).toBeVisible();
+    await expect(batches).toHaveValue("65");
+    await page.locator("#settings-scheduler").screenshot({
+      path: "test-results/p6b2/ingest-batches-validation.png",
+    });
+    expect(transport.calls.filter((call) => (
+      call.method === "PUT" && call.path === "/v1/settings/runtime"
+    ))).toHaveLength(1);
+
+    await batches.fill("64");
+    await expect(page.getByText("Enter a whole number from 1 to 64.")).toHaveCount(0);
+  });
+
+  test("renders configured scheduler resource limits from the shared settings state", async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1100 });
+    await installAppTransport(page, {
+      settings: true,
+      user: ADMIN_USER,
+      runtimeResourceLimits: {
+        interactive: 2,
+        bulk: 3,
+        maintenance: 1,
+        ingest: 1,
+      },
+    });
+
+    await page.goto("/settings/runtime");
+    await expect(page.getByLabel("Interactive Limit")).toHaveValue("2");
+    await expect(page.getByLabel("Bulk Limit")).toHaveValue("3");
+    await expect(page.getByLabel("Maintenance Limit")).toHaveValue("1");
+    await expect(page.getByLabel("Processing Limit")).toHaveValue("1");
+    await expect(page.getByText("Enter a whole number from 1 to 4.")).toHaveCount(0);
+    await page.locator("#settings-scheduler").screenshot({
+      path: "test-results/p6a1/resource-limits-configured.png",
+    });
+  });
+
   test("keeps a rejected docling group dirty, adopts the fulfilled peer and commits no appearance", async ({ page }) => {
     await page.setViewportSize({ width: 600, height: 900 });
     const transport = await installAppTransport(page, {

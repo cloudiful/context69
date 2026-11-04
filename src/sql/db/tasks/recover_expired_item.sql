@@ -7,11 +7,21 @@
 -- itself: the library task and the execution generation, so a sealed segment of
 -- an older generation never touches the item that replaced it.
 --
+-- A segment that had persisted a Docling dispatch intent is the one exception
+-- (issue 1172 P5A): the interrupted `submitting` row becomes a durable
+-- `submission_uncertain` outcome and the item parks on `waiting/docling` with
+-- no due time and an unchanged failure budget, so no automatic POST can ever
+-- follow an unknown dispatch outcome.
+--
+-- The parent holds no admission lease (issue 1172 P2): the library queue policy
+-- owns execution capacity, so the recovery only projects the item and lets the
+-- caller recompute the parent.
+--
 -- `$1` is the item, `$2` the library task of the segment, `$3` the execution
 -- generation of the segment and `$4` the domain parent task the segment was
 -- produced for.
 WITH target AS (
-    SELECT item.id, item.task_id, item.attempt_count
+    SELECT item.id, item.task_id, item.execution_failure_count
     FROM context69.task_items item
     WHERE item.id = $1
       AND item.execution_task_id = $2
@@ -31,9 +41,51 @@ interrupted AS (
       AND attempt.finished_at IS NULL
     RETURNING attempt.id
 ),
+uncertain AS (
+    UPDATE context69.task_docling_remote_jobs job
+    SET status = 'submission_uncertain',
+        remote_status = COALESCE(job.remote_status, job.status),
+        last_error = COALESCE(
+            job.last_error,
+            'docling dispatch outcome is unknown after an interrupted submission'
+        ),
+        lease_token = NULL,
+        lease_until = NULL,
+        updated_at = now()
+    FROM target
+    WHERE job.item_id = target.id
+      AND job.status = 'submitting'
+      AND job.submission_execution_task_id = $2
+      AND job.submission_generation = $3
+    RETURNING job.id
+),
+parked AS (
+    UPDATE context69.task_items item
+    SET status = 'waiting',
+        failure_stage = NULL,
+        error_message = 'docling dispatch outcome is unknown after an interrupted submission',
+        waiting_reason = 'docling',
+        dependency_key = NULL,
+        next_attempt_at = NULL,
+        waiting_since = COALESCE(item.waiting_since, now()),
+        lease_token = NULL,
+        lease_until = NULL,
+        updated_at = now()
+    FROM target
+    WHERE item.id = target.id
+      AND EXISTS (SELECT 1 FROM uncertain)
+    RETURNING item.task_id
+),
 requeued AS (
     UPDATE context69.task_items item
-    SET status = CASE WHEN target.attempt_count < 5 THEN 'queued' ELSE 'failed' END,
+    SET status = CASE
+            WHEN target.execution_failure_count + 1 < 5 THEN 'queued'
+            ELSE 'failed'
+        END,
+        execution_failure_count = LEAST(target.execution_failure_count + 1, 5),
+        failure_stage = 'lease',
+        error_message = 'worker lease expired before completion',
+        retryable = target.execution_failure_count + 1 < 5,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = NULL,
@@ -43,31 +95,9 @@ requeued AS (
         updated_at = now()
     FROM target
     WHERE item.id = target.id
+      AND NOT EXISTS (SELECT 1 FROM uncertain)
     RETURNING item.task_id
-),
-released_parent AS (
-    -- The worker of the crashed item is gone, so the slot the parent held is
-    -- released: the parent slot is a projection of the items that run.
-    UPDATE context69.tasks task
-    SET lease_token = NULL,
-        lease_until = NULL,
-        updated_at = now()
-    WHERE task.id = (SELECT task_id FROM requeued)
-      AND task.lease_token IS NOT NULL
-      AND task.status IN ('queued', 'running', 'waiting')
-      AND task.deleted_at IS NULL
-      AND (
-          task.status IN ('queued', 'running')
-          OR (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
-      )
-      AND NOT EXISTS (
-          SELECT 1
-          FROM context69.task_items item
-          WHERE item.task_id = task.id
-            AND item.status = 'running'
-            AND item.lease_until > clock_timestamp()
-      )
-    RETURNING task.id
 )
-SELECT task_id, (SELECT count(*) FROM released_parent) AS released_parent_leases
-FROM requeued
+SELECT task_id AS "task_id!" FROM parked
+UNION ALL
+SELECT task_id AS "task_id!" FROM requeued

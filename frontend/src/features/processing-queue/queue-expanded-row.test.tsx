@@ -71,6 +71,37 @@ function diagnoseResponse(overrides: Partial<TaskDiagnoseResponse> = {}): TaskDi
   };
 }
 
+function diagnoseItem(
+  itemId: string,
+  state: "submitting" | "submission_uncertain" | "superseded",
+): NonNullable<TaskDiagnoseResponse["items"]>[number] {
+  return {
+    item_id: itemId,
+    ordinal: 0,
+    status: "waiting",
+    stage: "docling",
+    waiting_reason: "docling",
+    dependency_key: null,
+    next_attempt_at: null,
+    failure_stage: null,
+    error_message: null,
+    attempt_count: 1,
+    retryable: true,
+    lease_expires_at: null,
+    active_attempt: null,
+    latest_attempt: null,
+    created_at: "2026-01-01T00:00:00Z",
+    started_at: null,
+    finished_at: state === "superseded" ? "2026-01-01T00:05:00Z" : null,
+    docling_submission: {
+      state,
+      dispatch_attempted: false,
+      created_at: "2026-01-01T00:01:00Z",
+      finished_at: state === "superseded" ? "2026-01-01T00:05:00Z" : null,
+    },
+  };
+}
+
 function renderRow(props: Partial<{ task: TaskResponse; active: boolean }> = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onRetry = vi.fn();
@@ -205,6 +236,50 @@ describe("QueueExpandedRow", () => {
     expect(await screen.findByText("2 open attempts")).toBeInTheDocument();
     expect(apiClient.getTaskDiagnose).toHaveBeenCalledWith("task-1", expect.anything());
     expect(screen.getByText(/Read-only troubleshooting/)).toBeInTheDocument();
+  });
+
+  it("renders the safe Docling submission state without exposing diagnostics", async () => {
+    const user = userEvent.setup();
+    const base = diagnoseResponse();
+    vi.spyOn(apiClient, "getTaskDiagnose").mockResolvedValue(diagnoseResponse({
+      task: { ...base.task, docling_submission_uncertain: true },
+      items: [
+        diagnoseItem("item-1", "submitting"),
+        diagnoseItem("item-2", "submission_uncertain"),
+        diagnoseItem("item-3", "superseded"),
+      ],
+    }));
+    renderRow();
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("button", { name: "Troubleshooting" }));
+
+    expect(await screen.findByText(/Conversion in progress/)).toBeInTheDocument();
+    expect(screen.getByText(/Outcome unknown/)).toBeInTheDocument();
+    expect(screen.getByText(/Previous unknown attempt replaced/)).toBeInTheDocument();
+    expect(screen.queryByText(/docling\.invalid/)).not.toBeInTheDocument();
+  });
+
+  it("offers retry for a flagged waiting task and not for plain waiting", async () => {
+    const user = userEvent.setup();
+    const { onRetry, show } = renderRow({
+      task: task({
+        status: "waiting",
+        waiting_reason: "docling",
+        docling_submission_uncertain: true,
+      }),
+    });
+    await screen.findByText("alpha.pdf");
+
+    await user.click(screen.getByRole("button", { name: /^Retry$/ }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+
+    show(task({
+      status: "waiting",
+      waiting_reason: "docling",
+      docling_submission_uncertain: false,
+    }), false);
+    expect(screen.queryByRole("button", { name: /^Retry$/ })).toBeNull();
   });
 
   it("offers the task-scoped retry from the task status, not the item retryable flag", async () => {

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Seed one task with the seven historical-row shapes the failure-budget\n-- migration must classify. Every row is created inside the caller's rollback\n-- transaction, so nothing survives the test.\n--\n-- `$1` is the fixture task and parent id. The seeded `execution_failure_count`\n-- values are deliberately distinct from the post-migration values: the\n-- migration re-adds the column, so the result must derive only from the old\n-- status and claim ordinal, never from these pre-drop values.\nWITH new_user AS (\n    INSERT INTO context69.users (login_name, display_name, password_hash)\n    VALUES (\n        'failure-budget-migration-' || ($1::uuid)::text,\n        'Failure Budget Migration Fixture',\n        'unused'\n    )\n    RETURNING id\n), new_task AS (\n    INSERT INTO context69.tasks (\n        id,\n        user_id,\n        kind,\n        status,\n        group_path,\n        total_count,\n        queued_count,\n        waiting_count,\n        running_count,\n        succeeded_count,\n        failed_count,\n        cancelled_count\n    )\n    SELECT $1::uuid, id, 'text_batch', 'queued', 'test/failure-budget-migration', 7, 3, 1, 1, 1, 1, 0\n    FROM new_user\n    RETURNING id\n), item_seed (ordinal, status, attempt_count, execution_failure_count, payload) AS (\n    VALUES\n        (1, 'queued', 5, 1, '{\"external_id\": \"matrix-queued-five\"}'::jsonb),\n        (2, 'waiting', 5, 2, '{\"external_id\": \"matrix-waiting-five\"}'::jsonb),\n        (3, 'queued', 4, 3, '{\"external_id\": \"matrix-queued-four\"}'::jsonb),\n        (4, 'running', 5, 4, '{\"external_id\": \"matrix-running-five\"}'::jsonb),\n        (5, 'failed', 5, 5, '{\"external_id\": \"matrix-failed-five\"}'::jsonb),\n        (6, 'succeeded', 5, 0, '{\"external_id\": \"matrix-succeeded-five\"}'::jsonb),\n        (7, 'queued', 2, 2, '{\"external_id\": \"matrix-history-ordinal\"}'::jsonb)\n), new_items AS (\n    INSERT INTO context69.task_items (\n        id,\n        task_id,\n        ordinal,\n        payload,\n        status,\n        attempt_count,\n        execution_failure_count\n    )\n    SELECT\n        gen_random_uuid(),\n        new_task.id,\n        item_seed.ordinal,\n        item_seed.payload,\n        item_seed.status,\n        item_seed.attempt_count,\n        item_seed.execution_failure_count\n    FROM item_seed\n    CROSS JOIN new_task\n    RETURNING id, ordinal\n), new_history AS (\n    INSERT INTO context69.task_attempts (task_id, item_id, attempt, status, finished_at)\n    SELECT\n        new_task.id,\n        new_items.id,\n        history.attempt,\n        'failed',\n        now() - interval '1 hour'\n    FROM new_items\n    CROSS JOIN new_task\n    CROSS JOIN (VALUES (3), (3), (7)) AS history(attempt)\n    WHERE new_items.ordinal = 7\n    RETURNING id\n)\nSELECT new_user.id\nFROM new_user\nCROSS JOIN (SELECT count(*) AS history_rows FROM new_history) AS history_count;\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.users",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ad9c36b5396fd772c6b7a3f69b0e936335be7a8e2b149238950298fb5fd2272f"
+}

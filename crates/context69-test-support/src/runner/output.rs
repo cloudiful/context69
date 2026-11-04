@@ -24,6 +24,37 @@ pub enum RunStatus {
     Passed,
 }
 
+/// Whether the invocation planned the whole manifest or an exact subset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum RunScope {
+    /// The unchanged full plan.
+    Full,
+    /// Only the exact requested target labels.
+    Targets,
+}
+
+impl RunScope {
+    /// Stable lowercase label used in actions and the CLI line.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Full => "full",
+            Self::Targets => "targets",
+        }
+    }
+
+    /// Completion action recorded for this scope. A scoped pass must never use
+    /// the full-gate label.
+    #[must_use]
+    pub const fn completion_label(self) -> &'static str {
+        match self {
+            Self::Full => "sequence:complete",
+            Self::Targets => "sequence:scoped-complete",
+        }
+    }
+}
+
 /// Where a target stopped. Reported instead of a raw error string so a failure
 /// never has to be parsed back out of a message.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +112,10 @@ impl TargetOutcome {
 pub struct RunSummary {
     pub run_id: String,
     pub status: RunStatus,
+    pub scope: RunScope,
+    pub requested_targets: Vec<String>,
+    pub resolved_targets: Vec<String>,
+    pub selected_ordinary_tests: usize,
     pub endpoint_fingerprint: Option<String>,
     pub endpoint_source: Option<String>,
     pub test_executables: usize,
@@ -100,6 +135,10 @@ impl RunSummary {
         Self {
             run_id,
             status: RunStatus::Refused,
+            scope: RunScope::Full,
+            requested_targets: Vec::new(),
+            resolved_targets: Vec::new(),
+            selected_ordinary_tests: 0,
             endpoint_fingerprint: None,
             endpoint_source: None,
             test_executables: 0,

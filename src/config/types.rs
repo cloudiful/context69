@@ -9,7 +9,8 @@ use crate::serde_helpers;
 
 use super::{
     defaults::{
-        DEFAULT_MCP_BIND_ADDR, default_registry_max_ids_per_file, default_registry_max_ids_per_run,
+        DEFAULT_MCP_BIND_ADDR, default_ingest_batches_per_segment,
+        default_registry_max_ids_per_file, default_registry_max_ids_per_run,
         default_registry_max_ids_total, default_scheduler_execution_guard_renew_interval,
         default_scheduler_execution_guard_ttl, default_secret_store_key_version,
         default_session_idle_ttl, default_url_import_concurrency,
@@ -196,6 +197,8 @@ pub struct SchedulerConfig {
         with = "serde_helpers::seconds"
     )]
     pub execution_guard_renew_interval: Duration,
+    #[serde(default = "default_ingest_batches_per_segment")]
+    pub ingest_batches_per_segment: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

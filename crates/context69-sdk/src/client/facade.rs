@@ -1,5 +1,6 @@
 use std::time::{Duration, Instant};
 
+use context69_contracts::tasks::{TaskRerunRequest, TaskRetryRequest};
 pub use context69_contracts::{
     AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
     CancelActiveTasksResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
@@ -13,12 +14,13 @@ pub use context69_contracts::{
     ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
     MetadataValueKind, OffsetPageQuery, OffsetPagination, RerunTaskResponse, ScopeMetadataIndex,
     ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
-    SourcePolicy, TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryRequest,
-    TaskBatchRetryResponse, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
-    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
-    TextBatchRequest, TranslationDirective, TranslationStatus,
-    UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
+    SourcePolicy, TaskBatchGetItem, TaskBatchGetOutcome, TaskBatchGetRequest, TaskBatchGetResponse,
+    TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryRequest, TaskBatchRetryResponse,
+    TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse,
+    TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
+    TranslationDirective, TranslationStatus, UpsertLibraryTextRequest as TextBatchItem,
+    UrlBatchRequest, Visibility, validate_task_idempotency_key,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -84,6 +86,11 @@ pub struct TaskListOptions {
     pub page: u32,
     pub page_size: u32,
     pub query: Option<String>,
+    /// Exact group path filter; edges are trimmed and a blank value means no
+    /// filter, unlike the fuzzy `query` search (issue 1172 P1).
+    pub group_path: Option<String>,
+    /// Exact source key filter, normalized like `group_path`.
+    pub source_key: Option<String>,
     pub kind: Option<TaskKind>,
     pub status: Option<TaskStatus>,
     pub stage: Option<String>,
@@ -100,6 +107,8 @@ impl Default for TaskListOptions {
             page: 1,
             page_size: 25,
             query: None,
+            group_path: None,
+            source_key: None,
             kind: None,
             status: None,
             stage: None,
@@ -134,6 +143,8 @@ impl TaskListOptions {
             page: self.page,
             page_size: self.page_size,
             query: self.query.clone(),
+            group_path: self.group_path.clone(),
+            source_key: self.source_key.clone(),
             kind: self.kind,
             status: self.status,
             view: self.view,
@@ -256,12 +267,40 @@ impl Context69Client {
         self.submit_batch("/v1/tasks".to_string(), request).await
     }
 
+    /// Submit a task under the caller's own durable idempotency key.
+    ///
+    /// The key is validated with the shared contracts helper and then reaches
+    /// the `Idempotency-Key` header unchanged, so a lost response can be
+    /// replayed with the same key and body to recover the same task. A blank,
+    /// non-ASCII, internally-spaced, slashed or oversized key is refused before
+    /// any request leaves the process; the ordinary [`Self::submit_task`] keeps
+    /// its deterministic automatic key.
+    pub async fn submit_task_with_idempotency_key(
+        &self,
+        request: &TaskSubmitRequest,
+        key: &str,
+    ) -> Result<TaskRef, Error> {
+        validate_task_idempotency_key(key)
+            .map_err(|error| Error::InvalidHeader(format!("Idempotency-Key {error}")))?;
+        self.submit_batch_with_key("/v1/tasks".to_string(), request, key.to_owned())
+            .await
+    }
+
     async fn submit_batch<T: serde::Serialize>(
         &self,
         path: String,
         body: &T,
     ) -> Result<TaskRef, Error> {
         let key = idempotency_key(&path, body)?;
+        self.submit_batch_with_key(path, body, key).await
+    }
+
+    async fn submit_batch_with_key<T: serde::Serialize>(
+        &self,
+        path: String,
+        body: &T,
+        key: String,
+    ) -> Result<TaskRef, Error> {
         self.execute_json(
             self.authorized_request(Method::POST, &path)
                 .await?
@@ -387,6 +426,25 @@ impl Context69Client {
             .await
     }
 
+    /// Retry one task with an explicit Docling acknowledgement body.
+    ///
+    /// The plain [`Self::retry_task`] sends no body, which means no
+    /// acknowledgement. Only an explicit `acknowledge_docling_duplicate_risk:
+    /// true` permits archiving a settled unknown submission.
+    pub async fn retry_task_with_request(
+        &self,
+        task_id: Uuid,
+        request: &TaskRetryRequest,
+    ) -> Result<TaskRetryResponse, Error> {
+        let path = format!("/v1/tasks/{task_id}/retry");
+        self.execute_json(
+            self.authorized_request(Method::POST, &path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
     /// Recover up to 100 failed/cancelled tasks in one bounded call. Each id
     /// keeps its requested position in the ordered results.
     pub async fn batch_retry_tasks(
@@ -418,10 +476,47 @@ impl Context69Client {
         .await
     }
 
+    /// Read up to 100 tasks in one ordered, bounded snapshot
+    /// (`POST /v1/tasks/batch/get`).
+    ///
+    /// Each requested id keeps its position. A missing or unauthorized id is
+    /// reported as `not_found` with no task body, so the call never leaks
+    /// whether a task exists outside the caller's scope.
+    pub async fn batch_get_tasks(
+        &self,
+        request: &TaskBatchGetRequest,
+    ) -> Result<TaskBatchGetResponse, Error> {
+        let path = "/v1/tasks/batch/get";
+        self.execute_json(
+            self.authorized_request(Method::POST, path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
     pub async fn rerun_task(&self, task_id: Uuid) -> Result<RerunTaskResponse, Error> {
         let path = format!("/v1/tasks/{task_id}/rerun");
         self.execute_json(self.authorized_request(Method::POST, &path).await?)
             .await
+    }
+
+    /// Rerun one task with an explicit Docling acknowledgement body.
+    ///
+    /// The plain [`Self::rerun_task`] sends no body, which means no
+    /// acknowledgement.
+    pub async fn rerun_task_with_request(
+        &self,
+        task_id: Uuid,
+        request: &TaskRerunRequest,
+    ) -> Result<RerunTaskResponse, Error> {
+        let path = format!("/v1/tasks/{task_id}/rerun");
+        self.execute_json(
+            self.authorized_request(Method::POST, &path)
+                .await?
+                .json(request),
+        )
+        .await
     }
 
     pub async fn cancel_task(&self, task_id: Uuid) -> Result<(), Error> {

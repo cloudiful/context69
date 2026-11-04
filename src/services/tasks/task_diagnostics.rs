@@ -18,10 +18,12 @@ use context69_contracts::{
 use uuid::Uuid;
 
 use context69_contracts::TaskProgress;
+use context69_contracts::tasks::{TaskDoclingSubmissionState, TaskDoclingSubmissionView};
 
 use super::responses::{parse_item_status, parse_kind, parse_status};
 use crate::db::{
-    StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskItemDiagnostic,
+    StoredDoclingSubmissionView, StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow,
+    TaskItemDiagnostic,
 };
 
 /// Upper bound on the items one diagnose response carries. Diagnose is an
@@ -42,7 +44,14 @@ pub(super) fn task_diagnose_response(
     items_truncated: bool,
     consistency: TaskConsistencyRow,
     dependency_gates: Vec<LibraryDependencyGateResponse>,
+    docling_submissions: Vec<StoredDoclingSubmissionView>,
 ) -> Result<TaskDiagnoseResponse> {
+    // The submission views arrive as one bounded DISTINCT ON read for this
+    // task, so the diagnose join never fans out into per-item history reads.
+    let submissions: HashMap<Uuid, StoredDoclingSubmissionView> = docling_submissions
+        .into_iter()
+        .map(|view| (view.item_id, view))
+        .collect();
     let diagnostics: HashMap<Uuid, TaskItemDiagnostic> =
         serde_json::from_value(consistency.item_diagnostics.clone())
             .map(|entries: Vec<TaskItemDiagnostic>| {
@@ -77,6 +86,7 @@ pub(super) fn task_diagnose_response(
                 latest_attempt: diagnostic
                     .and_then(|entry| entry.latest_attempt.as_ref())
                     .map(task_attempt_view),
+                docling_submission: submissions.get(&item.id).map(docling_submission_view),
                 created_at: item.created_at,
                 started_at: item.started_at,
                 finished_at: item.finished_at,
@@ -105,11 +115,11 @@ pub(super) fn task_diagnose_response(
             next_attempt_at: task.next_attempt_at,
             failure_stage: task.failure_stage,
             error_summary: task.error_summary,
-            lease_expires_at: consistency.scoped_lease_until,
             created_at: task.created_at,
             started_at: task.started_at,
             finished_at: task.finished_at,
             updated_at: task.updated_at,
+            docling_submission_uncertain: task.docling_submission_uncertain,
         },
         items,
         items_truncated,
@@ -123,6 +133,20 @@ pub(super) fn task_diagnose_response(
         },
         observed_at: Utc::now(),
     })
+}
+
+/// The safe operator view of one submission history row.
+fn docling_submission_view(view: &StoredDoclingSubmissionView) -> TaskDoclingSubmissionView {
+    TaskDoclingSubmissionView {
+        state: match view.status.as_str() {
+            "submitting" => TaskDoclingSubmissionState::Submitting,
+            "superseded" => TaskDoclingSubmissionState::Superseded,
+            _ => TaskDoclingSubmissionState::SubmissionUncertain,
+        },
+        dispatch_attempted: view.dispatch_attempted,
+        created_at: view.created_at,
+        finished_at: view.finished_at,
+    }
 }
 
 fn task_attempt_view(attempt: &StoredTaskAttempt) -> TaskAttemptView {
@@ -177,6 +201,7 @@ mod tests {
             deleted_at: None,
             file_name: Some("report.pdf".to_string()),
             document_title: Some("Quarterly report".to_string()),
+            docling_submission_uncertain: false,
         }
     }
 
@@ -228,14 +253,11 @@ mod tests {
             dependency_waiting_parent_count: 0,
             parent_status_counts: serde_json::json!([]),
             running_parent_without_running_item_count: 0,
-            lease_without_running_item_count: 0,
             open_attempt_count: 1,
             near_exhaustion_item_count: 0,
-            oldest_admitted_at: None,
             parent_item_mismatch_count: 0,
             live_running_count: 0,
             current_item_id: None,
-            scoped_lease_until: None,
             mismatch_fields,
             item_diagnostics,
         }
@@ -252,6 +274,7 @@ mod tests {
             vec![item.clone()],
             false,
             consistency_row(json!([]), json!([])),
+            Vec::new(),
             Vec::new(),
         )
         .expect("diagnose");
@@ -296,6 +319,7 @@ mod tests {
                 json!([]),
             ),
             Vec::new(),
+            Vec::new(),
         )
         .expect("diagnose");
         assert_eq!(
@@ -320,6 +344,7 @@ mod tests {
             false,
             consistency_row(json!([]), json!(["running_count", "stage"])),
             Vec::new(),
+            Vec::new(),
         )
         .expect("diagnose");
         assert!(!response.consistency.consistent);
@@ -337,6 +362,7 @@ mod tests {
             false,
             consistency_row(json!({"not": "an array"}), json!([])),
             Vec::new(),
+            Vec::new(),
         )
         .expect_err("malformed diagnostics must fail");
         assert!(
@@ -348,6 +374,7 @@ mod tests {
             vec![stored_item(0)],
             false,
             consistency_row(json!([]), json!("not an array of names")),
+            Vec::new(),
             Vec::new(),
         )
         .expect_err("malformed mismatches must fail");

@@ -1,4 +1,4 @@
--- The domain projection of one library claim (issue 1020 P2).
+-- The domain projection of one library claim (issue 1020 P2, issue 1172 P2).
 --
 -- The lease of the item is the fencing token of the library attempt and its
 -- deadline is the deadline the library returned, so the domain never mints an
@@ -6,11 +6,14 @@
 -- attempt records both library identities, so the domain history and the
 -- library history can be correlated without a lookup of the latest owner.
 --
+-- The parent counters and status are a projection of its items, so they are
+-- recomputed by `recompute.sql` in the same transaction instead of being
+-- written here. The parent holds no admission lease: the library queue policy
+-- is the only execution-capacity owner.
+--
 -- `$1` is the item, `$2` the fencing token of the library attempt, `$3` the
 -- lease deadline the library returned, `$4` the library task, `$5` the
--- execution generation, `$6` the library attempt, `$7` says that the parent
--- takes a new global slot, and `$8` is the deadline of the slot the parent
--- already holds.
+-- execution generation and `$6` the library attempt.
 WITH claimed AS (
     UPDATE context69.task_items AS item
     SET status = 'running',
@@ -34,6 +37,7 @@ WITH claimed AS (
               item.task_id,
               item.ordinal,
               item.attempt_count,
+              item.execution_failure_count,
               item.payload,
               item.file_id,
               item.stage,
@@ -45,36 +49,12 @@ attempts AS (
     SELECT task_id, id, attempt_count, 'running', $4, $6
     FROM claimed
     RETURNING item_id, id AS attempt_id
-),
-parent AS (
-    -- The single parent UPDATE: the global slot of the parent, granted when it
-    -- has none and renewed when the one it holds is close to expiring. A
-    -- still-fresh slot keeps its token and deadline.
-    UPDATE context69.tasks task
-    SET lease_token = CASE
-            WHEN $7 THEN gen_random_uuid()
-            ELSE task.lease_token
-        END,
-        lease_until = CASE
-            WHEN $7
-                 OR $8 < now() + interval '4 minutes'
-                THEN now() + interval '8 minutes'
-            ELSE task.lease_until
-        END,
-        status = 'running',
-        started_at = COALESCE(task.started_at, now()),
-        waiting_reason = NULL,
-        dependency_key = NULL,
-        next_attempt_at = NULL,
-        updated_at = now()
-    WHERE task.id = (SELECT task_id FROM claimed)
-      AND task.status IN ('queued', 'running', 'waiting')
-    RETURNING task.id
 )
 SELECT claimed.id,
        claimed.task_id,
        claimed.ordinal,
        claimed.attempt_count,
+       claimed.execution_failure_count,
        claimed.payload,
        claimed.file_id,
        claimed.stage,

@@ -3,7 +3,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::support::{
-    FAST_PATH_LOCK, cleanup_file, cleanup_task, cleanup_user, insert_file, seed_test_user,
+    FAST_PATH_LOCK, cleanup_file, cleanup_task, cleanup_user, insert_file, own_claims,
+    seal_test_execution, seed_test_user,
 };
 
 #[tokio::test]
@@ -44,7 +45,7 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
 
     // Drive the item past the attempt cap without touching claim so the
     // maintenance path is the only one that can converge it.
-    sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
+    sqlx::query("UPDATE context69.task_items SET execution_failure_count = 5 WHERE id = $1")
         .bind(item_ids[0])
         .execute(db.pool())
         .await
@@ -87,6 +88,17 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
         item_stage.as_deref(),
         Some("attempts"),
         "exhausted item must record the attempts failure_stage"
+    );
+    let retry_state = sqlx::query_file!(
+        "tests/sql/task_execution/read_item_retry_state.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load the exhausted item retry state");
+    assert!(
+        !retry_state.retryable,
+        "maintenance exhaustion must mark the item not retryable"
     );
 
     let file_status: String =
@@ -201,25 +213,43 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
         task.cancelled_count, cancelled,
         "cancelled_count must match items"
     );
-    let lease_token: Option<uuid::Uuid> =
-        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
-            .bind(task_id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load task lease_token");
-    assert!(
-        lease_token.is_none(),
-        "terminal task must clear lease_token"
+    // The parent holds no admission lease, so exhaustion must clear the item
+    // leases and leave no open attempt or running item behind.
+    let item_leases: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM context69.task_items \
+         WHERE task_id = $1 AND (lease_token IS NOT NULL OR lease_until IS NOT NULL)",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count remaining item leases");
+    assert_eq!(
+        item_leases, 0,
+        "an exhausted terminal task must clear its item leases"
     );
-    let lease_until: Option<chrono::DateTime<chrono::Utc>> =
-        sqlx::query_scalar("SELECT lease_until FROM context69.tasks WHERE id = $1")
-            .bind(task_id)
-            .fetch_one(db.pool())
-            .await
-            .expect("load task lease_until");
-    assert!(
-        lease_until.is_none(),
-        "terminal task must clear lease_until"
+    let open_attempts: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM context69.task_attempts \
+         WHERE task_id = $1 AND finished_at IS NULL",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count open attempts");
+    assert_eq!(
+        open_attempts, 0,
+        "an exhausted terminal task must leave no open attempt"
+    );
+    let running_items: i64 = sqlx::query_scalar(
+        "SELECT count(*)::bigint FROM context69.task_items \
+         WHERE task_id = $1 AND status = 'running'",
+    )
+    .bind(task_id)
+    .fetch_one(db.pool())
+    .await
+    .expect("count running items");
+    assert_eq!(
+        running_items, 0,
+        "an exhausted terminal task must leave no running item"
     );
     // Idempotency: second maintenance must keep counters stable and not resurrect terminal work.
     let second = db
@@ -249,13 +279,27 @@ async fn maintain_claim_state_recovers_an_exhausted_item_task_and_file() {
     );
 
     // A subsequent fast claim must not pick the failed item back up.
-    let fast = db.claim_items_fast(100).await.expect("fast claim");
+    let fast = own_claims(
+        db.claim_items_fast().await.expect("fast claim"),
+        &[task_id],
+        &item_ids,
+    );
+    for grant in &fast {
+        seal_test_execution(&db, grant).await;
+    }
     assert!(
         fast.iter().all(|item| item.task_id != task_id),
         "a failed item must never be re-claimed by the fast path"
     );
     // Compatibility path (claim_items which runs maintain_claim_state + claim) must also remain consistent.
-    let compat = db.claim_items(100).await.expect("compat claim");
+    let compat = own_claims(
+        db.claim_items().await.expect("compat claim"),
+        &[task_id],
+        &item_ids,
+    );
+    for grant in &compat {
+        seal_test_execution(&db, grant).await;
+    }
     assert!(
         compat.iter().all(|item| item.task_id != task_id),
         "compatibility claim must not return exhausted terminal items"
@@ -313,14 +357,14 @@ async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
         .expect("create partial task");
     assert_eq!(item_ids.len(), 2);
     // Exhaust only the first item; leave the second queued.
-    sqlx::query("UPDATE context69.task_items SET attempt_count = 5 WHERE id = $1")
+    sqlx::query("UPDATE context69.task_items SET execution_failure_count = 5 WHERE id = $1")
         .bind(item_ids[0])
         .execute(db.pool())
         .await
         .expect("exhaust first item");
     // Ensure second item remains queued with attempt_count 0.
     sqlx::query(
-        "UPDATE context69.task_items SET attempt_count = 0, status = 'queued' WHERE id = $1",
+        "UPDATE context69.task_items SET execution_failure_count = 0, status = 'queued' WHERE id = $1",
     )
     .bind(item_ids[1])
     .execute(db.pool())
@@ -382,14 +426,22 @@ async fn maintain_claim_state_keeps_partial_task_counters_consistent() {
     assert_eq!(task.failed_count, failed);
     assert_eq!(task.cancelled_count, cancelled);
     // The still-queued item must remain claimable.
-    let claimed = db
-        .claim_items_fast(10)
-        .await
-        .expect("fast claim after partial")
+    let claimed = own_claims(
+        db.claim_items_fast()
+            .await
+            .expect("fast claim after partial"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(claimed.len(), 1, "the partial task claims one item");
+    let claimed = claimed
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("remaining queued item must be claimable");
     assert_eq!(claimed.id, item_ids[1]);
+
+    // The remaining sibling is claimed and still owns its live grant.
+    seal_test_execution(&db, &claimed).await;
 
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
@@ -409,7 +461,7 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     let user_id = seed_test_user(&db).await;
 
     // Every waiting item with a dependency/backoff reason is exhausted at
-    // attempt_count >= 5: the collapsed queue has no stage exemption left.
+    // execution_failure_count >= 5: the collapsed queue has no stage exemption left.
     let task_id = Uuid::new_v4();
     let (task_id, _reused, item_ids) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
@@ -431,7 +483,7 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     sqlx::query(
         "UPDATE context69.task_items \
          SET status = 'waiting', stage = 'indexing', waiting_reason = 'backoff', \
-             attempt_count = 5, next_attempt_at = now() - interval '1 minute', waiting_since = now() \
+             execution_failure_count = 5, next_attempt_at = now() - interval '1 minute', waiting_since = now() \
          WHERE id = $1",
     )
     .bind(item_id)

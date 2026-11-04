@@ -1,10 +1,10 @@
 //! Diagnose and consistency-report contracts for `GET /v1/tasks/{task_id}/diagnose`.
 //!
-//! These read-projections explain a task's progress: the parent row plus its
-//! admission lease, the ordered items with attempt forensics, and the
-//! parent-versus-item consistency verdict. They are re-exported through
-//! [`crate::tasks`] so every existing `context69_contracts_tasks::tasks::…` and
-//! crate-root path stays identical.
+//! These read-projections explain a task's progress: the parent row, the ordered
+//! items with attempt and item-lease forensics, and the parent-versus-item
+//! consistency verdict. They are re-exported through [`crate::tasks`] so every
+//! existing `context69_contracts_tasks::tasks::…` and crate-root path stays
+//! identical.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -35,9 +35,8 @@ pub struct TaskAttemptView {
 
 /// Parent projection for `GET /v1/tasks/{task_id}/diagnose`.
 ///
-/// Carries the stored parent row plus the admission lease deadline. The lease
-/// token itself is never projected: it authorizes writes and has no diagnostic
-/// value.
+/// Carries the stored parent row only. Execution capacity belongs to the
+/// library attempt admission, so the parent holds no admission lease to project.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct TaskDiagnoseParent {
     pub task_id: Uuid,
@@ -56,16 +55,16 @@ pub struct TaskDiagnoseParent {
     pub failure_stage: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_summary: Option<String>,
-    /// Deadline of the durable parent admission slot, absent when no slot is
-    /// held.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub lease_expires_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<DateTime<Utc>>,
     pub updated_at: DateTime<Utc>,
+    /// `true` while any of the task's items owns an unacknowledged Docling
+    /// submission. A risk indicator, not an executability promise.
+    #[serde(default)]
+    pub docling_submission_uncertain: bool,
 }
 
 /// One item with its attempt forensics and lease deadline, ordered by
@@ -99,6 +98,12 @@ pub struct TaskDiagnoseItem {
     /// The newest attempt row, open or finished.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub latest_attempt: Option<TaskAttemptView>,
+    /// The latest Docling submission history row of this item, if any.
+    ///
+    /// Exposes only the state, the dispatch-attempted diagnostic and the two
+    /// timestamps: never the frozen identity, endpoint, remote id or error.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub docling_submission: Option<TaskDoclingSubmissionView>,
     pub created_at: DateTime<Utc>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_at: Option<DateTime<Utc>>,
@@ -120,6 +125,30 @@ pub struct TaskConsistencyReport {
     pub mismatches: Vec<String>,
     pub open_attempt_count: i64,
     pub near_exhaustion_item_count: i64,
+}
+
+/// One Docling submission history state as an operator sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskDoclingSubmissionState {
+    /// A durable intent whose dispatch may or may not have been invoked.
+    Submitting,
+    /// The dispatch was invoked and its outcome is unknown.
+    SubmissionUncertain,
+    /// An earlier unknown outcome that was archived by an acknowledgement.
+    Superseded,
+}
+
+/// Safe projection of one item's latest Docling submission history row.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskDoclingSubmissionView {
+    pub state: TaskDoclingSubmissionState,
+    /// Whether the prepared send was invoked. Diagnostic only: `false` never
+    /// proves the dispatch was not sent.
+    pub dispatch_attempted: bool,
+    pub created_at: DateTime<Utc>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub finished_at: Option<DateTime<Utc>>,
 }
 
 /// Response body for `GET /v1/tasks/{task_id}/diagnose`.

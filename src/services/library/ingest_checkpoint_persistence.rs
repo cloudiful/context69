@@ -27,7 +27,9 @@ use super::task_ingest::{
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
 use crate::chunking::chunk_document_iter;
 use crate::contracts::LibraryIngestFailureStage;
-use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
+use crate::services::library::{
+    LibraryDependency, LibraryService, TaskIngestStep, UnifiedIngestError,
+};
 
 /// Who authorizes the payload checkpoint of one indexing run.
 #[derive(Debug, Clone, Copy)]
@@ -140,7 +142,7 @@ impl LibraryService {
         fence: crate::library_store::TaskWriteFence,
         current_payload: &Value,
         attempt: i32,
-    ) -> Result<Value, UnifiedIngestError> {
+    ) -> Result<TaskIngestStep<Value>, UnifiedIngestError> {
         self.persist_sections_with_checkpoint(
             file_id,
             section_payload,
@@ -165,7 +167,7 @@ impl LibraryService {
         lease_token: Uuid,
         current_payload: &Value,
         attempt: i32,
-    ) -> Result<Value, UnifiedIngestError> {
+    ) -> Result<TaskIngestStep<Value>, UnifiedIngestError> {
         self.persist_sections_with_checkpoint(
             file_id,
             section_payload,
@@ -186,8 +188,14 @@ impl LibraryService {
         checkpoint_write: CheckpointWrite,
         current_payload: &Value,
         attempt: i32,
-    ) -> Result<Value, UnifiedIngestError> {
+    ) -> Result<TaskIngestStep<Value>, UnifiedIngestError> {
         let lease_token = checkpoint_write.lease_token();
+        // The quantum is snapshotted once for this whole segment; a settings
+        // change during the loop is picked up by the next segment.
+        let batches_per_segment = self.ingest_batches_per_segment().await.map_err(|error| {
+            let retryable = crate::retry_policy::is_transient(&error);
+            task_failure("indexing", error, retryable)
+        })?;
         let file = self
             .store
             .get_file(file_id)
@@ -296,12 +304,13 @@ impl LibraryService {
                 .await?;
             self.finalize_resumed_indexing(&file, &prepared, lease_token, checkpoint_write.fence())
                 .await?;
-            return Ok(current_payload_value);
+            return Ok(TaskIngestStep::Complete(current_payload_value));
         }
 
         let mut mappings = Vec::with_capacity(prepared.len());
         let mut global_batch_index = 0usize;
         let mut resume_progress = ResumeChunkProgress::new(checkpoint.next_batch_index);
+        let mut committed_this_segment = 0usize;
 
         for (index, prepared_section) in prepared.into_iter().enumerate() {
             let document_id = self
@@ -352,12 +361,24 @@ impl LibraryService {
                 )
                 .await?;
                 resume_progress.record_persisted_batch(batch.len());
+                committed_this_segment += 1;
+                if super::stage_quantum::finite_turn_should_yield(
+                    committed_this_segment,
+                    batches_per_segment,
+                    global_batch_index,
+                    total_batches,
+                ) {
+                    // The durable payload checkpoint of this batch is already
+                    // committed. Yield before finalize so the worker releases
+                    // its claim; the next segment resumes from the checkpoint.
+                    return Ok(TaskIngestStep::Yielded);
+                }
             }
         }
 
         self.finalize_after_indexing(&file, mappings, lease_token, checkpoint_write.fence())
             .await?;
-        Ok(current_payload_value)
+        Ok(TaskIngestStep::Complete(current_payload_value))
     }
 
     /// The document of one section, its version and its metadata values.
@@ -552,6 +573,30 @@ impl LibraryService {
                     .map_err(|error| task_failure("finalize", error, false))?;
                 Ok(())
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::stage_quantum::finite_turn_should_yield;
+
+    #[test]
+    fn a_legacy_turn_uses_the_same_configured_quantum_as_the_atomic_kernel() {
+        for limit in [1usize, 2, 64] {
+            assert!(finite_turn_should_yield(limit, limit, limit, limit + 1));
+            assert!(!finite_turn_should_yield(
+                limit,
+                limit,
+                limit + 1,
+                limit + 1
+            ));
+            assert!(!finite_turn_should_yield(
+                limit - 1,
+                limit,
+                limit,
+                limit + 1
+            ));
         }
     }
 }

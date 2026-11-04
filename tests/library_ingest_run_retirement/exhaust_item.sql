@@ -7,7 +7,7 @@
 -- property of the exhaustion at all.
 WITH exhausted AS (
     UPDATE context69.task_items
-    SET attempt_count = 5,
+    SET execution_failure_count = 5,
         next_attempt_at = now() - interval '1 second'
     WHERE id = $1
     RETURNING task_id

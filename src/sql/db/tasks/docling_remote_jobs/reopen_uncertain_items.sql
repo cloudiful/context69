@@ -1,0 +1,69 @@
+-- Reopen the acknowledged waiting Docling items of one owned task
+-- (issue 1172 P5B1).
+--
+-- This is the same manual-retry reset as `retry_items.sql`, restricted to the
+-- exact archived item ids and to items still parked on `waiting/docling`. An
+-- item in any other state is left alone, so the statement is idempotent and a
+-- subsequently cancelled item is never resurrected. `$1` task, `$2` caller,
+-- `$3` archived item ids.
+WITH RECURSIVE inherited_groups AS (
+    SELECT gm.group_id,
+           CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END AS role_rank
+    FROM context69.group_memberships gm
+    WHERE gm.user_id = $2
+    UNION ALL
+    SELECT child.id, inherited_groups.role_rank
+    FROM context69.groups child
+    JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id
+), allowed AS (
+    SELECT task.id
+    FROM context69.tasks task
+    WHERE task.id = $1
+      AND (
+          (task.group_id IS NULL AND task.user_id = $2)
+          OR EXISTS (
+              SELECT 1
+              FROM inherited_groups
+              WHERE inherited_groups.group_id = task.group_id
+                AND inherited_groups.role_rank >= 2
+          )
+      )
+), reopened AS (
+    UPDATE context69.task_items item
+    SET payload = CASE
+            WHEN task.kind = 'translation' THEN item.payload - 'job_ids'
+            ELSE item.payload
+        END,
+        status = 'queued',
+        stage = 'processing',
+        execution_failure_count = 0,
+        waiting_reason = NULL,
+        dependency_key = NULL,
+        next_attempt_at = now(),
+        failure_stage = NULL,
+        error_message = NULL,
+        retryable = TRUE,
+        waiting_since = NULL,
+        lease_token = NULL,
+        lease_until = NULL,
+        finished_at = NULL,
+        updated_at = now()
+    FROM context69.tasks task
+    WHERE item.task_id IN (SELECT id FROM allowed)
+      AND item.task_id = task.id
+      AND item.id = ANY($3::uuid[])
+      AND item.status = 'waiting'
+      AND item.waiting_reason = 'docling'
+      AND (
+          item.file_id IS NULL
+          OR NOT EXISTS (
+              SELECT 1
+              FROM context69.task_items active
+              WHERE active.file_id = item.file_id
+                AND active.id <> item.id
+                AND active.status IN ('queued', 'running', 'waiting')
+          )
+      )
+    RETURNING item.id, item.execution_task_id
+)
+SELECT id, execution_task_id FROM reopened ORDER BY id

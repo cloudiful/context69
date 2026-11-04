@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The configured number of ingest batches one task indexing segment commits.\n-- A missing singleton row uses the application default of one.\n\nSELECT ingest_batches_per_segment\nFROM context69.runtime_scheduler_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "ingest_batches_per_segment",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_scheduler_settings",
+            "name": "ingest_batches_per_segment"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1e50ff27bdea80c3ba2eeddecf216668276c8c432956d7e7e2a270bf643cf4aa"
+}

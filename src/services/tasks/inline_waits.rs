@@ -10,11 +10,11 @@ use crate::db::Database;
 
 /// Bound for consecutive inline waits inside one worker run (issue 650 P3).
 ///
-/// A retryable outcome sleeps inline keeping the admitted parent/item lease
+/// A retryable outcome sleeps inline keeping the admitted item lease
 /// instead of parking, then re-drives from the entry stage. The budget
 /// matches the backoff clamp range so a poison item still parks through the
 /// existing `wait_task_item` path (with attempt accounting and recovery)
-/// instead of pinning a global parent slot forever.
+/// instead of sleeping on it forever.
 pub(super) const MAX_INLINE_WAIT_ROUNDS: u32 = 8;
 
 /// Cancel-responsiveness bound for one inline sleep chunk. Every chunk
@@ -23,11 +23,11 @@ pub(super) const MAX_INLINE_WAIT_ROUNDS: u32 = 8;
 pub(super) const INLINE_WAIT_CHUNK: Duration = Duration::from_secs(10);
 
 /// Classifies one pipeline outcome for the blocking worker: `Some(until)`
-/// sleeps inline keeping the admitted parent/item lease, `None` is committed
+/// sleeps inline keeping the admitted item lease, `None` is committed
 /// through the existing park/finish path.
 pub(super) fn inline_wait_until(
     result: &ProcessResult,
-    attempt_count: i32,
+    prospective_failure_count: i32,
     rounds_used: u32,
 ) -> Option<DateTime<Utc>> {
     if rounds_used >= MAX_INLINE_WAIT_ROUNDS {
@@ -39,18 +39,21 @@ pub(super) fn inline_wait_until(
         } => Some(*next_attempt_at),
         ProcessResult::Failed {
             retryable: true, ..
-        } => Some(backoff_until(attempt_count)),
+        } => Some(backoff_until(prospective_failure_count)),
+        ProcessResult::Yielded { .. } => {
+            // A segment boundary is committed by the driver, never slept on.
+            None
+        }
         _ => None,
     }
 }
 
 /// Drives one claimed item, blocking through retryable waits instead of
-/// parking: each `Waiting`/retryable-`Failed` outcome sleeps inline (the item
-/// lease stays alive under the runtime heartbeat and the parent slot is
-/// renewed by the recovery tick) and re-drives from the entry stage, up to
-/// [`MAX_INLINE_WAIT_ROUNDS`]. Returns the first outcome that must be
-/// committed (success, terminal failure, or an over-budget wait that parks
-/// exactly as before).
+/// parking: each `Waiting`/retryable-`Failed` outcome sleeps inline (renewing
+/// the admitted item lease through the library heartbeat) and re-drives from
+/// the entry stage, up to [`MAX_INLINE_WAIT_ROUNDS`]. Returns the first outcome
+/// that must be committed (success, terminal failure, or an over-budget wait
+/// that parks exactly as before).
 pub(super) async fn drive_with_inline_waits(
     service: &TaskService,
     kind: TaskKind,
@@ -65,7 +68,9 @@ pub(super) async fn drive_with_inline_waits(
     let mut current = item.clone();
     let mut result = process_item_blocking(service, kind, group, task, &mut current).await?;
     let mut rounds_used = 0u32;
-    while let Some(until) = inline_wait_until(&result, item.attempt_count, rounds_used) {
+    while let Some(until) =
+        inline_wait_until(&result, item.execution_failure_count + 1, rounds_used)
+    {
         tracing::debug!(
             target: "task_lifecycle",
             task_id = %item.task_id,
@@ -178,6 +183,46 @@ mod tests {
         );
         assert!(
             inline_wait_until(&ProcessResult::Progressed { next: "embedding" }, 1, 0).is_none()
+        );
+        assert!(
+            inline_wait_until(&ProcessResult::Yielded { next: "embedding" }, 1, 0).is_none(),
+            "a durable segment boundary is committed by the driver, never slept on"
+        );
+        let probe = crate::db::DoclingProbeUpdate {
+            job_id: uuid::Uuid::new_v4(),
+            remote_status: "pending".to_string(),
+            poll_step: 1,
+            error_count: 0,
+            last_error: None,
+            next_poll_at: Utc::now() + ChronoDuration::seconds(2),
+        };
+        assert!(
+            inline_wait_until(&ProcessResult::DoclingWaiting(probe), 1, 0).is_none(),
+            "a typed Docling park never sleeps inline"
+        );
+        assert!(
+            inline_wait_until(
+                &ProcessResult::DoclingSubmissionUncertain {
+                    job_id: uuid::Uuid::new_v4(),
+                    reason: "unknown dispatch outcome".to_string(),
+                },
+                1,
+                0,
+            )
+            .is_none(),
+            "a fail-closed submission never sleeps inline"
+        );
+        assert!(
+            inline_wait_until(
+                &ProcessResult::DoclingTimedOut {
+                    job_id: uuid::Uuid::new_v4(),
+                    reason: "deadline".to_string(),
+                },
+                1,
+                0,
+            )
+            .is_none(),
+            "a typed Docling timeout never sleeps inline"
         );
     }
 
@@ -304,7 +349,7 @@ mod tests {
         .expect("create task");
         // The item is claimed through the library, so the wait renews the very
         // lease the claim holds.
-        let claimed = db.claim_items_fast(10).await.expect("claim the item");
+        let claimed = db.claim_items_fast().await.expect("claim the item");
         let item = claimed
             .into_iter()
             .find(|item| item.task_id == task_id)
@@ -335,6 +380,15 @@ mod tests {
     }
 
     async fn cleanup(db: &crate::db::Database, task_id: uuid::Uuid, user_id: i64) {
+        let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+            db.pool(),
+            context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+        )
+        .await
+        .expect("settle the fixture's linked executions before deleting its rows");
+        if report.has_expired_skips() {
+            eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+        }
         sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
             .bind(task_id)
             .execute(db.pool())

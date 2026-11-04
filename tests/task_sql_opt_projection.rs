@@ -61,7 +61,7 @@ async fn lease_running(
     _task_id: Uuid,
     item_id: Uuid,
 ) -> (context69::db::ExecutionContext, i64) {
-    let claimed = db.claim_items_fast(10).await.expect("claim the item");
+    let claimed = db.claim_items_fast().await.expect("claim the item");
     let claimed = claimed
         .into_iter()
         .find(|item| item.id == item_id)
@@ -206,7 +206,7 @@ async fn foreign_group_file_is_never_projected() {
         create_raw_active_file_task(&db, user_id, group_b, file_id, "queued").await;
     // The item is claimed through the library, so the transition is fenced by
     // the very attempt the claim holds.
-    let claimed = db.claim_items_fast(10).await.expect("claim the item");
+    let claimed = db.claim_items_fast().await.expect("claim the item");
     let claimed = claimed
         .into_iter()
         .find(|item| item.id == item_id)

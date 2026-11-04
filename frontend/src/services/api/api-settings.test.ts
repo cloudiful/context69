@@ -10,6 +10,54 @@ function createApi(get: ReturnType<typeof vi.fn>) {
   });
 }
 
+describe("settings api runtime scheduler limits", () => {
+  it("forwards the typed global and resource limits unchanged", async () => {
+    const put = vi.fn().mockResolvedValue({
+      data: { scheduler: { resource_limits: { bulk: 3 } } },
+      response: { ok: true, status: 200 },
+    });
+    const api = createSettingsApi({
+      openapiClient: { PUT: put } as never,
+      unwrapResponse,
+    });
+    const body = {
+      qdrant: { url: "http://qdrant:6333", collection_name: "context69", recreate_on_dimension_mismatch: false },
+      embedding: {
+        base_url: "http://embedding:8080/v1",
+        model: "embed-1",
+        dimensions: 768,
+        timeout_secs: 30,
+      },
+      scheduler: {
+        interval_secs: 300,
+        run_on_start: true,
+        max_concurrency: 4,
+        job_id: "context69-sync",
+        valkey_url: undefined,
+        ingest_batches_per_segment: 2,
+        resource_limits: { interactive: undefined, bulk: 3, maintenance: undefined, ingest: undefined },
+      },
+      chunking: { max_chars: 1200, overlap_chars: 200 },
+      file_library: {
+        storage_root: "/data/library",
+        max_upload_size_mb: 128,
+        max_upload_request_size_mb: 128,
+        ingest_concurrency: 2,
+        url_import_concurrency: 2,
+        url_import_min_interval_ms: 1000,
+        trusted_proxy_enabled: false,
+      },
+    };
+
+    await api.updateRuntimeSettings(body);
+
+    expect(put).toHaveBeenCalledWith("/v1/settings/runtime", {
+      body,
+      signal: undefined,
+    });
+  });
+});
+
 describe("settings api docling remote tasks", () => {
   it("wakes cleanup without caller-supplied remote identities", async () => {
     const post = vi.fn().mockResolvedValue({ data: { woken: 2 }, response: { ok: true, status: 200 } });

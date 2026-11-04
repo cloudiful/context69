@@ -77,6 +77,11 @@ WITH page AS (
       AND ($5::text IS NULL OR task.stage = $5)
       AND ($6::text IS NULL OR task.waiting_reason = $6)
       AND ($7::text IS NULL OR task.dependency_key = $7)
+      -- Issue 1172 P1: exact, already-trimmed group/source filters. They only
+      -- narrow the authorization above, so a foreign group path matches
+      -- nothing, and a blank filter arrives as NULL.
+      AND ($13::text IS NULL OR task.group_path = $13)
+      AND ($14::text IS NULL OR task.source_key = $14)
       AND (
           ($12::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
           OR ($12::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
@@ -127,7 +132,13 @@ SELECT
     task.finished_at,
     task.updated_at,
     context.file_name,
-    context.document_title
+    context.document_title,
+    EXISTS (
+        SELECT 1
+        FROM context69.task_docling_remote_jobs job
+        WHERE job.task_id = task.id
+          AND job.status IN ('submitting', 'submission_uncertain')
+    ) AS "docling_submission_uncertain!"
 FROM page task
 LEFT JOIN LATERAL (
     SELECT

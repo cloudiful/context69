@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
@@ -12,12 +10,6 @@ use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestE
 
 use super::docling_finalize::payload_with_sections;
 use super::item_processors::ProcessResult;
-
-/// Cancel-responsiveness bound for one poll-interval sleep chunk. Every chunk
-/// re-reads the owned item row, so a task cancel aborts the blocking wait
-/// within this long (plus the in-flight poll request, which is bounded by
-/// the client's `?wait=30` long poll).
-const POLL_SLEEP_CHUNK_SECS: i64 = 10;
 
 /// Remote-conversion operations the blocking Docling stage needs. Implemented
 /// by [`LibraryService`]; tests substitute a scripted fake so the real loop
@@ -129,83 +121,70 @@ impl DoclingRemoteOps for LibraryService {
     }
 }
 
-fn backoff_secs(attempt: i32) -> i64 {
-    match attempt {
-        i32::MIN..=0 => 2,
-        1 => 4,
-        2 => 8,
-        3 => 15,
-        _ => 30,
-    }
-}
-
-fn is_expired(deadline_at: Option<DateTime<Utc>>) -> bool {
-    deadline_at.is_some_and(|deadline| deadline <= Utc::now())
-}
-
 fn lease_lost() -> ProcessResult {
     ProcessResult::Failed {
         stage: "docling".to_string(),
-        message: "task item lease was lost during the docling wait".to_string(),
+        message: "task item lease was lost during the docling probe".to_string(),
         retryable: false,
     }
 }
 
-enum OwnerState {
-    Ours,
-    Gone,
-    Stolen,
+/// Normal probe cadence in seconds. A pending observation advances the
+/// persisted step by one and takes the matching delay; later observations stay
+/// on the 30-second cap.
+const POLL_CADENCE_SECS: [i64; 4] = [2, 5, 15, 30];
+
+fn next_poll_step(current: i32) -> i32 {
+    current.saturating_add(1).clamp(1, 4)
 }
 
-/// Checks whether the blocking worker still owns its item: `Gone` means the
-/// item left `running` (cancelled, failed, or requeued elsewhere); recovery
-/// alone fences confirmed terminal owners. `Stolen` means another worker holds the
-/// item lease (crash reclaim) and this worker must write nothing at all.
-async fn owner_state(db: &Database, item_id: Uuid, lease_token: Uuid) -> Result<OwnerState> {
-    let work = db.get_docling_work_item(item_id).await?;
-    Ok(match work {
-        None => OwnerState::Gone,
-        Some(work) if work.status != "running" => OwnerState::Gone,
-        Some(work) if work.lease_token != Some(lease_token) => OwnerState::Stolen,
-        Some(_) => OwnerState::Ours,
+fn poll_delay_secs(step: i32) -> i64 {
+    let index = (step.clamp(1, 4) - 1) as usize;
+    POLL_CADENCE_SECS[index]
+}
+
+/// Consecutive transport/parse errors use a separate exponential schedule:
+/// 5, 10, 20, ... seconds, capped at five minutes.
+fn error_backoff_secs(error_count: i32) -> i64 {
+    let exponent = error_count.clamp(1, 8) as u32 - 1;
+    5_i64.saturating_mul(1_i64 << exponent).min(300)
+}
+
+fn clamp_to_deadline(next: DateTime<Utc>, deadline_at: Option<DateTime<Utc>>) -> DateTime<Utc> {
+    match deadline_at {
+        Some(deadline) => next.min(deadline),
+        None => next,
+    }
+}
+
+fn parked_probe(
+    job: &StoredDoclingRemoteJob,
+    remote_status: String,
+    poll_step: i32,
+    error_count: i32,
+    last_error: Option<String>,
+    next_poll_at: DateTime<Utc>,
+) -> ProcessResult {
+    ProcessResult::DoclingWaiting(crate::db::DoclingProbeUpdate {
+        job_id: job.id,
+        remote_status,
+        poll_step,
+        error_count,
+        last_error,
+        next_poll_at: clamp_to_deadline(next_poll_at, job.deadline_at),
     })
 }
 
-/// Sleeps `secs` in bounded chunks while the worker still owns its item.
-/// Returns `false` when ownership is lost mid-sleep; the caller commits
-/// nothing in that case and lets the fenced finish observe the loss.
-async fn sleep_owned(db: &Database, item: &crate::db::ClaimedItem, secs: i64) -> Result<bool> {
-    let mut remaining = secs.max(0);
-    while remaining > 0 {
-        let chunk = remaining.min(POLL_SLEEP_CHUNK_SECS);
-        tokio::time::sleep(Duration::from_secs(chunk as u64)).await;
-        remaining -= chunk;
-        if !matches!(
-            owner_state(db, item.id, item.lease_token).await?,
-            OwnerState::Ours
-        ) {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-/// Blocks the worker on one submitted remote conversion until it resolves.
+/// Runs at most one Docling status probe for one claimed execution segment.
 ///
-/// The item lease stays alive under the runtime heartbeat (and the admitted
-/// parent slot under the recovery tick) for the whole wait, so the parent
-/// task is never released mid-conversion. Outcomes:
-/// - terminal success: sections are committed atomically and the same
-///   in-memory snapshot is updated, then the pipeline advances to
-///   `embedding` without re-entering Docling;
-/// - terminal remote failure, non-retryable transport/parse error, or
-///   deadline expiry: the item fails without writing the remote row, so a
-///   crash before the item commit re-observes instead of resubmitting, and
-///   the recovery pass cancels the orphaned row once the item is terminal
-///   (within one recovery tick);
-/// - lost ownership (cancel, reclaim): write nothing; the fenced item finish
-///   observes the loss and terminal-owner recovery handles cleanup.
-pub(super) async fn run_docling_stage_blocking(
+/// A future next-poll time parks without HTTP; an expired deadline, measured on
+/// the database clock carried by the loaded row, parks as a typed timeout
+/// without HTTP; otherwise exactly one status probe runs. A pending/running
+/// observation, or a retryable transport/fetch/parse error, returns a typed
+/// park whose persisted due time is the next cadence or error backoff. Only a
+/// terminal success fetches the result, commits its sections once through the
+/// captured attempt and advances to `embedding`.
+pub(super) async fn run_docling_stage_probe(
     db: &Database,
     ops: &(impl DoclingRemoteOps + '_),
     item: &mut crate::db::ClaimedItem,
@@ -213,9 +192,6 @@ pub(super) async fn run_docling_stage_blocking(
     job: StoredDoclingRemoteJob,
     view: Option<&crate::services::library::ReplacementFileAttributes>,
 ) -> Result<ProcessResult> {
-    let mut attempt: i32 = 0;
-    // The captured root is the endpoint the job was submitted to: a settings
-    // change never moves a persisted job to another service.
     let Some(endpoint_base_url) = job.endpoint_base_url.as_deref() else {
         return Ok(ProcessResult::Failed {
             stage: "docling".to_string(),
@@ -223,168 +199,197 @@ pub(super) async fn run_docling_stage_blocking(
             retryable: false,
         });
     };
-    loop {
-        match owner_state(db, item.id, item.lease_token).await? {
-            OwnerState::Gone => {
+    let Some(remote_task_id) = job.remote_task_id.as_deref() else {
+        return Ok(ProcessResult::Failed {
+            stage: "docling".to_string(),
+            message: "the active remote job carries no remote id".to_string(),
+            retryable: false,
+        });
+    };
+    let observed_at = job.observed_at;
+    if job
+        .deadline_at
+        .is_some_and(|deadline| deadline <= observed_at)
+    {
+        return Ok(ProcessResult::DoclingTimedOut {
+            job_id: job.id,
+            reason: "remote job deadline exceeded".to_string(),
+        });
+    }
+    if job.next_poll_at > observed_at {
+        return Ok(ProcessResult::DoclingWaiting(
+            crate::db::DoclingProbeUpdate {
+                job_id: job.id,
+                remote_status: job
+                    .remote_status
+                    .clone()
+                    .unwrap_or_else(|| job.status.clone()),
+                poll_step: job.poll_step,
+                error_count: job.attempt_count,
+                last_error: job.last_error.clone(),
+                next_poll_at: clamp_to_deadline(job.next_poll_at, job.deadline_at),
+            },
+        ));
+    }
+
+    let status = match ops.poll_remote(endpoint_base_url, remote_task_id).await {
+        Ok(status) => status,
+        Err(error) => {
+            ops.note_remote_failure(&error).await;
+            if !error.retryable {
                 return Ok(ProcessResult::Failed {
                     stage: "docling".to_string(),
-                    message: "owning item left the running worker".to_string(),
+                    message: error.message.clone(),
                     retryable: false,
                 });
             }
-            OwnerState::Stolen => return Ok(lease_lost()),
-            OwnerState::Ours => {}
+            let error_count = job.attempt_count.saturating_add(1);
+            let next_poll_at =
+                observed_at + chrono::Duration::seconds(error_backoff_secs(error_count));
+            return Ok(parked_probe(
+                &job,
+                job.remote_status
+                    .clone()
+                    .unwrap_or_else(|| job.status.clone()),
+                job.poll_step,
+                error_count,
+                Some(error.message),
+                next_poll_at,
+            ));
         }
-        if is_expired(job.deadline_at) {
-            return Ok(ProcessResult::Failed {
-                stage: "docling".to_string(),
-                message: "remote job deadline exceeded".to_string(),
-                retryable: false,
+    };
+    let status_name = status.task_status.wire_name().to_string();
+    super::pipeline_progress::record_remote_status(db, item, &status_name).await?;
+
+    if !status.task_status.is_terminal() {
+        let poll_step = next_poll_step(job.poll_step);
+        let next_poll_at = observed_at + chrono::Duration::seconds(poll_delay_secs(poll_step));
+        return Ok(parked_probe(
+            &job,
+            status_name,
+            poll_step,
+            0,
+            None,
+            next_poll_at,
+        ));
+    }
+    if !status.task_status.is_successful() {
+        let message = status
+            .failure_message()
+            .map(str::to_string)
+            .unwrap_or_else(|| {
+                if status.task_status == TaskStatus::Cancelled {
+                    format!("docling task {remote_task_id} was cancelled")
+                } else {
+                    format!("docling task {remote_task_id} failed")
+                }
             });
-        }
-        let status = match ops
-            .poll_remote(endpoint_base_url, &job.remote_task_id)
-            .await
-        {
-            Ok(status) => status,
-            Err(error) => {
-                ops.note_remote_failure(&error).await;
-                if !error.retryable {
-                    return Ok(ProcessResult::Failed {
-                        stage: "docling".to_string(),
-                        message: error.message.clone(),
-                        retryable: false,
-                    });
-                }
-                attempt += 1;
-                if !sleep_owned(db, item, backoff_secs(attempt)).await? {
-                    return Ok(lease_lost());
-                }
-                continue;
-            }
-        };
-        let status_name = status.task_status.wire_name().to_string();
-        // Only a changed observation is progress: the Docling client exposes
-        // only a task status (no page counts), and a repeated long-poll result
-        // is not new work, so it must not move the progress timestamp.
-        super::pipeline_progress::record_remote_status(db, item, &status_name).await?;
-        if !status.task_status.is_terminal() {
-            attempt += 1;
-            if !sleep_owned(db, item, backoff_secs(attempt)).await? {
-                return Ok(lease_lost());
-            }
-            continue;
-        }
-        if !status.task_status.is_successful() {
-            let message = status
-                .failure_message()
-                .map(str::to_string)
-                .unwrap_or_else(|| {
-                    if status.task_status == TaskStatus::Cancelled {
-                        format!("docling task {} was cancelled", job.remote_task_id)
-                    } else {
-                        format!("docling task {} failed", job.remote_task_id)
-                    }
-                });
-            ops.note_remote_failure(&UnifiedIngestError {
-                stage: "docling".to_string(),
-                dependency_key: Some("docling".to_string()),
-                retryable: false,
-                message: message.clone(),
-            })
-            .await;
-            return Ok(ProcessResult::Failed {
-                stage: "docling".to_string(),
-                message,
-                retryable: false,
-            });
-        }
-        let converted = match ops
-            .fetch_remote(endpoint_base_url, &job.remote_task_id)
-            .await
-        {
-            Ok(converted) => converted,
-            Err(error) => {
-                ops.note_remote_failure(&error).await;
-                if !error.retryable {
-                    return Ok(ProcessResult::Failed {
-                        stage: "docling".to_string(),
-                        message: error.message.clone(),
-                        retryable: false,
-                    });
-                }
-                attempt += 1;
-                if !sleep_owned(db, item, backoff_secs(attempt)).await? {
-                    return Ok(lease_lost());
-                }
-                continue;
-            }
-        };
-        // The fetch took time: re-read the owned row for the fresh payload
-        // and re-check ownership before committing anything.
-        let work = db.get_docling_work_item(item.id).await?;
-        let owned = match work {
-            Some(work)
-                if work.status == "running" && work.lease_token == Some(item.lease_token) =>
-            {
-                work
-            }
-            Some(work) if work.status != "running" => {
+        ops.note_remote_failure(&UnifiedIngestError {
+            stage: "docling".to_string(),
+            dependency_key: Some("docling".to_string()),
+            retryable: false,
+            message: message.clone(),
+        })
+        .await;
+        return Ok(ProcessResult::Failed {
+            stage: "docling".to_string(),
+            message,
+            retryable: false,
+        });
+    }
+
+    let converted = match ops.fetch_remote(endpoint_base_url, remote_task_id).await {
+        Ok(converted) => converted,
+        Err(error) => {
+            ops.note_remote_failure(&error).await;
+            if !error.retryable {
                 return Ok(ProcessResult::Failed {
                     stage: "docling".to_string(),
-                    message: "owning item left the running worker".to_string(),
+                    message: error.message.clone(),
                     retryable: false,
                 });
             }
-            _ => return Ok(lease_lost()),
-        };
-        let sections = match ops
-            .remote_sections_with_view(file_id, converted, view)
-            .await
-        {
-            Ok(sections) => sections,
-            Err(error) => {
-                if !error.retryable {
-                    return Ok(ProcessResult::Failed {
-                        stage: error.stage.clone(),
-                        message: error.message.clone(),
-                        retryable: false,
-                    });
-                }
-                attempt += 1;
-                if !sleep_owned(db, item, backoff_secs(attempt)).await? {
-                    return Ok(lease_lost());
-                }
-                continue;
-            }
-        };
-        let payload = payload_with_sections(owned.payload, sections.clone());
-        let execution = item.execution_context().ok_or_else(|| {
-            anyhow::Error::from(DomainError::conflict("task item has no captured execution"))
-        })?;
-        match db
-            .finish_docling_remote_job_with_sections(
-                job.id,
-                item.id,
-                &execution,
-                &payload,
-                &status_name,
-            )
-            .await?
-        {
-            Some(_) => {
-                // The same claim keeps driving this snapshot: publish the
-                // committed sections into it so the `embedding` stage observes
-                // the success instead of routing back to `docling` for a
-                // duplicate submit. Externalization then removes only the
-                // inline copy; on failure the durable inline checkpoint stays.
-                item.payload = payload;
-                ops.note_remote_success().await;
-                ops.externalize_sections(item, &sections).await?;
-                return Ok(ProcessResult::Progressed { next: "embedding" });
-            }
-            None => return Ok(lease_lost()),
+            let error_count = job.attempt_count.saturating_add(1);
+            let next_poll_at =
+                observed_at + chrono::Duration::seconds(error_backoff_secs(error_count));
+            return Ok(parked_probe(
+                &job,
+                status_name,
+                job.poll_step,
+                error_count,
+                Some(error.message),
+                next_poll_at,
+            ));
         }
+    };
+    // The fetch took time: re-read the owned row for the fresh payload and
+    // re-check ownership before committing anything.
+    let work = db.get_docling_work_item(item.id).await?;
+    let owned = match work {
+        Some(work) if work.status == "running" && work.lease_token == Some(item.lease_token) => {
+            work
+        }
+        Some(work) if work.status != "running" => {
+            return Ok(ProcessResult::Failed {
+                stage: "docling".to_string(),
+                message: "owning item left the running worker".to_string(),
+                retryable: false,
+            });
+        }
+        _ => return Ok(lease_lost()),
+    };
+    let sections = match ops
+        .remote_sections_with_view(file_id, converted, view)
+        .await
+    {
+        Ok(sections) => sections,
+        Err(error) => {
+            if !error.retryable {
+                return Ok(ProcessResult::Failed {
+                    stage: error.stage.clone(),
+                    message: error.message.clone(),
+                    retryable: false,
+                });
+            }
+            let error_count = job.attempt_count.saturating_add(1);
+            let next_poll_at =
+                observed_at + chrono::Duration::seconds(error_backoff_secs(error_count));
+            return Ok(parked_probe(
+                &job,
+                status_name,
+                job.poll_step,
+                error_count,
+                Some(error.message),
+                next_poll_at,
+            ));
+        }
+    };
+    let payload = payload_with_sections(owned.payload, sections.clone());
+    let execution = item.execution_context().ok_or_else(|| {
+        anyhow::Error::from(DomainError::conflict("task item has no captured execution"))
+    })?;
+    match db
+        .finish_docling_remote_job_with_sections(
+            job.id,
+            item.id,
+            &execution,
+            &payload,
+            &status_name,
+        )
+        .await?
+    {
+        Some(_) => {
+            // The same claim keeps driving this snapshot: publish the committed
+            // sections into it so the `embedding` stage observes the success
+            // instead of routing back to `docling` for a duplicate submit.
+            // Externalization then removes only the inline copy; on failure the
+            // durable inline checkpoint stays.
+            item.payload = payload;
+            ops.note_remote_success().await;
+            ops.externalize_sections(item, &sections).await?;
+            Ok(ProcessResult::Progressed { next: "embedding" })
+        }
+        None => Ok(lease_lost()),
     }
 }
 
@@ -397,23 +402,39 @@ mod tests {
     use serde_json::{Value, json};
     use uuid::Uuid;
 
-    use super::{DoclingRemoteOps, backoff_secs, is_expired, run_docling_stage_blocking};
+    use super::{
+        DoclingRemoteOps, error_backoff_secs, next_poll_step, poll_delay_secs,
+        run_docling_stage_probe,
+    };
     use crate::docling::{ConvertedDocument, TaskStatus, TaskStatusObservation};
     use crate::services::library::UnifiedIngestError;
     use crate::services::tasks::item_processors::{ProcessResult, persisted_section_payload};
 
     #[test]
-    fn poll_backoff_is_bounded_and_starts_at_two_seconds() {
-        for (attempt, expected) in [(0, 2), (1, 4), (2, 8), (3, 15), (4, 30), (100, 30)] {
-            assert_eq!(backoff_secs(attempt), expected);
+    fn poll_cadence_is_two_five_fifteen_then_thirty_seconds() {
+        let mut step = 0;
+        let mut delays = Vec::new();
+        for _ in 0..5 {
+            step = next_poll_step(step);
+            delays.push(poll_delay_secs(step));
         }
+        assert_eq!(delays, vec![2, 5, 15, 30, 30]);
+        assert_eq!(next_poll_step(4), 4, "the step saturates at the cap");
     }
 
     #[test]
-    fn past_deadline_is_expired_and_missing_is_not() {
-        assert!(is_expired(Some(Utc::now() - chrono::Duration::seconds(1))));
-        assert!(!is_expired(Some(Utc::now() + chrono::Duration::hours(1))));
-        assert!(!is_expired(None));
+    fn transport_error_backoff_grows_exponentially_and_caps_at_five_minutes() {
+        let delays = (1..=8).map(error_backoff_secs).collect::<Vec<_>>();
+        assert_eq!(delays[0], 5);
+        assert_eq!(delays[1], 10);
+        assert_eq!(delays[2], 20);
+        for delay in delays {
+            assert!(
+                (5..=300).contains(&delay),
+                "the error backoff stays within its bound, got {delay}"
+            );
+        }
+        assert_eq!(error_backoff_secs(100), 300);
     }
 
     /// Scripted remote double: polling/fetching/section answers are canned so
@@ -427,15 +448,9 @@ mod tests {
     }
 
     impl ScriptedRemote {
-        fn pending_then_success() -> Self {
+        fn success() -> Self {
             Self {
-                polls: Mutex::new(
-                    [
-                        Ok(status(TaskStatus::Started)),
-                        Ok(status(TaskStatus::Success)),
-                    ]
-                    .into(),
-                ),
+                polls: Mutex::new([Ok(status(TaskStatus::Success))].into()),
                 fetch: Mutex::new(Some(Ok(ConvertedDocument {
                     markdown: Some("# hi".to_string()),
                     text: None,
@@ -546,8 +561,8 @@ mod tests {
             )
             .await
             .expect("remote job");
-        let ops = ScriptedRemote::pending_then_success();
-        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job, None)
+        let ops = ScriptedRemote::success();
+        let outcome = run_docling_stage_probe(&db, &ops, &mut item, file_id, job, None)
             .await
             .expect("blocking run");
         assert!(
@@ -748,7 +763,7 @@ mod tests {
             .await
             .expect("remote job");
 
-        let outcome = run_docling_stage_blocking(&db, &service, &mut item, file_id, job, None)
+        let outcome = run_docling_stage_probe(&db, &service, &mut item, file_id, job, None)
             .await
             .expect("blocking run");
         match outcome {
@@ -763,10 +778,16 @@ mod tests {
                 match other {
                     ProcessResult::Succeeded(_) => "succeeded".to_string(),
                     ProcessResult::Progressed { next } => format!("progressed to {next}"),
+                    ProcessResult::Yielded { next } => format!("yielded to {next}"),
                     ProcessResult::Waiting { reason, .. } => format!("waiting on {reason}"),
                     ProcessResult::Failed { message, .. } => {
                         panic!("a cancelled remote result fails the item, got: {message}")
                     }
+                    ProcessResult::DoclingWaiting(_) => "a parked docling probe".to_string(),
+                    ProcessResult::DoclingSubmissionUncertain { .. } => {
+                        "a fail-closed docling submission".to_string()
+                    }
+                    ProcessResult::DoclingTimedOut { .. } => "a docling timeout".to_string(),
                 }
             ),
         }
@@ -1034,8 +1055,8 @@ mod tests {
             )
             .await
             .expect("remote job");
-        let ops = ScriptedRemote::pending_then_success();
-        let outcome = run_docling_stage_blocking(&db, &ops, &mut item, file_id, job, None)
+        let ops = ScriptedRemote::success();
+        let outcome = run_docling_stage_probe(&db, &ops, &mut item, file_id, job, None)
             .await
             .expect("blocking run");
         match outcome {
@@ -1050,10 +1071,16 @@ mod tests {
                 match other {
                     ProcessResult::Succeeded(_) => "succeeded".to_string(),
                     ProcessResult::Progressed { next } => format!("progressed to {next}"),
+                    ProcessResult::Yielded { next } => format!("yielded to {next}"),
                     ProcessResult::Waiting { reason, .. } => format!("waiting on {reason}"),
                     ProcessResult::Failed { message, .. } => {
                         panic!("a job without an endpoint must not convert, got: {message}")
                     }
+                    ProcessResult::DoclingWaiting(_) => "a parked docling probe".to_string(),
+                    ProcessResult::DoclingSubmissionUncertain { .. } => {
+                        "a fail-closed docling submission".to_string()
+                    }
+                    ProcessResult::DoclingTimedOut { .. } => "a docling timeout".to_string(),
                 }
             ),
         }
@@ -1238,7 +1265,7 @@ mod tests {
         // The item is claimed through the library, so the stage runs against the
         // very attempt the claim holds.
         let claimed = db
-            .claim_items_fast(10)
+            .claim_items_fast()
             .await
             .expect("claim the item")
             .into_iter()
@@ -1249,6 +1276,15 @@ mod tests {
     }
 
     async fn cleanup(db: &crate::db::Database, task_id: Uuid, user_id: i64) {
+        let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+            db.pool(),
+            context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+        )
+        .await
+        .expect("settle the fixture's linked executions before deleting its rows");
+        if report.has_expired_skips() {
+            eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+        }
         sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
             .bind(task_id)
             .execute(db.pool())

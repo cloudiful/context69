@@ -40,7 +40,7 @@ pub enum Mode {
 }
 
 /// One parsed invocation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Invocation {
     pub mode: Mode,
     /// Set only after the recorded security checkpoint approved a real reset.
@@ -56,6 +56,9 @@ pub struct Invocation {
     pub upgrade_recovery: bool,
     /// Operator assertion of a quiet, single-user test window.
     pub allow_idle_connections: bool,
+    /// Exact target labels to run instead of the full plan, in request order.
+    /// Empty means the unchanged full run.
+    pub selected_targets: Vec<String>,
 }
 
 /// Compile-time budget for the workspace test build.
@@ -81,8 +84,9 @@ pub mod exit {
 ///
 /// # Errors
 ///
-/// Returns a usage message for an unknown flag or two conflicting modes, so a
-/// mistyped authorization flag can never silently proceed.
+/// Returns a usage message for an unknown flag, two conflicting modes, or a
+/// malformed `--target` list, so a mistyped authorization or scope flag can
+/// never silently proceed.
 pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
     let mut mode = Mode::Run;
     let mut selected = false;
@@ -91,7 +95,10 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
     let mut app_startup = false;
     let mut upgrade_recovery = false;
     let mut allow_idle_connections = false;
-    for arg in args {
+    let mut selected_targets: Vec<String> = Vec::new();
+    let mut index = 0;
+    while index < args.len() {
+        let arg = &args[index];
         match arg.as_str() {
             "--preflight" | "--list" => {
                 let requested = if arg == "--preflight" {
@@ -105,6 +112,19 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
                 mode = requested;
                 selected = true;
             }
+            "--target" => {
+                index += 1;
+                let Some(value) = args.get(index) else {
+                    return Err("--target needs an exact label".to_owned());
+                };
+                if value.trim().is_empty() || value.starts_with("--") {
+                    return Err("--target needs a non-empty exact label".to_owned());
+                }
+                if selected_targets.iter().any(|label| label == value) {
+                    return Err(format!("--target {value} is repeated"));
+                }
+                selected_targets.push(value.clone());
+            }
             // Passed only by the orchestrator once the recorded security
             // checkpoint has approved the reset boundary.
             "--authorize-reset" => reset_authorized = true,
@@ -114,6 +134,13 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
             "--with-upgrade-recovery" => upgrade_recovery = true,
             other => return Err(format!("unsupported argument: {other}")),
         }
+        index += 1;
+    }
+    if selected_targets.len() > 20 {
+        return Err("--target accepts at most 20 labels".to_owned());
+    }
+    if !selected_targets.is_empty() && mode != Mode::Run {
+        return Err("--target only applies to a run".to_owned());
     }
     if (keyword_benchmark || app_startup || upgrade_recovery) && mode != Mode::Run {
         return Err("opt-in classes only apply to a run".to_owned());
@@ -128,6 +155,7 @@ pub fn parse_invocation(args: &[String]) -> Result<Invocation, String> {
         app_startup,
         upgrade_recovery,
         allow_idle_connections,
+        selected_targets,
     })
 }
 

@@ -19,10 +19,13 @@
 #[path = "runtime_readiness/support.rs"]
 mod support;
 
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use context69::{db::Database, services::app::Context69App};
+use context69_test_support::library_policy::{LibraryPolicyBaseline, finish_fixture};
+use futures::FutureExt;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -66,103 +69,117 @@ async fn liveness_stays_up_while_readiness_reports_the_vector_runtime_honestly()
     );
     let secret_keys_before = internal_secret_keys(&db).await;
 
-    let marker = Uuid::new_v4().simple().to_string();
-    let root = test_storage_root(&marker);
-    let config = test_config(&database_url, &marker, &root);
-    let started = Instant::now();
-    let app = Arc::new(Context69App::new(config).await.expect("app startup"));
-    let boot_elapsed = started.elapsed();
-
-    let router = context69::api::router(Arc::clone(&app))
+    let queue = db
+        .execution_queue()
         .await
-        .expect("api router");
-    let listener = TcpListener::bind("127.0.0.1:0")
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
         .await
-        .expect("an ephemeral loopback port must be available");
-    let address = listener.local_addr().expect("listener address");
-    let server = tokio::spawn(async move {
-        let _ = axum::serve(listener, router).await;
-    });
-    let base = format!("http://{address}");
+        .expect("capture the execution policy baseline");
 
-    let live_started = Instant::now();
-    let (live_status, live_body) = get_json(&base, "/livez").await;
-    let live_elapsed = live_started.elapsed();
-    let (ready_status, ready_body) = get_json(&base, "/readyz").await;
-    let health_started = Instant::now();
-    let (health_status, health_body) = get_json(&base, "/healthz").await;
-    let health_elapsed = health_started.elapsed();
-    let signing_key = app.browser_sessions.signing_key.to_vec();
-    let signing_key_name = internal_secret_key_for_value(&app.db, &signing_key).await;
+    let outcome = AssertUnwindSafe(async {
+        let marker = Uuid::new_v4().simple().to_string();
+        let root = test_storage_root(&marker);
+        let config = test_config(&database_url, &marker, &root);
+        let started = Instant::now();
+        let app = Arc::new(Context69App::new(config).await.expect("app startup"));
+        let boot_elapsed = started.elapsed();
 
-    server.abort();
-    drop(app);
+        let router = context69::api::router(Arc::clone(&app))
+            .await
+            .expect("api router");
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("an ephemeral loopback port must be available");
+        let address = listener.local_addr().expect("listener address");
+        let server = tokio::spawn(async move {
+            let _ = axum::serve(listener, router).await;
+        });
+        let base = format!("http://{address}");
 
-    let settings_created = settings_before.is_none();
-    let key_created = signing_key_name
-        .as_deref()
-        .is_some_and(|name| !secret_keys_before.iter().any(|known| known == name));
-    cleanup_own_rows(
-        &db,
-        settings_created,
-        key_created.then_some(signing_key_name.as_deref().expect("key name")),
-    )
-    .await;
-    remove_test_storage_root(&root);
+        let live_started = Instant::now();
+        let (live_status, live_body) = get_json(&base, "/livez").await;
+        let live_elapsed = live_started.elapsed();
+        let (ready_status, ready_body) = get_json(&base, "/readyz").await;
+        let health_started = Instant::now();
+        let (health_status, health_body) = get_json(&base, "/healthz").await;
+        let health_elapsed = health_started.elapsed();
+        let signing_key = app.browser_sessions.signing_key.to_vec();
+        let signing_key_name = internal_secret_key_for_value(&app.db, &signing_key).await;
 
-    // Liveness: the process answers without touching a dependency, even though
-    // the database-backed boot already proved the dependencies are degraded.
-    assert_eq!(
-        live_status,
-        reqwest::StatusCode::OK,
-        "livez body: {live_body}"
-    );
-    assert_eq!(live_body["status"], "ok");
-    assert!(
-        live_body.get("db_ok").is_none()
-            && live_body.get("qdrant_ok").is_none()
-            && live_body.get("library_processing_ready").is_none(),
-        "livez must not claim dependency state: {live_body}"
-    );
-    assert!(
-        live_elapsed < Duration::from_secs(2),
-        "livez must not wait on a dependency, took {live_elapsed:?}"
-    );
+        server.abort();
+        drop(app);
 
-    // Readiness: the database answers, the vector runtime cannot, so both
-    // readiness routes must answer 503 and say which dependency failed.
-    for (path, status, body) in [
-        ("/readyz", ready_status, &ready_body),
-        ("/healthz", health_status, &health_body),
-    ] {
+        let settings_created = settings_before.is_none();
+        let key_created = signing_key_name
+            .as_deref()
+            .is_some_and(|name| !secret_keys_before.iter().any(|known| known == name));
+        cleanup_own_rows(
+            &db,
+            settings_created,
+            key_created.then_some(signing_key_name.as_deref().expect("key name")),
+        )
+        .await;
+        remove_test_storage_root(&root);
+
+        // Liveness: the process answers without touching a dependency, even though
+        // the database-backed boot already proved the dependencies are degraded.
         assert_eq!(
-            status,
-            reqwest::StatusCode::SERVICE_UNAVAILABLE,
-            "{path} must not report ready without a vector runtime: {body}"
+            live_status,
+            reqwest::StatusCode::OK,
+            "livez body: {live_body}"
         );
-        assert_eq!(body["status"], "degraded", "{path}");
-        assert_eq!(body["db_ok"], true, "{path} must report the database truth");
-        assert_eq!(
-            body["qdrant_ok"], false,
-            "{path} must report the vector runtime truth"
-        );
-        assert_eq!(
-            body["library_processing_ready"], false,
-            "{path} must report the processing verdict truthfully"
+        assert_eq!(live_body["status"], "ok");
+        assert!(
+            live_body.get("db_ok").is_none()
+                && live_body.get("qdrant_ok").is_none()
+                && live_body.get("library_processing_ready").is_none(),
+            "livez must not claim dependency state: {live_body}"
         );
         assert!(
-            body.get("indexed_chunks").is_none(),
-            "{path} must not report a chunk count it could not read: {body}"
+            live_elapsed < Duration::from_secs(2),
+            "livez must not wait on a dependency, took {live_elapsed:?}"
         );
-    }
 
-    // The readiness answer is bounded and does not wait for the startup budget.
-    assert!(
-        health_elapsed < READY_TIMEOUT,
-        "readiness must answer inside its probe bound, took {health_elapsed:?}"
-    );
-    assert!(
-        boot_elapsed < Duration::from_secs(90),
-        "startup must stay bounded, took {boot_elapsed:?}"
-    );
+        // Readiness: the database answers, the vector runtime cannot, so both
+        // readiness routes must answer 503 and say which dependency failed.
+        for (path, status, body) in [
+            ("/readyz", ready_status, &ready_body),
+            ("/healthz", health_status, &health_body),
+        ] {
+            assert_eq!(
+                status,
+                reqwest::StatusCode::SERVICE_UNAVAILABLE,
+                "{path} must not report ready without a vector runtime: {body}"
+            );
+            assert_eq!(body["status"], "degraded", "{path}");
+            assert_eq!(body["db_ok"], true, "{path} must report the database truth");
+            assert_eq!(
+                body["qdrant_ok"], false,
+                "{path} must report the vector runtime truth"
+            );
+            assert_eq!(
+                body["library_processing_ready"], false,
+                "{path} must report the processing verdict truthfully"
+            );
+            assert!(
+                body.get("indexed_chunks").is_none(),
+                "{path} must not report a chunk count it could not read: {body}"
+            );
+        }
+
+        // The readiness answer is bounded and does not wait for the startup budget.
+        assert!(
+            health_elapsed < READY_TIMEOUT,
+            "readiness must answer inside its probe bound, took {health_elapsed:?}"
+        );
+        assert!(
+            boot_elapsed < Duration::from_secs(90),
+            "startup must stay bounded, took {boot_elapsed:?}"
+        );
+    })
+    .catch_unwind()
+    .await;
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, None, restore);
 }

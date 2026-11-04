@@ -40,6 +40,10 @@ pub(super) fn default_session_idle_ttl() -> Duration {
     Duration::from_secs(DEFAULT_SESSION_IDLE_TTL_SECS)
 }
 
+pub(super) fn default_ingest_batches_per_segment() -> usize {
+    crate::contracts::settings::INGEST_BATCHES_PER_SEGMENT_DEFAULT
+}
+
 pub(super) fn default_scheduler_execution_guard_ttl() -> Duration {
     Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS)
 }
@@ -123,6 +127,7 @@ impl Default for FileConfig {
                 valkey_url: None,
                 execution_guard_ttl: default_scheduler_execution_guard_ttl(),
                 execution_guard_renew_interval: default_scheduler_execution_guard_renew_interval(),
+                ingest_batches_per_segment: default_ingest_batches_per_segment(),
             },
             api: ApiConfig {
                 bind_addr: DEFAULT_BIND_ADDR.to_string(),

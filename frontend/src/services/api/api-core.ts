@@ -2,7 +2,7 @@ import type { Client } from "openapi-fetch";
 import type { paths } from "../../generated/openapi";
 import { handleUnauthorized } from "../../lib/auth-store";
 import { openapiClient, resolveApiUrl } from "../openapi-client";
-import type { ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
+import type { ApiErrorCode, ApiErrorResponse, ApiResult, RequestOptions } from "./api-types";
 import { createAdminUsersApi } from "./api-admin-users";
 import { createDocumentResultsApi } from "./api-document-results";
 import { createGitConnectionsApi } from "./api-git-connections";
@@ -17,12 +17,47 @@ import { createTasksApi } from "./api-tasks";
 
 export class ApiError extends Error {
   status: number;
+  /** The server's stable machine-readable code, when the error envelope had one. */
+  code?: ApiErrorCode;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, code?: ApiErrorCode) {
     super(message);
     this.name = "ApiError";
     this.status = status;
+    this.code = code;
   }
+}
+
+/** Narrows an error-envelope code to the generated vocabulary without guessing. */
+function isApiErrorCode(value: string): value is ApiErrorCode {
+  switch (value) {
+    case "invalid_argument":
+    case "unauthorized":
+    case "forbidden":
+    case "not_found":
+    case "conflict":
+    case "docling_submission_uncertain":
+    case "payload_too_large":
+    case "unprocessable_entity":
+    case "rate_limited":
+    case "upstream_error":
+    case "unavailable":
+    case "upstream_timeout":
+    case "internal":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function readErrorCode(error: unknown): ApiErrorCode | undefined {
+  if (error && typeof error === "object" && "code" in error) {
+    const code = error.code;
+    if (typeof code === "string" && isApiErrorCode(code)) {
+      return code;
+    }
+  }
+  return undefined;
 }
 
 export type OpenApiClient = Client<paths>;
@@ -44,7 +79,7 @@ export async function unwrapResponse<TData>(promise: Promise<ApiResult<TData>>):
   const { data, error, response } = await promise;
 
   if (!response.ok) {
-    throw new ApiError(readErrorMessage(response, error), response.status);
+    throw new ApiError(readErrorMessage(response, error), response.status, readErrorCode(error));
   }
 
   return data as TData;
@@ -60,7 +95,7 @@ export async function unwrapFetchResponse<TData>(response: Response): Promise<TD
       error = null;
     }
 
-    throw new ApiError(readErrorMessage(response, error), response.status);
+    throw new ApiError(readErrorMessage(response, error), response.status, readErrorCode(error));
   }
 
   if (response.status === 204) {

@@ -170,6 +170,84 @@ describe("runtime settings", () => {
       expect(backend.callsFor("GET", "/v1/tasks/{task_id}").length).toBeGreaterThan(0);
     });
   });
+
+  it("loads, edits and clears the optional resource concurrency limits", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/runtime");
+
+    expect(await screen.findByLabelText("Interactive Limit")).toHaveValue(2);
+    expect(screen.getByLabelText("Bulk Limit")).toHaveValue(null);
+    expect(screen.getByLabelText("Maintenance Limit")).toHaveValue(null);
+    expect(screen.getByLabelText("Processing Limit")).toHaveValue(1);
+
+    await userEvent.clear(screen.getByLabelText("Bulk Limit"));
+    await userEvent.type(screen.getByLabelText("Bulk Limit"), "3");
+    await userEvent.clear(screen.getByLabelText("Processing Limit"));
+    await userEvent.clear(screen.getByLabelText("Interactive Limit"));
+
+    await userEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
+      scheduler: { resource_limits: Record<string, number | undefined> };
+    };
+    expect(body.scheduler.resource_limits).toEqual({
+      interactive: undefined,
+      bulk: 3,
+      maintenance: undefined,
+      ingest: undefined,
+    });
+
+    expect(screen.getByLabelText("Bulk Limit")).toHaveValue(3);
+    expect(screen.getByLabelText("Interactive Limit")).toHaveValue(null);
+    expect(screen.getByLabelText("Processing Limit")).toHaveValue(null);
+  });
+
+  it("reports a resource limit above the global concurrency without coercing it", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/runtime");
+
+    const bulk = await screen.findByLabelText("Bulk Limit");
+    await userEvent.clear(bulk);
+    await userEvent.type(bulk, "9");
+
+    expect(await screen.findByText("Enter a whole number from 1 to 4.")).toBeInTheDocument();
+    expect(bulk).toHaveValue(9);
+    expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(0);
+
+    await userEvent.clear(bulk);
+    await userEvent.type(bulk, "4");
+    await waitFor(() => {
+      expect(screen.queryByText("Enter a whole number from 1 to 4.")).not.toBeInTheDocument();
+    });
+  });
+
+  it("loads, edits and validates the ingest batches per turn", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/runtime");
+
+    const batches = await screen.findByLabelText("Ingest batches per turn");
+    expect(batches).toHaveValue(1);
+    await userEvent.clear(batches);
+    await userEvent.type(batches, "2");
+    expect(screen.queryByText("Enter a whole number from 1 to 64.")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
+      scheduler: { ingest_batches_per_segment: number };
+    };
+    expect(body.scheduler.ingest_batches_per_segment).toBe(2);
+
+    await userEvent.clear(batches);
+    await userEvent.type(batches, "65");
+    expect(await screen.findByText("Enter a whole number from 1 to 64.")).toBeInTheDocument();
+    expect(batches).toHaveValue(65);
+    expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+  });
 });
 
 describe("docling settings", () => {

@@ -73,10 +73,8 @@ fn parent_consistency_gauges_serialize_additively_with_every_signal() {
             count: 1,
         }],
         running_parent_without_running_item_count: 2,
-        lease_without_running_item_count: 3,
         open_attempt_count: 4,
         near_exhaustion_item_count: 5,
-        oldest_admitted_age_seconds: Some(42),
         parent_item_mismatch_count: 6,
     });
     let gauges = serde_json::to_value(&queue).expect("serialize")["parent_consistency"].clone();
@@ -87,10 +85,8 @@ fn parent_consistency_gauges_serialize_additively_with_every_signal() {
         // operator sees parked parents without cross-referencing the gate list.
         ("dependency_waiting_parent_count", 1),
         ("running_parent_without_running_item_count", 2),
-        ("lease_without_running_item_count", 3),
         ("open_attempt_count", 4),
         ("near_exhaustion_item_count", 5),
-        ("oldest_admitted_age_seconds", 42),
         ("parent_item_mismatch_count", 6),
     ] {
         assert_eq!(gauges[field], expected, "gauge {field} must serialize");
@@ -101,11 +97,7 @@ fn parent_consistency_gauges_serialize_additively_with_every_signal() {
     // gets for a task-free queue.
     let empty = serde_json::to_value(TaskQueueConsistencyHealth::default()).expect("defaults");
     assert_eq!(empty["parent_item_mismatch_count"], 0);
-    assert_eq!(empty["lease_without_running_item_count"], 0);
-    assert!(
-        empty["oldest_admitted_age_seconds"].is_null(),
-        "an unmeasured age is absent, never zero"
-    );
+    assert_eq!(empty["running_parent_without_running_item_count"], 0);
 }
 
 #[test]
@@ -113,7 +105,7 @@ fn health_response_round_trips_the_parent_consistency_gauges() {
     let mut queue = queue_health();
     queue.parent_consistency = Some(TaskQueueConsistencyHealth {
         parent_item_mismatch_count: 2,
-        lease_without_running_item_count: 1,
+        running_parent_without_running_item_count: 1,
         ..TaskQueueConsistencyHealth::default()
     });
     let response = HealthResponse {
@@ -142,41 +134,8 @@ fn health_response_round_trips_the_parent_consistency_gauges() {
         .parent_consistency
         .expect("parent gauges");
     assert_eq!(gauges.parent_item_mismatch_count, 2);
-    assert_eq!(gauges.lease_without_running_item_count, 1);
+    assert_eq!(gauges.running_parent_without_running_item_count, 1);
     assert_eq!(gauges.active_parent_count, 0);
-}
-
-#[test]
-fn orphan_and_admission_gauges_read_the_correct_columns() {
-    // Issue 702 P3 review, on the projection the service reads:
-    //  * `oldest_admitted_at` must be an admission timestamp, so the age is a
-    //    positive number of seconds rather than a clamp of `now - lease_until`;
-    //  * the orphan gauge must be the P1 reclaim shape, so a legitimate
-    //    waiting/backoff parent holding its slot is never counted.
-    let consistency = include_str!("../src/sql/db/tasks/task_consistency.sql");
-    assert!(
-        consistency.contains("SELECT min(started_at) FROM verdict"),
-        "the admitted age must be measured from admission time"
-    );
-    assert!(
-        !consistency.contains("min(lease_until)"),
-        "a future lease deadline must never be read as an admission time"
-    );
-    assert!(
-        consistency.contains("AND (expired_running_item_exists OR NOT claimable_item_exists)"),
-        "the orphan gauge must require the reclaim shape P1 applies"
-    );
-
-    // The gauge is an age in seconds, so a measured admission must serialize as
-    // a positive count rather than being dropped or clamped.
-    let measured = TaskQueueConsistencyHealth {
-        oldest_admitted_age_seconds: Some(1_200),
-        ..TaskQueueConsistencyHealth::default()
-    };
-    assert_eq!(
-        serde_json::to_value(&measured).expect("serialize")["oldest_admitted_age_seconds"],
-        1_200
-    );
 }
 
 #[test]
@@ -204,13 +163,8 @@ fn every_health_gauge_maps_to_a_column_the_consistency_statement_projects() {
             "running_parent_without_running_item_count",
             "running_parent_without_running_item_count",
         ),
-        (
-            "lease_without_running_item_count",
-            "lease_without_running_item_count",
-        ),
         ("open_attempt_count", "open_attempt_count"),
         ("near_exhaustion_item_count", "near_exhaustion_item_count"),
-        ("oldest_admitted_age_seconds", "oldest_admitted_at"),
         ("parent_item_mismatch_count", "parent_item_mismatch_count"),
     ];
     let projection_body: String = projection
@@ -237,49 +191,37 @@ fn every_health_gauge_maps_to_a_column_the_consistency_statement_projects() {
     }
     // The two single-task columns are documented as meaningless for the
     // whole-queue scope, so the health projection must not read them.
-    for single_task_only in ["current_item_id", "scoped_lease_until", "item_diagnostics"] {
+    for single_task_only in ["current_item_id", "item_diagnostics"] {
         assert!(
             !projection_body.contains(&format!("consistency.{single_task_only}")),
             "`{single_task_only}` has no meaning in the whole-queue health scope"
         );
     }
-    // And the admitted age must be the one computed from the admission
-    // timestamp, not from any lease column.
+    // The parent holds no admission lease, so the health projection must never
+    // read a parent lease column.
     assert!(
-        projection_body.contains("queue_age_seconds(consistency.oldest_admitted_at, now)"),
-        "the admitted age must come from the admission timestamp"
-    );
-    // `lease_without_running_item_count` is a gauge name, so the prohibition is
-    // on reading a lease *column*: a future deadline is not an admission time.
-    assert!(
-        !projection_body.contains("consistency.lease_until"),
+        !projection_body.contains("consistency.lease_until")
+            && !projection_body.contains("consistency.lease_token"),
         "the parent-level health projection must not read a lease column"
-    );
-    assert!(
-        !projection_body.contains("queue_age_seconds(consistency.lease"),
-        "no age may be computed from a lease deadline"
     );
 }
 
 #[test]
-fn near_exhaustion_fires_before_the_attempt_cap_the_claim_enforces() {
+fn near_exhaustion_fires_before_the_failure_budget_cap_the_claim_enforces() {
     // The gauge is only actionable while a claim can still succeed:
-    // `claim_candidates.sql` admits `attempt_count < 5`, so the last claimable
-    // attempt must already be inside the near-exhaustion band, and the cap
-    // itself must not be reported there (an at-cap item is the orphan signal's
-    // business, not a warning an operator can act on).
+    // `claim_candidates.sql` admits `execution_failure_count < 5`, so the last
+    // usable failure must already be inside the near-exhaustion band, and the
+    // cap itself must not be reported there (an at-cap item is exhausted, not
+    // a warning an operator can act on).
     let consistency = include_str!("../src/sql/db/tasks/task_consistency.sql");
     assert!(
-        consistency.contains("item.attempt_count >= 4"),
-        "near exhaustion must start one attempt before the cap"
+        consistency.contains("item.execution_failure_count >= 4"),
+        "near exhaustion must start one failure before the budget cap"
     );
     assert!(
-        !consistency.contains("item.attempt_count >= 5"),
+        !consistency.contains("item.execution_failure_count >= 5"),
         "the near-exhaustion band must not start at the cap itself"
     );
-    // Both predicates then use the same threshold, so the band and the
-    // claimability test cannot drift apart.
-    assert!(consistency.contains("candidate.attempt_count < 5"));
     assert!(consistency.contains("near_exhaustion_count"));
 }
 

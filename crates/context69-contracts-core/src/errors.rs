@@ -20,6 +20,7 @@ pub enum ApiErrorCode {
     Forbidden,
     NotFound,
     Conflict,
+    DoclingSubmissionUncertain,
     PayloadTooLarge,
     UnprocessableEntity,
     RateLimited,
@@ -38,6 +39,7 @@ impl ApiErrorCode {
             Self::Forbidden => "forbidden",
             Self::NotFound => "not_found",
             Self::Conflict => "conflict",
+            Self::DoclingSubmissionUncertain => "docling_submission_uncertain",
             Self::PayloadTooLarge => "payload_too_large",
             Self::UnprocessableEntity => "unprocessable_entity",
             Self::RateLimited => "rate_limited",
@@ -72,6 +74,7 @@ impl ApiErrorCode {
             Self::Forbidden => 403,
             Self::NotFound => 404,
             Self::Conflict => 409,
+            Self::DoclingSubmissionUncertain => 409,
             Self::PayloadTooLarge => 413,
             Self::UnprocessableEntity => 422,
             Self::RateLimited => 429,
@@ -99,6 +102,7 @@ impl std::str::FromStr for ApiErrorCode {
             "forbidden" => Ok(Self::Forbidden),
             "not_found" => Ok(Self::NotFound),
             "conflict" => Ok(Self::Conflict),
+            "docling_submission_uncertain" => Ok(Self::DoclingSubmissionUncertain),
             "payload_too_large" => Ok(Self::PayloadTooLarge),
             "unprocessable_entity" => Ok(Self::UnprocessableEntity),
             "rate_limited" => Ok(Self::RateLimited),
@@ -181,6 +185,9 @@ pub enum DomainError {
     Forbidden(String),
     NotFound(String),
     Conflict(String),
+    /// A Docling dispatch was invoked and its outcome is unknown, so no
+    /// automatic retry may resend it.
+    DoclingSubmissionUncertain(String),
     PayloadTooLarge(String),
     UnprocessableEntity(String),
     RateLimited(String),
@@ -209,6 +216,10 @@ impl DomainError {
 
     pub fn conflict(message: impl Into<String>) -> Self {
         Self::Conflict(message.into())
+    }
+
+    pub fn docling_submission_uncertain(message: impl Into<String>) -> Self {
+        Self::DoclingSubmissionUncertain(message.into())
     }
 
     pub fn payload_too_large(message: impl Into<String>) -> Self {
@@ -246,6 +257,7 @@ impl DomainError {
             | Self::Forbidden(message)
             | Self::NotFound(message)
             | Self::Conflict(message)
+            | Self::DoclingSubmissionUncertain(message)
             | Self::PayloadTooLarge(message)
             | Self::UnprocessableEntity(message)
             | Self::RateLimited(message)
@@ -263,6 +275,7 @@ impl DomainError {
             Self::Forbidden(_) => ApiErrorCode::Forbidden,
             Self::NotFound(_) => ApiErrorCode::NotFound,
             Self::Conflict(_) => ApiErrorCode::Conflict,
+            Self::DoclingSubmissionUncertain(_) => ApiErrorCode::DoclingSubmissionUncertain,
             Self::PayloadTooLarge(_) => ApiErrorCode::PayloadTooLarge,
             Self::UnprocessableEntity(_) => ApiErrorCode::UnprocessableEntity,
             Self::RateLimited(_) => ApiErrorCode::RateLimited,

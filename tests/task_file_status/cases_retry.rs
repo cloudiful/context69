@@ -80,7 +80,7 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     // it back to `processing` instead of resuming it (issue 529 Task 4).
     sqlx::query(
         "UPDATE context69.task_items SET status = 'failed', retryable = FALSE, \
-         attempt_count = 5, stage = 'docling_poll', failure_stage = 'attempts', \
+         attempt_count = 5, execution_failure_count = 5, stage = 'docling_poll', failure_stage = 'attempts', \
          error_message = 'boom', waiting_reason = 'dependency', \
          lease_token = '11111111-1111-1111-1111-111111111111', \
          lease_until = now(), finished_at = now() WHERE task_id = $1",
@@ -102,7 +102,7 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     );
 
     let row = sqlx::query(
-        "SELECT status, attempt_count, retryable, stage, failure_stage, error_message, \
+        "SELECT status, attempt_count, execution_failure_count, retryable, stage, failure_stage, error_message, \
          waiting_reason, lease_token, lease_until, finished_at \
          FROM context69.task_items WHERE id = $1",
     )
@@ -112,6 +112,9 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     .expect("load retried item");
     let status: String = row.try_get("status").expect("item status");
     let attempt_count: i32 = row.try_get("attempt_count").expect("attempt count");
+    let failure_count: i32 = row
+        .try_get("execution_failure_count")
+        .expect("execution failure count");
     let retryable: bool = row.try_get("retryable").expect("retryable");
     let stage: Option<String> = row.try_get("stage").expect("stage");
     let failure_stage: Option<String> = row.try_get("failure_stage").expect("failure stage");
@@ -123,7 +126,14 @@ async fn retry_force_requeues_exhausted_failed_item_without_touching_file() {
     let finished_at: Option<chrono::DateTime<chrono::Utc>> =
         row.try_get("finished_at").expect("finish at");
     assert_eq!(status, "queued", "exhausted item must be queued");
-    assert_eq!(attempt_count, 0, "manual retry must reset attempt count");
+    assert_eq!(
+        attempt_count, 5,
+        "manual retry keeps the monotonic claim ordinal"
+    );
+    assert_eq!(
+        failure_count, 0,
+        "manual retry resets only the execution failure budget"
+    );
     assert!(retryable, "manual retry must restore retryability");
     assert_eq!(
         stage.as_deref(),

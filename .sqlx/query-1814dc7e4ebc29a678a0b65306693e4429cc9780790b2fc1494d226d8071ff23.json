@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- List the fail-closed Docling submissions of a bounded task set (issue 1172 P5A).\n--\n-- The retry, resume and rerun entrypoints consult this list before reopening\n-- work: a durable intent or an unknown outcome has no acknowledgement yet, so\n-- those actions must refuse instead of starting a second submission.\n--\n-- `$1` is the task-id array. Ordering keeps repeated refusals deterministic.\nSELECT\n    id,\n    task_id,\n    item_id,\n    status,\n    dispatch_attempted\nFROM context69.task_docling_remote_jobs\nWHERE task_id = ANY($1::uuid[])\n  AND status IN ('submitting', 'submission_uncertain')\nORDER BY task_id, created_at, id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "dispatch_attempted",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "dispatch_attempted"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "1814dc7e4ebc29a678a0b65306693e4429cc9780790b2fc1494d226d8071ff23"
+}

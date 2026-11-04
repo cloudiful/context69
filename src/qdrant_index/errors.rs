@@ -44,6 +44,7 @@ fn qdrant_category_for_error(error: &anyhow::Error) -> Option<&'static str> {
         | crate::domain_errors::DomainError::Unauthorized(_)
         | crate::domain_errors::DomainError::NotFound(_)
         | crate::domain_errors::DomainError::Conflict(_)
+        | crate::domain_errors::DomainError::DoclingSubmissionUncertain(_)
         | crate::domain_errors::DomainError::PayloadTooLarge(_)
         | crate::domain_errors::DomainError::UnprocessableEntity(_)
         | crate::domain_errors::DomainError::Internal(_) => Some("client_error"),

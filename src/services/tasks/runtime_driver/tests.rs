@@ -206,7 +206,7 @@ mod outer_driver_cancellation {
         .await
         .expect("create task");
         let item = db
-            .claim_items_fast(10)
+            .claim_items_fast()
             .await
             .expect("claim the item")
             .into_iter()
@@ -243,6 +243,15 @@ mod outer_driver_cancellation {
     }
 
     async fn cleanup(db: &Database, task_id: Uuid, user_id: i64) {
+        let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+            db.pool(),
+            context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+        )
+        .await
+        .expect("settle the fixture's linked executions before deleting its rows");
+        if report.has_expired_skips() {
+            eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+        }
         sqlx::query_file!(
             "tests/sql/task_execution/delete_task_items_by_task.sql",
             task_id
@@ -290,10 +299,11 @@ mod outer_driver_cancellation {
         // The renewal runs with a shortened timing so that "the heartbeat is gone
         // with the driver" is observable inside one case, and the gate holds the
         // spawned pipeline body before it does any work.
-        super::super::super::runtime::test_timing::install(
+        let _timing = super::super::super::runtime::test_timing::install(
             Duration::from_millis(10),
-            Duration::from_millis(50),
-        );
+            Duration::from_secs(2),
+        )
+        .await;
         let gate = Gate::new();
         work_gate::install(&gate);
 
@@ -306,13 +316,21 @@ mod outer_driver_cancellation {
             "the driver must have spawned the work and parked it at the gate"
         );
 
-        // At least one renewal must have landed, so the stillness check below is
-        // not satisfied by a renewal that never ran.
+        // At least one real renewal must be observed, so the stillness check
+        // below is not satisfied by a renewal that never ran. Poll the actual
+        // lease row under a bounded deadline instead of trusting one sleep.
         let renewed = lease_expires_at(&db, attempt_id).await;
-        tokio::time::sleep(Duration::from_millis(60)).await;
+        let mut advanced = false;
+        for _ in 0..200 {
+            if lease_expires_at(&db, attempt_id).await > renewed {
+                advanced = true;
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
         assert!(
-            lease_expires_at(&db, attempt_id).await > renewed,
-            "the heartbeat must be renewing the attempt lease before the cancellation"
+            advanced,
+            "the heartbeat must renew the attempt lease before the cancellation"
         );
 
         // Cancel the outer driver exactly as a shutdown or a dropped future does.
@@ -348,7 +366,6 @@ mod outer_driver_cancellation {
         );
 
         work_gate::clear();
-        super::super::super::runtime::test_timing::clear();
         cleanup(&db, task_id, user_id).await;
     }
 }

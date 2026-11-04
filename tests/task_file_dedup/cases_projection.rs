@@ -20,7 +20,7 @@ async fn terminal_item_status_projects_to_file() {
         let item_id = item_ids[0];
         // The item is claimed through the library, so the transition is fenced
         // by the very attempt the claim holds.
-        let claimed = db.claim_items_fast(10).await.expect("claim the item");
+        let claimed = db.claim_items_fast().await.expect("claim the item");
         let claimed = claimed
             .into_iter()
             .find(|item| item.id == item_id)

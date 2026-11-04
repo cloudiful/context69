@@ -4,6 +4,13 @@
 //! row while it runs, needs a migrated scratch database, and writes only
 //! synthetic values.
 
+use std::panic::AssertUnwindSafe;
+
+use context69_test_support::library_policy::{
+    LibraryPolicyBaseline, finish_fixture, panic_message,
+};
+use futures::FutureExt;
+
 use super::{
     RuntimeSettingsMode, apply_runtime_settings, load_runtime_settings,
     normalize_legacy_qdrant_url, qdrant_grpc_url_from_rest_port,
@@ -38,6 +45,8 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             max_concurrency: 1,
             job_id: "context69-sync".to_string(),
             valkey_url: None,
+            resource_limits: Default::default(),
+            ingest_batches_per_segment: 2,
         },
         chunking: StoredRuntimeChunkingSettings {
             max_chars: 1200,
@@ -142,6 +151,7 @@ fn the_resolved_keys_reach_object_storage_and_embedding_at_startup() {
         config.embedding.api_key.as_deref(),
         Some("resolved-embedding-key")
     );
+    assert_eq!(config.scheduler.ingest_batches_per_segment, 2);
 }
 
 /// The startup read of the S3 secret key, against a migrated scratch database.
@@ -165,80 +175,99 @@ async fn startup_reads_the_s3_secret_key_from_the_store_and_fails_closed() {
         "this case owns the runtime settings row; give it a scratch database that has none"
     );
 
-    // The settings row carries the identifiers only; the store is the sole
-    // representation of the secret key, so the row is seeded without one.
-    let sealed = "sealed-s3-secret";
-    let mut settings = stored_runtime_settings();
-    settings.embedding.api_key = None;
-    settings
-        .file_library
-        .s3
-        .as_mut()
-        .expect("the fixture")
-        .secret_key = None;
-    db.save_runtime_settings(&settings)
+    let queue = db
+        .execution_queue()
         .await
-        .expect("seed the runtime settings row");
+        .expect("load the execution queue");
+    let baseline = LibraryPolicyBaseline::capture(queue)
+        .await
+        .expect("capture the execution policy baseline");
     // A per-run key, so nothing here is a credential of any deployment.
     let master_key = base64::Engine::encode(
         &base64::engine::general_purpose::STANDARD,
         uuid::Uuid::new_v4().into_bytes().repeat(2),
     );
     let keyed = store(&db, Some(master_key.as_str()));
-    SettingsSecrets::runtime_s3(keyed.clone())
-        .commit(&SecretPatch::Set(sealed.to_string()))
-        .await
-        .expect("seal the s3 secret key");
 
-    // The store owns the value at startup, and it is the value object storage is
-    // configured from.
-    let mut config = crate::config::Config::default();
-    apply_runtime_settings(
-        &mut config,
-        &load_runtime_settings(&db, &keyed)
-            .await
-            .expect("load the settings")
-            .expect("the settings row exists"),
-    );
-    assert_eq!(
-        config
+    let outcome = AssertUnwindSafe(async {
+        // The settings row carries the identifiers only; the store is the sole
+        // representation of the secret key, so the row is seeded without one.
+        let sealed = "sealed-s3-secret";
+        let mut settings = stored_runtime_settings();
+        settings.embedding.api_key = None;
+        settings
             .file_library
             .s3
-            .as_ref()
-            .map(|s3| s3.secret_key.as_str()),
-        Some(sealed),
-        "startup must configure object storage from the sealed value"
-    );
-
-    // Fails closed: a deployment that cannot open the sealed row is an error, not
-    // a startup that continues without a credential.
-    let failure = load_runtime_settings(&db, &store(&db, None))
-        .await
-        .expect_err("startup must not proceed without a readable credential");
-    assert!(
-        failure.to_string().contains("runtime_s3.secret_key")
-            && !failure.to_string().contains(sealed),
-        "the failure names the credential and carries no value: {failure}"
-    );
-
-    SettingsSecrets::runtime_s3(keyed)
-        .commit(&SecretPatch::Clear)
-        .await
-        .expect("remove the sealed store row");
-    // The settings are one row per table, so the case removes each singleton it
-    // created and nothing else.
-    for table in [
-        "DELETE FROM context69.runtime_qdrant_settings",
-        "DELETE FROM context69.runtime_embedding_settings",
-        "DELETE FROM context69.runtime_scheduler_settings",
-        "DELETE FROM context69.runtime_chunking_settings",
-        "DELETE FROM context69.runtime_file_library_settings",
-    ] {
-        sqlx::query(table)
-            .execute(db.pool())
+            .as_mut()
+            .expect("the fixture")
+            .secret_key = None;
+        db.save_runtime_settings(&settings)
             .await
-            .unwrap_or_else(|error| panic!("remove a seeded settings row: {error}"));
-    }
+            .expect("seed the runtime settings row");
+        SettingsSecrets::runtime_s3(keyed.clone())
+            .commit(&SecretPatch::Set(sealed.to_string()))
+            .await
+            .expect("seal the s3 secret key");
+
+        // The store owns the value at startup, and it is the value object storage
+        // is configured from.
+        let mut config = crate::config::Config::default();
+        apply_runtime_settings(
+            &mut config,
+            &load_runtime_settings(&db, &keyed)
+                .await
+                .expect("load the settings")
+                .expect("the settings row exists"),
+        );
+        assert_eq!(
+            config
+                .file_library
+                .s3
+                .as_ref()
+                .map(|s3| s3.secret_key.as_str()),
+            Some(sealed),
+            "startup must configure object storage from the sealed value"
+        );
+
+        // Fails closed: a deployment that cannot open the sealed row is an error,
+        // not a startup that continues without a credential.
+        let failure = load_runtime_settings(&db, &store(&db, None))
+            .await
+            .expect_err("startup must not proceed without a readable credential");
+        assert!(
+            failure.to_string().contains("runtime_s3.secret_key")
+                && !failure.to_string().contains(sealed),
+            "the failure names the credential and carries no value: {failure}"
+        );
+    })
+    .catch_unwind()
+    .await;
+
+    let cleanup = AssertUnwindSafe(async {
+        SettingsSecrets::runtime_s3(keyed)
+            .commit(&SecretPatch::Clear)
+            .await
+            .expect("remove the sealed store row");
+        // The settings are one row per table, so the case removes each singleton
+        // it created and nothing else.
+        for table in [
+            "DELETE FROM context69.runtime_qdrant_settings",
+            "DELETE FROM context69.runtime_embedding_settings",
+            "DELETE FROM context69.runtime_scheduler_settings",
+            "DELETE FROM context69.runtime_chunking_settings",
+            "DELETE FROM context69.runtime_file_library_settings",
+        ] {
+            sqlx::query(table)
+                .execute(db.pool())
+                .await
+                .unwrap_or_else(|error| panic!("remove a seeded settings row: {error}"));
+        }
+    })
+    .catch_unwind()
+    .await;
+    let cleanup_error = cleanup.err().map(panic_message);
+    let restore = baseline.restore(db.pool(), queue).await;
+    finish_fixture(outcome, cleanup_error, restore);
 }
 
 /// A store over the scratch pool, with or without a deployment master key.

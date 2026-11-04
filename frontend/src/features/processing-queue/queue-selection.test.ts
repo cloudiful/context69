@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   QueuePartialFailureError,
+  QueueRiskPrescanError,
   QueueTaskSkippedError,
   availableQueueBulkActions,
   buildQueueBulkReport,
@@ -9,6 +10,7 @@ import {
   isQueueBulkActionApplicable,
   isSourceRerunnableTask,
   queueBulkActionOptions,
+  readQueueBulkRisk,
   runQueueBatchRerun,
   runQueueBatchRetry,
   runQueueBulkTasks,
@@ -60,8 +62,8 @@ describe("captureQueueBulkTargets", () => {
       "retry",
     );
     expect(targets).toEqual([
-      { taskId: "a", status: "failed", action: "retry", subject: null },
-      { taskId: "b", status: "running", action: "retry", subject: null },
+      { taskId: "a", status: "failed", action: "retry", doclingUncertain: false, subject: null },
+      { taskId: "b", status: "running", action: "retry", doclingUncertain: false, subject: null },
     ]);
   });
 
@@ -368,5 +370,47 @@ describe("buildQueueBulkReport", () => {
         reason: "internal_error",
       },
     ]);
+  });
+});
+
+describe("duplicate-risk eligibility and prescan", () => {
+  it("offers recovery for a waiting task only when its risk flag is explicit", () => {
+    expect(isQueueBulkActionApplicable("retry", "waiting")).toBe(false);
+    expect(isQueueBulkActionApplicable("retry", "waiting", true)).toBe(true);
+    expect(availableQueueBulkActions(["waiting"], "processing")).toEqual(["cancel", "trash"]);
+    expect(availableQueueBulkActions(["waiting"], "processing", 1))
+      .toEqual(["retry", "cancel", "trash"]);
+  });
+
+  it("reads every selected id through bounded chunks in the requested order", async () => {
+    const ids = Array.from({ length: 150 }, (_, index) => `task-${index}`);
+    const calls: string[][] = [];
+    const flags = await readQueueBulkRisk(ids, async (chunk) => {
+      calls.push([...chunk]);
+      return {
+        items: chunk.map((taskId) => ({
+          task_id: taskId,
+          outcome: "found",
+          task: { task_id: taskId, docling_submission_uncertain: taskId === "task-100" },
+        })),
+      } as never;
+    });
+
+    expect(calls.map((chunk) => chunk.length)).toEqual([100, 50]);
+    expect(calls[0]?.[0]).toBe("task-0");
+    expect(calls[1]?.[0]).toBe("task-100");
+    expect(flags.get("task-100")).toBe(true);
+    expect(flags.get("task-0")).toBe(false);
+    expect(flags.size).toBe(150);
+  });
+
+  it("fails closed when a chunk omits or cannot read one selected id", async () => {
+    await expect(readQueueBulkRisk(["task-1"], async () => ({
+      items: [{ task_id: "task-1", outcome: "not_found" }],
+    }))).rejects.toBeInstanceOf(QueueRiskPrescanError);
+
+    await expect(readQueueBulkRisk(["task-1"], async () => {
+      throw new Error("chunk failed");
+    })).rejects.toThrow("chunk failed");
   });
 });

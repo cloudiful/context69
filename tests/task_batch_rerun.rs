@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
+use chrono::{Duration, Utc};
 use context69::chunking::ChunkingConfig;
 use context69::config::FileLibraryConfig;
 use context69::db::{CreateTaskSubmissionRequest, Database};
@@ -291,7 +292,6 @@ async fn build_service(db: &Database, storage_root: &PathBuf) -> TaskService {
         sync: sync.clone(),
         source_folders: SourceFoldersService::new(db.clone(), library, sync),
         translation,
-        concurrency: 1,
     })
 }
 
@@ -336,6 +336,7 @@ async fn a_batch_reruns_only_the_succeeded_parent_and_keeps_the_request_order() 
             user,
             &TaskBatchRerunRequest {
                 task_ids: vec![succeeded, failed, foreign, missing],
+                acknowledge_docling_duplicate_risk: false,
             },
         )
         .await
@@ -408,6 +409,7 @@ async fn an_active_source_is_skipped_as_busy() {
             user,
             &TaskBatchRerunRequest {
                 task_ids: vec![succeeded],
+                acknowledge_docling_duplicate_risk: false,
             },
         )
         .await
@@ -450,6 +452,7 @@ async fn a_managed_source_folder_file_is_not_rerunnable() {
             user,
             &TaskBatchRerunRequest {
                 task_ids: vec![succeeded],
+                acknowledge_docling_duplicate_risk: false,
             },
         )
         .await
@@ -548,4 +551,336 @@ async fn an_unsupported_kind_is_refused_by_the_single_rerun() {
         message.contains("file, url, or text"),
         "the refusal names the rerunnable kinds: {message}"
     );
+}
+
+/// A succeeded source with one rerunnable item and a second item parked on a
+/// settled unknown Docling submission.
+async fn seed_source_with_settled_uncertainty(
+    db: &Database,
+    user_id: i64,
+    group: &GroupRecord,
+    file_id: Uuid,
+) -> (Uuid, Uuid, Uuid, Uuid) {
+    let task_id = Uuid::new_v4();
+    let (_, _, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: Some(group.id),
+            kind: "file_batch",
+            group_path: Some("test/batch-rerun"),
+            source_key: None,
+            payloads: &[
+                serde_json::json!({
+                    "filename": "source.txt",
+                    "media_type": "text/plain",
+                    "options": { "metadata": {}, "source_policy": "retain" },
+                }),
+                serde_json::json!({
+                    "filename": "parked.txt",
+                    "media_type": "text/plain",
+                    "options": { "metadata": {}, "source_policy": "retain" },
+                }),
+            ],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("batch-rerun-ack-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create the source task");
+    let (rerunnable, parked) = (item_ids[0], item_ids[1]);
+    sqlx::query(
+        "UPDATE context69.task_items SET file_id = $2, status = 'succeeded', finished_at = now(), \
+         lease_token = NULL, lease_until = NULL WHERE id = $1",
+    )
+    .bind(rerunnable)
+    .bind(file_id)
+    .execute(db.pool())
+    .await
+    .expect("mark the rerunnable item succeeded");
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'waiting', waiting_reason = 'docling', \
+         stage = 'docling', finished_at = NULL, lease_token = NULL, lease_until = NULL, \
+         next_attempt_at = NULL WHERE id = $1",
+    )
+    .bind(parked)
+    .execute(db.pool())
+    .await
+    .expect("park the second item");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'succeeded', succeeded_count = 1, queued_count = 0, \
+         failed_count = 0, cancelled_count = 0, finished_at = now() WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("mark the source task succeeded");
+    let job_id: Uuid = sqlx::query_file_scalar!(
+        "tests/sql/docling_remote_jobs/seed_submitting_job.sql",
+        task_id,
+        parked,
+        true,
+        Option::<Uuid>::None,
+        Option::<i64>::None,
+        serde_json::json!({ "fixture": true }),
+        "http://docling.invalid/v1",
+        Utc::now() + Duration::hours(1),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("seed the unknown submission");
+    sqlx::query(
+        "UPDATE context69.task_docling_remote_jobs SET status = 'submission_uncertain', \
+         last_error = 'seeded unknown outcome' WHERE id = $1",
+    )
+    .bind(job_id)
+    .execute(db.pool())
+    .await
+    .expect("mark the seeded submission uncertain");
+    (task_id, rerunnable, parked, job_id)
+}
+
+/// Without acknowledgement a settled unknown submission refuses the batch with
+/// the code-only conflict and mutates neither the diagnostic nor the item.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_unacknowledged_batch_rerun_refuses_a_settled_unknown_source() {
+    let _guard = CASE_LOCK.lock().await;
+    let db = connect_db().await;
+    let user = seed_user(&db).await;
+    let group = seed_group(&db, user).await;
+    let (file_id, storage_root) = seed_file(&db, &group, None).await;
+    let (source, _, _, _) = seed_source_with_settled_uncertainty(&db, user, &group, file_id).await;
+    let service = build_service(&db, &storage_root).await;
+
+    let error = service
+        .batch_rerun(
+            user,
+            &TaskBatchRerunRequest {
+                task_ids: vec![source],
+                acknowledge_docling_duplicate_risk: false,
+            },
+        )
+        .await
+        .expect_err("a settled unknown submission refuses the whole batch");
+    let domain = context69::domain_errors::find_domain_error(&error)
+        .expect("the refusal carries the typed domain error");
+    assert!(matches!(
+        domain,
+        context69::domain_errors::DomainError::DoclingSubmissionUncertain(_)
+    ));
+    assert_eq!(domain.status_code_number(), 409);
+    let history = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/read_submission_history.sql",
+        source
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("read the retained history");
+    assert_eq!(history.len(), 1);
+    assert_eq!(history[0].job_status, "submission_uncertain");
+    assert_eq!(history[0].item_status, "waiting");
+    assert_eq!(history[0].item_waiting_reason.as_deref(), Some("docling"));
+    assert_eq!(task_origin(&db, source).await, "manual");
+}
+
+/// An acknowledged batch rerun archives the settled unknown row and forks the
+/// child from the succeeded source without queueing the parked item.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_acknowledged_batch_rerun_archives_and_keeps_the_parked_item() {
+    let _guard = CASE_LOCK.lock().await;
+    let db = connect_db().await;
+    let user = seed_user(&db).await;
+    let group = seed_group(&db, user).await;
+    let (file_id, storage_root) = seed_file(&db, &group, None).await;
+    let (source, _, _, job) =
+        seed_source_with_settled_uncertainty(&db, user, &group, file_id).await;
+    let service = build_service(&db, &storage_root).await;
+
+    let response = service
+        .batch_rerun(
+            user,
+            &TaskBatchRerunRequest {
+                task_ids: vec![source],
+                acknowledge_docling_duplicate_risk: true,
+            },
+        )
+        .await
+        .expect("the acknowledged batch rerun is accepted");
+    assert_eq!(response.results.len(), 1);
+    assert_eq!(response.results[0].outcome, TaskBatchRerunOutcome::Accepted);
+    let child = response.results[0]
+        .rerun_task_id
+        .expect("an accepted id carries the created child");
+    assert_ne!(child, source);
+    assert_eq!(task_origin(&db, child).await, "rerun_source");
+
+    let history = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/read_submission_history.sql",
+        source
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("read the retained history");
+    assert_eq!(history.len(), 1, "the archive keeps exactly the old row");
+    assert_eq!(history[0].id, job);
+    assert_eq!(history[0].job_status, "superseded");
+    assert!(history[0].finished_at.is_some());
+    assert!(history[0].dispatch_attempted);
+    assert_eq!(history[0].item_status, "waiting");
+    assert_eq!(history[0].item_waiting_reason.as_deref(), Some("docling"));
+
+    let child_items: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM context69.task_items WHERE task_id = $1")
+            .bind(child)
+            .fetch_one(db.pool())
+            .await
+            .expect("count the child items");
+    assert_eq!(child_items, 1, "only the succeeded source item is forked");
+}
+
+/// A conflict discovered after the archive rolls the whole transaction back, so
+/// the unknown submission stays unresolved instead of being silently dropped.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_later_source_conflict_rolls_back_the_archive() {
+    let _guard = CASE_LOCK.lock().await;
+    let db = connect_db().await;
+    let user = seed_user(&db).await;
+    let group = seed_group(&db, user).await;
+    let (file_id, storage_root) = seed_file(&db, &group, None).await;
+    let (source, _, parked, _) =
+        seed_source_with_settled_uncertainty(&db, user, &group, file_id).await;
+    // A live item on the same file blocks the source rerun after the archive.
+    let (sibling, sibling_item) =
+        seed_task(&db, user, &group, "file_batch", Some(file_id), "failed").await;
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'queued', finished_at = NULL, \
+         lease_token = NULL, lease_until = NULL WHERE id = $1",
+    )
+    .bind(sibling_item)
+    .execute(db.pool())
+    .await
+    .expect("activate the sibling item");
+    let service = build_service(&db, &storage_root).await;
+
+    let response = service
+        .batch_rerun(
+            user,
+            &TaskBatchRerunRequest {
+                task_ids: vec![source],
+                acknowledge_docling_duplicate_risk: true,
+            },
+        )
+        .await
+        .expect("the batch reports the conflict per item");
+    assert_eq!(response.results[0].outcome, TaskBatchRerunOutcome::Skipped);
+    assert_eq!(
+        response.results[0].reason,
+        Some(TaskBatchRerunReason::ActiveSourceBusy)
+    );
+
+    let history = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/read_submission_history.sql",
+        source
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("read the retained history");
+    assert_eq!(
+        history[0].job_status, "submission_uncertain",
+        "the archive rolls back with the later conflict"
+    );
+    assert!(history[0].finished_at.is_none());
+    assert_eq!(history[0].item_id, parked);
+    assert_eq!(history[0].item_status, "waiting");
+    assert_eq!(task_origin(&db, sibling).await, "manual");
+}
+
+/// The acknowledged single source rerun archives the settled unknown row and
+/// reports the created child without reopening the parked item.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_acknowledged_single_rerun_archives_a_settled_unknown_source() {
+    let _guard = CASE_LOCK.lock().await;
+    let db = connect_db().await;
+    let user = seed_user(&db).await;
+    let group = seed_group(&db, user).await;
+    let (file_id, storage_root) = seed_file(&db, &group, None).await;
+    let (source, _, _, job) =
+        seed_source_with_settled_uncertainty(&db, user, &group, file_id).await;
+    let service = build_service(&db, &storage_root).await;
+
+    let rerun = service
+        .rerun_with_ack(source, user, true)
+        .await
+        .expect("the acknowledged source rerun is accepted");
+    assert_ne!(rerun.task.task_id, source);
+    assert_eq!(task_origin(&db, rerun.task.task_id).await, "rerun_source");
+    assert_eq!(rerun.task.item_ids.len(), 1);
+
+    let history = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/read_submission_history.sql",
+        source
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("read the retained history");
+    assert_eq!(history[0].id, job);
+    assert_eq!(history[0].job_status, "superseded");
+    assert_eq!(history[0].item_status, "waiting");
+    assert_eq!(history[0].item_waiting_reason.as_deref(), Some("docling"));
+}
+
+/// An acknowledged batch still refuses a submission that is not settled: a
+/// live `submitting` row is never archived, whichever flag the caller sends.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_acknowledged_batch_rerun_refuses_a_live_submitting_source() {
+    let _guard = CASE_LOCK.lock().await;
+    let db = connect_db().await;
+    let user = seed_user(&db).await;
+    let group = seed_group(&db, user).await;
+    let (file_id, storage_root) = seed_file(&db, &group, None).await;
+    let (source, _, _, job) =
+        seed_source_with_settled_uncertainty(&db, user, &group, file_id).await;
+    sqlx::query(
+        "UPDATE context69.task_docling_remote_jobs SET status = 'submitting' WHERE id = $1",
+    )
+    .bind(job)
+    .execute(db.pool())
+    .await
+    .expect("make the submission live");
+    let service = build_service(&db, &storage_root).await;
+
+    let error = service
+        .batch_rerun(
+            user,
+            &TaskBatchRerunRequest {
+                task_ids: vec![source],
+                acknowledge_docling_duplicate_risk: true,
+            },
+        )
+        .await
+        .expect_err("a live submission is never acknowledged");
+    let domain = context69::domain_errors::find_domain_error(&error)
+        .expect("the refusal carries the typed domain error");
+    assert!(matches!(
+        domain,
+        context69::domain_errors::DomainError::DoclingSubmissionUncertain(_)
+    ));
+    assert_eq!(domain.status_code_number(), 409);
+
+    let history = sqlx::query_file!(
+        "tests/sql/docling_remote_jobs/read_submission_history.sql",
+        source
+    )
+    .fetch_all(db.pool())
+    .await
+    .expect("read the retained history");
+    assert_eq!(history[0].job_status, "submitting");
+    assert!(history[0].finished_at.is_none());
+    assert_eq!(history[0].item_status, "waiting");
+    assert_eq!(task_origin(&db, source).await, "manual");
 }

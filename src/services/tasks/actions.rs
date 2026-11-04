@@ -1,11 +1,14 @@
 use anyhow::Result;
 use context69_contracts::{
-    ClearTaskHistoryResponse, ClearTaskHistoryView, RerunTaskResponse, TASK_BATCH_RERUN_MAX,
-    TASK_BATCH_RETRY_MAX, TaskBatchRerunItem, TaskBatchRerunOutcome, TaskBatchRerunReason,
-    TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryItem, TaskBatchRetryOutcome,
-    TaskBatchRetryReason, TaskBatchRetryRequest, TaskBatchRetryResponse, TaskRef, TaskResponse,
+    ClearTaskHistoryResponse, ClearTaskHistoryView, RerunTaskResponse, TASK_BATCH_GET_MAX,
+    TASK_BATCH_RERUN_MAX, TASK_BATCH_RETRY_MAX, TaskBatchGetItem, TaskBatchGetOutcome,
+    TaskBatchGetRequest, TaskBatchGetResponse, TaskBatchRerunItem, TaskBatchRerunOutcome,
+    TaskBatchRerunReason, TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryItem,
+    TaskBatchRetryOutcome, TaskBatchRetryReason, TaskBatchRetryRequest, TaskBatchRetryResponse,
+    TaskRef, TaskResponse,
 };
 use futures::StreamExt;
+use std::collections::HashMap;
 use uuid::Uuid;
 
 use crate::domain_errors::DomainError;
@@ -105,7 +108,126 @@ fn batch_rerun_skipped(task_id: Uuid, reason: TaskBatchRerunReason) -> TaskBatch
     }
 }
 
+/// Whether a latest-per-item Docling view still holds an unresolved
+/// submission that the recovery gate must classify. Superseded diagnostics are
+/// history only and never block a new recovery.
+fn is_unresolved_docling_view(view: &crate::db::StoredDoclingSubmissionView) -> bool {
+    matches!(view.status.as_str(), "submitting" | "submission_uncertain")
+}
+
+/// The DB-layer acknowledgement decision of one authorized request.
+pub(super) fn risk_ack(acknowledged: bool) -> crate::db::DoclingRiskAck {
+    if acknowledged {
+        crate::db::DoclingRiskAck::Acknowledged
+    } else {
+        crate::db::DoclingRiskAck::Unacknowledged
+    }
+}
+
 impl TaskService {
+    /// Refuses reopening work while a Docling dispatch cannot be recovered.
+    ///
+    /// Without acknowledgement any unresolved submission refuses the call. With
+    /// acknowledgement only an in-flight `submitting` row or an unsettled
+    /// uncertain item (not `waiting/docling` or `cancelled`, or still leased)
+    /// refuses it; a settled uncertain submission proceeds to the atomic
+    /// archive/reopen of the chosen operation.
+    pub(super) async fn refuse_unresolved_docling_submission(
+        &self,
+        task_id: Uuid,
+        acknowledged: bool,
+    ) -> Result<()> {
+        if !acknowledged {
+            let unresolved = self
+                .db
+                .list_unresolved_docling_submissions_for_tasks(&[task_id])
+                .await?;
+            if unresolved.is_empty() {
+                return Ok(());
+            }
+            return Err(DomainError::docling_submission_uncertain(
+                "a Docling submission of this task has an unknown outcome; acknowledgement is required before it can be retried",
+            )
+            .into());
+        }
+        let views = self
+            .db
+            .list_docling_submission_views_for_tasks(&[task_id])
+            .await?;
+        for view in views.iter().filter(|view| is_unresolved_docling_view(view)) {
+            let settled = (view.item_status == "waiting"
+                && view.item_waiting_reason.as_deref() == Some("docling"))
+                || view.item_status == "cancelled";
+            let leased = view.item_lease_token.is_some() || view.item_lease_until.is_some();
+            if view.status == "submitting" || !settled || leased {
+                return Err(DomainError::docling_submission_uncertain(
+                    "a Docling submission of this task is still in flight",
+                )
+                .into());
+            }
+        }
+        Ok(())
+    }
+
+    /// Refuses one whole batch of recovery when any requested task still holds
+    /// an unacknowledged Docling submission.
+    ///
+    /// Authorization comes first: only the ids the caller may manage are
+    /// inspected, so the refusal never reveals an unreadable task. The set is
+    /// already bounded by the batch cap and the prescan performs reads only, so
+    /// a refused call mutates nothing.
+    async fn refuse_unresolved_docling_submission_batch(
+        &self,
+        user_id: i64,
+        task_ids: &[Uuid],
+        acknowledged: bool,
+    ) -> Result<()> {
+        let mut authorized = Vec::with_capacity(task_ids.len());
+        for task_id in task_ids {
+            if self.db.get_task(*task_id, user_id).await?.is_none() {
+                continue;
+            }
+            if !self.db.can_manage_task(*task_id, user_id).await? {
+                continue;
+            }
+            authorized.push(*task_id);
+        }
+        if authorized.is_empty() {
+            return Ok(());
+        }
+        if !acknowledged {
+            let unresolved = self
+                .db
+                .list_unresolved_docling_submissions_for_tasks(&authorized)
+                .await?;
+            return if unresolved.is_empty() {
+                Ok(())
+            } else {
+                Err(DomainError::docling_submission_uncertain(
+                    "a Docling submission of this request has an unknown outcome; acknowledgement is required before it can be retried",
+                )
+                .into())
+            };
+        }
+        let views = self
+            .db
+            .list_docling_submission_views_for_tasks(&authorized)
+            .await?;
+        for view in views.iter().filter(|view| is_unresolved_docling_view(view)) {
+            let settled = (view.item_status == "waiting"
+                && view.item_waiting_reason.as_deref() == Some("docling"))
+                || view.item_status == "cancelled";
+            let leased = view.item_lease_token.is_some() || view.item_lease_until.is_some();
+            if view.status == "submitting" || !settled || leased {
+                return Err(DomainError::docling_submission_uncertain(
+                    "a Docling submission of this request is still in flight",
+                )
+                .into());
+            }
+        }
+        Ok(())
+    }
+
     /// Recover up to [`TASK_BATCH_RETRY_MAX`] failed or cancelled tasks.
     ///
     /// Every id is handled independently through the existing per-task
@@ -121,11 +243,17 @@ impl TaskService {
         request: &TaskBatchRetryRequest,
     ) -> Result<TaskBatchRetryResponse> {
         validate_batch_task_ids(&request.task_ids, TASK_BATCH_RETRY_MAX)?;
-        let results = futures::stream::iter(request.task_ids.iter().copied())
-            .map(|task_id| async move { self.batch_retry_item(task_id, user_id).await })
-            .buffered(TASK_BATCH_RETRY_CONCURRENCY)
-            .collect::<Vec<_>>()
-            .await;
+        let acknowledged = request.acknowledge_docling_duplicate_risk;
+        self.refuse_unresolved_docling_submission_batch(user_id, &request.task_ids, acknowledged)
+            .await?;
+        let results =
+            futures::stream::iter(request.task_ids.iter().copied())
+                .map(|task_id| async move {
+                    self.batch_retry_item(task_id, user_id, acknowledged).await
+                })
+                .buffered(TASK_BATCH_RETRY_CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
         if results
             .iter()
             .any(|item| item.outcome == TaskBatchRetryOutcome::Accepted)
@@ -135,8 +263,16 @@ impl TaskService {
         Ok(TaskBatchRetryResponse { results })
     }
 
-    async fn batch_retry_item(&self, task_id: Uuid, user_id: i64) -> TaskBatchRetryItem {
-        match self.try_batch_retry_item(task_id, user_id).await {
+    async fn batch_retry_item(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        acknowledged: bool,
+    ) -> TaskBatchRetryItem {
+        match self
+            .try_batch_retry_item(task_id, user_id, acknowledged)
+            .await
+        {
             Ok(item) => item,
             Err(error) => {
                 // Missing and inaccessible tasks are reported as one refusal so
@@ -144,6 +280,9 @@ impl TaskService {
                 let reason = match crate::domain_errors::find_domain_error(&error) {
                     Some(DomainError::NotFound(_) | DomainError::Forbidden(_)) => {
                         TaskBatchRetryReason::NotFound
+                    }
+                    Some(DomainError::DoclingSubmissionUncertain(_)) => {
+                        TaskBatchRetryReason::IneligibleStatus
                     }
                     _ => {
                         tracing::warn!(
@@ -172,6 +311,7 @@ impl TaskService {
         &self,
         task_id: Uuid,
         user_id: i64,
+        acknowledged: bool,
     ) -> Result<TaskBatchRetryItem> {
         let task = self
             .db
@@ -187,11 +327,38 @@ impl TaskService {
                 TaskBatchRetryReason::IneligibleStatus,
             ));
         }
+        // Defense in depth: the whole-call prescan already refused an
+        // unacknowledged submission, but a state change between the prescan and
+        // this item must still never reopen work for it.
+        self.refuse_unresolved_docling_submission(task_id, acknowledged)
+            .await?;
         let item_ids = match task.status.as_str() {
-            "failed" => self.db.retry_task_items(task_id, user_id).await?,
+            "failed" => {
+                self.db
+                    .retry_task_items_with_ack(task_id, user_id, risk_ack(acknowledged))
+                    .await?
+            }
             "cancelled" => {
                 self.db
-                    .resume_cancelled_task_items(task_id, user_id)
+                    .resume_cancelled_task_items_with_ack(task_id, user_id, risk_ack(acknowledged))
+                    .await?
+            }
+            "waiting" => {
+                // A waiting task is only recoverable when it actually holds an
+                // unresolved Docling submission. Ordinary dependency waiting is
+                // unchanged and stays ineligible.
+                let unresolved = self
+                    .db
+                    .list_unresolved_docling_submissions_for_tasks(&[task_id])
+                    .await?;
+                if unresolved.is_empty() {
+                    return Ok(batch_retry_skipped(
+                        task_id,
+                        TaskBatchRetryReason::IneligibleStatus,
+                    ));
+                }
+                self.db
+                    .retry_task_items_with_ack(task_id, user_id, risk_ack(acknowledged))
                     .await?
             }
             _ => {
@@ -235,11 +402,17 @@ impl TaskService {
         request: &TaskBatchRerunRequest,
     ) -> Result<TaskBatchRerunResponse> {
         validate_batch_task_ids(&request.task_ids, TASK_BATCH_RERUN_MAX)?;
-        let results = futures::stream::iter(request.task_ids.iter().copied())
-            .map(|task_id| async move { self.batch_rerun_item(task_id, user_id).await })
-            .buffered(TASK_BATCH_RERUN_CONCURRENCY)
-            .collect::<Vec<_>>()
-            .await;
+        let acknowledged = request.acknowledge_docling_duplicate_risk;
+        self.refuse_unresolved_docling_submission_batch(user_id, &request.task_ids, acknowledged)
+            .await?;
+        let results =
+            futures::stream::iter(request.task_ids.iter().copied())
+                .map(|task_id| async move {
+                    self.batch_rerun_item(task_id, user_id, acknowledged).await
+                })
+                .buffered(TASK_BATCH_RERUN_CONCURRENCY)
+                .collect::<Vec<_>>()
+                .await;
         if results
             .iter()
             .any(|item| item.outcome == TaskBatchRerunOutcome::Accepted)
@@ -249,8 +422,16 @@ impl TaskService {
         Ok(TaskBatchRerunResponse { results })
     }
 
-    async fn batch_rerun_item(&self, task_id: Uuid, user_id: i64) -> TaskBatchRerunItem {
-        match self.try_batch_rerun_item(task_id, user_id).await {
+    async fn batch_rerun_item(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        acknowledged: bool,
+    ) -> TaskBatchRerunItem {
+        match self
+            .try_batch_rerun_item(task_id, user_id, acknowledged)
+            .await
+        {
             Ok(item) => item,
             Err(error) => {
                 // Missing and inaccessible tasks are reported as one refusal so
@@ -261,6 +442,9 @@ impl TaskService {
                     }
                     Some(DomainError::InvalidArgument(_)) => TaskBatchRerunReason::NothingToRerun,
                     Some(DomainError::Conflict(_)) => TaskBatchRerunReason::ActiveSourceBusy,
+                    Some(DomainError::DoclingSubmissionUncertain(_)) => {
+                        TaskBatchRerunReason::ActiveSourceBusy
+                    }
                     _ => {
                         tracing::warn!(
                             task_id = %task_id,
@@ -288,6 +472,7 @@ impl TaskService {
         &self,
         task_id: Uuid,
         user_id: i64,
+        acknowledged: bool,
     ) -> Result<TaskBatchRerunItem> {
         let task = self
             .db
@@ -303,6 +488,11 @@ impl TaskService {
                 TaskBatchRerunReason::IneligibleStatus,
             ));
         }
+        // Defense in depth: the whole-call prescan already refused an
+        // unacknowledged submission, but a state change between the prescan and
+        // this item must still never reopen work for it.
+        self.refuse_unresolved_docling_submission(task_id, acknowledged)
+            .await?;
         let source = self
             .db
             .get_task_internal(task_id)
@@ -314,7 +504,10 @@ impl TaskService {
                 TaskBatchRerunReason::IneligibleStatus,
             ));
         }
-        let (rerun_task_id, item_ids) = self.db.rerun_task_source(task_id).await?;
+        let (rerun_task_id, item_ids) = self
+            .db
+            .rerun_task_source_with_ack(task_id, Some(user_id), risk_ack(acknowledged))
+            .await?;
         tracing::info!(
             task_id = %task_id,
             rerun_task_id = %rerun_task_id,
@@ -327,6 +520,45 @@ impl TaskService {
             reason: None,
             rerun_task_id: Some(rerun_task_id),
         })
+    }
+
+    /// Read up to [`TASK_BATCH_GET_MAX`] tasks in one ordered snapshot
+    /// (issue 1172 P1).
+    ///
+    /// The request bounds are validated before any database work, so an empty,
+    /// duplicate-bearing or oversized batch is refused as a whole. One set
+    /// query reads every readable id; the result is then mapped back onto the
+    /// requested order, and an id that is missing or not readable by the caller
+    /// is reported as `not_found` with no task body. A database failure stays a
+    /// whole-request error instead of turning into `not_found`.
+    pub async fn batch_get(
+        &self,
+        user_id: i64,
+        request: &TaskBatchGetRequest,
+    ) -> Result<TaskBatchGetResponse> {
+        validate_batch_task_ids(&request.task_ids, TASK_BATCH_GET_MAX)?;
+        let rows = self.db.get_tasks_by_ids(&request.task_ids, user_id).await?;
+        let mut by_id = rows
+            .into_iter()
+            .map(|task| (task.id, task))
+            .collect::<HashMap<_, _>>();
+        let items = request
+            .task_ids
+            .iter()
+            .map(|task_id| match by_id.remove(task_id) {
+                Some(task) => TaskBatchGetItem {
+                    task_id: *task_id,
+                    outcome: TaskBatchGetOutcome::Found,
+                    task: Some(task_response(task)),
+                },
+                None => TaskBatchGetItem {
+                    task_id: *task_id,
+                    outcome: TaskBatchGetOutcome::NotFound,
+                    task: None,
+                },
+            })
+            .collect();
+        Ok(TaskBatchGetResponse { items })
     }
 
     /// Move a terminal task's history into the recycle bin. Idempotent: a
@@ -433,6 +665,16 @@ impl TaskService {
     /// again instead of reusing the parent's parsed result. Files, processed text,
     /// and vectors of the parent are never touched.
     pub async fn rerun(&self, task_id: Uuid, user_id: i64) -> Result<RerunTaskResponse> {
+        self.rerun_with_ack(task_id, user_id, false).await
+    }
+
+    /// Rerun with the caller's explicit Docling acknowledgement decision.
+    pub async fn rerun_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        acknowledged: bool,
+    ) -> Result<RerunTaskResponse> {
         self.db
             .get_task(task_id, user_id)
             .await?
@@ -440,6 +682,8 @@ impl TaskService {
         if !self.db.can_manage_task(task_id, user_id).await? {
             return Err(DomainError::forbidden("task management permission denied").into());
         }
+        self.refuse_unresolved_docling_submission(task_id, acknowledged)
+            .await?;
         let source = self
             .db
             .get_task_internal(task_id)
@@ -447,7 +691,10 @@ impl TaskService {
             .ok_or_else(|| DomainError::not_found("task not found"))?;
         match rerun_route(&source.status)? {
             RerunRoute::Fork => {
-                let (new_task_id, item_ids) = self.db.rerun_task(task_id).await?;
+                let (new_task_id, item_ids) = self
+                    .db
+                    .rerun_task_with_ack(task_id, Some(user_id), risk_ack(acknowledged))
+                    .await?;
                 if !item_ids.is_empty() {
                     self.notify_dispatch();
                 }
@@ -465,7 +712,10 @@ impl TaskService {
                 })
             }
             RerunRoute::ResumeInPlace => {
-                let item_ids = self.db.resume_task_items(task_id, user_id).await?;
+                let item_ids = self
+                    .db
+                    .resume_task_items_with_ack(task_id, user_id, risk_ack(acknowledged))
+                    .await?;
                 if !item_ids.is_empty() {
                     self.notify_dispatch();
                 }
@@ -491,7 +741,10 @@ impl TaskService {
                     )
                     .into());
                 }
-                let (new_task_id, item_ids) = self.db.rerun_task_source(task_id).await?;
+                let (new_task_id, item_ids) = self
+                    .db
+                    .rerun_task_source_with_ack(task_id, Some(user_id), risk_ack(acknowledged))
+                    .await?;
                 if !item_ids.is_empty() {
                     self.notify_dispatch();
                 }
@@ -515,8 +768,8 @@ impl TaskService {
 #[cfg(test)]
 mod tests {
     use context69_contracts::{
-        ClearTaskHistoryView, TASK_BATCH_RERUN_MAX, TASK_BATCH_RETRY_MAX, TaskBatchRerunRequest,
-        TaskBatchRetryRequest,
+        ClearTaskHistoryView, TASK_BATCH_GET_MAX, TASK_BATCH_RERUN_MAX, TASK_BATCH_RETRY_MAX,
+        TaskBatchGetRequest, TaskBatchRerunRequest, TaskBatchRetryRequest,
     };
     use uuid::Uuid;
 
@@ -526,6 +779,7 @@ mod tests {
     fn batch_retry_refuses_empty_duplicate_and_oversized_requests_before_work() {
         let empty = TaskBatchRetryRequest {
             task_ids: Vec::new(),
+            acknowledge_docling_duplicate_risk: false,
         };
         let error = validate_batch_task_ids(&empty.task_ids, TASK_BATCH_RETRY_MAX)
             .expect_err("empty batch must fail");
@@ -534,6 +788,7 @@ mod tests {
         let id = Uuid::new_v4();
         let duplicate = TaskBatchRetryRequest {
             task_ids: vec![id, id],
+            acknowledge_docling_duplicate_risk: false,
         };
         let error = validate_batch_task_ids(&duplicate.task_ids, TASK_BATCH_RETRY_MAX)
             .expect_err("duplicate ids must fail");
@@ -541,6 +796,7 @@ mod tests {
 
         let oversized = TaskBatchRetryRequest {
             task_ids: (0..=TASK_BATCH_RETRY_MAX).map(|_| Uuid::new_v4()).collect(),
+            acknowledge_docling_duplicate_risk: false,
         };
         let error = validate_batch_task_ids(&oversized.task_ids, TASK_BATCH_RETRY_MAX)
             .expect_err("over the cap must fail");
@@ -548,6 +804,7 @@ mod tests {
 
         let accepted = TaskBatchRetryRequest {
             task_ids: (0..TASK_BATCH_RETRY_MAX).map(|_| Uuid::new_v4()).collect(),
+            acknowledge_docling_duplicate_risk: false,
         };
         validate_batch_task_ids(&accepted.task_ids, TASK_BATCH_RETRY_MAX)
             .expect("a full but bounded batch is accepted");
@@ -560,6 +817,7 @@ mod tests {
     fn batch_rerun_refuses_empty_duplicate_and_oversized_requests_before_work() {
         let empty = TaskBatchRerunRequest {
             task_ids: Vec::new(),
+            acknowledge_docling_duplicate_risk: false,
         };
         let error = validate_batch_task_ids(&empty.task_ids, TASK_BATCH_RERUN_MAX)
             .expect_err("empty batch must fail");
@@ -568,6 +826,7 @@ mod tests {
         let id = Uuid::new_v4();
         let duplicate = TaskBatchRerunRequest {
             task_ids: vec![id, id],
+            acknowledge_docling_duplicate_risk: false,
         };
         let error = validate_batch_task_ids(&duplicate.task_ids, TASK_BATCH_RERUN_MAX)
             .expect_err("duplicate ids must fail");
@@ -575,6 +834,7 @@ mod tests {
 
         let oversized = TaskBatchRerunRequest {
             task_ids: (0..=TASK_BATCH_RERUN_MAX).map(|_| Uuid::new_v4()).collect(),
+            acknowledge_docling_duplicate_risk: false,
         };
         let error = validate_batch_task_ids(&oversized.task_ids, TASK_BATCH_RERUN_MAX)
             .expect_err("over the cap must fail");
@@ -582,6 +842,7 @@ mod tests {
 
         let accepted = TaskBatchRerunRequest {
             task_ids: (0..TASK_BATCH_RERUN_MAX).map(|_| Uuid::new_v4()).collect(),
+            acknowledge_docling_duplicate_risk: false,
         };
         validate_batch_task_ids(&accepted.task_ids, TASK_BATCH_RERUN_MAX)
             .expect("a full but bounded batch is accepted");
@@ -618,6 +879,42 @@ mod tests {
                 "{active} is the sequential repeat of an in-place resume"
             );
         }
+    }
+
+    /// The batch snapshot shares the bounded request contract with batch retry
+    /// and rerun (issue 1172 P1): an empty, duplicate-bearing or oversized
+    /// request is refused before any task is read or mapped.
+    #[test]
+    fn batch_get_refuses_empty_duplicate_and_oversized_requests_before_work() {
+        assert_eq!(TASK_BATCH_GET_MAX, 100);
+
+        let empty = TaskBatchGetRequest {
+            task_ids: Vec::new(),
+        };
+        let error = validate_batch_task_ids(&empty.task_ids, TASK_BATCH_GET_MAX)
+            .expect_err("empty batch must fail");
+        assert!(error.to_string().contains("at least one"));
+
+        let id = Uuid::new_v4();
+        let duplicate = TaskBatchGetRequest {
+            task_ids: vec![id, id],
+        };
+        let error = validate_batch_task_ids(&duplicate.task_ids, TASK_BATCH_GET_MAX)
+            .expect_err("duplicate ids must fail");
+        assert!(error.to_string().contains("duplicate"));
+
+        let oversized = TaskBatchGetRequest {
+            task_ids: (0..=TASK_BATCH_GET_MAX).map(|_| Uuid::new_v4()).collect(),
+        };
+        let error = validate_batch_task_ids(&oversized.task_ids, TASK_BATCH_GET_MAX)
+            .expect_err("over the cap must fail");
+        assert!(error.to_string().contains("at most"));
+
+        let accepted = TaskBatchGetRequest {
+            task_ids: (0..TASK_BATCH_GET_MAX).map(|_| Uuid::new_v4()).collect(),
+        };
+        validate_batch_task_ids(&accepted.task_ids, TASK_BATCH_GET_MAX)
+            .expect("a full but bounded batch is accepted");
     }
 
     #[test]

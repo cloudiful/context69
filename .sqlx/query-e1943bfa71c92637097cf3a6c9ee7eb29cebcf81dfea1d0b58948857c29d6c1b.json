@@ -1,0 +1,124 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Latest Docling submission history row per item of a bounded task set\n-- (issue 1172 P5B1).\n--\n-- Read-only diagnose projection: one row per item, never the frozen identity,\n-- endpoint, remote id, last_error or response body. A current unresolved row\n-- wins over a superseded one; equal timestamps fall back to the newest id so\n-- the choice is deterministic. `$1` is the task-id array.\nSELECT DISTINCT ON (job.item_id)\n    job.item_id,\n    job.status,\n    job.dispatch_attempted,\n    job.created_at,\n    job.finished_at,\n    item.status AS item_status,\n    item.waiting_reason AS item_waiting_reason,\n    item.lease_token AS item_lease_token,\n    item.lease_until AS item_lease_until\nFROM context69.task_docling_remote_jobs AS job\nJOIN context69.task_items AS item\n  ON item.id = job.item_id\n AND item.task_id = job.task_id\nWHERE job.task_id = ANY($1::uuid[])\n  AND job.status IN ('submitting', 'submission_uncertain', 'superseded')\nORDER BY\n    job.item_id,\n    (job.status IN ('submitting', 'submission_uncertain')) DESC,\n    job.updated_at DESC,\n    job.id DESC\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "dispatch_attempted",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "dispatch_attempted"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "item_waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "waiting_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "item_lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_token"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "item_lease_until",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "lease_until"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "e1943bfa71c92637097cf3a6c9ee7eb29cebcf81dfea1d0b58948857c29d6c1b"
+}

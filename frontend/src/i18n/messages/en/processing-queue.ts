@@ -69,6 +69,7 @@ export const processingQueue = {
   // Retry acts on the whole task: the endpoint requeues every retryable item
   // of the parent, so no label may promise a per-file effect.
   retryTaskScope: "Retry failed items",
+  retryWaiting: "Retry",
   retryAccepted: "Queued again",
   retryFailed: "Failed to retry the task",
   resumeHint: "Requeues this task's unfinished items; the task keeps its history.",
@@ -106,6 +107,7 @@ export const processingQueue = {
     retryFailed: "Retry {count} failed",
     resumeCancelled: "Resume {count} cancelled",
     retryMixed: "Retry {failed} failed, resume {cancelled} cancelled",
+    retryRisk: "Retry/resume {count} selected",
     rerun: "Reprocess source {count}",
     cancel: "Cancel {count}",
     trash: "Move {count} to trash",
@@ -166,6 +168,12 @@ export const processingQueue = {
     trash: "Move {count} selected tasks to the trash? Active tasks are cancelled first. Files, processed text, and vectors are unaffected.",
     delete: "Permanently delete {count} selected tasks? This cannot be undone. Files, processed text, and vectors are unaffected.",
   },
+  riskTitle: "Acknowledge duplicate risk",
+  riskConfirm: "A previous conversion of this task may still be running. Retrying or reprocessing can convert the same file again and create a duplicate.",
+  riskConfirmBulk: "A previous conversion of the selected tasks may still be running. This action can convert the same files again and create duplicates.",
+  riskAckLabel: "I understand a duplicate may be created",
+  riskStillInFlight: "The conversion is still in progress. Refresh and check troubleshooting before trying again.",
+  bulkRiskUnavailable: "The selected tasks could not be re-read. Refresh the selection and try again.",
   unknownStage: "Unknown",
   // Progress stages (issue 52) are the stages an item actually performs,
   // reported in `TaskItemProgress.stage`. They are deliberately a separate
@@ -223,6 +231,12 @@ export const processingQueue = {
     nextRetry: "Next retry {time}",
     leaseExpires: "Lease until {time}",
     activeAttempt: "Active attempt {attempt}",
+    doclingSubmission: "Docling conversion",
+    doclingStates: {
+      submitting: "Conversion in progress",
+      submission_uncertain: "Outcome unknown",
+      superseded: "Previous unknown attempt replaced",
+    },
     latestError: "Latest error",
     noItems: "No items",
   },

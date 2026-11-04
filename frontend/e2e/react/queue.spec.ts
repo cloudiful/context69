@@ -1,6 +1,14 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN_USER, QUEUE_ACTIVE_TASK, QUEUE_COMPLETED_TASK, QUEUE_FAILED_TASK } from "./fixtures";
+import {
+  ADMIN_USER,
+  QUEUE_ACTIVE_TASK,
+  QUEUE_COMPLETED_TASK,
+  QUEUE_FAILED_TASK,
+  QUEUE_UNCERTAIN_DIAGNOSE,
+  QUEUE_UNCERTAIN_ITEMS,
+  QUEUE_UNCERTAIN_TASK,
+} from "./fixtures";
 import { installAppTransport, recordExternalRequests } from "./transport";
 
 const queue = {
@@ -758,5 +766,120 @@ test.describe("react processing queue", () => {
       expect(heights.length).toBeGreaterThan(0);
       expect(heights.every((height) => Math.abs(height - 32) < 1)).toBe(true);
     }
+  });
+
+  test("requires explicit consent before an uncertain task is retried and shows its diagnose state", async ({ page }) => {
+    await page.setViewportSize({ width: 1700, height: 1100 });
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: {
+        processing: [QUEUE_UNCERTAIN_TASK, QUEUE_ACTIVE_TASK],
+        items: { [QUEUE_UNCERTAIN_TASK.task_id]: QUEUE_UNCERTAIN_ITEMS },
+        diagnose: { [QUEUE_UNCERTAIN_TASK.task_id]: QUEUE_UNCERTAIN_DIAGNOSE },
+      },
+    });
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    const uncertainRow = page.getByTestId("queue-task-row").first();
+    await uncertainRow.getByRole("button", { name: "Expand task items" }).click();
+    await page.getByRole("button", { name: "Troubleshooting" }).click();
+    await expect(page.getByText(/Outcome unknown/)).toBeVisible();
+    await expect(page.getByText("Showing 1 / 1")).toBeVisible();
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      for (const element of document.querySelectorAll("*")) {
+        if (element.scrollLeft !== 0) {
+          element.scrollLeft = 0;
+        }
+      }
+    });
+    await page.locator("body").evaluate((element) => Promise.all(
+      element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)),
+    ));
+    await page.screenshot({ path: "test-results/p5b2/diagnose-submission-uncertain.png", fullPage: true });
+
+    // The gated retry is the primary action while cancel stays available.
+    const retries = () => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === `/v1/tasks/${QUEUE_UNCERTAIN_TASK.task_id}/retry`
+    ));
+    await expect(uncertainRow.getByRole("button", { name: "Cancel task" })).toBeVisible();
+    const retryButton = uncertainRow.getByRole("button", { name: /^Retry$/ });
+    await retryButton.click();
+
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    await dialog.evaluate((element) => Promise.all(
+      element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)),
+    ));
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      for (const element of document.querySelectorAll("*")) {
+        if (element.scrollLeft !== 0) {
+          element.scrollLeft = 0;
+        }
+      }
+    });
+    expect(retries()).toHaveLength(0);
+    const accept = dialog.getByRole("button", { name: /^Retry$/ });
+    await expect(accept).toBeDisabled();
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+    expect(retries()).toHaveLength(0);
+
+    await retryButton.click();
+    const checkedDialog = page.getByRole("alertdialog");
+    const acknowledgement = checkedDialog.getByRole("checkbox", {
+      name: "I understand a duplicate may be created",
+    });
+    await expect(acknowledgement).not.toBeChecked();
+    await dialog.screenshot({ path: "test-results/p5b2/risk-dialog-unchecked.png" });
+    await acknowledgement.click();
+    await expect(accept).toBeEnabled();
+    await dialog.evaluate((element) => Promise.all(
+      element.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => undefined)),
+    ));
+    await dialog.screenshot({ path: "test-results/p5b2/risk-dialog-checked.png" });
+    await accept.click();
+
+    await expect.poll(() => retries().length).toBe(1);
+    expect(retries()[0]?.body).toMatchObject({ acknowledge_docling_duplicate_risk: true });
+    await expect(checkedDialog).toBeHidden();
+  });
+
+  test("reopens the unchecked risk confirmation after a typed 409 and never resubmits automatically", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: { processing: [QUEUE_FAILED_TASK], ackRequiredOnce: true },
+    });
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(1);
+
+    await page.getByRole("checkbox", { name: "Select Policy Review" }).click();
+    await page.getByTestId("queue-bulk-actions")
+      .getByRole("button", { name: "Retry 1 failed" })
+      .click();
+
+    const retries = () => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/batch/retry"
+    ));
+    await expect.poll(() => retries().length).toBe(1);
+    const dialog = page.getByRole("alertdialog");
+    await expect(dialog).toBeVisible();
+    expect(retries()[0]?.body).toMatchObject({ task_ids: [QUEUE_FAILED_TASK.task_id] });
+    expect(retries()[0]?.body).not.toHaveProperty("acknowledge_docling_duplicate_risk");
+    await expect(dialog.getByRole("checkbox", { name: "I understand a duplicate may be created" }))
+      .not.toBeChecked();
+    await expect(dialog.getByRole("button", { name: "Retry" })).toBeDisabled();
+
+    await dialog.getByRole("checkbox", { name: "I understand a duplicate may be created" }).click();
+    await dialog.getByRole("button", { name: "Retry" }).click();
+    await expect.poll(() => retries().length).toBe(2);
+    expect(retries()[1]?.body).toMatchObject({
+      task_ids: [QUEUE_FAILED_TASK.task_id],
+      acknowledge_docling_duplicate_risk: true,
+    });
+    await expect(dialog).toBeHidden();
+    expect(retries()).toHaveLength(2);
   });
 });

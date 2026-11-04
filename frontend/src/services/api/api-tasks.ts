@@ -4,6 +4,8 @@ import type {
   ClearTaskHistoryResponse,
   RequestOptions,
   RerunTaskResponse,
+  TaskBatchGetRequest,
+  TaskBatchGetResponse,
   TaskBatchRetryResponse,
   TaskItemsResponse,
   TaskItemStatus,
@@ -14,7 +16,9 @@ import type {
   TaskPageResponse,
   TaskRef,
   TaskResponse,
+  TaskRetryRequest,
   TaskRetryResponse,
+  TaskRerunRequest,
   TaskSelectionResponse,
   SortDirection,
   TaskSortBy,
@@ -118,27 +122,51 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         signal: options?.signal,
       })) as Promise<TaskDiagnoseResponse>;
     },
-    retryTask(taskId: string, options?: RequestOptions) {
+    retryTask(taskId: string, request?: TaskRetryRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/retry", {
         params: { path: { task_id: taskId } },
+        ...(request ? { body: request } : {}),
         signal: options?.signal,
       })) as Promise<TaskRetryResponse>;
     },
-    batchRetryTasks(taskIds: string[], options?: RequestOptions) {
+    batchGetTasks(request: TaskBatchGetRequest, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/get", {
+        body: request,
+        signal: options?.signal,
+      })) as Promise<TaskBatchGetResponse>;
+    },
+    batchRetryTasks(
+      taskIds: string[],
+      options?: RequestOptions & { acknowledgeDoclingDuplicateRisk?: boolean },
+    ) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/batch/retry", {
-        body: { task_ids: taskIds },
+        body: {
+          task_ids: taskIds,
+          ...(options?.acknowledgeDoclingDuplicateRisk
+            ? { acknowledge_docling_duplicate_risk: true }
+            : {}),
+        },
         signal: options?.signal,
       })) as Promise<TaskBatchRetryResponse>;
     },
-    batchRerunTasks(taskIds: string[], options?: RequestOptions) {
+    batchRerunTasks(
+      taskIds: string[],
+      options?: RequestOptions & { acknowledgeDoclingDuplicateRisk?: boolean },
+    ) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/batch/rerun", {
-        body: { task_ids: taskIds },
+        body: {
+          task_ids: taskIds,
+          ...(options?.acknowledgeDoclingDuplicateRisk
+            ? { acknowledge_docling_duplicate_risk: true }
+            : {}),
+        },
         signal: options?.signal,
       })) as Promise<TaskBatchRerunResponse>;
     },
-    rerunTask(taskId: string, options?: RequestOptions) {
+    rerunTask(taskId: string, request?: TaskRerunRequest, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/rerun", {
         params: { path: { task_id: taskId } },
+        ...(request ? { body: request } : {}),
         signal: options?.signal,
       })) as Promise<RerunTaskResponse>;
     },

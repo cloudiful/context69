@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use context69_contracts::tasks::{
     TASK_SELECTION_LIMIT, TaskSelectionItem, TaskSelectionQuery, TaskSelectionResponse,
+    normalized_task_filter,
 };
 use context69_contracts::{
     SortDirection, TaskDiagnoseResponse, TaskItemStatus, TaskItemsResponse, TaskKind,
@@ -67,6 +68,8 @@ impl TaskService {
             .count_tasks(crate::db::TaskCountFilter {
                 user_id,
                 query: query.query.as_deref(),
+                group_path: normalized_task_filter(query.group_path.as_deref()),
+                source_key: normalized_task_filter(query.source_key.as_deref()),
                 kind,
                 status,
                 stage: query.stage.as_deref(),
@@ -80,6 +83,8 @@ impl TaskService {
             .list_tasks(crate::db::TaskListFilter {
                 user_id,
                 query: query.query.as_deref(),
+                group_path: normalized_task_filter(query.group_path.as_deref()),
+                source_key: normalized_task_filter(query.source_key.as_deref()),
                 kind,
                 status,
                 stage: query.stage.as_deref(),
@@ -193,8 +198,18 @@ impl TaskService {
                 );
                 Vec::new()
             });
-        let response =
-            task_diagnose_response(task, items, items_truncated, consistency, dependency_gates)?;
+        let docling_submissions = self
+            .db
+            .list_docling_submission_views_for_tasks(&[task_id])
+            .await?;
+        let response = task_diagnose_response(
+            task,
+            items,
+            items_truncated,
+            consistency,
+            dependency_gates,
+            docling_submissions,
+        )?;
         if !response.consistency.consistent {
             warn!(
                 task_id = %task_id,
@@ -206,6 +221,16 @@ impl TaskService {
     }
 
     pub async fn retry(&self, task_id: Uuid, user_id: i64) -> Result<TaskRetryResponse> {
+        self.retry_with_ack(task_id, user_id, false).await
+    }
+
+    /// Retry with the caller's explicit Docling acknowledgement decision.
+    pub async fn retry_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        acknowledged: bool,
+    ) -> Result<TaskRetryResponse> {
         self.db
             .get_task(task_id, user_id)
             .await?
@@ -213,7 +238,12 @@ impl TaskService {
         if !self.db.can_manage_task(task_id, user_id).await? {
             return Err(DomainError::forbidden("task management permission denied").into());
         }
-        let item_ids = self.db.retry_task_items(task_id, user_id).await?;
+        self.refuse_unresolved_docling_submission(task_id, acknowledged)
+            .await?;
+        let item_ids = self
+            .db
+            .retry_task_items_with_ack(task_id, user_id, super::actions::risk_ack(acknowledged))
+            .await?;
         if item_ids.is_empty() {
             return Err(DomainError::invalid_argument("task has no failed items to retry").into());
         }

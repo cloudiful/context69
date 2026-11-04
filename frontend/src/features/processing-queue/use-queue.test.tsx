@@ -4,7 +4,7 @@ import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { i18n } from "@/lib/i18n";
-import { apiClient } from "@/services/api";
+import { ApiError, apiClient } from "@/services/api";
 import type { TaskBatchRetryResponse, TaskPageResponse, TaskResponse, TaskStatus } from "@/services/api";
 import { FakeEventSource, installFakeEventSource } from "@/test-utils/event-source";
 
@@ -73,6 +73,15 @@ describe("useQueue", () => {
   beforeEach(() => {
     installFakeEventSource();
     vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task()]));
+    // The risk prescan re-reads every selected id; the default fixture keeps
+    // all flags false unless a case overrides it.
+    vi.spyOn(apiClient, "batchGetTasks").mockImplementation(async (request) => ({
+      items: request.task_ids.map((taskId) => ({
+        task_id: taskId,
+        outcome: "found" as const,
+        task: task({ task_id: taskId }),
+      })),
+    }));
   });
 
   afterEach(() => {
@@ -1202,8 +1211,11 @@ describe("useQueue list deadline", () => {
   });
 
   afterEach(() => {
-    vi.useRealTimers();
+    // Restore the timer spies while the fake timers are still installed, then
+    // install the real timers: restoring after useRealTimers() would put the
+    // disposed fake setTimeout back on the global for the next test.
     vi.restoreAllMocks();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -1414,3 +1426,204 @@ async function pg() {
   await Promise.resolve();
   await Promise.resolve();
 }
+
+describe("useQueue duplicate-risk confirmation", () => {
+  beforeEach(() => {
+    // The deadline cases replace the global timer functions; restore the real
+    // ones even if a previous case left a spy pointing at a disposed fake.
+    vi.useRealTimers();
+    installFakeEventSource();
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task()]));
+    vi.spyOn(apiClient, "batchGetTasks").mockImplementation(async (request) => ({
+      items: request.task_ids.map((taskId) => ({
+        task_id: taskId,
+        outcome: "found" as const,
+        task: task({ task_id: taskId }),
+      })),
+    }));
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    toast.error.mockReset();
+    toast.success.mockReset();
+    toast.warning.mockReset();
+  });
+
+  it("does not retry a flagged task until the operator explicitly consents", async () => {
+    const retry = vi.spyOn(apiClient, "retryTask").mockResolvedValue({
+      retried_items: 1,
+      task: { task_id: "flagged-1" },
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "flagged-1", status: "waiting", docling_submission_uncertain: true }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.recoverTask(result.current.items[0]!);
+    });
+    expect(result.current.confirm?.risk).toBeDefined();
+    expect(result.current.riskChecked).toBe(false);
+    expect(retry).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.confirmAccept();
+    });
+    expect(retry).not.toHaveBeenCalled();
+    expect(result.current.confirm).toBeNull();
+
+    await act(async () => {
+      result.current.recoverTask(result.current.items[0]!);
+    });
+    act(() => {
+      result.current.setRiskChecked(true);
+    });
+    await act(async () => {
+      result.current.confirmAccept();
+    });
+    await waitFor(() => expect(retry).toHaveBeenCalledWith(
+      "flagged-1",
+      { acknowledge_docling_duplicate_risk: true },
+    ));
+  });
+
+  it("never treats a waiting task without the flag as recoverable", async () => {
+    const retry = vi.spyOn(apiClient, "retryTask").mockResolvedValue({
+      retried_items: 1,
+      task: { task_id: "waiting-1" },
+    });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "waiting-1", status: "waiting", docling_submission_uncertain: false }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.recoverTask(result.current.items[0]!);
+    });
+    expect(retry).not.toHaveBeenCalled();
+    expect(result.current.confirm).toBeNull();
+  });
+
+  it("prescans every selected id and only sends the acknowledgement after consent", async () => {
+    const waiting = task({ task_id: "waiting-1", status: "waiting", docling_submission_uncertain: true });
+    const failed = task({ task_id: "failed-1", status: "failed" });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([waiting, failed]));
+    const prescan = vi.spyOn(apiClient, "batchGetTasks").mockImplementation(async (request) => ({
+      items: request.task_ids.map((taskId) => ({
+        task_id: taskId,
+        outcome: "found" as const,
+        task: task({ task_id: taskId, docling_submission_uncertain: taskId === "waiting-1" }),
+      })),
+    }));
+    const batch = vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({
+      results: [
+        { task_id: "waiting-1", outcome: "accepted", retried_task_id: "waiting-1" },
+        { task_id: "failed-1", outcome: "accepted", retried_task_id: "failed-1" },
+      ],
+    });
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(2));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+      result.current.toggleTaskSelected(result.current.items[1]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+      await Promise.resolve();
+    });
+    await waitFor(() => expect(prescan).toHaveBeenCalledWith({ task_ids: ["waiting-1", "failed-1"] }));
+    expect(result.current.confirm?.risk).toBeDefined();
+    expect(batch).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.setRiskChecked(true);
+    });
+    await act(async () => {
+      result.current.confirmAccept();
+    });
+    await waitFor(() => expect(batch).toHaveBeenCalledWith(
+      ["waiting-1", "failed-1"],
+      { acknowledgeDoclingDuplicateRisk: true },
+    ));
+  });
+
+  it("mutates nothing when the bulk risk read fails", async () => {
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+    ]));
+    vi.spyOn(apiClient, "batchGetTasks").mockRejectedValue(new Error("read failed"));
+    const batch = vi.spyOn(apiClient, "batchRetryTasks").mockResolvedValue({ results: [] });
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(batch).not.toHaveBeenCalled();
+    expect(result.current.bulkAction).toBeNull();
+  });
+
+  it("reopens the bulk risk dialog when the batch answers the typed 409", async () => {
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "failed-1", status: "failed" }),
+    ]));
+    const batch = vi.spyOn(apiClient, "batchRetryTasks").mockRejectedValue(
+      new ApiError("still in flight", 409, "docling_submission_uncertain"),
+    );
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleTaskSelected(result.current.items[0]!);
+    });
+    await act(async () => {
+      result.current.runBulkAction("retry");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(batch).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.confirm?.risk).toBeDefined());
+    expect(result.current.riskChecked).toBe(false);
+    expect(result.current.bulkAction).toBeNull();
+    expect(result.current.bulkReport).toBeNull();
+  });
+
+  it("reopens the unchecked risk dialog after an unacknowledged 409 but not after a consented one", async () => {
+    const conflict = () => new ApiError("still in flight", 409, "docling_submission_uncertain");
+    const retry = vi.spyOn(apiClient, "retryTask")
+      .mockRejectedValueOnce(conflict())
+      .mockRejectedValueOnce(conflict());
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([
+      task({ task_id: "task-1", status: "failed" }),
+    ]));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    await act(async () => {
+      result.current.recoverTask(result.current.items[0]!);
+    });
+    await waitFor(() => expect(result.current.confirm?.risk).toBeDefined());
+    expect(result.current.riskChecked).toBe(false);
+
+    act(() => {
+      result.current.setRiskChecked(true);
+    });
+    await act(async () => {
+      result.current.confirmAccept();
+    });
+    await waitFor(() => expect(retry).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.confirm).toBeNull());
+    expect(toast.error).toHaveBeenCalled();
+  });
+});

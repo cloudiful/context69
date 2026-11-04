@@ -450,6 +450,10 @@ fn api_error_code_wire_names_and_typed_shape() {
         (ApiErrorCode::Forbidden, "forbidden"),
         (ApiErrorCode::NotFound, "not_found"),
         (ApiErrorCode::Conflict, "conflict"),
+        (
+            ApiErrorCode::DoclingSubmissionUncertain,
+            "docling_submission_uncertain",
+        ),
         (ApiErrorCode::PayloadTooLarge, "payload_too_large"),
         (ApiErrorCode::UnprocessableEntity, "unprocessable_entity"),
         (ApiErrorCode::RateLimited, "rate_limited"),
@@ -473,6 +477,7 @@ fn api_error_code_wire_names_and_typed_shape() {
     );
     assert_eq!(ApiErrorCode::code_for_status(599), ApiErrorCode::Internal);
     assert_eq!(ApiErrorCode::NotFound.status_code(), 404);
+    assert_eq!(ApiErrorCode::DoclingSubmissionUncertain.status_code(), 409);
 
     let minimal = CanonicalApiErrorResponse::new(ApiErrorCode::NotFound, "missing".to_string());
     let minimal_value = to_value(&minimal).expect("minimal error");
@@ -1082,6 +1087,7 @@ fn b0_error_envelope_wire_equals_legacy() {
         ApiErrorCode::Forbidden,
         ApiErrorCode::NotFound,
         ApiErrorCode::Conflict,
+        ApiErrorCode::DoclingSubmissionUncertain,
         ApiErrorCode::PayloadTooLarge,
         ApiErrorCode::UnprocessableEntity,
         ApiErrorCode::RateLimited,
@@ -1489,5 +1495,60 @@ fn document_chunk_response_requires_source_generation() {
     assert!(
         missing.is_err(),
         "a chunk missing record_hash must not deserialize"
+    );
+}
+
+#[test]
+fn docling_acknowledgement_defaults_and_submission_states_round_trip() {
+    use context69_contracts::tasks::{
+        TaskBatchRerunRequest, TaskBatchRetryRequest, TaskDoclingSubmissionState,
+        TaskDoclingSubmissionView, TaskRerunRequest, TaskRetryRequest,
+    };
+
+    let retry: TaskRetryRequest = serde_json::from_value(json!({})).expect("absent retry body");
+    assert!(!retry.acknowledge_docling_duplicate_risk);
+    let retry: TaskRetryRequest = serde_json::from_value(json!({
+        "acknowledge_docling_duplicate_risk": true
+    }))
+    .expect("explicit retry consent");
+    assert!(retry.acknowledge_docling_duplicate_risk);
+    let rerun: TaskRerunRequest = serde_json::from_value(json!({
+        "acknowledge_docling_duplicate_risk": true
+    }))
+    .expect("explicit rerun consent");
+    assert!(rerun.acknowledge_docling_duplicate_risk);
+    let batch_retry: TaskBatchRetryRequest =
+        serde_json::from_value(json!({ "task_ids": [] })).expect("legacy batch retry");
+    assert!(!batch_retry.acknowledge_docling_duplicate_risk);
+    let batch_rerun: TaskBatchRerunRequest =
+        serde_json::from_value(json!({ "task_ids": [] })).expect("legacy batch rerun");
+    assert!(!batch_rerun.acknowledge_docling_duplicate_risk);
+
+    for (state, wire) in [
+        (TaskDoclingSubmissionState::Submitting, "submitting"),
+        (
+            TaskDoclingSubmissionState::SubmissionUncertain,
+            "submission_uncertain",
+        ),
+        (TaskDoclingSubmissionState::Superseded, "superseded"),
+    ] {
+        assert_eq!(to_value(&state).expect("state wire"), json!(wire));
+        let parsed: TaskDoclingSubmissionState =
+            serde_json::from_value(json!(wire)).expect("parse state");
+        assert_eq!(parsed, state);
+    }
+
+    let view = TaskDoclingSubmissionView {
+        state: TaskDoclingSubmissionState::SubmissionUncertain,
+        dispatch_attempted: false,
+        created_at: chrono::Utc::now(),
+        finished_at: None,
+    };
+    let value = to_value(&view).expect("view wire");
+    assert_eq!(value["state"], json!("submission_uncertain"));
+    assert_eq!(value["dispatch_attempted"], json!(false));
+    assert!(
+        value.get("finished_at").is_none(),
+        "an open history row omits its finish time"
     );
 }

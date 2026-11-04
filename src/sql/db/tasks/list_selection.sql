@@ -20,7 +20,13 @@ WITH RECURSIVE accessible_groups AS (
 )
 SELECT
     task.id AS task_id,
-    task.status
+    task.status,
+    EXISTS (
+        SELECT 1
+        FROM context69.task_docling_remote_jobs job
+        WHERE job.task_id = task.id
+          AND job.status IN ('submitting', 'submission_uncertain')
+    ) AS "docling_submission_uncertain!"
 FROM context69.tasks task
 WHERE (
       task.user_id = $1
@@ -47,6 +53,8 @@ WHERE (
   AND ($5::text IS NULL OR task.stage = $5)
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
+  AND ($10::text IS NULL OR task.group_path = $10)
+  AND ($11::text IS NULL OR task.source_key = $11)
   AND (
       ($8::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
       OR ($8::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')

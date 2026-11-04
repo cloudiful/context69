@@ -11,10 +11,15 @@ use crate::db::task_file_dedup::{
 };
 
 use super::INITIAL_ITEM_STAGE;
+use super::docling_remote_jobs::{
+    DoclingRiskAck, DoclingSubmissionFence, DoclingSubmissionOutcome,
+    ParkSubmissionUncertainRequest,
+};
 use super::execution::ExecutionContext;
 use super::types::{
-    AttachTaskItemArtifactRequest, FinishTaskItemRequest, RerunTaskItem, StoredTask,
-    TaskItemArtifactRow, WaitTaskItemRequest,
+    AttachTaskItemArtifactRequest, DoclingProbeOutcome, DoclingProbeUpdate, FailTaskItemOutcome,
+    FailTaskItemRequest, FinishTaskItemRequest, RerunTaskItem, StoredTask, TaskItemArtifactRow,
+    TimeoutDoclingProbeRequest, WaitTaskItemRequest,
 };
 
 /// Whether the library refused the transition because the caller no longer
@@ -124,7 +129,10 @@ impl Database {
             request.execution.fencing_token(),
             request.attempt_id,
             request.execution.task_id(),
-            request.execution.generation
+            request.execution.generation,
+            Option::<i32>::None,
+            Option::<i32>::None,
+            Some(request.task_id)
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -392,6 +400,31 @@ impl Database {
             > 0)
     }
 
+    /// The persisted staged input object of one running item under the
+    /// captured grant.
+    ///
+    /// `None` means the grant no longer owns the row or the item carries no
+    /// input. Atomic callers must fail closed on it instead of reading the
+    /// canonical file: the captured pointer is a physical source authority,
+    /// never a display fallback.
+    pub async fn get_item_input_storage_object(
+        &self,
+        item_id: Uuid,
+        execution: &ExecutionContext,
+    ) -> Result<Option<Uuid>> {
+        let input: Option<Uuid> = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/get_item_input_storage_object.sql",
+            item_id,
+            execution.fencing_token(),
+            execution.task_id(),
+            execution.generation
+        )
+        .fetch_optional(self.pool())
+        .await?
+        .flatten();
+        Ok(input)
+    }
+
     /// Writes the payload of a running item on a borrowed connection, guarded
     /// by the whole captured grant.
     ///
@@ -544,7 +577,10 @@ impl Database {
             request.next_attempt_at,
             request.error_message,
             request.execution.task_id(),
-            request.execution.generation
+            request.execution.generation,
+            Option::<i32>::None,
+            Option::<i32>::None,
+            Some(request.task_id)
         )
         .fetch_one(&mut *tx)
         .await?;
@@ -557,7 +593,463 @@ impl Database {
         Ok(true)
     }
 
+    /// Ends one committed failed execution segment and advances the item's
+    /// internal failure budget exactly once.
+    ///
+    /// The library is sealed first: a permanent failure when the next budget
+    /// reaches five, a deferred completion otherwise. Only then does the same
+    /// transaction run the guarded domain write with the observed budget
+    /// snapshot and the captured execution. If the library actually cancelled
+    /// the segment, the domain follows that cancellation with no increment.
+    /// A changed budget, lease, item, attempt or parent rolls both writes back.
+    pub async fn fail_task_item(
+        &self,
+        request: FailTaskItemRequest<'_>,
+    ) -> Result<FailTaskItemOutcome> {
+        let mut tx = self.pool().begin().await?;
+        let queue = self.execution_queue().await?;
+        let next_failure_count = (request.current_failure_count + 1).min(5);
+        let exhausted = next_failure_count >= 5;
+        let result = if exhausted {
+            queue
+                .fail_in(
+                    &mut tx,
+                    &request.execution.attempt,
+                    &Failure::permanent(Some(
+                        serde_json::json!({ "stage": request.failure_stage }),
+                    )),
+                )
+                .await
+        } else {
+            queue
+                .complete_in(
+                    &mut tx,
+                    &request.execution.attempt,
+                    Some(serde_json::json!({
+                        "outcome": "deferred",
+                        "waiting_reason": "backoff",
+                        "failure_stage": request.failure_stage,
+                    })),
+                )
+                .await
+        };
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) if is_lease_lost(&error) => {
+                tx.rollback().await.ok();
+                return Ok(FailTaskItemOutcome::LeaseLost);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        let cancelled = outcome.status() == TaskStatus::Cancelled;
+        let updated: bool = if cancelled {
+            sqlx::query_file_scalar!(
+                "src/sql/db/tasks/finish_item.sql",
+                request.item_id,
+                "cancelled",
+                Option::<&str>::None,
+                Some(request.failure_stage),
+                Some(request.error_message),
+                false,
+                request.execution.fencing_token(),
+                request.attempt_id,
+                request.execution.task_id(),
+                request.execution.generation,
+                Some(request.current_failure_count),
+                Some(request.current_failure_count),
+                Some(request.task_id)
+            )
+            .fetch_one(&mut *tx)
+            .await?
+        } else if exhausted {
+            sqlx::query_file_scalar!(
+                "src/sql/db/tasks/finish_item.sql",
+                request.item_id,
+                "failed",
+                Option::<&str>::None,
+                Some(request.failure_stage),
+                Some(request.error_message),
+                false,
+                request.execution.fencing_token(),
+                request.attempt_id,
+                request.execution.task_id(),
+                request.execution.generation,
+                Some(next_failure_count),
+                Some(request.current_failure_count),
+                Some(request.task_id)
+            )
+            .fetch_one(&mut *tx)
+            .await?
+        } else {
+            sqlx::query_file_scalar!(
+                "src/sql/db/tasks/wait_item.sql",
+                request.item_id,
+                request.execution.fencing_token(),
+                "backoff",
+                Option::<&str>::None,
+                request.next_attempt_at,
+                Some(request.error_message),
+                request.execution.task_id(),
+                request.execution.generation,
+                Some(next_failure_count),
+                Some(request.current_failure_count),
+                Some(request.task_id)
+            )
+            .fetch_one(&mut *tx)
+            .await?
+        };
+        if !updated {
+            tx.rollback().await.ok();
+            return Ok(FailTaskItemOutcome::Stale);
+        }
+        if cancelled || exhausted {
+            let status = if cancelled { "cancelled" } else { "failed" };
+            sqlx::query_file!(
+                "src/sql/db/tasks/project_file_status.sql",
+                request.item_id,
+                status,
+                Some(request.error_message)
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        recompute_parent(&mut tx, request.task_id).await?;
+        tx.commit().await?;
+        Ok(if cancelled {
+            FailTaskItemOutcome::Cancelled
+        } else if exhausted {
+            FailTaskItemOutcome::Exhausted
+        } else {
+            FailTaskItemOutcome::Waiting {
+                next_attempt_at: request.next_attempt_at,
+            }
+        })
+    }
+
+    /// Atomically parks one item on a known Docling job's next due time.
+    ///
+    /// The library completes the captured attempt first (a deferred success),
+    /// then the probe observation and the domain park are written under the
+    /// same captured-execution fence. Actual library cancellation wins and
+    /// finalizes the domain cancellation without changing the failure budget or
+    /// probe counters. Any refused write rolls the whole transaction back.
+    pub async fn park_docling_probe(
+        &self,
+        request: WaitTaskItemRequest<'_>,
+        attempt_id: i64,
+        probe: DoclingProbeUpdate,
+    ) -> Result<DoclingProbeOutcome> {
+        let mut tx = self.pool().begin().await?;
+        let queue = self.execution_queue().await?;
+        let deferred = serde_json::json!({
+            "outcome": "deferred",
+            "waiting_reason": request.waiting_reason,
+            "dependency_key": request.dependency_key,
+        });
+        let outcome = match queue
+            .complete_in(&mut tx, &request.execution.attempt, Some(deferred))
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(error) if is_lease_lost(&error) => {
+                tx.rollback().await.ok();
+                return Ok(DoclingProbeOutcome::LeaseLost);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if outcome.status() == TaskStatus::Cancelled {
+            let updated: bool = sqlx::query_file_scalar!(
+                "src/sql/db/tasks/finish_item.sql",
+                request.item_id,
+                "cancelled",
+                Option::<&str>::None,
+                Some("docling"),
+                Some("remote job cancelled with owning item"),
+                false,
+                request.execution.fencing_token(),
+                attempt_id,
+                request.execution.task_id(),
+                request.execution.generation,
+                Option::<i32>::None,
+                Option::<i32>::None,
+                Some(request.task_id)
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if !updated {
+                tx.rollback().await.ok();
+                return Ok(DoclingProbeOutcome::Stale);
+            }
+            recompute_parent(&mut tx, request.task_id).await?;
+            tx.commit().await?;
+            return Ok(DoclingProbeOutcome::Cancelled);
+        }
+        let recorded = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_jobs/record_probe.sql",
+            probe.job_id,
+            request.item_id,
+            request.task_id,
+            request.execution.fencing_token(),
+            request.execution.task_id(),
+            request.execution.generation,
+            probe.remote_status,
+            probe.poll_step,
+            probe.error_count,
+            probe.last_error,
+            probe.next_poll_at,
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if recorded.is_none() {
+            tx.rollback().await.ok();
+            return Ok(DoclingProbeOutcome::Stale);
+        }
+        let parked: bool = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/wait_item.sql",
+            request.item_id,
+            request.execution.fencing_token(),
+            request.waiting_reason,
+            request.dependency_key,
+            request.next_attempt_at,
+            request.error_message,
+            request.execution.task_id(),
+            request.execution.generation,
+            Option::<i32>::None,
+            Option::<i32>::None,
+            Some(request.task_id)
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !parked {
+            tx.rollback().await.ok();
+            return Ok(DoclingProbeOutcome::Stale);
+        }
+        recompute_parent(&mut tx, request.task_id).await?;
+        tx.commit().await?;
+        Ok(DoclingProbeOutcome::Parked)
+    }
+
+    /// Atomically parks one unknown Docling dispatch outcome.
+    ///
+    /// The library completes the captured attempt first (a deferred success),
+    /// then the durable `submission_uncertain` marker and a `waiting/docling`
+    /// park with no due time are written under the same captured-execution
+    /// fence. The failure budget is unchanged and no automatic retry is
+    /// scheduled: only the operator acknowledgement of a later phase may
+    /// reopen this work. Actual library cancellation wins and finalizes the
+    /// domain cancellation with the honest unknown-outcome diagnostic.
+    pub async fn park_submission_uncertain(
+        &self,
+        request: ParkSubmissionUncertainRequest<'_>,
+    ) -> Result<DoclingSubmissionOutcome> {
+        let mut tx = self.pool().begin().await?;
+        let queue = self.execution_queue().await?;
+        let deferred = serde_json::json!({
+            "outcome": "deferred",
+            "waiting_reason": "docling",
+            "dependency_key": serde_json::Value::Null,
+        });
+        let outcome = match queue
+            .complete_in(&mut tx, &request.execution.attempt, Some(deferred))
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(error) if is_lease_lost(&error) => {
+                tx.rollback().await.ok();
+                return Ok(DoclingSubmissionOutcome::LeaseLost);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if outcome.status() == TaskStatus::Cancelled {
+            let updated: bool = sqlx::query_file_scalar!(
+                "src/sql/db/tasks/finish_item.sql",
+                request.item_id,
+                "cancelled",
+                Option::<&str>::None,
+                Some("docling"),
+                Some(request.reason),
+                false,
+                request.execution.fencing_token(),
+                request.attempt_id,
+                request.execution.task_id(),
+                request.execution.generation,
+                Option::<i32>::None,
+                Option::<i32>::None,
+                Some(request.task_id)
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if !updated {
+                tx.rollback().await.ok();
+                return Ok(DoclingSubmissionOutcome::Stale);
+            }
+            recompute_parent(&mut tx, request.task_id).await?;
+            tx.commit().await?;
+            return Ok(DoclingSubmissionOutcome::Cancelled);
+        }
+        let fence = DoclingSubmissionFence {
+            task_id: request.task_id,
+            item_id: request.item_id,
+            lease_token: request.execution.fencing_token(),
+            execution_task_id: request.execution.task_id(),
+            generation: request.execution.generation,
+        };
+        let marked = self
+            .mark_docling_submission_uncertain_in(
+                &mut tx,
+                request.job_id,
+                &fence,
+                Some(request.reason),
+            )
+            .await?;
+        if !marked {
+            tx.rollback().await.ok();
+            return Ok(DoclingSubmissionOutcome::Stale);
+        }
+        let parked: bool = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/wait_item.sql",
+            request.item_id,
+            fence.lease_token,
+            "docling",
+            Option::<&str>::None,
+            Option::<chrono::DateTime<chrono::Utc>>::None,
+            Some(request.reason),
+            fence.execution_task_id,
+            fence.generation,
+            Option::<i32>::None,
+            Option::<i32>::None,
+            Some(request.task_id)
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !parked {
+            tx.rollback().await.ok();
+            return Ok(DoclingSubmissionOutcome::Stale);
+        }
+        recompute_parent(&mut tx, request.task_id).await?;
+        tx.commit().await?;
+        Ok(DoclingSubmissionOutcome::Parked)
+    }
+
+    /// Atomically expires one known Docling job at its deadline.
+    ///
+    /// The library permanently seals the captured attempt first. A real library
+    /// cancellation wins and finalizes the domain cancellation with no budget
+    /// or probe change. Otherwise the job and its single `deadline` cleanup row
+    /// are written under the captured-execution fence, and the item fails
+    /// through the normal single-increment failure transition. A refused job
+    /// predicate rolls the library seal back rather than timing out early.
+    pub async fn timeout_docling_probe(
+        &self,
+        request: TimeoutDoclingProbeRequest<'_>,
+    ) -> Result<DoclingProbeOutcome> {
+        let mut tx = self.pool().begin().await?;
+        let queue = self.execution_queue().await?;
+        let outcome = match queue
+            .fail_in(
+                &mut tx,
+                &request.execution.attempt,
+                &Failure::permanent(Some(serde_json::json!({ "stage": "docling" }))),
+            )
+            .await
+        {
+            Ok(outcome) => outcome,
+            Err(error) if is_lease_lost(&error) => {
+                tx.rollback().await.ok();
+                return Ok(DoclingProbeOutcome::LeaseLost);
+            }
+            Err(error) => return Err(error.into()),
+        };
+        if outcome.status() == TaskStatus::Cancelled {
+            let updated: bool = sqlx::query_file_scalar!(
+                "src/sql/db/tasks/finish_item.sql",
+                request.item_id,
+                "cancelled",
+                Option::<&str>::None,
+                Some("docling"),
+                Some(request.error_message),
+                false,
+                request.execution.fencing_token(),
+                request.attempt_id,
+                request.execution.task_id(),
+                request.execution.generation,
+                Option::<i32>::None,
+                Option::<i32>::None,
+                Some(request.task_id)
+            )
+            .fetch_one(&mut *tx)
+            .await?;
+            if !updated {
+                tx.rollback().await.ok();
+                return Ok(DoclingProbeOutcome::Stale);
+            }
+            recompute_parent(&mut tx, request.task_id).await?;
+            tx.commit().await?;
+            return Ok(DoclingProbeOutcome::Cancelled);
+        }
+        let timed_out: bool = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/docling_remote_jobs/finish_timed_out.sql",
+            request.job_id,
+            request.item_id,
+            request.task_id,
+            request.execution.fencing_token(),
+            request.execution.task_id(),
+            request.execution.generation,
+            request.error_message,
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !timed_out {
+            tx.rollback().await.ok();
+            return Ok(DoclingProbeOutcome::Stale);
+        }
+        let finished: bool = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/finish_item.sql",
+            request.item_id,
+            "failed",
+            Option::<&str>::None,
+            Some("docling"),
+            Some(request.error_message),
+            false,
+            request.execution.fencing_token(),
+            request.attempt_id,
+            request.execution.task_id(),
+            request.execution.generation,
+            Option::<i32>::None,
+            Option::<i32>::None,
+            Some(request.task_id)
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if !finished {
+            tx.rollback().await.ok();
+            return Ok(DoclingProbeOutcome::Stale);
+        }
+        sqlx::query_file!(
+            "src/sql/db/tasks/project_file_status.sql",
+            request.item_id,
+            "failed",
+            Some(request.error_message)
+        )
+        .execute(&mut *tx)
+        .await?;
+        recompute_parent(&mut tx, request.task_id).await?;
+        tx.commit().await?;
+        Ok(DoclingProbeOutcome::TimedOut)
+    }
+
     pub async fn retry_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
+        self.retry_task_items_with_ack(task_id, user_id, DoclingRiskAck::Unacknowledged)
+            .await
+    }
+
+    /// Retry with an explicit Docling acknowledgement decision.
+    pub async fn retry_task_items_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        ack: DoclingRiskAck,
+    ) -> Result<Vec<Uuid>> {
         let mut tx = self.pool().begin().await?;
         // Take the same per-file locks as a new submission before the
         // retry's active-sibling check, so a concurrent create/rerun cannot
@@ -566,8 +1058,11 @@ impl Database {
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
+        let acknowledged = self
+            .ack_docling_uncertain_in(&mut tx, task_id, Some(user_id), ack)
+            .await?;
         claim_failed_item_file_slots(&mut tx, task.group_id, task_id).await?;
-        let retried = sqlx::query_file_as!(
+        let mut retried = sqlx::query_file_as!(
             RequeuedItem,
             "src/sql/db/tasks/retry_items.sql",
             task_id,
@@ -575,6 +1070,10 @@ impl Database {
         )
         .fetch_all(&mut *tx)
         .await?;
+        retried.extend(
+            self.reopen_uncertain_in(&mut tx, task_id, user_id, &acknowledged)
+                .await?,
+        );
         if !retried.is_empty() {
             // A requeued row without an execution segment stays unclaimable:
             // the claim path leaves an item the library does not execute
@@ -615,13 +1114,27 @@ impl Database {
     /// it the reopened item stays unclaimable, because the claim path leaves an
     /// item the library does not execute alone.
     pub async fn resume_task_items(&self, task_id: Uuid, user_id: i64) -> Result<Vec<Uuid>> {
+        self.resume_task_items_with_ack(task_id, user_id, DoclingRiskAck::Unacknowledged)
+            .await
+    }
+
+    /// Resume in place with an explicit Docling acknowledgement decision.
+    pub async fn resume_task_items_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        ack: DoclingRiskAck,
+    ) -> Result<Vec<Uuid>> {
         let mut tx = self.pool().begin().await?;
         let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
+        let acknowledged = self
+            .ack_docling_uncertain_in(&mut tx, task_id, Some(user_id), ack)
+            .await?;
         claim_unfinished_item_file_slots(&mut tx, task.group_id, task_id).await?;
-        let resumed = sqlx::query_file_as!(
+        let mut resumed = sqlx::query_file_as!(
             RequeuedItem,
             "src/sql/db/tasks/resume_items.sql",
             task_id,
@@ -629,6 +1142,10 @@ impl Database {
         )
         .fetch_all(&mut *tx)
         .await?;
+        resumed.extend(
+            self.reopen_uncertain_in(&mut tx, task_id, user_id, &acknowledged)
+                .await?,
+        );
         if !resumed.is_empty() {
             self.link_unlinked_rows(&mut tx, &resumed).await?;
             // The parent leaves `cancelled`/`failed` through its own projection:
@@ -656,13 +1173,27 @@ impl Database {
         task_id: Uuid,
         user_id: i64,
     ) -> Result<Vec<Uuid>> {
+        self.resume_cancelled_task_items_with_ack(task_id, user_id, DoclingRiskAck::Unacknowledged)
+            .await
+    }
+
+    /// Cancelled-task resume with an explicit Docling acknowledgement decision.
+    pub async fn resume_cancelled_task_items_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: i64,
+        ack: DoclingRiskAck,
+    ) -> Result<Vec<Uuid>> {
         let mut tx = self.pool().begin().await?;
         let task = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
             .fetch_optional(&mut *tx)
             .await?
             .ok_or_else(|| crate::domain_errors::DomainError::not_found("task not found"))?;
+        let acknowledged = self
+            .ack_docling_uncertain_in(&mut tx, task_id, Some(user_id), ack)
+            .await?;
         claim_unfinished_item_file_slots(&mut tx, task.group_id, task_id).await?;
-        let resumed = sqlx::query_file_as!(
+        let mut resumed = sqlx::query_file_as!(
             RequeuedItem,
             "src/sql/db/tasks/resume_cancelled_items.sql",
             task_id,
@@ -670,6 +1201,10 @@ impl Database {
         )
         .fetch_all(&mut *tx)
         .await?;
+        resumed.extend(
+            self.reopen_uncertain_in(&mut tx, task_id, user_id, &acknowledged)
+                .await?,
+        );
         if !resumed.is_empty() {
             self.link_unlinked_rows(&mut tx, &resumed).await?;
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
@@ -678,6 +1213,32 @@ impl Database {
         }
         tx.commit().await?;
         Ok(resumed.into_iter().map(|item| item.id).collect())
+    }
+
+    /// Reopens the archived waiting Docling items of the same operation.
+    ///
+    /// Runs inside the caller's transaction and only matches items that are
+    /// still parked on `waiting/docling`, so an item that changed state after
+    /// the archive is left alone instead of being forced active.
+    async fn reopen_uncertain_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        task_id: Uuid,
+        user_id: i64,
+        archived_item_ids: &[Uuid],
+    ) -> Result<Vec<RequeuedItem>> {
+        if archived_item_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        Ok(sqlx::query_file_as!(
+            RequeuedItem,
+            "src/sql/db/tasks/docling_remote_jobs/reopen_uncertain_items.sql",
+            task_id,
+            user_id,
+            archived_item_ids,
+        )
+        .fetch_all(&mut **tx)
+        .await?)
     }
 
     /// Opens the execution segment of every requeued row the library does not
@@ -723,9 +1284,25 @@ impl Database {
     /// instead, which reopens the same task row so a cancelled submission never
     /// gains a second visible task.
     pub async fn rerun_task(&self, task_id: Uuid) -> Result<(Uuid, Vec<Uuid>)> {
+        self.rerun_task_with_ack(task_id, None, DoclingRiskAck::Unacknowledged)
+            .await
+    }
+
+    /// Forked rerun with an explicit Docling acknowledgement decision.
+    ///
+    /// The unknown submissions are archived inside the same transaction; the
+    /// old uncertain items are never queued before or after the fork.
+    pub async fn rerun_task_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: Option<i64>,
+        ack: DoclingRiskAck,
+    ) -> Result<(Uuid, Vec<Uuid>)> {
         let mut tx = self.pool().begin().await?;
         let source = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
             .fetch_one(&mut *tx)
+            .await?;
+        self.ack_docling_uncertain_in(&mut tx, task_id, user_id, ack)
             .await?;
         // Same shared per-file locks as create/retry: rerun's active-sibling
         // filter must not race a concurrent submission for the same file.
@@ -757,6 +1334,9 @@ impl Database {
         .await?;
         let mut item_ids = Vec::with_capacity(items.len());
         let queue = self.execution_queue().await?;
+        let class = super::execution::ExecutionClass::for_task_kind(
+            super::execution::task_kind_from_db(&source.kind)?,
+        );
         for (ordinal, item) in items.iter().enumerate() {
             let item_id = Uuid::new_v4();
             item_ids.push(item_id);
@@ -770,6 +1350,7 @@ impl Database {
                     new_task_id,
                     super::execution::FIRST_GENERATION,
                 ),
+                class,
             )
             .await?;
             sqlx::query_file!(
@@ -820,6 +1401,20 @@ impl Database {
     /// parent holds no rerunnable source, and a `conflict` means every
     /// candidate file is already covered by an active processing task.
     pub async fn rerun_task_source(&self, task_id: Uuid) -> Result<(Uuid, Vec<Uuid>)> {
+        self.rerun_task_source_with_ack(task_id, None, DoclingRiskAck::Unacknowledged)
+            .await
+    }
+
+    /// Fresh-source rerun with an explicit Docling acknowledgement decision.
+    ///
+    /// The archive shares this transaction; the old uncertain waiting item is
+    /// never queued, before or after the replacement task is created.
+    pub async fn rerun_task_source_with_ack(
+        &self,
+        task_id: Uuid,
+        user_id: Option<i64>,
+        ack: DoclingRiskAck,
+    ) -> Result<(Uuid, Vec<Uuid>)> {
         let mut tx = self.pool().begin().await?;
         let file_ids =
             sqlx::query_file_scalar!("src/sql/db/tasks/source_rerun_file_ids.sql", task_id)
@@ -836,6 +1431,8 @@ impl Database {
         }
         let source = sqlx::query_file_as!(StoredTask, "src/sql/db/tasks/get_internal.sql", task_id)
             .fetch_one(&mut *tx)
+            .await?;
+        self.ack_docling_uncertain_in(&mut tx, task_id, user_id, ack)
             .await?;
         // A URL source rerun downloads the current source URI, so releasing the
         // cached bytes of the earlier download does not make it unavailable.
@@ -879,6 +1476,9 @@ impl Database {
         .await?;
         let mut item_ids = Vec::with_capacity(items.len());
         let queue = self.execution_queue().await?;
+        let class = super::execution::ExecutionClass::for_task_kind(
+            super::execution::task_kind_from_db(&source.kind)?,
+        );
         for (ordinal, item) in items.iter().enumerate() {
             let item_id = Uuid::new_v4();
             item_ids.push(item_id);
@@ -890,6 +1490,7 @@ impl Database {
                     new_task_id,
                     super::execution::FIRST_GENERATION,
                 ),
+                class,
             )
             .await?;
             sqlx::query_file!(

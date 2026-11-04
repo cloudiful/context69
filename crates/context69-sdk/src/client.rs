@@ -20,12 +20,13 @@ pub use facade::{
     MetadataDataType, MetadataFilter, MetadataFilterOperator, MetadataValueKind, OffsetPageQuery,
     OffsetPagination, RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, SearchMode,
     SearchPagination, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
-    SourcePolicy, TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryRequest,
-    TaskBatchRetryResponse, TaskItemResponse, TaskItemStatus, TaskItemsOptions, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListOptions, TaskListQuery, TaskListView, TaskPageResponse,
-    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
-    TaskSubmitRequest, TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective,
-    TranslationStatus, UrlBatchItem, UrlBatchRequest, Visibility, WaitOptions,
+    SourcePolicy, TaskBatchGetItem, TaskBatchGetOutcome, TaskBatchGetRequest, TaskBatchGetResponse,
+    TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryRequest, TaskBatchRetryResponse,
+    TaskItemResponse, TaskItemStatus, TaskItemsOptions, TaskItemsQuery, TaskItemsResponse,
+    TaskKind, TaskListOptions, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
+    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
+    TextBatchItem, TextBatchRequest, TextContentFormat, TranslationDirective, TranslationStatus,
+    UrlBatchItem, UrlBatchRequest, Visibility, WaitOptions,
 };
 
 pub(crate) const PERSONAL_ACCESS_TOKEN_PREFIX: &str = "ctx_pat_";

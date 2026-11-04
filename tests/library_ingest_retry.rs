@@ -176,7 +176,9 @@ mod integration {
     use context69::db::{CreateTaskSubmissionRequest, Database};
     use context69::embedding::{EmbeddingProvider, EmbeddingRuntime};
     use context69::qdrant_index::QdrantIndex;
-    use context69::services::library::{LibraryService, LibraryServiceConfig};
+    use context69::services::library::{
+        LibraryService, LibraryServiceConfig, TaskIngestStep, parse_indexing_checkpoint,
+    };
     use context69::services::secret_store;
     use context69::services::settings::SettingsService;
     use context69::services::sync::SyncService;
@@ -192,7 +194,16 @@ mod integration {
     use sqlx::Row;
     use uuid::Uuid;
 
+    use futures::FutureExt;
+
     use super::qdrant_points_mock::QdrantPointsMock;
+
+    fn completed(step: TaskIngestStep<Value>) -> Value {
+        match step {
+            TaskIngestStep::Complete(value) => value,
+            TaskIngestStep::Yielded => panic!("an unbounded checkpoint call yielded"),
+        }
+    }
 
     struct NoopCallbacks;
     #[async_trait]
@@ -268,7 +279,8 @@ mod integration {
         db: &Database,
         runtime: VectorRuntime,
     ) -> (LibraryService, std::path::PathBuf) {
-        let storage_root = std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
+        let mut storage_root =
+            std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
         let settings = SettingsService::new(db.clone());
         let translation = TranslationService::new(TranslationDependencies {
             pool: db.pool().clone(),
@@ -656,7 +668,7 @@ mod integration {
             })
             .await
             .expect("create task");
-        let mut items = db.claim_items(100).await.expect("claim items");
+        let mut items = db.claim_items().await.expect("claim items");
         let position = items
             .iter()
             .position(|item| item.id == item_ids[0])
@@ -696,17 +708,19 @@ mod integration {
         );
         assert!(runtime.is_ready());
 
-        let payload_after = service
-            .persist_file_sections_for_task_with_checkpoint(
-                file_id,
-                &sample_section_payload(),
-                item.id,
-                item.lease_token,
-                &item.payload,
-                item.attempt_count,
-            )
-            .await
-            .expect("the recovered indexing attempt succeeds");
+        let payload_after = completed(
+            service
+                .persist_file_sections_for_task_with_checkpoint(
+                    file_id,
+                    &sample_section_payload(),
+                    item.id,
+                    item.lease_token,
+                    &item.payload,
+                    item.attempt_count,
+                )
+                .await
+                .expect("the recovered indexing attempt succeeds"),
+        );
         let calls_after_indexing = embedding.calls();
         let file_after_indexing = file_state(&db, file_id).await;
         let chunks_after_indexing = file_chunk_count(&db, file_id).await;
@@ -726,17 +740,19 @@ mod integration {
         .execute(db.pool())
         .await
         .expect("simulate the crash boundary");
-        let payload_again = service
-            .persist_file_sections_for_task_with_checkpoint(
-                file_id,
-                &sample_section_payload(),
-                item.id,
-                item.lease_token,
-                &payload_after,
-                item.attempt_count,
-            )
-            .await
-            .expect("the checkpointed resume succeeds");
+        let payload_again = completed(
+            service
+                .persist_file_sections_for_task_with_checkpoint(
+                    file_id,
+                    &sample_section_payload(),
+                    item.id,
+                    item.lease_token,
+                    &payload_after,
+                    item.attempt_count,
+                )
+                .await
+                .expect("the checkpointed resume succeeds"),
+        );
         let calls_after_resume = embedding.calls();
         let chunks_after_resume = file_chunk_count(&db, file_id).await;
         let documents_after_resume = file_document_count(&db, file_id).await;
@@ -808,6 +824,307 @@ mod integration {
         );
         assert_eq!(item_after_resume.0, "running");
         assert_eq!(item_after_resume.1, attempts_before);
+    }
+
+    /// The persisted legacy ingest quantum the case temporarily changes.
+    struct QuantumBaseline {
+        existed: bool,
+        value: i64,
+    }
+
+    impl QuantumBaseline {
+        async fn capture(db: &Database) -> Self {
+            let value: Option<i64> = sqlx::query_scalar(
+                "SELECT ingest_batches_per_segment \
+                 FROM context69.runtime_scheduler_settings WHERE singleton",
+            )
+            .fetch_optional(db.pool())
+            .await
+            .expect("read the persisted ingest quantum");
+            Self {
+                existed: value.is_some(),
+                value: value.unwrap_or(1),
+            }
+        }
+
+        async fn set(db: &Database, value: usize) {
+            let value = i32::try_from(value).expect("the test quantum fits an integer");
+            sqlx::query(
+                "INSERT INTO context69.runtime_scheduler_settings \
+                 (singleton, interval_secs, run_on_start, max_concurrency, job_id, \
+                  valkey_url, ingest_batches_per_segment) \
+                 VALUES (TRUE, 300, TRUE, 1, 'legacy-ingest-quantum', NULL, $1) \
+                 ON CONFLICT (singleton) DO UPDATE \
+                 SET ingest_batches_per_segment = EXCLUDED.ingest_batches_per_segment",
+            )
+            .bind(value)
+            .execute(db.pool())
+            .await
+            .expect("set the ingest quantum");
+        }
+
+        async fn restore(self, db: &Database) {
+            if self.existed {
+                sqlx::query(
+                    "UPDATE context69.runtime_scheduler_settings \
+                     SET ingest_batches_per_segment = $1 WHERE singleton",
+                )
+                .bind(self.value)
+                .execute(db.pool())
+                .await
+                .expect("restore the persisted ingest quantum");
+            } else {
+                sqlx::query(
+                    "DELETE FROM context69.runtime_scheduler_settings WHERE singleton \
+                     AND job_id = 'legacy-ingest-quantum'",
+                )
+                .execute(db.pool())
+                .await
+                .expect("clear the ingest quantum fixture row");
+            }
+        }
+    }
+
+    struct SwitchingEmbedding {
+        db: Database,
+        switch_to: usize,
+        switched: std::sync::atomic::AtomicBool,
+        embed_calls: AtomicUsize,
+    }
+
+    impl SwitchingEmbedding {
+        fn new(db: Database, switch_to: usize) -> Self {
+            Self {
+                db,
+                switch_to,
+                switched: std::sync::atomic::AtomicBool::new(false),
+                embed_calls: AtomicUsize::new(0),
+            }
+        }
+
+        fn calls(&self) -> usize {
+            self.embed_calls.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for SwitchingEmbedding {
+        async fn embed_texts(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>> {
+            self.embed_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if !self
+                .switched
+                .swap(true, std::sync::atomic::Ordering::SeqCst)
+            {
+                QuantumBaseline::set(&self.db, self.switch_to).await;
+            }
+            Ok(texts.iter().map(|_| vec![0.0; 4]).collect())
+        }
+    }
+
+    #[derive(Clone, Copy)]
+    enum LegacyQuantumMode {
+        Fixed(usize),
+        SwitchDuringFirstSegment { start: usize, then: usize },
+    }
+
+    enum TestEmbedding {
+        Spy(Arc<EmbeddingSpy>),
+        Switching(Arc<SwitchingEmbedding>),
+    }
+
+    impl TestEmbedding {
+        fn calls(&self) -> usize {
+            match self {
+                Self::Spy(embedding) => embedding.calls(),
+                Self::Switching(embedding) => embedding.calls(),
+            }
+        }
+
+        fn handle(&self) -> Arc<dyn EmbeddingProvider> {
+            match self {
+                Self::Spy(embedding) => embedding.clone(),
+                Self::Switching(embedding) => embedding.clone(),
+            }
+        }
+    }
+
+    /// The shared long legacy checkpoint fixture, parameterized by the persisted
+    /// finite quantum.
+    async fn long_legacy_quantum_case(mode: LegacyQuantumMode) {
+        let (_guard, db) = prepare_isolated_db().await;
+        let qdrant = QdrantPointsMock::start().await;
+        let index = QdrantIndex::for_test_unreachable(qdrant.url(), "test-noop", 4)
+            .expect("build the long indexing mock");
+        let (first_quantum, later_quantum) = match mode {
+            LegacyQuantumMode::Fixed(quantum) => (quantum, quantum),
+            LegacyQuantumMode::SwitchDuringFirstSegment { start, then } => (start, then),
+        };
+        let quantum_baseline = QuantumBaseline::capture(&db).await;
+        let group = seed_group_record(&db).await;
+        let mut storage_root =
+            std::env::temp_dir().join(format!("context69-test-{}", Uuid::new_v4()));
+        let user_id = seed_user(&db).await;
+
+        let outcome = std::panic::AssertUnwindSafe(async {
+            QuantumBaseline::set(&db, first_quantum).await;
+            let (embedding, service) = match mode {
+                LegacyQuantumMode::Fixed(_) => {
+                    let embedding = TestEmbedding::Spy(Arc::new(EmbeddingSpy::default()));
+                    let (service, root) =
+                        build_library_service(&db, embedding.handle(), index).await;
+                    storage_root.clone_from(&root);
+                    (embedding, service)
+                }
+                LegacyQuantumMode::SwitchDuringFirstSegment { then, .. } => {
+                    let embedding = TestEmbedding::Switching(Arc::new(SwitchingEmbedding::new(
+                        db.clone(),
+                        then,
+                    )));
+                    let (service, root) =
+                        build_library_service(&db, embedding.handle(), index).await;
+                    storage_root.clone_from(&root);
+                    (embedding, service)
+                }
+            };
+            let file_id = seed_text_file(&db, &storage_root, &group).await;
+            let body = "a".repeat(200_000);
+            let sections = json!([{
+                "section_key": "section-0",
+                "section_label": "Section 0",
+                "title": "long.txt / Section 0",
+                "summary": null,
+                "body_text": body,
+                "source_uri": null,
+                "external_id": null,
+                "published_at": null,
+                "metadata_json": {}
+            }]);
+            let initial_payload = json!({
+                "external_id": "r1-long",
+                "section_payload": sections
+            });
+            let task_id = Uuid::new_v4();
+            let (_, _, item_ids) = db
+                .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+                    task_id,
+                    user_id,
+                    group_id: Some(group.id),
+                    kind: "text_batch",
+                    group_path: Some("test/retry-repro"),
+                    source_key: None,
+                    payloads: std::slice::from_ref(&initial_payload),
+                    input_storage_object_ids: None,
+                    idempotency_key: None,
+                    request_hash: &format!("r1-long-{}", Uuid::new_v4()),
+                })
+                .await
+                .expect("create the long task");
+            let mut items = db.claim_items().await.expect("claim items");
+            let position = items
+                .iter()
+                .position(|item| item.id == item_ids[0])
+                .expect("the long item is claimable");
+            let item = items.swap_remove(position);
+            let mut payload = item.payload.clone();
+            let mut committed = 0usize;
+            let mut total: Option<usize> = None;
+            let mut turns = 0usize;
+            let mut first = true;
+            loop {
+                let quantum = if first { first_quantum } else { later_quantum };
+                let remaining = total.unwrap_or(4) - committed;
+                let expected = quantum.min(remaining);
+                let before = embedding.calls();
+                let step = service
+                    .persist_file_sections_for_task_with_checkpoint(
+                        file_id,
+                        &sections,
+                        item.id,
+                        item.lease_token,
+                        &payload,
+                        item.attempt_count,
+                    )
+                    .await
+                    .expect("the legacy indexing turn runs");
+                turns += 1;
+                let delta = embedding.calls() - before;
+                assert_eq!(
+                    delta, expected,
+                    "turn {turns} commits exactly its configured quantum"
+                );
+                committed += expected;
+                if first {
+                    first = false;
+                    if matches!(mode, LegacyQuantumMode::SwitchDuringFirstSegment { .. }) {
+                        assert_eq!(
+                            db.get_ingest_batches_per_segment()
+                                .await
+                                .expect("read the changed quantum"),
+                            later_quantum,
+                            "the database value changed during the segment"
+                        );
+                    }
+                }
+                match step {
+                    TaskIngestStep::Complete(value) => {
+                        payload = value;
+                        break;
+                    }
+                    TaskIngestStep::Yielded => {
+                        let (_, _, durable) = read_item(&db, item.id).await;
+                        payload = durable;
+                        total = parse_indexing_checkpoint(&payload).total_batches;
+                    }
+                }
+                assert!(turns < 10, "the legacy loop must converge in bounded turns");
+            }
+
+            let total = total.expect("the checkpoint recorded the total batches");
+            assert_eq!(committed, total, "every batch committed exactly once");
+            assert_eq!(
+                embedding.calls(),
+                total,
+                "each committed batch embeds once and the completed prefix is never repeated"
+            );
+            let expected_turns = if first_quantum >= total {
+                1
+            } else {
+                1 + ((total - first_quantum) + later_quantum - 1) / later_quantum
+            };
+            assert_eq!(turns, expected_turns, "the quantum bounds every turn");
+            let (status, error) = file_state(&db, file_id).await;
+            assert_eq!(status, "succeeded", "the final turn finalizes the file");
+            assert!(error.is_none());
+            let checkpoint = parse_indexing_checkpoint(&payload);
+            assert_eq!(checkpoint.next_batch_index, total);
+        })
+        .catch_unwind()
+        .await;
+        quantum_baseline.restore(&db).await;
+        cleanup_fixture(&db, group.id, user_id, &storage_root).await;
+        if let Err(payload) = outcome {
+            std::panic::resume_unwind(payload);
+        }
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_long_legacy_indexing_run_yields_one_batch_per_turn_without_reembedding_the_prefix() {
+        long_legacy_quantum_case(LegacyQuantumMode::Fixed(1)).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_two_batch_legacy_quantum_commits_two_batches_per_turn() {
+        long_legacy_quantum_case(LegacyQuantumMode::Fixed(2)).await;
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_hot_legacy_quantum_change_applies_to_the_next_segment() {
+        long_legacy_quantum_case(LegacyQuantumMode::SwitchDuringFirstSegment { start: 2, then: 1 })
+            .await;
     }
 
     async fn new_sync_service(db: &Database, runtime: VectorRuntime) -> SyncService {

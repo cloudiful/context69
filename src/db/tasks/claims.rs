@@ -1,11 +1,12 @@
+use std::collections::HashMap;
+
 use anyhow::{Result, anyhow};
-use chrono::{DateTime, Utc};
-use cloudiful_tasks::{Claim, TaskId};
+use cloudiful_tasks::{Claim, TaskId, TaskStatus};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use super::execution::{self, SegmentPayload};
+use super::execution::{self, ExecutionClass, SegmentPayload};
 use super::types::{ClaimMaintenanceOutcome, ClaimedItem};
 use crate::db::Database;
 
@@ -15,19 +16,31 @@ const RECOVERY_LIMIT: u32 = 100;
 /// One candidate item of the claim path.
 ///
 /// The row is the pre-claim state of the item: the domain policy selected it,
-/// and the library has not been asked for its segment yet.
+/// and the library has not been asked for its segment yet. The segment status
+/// is read in the caller's transaction, so it reflects a segment the recovery
+/// sealed earlier in that transaction.
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct ClaimCandidate {
     id: Uuid,
     task_id: Uuid,
     execution_task_id: Option<Uuid>,
     execution_generation: i64,
+    segment_status: Option<String>,
+    expected_class: String,
     kind: String,
     group_id: Option<i64>,
     group_path: Option<String>,
     source_key: Option<String>,
-    needs_slot: bool,
-    parent_lease_until: Option<DateTime<Utc>>,
+}
+
+/// The structured result of one bounded dispatch claim pass.
+#[derive(Debug, Clone)]
+pub struct ClaimDispatchOutcome {
+    /// The claims the library granted and the domain mirrored.
+    pub claimed: Vec<ClaimedItem>,
+    /// The bounded count of eligible heads that have no valid class and were
+    /// therefore not granted.
+    pub unclassified: usize,
 }
 
 /// The domain projection of one library claim.
@@ -37,6 +50,7 @@ struct ClaimedMirror {
     task_id: Uuid,
     ordinal: i32,
     attempt_count: i32,
+    execution_failure_count: i32,
     payload: Value,
     file_id: Option<Uuid>,
     stage: Option<String>,
@@ -45,136 +59,158 @@ struct ClaimedMirror {
 }
 
 impl Database {
-    /// Atomically admits up to `capacity` parent tasks and claims at most one
-    /// due item per admitted parent.
+    /// Claims at most one due item per parent and mirrors each library claim.
     ///
-    /// `capacity` is the global parent-task capacity (`scheduler.max_concurrency`),
-    /// not an item count: the durable task lease is the processing slot, the
-    /// slot is held from admission until the task is terminal, and the durable
-    /// held count keeps every replica inside the same global bound.
-    ///
+    /// Execution capacity is not decided here: the library attempt admission is
+    /// the only capacity owner, and its durable queue policy bounds how many
+    /// attempts of this namespace and queue run at once across every replica.
     /// The claim itself is the library's: the domain selects the item, the
     /// library grants the lease, and the domain mirrors the fencing token and
     /// the deadline of that lease in the same transaction.
     ///
     /// This is the compatibility entrypoint: it runs `maintain_claim_state` and
-    /// the admission claim in one PostgreSQL transaction, so existing callers
-    /// and lease/retry tests observe every maintenance effect on each claim.
+    /// the claim in one PostgreSQL transaction, so existing callers and
+    /// lease/retry tests observe every maintenance effect on each claim.
     /// Dispatcher code that wants to skip the maintenance UPDATE/RETURNING
     /// work on notification-driven wakes calls `claim_items_fast` and pairs it
-    /// with `maintain_claim_state` on the recovery tick. Safe to call from multiple
-    /// dispatcher instances: admission is serialized by the admission lock and
-    /// items are locked with SKIP LOCKED.
-    pub async fn claim_items(&self, capacity: i64) -> Result<Vec<ClaimedItem>> {
+    /// with `maintain_claim_state` on the recovery tick. Items are locked with
+    /// SKIP LOCKED, so concurrent claimers never take the same item.
+    pub async fn claim_items(&self) -> Result<Vec<ClaimedItem>> {
+        Ok(self.claim_items_dispatch().await?.claimed)
+    }
+
+    /// The structured claim pass used by the dispatcher.
+    pub async fn claim_items_dispatch(&self) -> Result<ClaimDispatchOutcome> {
         let mut tx = self.pool().begin().await?;
         self.maintain_claim_state_in(&mut tx).await?;
-        lock_task_admission(&mut tx).await?;
-        let items = self.claim_candidates(&mut tx, capacity).await?;
+        let outcome = self.claim_candidates_dispatch(&mut tx).await?;
         tx.commit().await?;
-        Ok(items)
+        Ok(outcome)
     }
 
     /// Fast claim path used by the dispatcher on notification-driven wakes.
     ///
-    /// Runs the admission lock, the durable parent-task admission, and the
-    /// one-item-per-admitted-parent claim, skipping the maintenance
-    /// UPDATE/RETURNING CTEs that the recovery tick owns. The lock must be a
-    /// separate statement inside the same transaction as the claim: a READ
-    /// COMMITTED statement that waits on another replica's grant keeps its own
-    /// snapshot, so admitting inside the locking statement could fill the same
-    /// free slot twice.
-    pub async fn claim_items_fast(&self, capacity: i64) -> Result<Vec<ClaimedItem>> {
+    /// Seals the expired execution segments and claims one due item per parent,
+    /// skipping the maintenance UPDATE/RETURNING CTEs that the recovery tick
+    /// owns. No local or durable admission gate runs before the library claim:
+    /// a full queue policy simply grants nothing, and the item stays untouched.
+    pub async fn claim_items_fast(&self) -> Result<Vec<ClaimedItem>> {
+        Ok(self.claim_items_fast_dispatch().await?.claimed)
+    }
+
+    /// The structured fast claim pass used by the dispatcher.
+    pub async fn claim_items_fast_dispatch(&self) -> Result<ClaimDispatchOutcome> {
         let mut tx = self.pool().begin().await?;
-        // The expired segments are sealed before the admission, so a crashed
-        // item is reclaimable in the same transaction as the claim that takes
-        // it. The recovery is bounded: the fast path never runs the unbounded
+        // The expired segments are sealed before the claim, so a crashed item
+        // is reclaimable in the same transaction as the claim that takes it.
+        // The recovery is bounded: the fast path never runs the unbounded
         // maintenance, it only seals the segments the library reports.
         self.recover_expired_executions(&mut tx, RECOVERY_LIMIT)
             .await?;
-        lock_task_admission(&mut tx).await?;
-        let items = self.claim_candidates(&mut tx, capacity).await?;
+        let outcome = self.claim_candidates_dispatch(&mut tx).await?;
         tx.commit().await?;
-        Ok(items)
+        Ok(outcome)
     }
 
-    /// Claims the items the domain policy selected.
-    ///
-    /// Every candidate is claimed through the library: the segment the item
-    /// already owns when it is still queued, or a fresh segment in the next
-    /// generation when the item is parked and became eligible again. An item
-    /// without a segment was never adopted, so it is left alone.
-    async fn claim_candidates(
+    /// Claims the bounded class-representative candidates through the native
+    /// fair candidate admission.
+    async fn claim_candidates_dispatch(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        capacity: i64,
-    ) -> Result<Vec<ClaimedItem>> {
-        let candidates = sqlx::query_file_as!(
-            ClaimCandidate,
-            "src/sql/db/tasks/claim_candidates.sql",
-            capacity
-        )
-        .fetch_all(&mut **tx)
-        .await?;
-        let mut claimed = Vec::with_capacity(candidates.len());
-        for candidate in candidates {
-            if let Some(item) = self.claim_candidate(tx, &candidate).await? {
-                claimed.push(item);
-            }
-        }
-        Ok(claimed)
-    }
-
-    /// Claims one candidate item through the library and mirrors the claim.
-    async fn claim_candidate(
-        &self,
-        tx: &mut Transaction<'_, Postgres>,
-        candidate: &ClaimCandidate,
-    ) -> Result<Option<ClaimedItem>> {
-        let Some(current_segment) = candidate.execution_task_id else {
-            // An item without a library segment was never adopted. The cutover
-            // hands those over explicitly, so the dispatcher leaves them alone.
-            return Ok(None);
-        };
+    ) -> Result<ClaimDispatchOutcome> {
+        let candidates =
+            sqlx::query_file_as!(ClaimCandidate, "src/sql/db/tasks/claim_candidates.sql")
+                .fetch_all(&mut **tx)
+                .await?;
+        let unclassified: i64 =
+            sqlx::query_file_scalar!("src/sql/db/tasks/claim_candidates_unclassified.sql")
+                .fetch_one(&mut **tx)
+                .await?;
         let queue = self.execution_queue().await?;
         let worker_id = execution::worker_id();
 
-        let (claim, generation) = match queue
-            .claim_by_id_in(tx, TaskId::from_uuid(current_segment), worker_id)
-            .await?
-        {
-            Some(claim) => (claim, candidate.execution_generation),
-            None => {
-                // The segment of the item is not claimable: it runs elsewhere or
-                // it already ended. A parked item that became eligible again
-                // gets a fresh segment in the next generation; the old segment
-                // and its attempts stay untouched.
-                let generation = candidate.execution_generation + 1;
-                let segment = execution::produce_segment(
+        let mut by_segment: HashMap<Uuid, ClaimCandidate> = HashMap::new();
+        for mut candidate in candidates {
+            let Some(segment) = candidate.execution_task_id else {
+                continue;
+            };
+            let class = ExecutionClass::from_db(&candidate.expected_class)?;
+            if candidate
+                .segment_status
+                .as_deref()
+                .and_then(|status| TaskStatus::from_db(status).ok())
+                .is_some_and(TaskStatus::is_terminal)
+            {
+                let next_generation = candidate.execution_generation + 1;
+                let fresh = execution::produce_segment(
                     queue,
                     tx,
-                    SegmentPayload::new(candidate.id, candidate.task_id, generation),
+                    SegmentPayload::new(candidate.id, candidate.task_id, next_generation),
+                    class,
                 )
                 .await?;
-                let claim = queue
-                    .claim_by_id_in(tx, segment, worker_id)
-                    .await?
-                    .ok_or_else(|| anyhow!("the fresh segment of the item could not be claimed"))?;
-                (claim, generation)
+                if !execution::relink_item_segment(
+                    tx,
+                    candidate.id,
+                    segment,
+                    candidate.execution_generation,
+                    fresh.as_uuid(),
+                    next_generation,
+                )
+                .await?
+                {
+                    anyhow::bail!(
+                        "the terminal segment of item {} changed during promotion",
+                        candidate.id
+                    );
+                }
+                candidate.execution_task_id = Some(fresh.as_uuid());
+                candidate.execution_generation = next_generation;
+                candidate.segment_status = Some("queued".to_string());
             }
-        };
+            by_segment.insert(candidate.execution_task_id.expect("relinked"), candidate);
+        }
 
-        let Some(item) = self.mirror_claim(tx, candidate, &claim, generation).await? else {
-            return Ok(None);
-        };
-        Ok(Some(item))
+        let mut candidate_uuids: Vec<Uuid> = by_segment.keys().copied().collect();
+        candidate_uuids.sort_unstable();
+        let mut candidate_ids: Vec<TaskId> =
+            candidate_uuids.into_iter().map(TaskId::from_uuid).collect();
+        let mut claimed = Vec::with_capacity(candidate_ids.len());
+        while !candidate_ids.is_empty() {
+            let Some(claim) = queue
+                .claim_from_candidates_in(tx, &candidate_ids, worker_id)
+                .await?
+            else {
+                break;
+            };
+            let segment = claim.attempt().task_id().as_uuid();
+            candidate_ids.retain(|candidate| *candidate != claim.attempt().task_id());
+            let Some(candidate) = by_segment.remove(&segment) else {
+                anyhow::bail!("the library granted an unaddressed candidate {segment}");
+            };
+            let Some(item) = self
+                .mirror_claim(tx, &candidate, &claim, candidate.execution_generation)
+                .await?
+            else {
+                anyhow::bail!(
+                    "the domain mirror refused the grant of item {}; rolling the batch back",
+                    candidate.id
+                );
+            };
+            claimed.push(item);
+        }
+        Ok(ClaimDispatchOutcome {
+            claimed,
+            unclassified: usize::try_from(unclassified).unwrap_or(usize::MAX),
+        })
     }
 
     /// Mirrors one library claim into the domain.
     ///
     /// The item takes the fencing token and the deadline of the library
-    /// attempt, the domain attempt records both library identities, and the
-    /// parent takes its global slot. The projection and the parent counters
-    /// commit with the library claim.
+    /// attempt and the domain attempt records both library identities. The
+    /// parent counters are recomputed in the same transaction; the parent holds
+    /// no admission lease.
     async fn mirror_claim(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -194,9 +230,7 @@ impl Database {
             lease_until,
             attempt.task_id().as_uuid(),
             generation,
-            attempt.id().as_uuid(),
-            candidate.needs_slot,
-            candidate.parent_lease_until
+            attempt.id().as_uuid()
         )
         .fetch_optional(&mut **tx)
         .await?;
@@ -213,6 +247,7 @@ impl Database {
             task_id: mirrored.task_id,
             ordinal: mirrored.ordinal,
             attempt_count: mirrored.attempt_count,
+            execution_failure_count: mirrored.execution_failure_count,
             lease_token: attempt.fencing_token().as_uuid(),
             attempt_id: mirrored.attempt_id,
             payload: mirrored.payload,
@@ -229,17 +264,12 @@ impl Database {
         }))
     }
 
-    /// Runs the exhausted item/file/task propagation, the expired
-    /// attempt interruption, and the parent-task admission lease convergence
-    /// that the dispatcher used to perform inside `claim_items`. Idempotent and
-    /// safe to run repeatedly: only rows that already satisfy the
-    /// exhausted/expired predicates are touched, and parent leases are only
-    /// renewed while a live worker item lease exists and only released after an
-    /// item lease was declared expired. The dispatcher calls this on startup
-    /// and on every recovery tick before fast dispatch so exhausted-only queues
-    /// still converge toward terminal state even when no item is ever
-    /// claimable, and so admitted parent slots stay alive (or are reclaimed)
-    /// even when the local worker pool is full.
+    /// Runs the exhausted item/file/task propagation and the expired attempt
+    /// interruption. Idempotent and safe to run repeatedly: only rows that
+    /// already satisfy the exhausted/expired predicates are touched. The
+    /// dispatcher calls this on startup and on every recovery tick before fast
+    /// dispatch so exhausted-only queues still converge toward terminal state
+    /// even when no item is ever claimable.
     pub async fn maintain_claim_state(&self) -> Result<ClaimMaintenanceOutcome> {
         let mut tx = self.pool().begin().await?;
         let outcome = self.maintain_claim_state_in(&mut tx).await?;
@@ -263,21 +293,6 @@ impl Database {
         .fetch_one(&mut **tx)
         .await?;
         outcome.expired_attempts = i64::try_from(recovery.recovered_items).unwrap_or(i64::MAX);
-        // The slots the recovery released are part of the maintenance outcome:
-        // the worker of the item is gone, so the parent slot it held is free.
-        outcome.revoked_parent_leases +=
-            i64::try_from(recovery.released_parent_leases).unwrap_or(i64::MAX);
         Ok(outcome)
     }
-}
-
-/// Takes the transaction-scoped lock that serializes parent-task slot
-/// admission across replicas. Must be the statement immediately before the
-/// admission claim in the same transaction; the lock is released when that
-/// transaction commits or rolls back.
-async fn lock_task_admission(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
-    sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
-        .execute(&mut **tx)
-        .await?;
-    Ok(())
 }

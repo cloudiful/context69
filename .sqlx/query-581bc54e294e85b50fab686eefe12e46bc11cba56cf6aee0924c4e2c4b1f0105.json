@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Fail one not-dispatched Docling intent during preparation (issue 1172 P5A).\n--\n-- Preparation runs before `.send()` is invoked, so a preparation failure is\n-- definitively pre-dispatch and may never leave an open intent behind. The\n-- row is closed as `failed` only while `dispatch_attempted` is still false and\n-- the captured execution still holds the item.\n--\n-- `$1` job, `$2` item, `$3` domain task, `$4` fencing token, `$5` library\n-- task, `$6` execution generation and `$7` sanitized reason.\nWITH owned AS (\n    SELECT item.id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.task_id = $3\n      AND item.status = 'running'\n      AND item.lease_token = $4\n      AND item.lease_until > clock_timestamp()\n      AND item.execution_task_id = $5\n      AND item.execution_generation = $6\n)\nUPDATE context69.task_docling_remote_jobs AS job\nSET status = 'failed',\n    remote_status = COALESCE(job.remote_status, job.status),\n    last_error = COALESCE($7, job.last_error, 'docling preparation failed before dispatch'),\n    finished_at = clock_timestamp(),\n    lease_token = NULL,\n    lease_until = NULL,\n    updated_at = clock_timestamp()\nWHERE job.id = $1\n  AND job.item_id = $2\n  AND job.status = 'submitting'\n  AND job.dispatch_attempted = false\n  AND EXISTS (SELECT 1 FROM owned)\nRETURNING job.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "581bc54e294e85b50fab686eefe12e46bc11cba56cf6aee0924c4e2c4b1f0105"
+}

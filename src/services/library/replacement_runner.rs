@@ -21,12 +21,13 @@
 use std::collections::{BTreeSet, HashSet};
 
 use anyhow::{Context, Result, bail, ensure};
+use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
 use crate::chunking::ChunkingConfig;
 use crate::db::{Database, IngestRunMode, IngestRunSource, NewIngestRun, RegistryQuotaOverride};
-use crate::domain::{DocumentChunk, LibraryFileDocumentRecord, LibraryFileRecord};
+use crate::domain::{ChunkPayload, DocumentChunk, LibraryFileDocumentRecord, LibraryFileRecord};
 use crate::embedding::EmbeddingProvider;
 use crate::library_store::{LibraryStore, TaskWriteFence, begin_task_write};
 use crate::qdrant_index::QdrantIndex;
@@ -39,7 +40,7 @@ use super::ingest_switch::{
 };
 use super::metadata_helpers::{compose_library_metadata, library_system_metadata};
 use super::tree::folder_path_for;
-use super::{FILE_LIBRARY_SOURCE_KEY, ReplacementFileAttributes, ingest_batches};
+use super::{FILE_LIBRARY_SOURCE_KEY, ReplacementFileAttributes, TaskIngestStep, ingest_batches};
 
 /// One freshly parsed section the caller prepared for replacement.
 ///
@@ -142,7 +143,7 @@ pub struct ReplacementRunOutcome {
     pub pending_cleanup_point_ids: Vec<Uuid>,
 }
 
-/// Executes one staged library replacement.
+/// Executes one staged library replacement in one unbounded call.
 pub async fn run_replacement(
     db: &Database,
     store: &LibraryStore,
@@ -150,18 +151,23 @@ pub async fn run_replacement(
     fence: TaskWriteFence,
     request: &ReplacementRunRequest,
 ) -> Result<ReplacementRunOutcome> {
-    run_atomic(
+    match run_atomic(
         db,
         store,
         vector,
         fence,
         request,
         IngestRunMode::Replacement,
+        None,
     )
-    .await
+    .await?
+    {
+        TaskIngestStep::Complete(outcome) => Ok(outcome),
+        TaskIngestStep::Yielded => bail!("an unbounded replacement run reached a finite turn"),
+    }
 }
 
-/// Executes one staged atomic first insert.
+/// Executes one staged atomic first insert in one unbounded call.
 ///
 /// The runner is the same kernel as the replacement, but the durable run it
 /// adopts or claims carries the first-insert mode: the file was created
@@ -174,6 +180,56 @@ pub async fn run_first_insert(
     fence: TaskWriteFence,
     request: &ReplacementRunRequest,
 ) -> Result<ReplacementRunOutcome> {
+    match run_atomic(
+        db,
+        store,
+        vector,
+        fence,
+        request,
+        IngestRunMode::FirstInsert,
+        None,
+    )
+    .await?
+    {
+        TaskIngestStep::Complete(outcome) => Ok(outcome),
+        TaskIngestStep::Yielded => bail!("an unbounded first insert reached a finite turn"),
+    }
+}
+
+/// One bounded staging turn of a replacement task.
+///
+/// The same kernel runs, but it commits at most [`STAGING_TURN_BATCHES`]
+/// verified batches before returning `Yielded`, so the worker can release its
+/// claim and let another scheduled task run.
+pub(crate) async fn stage_replacement(
+    db: &Database,
+    store: &LibraryStore,
+    vector: &ReplacementVector<'_>,
+    fence: TaskWriteFence,
+    request: &ReplacementRunRequest,
+    batches_per_segment: usize,
+) -> Result<TaskIngestStep<ReplacementRunOutcome>> {
+    run_atomic(
+        db,
+        store,
+        vector,
+        fence,
+        request,
+        IngestRunMode::Replacement,
+        Some(batches_per_segment),
+    )
+    .await
+}
+
+/// One bounded staging turn of an atomic first insert.
+pub(crate) async fn stage_first_insert(
+    db: &Database,
+    store: &LibraryStore,
+    vector: &ReplacementVector<'_>,
+    fence: TaskWriteFence,
+    request: &ReplacementRunRequest,
+    batches_per_segment: usize,
+) -> Result<TaskIngestStep<ReplacementRunOutcome>> {
     run_atomic(
         db,
         store,
@@ -181,6 +237,7 @@ pub async fn run_first_insert(
         fence,
         request,
         IngestRunMode::FirstInsert,
+        Some(batches_per_segment),
     )
     .await
 }
@@ -191,6 +248,9 @@ pub async fn run_first_insert(
 /// with the mode it was claimed with, and a missing run is claimed with the
 /// mode of the caller. The switch refuses a run whose stored mode differs, so
 /// a first insert is never applied as a replacement.
+///
+/// `batch_limit` is the finite turn quantum of a scheduled task segment.
+/// `None` is the unbounded mode of the direct complete wrappers.
 async fn run_atomic(
     db: &Database,
     store: &LibraryStore,
@@ -198,8 +258,12 @@ async fn run_atomic(
     fence: TaskWriteFence,
     request: &ReplacementRunRequest,
     mode: IngestRunMode,
-) -> Result<ReplacementRunOutcome> {
+    batch_limit: Option<usize>,
+) -> Result<TaskIngestStep<ReplacementRunOutcome>> {
     validate_request(request)?;
+    if let Some(limit) = batch_limit {
+        super::stage_quantum::validate_finite_batches_per_segment(limit)?;
+    }
     if mode == IngestRunMode::FirstInsert {
         ensure!(
             request.attributes.is_none(),
@@ -221,11 +285,12 @@ async fn run_atomic(
         let existing = db.read_library_ingest_run_in(&mut write).await?;
         let requested = match existing {
             Some(existing) => {
-                ensure!(
-                    existing.mode == mode,
-                    "the durable run {} was claimed in another mode",
-                    existing.batch_id
-                );
+                if existing.mode != mode {
+                    return Err(staged_plan_refusal(format!(
+                        "the durable run {} was claimed in another mode",
+                        existing.batch_id
+                    )));
+                }
                 None
             }
             None => Some(NewIngestRun {
@@ -251,7 +316,7 @@ async fn run_atomic(
     if run.resolved_at.is_some() {
         // A replay of a successfully switched run never stages and never
         // writes points; the file keeps the state the first switch applied.
-        return Ok(ReplacementRunOutcome {
+        return Ok(TaskIngestStep::Complete(ReplacementRunOutcome {
             disposition: ReplacementRunDisposition::AlreadyApplied,
             run_id: run.batch_id,
             generation: run.generation,
@@ -259,10 +324,30 @@ async fn run_atomic(
             staged_point_ids: Vec::new(),
             retired_point_ids: Vec::new(),
             pending_cleanup_point_ids: Vec::new(),
-        });
+        }));
     }
 
     let plan = prepare_plan(db, store, fence, &file, &run, request, vector).await?;
+
+    // The deterministic plan identity and cursor are validated before any
+    // admission mutation, completed-prefix skip or vector write. A changed
+    // plan, a foreign run or a malformed cursor is a deterministic refusal:
+    // retrying against the same immutable staged set can never succeed.
+    let batches = staged_batches(&plan);
+    let total_batches =
+        i64::try_from(batches.len()).context("the staging batch count overflows")?;
+    let fingerprint = plan_fingerprint(&plan)?;
+    let progress = db
+        .read_library_ingest_run_stage_progress(run.item_id)
+        .await?;
+    let view = progress.as_ref().map(|progress| StageProgressView {
+        batch_id: progress.batch_id,
+        generation: progress.generation,
+        staged_batches_written: progress.staged_batches_written,
+        staged_plan_fingerprint: progress.staged_plan_fingerprint.as_deref(),
+    });
+    let already_written = validate_stage_progress(view, &run, total_batches, &fingerprint)?;
+
     ensure_admission(
         db,
         fence,
@@ -273,7 +358,40 @@ async fn run_atomic(
     )
     .await?;
 
-    write_staged_points(vector, &plan).await?;
+    let mut committed_this_segment = 0usize;
+    for (index, batch) in batches.iter().enumerate() {
+        if index < already_written {
+            continue;
+        }
+        write_staged_batch(vector, &plan, batch).await?;
+        verify_staged_batch(vector, &plan, batch).await?;
+        let expected_previous =
+            i64::try_from(index).context("the staging batch index overflows")?;
+        ensure!(
+            db.advance_library_ingest_run_stage_progress(
+                fence,
+                &run,
+                expected_previous,
+                &fingerprint,
+            )
+            .await?,
+            "the staging progress advance was refused; no switch is applied"
+        );
+        committed_this_segment += 1;
+        if batch_limit.is_some_and(|limit| {
+            super::stage_quantum::finite_turn_should_yield(
+                committed_this_segment,
+                limit,
+                index + 1,
+                batches.len(),
+            )
+        }) {
+            return Ok(TaskIngestStep::Yielded);
+        }
+    }
+
+    // The completed prefix was verified batch by batch; the full staged set is
+    // verified once more before the single atomic switch publishes it.
     verify_staged_points(vector, &plan).await?;
 
     let outcome = switch_replacement(db, store, fence, &plan.replacement).await?;
@@ -281,7 +399,7 @@ async fn run_atomic(
     let pending =
         cleanup_retired_points(db, vector.index, &retired_point_ids, &plan.staged_point_ids).await;
 
-    Ok(ReplacementRunOutcome {
+    Ok(TaskIngestStep::Complete(ReplacementRunOutcome {
         disposition: match outcome.disposition {
             ReplacementSwitchDisposition::Switched => ReplacementRunDisposition::Switched,
             ReplacementSwitchDisposition::AlreadyApplied => {
@@ -294,7 +412,68 @@ async fn run_atomic(
         staged_point_ids: plan.staged_point_ids,
         retired_point_ids,
         pending_cleanup_point_ids: pending,
-    })
+    }))
+}
+
+/// A deterministic staged-plan refusal.
+///
+/// These failures describe an immutable staged set or run identity that a
+/// retry cannot change, so they are classified through the existing typed
+/// deterministic taxonomy instead of a retryable generic error.
+fn staged_plan_refusal(message: impl Into<String>) -> anyhow::Error {
+    crate::domain_errors::DomainError::invalid_argument(message).into()
+}
+
+/// The persisted staging fields the kernel validates, without the private
+/// database row type.
+struct StageProgressView<'a> {
+    batch_id: Uuid,
+    generation: i64,
+    staged_batches_written: i64,
+    staged_plan_fingerprint: Option<&'a str>,
+}
+
+/// Validates the persisted staging cursor against the current plan identity.
+///
+/// The check runs before admission or any staged write so a changed plan can
+/// never reuse an immutable admission and retry forever. It returns the number
+/// of already committed batches only when the cursor and fingerprint agree.
+fn validate_stage_progress(
+    progress: Option<StageProgressView<'_>>,
+    run: &crate::db::LibraryIngestRun,
+    total_batches: i64,
+    fingerprint: &str,
+) -> Result<usize> {
+    let progress = progress.ok_or_else(|| {
+        staged_plan_refusal("the current durable ingest run has no staging progress")
+    })?;
+    if progress.batch_id != run.batch_id || progress.generation != run.generation {
+        return Err(staged_plan_refusal(
+            "the staging progress belongs to another durable run",
+        ));
+    }
+    if progress.staged_batches_written < 0 || progress.staged_batches_written > total_batches {
+        return Err(staged_plan_refusal(format!(
+            "the staging progress {} is outside the plan length {total_batches}",
+            progress.staged_batches_written
+        )));
+    }
+    match progress.staged_plan_fingerprint.as_deref() {
+        Some(stored) if stored == fingerprint => {}
+        Some(_) => {
+            return Err(staged_plan_refusal(
+                "the staged plan changed since the last checkpoint; refusing to skip completed work",
+            ));
+        }
+        None if progress.staged_batches_written == 0 => {}
+        None => {
+            return Err(staged_plan_refusal(
+                "the staging progress has no plan fingerprint",
+            ));
+        }
+    }
+    usize::try_from(progress.staged_batches_written)
+        .map_err(|_| staged_plan_refusal("the staging progress does not fit in memory"))
 }
 
 /// The internal consistency of one request, before any database access.
@@ -455,7 +634,12 @@ async fn prepare_plan(
                 .unwrap_or_else(|| format!("context69://library/files/{}", file.id)),
             summary: input.summary.clone(),
             published_at: projected_file.published_at.or(input.published_at),
-            updated_at: chrono::Utc::now(),
+            // The source update timestamp is part of the staged payload and
+            // therefore of the plan fingerprint. The file row's update time is
+            // stable across the claims of one run; a changing row is a real
+            // payload change and refuses the prefix instead of silently
+            // rewriting it.
+            updated_at: projected_file.updated_at,
             metadata_json,
         });
 
@@ -683,33 +867,38 @@ async fn ensure_admission(
         .await?
     {
         let reused = (|| {
-            ensure!(
-                existing.phase == "staging",
-                "the replacement run {} is already {} and cannot be staged again",
-                entry.run_id,
-                existing.phase
-            );
-            ensure!(
-                existing.generation == entry.generation,
-                "the stored staging admission has another generation"
-            );
-            ensure!(
-                existing.file_id == entry.file_id,
-                "the stored staging admission belongs to another file"
-            );
-            ensure!(
-                existing.staged_ids.iter().copied().collect::<BTreeSet<_>>() == staged,
-                "the stored staging admission holds another staged set"
-            );
-            ensure!(
-                existing
-                    .document_ids
-                    .iter()
-                    .copied()
-                    .collect::<BTreeSet<_>>()
-                    == documents,
-                "the stored staging admission holds another document set"
-            );
+            if existing.phase != "staging" {
+                return Err(staged_plan_refusal(format!(
+                    "the replacement run {} is already {} and cannot be staged again",
+                    entry.run_id, existing.phase
+                )));
+            }
+            if existing.generation != entry.generation {
+                return Err(staged_plan_refusal(
+                    "the stored staging admission has another generation",
+                ));
+            }
+            if existing.file_id != entry.file_id {
+                return Err(staged_plan_refusal(
+                    "the stored staging admission belongs to another file",
+                ));
+            }
+            if existing.staged_ids.iter().copied().collect::<BTreeSet<_>>() != staged {
+                return Err(staged_plan_refusal(
+                    "the stored staging admission holds another staged set",
+                ));
+            }
+            if existing
+                .document_ids
+                .iter()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                != documents
+            {
+                return Err(staged_plan_refusal(
+                    "the stored staging admission holds another document set",
+                ));
+            }
             Ok(())
         })();
         if let Err(error) = reused {
@@ -779,64 +968,170 @@ async fn ensure_admission(
     Ok(())
 }
 
-/// Embeds and writes every staged point in insert-only batches.
+/// The exact upsert payloads of one staged batch.
+///
+/// The section payload mirrors the document row fields; the point payload is
+/// built from the same fields per chunk, so the verification compares the
+/// identity the document row will carry after the switch.
+fn staged_batch_payloads(
+    plan: &ReplacementPlan,
+    batch: &[&DocumentChunk],
+) -> Result<Vec<ChunkPayload>> {
+    batch
+        .iter()
+        .map(|chunk| {
+            let section = plan
+                .replacement
+                .sections
+                .iter()
+                .find(|section| section.document_id == chunk.document_id)
+                .with_context(|| {
+                    format!(
+                        "the staged chunk {} belongs to no planned section",
+                        chunk.id
+                    )
+                })?;
+            Ok(original_chunk(
+                &PayloadGroup {
+                    group_id: section.payload.group_id,
+                    group_key: &section.payload.group_key,
+                    group_path: &section.payload.group_path,
+                    visibility: section.payload.visibility,
+                },
+                &PayloadDocument {
+                    source_key: &section.payload.source_key,
+                    external_id: &section.payload.external_id,
+                    title: &section.payload.title,
+                    summary: section.payload.summary.as_deref(),
+                    source_uri: &section.payload.source_uri,
+                    published_at: section.payload.published_at,
+                    updated_at_source: section.payload.updated_at_source,
+                    record_hash: &section.payload.record_hash,
+                    metadata_json: &section.payload.metadata_json,
+                },
+                ChunkRef {
+                    chunk_id: chunk.id,
+                    document_id: chunk.document_id,
+                    chunk_index: chunk.chunk_index,
+                    chunk_text: &chunk.text,
+                },
+            ))
+        })
+        .collect()
+}
+
+/// Embeds and writes one staged batch in insert-only mode.
 ///
 /// No connection is held across the embedding or the Qdrant call. A failure
-/// leaves the committed staging admission in place for the retry.
-async fn write_staged_points(vector: &ReplacementVector<'_>, plan: &ReplacementPlan) -> Result<()> {
-    for batch in staged_batches(plan) {
-        let texts: Vec<String> = batch.iter().map(|chunk| chunk.text.clone()).collect();
-        let embeddings = vector.embedding.embed_texts(&texts).await?;
-        ensure!(
-            embeddings.len() == batch.len(),
-            "the embedding provider returned the wrong vector count"
-        );
-        let payloads = batch
-            .iter()
-            .map(|chunk| {
-                // The section payload mirrors the document row fields; the
-                // point payload is built from the same fields per chunk, so
-                // the verification compares the identity the document row
-                // will carry after the switch.
-                let section = plan
-                    .replacement
-                    .sections
-                    .iter()
-                    .find(|section| section.document_id == chunk.document_id)
-                    .expect("a staged chunk belongs to a planned section");
-                Ok(original_chunk(
-                    &PayloadGroup {
-                        group_id: section.payload.group_id,
-                        group_key: &section.payload.group_key,
-                        group_path: &section.payload.group_path,
-                        visibility: section.payload.visibility,
-                    },
-                    &PayloadDocument {
-                        source_key: &section.payload.source_key,
-                        external_id: &section.payload.external_id,
-                        title: &section.payload.title,
-                        summary: section.payload.summary.as_deref(),
-                        source_uri: &section.payload.source_uri,
-                        published_at: section.payload.published_at,
-                        updated_at_source: section.payload.updated_at_source,
-                        record_hash: &section.payload.record_hash,
-                        metadata_json: &section.payload.metadata_json,
-                    },
-                    ChunkRef {
-                        chunk_id: chunk.id,
-                        document_id: chunk.document_id,
-                        chunk_index: chunk.chunk_index,
-                        chunk_text: &chunk.text,
-                    },
-                ))
+/// leaves the committed staging admission and the previous progress cursor in
+/// place, so a retry repeats only the uncommitted batch.
+async fn write_staged_batch(
+    vector: &ReplacementVector<'_>,
+    plan: &ReplacementPlan,
+    batch: &[&DocumentChunk],
+) -> Result<()> {
+    let payloads = staged_batch_payloads(plan, batch)?;
+    let texts: Vec<String> = batch.iter().map(|chunk| chunk.text.clone()).collect();
+    let embeddings = vector.embedding.embed_texts(&texts).await?;
+    ensure!(
+        embeddings.len() == payloads.len(),
+        "the embedding provider returned the wrong vector count"
+    );
+    vector
+        .index
+        .upsert_document_chunks_insert_only(&payloads, &embeddings)
+        .await
+}
+
+/// Verifies one just-written batch by its exact document and record identity.
+async fn verify_staged_batch(
+    vector: &ReplacementVector<'_>,
+    plan: &ReplacementPlan,
+    batch: &[&DocumentChunk],
+) -> Result<()> {
+    let expectations = batch
+        .iter()
+        .map(|chunk| {
+            let section = plan
+                .replacement
+                .sections
+                .iter()
+                .find(|section| section.document_id == chunk.document_id)
+                .with_context(|| {
+                    format!(
+                        "the staged chunk {} belongs to no planned section",
+                        chunk.id
+                    )
+                })?;
+            Ok(OriginalPointExpectation {
+                point_id: chunk.id,
+                document_id: section.document_id,
+                record_hash: section.payload.record_hash.clone(),
             })
-            .collect::<Result<Vec<_>>>()?;
-        vector
-            .index
-            .upsert_document_chunks_insert_only(&payloads, &embeddings)
-            .await?;
+        })
+        .collect::<Result<Vec<_>>>()?;
+    vector.index.verify_original_points(&expectations).await
+}
+
+/// The deterministic identity of one whole prepared staging plan.
+///
+/// It binds the ordered batches, the length-prefixed embedding text, the exact
+/// upsert payload and the point id, so a changed source, chunking or metadata
+/// cannot silently skip a completed prefix. No raw document or credential is
+/// persisted: the digest is one SHA-256 string.
+fn plan_fingerprint(plan: &ReplacementPlan) -> Result<String> {
+    let mut hasher = Sha256::new();
+    hasher.update(b"context69.library_ingest_stage_plan.v1\0");
+    for (batch_index, batch) in staged_batches(plan).iter().enumerate() {
+        hasher.update(b"batch\0");
+        hasher.update((batch_index as u64).to_be_bytes());
+        let payloads = staged_batch_payloads(plan, batch)?;
+        for (chunk, payload) in batch.iter().zip(payloads.iter()) {
+            hasher.update(b"point\0");
+            hasher.update(chunk.id.as_bytes());
+            hasher.update(b"text\0");
+            let text = chunk.text.as_bytes();
+            hasher.update((text.len() as u64).to_be_bytes());
+            hasher.update(text);
+            hasher.update(b"payload\0");
+            let encoded = serde_json::to_vec(&fingerprint_payload(payload))
+                .context("serialize the staging fingerprint payload")?;
+            hasher.update((encoded.len() as u64).to_be_bytes());
+            hasher.update(&encoded);
+        }
+        hasher.update(b"end-batch\0");
     }
-    Ok(())
+    Ok(hasher
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect())
+}
+
+/// The stable serialization of the payload fields bound by the fingerprint.
+fn fingerprint_payload(payload: &ChunkPayload) -> serde_json::Value {
+    serde_json::json!({
+        "chunk_id": payload.chunk_id.to_string(),
+        "document_id": payload.document_id,
+        "group_id": payload.group_id,
+        "group_key": &payload.group_key,
+        "group_path": &payload.group_path,
+        "visibility": payload.visibility.as_str(),
+        "source_key": &payload.source_key,
+        "external_id": &payload.external_id,
+        "title": &payload.title,
+        "summary": payload.summary.as_deref(),
+        "source_uri": &payload.source_uri,
+        "published_at": payload.published_at.map(|value| value.to_rfc3339()),
+        "updated_at_source": payload.updated_at_source.to_rfc3339(),
+        "record_hash": &payload.record_hash,
+        "chunk_index": payload.chunk_index,
+        "chunk_text": &payload.chunk_text,
+        "metadata_json": &payload.metadata_json,
+        "content_locale": &payload.content_locale,
+        "source_locale": payload.source_locale.as_deref(),
+        "translation_provider": payload.translation_provider.as_deref(),
+    })
 }
 
 /// The embedding batches of one plan: one batch per section while the section
@@ -927,8 +1222,15 @@ async fn cleanup_retired_points(
 
 #[cfg(test)]
 mod tests {
-    use super::{ReplacementRunRequest, ReplacementSectionInput, validate_request};
-    use crate::db::RegistryQuotaOverride;
+    use super::{
+        ReplacementRunRequest, ReplacementSectionInput, fingerprint_payload, validate_request,
+        validate_stage_progress,
+    };
+    use crate::db::{IngestRunMode, IngestRunSource, LibraryIngestRun, RegistryQuotaOverride};
+    use crate::domain::ChunkPayload;
+    use crate::retry_policy::{FailureClass, classify};
+    use chrono::Utc;
+    use serde_json::json;
     use uuid::Uuid;
 
     fn section(key: &str) -> ReplacementSectionInput {
@@ -956,6 +1258,187 @@ mod tests {
             attributes: None,
             sections,
         }
+    }
+
+    fn fingerprint_payload_sample() -> ChunkPayload {
+        ChunkPayload {
+            chunk_id: Uuid::nil(),
+            document_id: 7,
+            group_id: 3,
+            group_key: "group".into(),
+            group_path: "test/group".into(),
+            visibility: context69_contracts::Visibility::Private,
+            source_key: "library".into(),
+            external_id: "external".into(),
+            title: "title".into(),
+            summary: None,
+            source_uri: "context69://test".into(),
+            published_at: None,
+            updated_at_source: Utc::now(),
+            record_hash: "a".repeat(64),
+            chunk_index: 0,
+            chunk_text: "body".into(),
+            metadata_json: json!({"k": 1}),
+            content_locale: "original".into(),
+            source_locale: None,
+            translation_provider: None,
+        }
+    }
+
+    #[test]
+    fn a_finite_turn_yields_only_after_its_configured_quantum() {
+        use super::super::stage_quantum::{
+            finite_turn_should_yield, validate_finite_batches_per_segment,
+        };
+
+        for limit in [1usize, 2, 64] {
+            assert_eq!(
+                validate_finite_batches_per_segment(limit).expect("the quantum is valid"),
+                limit
+            );
+            assert!(
+                finite_turn_should_yield(limit, limit, limit, limit + 1),
+                "quantum {limit} yields once it committed its batches while work remains"
+            );
+            assert!(
+                !finite_turn_should_yield(limit, limit, limit + 1, limit + 1),
+                "quantum {limit} never spends an empty trailing turn"
+            );
+            assert!(!finite_turn_should_yield(
+                limit - 1,
+                limit,
+                limit,
+                limit + 1
+            ));
+        }
+    }
+
+    #[test]
+    fn an_invalid_finite_quantum_is_a_deterministic_refusal() {
+        use super::super::stage_quantum::validate_finite_batches_per_segment;
+        use crate::retry_policy::{FailureClass, classify};
+
+        for limit in [0usize, 65, usize::MAX] {
+            let error = validate_finite_batches_per_segment(limit)
+                .expect_err("an invalid finite quantum must be refused");
+            assert_eq!(classify(&error), FailureClass::Deterministic);
+        }
+    }
+
+    fn stage_run(batch_id: Uuid, generation: i64) -> LibraryIngestRun {
+        LibraryIngestRun {
+            item_id: Uuid::nil(),
+            task_id: Uuid::nil(),
+            file_id: Uuid::nil(),
+            batch_id,
+            generation,
+            mode: IngestRunMode::Replacement,
+            source: IngestRunSource::Stored,
+            lease_token: Uuid::nil(),
+            execution_task_id: Uuid::nil(),
+            execution_generation: generation,
+            resolved_at: None,
+            retired_at: None,
+        }
+    }
+
+    fn stage_progress<'a>(
+        batch_id: Uuid,
+        generation: i64,
+        written: i64,
+        fingerprint: Option<&'a str>,
+    ) -> super::StageProgressView<'a> {
+        super::StageProgressView {
+            batch_id,
+            generation,
+            staged_batches_written: written,
+            staged_plan_fingerprint: fingerprint,
+        }
+    }
+
+    #[test]
+    fn a_changed_staged_plan_is_a_deterministic_refusal() {
+        let batch_id = Uuid::new_v4();
+        let run = stage_run(batch_id, 1);
+        let progress = stage_progress(batch_id, 1, 1, Some("b"));
+        let error = validate_stage_progress(Some(progress), &run, 3, &"a".repeat(64))
+            .expect_err("a changed plan must be refused");
+        assert!(error.to_string().contains("staged plan changed"));
+        assert_eq!(classify(&error), FailureClass::Deterministic);
+    }
+
+    #[test]
+    fn malformed_stage_progress_is_a_deterministic_refusal() {
+        let batch_id = Uuid::new_v4();
+        let run = stage_run(batch_id, 1);
+        let owned_fingerprint = "a".repeat(64);
+        let fingerprint = owned_fingerprint.as_str();
+        let cases = [
+            None,
+            Some(stage_progress(Uuid::new_v4(), 1, 0, None)),
+            Some(stage_progress(batch_id, 2, 0, None)),
+            Some(stage_progress(batch_id, 1, 4, Some(fingerprint))),
+            Some(stage_progress(batch_id, 1, 1, None)),
+        ];
+        for progress in cases {
+            let error = validate_stage_progress(progress, &run, 3, fingerprint)
+                .expect_err("malformed progress must be refused");
+            assert_eq!(
+                classify(&error),
+                FailureClass::Deterministic,
+                "a malformed cursor must not retry against an immutable plan: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn matching_stage_progress_returns_the_committed_prefix() {
+        let batch_id = Uuid::new_v4();
+        let run = stage_run(batch_id, 1);
+        let owned_fingerprint = "a".repeat(64);
+        let fingerprint = owned_fingerprint.as_str();
+        let zero = stage_progress(batch_id, 1, 0, None);
+        assert_eq!(
+            validate_stage_progress(Some(zero), &run, 3, fingerprint).expect("zero is valid"),
+            0
+        );
+        let resumed = stage_progress(batch_id, 1, 2, Some(fingerprint));
+        assert_eq!(
+            validate_stage_progress(Some(resumed), &run, 3, fingerprint).expect("prefix is valid"),
+            2
+        );
+    }
+
+    #[test]
+    fn the_fingerprint_payload_is_deterministic_and_binds_content_and_metadata() {
+        let base = fingerprint_payload_sample();
+        let first = serde_json::to_vec(&fingerprint_payload(&base)).expect("serialize");
+        let second = serde_json::to_vec(&fingerprint_payload(&base)).expect("serialize");
+        assert_eq!(first, second, "the same payload serializes identically");
+
+        let mut changed_text = base.clone();
+        changed_text.chunk_text.push_str("-changed");
+        assert_ne!(
+            first,
+            serde_json::to_vec(&fingerprint_payload(&changed_text)).expect("serialize"),
+            "the chunk text is bound"
+        );
+
+        let mut changed_metadata = base.clone();
+        changed_metadata.metadata_json = json!({"k": 2});
+        assert_ne!(
+            first,
+            serde_json::to_vec(&fingerprint_payload(&changed_metadata)).expect("serialize"),
+            "the payload metadata is bound"
+        );
+
+        let mut changed_hash = base;
+        changed_hash.record_hash = "b".repeat(64);
+        assert_ne!(
+            first,
+            serde_json::to_vec(&fingerprint_payload(&changed_hash)).expect("serialize"),
+            "the record hash is bound"
+        );
     }
 
     #[test]

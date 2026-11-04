@@ -69,6 +69,7 @@ interval_secs = 300
 run_on_start = true
 max_concurrency = 2
 job_id = "context69-sync"
+ingest_batches_per_segment = 1
 
 [api]
 bind_addr = "0.0.0.0:8096"

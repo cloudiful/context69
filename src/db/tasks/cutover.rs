@@ -18,6 +18,7 @@
 //! only ever read schema-qualified for a quiescence check.
 
 use anyhow::Result;
+use cloudiful_tasks::TaskId;
 use uuid::Uuid;
 
 use crate::db::Database;
@@ -156,6 +157,19 @@ pub struct CutoverAdoptOutcome {
 pub struct CutoverFinalizeOutcome {
     /// The items this call closed.
     pub finalized: u64,
+}
+
+/// The outcome of one bounded explicit admission-reclassification batch.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CutoverReclassifyOutcome {
+    /// The candidates this call considered.
+    pub processed: u64,
+    /// The items that took a fresh classified segment.
+    pub relinked: u64,
+    /// The items with an unresolved Docling submission, left untouched.
+    pub skipped_uncertain: u64,
+    /// The unclassified eligible heads remaining after the batch.
+    pub remaining: i64,
 }
 
 impl Database {
@@ -395,8 +409,7 @@ impl Database {
                 outcome.already_linked += 1;
                 continue;
             }
-            let parent = sqlx::query_file_as!(
-                AdoptParent,
+            let parent = sqlx::query_file_scalar!(
                 "src/sql/db/tasks/cutover/adopt_parent.sql",
                 current.task_id
             )
@@ -421,6 +434,80 @@ impl Database {
             outcome.adopted += 1;
         }
         tx.commit().await?;
+        Ok(outcome)
+    }
+
+    /// Reclassifies one bounded batch of eligible unclassified backlog.
+    ///
+    /// The explicit operator command only: every candidate is a queued or
+    /// waiting, non-leased head whose current segment is queued and has no
+    /// class. The old segment is cancelled first, a fresh next-generation
+    /// segment is produced with the immutable class/resources of the parent
+    /// kind, and the item is relinked only under the exact old pointer,
+    /// generation and terminal status. Any refusal rolls the whole batch back.
+    /// A Docling submitting or uncertain row is skipped and counted, never
+    /// cancelled, reclassified or probed.
+    pub async fn cutover_reclassify_admission_batch(
+        &self,
+        limit: i64,
+    ) -> Result<CutoverReclassifyOutcome> {
+        if !(1..=1000).contains(&limit) {
+            anyhow::bail!("a reclassification batch needs between 1 and 1000 items");
+        }
+        let mut tx = self.pool().begin().await?;
+        sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
+            .execute(&mut *tx)
+            .await?;
+        let rows = sqlx::query_file_as!(
+            ReclassifyCandidate,
+            "src/sql/db/tasks/cutover/reclassify_candidates.sql",
+            limit
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        let queue = self.execution_queue().await?;
+        let mut outcome = CutoverReclassifyOutcome::default();
+        for row in rows {
+            outcome.processed += 1;
+            if row.docling_inert {
+                outcome.skipped_uncertain += 1;
+                continue;
+            }
+            let Some(old_segment) = row.execution_task_id else {
+                continue;
+            };
+            let kind = super::execution::task_kind_from_db(&row.kind)?;
+            let class = super::execution::ExecutionClass::for_task_kind(kind);
+            queue
+                .request_cancel_in(&mut tx, TaskId::from_uuid(old_segment))
+                .await?;
+            let next_generation = row.execution_generation + 1;
+            let fresh = super::execution::produce_segment(
+                queue,
+                &mut tx,
+                super::execution::SegmentPayload::new(row.id, row.task_id, next_generation),
+                class,
+            )
+            .await?;
+            if !super::execution::relink_item_segment(
+                &mut tx,
+                row.id,
+                old_segment,
+                row.execution_generation,
+                fresh.as_uuid(),
+                next_generation,
+            )
+            .await?
+            {
+                anyhow::bail!("item {} changed during reclassification", row.id);
+            }
+            outcome.relinked += 1;
+        }
+        tx.commit().await?;
+        outcome.remaining =
+            sqlx::query_file_scalar!("src/sql/db/tasks/claim_candidates_unclassified.sql")
+                .fetch_one(self.pool())
+                .await?;
         Ok(outcome)
     }
 
@@ -521,8 +608,7 @@ impl Database {
         let mut outcome = CutoverFinalizeOutcome::default();
         let mut parents = Vec::new();
         for item_id in &unique {
-            let finalized = sqlx::query_file_as!(
-                FinalizedItem,
+            let finalized = sqlx::query_file!(
                 "src/sql/db/tasks/cutover/finalize_interrupted_item.sql",
                 item_id,
                 INTERRUPTED_ERROR
@@ -564,26 +650,20 @@ impl Database {
     }
 }
 
+/// One candidate of the explicit admission reclassification.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct ReclassifyCandidate {
+    id: Uuid,
+    task_id: Uuid,
+    kind: String,
+    execution_task_id: Option<Uuid>,
+    execution_generation: i64,
+    docling_inert: bool,
+}
+
 /// The candidate row of one adoption.
 #[derive(Debug, Clone, sqlx::FromRow)]
 struct AdoptCandidate {
     task_id: Uuid,
     execution_task_id: Option<Uuid>,
-}
-
-/// The active parent of one adopted item.
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct AdoptParent {
-    #[allow(dead_code)]
-    id: Uuid,
-}
-
-/// The parent of one finalized item.
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct FinalizedItem {
-    task_id: Uuid,
-    #[allow(dead_code)]
-    retryable: bool,
-    #[allow(dead_code)]
-    interrupted: i64,
 }

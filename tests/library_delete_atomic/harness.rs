@@ -241,7 +241,7 @@ impl DeleteFixture {
         for _ in 0..40 {
             claimed = self
                 .db
-                .claim_items_fast(500)
+                .claim_items_fast()
                 .await
                 .expect("claim items")
                 .into_iter()

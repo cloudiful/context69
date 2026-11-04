@@ -208,6 +208,11 @@ pub(super) struct RuntimeSchedulerSettingsRow {
     pub(super) max_concurrency: i64,
     pub(super) job_id: String,
     pub(super) valkey_url: Option<String>,
+    pub(super) interactive_max_concurrency: Option<i32>,
+    pub(super) bulk_max_concurrency: Option<i32>,
+    pub(super) maintenance_max_concurrency: Option<i32>,
+    pub(super) ingest_max_concurrency: Option<i32>,
+    pub(super) ingest_batches_per_segment: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]

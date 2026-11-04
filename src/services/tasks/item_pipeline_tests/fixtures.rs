@@ -40,6 +40,18 @@ pub(super) async fn seed_group(db: &Database) -> GroupRecord {
 }
 
 pub(super) async fn cleanup(db: &Database, group_id: i64, user_id: i64) {
+    let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+        db.pool(),
+        context69_test_support::execution_cleanup::FixtureExecutionScope::Groups {
+            owner_user_id: user_id,
+            group_ids: &[group_id],
+        },
+    )
+    .await
+    .expect("settle the fixture group's linked executions before deleting its rows");
+    if report.has_expired_skips() {
+        eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+    }
     // `library_files`/`library_folders` are group-restricted, so clear them
     // before the group; tasks/items/idempotency keys cascade from the user.
     // Task items and their artifact references go first: the artifact

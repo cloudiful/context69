@@ -84,6 +84,8 @@ pub async fn runtime_settings(
             max_concurrency: 1,
             job_id: "quota-policy".to_string(),
             valkey_url: None,
+            resource_limits: Default::default(),
+            ingest_batches_per_segment: 1,
         },
         chunking: StoredRuntimeChunkingSettings {
             max_chars: 1000,

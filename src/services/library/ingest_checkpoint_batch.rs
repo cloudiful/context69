@@ -454,7 +454,7 @@ mod provider_barrier {
             .await
             .expect("create the task");
         let item = db
-            .claim_items_fast(50)
+            .claim_items_fast()
             .await
             .expect("claim the item")
             .into_iter()

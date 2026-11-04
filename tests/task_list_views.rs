@@ -138,6 +138,8 @@ async fn list_ids(db: &Database, user_id: i64, view: &str, status: Option<&str>)
     db.list_tasks(context69::db::TaskListFilter {
         user_id,
         query: None,
+        group_path: None,
+        source_key: None,
         kind: None,
         status,
         stage: None,
@@ -160,6 +162,8 @@ async fn count(db: &Database, user_id: i64, view: &str, status: Option<&str>) ->
     db.count_tasks(context69::db::TaskCountFilter {
         user_id,
         query: None,
+        group_path: None,
+        source_key: None,
         kind: None,
         status,
         stage: None,
@@ -169,6 +173,186 @@ async fn count(db: &Database, user_id: i64, view: &str, status: Option<&str>) ->
     })
     .await
     .expect("count tasks")
+}
+
+/// A task submitted into an exact group path and source key, so the exact
+/// filters have something to match (issue 1172 P1).
+async fn create_scoped_task(
+    db: &Database,
+    user_id: i64,
+    group_path: &str,
+    source_key: Option<&str>,
+    tag: &str,
+) -> Uuid {
+    let (task_id, _, _) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some(group_path),
+            source_key,
+            payloads: &[json!({ "external_id": tag })],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("list-view-hash-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create scoped task");
+    task_id
+}
+
+fn scoped_list_filter<'a>(
+    user_id: i64,
+    group_path: Option<&'a str>,
+    source_key: Option<&'a str>,
+) -> context69::db::TaskListFilter<'a> {
+    context69::db::TaskListFilter {
+        user_id,
+        query: None,
+        group_path: context69_contracts::normalized_task_filter(group_path),
+        source_key: context69_contracts::normalized_task_filter(source_key),
+        kind: None,
+        status: None,
+        stage: None,
+        waiting_reason: None,
+        dependency_key: None,
+        sort_by: None,
+        sort_direction: None,
+        limit: 500,
+        offset: 0,
+        view: "processing",
+    }
+}
+
+/// The exact `group_path`/`source_key` filters narrow the authorized set
+/// identically for the list, the count and the selection snapshot: they never
+/// widen authorization, a blank value behaves as absent, and edges are trimmed.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn exact_group_and_source_filters_agree_between_list_count_and_selection() {
+    let url = context69_test_support::accessor::database_url();
+    let _guard = TEST_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    let user_id = seed_test_user(&db).await;
+    let other_user = seed_test_user(&db).await;
+    let tag = Uuid::new_v4().to_string();
+
+    let group_a_alpha = create_scoped_task(&db, user_id, "test/exact/a", Some("alpha"), &tag).await;
+    let group_a_beta = create_scoped_task(&db, user_id, "test/exact/a", Some("beta"), &tag).await;
+    let group_b_alpha = create_scoped_task(&db, user_id, "test/exact/b", Some("alpha"), &tag).await;
+    // Another user's row in the same exact scope must never appear.
+    let foreign_alpha =
+        create_scoped_task(&db, other_user, "test/exact/a", Some("alpha"), &tag).await;
+
+    async fn snapshot(
+        db: &Database,
+        filter: context69::db::TaskListFilter<'_>,
+    ) -> (Vec<Uuid>, i64) {
+        let user_id = filter.user_id;
+        let group_path = filter.group_path.map(str::to_string);
+        let source_key = filter.source_key.map(str::to_string);
+        let ids = db
+            .list_tasks(filter)
+            .await
+            .expect("list tasks")
+            .into_iter()
+            .map(|task| task.id)
+            .collect::<Vec<_>>();
+        let total = db
+            .count_tasks(context69::db::TaskCountFilter {
+                user_id,
+                query: None,
+                group_path: group_path.as_deref(),
+                source_key: source_key.as_deref(),
+                kind: None,
+                status: None,
+                stage: None,
+                waiting_reason: None,
+                dependency_key: None,
+                view: "processing",
+            })
+            .await
+            .expect("count tasks");
+        let selected = db
+            .list_task_selection(
+                user_id,
+                &context69_contracts::tasks::TaskSelectionQuery {
+                    query: None,
+                    group_path,
+                    source_key,
+                    kind: None,
+                    status: None,
+                    view: context69_contracts::TaskListView::Processing,
+                    stage: None,
+                    waiting_reason: None,
+                    dependency_key: None,
+                },
+                10_000,
+            )
+            .await
+            .expect("selection")
+            .into_iter()
+            .map(|(task_id, _)| task_id)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            ids.len() as i64,
+            total,
+            "the list and the count share one predicate"
+        );
+        assert_eq!(
+            ids.len(),
+            selected.len(),
+            "the selection captures the whole exact set"
+        );
+        for id in &ids {
+            assert!(
+                selected.contains(id),
+                "the selection must capture every listed task"
+            );
+        }
+        (ids, total)
+    }
+
+    let (exact_group, _) =
+        snapshot(&db, scoped_list_filter(user_id, Some("test/exact/a"), None)).await;
+    assert!(exact_group.contains(&group_a_alpha));
+    assert!(exact_group.contains(&group_a_beta));
+    assert!(!exact_group.contains(&group_b_alpha));
+    assert!(!exact_group.contains(&foreign_alpha));
+
+    let (both, _) = snapshot(
+        &db,
+        scoped_list_filter(user_id, Some("test/exact/a"), Some("alpha")),
+    )
+    .await;
+    assert_eq!(both, vec![group_a_alpha]);
+
+    let (trimmed, _) = snapshot(
+        &db,
+        scoped_list_filter(user_id, Some("  test/exact/a  "), Some(" alpha ")),
+    )
+    .await;
+    assert_eq!(trimmed, vec![group_a_alpha], "filter edges are trimmed");
+
+    let (blank, blank_total) =
+        snapshot(&db, scoped_list_filter(user_id, Some("   "), Some(""))).await;
+    assert_eq!(
+        blank_total,
+        blank.len() as i64,
+        "a blank filter behaves as absent"
+    );
+    assert!(blank.contains(&group_a_alpha));
+    assert!(blank.contains(&group_b_alpha));
+    assert!(
+        !blank.contains(&foreign_alpha),
+        "a blank filter never widens authorization"
+    );
 }
 
 #[tokio::test]
@@ -334,6 +518,8 @@ async fn a_row_projects_the_focus_item_file_name_and_document_title() {
         .list_tasks(context69::db::TaskListFilter {
             user_id,
             query: None,
+            group_path: None,
+            source_key: None,
             kind: None,
             status: None,
             stage: None,

@@ -1,5 +1,7 @@
 use anyhow::Result;
-use context69_contracts::tasks::{TaskKind, TaskListView, TaskSelectionQuery, TaskStatus};
+use context69_contracts::tasks::{
+    TaskKind, TaskListView, TaskSelectionQuery, TaskStatus, normalized_task_filter,
+};
 use uuid::Uuid;
 
 use super::types::{
@@ -40,7 +42,9 @@ impl Database {
             filter.sort_direction,
             filter.limit,
             filter.offset,
-            filter.view
+            filter.view,
+            filter.group_path,
+            filter.source_key
         )
         .fetch_all(self.pool())
         .await?)
@@ -56,7 +60,9 @@ impl Database {
             filter.stage,
             filter.waiting_reason,
             filter.dependency_key,
-            filter.view
+            filter.view,
+            filter.group_path,
+            filter.source_key
         )
         .fetch_one(self.pool())
         .await?
@@ -89,6 +95,8 @@ impl Database {
             query.dependency_key.as_deref(),
             TaskListView::as_str(query.view),
             limit,
+            normalized_task_filter(query.group_path.as_deref()),
+            normalized_task_filter(query.source_key.as_deref()),
         )
         .fetch_all(self.pool())
         .await?;
@@ -96,6 +104,27 @@ impl Database {
             .into_iter()
             .map(|row| (row.task_id, row.status))
             .collect())
+    }
+
+    /// Bounded set read of the caller's readable tasks by id (issue 1172 P1).
+    ///
+    /// One `id = ANY($1)` statement serves up to 100 ids, so a caller lookup is
+    /// a single indexed round trip instead of one query per id. Authorization
+    /// is the `get.sql` predicate, so an unreadable id is simply absent and the
+    /// service can map it to `not_found` without leaking existence.
+    pub async fn get_tasks_by_ids(
+        &self,
+        task_ids: &[Uuid],
+        user_id: i64,
+    ) -> Result<Vec<StoredTask>> {
+        Ok(sqlx::query_file_as!(
+            StoredTask,
+            "src/sql/db/tasks/get_tasks_by_ids.sql",
+            task_ids,
+            user_id
+        )
+        .fetch_all(self.pool())
+        .await?)
     }
 
     pub async fn list_task_items(

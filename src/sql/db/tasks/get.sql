@@ -32,7 +32,13 @@ SELECT
     task.finished_at,
     task.updated_at,
     context.file_name,
-    context.document_title
+    context.document_title,
+    EXISTS (
+        SELECT 1
+        FROM context69.task_docling_remote_jobs job
+        WHERE job.task_id = task.id
+          AND job.status IN ('submitting', 'submission_uncertain')
+    ) AS "docling_submission_uncertain!"
 FROM context69.tasks task
 LEFT JOIN LATERAL (
     SELECT

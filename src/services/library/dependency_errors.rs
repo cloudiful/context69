@@ -73,6 +73,7 @@ fn typed_transient_for_dependency(
         | DomainError::Forbidden(_)
         | DomainError::NotFound(_)
         | DomainError::Conflict(_)
+        | DomainError::DoclingSubmissionUncertain(_)
         | DomainError::PayloadTooLarge(_)
         | DomainError::UnprocessableEntity(_)
         | DomainError::Internal(_) => Some(false),

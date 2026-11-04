@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Whether the relations this cleanup has to read actually exist, and the\n-- database clock at observation time.\n--\n-- The reset runs against whatever state the owned database is in, so absence\n-- must be observed before the linked-task query references a missing relation.\n-- `to_regclass` resolves a missing schema or relation to NULL instead of\n-- failing, which keeps a fresh or already-reset database a safe no-op.\n--\n-- A present library schema is a different case from an absent one: the caller\n-- validates its ownership, version and required relations with the library's\n-- read-only schema check before any linked selection, so a present but foreign,\n-- outdated or corrupt schema refuses the reset instead of being treated as an\n-- empty bootstrap.\n--\n-- `database_now` is the server clock the caller uses as its conservative expiry\n-- anchor. Lease deadlines live on the same server clock, so a deadline at or\n-- before this observation is proven expired without trusting an application\n-- clock that may be skewed ahead of the database.\nSELECT\n    to_regclass('context69.task_items') IS NOT NULL AS \"item_relation_exists!\",\n    EXISTS (\n        SELECT 1 FROM pg_namespace WHERE nspname = 'cloudiful_tasks'\n    ) AS \"library_schema_exists!\",\n    to_regclass('cloudiful_tasks.tasks') IS NOT NULL AS \"library_tasks_exists!\",\n    clock_timestamp() AS \"database_now!\";\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_relation_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "library_schema_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "library_tasks_exists!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "database_now!",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "8ee2dd77bf264f849f2fd2d7265720e49bb790a9ea78ee369343b6f6ac650cae"
+}

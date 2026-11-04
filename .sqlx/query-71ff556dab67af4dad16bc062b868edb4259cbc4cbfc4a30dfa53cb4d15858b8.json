@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Exhaust the internal execution-failure budget of one item.\n--\n-- The claim ordinal stays untouched: it is monotonic audit history, not the\n-- exhaustion input.\nUPDATE context69.task_items SET execution_failure_count = 5 WHERE id = $1\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "71ff556dab67af4dad16bc062b868edb4259cbc4cbfc4a30dfa53cb4d15858b8"
+}

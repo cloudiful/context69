@@ -114,7 +114,6 @@ pub(crate) async fn build_service(db: &Database) -> (TaskService, PathBuf) {
         sync: sync.clone(),
         source_folders: SourceFoldersService::new(db.clone(), library, sync),
         translation,
-        concurrency: 1,
     });
     (service, storage_root)
 }

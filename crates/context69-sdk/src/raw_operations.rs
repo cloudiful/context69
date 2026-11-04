@@ -1,8 +1,8 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (141 operations, sorted by `operation_id` for deterministic diffs).
-//! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
+//! (142 operations, sorted by `operation_id` for deterministic diffs).
+//! Contract tests compare this manifest with OpenAPI to verify
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
 //! `multipart-form` means `multipart/form-data`, `array<T>` means a JSON array).
@@ -40,6 +40,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "BatchGetDocumentsRequest",
         response_schema: "BatchGetDocumentsResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "batch_get_tasks",
+        method: "POST",
+        path_template: "/v1/tasks/batch/get",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "TaskBatchGetRequest",
+        response_schema: "TaskBatchGetResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -1104,8 +1115,8 @@ pub const OPERATIONS: &[Operation] = &[
         method: "POST",
         path_template: "/v1/tasks/{task_id}/rerun",
         requires_auth: true,
-        body_kind: BodyKind::Empty,
-        request_schema: "-",
+        body_kind: BodyKind::Json,
+        request_schema: "TaskRerunRequest",
         response_schema: "RerunTaskResponse",
         success_status: 202,
         idempotent: false,
@@ -1148,8 +1159,8 @@ pub const OPERATIONS: &[Operation] = &[
         method: "POST",
         path_template: "/v1/tasks/{task_id}/retry",
         requires_auth: true,
-        body_kind: BodyKind::Empty,
-        request_schema: "-",
+        body_kind: BodyKind::Json,
+        request_schema: "TaskRetryRequest",
         response_schema: "TaskRetryResponse",
         success_status: 202,
         idempotent: false,

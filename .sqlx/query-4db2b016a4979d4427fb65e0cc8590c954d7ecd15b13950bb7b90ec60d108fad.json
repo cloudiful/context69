@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The current bounded staging progress of one library ingest run (issue 1172\n-- P6B1).\n--\n-- Only the current, non-retired run of the item is returned. A retired row is\n-- history and must never provide a resume cursor to a later execution.\n--\n-- `$1` is the task item.\n\nSELECT\n    batch_id,\n    generation,\n    staged_batches_written,\n    staged_plan_fingerprint\nFROM context69.library_ingest_runs\nWHERE item_id = $1\n  AND retired_at IS NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "batch_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "batch_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "staged_batches_written",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "staged_batches_written"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "staged_plan_fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "staged_plan_fingerprint"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "4db2b016a4979d4427fb65e0cc8590c954d7ecd15b13950bb7b90ec60d108fad"
+}

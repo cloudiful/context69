@@ -3,6 +3,7 @@
 //! Both readers are pure functions over command output, so the classification
 //! contract is verified without building or connecting to anything.
 
+use context69_test_support::runner::execute;
 use context69_test_support::runner::manifest::{
     CoverageError, ListedTest, ManifestEntry, TargetListing, TestClass, TestManifest,
 };
@@ -327,4 +328,111 @@ fn the_ignored_subset_of_a_listing_marks_exactly_those_tests() {
             .collect::<Vec<_>>(),
         vec![("a", false), ("b", true), ("c", false)]
     );
+}
+
+fn multi_target_manifest() -> TestManifest {
+    fn target_entry(target: &str, test: &str, class: TestClass) -> ManifestEntry {
+        ManifestEntry {
+            package: "context69".to_owned(),
+            target: target.to_owned(),
+            test: test.to_owned(),
+            class,
+        }
+    }
+
+    TestManifest {
+        entries: vec![
+            target_entry("aaa_storage", "a_first", TestClass::Db),
+            target_entry("aaa_storage", "a_second", TestClass::Db),
+            target_entry("bbb_queue", "b_ordinary", TestClass::Db),
+            target_entry("bbb_queue", "b_keyword", TestClass::Benchmark),
+            target_entry("ccc_maintenance", "c_ordinary", TestClass::Db),
+            target_entry("zzz_startup", "z_startup", TestClass::AppStartup),
+        ],
+    }
+}
+
+#[test]
+fn scoped_plan_defaults_to_the_identical_full_plan() {
+    let manifest = multi_target_manifest();
+    let opt_ins = [TestClass::Benchmark, TestClass::AppStartup];
+
+    assert_eq!(
+        execute::select_plan(&manifest, &opt_ins, &[]).expect("empty selection is the full plan"),
+        execute::plan(&manifest, &opt_ins)
+    );
+}
+
+#[test]
+fn scoped_plan_keeps_full_plan_order_not_request_order() {
+    let manifest = multi_target_manifest();
+    let requested = vec![
+        "context69-ccc_maintenance".to_owned(),
+        "context69-aaa_storage".to_owned(),
+    ];
+
+    let selected =
+        execute::select_plan(&manifest, &[TestClass::Db], &requested).expect("both labels resolve");
+    let labels: Vec<&str> = selected
+        .iter()
+        .map(|target| target.label.as_str())
+        .collect();
+    assert_eq!(
+        labels,
+        vec!["context69-aaa_storage", "context69-ccc_maintenance"],
+        "the subset follows the existing full plan order, not the request order"
+    );
+}
+
+#[test]
+fn scoped_plan_refuses_an_unknown_label_without_a_plan() {
+    let error = execute::select_plan(
+        &multi_target_manifest(),
+        &[TestClass::Db],
+        &["context69-not_a_target".to_owned()],
+    )
+    .expect_err("an unknown label is refused");
+    assert!(error.contains("unknown target label"), "{error}");
+}
+
+#[test]
+fn scoped_plan_refuses_a_known_but_not_enabled_opt_in_label() {
+    let manifest = multi_target_manifest();
+    let error = execute::select_plan(
+        &manifest,
+        &[TestClass::Db],
+        &["context69-zzz_startup".to_owned()],
+    )
+    .expect_err("a disabled opt-in target is refused, never implicitly enabled");
+    assert!(error.contains("not enabled"), "{error}");
+
+    let selected = execute::select_plan(
+        &manifest,
+        &[TestClass::Db, TestClass::AppStartup],
+        &["context69-zzz_startup".to_owned()],
+    )
+    .expect("the requested opt-in resolves only when it was selected");
+    assert_eq!(selected.len(), 1);
+}
+
+#[test]
+fn scoped_selected_ordinary_count_excludes_opt_in_cases() {
+    let manifest = multi_target_manifest();
+    let opt_ins = [TestClass::Benchmark];
+    let selected = execute::select_plan(
+        &manifest,
+        &opt_ins,
+        &[
+            "context69-aaa_storage".to_owned(),
+            "context69-bbb_queue".to_owned(),
+        ],
+    )
+    .expect("both ordinary target labels resolve");
+    let ordinary: usize = selected
+        .iter()
+        .map(|target| manifest.selection(&target.label, &[TestClass::Db]).len())
+        .sum();
+    let planned: usize = selected.iter().map(|target| target.tests.len()).sum();
+    assert_eq!(ordinary, 3);
+    assert_eq!(planned, 4, "the planned total includes the benchmark case");
 }

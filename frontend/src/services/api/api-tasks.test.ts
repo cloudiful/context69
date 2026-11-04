@@ -17,7 +17,6 @@ function diagnoseResponse(): TaskDiagnoseResponse {
       next_attempt_at: "2026-07-20T00:10:00Z",
       failure_stage: null,
       error_summary: null,
-      lease_expires_at: "2026-07-20T00:05:00Z",
       created_at: "2026-07-20T00:01:00Z",
       started_at: "2026-07-20T00:01:00Z",
       finished_at: null,
@@ -105,5 +104,80 @@ describe("tasks api diagnose", () => {
       status: 404,
     });
     await expect(api.getTaskDiagnose("missing")).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("tasks api acknowledgement bodies", () => {
+  function createPostApi(post: ReturnType<typeof vi.fn>) {
+    return createTasksApi({
+      openapiClient: { GET: vi.fn(), POST: post, DELETE: vi.fn() } as never,
+      unwrapResponse,
+    });
+  }
+
+  it("keeps an ordinary retry bodyless and sends an explicit acknowledgement body", async () => {
+    const post = vi.fn().mockResolvedValue({ data: {}, response: { ok: true, status: 202 } });
+    const api = createPostApi(post);
+
+    await api.retryTask("task-1");
+    expect(post).toHaveBeenLastCalledWith("/v1/tasks/{task_id}/retry", {
+      params: { path: { task_id: "task-1" } },
+      signal: undefined,
+    });
+
+    await api.retryTask("task-1", { acknowledge_docling_duplicate_risk: true });
+    expect(post).toHaveBeenLastCalledWith("/v1/tasks/{task_id}/retry", {
+      params: { path: { task_id: "task-1" } },
+      body: { acknowledge_docling_duplicate_risk: true },
+      signal: undefined,
+    });
+  });
+
+  it("sends the batch acknowledgement only when it is true", async () => {
+    const post = vi.fn().mockResolvedValue({ data: { results: [] }, response: { ok: true, status: 200 } });
+    const api = createPostApi(post);
+
+    await api.batchRetryTasks(["a", "b"]);
+    expect(post).toHaveBeenLastCalledWith("/v1/tasks/batch/retry", {
+      body: { task_ids: ["a", "b"] },
+      signal: undefined,
+    });
+
+    await api.batchRetryTasks(["a"], { acknowledgeDoclingDuplicateRisk: true });
+    expect(post).toHaveBeenLastCalledWith("/v1/tasks/batch/retry", {
+      body: { task_ids: ["a"], acknowledge_docling_duplicate_risk: true },
+      signal: undefined,
+    });
+  });
+
+  it("reads a bounded batch snapshot through the generated request", async () => {
+    const post = vi.fn().mockResolvedValue({ data: { items: [] }, response: { ok: true, status: 200 } });
+    const api = createPostApi(post);
+
+    await api.batchGetTasks({ task_ids: ["a", "b"] });
+
+    expect(post).toHaveBeenLastCalledWith("/v1/tasks/batch/get", {
+      body: { task_ids: ["a", "b"] },
+      signal: undefined,
+    });
+  });
+
+  it("keeps the typed server error code on the ApiError", async () => {
+    const error = {
+      code: "docling_submission_uncertain",
+      message: "acknowledgement required",
+    };
+    const response = { ok: false, status: 409 } as Response;
+    await expect(unwrapResponse(Promise.resolve({ error, response }))).rejects.toMatchObject({
+      name: "ApiError",
+      status: 409,
+      code: "docling_submission_uncertain",
+      message: "acknowledgement required",
+    });
+
+    await expect(unwrapResponse(Promise.resolve({
+      error: { code: "some_future_code", message: "x" },
+      response,
+    }))).rejects.toMatchObject({ status: 409, code: undefined });
   });
 });

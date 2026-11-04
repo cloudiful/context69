@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Advance the bounded staging progress of one library ingest run by exactly\n-- one verified batch (issue 1172 P6B1).\n--\n-- The update is fenced by the captured item grant and the adopted run identity,\n-- and refuses a retired or resolved run. The caller passes the exact previous\n-- count it observed, so a concurrent or stale advance cannot skip a batch. The\n-- plan fingerprint is written on the first advance and must stay equal\n-- afterwards.\n--\n-- `$1` is the item, `$2` the run batch id, `$3` the fencing token, `$4` the\n-- library task, `$5` the execution generation, `$6` the plan fingerprint and\n-- `$7` the expected previous count.\n\nUPDATE context69.library_ingest_runs\nSET staged_batches_written = staged_batches_written + 1,\n    staged_plan_fingerprint = COALESCE(staged_plan_fingerprint, $6),\n    updated_at = now()\nWHERE item_id = $1\n  AND batch_id = $2\n  AND lease_token = $3\n  AND execution_task_id = $4\n  AND execution_generation = $5\n  AND retired_at IS NULL\n  AND resolved_at IS NULL\n  AND staged_batches_written = $7\n  AND (staged_plan_fingerprint IS NULL OR staged_plan_fingerprint = $6)\nRETURNING staged_batches_written\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "staged_batches_written",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_ingest_runs",
+            "name": "staged_batches_written"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a82bbd9f4f969c76eed4e12eeb4b0437b64d6a650bf9b319a9d63a1d609713ba"
+}

@@ -2,7 +2,7 @@ use crate::db::Database;
 use crate::domain_errors::DomainError;
 
 use anyhow::Result;
-use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use chrono::{DateTime, Utc};
 use context69_contracts::TaskKind;
 use serde_json::Value;
 use uuid::Uuid;
@@ -15,10 +15,21 @@ use crate::services::library::UnifiedIngestError;
 /// Task 4). `Progressed` never leaves the worker: the blocking driver in
 /// [`process_item_blocking`] consumes it and continues with `next` inside the
 /// same claim, so no stage is persisted and no item is re-claimed between
-/// steps.
+/// steps. `Yielded` is the one intentional segment boundary: it leaves the
+/// inline loop, the driver commits a deferred completion, and the next claim
+/// continues at `next` from the durable run state.
 pub(super) enum ProcessResult {
     Succeeded(Option<String>),
     Progressed {
+        next: &'static str,
+    },
+    /// Ends the current claim at a durable segment boundary.
+    ///
+    /// The driver completes the library attempt as deferred (not business
+    /// success), queues the item due now and clears the lease. The next claim
+    /// routes from the persisted run state; `next` names the stage that
+    /// boundary continues at. This is never an inline retry.
+    Yielded {
         next: &'static str,
     },
     Waiting {
@@ -31,6 +42,20 @@ pub(super) enum ProcessResult {
         stage: String,
         message: String,
         retryable: bool,
+    },
+    /// A known Docling job was observed once and must be parked atomically.
+    /// These typed outcomes bypass the inline sleep/retry loop entirely.
+    DoclingWaiting(crate::db::DoclingProbeUpdate),
+    /// The dispatch was invoked and its outcome is unknown; the item must park
+    /// inertly with zero HTTP and no automatic resend.
+    DoclingSubmissionUncertain {
+        job_id: Uuid,
+        reason: String,
+    },
+    /// The known Docling job passed its deadline; the item must time out.
+    DoclingTimedOut {
+        job_id: Uuid,
+        reason: String,
     },
 }
 
@@ -319,20 +344,23 @@ pub(crate) fn persisted_section_payload(payload: &Value) -> Option<Value> {
 }
 
 pub(super) fn waiting_for_error(
-    item: &crate::db::ClaimedItem,
+    _item: &crate::db::ClaimedItem,
     error: UnifiedIngestError,
 ) -> ProcessResult {
-    let attempt = item.attempt_count.clamp(1, 8) as u32;
-    let seconds = 5_i64.saturating_mul(1_i64 << (attempt - 1));
-    ProcessResult::Waiting {
-        reason: if error.dependency_key.is_some() {
-            "dependency".to_string()
-        } else {
-            "backoff".to_string()
+    match error.dependency_key {
+        Some(dependency_key) => ProcessResult::Waiting {
+            reason: "dependency".to_string(),
+            dependency_key: Some(dependency_key),
+            // Dependency waits stay on the first backoff step and never grow
+            // with the monotonic claim ordinal.
+            next_attempt_at: super::inline_waits::backoff_until(1),
+            message: Some(error.message),
         },
-        dependency_key: error.dependency_key,
-        next_attempt_at: Utc::now() + ChronoDuration::seconds(seconds.min(300)),
-        message: Some(error.message),
+        None => ProcessResult::Failed {
+            stage: error.stage,
+            message: error.message,
+            retryable: true,
+        },
     }
 }
 
@@ -408,6 +436,7 @@ mod tests {
             task_id: uuid::Uuid::nil(),
             ordinal: 0,
             attempt_count,
+            execution_failure_count: 0,
             lease_token: uuid::Uuid::nil(),
             attempt_id: 0,
             payload: serde_json::json!({}),

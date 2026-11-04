@@ -8,10 +8,10 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use context69_contracts::tasks::TaskSelectionQuery;
+use context69_contracts::tasks::{TaskRerunRequest, TaskRetryRequest, TaskSelectionQuery};
 use context69_contracts::{
-    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskBatchRerunRequest,
-    TaskBatchRetryRequest, TaskItemsQuery, TaskListQuery,
+    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskBatchGetRequest,
+    TaskBatchRerunRequest, TaskBatchRetryRequest, TaskItemsQuery, TaskListQuery,
 };
 use uuid::Uuid;
 
@@ -116,19 +116,30 @@ pub(crate) async fn diagnose_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/retry", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::TaskRetryResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/retry", request_body = Option<TaskRetryRequest>, params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::TaskRetryResponse), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn retry_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
+    body: Option<Json<TaskRetryRequest>>,
 ) -> Response {
-    match state.app.tasks.retry(task_id, session.user.id).await {
+    // An absent body means no acknowledgement: the caller keeps the code-only
+    // conflict for an unresolved Docling submission.
+    let acknowledged = body
+        .map(|Json(request)| request.acknowledge_docling_duplicate_risk)
+        .unwrap_or(false);
+    match state
+        .app
+        .tasks
+        .retry_with_ack(task_id, session.user.id, acknowledged)
+        .await
+    {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
         Err(error) => task_error(error),
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/retry", request_body = TaskBatchRetryRequest, responses((status = 200, body = crate::contracts::TaskBatchRetryResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/retry", request_body = TaskBatchRetryRequest, responses((status = 200, body = crate::contracts::TaskBatchRetryResponse), (status = 400, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn batch_retry_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -142,22 +153,32 @@ pub(crate) async fn batch_retry_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::RerunTaskResponse), (status = 400, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", request_body = Option<TaskRerunRequest>, params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::RerunTaskResponse), (status = 400, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn rerun_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
+    body: Option<Json<TaskRerunRequest>>,
 ) -> Response {
     // Routing: a cancelled submission reopens its own items and keeps its id,
     // a failed task keeps the documented fresh-parent rerun, and a succeeded
-    // file, url, or text task is rerun from its current source.
-    match state.app.tasks.rerun(task_id, session.user.id).await {
+    // file, url, or text task is rerun from its current source. An absent body
+    // means no acknowledgement.
+    let acknowledged = body
+        .map(|Json(request)| request.acknowledge_docling_duplicate_risk)
+        .unwrap_or(false);
+    match state
+        .app
+        .tasks
+        .rerun_with_ack(task_id, session.user.id, acknowledged)
+        .await
+    {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
         Err(error) => task_error(error),
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/rerun", request_body = TaskBatchRerunRequest, responses((status = 200, body = crate::contracts::TaskBatchRerunResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/rerun", request_body = TaskBatchRerunRequest, responses((status = 200, body = crate::contracts::TaskBatchRerunResponse), (status = 400, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
 pub(crate) async fn batch_rerun_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -166,6 +187,21 @@ pub(crate) async fn batch_rerun_tasks(
     // One ordered outcome per requested id; only a succeeded file, url, or text
     // parent is rerun, and every other id is skipped with a reason.
     match state.app.tasks.batch_rerun(session.user.id, &request).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/batch/get", request_body = TaskBatchGetRequest, responses((status = 200, body = crate::contracts::tasks::TaskBatchGetResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_get_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchGetRequest>,
+) -> Response {
+    // One ordered snapshot per requested id: a missing or unreadable id is
+    // `not_found` with no body, and the whole batch is refused before any read
+    // when it is empty, duplicate-bearing or over the bound.
+    match state.app.tasks.batch_get(session.user.id, &request).await {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => task_error(error),
     }

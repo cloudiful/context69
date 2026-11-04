@@ -65,6 +65,8 @@ pub async fn import_legacy_runtime_if_needed(
             max_concurrency: config.scheduler.max_concurrency,
             job_id: config.scheduler.job_id.clone(),
             valkey_url: config.scheduler.valkey_url.clone(),
+            resource_limits: Default::default(),
+            ingest_batches_per_segment: config.scheduler.ingest_batches_per_segment,
         },
         chunking: crate::db::StoredRuntimeChunkingSettings {
             max_chars: config.chunking.max_chars,
@@ -260,6 +262,7 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
         valkey_url: runtime.scheduler.valkey_url.clone(),
         execution_guard_ttl: config.scheduler.execution_guard_ttl,
         execution_guard_renew_interval: config.scheduler.execution_guard_renew_interval,
+        ingest_batches_per_segment: runtime.scheduler.ingest_batches_per_segment,
     };
     config.chunking = ChunkingConfig {
         max_chars: runtime.chunking.max_chars,

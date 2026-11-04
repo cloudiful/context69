@@ -36,6 +36,11 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       max_concurrency: 4,
       job_id: "context69-sync",
       valkey_url: "",
+      ingest_batches_per_segment: 1,
+      interactive: "",
+      bulk: "",
+      maintenance: "",
+      ingest: "",
     },
     chunking: {
       max_chars: 1200,
@@ -98,6 +103,10 @@ export function createSearchDraft(): DraftSearchSettings {
   };
 }
 
+function optionalLimitDraft(value: number | null | undefined): string {
+  return value === null || value === undefined ? "" : String(value);
+}
+
 export function runtimeResponseToDraft(
   response: RuntimeSettingsResponse,
 ): DraftRuntimeSettings {
@@ -120,6 +129,11 @@ export function runtimeResponseToDraft(
       max_concurrency: response.scheduler.max_concurrency,
       job_id: response.scheduler.job_id,
       valkey_url: response.scheduler.valkey_url ?? "",
+      ingest_batches_per_segment: response.scheduler.ingest_batches_per_segment,
+      interactive: optionalLimitDraft(response.scheduler.resource_limits?.interactive),
+      bulk: optionalLimitDraft(response.scheduler.resource_limits?.bulk),
+      maintenance: optionalLimitDraft(response.scheduler.resource_limits?.maintenance),
+      ingest: optionalLimitDraft(response.scheduler.resource_limits?.ingest),
     },
     chunking: {
       max_chars: response.chunking.max_chars,

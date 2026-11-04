@@ -37,27 +37,37 @@ fn renewal_timing() -> (Duration, Duration) {
 
 #[cfg(test)]
 pub(crate) mod test_timing {
-    use std::sync::{Mutex, OnceLock};
+    use std::sync::Mutex;
     use std::time::Duration;
 
-    static TIMING: OnceLock<Mutex<Option<(Duration, Duration)>>> = OnceLock::new();
+    use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 
-    fn cell() -> &'static Mutex<Option<(Duration, Duration)>> {
-        TIMING.get_or_init(|| Mutex::new(None))
+    /// Serializes every case that installs a process-global timing override.
+    static CASE: AsyncMutex<()> = AsyncMutex::const_new(());
+    /// The one active override; only the case holding [`CASE`] may write it.
+    static TIMING: Mutex<Option<(Duration, Duration)>> = Mutex::new(None);
+
+    /// Scoped lifetime of one timing override: the case stays serialized and
+    /// the production timing is restored even when the case panics.
+    pub(crate) struct TimingGuard {
+        _case: AsyncMutexGuard<'static, ()>,
     }
 
-    /// Shortens the renewal timing for one case.
-    pub(crate) fn install(interval: Duration, timeout: Duration) {
-        *cell().lock().expect("timing lock") = Some((interval, timeout));
+    impl Drop for TimingGuard {
+        fn drop(&mut self) {
+            *TIMING.lock().expect("timing lock") = None;
+        }
     }
 
-    /// Restores the production timing.
-    pub(crate) fn clear() {
-        *cell().lock().expect("timing lock") = None;
+    /// Shortens the renewal timing for one case and returns its scope guard.
+    pub(crate) async fn install(interval: Duration, timeout: Duration) -> TimingGuard {
+        let case = CASE.lock().await;
+        *TIMING.lock().expect("timing lock") = Some((interval, timeout));
+        TimingGuard { _case: case }
     }
 
     pub(super) fn current() -> Option<(Duration, Duration)> {
-        *cell().lock().expect("timing lock")
+        *TIMING.lock().expect("timing lock")
     }
 }
 
@@ -290,7 +300,7 @@ mod tests {
             .await
             .expect("create task");
             let item = db
-                .claim_items_fast(10)
+                .claim_items_fast()
                 .await
                 .expect("claim the item")
                 .into_iter()
@@ -307,6 +317,15 @@ mod tests {
         }
 
         async fn cleanup(db: &Database, task_id: Uuid, user_id: i64) {
+            let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+                db.pool(),
+                context69_test_support::execution_cleanup::FixtureExecutionScope::Tasks(&[task_id]),
+            )
+            .await
+            .expect("settle the fixture's linked executions before deleting its rows");
+            if report.has_expired_skips() {
+                eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+            }
             sqlx::query_file!(
                 "tests/sql/task_execution/delete_task_items_by_task.sql",
                 task_id
@@ -381,10 +400,11 @@ mod tests {
             .await
             .expect("lock the library attempt");
 
-            super::super::test_timing::install(
+            let _timing = super::super::test_timing::install(
                 Duration::from_millis(10),
                 Duration::from_millis(50),
-            );
+            )
+            .await;
             let started = Arc::new(AtomicBool::new(false));
             let service = build_service(&db).await;
             let work = start_uncooperative_work(service.clone(), item.clone(), started.clone());
@@ -406,7 +426,6 @@ mod tests {
                 "the started work must be dropped once the renewal budget is spent"
             );
             heartbeat.abort();
-            super::super::test_timing::clear();
             sqlx::query_file!("tests/sql/task_execution/rollback_transaction.sql")
                 .execute(&mut *blocker)
                 .await
@@ -432,10 +451,11 @@ mod tests {
                 .expect("the claimed item carries its captured execution");
             let before = payload(&db, item.id).await;
 
-            super::super::test_timing::install(
+            let _timing = super::super::test_timing::install(
                 Duration::from_millis(10),
                 Duration::from_millis(50),
-            );
+            )
+            .await;
             let started = Arc::new(AtomicBool::new(false));
             let service = build_service(&db).await;
             let work = start_uncooperative_work(service.clone(), item.clone(), started.clone());
@@ -468,7 +488,6 @@ mod tests {
                 "a lost lease drops the started work instead of only stopping the renewal"
             );
             heartbeat.abort();
-            super::super::test_timing::clear();
 
             assert_eq!(
                 payload(&db, item.id).await,

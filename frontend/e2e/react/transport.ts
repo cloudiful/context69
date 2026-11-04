@@ -41,6 +41,7 @@ import {
   type LibraryResourceFixture,
   type LibraryTreeFixture,
   type MetadataIndexFixture,
+  type RuntimeSettingsFixture,
   type SearchResponseFixture,
   type SourceStatusFixture,
   type TaskDiagnoseFixture,
@@ -61,6 +62,8 @@ export interface AppTransportOptions {
   meStatus?: number;
   /** Enables the settings endpoints the settings suite drives. */
   settings?: boolean;
+  /** Overrides only the scheduler resource ceilings served by the settings mock. */
+  runtimeResourceLimits?: RuntimeSettingsFixture["scheduler"]["resource_limits"];
   embeddingTestFails?: boolean;
   /** Fails one settings group so a partial save is reachable. */
   settingsFailures?: { doclingPut?: BackendFailure; runtimeGet?: BackendFailure; runtimeGetFailReads?: number };
@@ -112,6 +115,12 @@ export interface QueueMock {
    * progress/terminal transition. The last entry repeats.
    */
   taskReadSequence?: Record<string, TaskFixture[]>;
+  /**
+   * The first retry request without an explicit acknowledgement answers the
+   * typed 409 the backend uses when the submission became uncertain after the
+   * page's snapshot. A later acknowledged request succeeds.
+   */
+  ackRequiredOnce?: boolean;
   /** Child task ids a source rerun reports, keyed by the parent task id. */
   rerunChildIds?: Record<string, string>;
   listError?: BackendFailure;
@@ -242,9 +251,17 @@ export async function installAppTransport(
 ): Promise<AppTransport> {
   let currentUser: AuthUserFixture = options.user ?? ADMIN_USER;
   const calls: RecordedRequest[] = [];
+  let ackGateUsed = false;
   const unmocked: string[] = [];
   const saved = {
-    runtime: structuredClone(RUNTIME_SETTINGS),
+    runtime: structuredClone({
+      ...RUNTIME_SETTINGS,
+      scheduler: {
+        ...RUNTIME_SETTINGS.scheduler,
+        resource_limits: options.runtimeResourceLimits
+          ?? RUNTIME_SETTINGS.scheduler.resource_limits,
+      },
+    }),
     docling: structuredClone(DOCLING_SETTINGS),
     search: structuredClone(SEARCH_SETTINGS),
     translation: structuredClone(TRANSLATION_SETTINGS),
@@ -535,12 +552,42 @@ export async function installAppTransport(
       return true;
     }
 
+    if (url.pathname === "/v1/tasks/batch/get" && method === "POST") {
+      const body = route.request().postDataJSON() as { task_ids?: string[] };
+      const sources = [
+        ...(queue.processing ?? []),
+        ...(queue.completed ?? []),
+        ...(queue.trash ?? []),
+        ...Object.values(queue.taskById ?? {}),
+      ];
+      await route.fulfill(json(200, {
+        items: (body.task_ids ?? []).map((taskId) => {
+          const source = sources.find((task) => task.task_id === taskId);
+          return source
+            ? { task_id: taskId, outcome: "found", task: source }
+            : { task_id: taskId, outcome: "not_found" };
+        }),
+      }));
+      return true;
+    }
+
     const batchRetryMatch = /^\/v1\/tasks\/batch\/retry$/.exec(url.pathname);
     if (batchRetryMatch && method === "POST") {
       if (queue.actionDelayMs) {
         await new Promise((resolve) => setTimeout(resolve, queue.actionDelayMs));
       }
-      const body = route.request().postDataJSON() as { task_ids?: string[] };
+      const body = route.request().postDataJSON() as {
+        task_ids?: string[];
+        acknowledge_docling_duplicate_risk?: boolean;
+      };
+      if (queue.ackRequiredOnce && body.acknowledge_docling_duplicate_risk !== true && !ackGateUsed) {
+        ackGateUsed = true;
+        await route.fulfill(json(409, {
+          code: "docling_submission_uncertain",
+          message: "acknowledgement required",
+        }));
+        return true;
+      }
       const sources = [
         ...(queue.processing ?? []),
         ...(queue.completed ?? []),
@@ -613,6 +660,17 @@ export async function installAppTransport(
         return true;
       }
       if (action === "retry") {
+        const body = route.request().postDataJSON() as {
+          acknowledge_docling_duplicate_risk?: boolean;
+        } | null;
+        if (queue.ackRequiredOnce && body?.acknowledge_docling_duplicate_risk !== true && !ackGateUsed) {
+          ackGateUsed = true;
+          await route.fulfill(json(409, {
+            code: "docling_submission_uncertain",
+            message: "acknowledgement required",
+          }));
+          return true;
+        }
         await route.fulfill(json(200, { retried_items: 1, task: { task_id: taskId } }));
         return true;
       }

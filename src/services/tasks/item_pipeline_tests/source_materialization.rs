@@ -105,7 +105,7 @@ async fn create_url_task(
 }
 
 async fn claim_item(db: &Database, item_id: Uuid) -> crate::db::ClaimedItem {
-    db.claim_items(50)
+    db.claim_items()
         .await
         .expect("claim items")
         .into_iter()

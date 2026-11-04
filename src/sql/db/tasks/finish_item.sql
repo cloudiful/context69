@@ -10,9 +10,21 @@
 -- stage, `$5` the error message, `$6` the retryable flag, `$7` the fencing
 -- token of the library attempt, `$8` the domain attempt, `$9` the library task
 -- and `$10` the execution generation.
+--
+-- `$11` is an explicit next execution-failure budget (used by the dedicated
+-- failure transition), `$12` an optional expected budget guard and `$13` an
+-- optional parent fence. Without `$11`, a plain `failed` finish increments the
+-- budget exactly once (saturating at five); success/cancelled preserve it.
 WITH finished AS (
     UPDATE context69.task_items
     SET status = $2,
+        execution_failure_count = CASE
+            WHEN $11::integer IS NOT NULL
+                THEN LEAST(GREATEST($11::integer, 0), 5)
+            WHEN $2 = 'failed'
+                THEN LEAST(execution_failure_count + 1, 5)
+            ELSE execution_failure_count
+        END,
         stage = CASE WHEN $2 = 'succeeded' THEN 'finalize' ELSE stage END,
         resource_id = $3,
         failure_stage = $4,
@@ -32,6 +44,8 @@ WITH finished AS (
       AND lease_until > clock_timestamp()
       AND execution_task_id = $9
       AND execution_generation = $10
+      AND ($12::integer IS NULL OR execution_failure_count = $12::integer)
+      AND ($13::uuid IS NULL OR task_id = $13::uuid)
     RETURNING id
 ),
 attempt_finished AS (

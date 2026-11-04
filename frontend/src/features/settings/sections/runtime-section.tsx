@@ -2,11 +2,13 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { FormField } from "@/components/common/form-field";
 import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
 import { ToggleField } from "@/components/common/toggle-field";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { SettingsGate } from "@/features/settings/settings-gate";
 import { useSettings } from "@/features/settings/settings-context";
 
@@ -17,6 +19,47 @@ export function RuntimeSection() {
   const { t } = useTranslation();
   const { page, vector } = useSettings();
   const { runtimeDraft, updateRuntimeDraft, updateQdrantUrl } = page;
+
+  const globalConcurrency = runtimeDraft.scheduler.max_concurrency;
+  const limitFields = [
+    {
+      key: "interactive",
+      id: "runtime-scheduler-limit-interactive",
+      label: t("settings.runtime.schedulerInteractiveLimit"),
+    },
+    {
+      key: "bulk",
+      id: "runtime-scheduler-limit-bulk",
+      label: t("settings.runtime.schedulerBulkLimit"),
+    },
+    {
+      key: "maintenance",
+      id: "runtime-scheduler-limit-maintenance",
+      label: t("settings.runtime.schedulerMaintenanceLimit"),
+    },
+    {
+      key: "ingest",
+      id: "runtime-scheduler-limit-ingest",
+      label: t("settings.runtime.schedulerIngestLimit"),
+    },
+  ] as const;
+  const ingestBatches = runtimeDraft.scheduler.ingest_batches_per_segment;
+  const ingestBatchesError =
+    Number.isInteger(ingestBatches) && ingestBatches >= 1 && ingestBatches <= 64
+      ? null
+      : t("settings.runtime.ingestBatchesPerSegmentRange");
+
+  const limitError = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) {
+      return null;
+    }
+    const parsed = Number(trimmed);
+    if (!/^\d+$/.test(trimmed) || !Number.isInteger(parsed) || parsed < 1 || parsed > globalConcurrency) {
+      return t("settings.runtime.schedulerLimitRange", { max: globalConcurrency });
+    }
+    return null;
+  };
 
   return (
     <SettingsSection title={t("settings.runtime.title")}>
@@ -177,11 +220,72 @@ export function RuntimeSection() {
               id="runtime-scheduler-concurrency"
               label={t("settings.runtime.schedulerConcurrency")}
               min={1}
+              max={1024}
               value={runtimeDraft.scheduler.max_concurrency}
               onChange={(value) => updateRuntimeDraft((draft) => {
                 draft.scheduler.max_concurrency = value;
               })}
             />
+            <FormField
+              label={t("settings.runtime.ingestBatchesPerSegment")}
+              htmlFor="runtime-scheduler-ingest-batches"
+              helper={t("settings.runtime.ingestBatchesPerSegmentHelper")}
+              error={ingestBatchesError}
+            >
+              <Input
+                id="runtime-scheduler-ingest-batches"
+                name="runtime-scheduler-ingest-batches"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={64}
+                value={Number.isFinite(ingestBatches) ? String(ingestBatches) : ""}
+                aria-invalid={ingestBatchesError ? true : undefined}
+                onChange={(event) => {
+                  const parsed = Number(event.target.value);
+                  updateRuntimeDraft((draft) => {
+                    draft.scheduler.ingest_batches_per_segment = Number.isFinite(parsed)
+                      ? parsed
+                      : 0;
+                  });
+                }}
+              />
+            </FormField>
+            <div className="grid max-w-2xl gap-3">
+              {limitFields.map((field) => {
+                const value = runtimeDraft.scheduler[field.key];
+                const error = limitError(value);
+                return (
+                  <FormField
+                    key={field.key}
+                    label={field.label}
+                    htmlFor={field.id}
+                    error={error}
+                  >
+                    <Input
+                      id={field.id}
+                      name={field.id}
+                      type="number"
+                      inputMode="numeric"
+                      min={1}
+                      max={globalConcurrency}
+                      step={1}
+                      value={value}
+                      aria-invalid={error ? true : undefined}
+                      onChange={(event) => {
+                        const next = event.target.value;
+                        updateRuntimeDraft((draft) => {
+                          draft.scheduler[field.key] = next;
+                        });
+                      }}
+                    />
+                  </FormField>
+                );
+              })}
+              <p className="text-xs text-muted-foreground">
+                {t("settings.runtime.schedulerLimitsHelper")}
+              </p>
+            </div>
             <TextField
               id="runtime-scheduler-job-id"
               label={t("settings.runtime.schedulerJobId")}

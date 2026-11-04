@@ -79,6 +79,13 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     max_concurrency: 4,
     job_id: "context69-sync",
     valkey_url: "redis://valkey:6379/0",
+    ingest_batches_per_segment: 1,
+    resource_limits: {
+      interactive: null,
+      bulk: null,
+      maintenance: null,
+      ingest: null,
+    },
   },
   chunking: { max_chars: 1200, overlap_chars: 200 },
   requires_rebuild: false,
@@ -694,6 +701,32 @@ export const QUEUE_FAILED_TASK = queueTaskFixture({
   progress: { total: 4, queued: 0, running: 0, waiting: 0, succeeded: 2, failed: 2, cancelled: 0 },
 });
 
+export const QUEUE_UNCERTAIN_TASK = queueTaskFixture({
+  task_id: "a1b2c3d4-0000-4000-8000-000000000005",
+  status: "waiting",
+  stage: "docling",
+  waiting_reason: "docling",
+  docling_submission_uncertain: true,
+  file_name: "uncertain.pdf",
+  document_title: "Uncertain Filing",
+  progress: { total: 1, queued: 0, running: 0, waiting: 1, succeeded: 0, failed: 0, cancelled: 0 },
+});
+
+export const QUEUE_UNCERTAIN_ITEMS: TaskItemsFixture = {
+  items: [{
+    item_id: "queue-uncertain-item-1",
+    ordinal: 1,
+    status: "waiting",
+    attempt_count: 1,
+    retryable: true,
+    file_name: "uncertain.pdf",
+    error_message: "the Docling dispatch outcome is unknown",
+    progress: { attempt: 1, stage: "docling", total_chunks: 0, completed_chunks: 0 },
+    created_at: "2026-01-01T08:00:00Z",
+  }],
+  next_cursor: null,
+};
+
 export const QUEUE_COMPLETED_TASK = queueTaskFixture({
   task_id: "a1b2c3d4-0000-4000-8000-000000000003",
   status: "succeeded",
@@ -782,4 +815,25 @@ export const QUEUE_DIAGNOSE: TaskDiagnoseFixture = {
     dependency_key: "embedding",
     progress: { total: 4, queued: 0, running: 0, waiting: 0, succeeded: 2, failed: 2, cancelled: 0 },
   },
+};
+
+export const QUEUE_UNCERTAIN_DIAGNOSE: TaskDiagnoseFixture = {
+  ...QUEUE_DIAGNOSE,
+  task: { ...QUEUE_DIAGNOSE.task, docling_submission_uncertain: true },
+  items: [{
+    ...QUEUE_DIAGNOSE.items[0]!,
+    status: "waiting",
+    stage: "docling",
+    waiting_reason: "docling",
+    dependency_key: null,
+    next_attempt_at: null,
+    lease_expires_at: null,
+    error_message: null,
+    docling_submission: {
+      state: "submission_uncertain",
+      dispatch_attempted: false,
+      created_at: "2026-01-01T08:01:00Z",
+      finished_at: null,
+    },
+  }],
 };

@@ -51,6 +51,8 @@ pub(super) fn runtime_settings_from_request(
             max_concurrency: request.scheduler.max_concurrency,
             job_id: request.scheduler.job_id.trim().to_string(),
             valkey_url: normalize_optional_string(request.scheduler.valkey_url.clone()),
+            resource_limits: request.scheduler.resource_limits.clone(),
+            ingest_batches_per_segment: request.scheduler.ingest_batches_per_segment,
         },
         chunking: StoredRuntimeChunkingSettings {
             max_chars: request.chunking.max_chars,
@@ -118,6 +120,8 @@ pub(super) fn runtime_settings_response(
             max_concurrency: settings.scheduler.max_concurrency,
             job_id: settings.scheduler.job_id,
             valkey_url: settings.scheduler.valkey_url,
+            resource_limits: settings.scheduler.resource_limits,
+            ingest_batches_per_segment: settings.scheduler.ingest_batches_per_segment,
         },
         chunking: RuntimeChunkingSettings {
             max_chars: settings.chunking.max_chars,
@@ -178,6 +182,8 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             max_concurrency: defaults.scheduler.max_concurrency,
             job_id: defaults.scheduler.job_id,
             valkey_url: defaults.scheduler.valkey_url,
+            resource_limits: Default::default(),
+            ingest_batches_per_segment: defaults.scheduler.ingest_batches_per_segment,
         },
         chunking: RuntimeChunkingSettings {
             max_chars: defaults.chunking.max_chars,

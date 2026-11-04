@@ -66,6 +66,7 @@ pub(super) fn task_response(task: crate::db::StoredTask) -> TaskResponse {
         // fallback instead of rendering a blank cell.
         file_name: task.file_name,
         document_title: task.document_title,
+        docling_submission_uncertain: task.docling_submission_uncertain,
     }
 }
 

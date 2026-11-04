@@ -1,0 +1,129 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The bounded, class-representative candidates the dispatcher may claim now\n-- (issue 1020 P2, issue 1172 P2/P6A2).\n--\n-- The domain policy selects the lowest ordinal non-terminal item of an active\n-- parent, with the retry time, Docling exclusion and execution failure budget\n-- unchanged. Execution capacity is not decided here: the library attempt\n-- admission is the only capacity owner.\n--\n-- A candidate must be linked to the real current library task of the queue.\n-- The library snapshot is authoritative: a QUEUED segment is only admissible\n-- when its immutable class equals the class its typed parent kind maps to and\n-- its immutable resources contain that class and the shared `ingest` resource.\n-- A NULL, unknown, mismatched or resource-incomplete queued segment is never\n-- granted; the unclassified report counts it instead.\n--\n-- A CURRENT TERMINAL segment is different: its old metadata may predate the\n-- class contract. It is admitted only for the existing bounded promotion, which\n-- produces the next generation with the typed class and resources and never\n-- claims or rewrites the terminal segment itself.\n--\n-- At most 333 oldest eligible heads are returned for each of the three\n-- immutable classes, ordered by the parent creation time and the item id\n-- within the class. That bounds one read at 999 candidates while keeping a\n-- minority class represented when it has eligible work. The SQL does not\n-- choose the winner: the library receives the candidate ids and applies its\n-- own fair, capacity-aware admission.\nWITH current_items AS (\n    SELECT DISTINCT ON (item.task_id) item.id, item.task_id, item.ordinal\n    FROM context69.task_items item\n    WHERE item.status IN ('queued', 'running', 'waiting')\n    ORDER BY item.task_id, item.ordinal\n),\neligible_items AS (\n    SELECT item.id, item.task_id, item.ordinal\n    FROM current_items item\n    JOIN context69.task_items ti ON ti.id = item.id\n    WHERE ti.status IN ('queued', 'waiting')\n      AND ti.execution_failure_count < 5\n      AND (\n            (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())\n            OR (\n                ti.status = 'waiting'\n                AND COALESCE(ti.waiting_reason, '') = 'docling'\n                AND EXISTS (\n                    SELECT 1\n                    FROM context69.task_docling_remote_jobs AS job\n                    WHERE job.item_id = ti.id\n                      AND job.status IN ('pending', 'running')\n                      AND job.endpoint_base_url IS NOT NULL\n                      AND (\n                          job.next_poll_at <= now()\n                          OR (job.deadline_at IS NOT NULL AND job.deadline_at <= now())\n                      )\n                )\n            )\n        )\n      AND (\n            NOT (\n                ti.status = 'waiting'\n                AND COALESCE(ti.waiting_reason, '') = 'docling'\n            )\n            OR EXISTS (\n                SELECT 1\n                FROM context69.task_docling_remote_jobs AS job\n                WHERE job.item_id = ti.id\n                  AND job.status IN ('pending', 'running')\n                  AND job.endpoint_base_url IS NOT NULL\n            )\n        )\n),\nchosen AS (\n    SELECT item.id, item.task_id, task.created_at, task.kind\n    FROM eligible_items item\n    JOIN context69.tasks task ON task.id = item.task_id\n    WHERE task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n      AND (\n            task.next_attempt_at IS NULL\n            OR task.next_attempt_at <= now()\n            OR EXISTS (\n                SELECT 1\n                FROM context69.task_docling_remote_jobs AS job\n                WHERE job.item_id = item.id\n                  AND job.status IN ('pending', 'running')\n                  AND job.endpoint_base_url IS NOT NULL\n                  AND (\n                      job.next_poll_at <= now()\n                      OR (job.deadline_at IS NOT NULL AND job.deadline_at <= now())\n                  )\n            )\n        )\n),\nlinked AS (\n    SELECT chosen.id,\n           chosen.task_id,\n           chosen.created_at,\n           chosen.kind,\n           segment.status AS segment_status,\n           segment.class AS segment_class,\n           segment.resources AS segment_resources,\n           CASE chosen.kind\n               WHEN 'text_batch' THEN 'interactive'\n               WHEN 'file_batch' THEN 'bulk'\n               WHEN 'url_batch' THEN 'bulk'\n               WHEN 'source_sync' THEN 'maintenance'\n               WHEN 'delete_batch' THEN 'maintenance'\n               WHEN 'translation' THEN 'maintenance'\n               WHEN 'vector_rebuild' THEN 'maintenance'\n               WHEN 'git_index' THEN 'maintenance'\n           END AS expected_class\n    FROM chosen\n    JOIN context69.task_items item_row ON item_row.id = chosen.id\n    JOIN cloudiful_tasks.tasks segment\n      ON segment.id = item_row.execution_task_id\n     AND segment.namespace = 'context69'\n     AND segment.queue = 'items'\n),\nadmissible AS (\n    SELECT id,\n           task_id,\n           created_at,\n           kind,\n           segment_status,\n           expected_class,\n           CASE\n               WHEN segment_status = 'queued' THEN segment_class\n               ELSE expected_class\n           END AS bound_class\n    FROM linked\n    WHERE expected_class IS NOT NULL\n      AND (\n            (\n                segment_status = 'queued'\n                AND segment_class = expected_class\n                AND segment_resources @> ARRAY[segment_class, 'ingest']\n            )\n            OR segment_status IN ('succeeded', 'failed', 'cancelled')\n        )\n),\nranked AS (\n    SELECT id,\n           task_id,\n           kind,\n           segment_status,\n           expected_class,\n           ROW_NUMBER() OVER (\n               PARTITION BY bound_class\n               ORDER BY created_at, id\n           ) AS class_rank\n    FROM admissible\n)\nSELECT item.id,\n       item.task_id,\n       item.execution_task_id,\n       item.execution_generation,\n       ranked.segment_status AS \"segment_status?\",\n       ranked.kind,\n       ranked.expected_class AS \"expected_class!\",\n       task.group_id,\n       task.group_path,\n       task.source_key\nFROM ranked\nJOIN context69.task_items item ON item.id = ranked.id\nJOIN context69.tasks task ON task.id = ranked.task_id\nWHERE ranked.class_rank <= 333\nFOR UPDATE OF item SKIP LOCKED\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "segment_status?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "cloudiful_tasks.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "expected_class!",
+        "type_info": "Text",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 7,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_path"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "source_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d8a8aeac4b2897e0d5e9f892dca674eee25bb9f612f636c9af33785c3c9cdc8b"
+}

@@ -31,7 +31,7 @@ WITH RECURSIVE inherited_groups AS (
         -- worker re-derives its own progress from payload/file state, so no
         -- stage is resumed and no legacy stage value can survive a retry.
         stage = 'processing',
-        attempt_count = 0,
+        execution_failure_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

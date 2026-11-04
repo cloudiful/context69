@@ -9,8 +9,11 @@
 
 use chrono::{DateTime, Utc};
 use context69::db::{
-    CreateTaskSubmissionRequest, Database, ExecutionContext, FinishTaskItemRequest,
-    WaitTaskItemRequest,
+    CreateTaskSubmissionRequest, Database, ExecutionContext, FailTaskItemOutcome,
+    FailTaskItemRequest, FinishTaskItemRequest, WaitTaskItemRequest,
+};
+use context69_test_support::execution_cleanup::{
+    FixtureExecutionScope, quiesce_fixture_executions,
 };
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -63,15 +66,38 @@ async fn seed_task(db: &Database, user_id: i64, payloads: &[Value]) -> (Uuid, Ve
 }
 
 async fn claim_head(db: &Database, task_id: Uuid) -> context69::db::ClaimedItem {
-    db.claim_items_fast(10)
+    let returned = db
+        .claim_items_fast()
         .await
-        .expect("claim the head-of-line item")
-        .into_iter()
+        .expect("claim the head-of-line item");
+    let claimed = returned
+        .iter()
         .find(|item| item.task_id == task_id)
         .expect("the parent must claim its head-of-line item")
+        .clone();
+    for other in &returned {
+        assert!(
+            other.task_id == task_id,
+            "claim returned a grant outside this fixture: \
+             task_id={} item_id={} fixture_task={task_id}",
+            other.task_id,
+            other.id
+        );
+    }
+    claimed
 }
 
 async fn cleanup(db: &Database, task_id: Uuid, user_id: i64) {
+    // Settle exactly this fixture's linked executions before deleting the rows
+    // they point at; unlinked and other-namespace tasks are untouched.
+    let report = quiesce_fixture_executions(db.pool(), FixtureExecutionScope::Tasks(&[task_id]))
+        .await
+        .expect("settle the fixture's linked executions");
+    if report.has_expired_skips() {
+        eprintln!(
+            "execution-segments cleanup: expired grants remain for normal recovery: {report}"
+        );
+    }
     sqlx::query_file!(
         "tests/sql/task_execution/delete_task_items_by_task.sql",
         task_id
@@ -109,11 +135,11 @@ async fn two_claimers_take_one_attempt() {
 
     let first = {
         let db = db.clone();
-        tokio::spawn(async move { db.claim_items_fast(10).await })
+        tokio::spawn(async move { db.claim_items_fast().await })
     };
     let second = {
         let db = db.clone();
-        tokio::spawn(async move { db.claim_items_fast(10).await })
+        tokio::spawn(async move { db.claim_items_fast().await })
     };
     let first = first.await.expect("first claimer").expect("first claim");
     let second = second.await.expect("second claimer").expect("second claim");
@@ -274,7 +300,7 @@ async fn a_parked_segment_succeeds_and_the_next_generation_starts_fresh() {
             execution: execution.clone(),
             waiting_reason: "backoff",
             dependency_key: None,
-            next_attempt_at: Utc::now(),
+            next_attempt_at: DateTime::<Utc>::UNIX_EPOCH,
             error_message: None,
         })
         .await
@@ -380,6 +406,106 @@ async fn a_cancelled_item_reports_the_actual_domain_outcome() {
         status, "cancelled",
         "the domain outcome is the cancellation"
     );
+
+    cleanup(&db, task_id, user_id).await;
+}
+
+/// A library cancellation wins over a committed failure (issue 1172 P3).
+///
+/// The library is the authority of the segment: once its task is cancel
+/// requested, a committed failed segment settles as `Cancelled` instead of
+/// parking or consuming the failure budget. The domain follows the same
+/// cancellation with no increment and schedules no retry; a repeat call writes
+/// nothing.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_library_cancellation_wins_over_a_committed_failure() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+
+    let item = claim_head(&db, task_id).await;
+    assert_eq!(
+        item.execution_failure_count, 0,
+        "a fresh claim starts with a spent-free budget"
+    );
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    db.execution_queue()
+        .await
+        .expect("load the execution queue")
+        .request_cancel(cloudiful_tasks::TaskId::from_uuid(execution.task_id()))
+        .await
+        .expect("request the library cancellation of the claimed segment");
+
+    let outcome = db
+        .fail_task_item(FailTaskItemRequest {
+            task_id,
+            item_id: item.id,
+            failure_stage: "indexing",
+            error_message: "failure raced by a cancellation",
+            execution: execution.clone(),
+            attempt_id: item.attempt_id,
+            current_failure_count: item.execution_failure_count,
+            next_attempt_at: Utc::now() - chrono::Duration::seconds(1),
+        })
+        .await
+        .expect("classify the cancelled segment");
+    assert_eq!(
+        outcome,
+        FailTaskItemOutcome::Cancelled,
+        "the library cancellation decides the outcome"
+    );
+
+    let state = sqlx::query_file_as!(
+        ItemRetryState,
+        "tests/sql/task_execution/read_item_retry_state.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the cancelled item");
+    assert_eq!(state.status, "cancelled", "the domain follows the library");
+    assert_eq!(
+        state.execution_failure_count, 0,
+        "a cancellation never consumes the failure budget"
+    );
+    assert!(
+        state.next_attempt_at.is_none(),
+        "a cancelled item schedules no retry"
+    );
+
+    let repeat = db
+        .fail_task_item(FailTaskItemRequest {
+            task_id,
+            item_id: item.id,
+            failure_stage: "indexing",
+            error_message: "duplicate failure after the cancellation",
+            execution: execution.clone(),
+            attempt_id: item.attempt_id,
+            current_failure_count: item.execution_failure_count,
+            next_attempt_at: Utc::now(),
+        })
+        .await
+        .expect("a repeat after the cancellation is classified");
+    assert!(
+        matches!(
+            repeat,
+            FailTaskItemOutcome::LeaseLost | FailTaskItemOutcome::Stale
+        ),
+        "a repeat after the cancellation writes nothing, got {repeat:?}"
+    );
+    let after: i32 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_execution_failure_budget.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the budget after the repeat");
+    assert_eq!(after, 0, "the cancellation keeps the budget unchanged");
 
     cleanup(&db, task_id, user_id).await;
 }
@@ -496,4 +622,166 @@ async fn a_deterministic_failure_closes_the_captured_segment_without_a_retry() {
     );
 
     cleanup(&db, task_id, user_id).await;
+}
+
+/// Legitimate parks never consume the execution-failure budget: more than five
+/// claim/park cycles stay executable and the claim ordinal keeps advancing.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn ordinary_waits_exceed_five_claims_without_consuming_the_failure_budget() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+
+    for round in 1..=6 {
+        let item = claim_head(&db, task_id).await;
+        assert_eq!(
+            item.attempt_count, round,
+            "the claim ordinal advances monotonically"
+        );
+        assert_eq!(
+            item.execution_failure_count, 0,
+            "a park never consumes the failure budget"
+        );
+        assert!(
+            db.wait_task_item(WaitTaskItemRequest {
+                task_id,
+                item_id: item.id,
+                execution: item
+                    .execution_context()
+                    .expect("the claimed item carries its captured execution"),
+                waiting_reason: "dependency",
+                dependency_key: Some("qdrant"),
+                next_attempt_at: Utc::now() - chrono::Duration::seconds(1),
+                error_message: None,
+            })
+            .await
+            .expect("park the item"),
+            "an ordinary wait is committed"
+        );
+    }
+
+    assert_eq!(item_ids.len(), 1);
+    cleanup(&db, task_id, user_id).await;
+}
+
+/// A committed failed segment advances the budget exactly once: the first four
+/// park on the backoff, the fifth exhausts immediately, and a stale repeat
+/// writes nothing.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn committed_failures_advance_the_failure_budget_and_exhaust_at_five() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+
+    for expected in 1..=4 {
+        let item = claim_head(&db, task_id).await;
+        assert_eq!(item.execution_failure_count, expected - 1);
+        let outcome = db
+            .fail_task_item(FailTaskItemRequest {
+                task_id,
+                item_id: item.id,
+                failure_stage: "indexing",
+                error_message: "transient indexing failure",
+                execution: item
+                    .execution_context()
+                    .expect("the claimed item carries its captured execution"),
+                attempt_id: item.attempt_id,
+                current_failure_count: item.execution_failure_count,
+                next_attempt_at: Utc::now() - chrono::Duration::seconds(1),
+            })
+            .await
+            .expect("commit the failed segment");
+        assert!(
+            matches!(outcome, FailTaskItemOutcome::Waiting { .. }),
+            "failure {expected} parks with budget left, got {outcome:?}"
+        );
+    }
+
+    let fifth = claim_head(&db, task_id).await;
+    assert_eq!(fifth.execution_failure_count, 4);
+    let outcome = db
+        .fail_task_item(FailTaskItemRequest {
+            task_id,
+            item_id: fifth.id,
+            failure_stage: "indexing",
+            error_message: "transient indexing failure",
+            execution: fifth
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+            attempt_id: fifth.attempt_id,
+            current_failure_count: fifth.execution_failure_count,
+            next_attempt_at: Utc::now(),
+        })
+        .await
+        .expect("commit the fifth failed segment");
+    assert_eq!(outcome, FailTaskItemOutcome::Exhausted);
+
+    let state = sqlx::query_file_as!(
+        ItemRetryState,
+        "tests/sql/task_execution/read_item_retry_state.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the exhausted item");
+    assert_eq!(state.status, "failed");
+    assert!(
+        state.attempt_count >= 5,
+        "the claim ordinal stays monotonic audit history"
+    );
+    assert_eq!(
+        state.execution_failure_count, 5,
+        "the fifth failure exhausts the budget"
+    );
+    assert!(
+        state.next_attempt_at.is_none(),
+        "an exhausted item schedules no retry"
+    );
+    assert!(!state.retryable, "exhaustion is not retryable");
+
+    let stale = db
+        .fail_task_item(FailTaskItemRequest {
+            task_id,
+            item_id: fifth.id,
+            failure_stage: "indexing",
+            error_message: "duplicate",
+            execution: fifth
+                .execution_context()
+                .expect("the claimed item carries its captured execution"),
+            attempt_id: fifth.attempt_id,
+            current_failure_count: 4,
+            next_attempt_at: Utc::now(),
+        })
+        .await
+        .expect("a stale duplicate is classified");
+    assert!(
+        matches!(
+            stale,
+            FailTaskItemOutcome::LeaseLost | FailTaskItemOutcome::Stale
+        ),
+        "a stale duplicate writes nothing, got {stale:?}"
+    );
+    let after: i32 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/read_execution_failure_budget.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the budget after the stale call");
+    assert_eq!(after, 5, "a stale duplicate never increments the budget");
+
+    cleanup(&db, task_id, user_id).await;
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct ItemRetryState {
+    status: String,
+    attempt_count: i32,
+    execution_failure_count: i32,
+    retryable: bool,
+    next_attempt_at: Option<DateTime<Utc>>,
 }

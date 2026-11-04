@@ -9,6 +9,7 @@
 //! four store rows they own. It never touches another table, another store key, or
 //! a row outside this suite.
 
+use std::panic::AssertUnwindSafe;
 use std::sync::{Mutex, PoisonError};
 
 use anyhow::Result;
@@ -21,6 +22,8 @@ use context69::{
     services::{secret_store::SecretStore, settings::SettingsService},
 };
 use context69_secret_store::{SecretDatabase, SecretStore as LeafSecretStore, key_names};
+use context69_test_support::library_policy::{LibraryPolicyBaseline, finish_fixture};
+use futures::FutureExt;
 use sqlx::{PgPool, Row};
 
 /// Fixed test master key (bytes `00..20`), scoped to the disposable database. It
@@ -75,7 +78,16 @@ pub fn run(case: impl AsyncFnOnce(&Database)) {
             let db = Database::connect(&url)
                 .await
                 .expect("connect test database");
-            case(&db).await;
+            let queue = db
+                .execution_queue()
+                .await
+                .expect("load the execution queue");
+            let baseline = LibraryPolicyBaseline::capture(queue)
+                .await
+                .expect("capture the execution policy baseline");
+            let outcome = AssertUnwindSafe(case(&db)).catch_unwind().await;
+            let restore = baseline.restore(db.pool(), queue).await;
+            finish_fixture(outcome, None, restore);
         });
 }
 
@@ -237,6 +249,8 @@ pub fn runtime_request(
             max_concurrency: 1,
             job_id: "context69-secret-store-test".to_string(),
             valkey_url: None,
+            resource_limits: Default::default(),
+            ingest_batches_per_segment: 1,
         },
         chunking: context69::contracts::RuntimeChunkingSettings {
             max_chars: 1200,

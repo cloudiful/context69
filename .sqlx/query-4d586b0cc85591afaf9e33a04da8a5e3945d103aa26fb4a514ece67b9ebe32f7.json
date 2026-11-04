@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The next execution generation of one task item (issue 1020 P2).\n--\n-- The generation of an item is the number of the segment that runs it. The\n-- next generation is the one a fresh segment of the item belongs to, so a\n-- segment never reuses the generation of an earlier one.\nSELECT item.task_id,\n       COALESCE(item.execution_generation, 0) + 1 AS generation,\n       task.kind\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      false
+    ]
+  },
+  "hash": "4d586b0cc85591afaf9e33a04da8a5e3945d103aa26fb4a514ece67b9ebe32f7"
+}

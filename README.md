@@ -18,6 +18,12 @@ Context69 is a retrieval-focused knowledge base service for ingesting documents,
 - Retain task history until users clear it (per-task trash/restore/permanent delete); the processing queue offers cross-page task selection with contextual bulk retry/resume/cancel/trash, and confirmed bulk restore or permanent delete in the trash view; admin cancel-active and Docling recovery stay server-side
 - Expose an HTTP API, MCP over HTTP or stdio, and an optional web UI
 
+## Task execution
+
+Task items run through the `cloudiful_tasks` library in the shared `ingest` queue. The global queue concurrency is authoritative: optional per-class and shared-ingest ceilings can only narrow it. `ingest_batches_per_segment` (1–64, default 1) bounds how many ingest batches one indexing segment commits before it yields, and applies only to task indexing. Every claim returns a monotonic ordinal, while an item keeps its budget of five committed failures. Task creation is idempotent for the same idempotency key and identical request body; reusing the key with a different body is a conflict. An unknown Docling dispatch outcome stays uncertain and is never sent again automatically. Retrying, resuming, or rerunning it requires an explicit acknowledgement that a previous conversion may still be running and that converting the same file again may create a duplicate.
+
+The handover of legacy items and the operator commands that reconcile the queue are documented in [Task execution cutover](docs/task-execution-cutover.md).
+
 ## Deployment
 
 ### Docker image

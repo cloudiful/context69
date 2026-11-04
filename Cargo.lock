@@ -561,7 +561,7 @@ dependencies = [
 [[package]]
 name = "cloudiful-tasks"
 version = "0.1.0"
-source = "git+https://github.com/cloudiful/tasks?rev=09ca2b383cd489f5a1d8eac697e6f093adbb40b4#09ca2b383cd489f5a1d8eac697e6f093adbb40b4"
+source = "git+ssh://git@forgejo.cloud1ful.com:2224/crates/tasks.git?rev=a021c383d48f359ae6f5e56a4458b1060da0f946#a021c383d48f359ae6f5e56a4458b1060da0f946"
 dependencies = [
  "async-trait",
  "chrono",
@@ -2067,7 +2067,7 @@ dependencies = [
  "libc",
  "percent-encoding",
  "pin-project-lite",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "system-configuration",
  "tokio",
  "tower-service",
@@ -3229,7 +3229,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror",
  "tokio",
  "tracing",
@@ -3268,7 +3268,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]

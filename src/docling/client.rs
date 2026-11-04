@@ -167,6 +167,53 @@ pub(crate) fn api_base(base_url: &str) -> Result<Url, DoclingError> {
     })
 }
 
+/// One fully prepared Docling submission that has not been sent.
+pub(crate) struct PreparedSubmission {
+    request: reqwest::RequestBuilder,
+}
+
+/// A submission failure, split at the dispatch boundary.
+#[derive(Debug)]
+pub(crate) enum SubmitFailure {
+    /// The request could not be built; no dispatch was invoked.
+    Preparation(DoclingError),
+    /// The dispatch was invoked; its outcome is unknown or failed.
+    DispatchAttempted(DoclingError),
+}
+
+impl SubmitFailure {
+    pub(crate) fn into_error(self) -> DoclingError {
+        match self {
+            Self::Preparation(error) | Self::DispatchAttempted(error) => error,
+        }
+    }
+
+    #[cfg(test)]
+    #[must_use]
+    pub(crate) fn is_dispatch_attempted(&self) -> bool {
+        matches!(self, Self::DispatchAttempted(_))
+    }
+}
+
+impl PreparedSubmission {
+    /// Invokes the prepared submission exactly once.
+    pub(crate) async fn send(self) -> Result<String, SubmitFailure> {
+        let response = self
+            .request
+            .send()
+            .await
+            .map_err(map_transport)
+            .map_err(SubmitFailure::DispatchAttempted)?;
+        let response = expect_success(response).map_err(SubmitFailure::DispatchAttempted)?;
+        let body = read_body(response, MAX_CONTROL_BODY_BYTES)
+            .await
+            .map_err(SubmitFailure::DispatchAttempted)?;
+        let task_id = parse_task_post(&body).map_err(SubmitFailure::DispatchAttempted)?;
+        validate_task_id(&task_id).map_err(SubmitFailure::DispatchAttempted)?;
+        Ok(task_id)
+    }
+}
+
 impl DoclingClient {
     /// Builds the client for the saved Docling settings.
     ///
@@ -224,21 +271,30 @@ impl DoclingClient {
     ///
     /// The returned id is the resumable remote handle; it is validated before
     /// it is persisted so a malformed identity never reaches the task row.
+    #[cfg(test)]
     pub(crate) async fn submit(&self, request: &SubmitRequest<'_>) -> Result<String, DoclingError> {
-        let form = build_form(request)?;
-        let url = self.url("convert/file/async")?;
-        let response = self
-            .http
-            .post(url)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(map_transport)?;
-        let response = expect_success(response)?;
-        let body = read_body(response, MAX_CONTROL_BODY_BYTES).await?;
-        let task_id = parse_task_post(&body)?;
-        validate_task_id(&task_id)?;
-        Ok(task_id)
+        let prepared = self
+            .prepare_submission(request)
+            .map_err(SubmitFailure::into_error)?;
+        prepared.send().await.map_err(SubmitFailure::into_error)
+    }
+
+    /// Builds one submission request without sending it.
+    ///
+    /// A failure here is definitively pre-dispatch: no byte was handed to the
+    /// transport. Everything after [`PreparedSubmission::send`] is
+    /// dispatch-attempted, which is only proof that the send was invoked.
+    pub(crate) fn prepare_submission(
+        &self,
+        request: &SubmitRequest<'_>,
+    ) -> Result<PreparedSubmission, SubmitFailure> {
+        let form = build_form(request).map_err(SubmitFailure::Preparation)?;
+        let url = self
+            .url("convert/file/async")
+            .map_err(SubmitFailure::Preparation)?;
+        Ok(PreparedSubmission {
+            request: self.http.post(url).multipart(form),
+        })
     }
 
     /// Polls one remote task through the long-poll endpoint.

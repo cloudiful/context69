@@ -4,7 +4,10 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, seed_test_user};
+use crate::support::{
+    FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, own_claims, seal_test_execution,
+    seed_test_user,
+};
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -39,13 +42,13 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
     // First claim mints a lease and inserts a running attempt row. We then
     // backdate the lease so maintenance (not the claim path) must be the
     // one that interrupts it.
-    let first = db
-        .claim_items_fast(10)
-        .await
-        .expect("initial fast claim")
-        .into_iter()
-        .find(|item| item.task_id == task_id)
-        .expect("fresh item claimable");
+    let first = own_claims(
+        db.claim_items_fast().await.expect("initial fast claim"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(first.len(), 1, "the first claim returns only this item");
+    let first = first.into_iter().next().expect("fresh item claimable");
     assert_eq!(first.attempt_count, 1);
 
     // The worker crashes: the authoritative library attempt and its domain
@@ -181,12 +184,17 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
     );
 
     // Item must be reclaimable on the fast path after the lease is revoked.
-    let reclaimed = db
-        .claim_items_fast(10)
-        .await
-        .expect("reclaim after maintenance")
+    let reclaimed = own_claims(
+        db.claim_items_fast()
+            .await
+            .expect("reclaim after maintenance"),
+        &[task_id],
+        &item_ids,
+    );
+    assert_eq!(reclaimed.len(), 1, "the reclaim returns only this item");
+    let reclaimed = reclaimed
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("item must be reclaimable after maintenance revoked its lease");
     assert_eq!(
         reclaimed.attempt_count, 2,
@@ -197,6 +205,7 @@ async fn maintain_claim_state_interrupts_an_expired_attempt() {
         "reclaimed item must mint a fresh lease_token"
     );
 
+    seal_test_execution(&db, &reclaimed).await;
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }

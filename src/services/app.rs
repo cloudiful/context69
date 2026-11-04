@@ -190,7 +190,6 @@ impl UpgradeRecoveryApp {
         .await?;
         let background = background_tasks::start_upgrade_recovery(
             &db,
-            &config,
             &vector,
             background_tasks::UpgradeRecoveryServices {
                 namespace: &namespace,
@@ -361,54 +360,4 @@ async fn build_upgrade_recovery_services(
     );
     sync.reload_sources().await?;
     Ok((translation, sync))
-}
-
-pub(crate) fn task_worker_capacity(config: &Config) -> usize {
-    // `scheduler.max_concurrency` is the global parent-task capacity (issue 650
-    // P2): the durable task lease enforces it across replicas and the local
-    // worker pool mirrors it so one replica cannot run more parents than the
-    // global limit. Zero still clamps to one worker.
-    crate::services::tasks::normalize_task_worker_concurrency(config.scheduler.max_concurrency)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::task_worker_capacity;
-    use crate::config::Config;
-
-    #[test]
-    fn task_worker_capacity_uses_scheduler_not_file_library() {
-        let mut config = Config::default();
-        config.scheduler.max_concurrency = 8;
-        config.file_library.ingest_concurrency = 1;
-        config.file_library.url_import_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 8);
-
-        // Changing file_library values must not affect capacity.
-        config.file_library.ingest_concurrency = 100;
-        config.file_library.url_import_concurrency = 100;
-        assert_eq!(task_worker_capacity(&config), 8);
-
-        config.scheduler.max_concurrency = 2;
-        config.file_library.ingest_concurrency = 1;
-        config.file_library.url_import_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 2);
-    }
-
-    #[test]
-    fn task_worker_capacity_defaults_to_single_worker() {
-        let config = Config::default();
-        assert_eq!(config.scheduler.max_concurrency, 1);
-        assert_eq!(task_worker_capacity(&config), 1);
-    }
-
-    #[test]
-    fn task_worker_capacity_clamps_zero_to_one() {
-        let mut config = Config::default();
-        config.scheduler.max_concurrency = 0;
-        assert_eq!(task_worker_capacity(&config), 1);
-
-        config.scheduler.max_concurrency = 1;
-        assert_eq!(task_worker_capacity(&config), 1);
-    }
 }

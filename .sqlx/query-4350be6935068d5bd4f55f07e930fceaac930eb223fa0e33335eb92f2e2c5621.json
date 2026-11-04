@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Arms the guard for exactly one test-owned item and mode (issue 1172 P6A2).\nINSERT INTO context69.task_admission_fault_guard (item_id, mode)\nVALUES ($1, $2)\nON CONFLICT (item_id) DO UPDATE SET mode = EXCLUDED.mode\nRETURNING item_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_admission_fault_guard",
+            "name": "item_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4350be6935068d5bd4f55f07e930fceaac930eb223fa0e33335eb92f2e2c5621"
+}

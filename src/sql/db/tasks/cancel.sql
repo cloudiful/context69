@@ -23,8 +23,6 @@ WITH RECURSIVE inherited_groups AS (
 )
 UPDATE context69.tasks task
 SET status = 'cancelled',
-    lease_token = NULL,
-    lease_until = NULL,
     next_attempt_at = NULL,
     finished_at = now(),
     updated_at = now()

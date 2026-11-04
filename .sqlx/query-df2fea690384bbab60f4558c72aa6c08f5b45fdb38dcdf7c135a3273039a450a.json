@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.task_docling_remote_jobs (\n    task_id,\n    item_id,\n    provider,\n    remote_task_id,\n    status,\n    dispatch_attempted,\n    submission_execution_task_id,\n    submission_generation,\n    submission_identity,\n    endpoint_base_url,\n    deadline_at\n)\nVALUES (\n    $1,\n    $2,\n    'docling',\n    NULL,\n    'submitting',\n    $3,\n    $4,\n    $5,\n    $6,\n    $7,\n    $8\n)\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Int8",
+        "Jsonb",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "df2fea690384bbab60f4558c72aa6c08f5b45fdb38dcdf7c135a3273039a450a"
+}

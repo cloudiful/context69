@@ -137,7 +137,7 @@ pub(super) async fn process_text(
                     .await
                     {
                         Ok(true) => {
-                            return Ok(ProcessResult::Progressed { next: "embedding" });
+                            return Ok(ProcessResult::Yielded { next: "embedding" });
                         }
                         Ok(false) => {
                             return Ok(super::item_processors::waiting_for_error(
@@ -375,7 +375,7 @@ pub(super) async fn process_file(
                                     Ok(next) => next,
                                     Err(error) => return Ok(process_error(stage, error)),
                                 };
-                                return Ok(ProcessResult::Progressed { next });
+                                return Ok(ProcessResult::Yielded { next });
                             }
                             Ok(false) => {
                                 return Ok(super::item_processors::waiting_for_error(
@@ -537,10 +537,10 @@ pub(super) async fn process_file_stage(
                 });
             }
             // Blocking conversion (issue 650 P3): submit, status polling, and
-            // result fetching run inline inside the admitted parent slot. The
-            // worker keeps its item lease for the whole remote wait; a crash
-            // resumes from the persisted remote id without resubmitting.
-            return super::docling_submit::submit_and_await_blocking(
+            // result fetching run inline while the worker keeps its item lease
+            // for the whole remote wait; a crash resumes from the persisted
+            // remote id without resubmitting.
+            return super::docling_submit::run_docling_submission_segment(
                 service,
                 item.task_id,
                 item,
@@ -645,7 +645,10 @@ pub(super) async fn process_file_stage(
                 )
                 .await
             {
-                Ok(payload) => payload,
+                Ok(crate::services::library::TaskIngestStep::Complete(payload)) => payload,
+                Ok(crate::services::library::TaskIngestStep::Yielded) => {
+                    return Ok(ProcessResult::Yielded { next: "indexing" });
+                }
                 Err(error) => return ingest_error_result(service, item, file_id, error).await,
             };
             item.payload = payload;
@@ -723,6 +726,7 @@ mod tests {
             task_id: uuid::Uuid::new_v4(),
             ordinal: 0,
             attempt_count,
+            execution_failure_count: 0,
             lease_token: uuid::Uuid::new_v4(),
             attempt_id: 1,
             payload: serde_json::json!({}),
@@ -1096,7 +1100,6 @@ mod tests {
                 sync: sync.clone(),
                 source_folders: SourceFoldersService::new(db.clone(), library, sync),
                 translation,
-                concurrency: 1,
             });
             (service, storage_root)
         }
@@ -1200,7 +1203,7 @@ mod tests {
                 })
                 .await
                 .expect("create task");
-            let mut items = db.claim_items(100).await.expect("claim items");
+            let mut items = db.claim_items().await.expect("claim items");
             let position = items
                 .iter()
                 .position(|item| item.id == item_ids[0])
@@ -1252,6 +1255,18 @@ mod tests {
         /// and through checked statements, so a standalone run leaves the
         /// guarded startup opt-ins a clean scratch schema.
         async fn cleanup_fixture(db: &Database, group_id: i64, user_id: i64, root: &PathBuf) {
+            let report = context69_test_support::execution_cleanup::quiesce_fixture_executions(
+                db.pool(),
+                context69_test_support::execution_cleanup::FixtureExecutionScope::Groups {
+                    owner_user_id: user_id,
+                    group_ids: &[group_id],
+                },
+            )
+            .await
+            .expect("settle the fixture group's linked executions before deleting its rows");
+            if report.has_expired_skips() {
+                eprintln!("fixture cleanup: expired grants remain for normal recovery: {report}");
+            }
             sqlx::query_file!(
                 "tests/sql/library_ingest_dependency_wait/delete_group_documents.sql",
                 group_id
@@ -1429,6 +1444,77 @@ mod tests {
             // Recovery (publishing a usable pair and resuming the same item)
             // is covered end to end by the DB fixture in
             // `tests/library_ingest_retry.rs`.
+        }
+
+        /// A long legacy indexing segment yields before translation and
+        /// resumes from the durable payload checkpoint to the translation
+        /// progression without an artificial empty segment.
+        #[tokio::test]
+        #[ignore = "requires configured reusable PostgreSQL"]
+        async fn a_long_legacy_indexing_segment_yields_before_translation() {
+            let _guard = CASE_LOCK.lock().await;
+            let db = connect_db().await;
+            let embedding = Arc::new(EmbeddingSpy::default());
+            let runtime = VectorRuntime::from_legacy(
+                EmbeddingRuntime::new(Some(embedding.clone()), None),
+                None,
+                "",
+            );
+            let generation = runtime.generation();
+            assert!(runtime.publish(
+                generation,
+                VectorSnapshot {
+                    embedding: embedding.clone(),
+                    identity: None,
+                    index: Arc::new(QdrantIndex::for_test("test-noop", 4)),
+                    collection: "test-noop".to_string(),
+                    generation,
+                    configured_fingerprint: None,
+                }
+            ));
+            let (service, storage_root) = build_task_service(&db, runtime).await;
+            let user_id = seed_user(&db).await;
+            let group = seed_group(&db).await;
+            let file_id = seed_file(&db, group.id).await;
+            let mut payload = item_payload(&format!("r1-{}", Uuid::new_v4()));
+            payload["section_payload"][0]["body_text"] = json!("a".repeat(200_000));
+            let (task, mut item) = seed_claimed_item(&db, group.id, user_id, &payload).await;
+            item.file_id = Some(file_id);
+
+            let first = process_text(&service, Some(&group), &task, &mut item, "indexing")
+                .await
+                .expect("the long indexing segment runs");
+            assert!(
+                matches!(&first, ProcessResult::Yielded { next } if *next == "indexing"),
+                "a long segment yields back to indexing"
+            );
+            assert_eq!(embedding.calls(), 1, "one committed batch this segment");
+
+            let mut turns = 1usize;
+            loop {
+                let (_, _, durable) = read_item(&db, item.id).await;
+                item.payload = durable;
+                let result = process_text(&service, Some(&group), &task, &mut item, "indexing")
+                    .await
+                    .expect("the resumed indexing segment runs");
+                turns += 1;
+                if matches!(&result, ProcessResult::Progressed { next } if *next == "translation") {
+                    break;
+                }
+                assert!(
+                    matches!(&result, ProcessResult::Yielded { next } if *next == "indexing"),
+                    "an incomplete segment yields back to indexing"
+                );
+                assert!(turns < 10, "the legacy loop converges");
+            }
+            assert!(turns > 2, "the long document spans more than two turns");
+            assert_eq!(
+                embedding.calls(),
+                turns,
+                "each committed batch embeds once and the prefix is never repeated"
+            );
+
+            cleanup_fixture(&db, group.id, user_id, &storage_root).await;
         }
     }
 }

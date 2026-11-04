@@ -16,7 +16,10 @@ use serde_json::json;
 use sqlx::Row;
 use uuid::Uuid;
 
-use crate::support::{FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, seed_test_user};
+use crate::support::{
+    FAST_PATH_LOCK, cleanup_task, cleanup_user, crash_holder, own_claims, seal_test_execution,
+    seed_test_user,
+};
 
 async fn seed_task(
     db: &Database,
@@ -42,12 +45,20 @@ async fn seed_task(
     (task_id, item_ids)
 }
 
-async fn claim_head(db: &Database, task_id: Uuid) -> context69::db::ClaimedItem {
-    db.claim_items_fast(10)
-        .await
-        .expect("fast claim")
+async fn claim_head(db: &Database, task_id: Uuid, item_ids: &[Uuid]) -> context69::db::ClaimedItem {
+    let claimed = own_claims(
+        db.claim_items_fast().await.expect("fast claim"),
+        &[task_id],
+        item_ids,
+    );
+    assert_eq!(
+        claimed.len(),
+        1,
+        "a claim returns exactly this parent's head-of-line item"
+    );
+    claimed
         .into_iter()
-        .find(|item| item.task_id == task_id)
+        .next()
         .expect("parent must claim its head-of-line item")
 }
 
@@ -121,7 +132,7 @@ async fn a_fenced_progress_does_not_close_the_attempt() {
     )
     .await;
 
-    let worker = claim_head(&db, task_id).await;
+    let worker = claim_head(&db, task_id, &item_ids).await;
     assert_eq!(worker.id, item_ids[0]);
     let (open_status, open_finished) = attempt(&db, worker.attempt_id).await;
     assert_eq!(open_status, "running");
@@ -131,7 +142,7 @@ async fn a_fenced_progress_does_not_close_the_attempt() {
     // worker's attempt is open: the worker died, the authority expired, and the
     // next claim opens the next generation.
     crash_holder(&db, &worker).await;
-    let owner = claim_head(&db, task_id).await;
+    let owner = claim_head(&db, task_id, &item_ids).await;
     assert_ne!(owner.attempt_id, worker.attempt_id);
     assert_ne!(
         owner.execution_generation, worker.execution_generation,
@@ -196,7 +207,7 @@ async fn a_fenced_wait_does_not_close_the_attempt() {
     let (task_id, item_ids) =
         seed_task(&db, user_id, &[json!({"external_id": "a"})], "fence-wait").await;
 
-    let worker = claim_head(&db, task_id).await;
+    let worker = claim_head(&db, task_id, &item_ids).await;
     assert_eq!(worker.id, item_ids[0]);
     sqlx::query("UPDATE context69.task_items SET lease_token = $2 WHERE id = $1")
         .bind(worker.id)
@@ -227,6 +238,9 @@ async fn a_fenced_wait_does_not_close_the_attempt() {
         "a fenced wait must not close the attempt, got status {status}"
     );
 
+    // The genuine worker grant is still live even though the domain lease was
+    // rotated, so seal it through the library before deleting the fixture.
+    seal_test_execution(&db, &worker).await;
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
@@ -255,7 +269,7 @@ async fn a_reclaimed_running_item_is_counted_once_in_the_parent() {
     )
     .await;
 
-    let first = claim_head(&db, task_id).await;
+    let first = claim_head(&db, task_id, &item_ids).await;
     assert_eq!(first.id, item_ids[0]);
     let task = db
         .get_task_internal(task_id)
@@ -265,12 +279,11 @@ async fn a_reclaimed_running_item_is_counted_once_in_the_parent() {
     assert_eq!((task.running_count, task.queued_count), (1, 1));
     assert_parent_matches_items(&db, task_id).await;
 
-    // The worker died: its item lease expires, the parent slot is still held.
     // The worker crashes: the authoritative library attempt and its domain
-    // mirror expire together.
+    // mirror expire together, and the parent projection follows the item.
     crash_holder(&db, &first).await;
 
-    let reclaimed = claim_head(&db, task_id).await;
+    let reclaimed = claim_head(&db, task_id, &item_ids).await;
     assert_eq!(reclaimed.id, item_ids[0], "the reclaim must be in place");
     assert_eq!(
         reclaimed.attempt_count, 2,
@@ -301,6 +314,7 @@ async fn a_reclaimed_running_item_is_counted_once_in_the_parent() {
     );
     assert_eq!(task.status, "running");
 
+    seal_test_execution(&db, &reclaimed).await;
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }

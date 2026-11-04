@@ -250,6 +250,13 @@ export function ProcessingQueuePage() {
         acceptLabel={queue.confirm?.acceptLabel}
         onAccept={queue.confirmAccept}
         onCancel={queue.confirmCancel}
+        riskAcknowledgement={queue.confirm?.risk
+          ? {
+              label: queue.confirm.risk.label,
+              checked: queue.riskChecked,
+              onCheckedChange: queue.setRiskChecked,
+            }
+          : undefined}
       />
     </div>
   );

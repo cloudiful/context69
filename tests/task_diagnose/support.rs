@@ -158,9 +158,7 @@ pub(crate) async fn claim_head_item(
     .expect("claim head item");
     sqlx::query(
         "UPDATE context69.tasks SET status = 'running', queued_count = queued_count - 1, \
-         running_count = 1, stage = 'processing', \
-         lease_token = gen_random_uuid(), lease_until = now() + interval '8 minutes', \
-         started_at = now() WHERE id = $1",
+         running_count = 1, stage = 'processing', started_at = now() WHERE id = $1",
     )
     .bind(task_id)
     .execute(db.pool())

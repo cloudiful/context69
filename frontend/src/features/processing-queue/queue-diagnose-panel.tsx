@@ -138,6 +138,20 @@ export function QueueDiagnosePanel({ taskId }: { taskId: string }) {
                             </span>
                           )
                         : null}
+                      {item.docling_submission
+                        ? (
+                            <span className="text-muted-foreground">
+                              {t("processingQueue.diagnose.doclingSubmission")}
+                              {": "}
+                              {t(`processingQueue.diagnose.doclingStates.${item.docling_submission.state}`)}
+                              {item.docling_submission.finished_at
+                                ? ` · ${formatTimestamp(item.docling_submission.finished_at)}`
+                                : item.docling_submission.created_at
+                                  ? ` · ${formatTimestamp(item.docling_submission.created_at)}`
+                                  : ""}
+                            </span>
+                          )
+                        : null}
                     </div>
                     <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-muted-foreground">
                       {item.next_attempt_at

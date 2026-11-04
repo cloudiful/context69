@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Persist one bounded Docling probe observation for the item that owns it.\n--\n-- The item guard is the captured execution: item, task, running status, the\n-- unexpired database-clock lease, the library task and the execution\n-- generation. Only an active job of that exact item may be updated, so a\n-- worker cannot project a job from another item. No lease is taken or renewed.\n--\n-- `$1` is the job, `$2` the item, `$3` the task, `$4` the fencing token,\n-- `$5` the library task, `$6` the execution generation, `$7` the observed\n-- remote status, `$8` the normal poll step, `$9` the consecutive error count,\n-- `$10` the last error and `$11` the next due time.\nWITH owned AS (\n    SELECT item.id\n    FROM context69.task_items AS item\n    WHERE item.id = $2\n      AND item.task_id = $3\n      AND item.status = 'running'\n      AND item.lease_token = $4\n      AND item.lease_until > clock_timestamp()\n      AND item.execution_task_id = $5\n      AND item.execution_generation = $6\n)\nUPDATE context69.task_docling_remote_jobs AS job\nSET remote_status = $7,\n    attempt_count = $9,\n    poll_step = $8,\n    last_error = $10,\n    next_poll_at = $11,\n    last_polled_at = clock_timestamp(),\n    updated_at = clock_timestamp()\nWHERE job.id = $1\n  AND job.item_id = $2\n  AND job.task_id = $3\n  AND job.status IN ('pending', 'running')\n  AND EXISTS (SELECT 1 FROM owned)\nRETURNING job.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Int4",
+        "Int4",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "003bdaa53f1a4fa6369b739acc0ec2356301dc92551383dbb76572217bc4318e"
+}

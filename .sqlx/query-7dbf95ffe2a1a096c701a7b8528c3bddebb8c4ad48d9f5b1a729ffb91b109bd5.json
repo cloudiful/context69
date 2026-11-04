@@ -1,0 +1,136 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Retained Docling submission history of one task (issue 1172 P5B1).\n--\n-- A recovery archives the accepted unknown row as `superseded` and a later\n-- dispatch appends a distinct row, so the regressions assert the old diagnostic\n-- survives beside the current intent. Each row carries its item's state, so a\n-- recovery can also prove it never reopened the old parked item. $1 is the task.\nSELECT\n    job.id,\n    job.item_id,\n    job.status AS job_status,\n    job.dispatch_attempted,\n    job.submission_identity,\n    job.last_error,\n    job.created_at,\n    job.finished_at,\n    item.status AS item_status,\n    item.waiting_reason AS item_waiting_reason\nFROM context69.task_docling_remote_jobs AS job\nJOIN context69.task_items AS item ON item.id = job.item_id\nWHERE job.task_id = $1\nORDER BY job.created_at, job.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "item_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "job_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "dispatch_attempted",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "dispatch_attempted"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "submission_identity",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "submission_identity"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "last_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "last_error"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_docling_remote_jobs",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "item_waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "waiting_reason"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "7dbf95ffe2a1a096c701a7b8528c3bddebb8c4ad48d9f5b1a729ffb91b109bd5"
+}

@@ -575,7 +575,6 @@ pub async fn build_service_with_transport(
         sync: sync.clone(),
         source_folders: SourceFoldersService::new(db.clone(), library, sync),
         translation,
-        concurrency: 1,
     });
     match caps {
         Some(caps) => service.with_replacement_caps_for_test(caps),
@@ -586,7 +585,7 @@ pub async fn build_service_with_transport(
 pub async fn claim_item(db: &Database, task_id: Uuid) -> context69::db::ClaimedItem {
     for _ in 0..20 {
         if let Some(item) = db
-            .claim_items_fast(200)
+            .claim_items_fast()
             .await
             .expect("claim items")
             .into_iter()

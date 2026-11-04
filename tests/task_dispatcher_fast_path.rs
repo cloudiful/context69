@@ -39,5 +39,11 @@ mod cases_sql_contract;
 #[path = "task_dispatcher_fast_path/cases_lease_fence.rs"]
 mod cases_lease_fence;
 
+#[path = "task_dispatcher_fast_path/cases_queue_capacity.rs"]
+mod cases_queue_capacity;
+
 #[path = "task_dispatcher_fast_path/cases_contract_discrimination.rs"]
 mod cases_contract_discrimination;
+
+#[path = "task_dispatcher_fast_path/cases_admission_fairness.rs"]
+mod cases_admission_fairness;

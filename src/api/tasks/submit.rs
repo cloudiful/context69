@@ -26,6 +26,10 @@ pub(crate) async fn submit_text_batch(
     headers: HeaderMap,
     Json(request): Json<TextBatchRequest>,
 ) -> Response {
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
@@ -49,7 +53,7 @@ pub(crate) async fn submit_text_batch(
             kind: TaskKind::TextBatch,
             payloads,
             input_storage_object_ids: Vec::new(),
-            idempotency_key: idempotency_key(&headers),
+            idempotency_key,
         },
     )
     .await
@@ -63,6 +67,10 @@ pub(crate) async fn submit_url_batch(
     headers: HeaderMap,
     Json(request): Json<UrlBatchRequest>,
 ) -> Response {
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
@@ -86,7 +94,7 @@ pub(crate) async fn submit_url_batch(
             kind: TaskKind::UrlBatch,
             payloads,
             input_storage_object_ids: Vec::new(),
-            idempotency_key: idempotency_key(&headers),
+            idempotency_key,
         },
     )
     .await
@@ -100,6 +108,10 @@ pub(crate) async fn submit_file_batch(
     headers: HeaderMap,
     Json(request): Json<FileBatchRequest>,
 ) -> Response {
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
@@ -123,7 +135,7 @@ pub(crate) async fn submit_file_batch(
             kind: TaskKind::FileBatch,
             payloads,
             input_storage_object_ids: Vec::new(),
-            idempotency_key: idempotency_key(&headers),
+            idempotency_key,
         },
     )
     .await
@@ -137,6 +149,10 @@ pub(crate) async fn submit_delete_batch(
     headers: HeaderMap,
     Json(request): Json<DeleteBatchRequest>,
 ) -> Response {
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     let group = match managed_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
@@ -160,7 +176,7 @@ pub(crate) async fn submit_delete_batch(
             kind: TaskKind::DeleteBatch,
             payloads,
             input_storage_object_ids: Vec::new(),
-            idempotency_key: idempotency_key(&headers),
+            idempotency_key,
         },
     )
     .await
@@ -173,6 +189,10 @@ pub(crate) async fn submit_task(
     headers: HeaderMap,
     Json(request): Json<TaskSubmitRequest>,
 ) -> Response {
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     let (kind, group_path, source_key, payloads) = match request {
         TaskSubmitRequest::RetryFileBatch { group_path, items } => (
             TaskKind::FileBatch,
@@ -257,7 +277,7 @@ pub(crate) async fn submit_task(
             kind,
             payloads,
             input_storage_object_ids: Vec::new(),
-            idempotency_key: idempotency_key(&headers),
+            idempotency_key,
         },
     )
     .await
@@ -273,6 +293,10 @@ pub(crate) async fn submit_vector_index_rebuild(
     CurrentUser(session): CurrentUser,
     headers: HeaderMap,
 ) -> Response {
+    let idempotency_key = match idempotency_key(&headers) {
+        Ok(key) => key,
+        Err(response) => return response,
+    };
     submit_task_request(
         &state,
         TaskSubmission {
@@ -283,7 +307,7 @@ pub(crate) async fn submit_vector_index_rebuild(
             kind: TaskKind::VectorRebuild,
             payloads: vec![json!({})],
             input_storage_object_ids: Vec::new(),
-            idempotency_key: idempotency_key(&headers),
+            idempotency_key,
         },
     )
     .await

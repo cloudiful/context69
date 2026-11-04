@@ -1,30 +1,30 @@
--- The items the dispatcher may claim now (issue 1020 P2).
+-- The bounded, class-representative candidates the dispatcher may claim now
+-- (issue 1020 P2, issue 1172 P2/P6A2).
 --
--- The selection is the domain policy and nothing else: the lowest ordinal
--- non-terminal item of a parent, the global parent capacity, the created
--- ordering, the retry time, the Docling exclusion and the domain attempt
--- budget. The statement selects the candidates and locks their rows; it never
--- mints a lease, because the lease of an item is the fencing token of the
--- library attempt that holds it.
+-- The domain policy selects the lowest ordinal non-terminal item of an active
+-- parent, with the retry time, Docling exclusion and execution failure budget
+-- unchanged. Execution capacity is not decided here: the library attempt
+-- admission is the only capacity owner.
 --
--- `$1` is the global parent-task capacity (`scheduler.max_concurrency`). Every
--- replica passes the same configured capacity and `held` counts the durable
--- lease rows, so the global number of admitted parents stays bounded no matter
--- how many dispatchers run. The cross-replica serialization that makes this
--- broadcast-safe lives in `lock_task_admission.sql`, which the claim
--- transaction runs as its own statement immediately before this one.
+-- A candidate must be linked to the real current library task of the queue.
+-- The library snapshot is authoritative: a QUEUED segment is only admissible
+-- when its immutable class equals the class its typed parent kind maps to and
+-- its immutable resources contain that class and the shared `ingest` resource.
+-- A NULL, unknown, mismatched or resource-incomplete queued segment is never
+-- granted; the unclassified report counts it instead.
 --
--- An item whose library segment is still running is not a candidate: the
--- library owns the recovery of an expired segment, and the domain projection
--- of that recovery reopens the item. A candidate whose segment already ended
--- is claimed through a fresh segment, which the claim path produces.
+-- A CURRENT TERMINAL segment is different: its old metadata may predate the
+-- class contract. It is admitted only for the existing bounded promotion, which
+-- produces the next generation with the typed class and resources and never
+-- claims or rewrites the terminal segment itself.
 --
--- The returned rows are the pre-claim state of the candidates. `needs_slot`
--- says that the parent takes a new global slot, `parent_lease_until` carries
--- the deadline of the slot the parent already holds.
+-- At most 333 oldest eligible heads are returned for each of the three
+-- immutable classes, ordered by the parent creation time and the item id
+-- within the class. That bounds one read at 999 candidates while keeping a
+-- minority class represented when it has eligible work. The SQL does not
+-- choose the winner: the library receives the candidate ids and applies its
+-- own fair, capacity-aware admission.
 WITH current_items AS (
-    -- The one item of each parent that must finish before any later item of
-    -- the same parent can start.
     SELECT DISTINCT ON (item.task_id) item.id, item.task_id, item.ordinal
     FROM context69.task_items item
     WHERE item.status IN ('queued', 'running', 'waiting')
@@ -35,96 +35,132 @@ eligible_items AS (
     FROM current_items item
     JOIN context69.task_items ti ON ti.id = item.id
     WHERE ti.status IN ('queued', 'waiting')
-      AND ti.attempt_count < 5
-      AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
-      -- Active remote references survive handoff: the newly leased worker
-      -- adopts the recorded identity rather than submitting a replacement.
-      -- NULL-safe: only waiting/docling rows are excluded. A plain
-      -- `waiting_reason = 'docling'` comparison yields NULL (not true) for
-      -- ordinary waiting rows with a NULL reason, and `NOT NULL` would
-      -- wrongly filter them out of the dispatcher.
-      AND NOT (
-            ti.status = 'waiting'
-            AND COALESCE(ti.waiting_reason, '') = 'docling'
+      AND ti.execution_failure_count < 5
+      AND (
+            (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
+            OR (
+                ti.status = 'waiting'
+                AND COALESCE(ti.waiting_reason, '') = 'docling'
+                AND EXISTS (
+                    SELECT 1
+                    FROM context69.task_docling_remote_jobs AS job
+                    WHERE job.item_id = ti.id
+                      AND job.status IN ('pending', 'running')
+                      AND job.endpoint_base_url IS NOT NULL
+                      AND (
+                          job.next_poll_at <= now()
+                          OR (job.deadline_at IS NOT NULL AND job.deadline_at <= now())
+                      )
+                )
+            )
+        )
+      AND (
+            NOT (
+                ti.status = 'waiting'
+                AND COALESCE(ti.waiting_reason, '') = 'docling'
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM context69.task_docling_remote_jobs AS job
+                WHERE job.item_id = ti.id
+                  AND job.status IN ('pending', 'running')
+                  AND job.endpoint_base_url IS NOT NULL
+            )
         )
 ),
-work AS (
-    -- Parents that need the dispatcher now (a due item) or are already running
-    -- one (a live worker item lease). An admitted parent with neither has
-    -- nothing to claim and must not have its lease extended.
-    SELECT task_id FROM eligible_items
-    UNION
-    SELECT item.task_id
-    FROM context69.task_items item
-    WHERE item.status = 'running'
-      AND item.lease_until > now()
-),
-held AS (
-    SELECT count(*)::bigint AS held_count
-    FROM context69.tasks task
-    WHERE task.lease_token IS NOT NULL
-      AND task.lease_until > now()
-      AND task.status IN ('queued', 'running', 'waiting')
-      AND task.deleted_at IS NULL
-),
-slot_candidates AS (
-    SELECT task.id
-    FROM context69.tasks task
-    WHERE (task.lease_token IS NULL OR task.lease_until IS NULL OR task.lease_until <= now())
-      AND task.status IN ('queued', 'running', 'waiting')
-      AND task.deleted_at IS NULL
-      AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
-      AND task.id IN (SELECT task_id FROM work)
-    ORDER BY task.created_at, task.id
-    LIMIT GREATEST($1 - (SELECT held_count FROM held), 0)
-    FOR UPDATE OF task SKIP LOCKED
-),
-admitted_work AS (
-    -- Parents that already hold a slot and have an item to claim. They are not
-    -- limited by capacity and not re-admitted; the slot simply continues.
-    SELECT task.id, task.lease_token, task.lease_until
-    FROM context69.tasks task
-    WHERE task.lease_token IS NOT NULL
-      AND task.lease_until > now()
-      AND task.status IN ('queued', 'running', 'waiting')
-      AND task.deleted_at IS NULL
-      AND task.id IN (SELECT task_id FROM eligible_items)
-),
-claim_targets AS (
-    SELECT id FROM slot_candidates
-    UNION
-    SELECT id FROM admitted_work
-),
 chosen AS (
-    -- One item per claimable parent; `eligible_items` already narrows each
-    -- parent to its current item, so the claim advances strictly in order.
-    SELECT item.id, item.task_id
+    SELECT item.id, item.task_id, task.created_at, task.kind
     FROM eligible_items item
-    JOIN claim_targets target ON target.id = item.task_id
+    JOIN context69.tasks task ON task.id = item.task_id
+    WHERE task.status IN ('queued', 'running', 'waiting')
+      AND task.deleted_at IS NULL
+      AND (
+            task.next_attempt_at IS NULL
+            OR task.next_attempt_at <= now()
+            OR EXISTS (
+                SELECT 1
+                FROM context69.task_docling_remote_jobs AS job
+                WHERE job.item_id = item.id
+                  AND job.status IN ('pending', 'running')
+                  AND job.endpoint_base_url IS NOT NULL
+                  AND (
+                      job.next_poll_at <= now()
+                      OR (job.deadline_at IS NOT NULL AND job.deadline_at <= now())
+                  )
+            )
+        )
 ),
-locked AS (
-    -- The candidate row is locked here, so the claim path holds it until the
-    -- transaction ends and no other claimer can take the same item.
-    SELECT item.id,
-           item.task_id,
-           item.execution_task_id,
-           item.execution_generation
-    FROM context69.task_items item
-    JOIN chosen ON chosen.id = item.id
-    FOR UPDATE OF item SKIP LOCKED
+linked AS (
+    SELECT chosen.id,
+           chosen.task_id,
+           chosen.created_at,
+           chosen.kind,
+           segment.status AS segment_status,
+           segment.class AS segment_class,
+           segment.resources AS segment_resources,
+           CASE chosen.kind
+               WHEN 'text_batch' THEN 'interactive'
+               WHEN 'file_batch' THEN 'bulk'
+               WHEN 'url_batch' THEN 'bulk'
+               WHEN 'source_sync' THEN 'maintenance'
+               WHEN 'delete_batch' THEN 'maintenance'
+               WHEN 'translation' THEN 'maintenance'
+               WHEN 'vector_rebuild' THEN 'maintenance'
+               WHEN 'git_index' THEN 'maintenance'
+           END AS expected_class
+    FROM chosen
+    JOIN context69.task_items item_row ON item_row.id = chosen.id
+    JOIN cloudiful_tasks.tasks segment
+      ON segment.id = item_row.execution_task_id
+     AND segment.namespace = 'context69'
+     AND segment.queue = 'items'
+),
+admissible AS (
+    SELECT id,
+           task_id,
+           created_at,
+           kind,
+           segment_status,
+           expected_class,
+           CASE
+               WHEN segment_status = 'queued' THEN segment_class
+               ELSE expected_class
+           END AS bound_class
+    FROM linked
+    WHERE expected_class IS NOT NULL
+      AND (
+            (
+                segment_status = 'queued'
+                AND segment_class = expected_class
+                AND segment_resources @> ARRAY[segment_class, 'ingest']
+            )
+            OR segment_status IN ('succeeded', 'failed', 'cancelled')
+        )
+),
+ranked AS (
+    SELECT id,
+           task_id,
+           kind,
+           segment_status,
+           expected_class,
+           ROW_NUMBER() OVER (
+               PARTITION BY bound_class
+               ORDER BY created_at, id
+           ) AS class_rank
+    FROM admissible
 )
-SELECT locked.id,
-       locked.task_id,
-       locked.execution_task_id,
-       locked.execution_generation,
-       task.kind,
+SELECT item.id,
+       item.task_id,
+       item.execution_task_id,
+       item.execution_generation,
+       ranked.segment_status AS "segment_status?",
+       ranked.kind,
+       ranked.expected_class AS "expected_class!",
        task.group_id,
        task.group_path,
-       task.source_key,
-       EXISTS (SELECT 1 FROM slot_candidates candidate WHERE candidate.id = locked.task_id)
-           AS "needs_slot!",
-       (SELECT admitted.lease_until
-          FROM admitted_work admitted
-         WHERE admitted.id = locked.task_id) AS parent_lease_until
-FROM locked
-JOIN context69.tasks task ON task.id = locked.task_id
+       task.source_key
+FROM ranked
+JOIN context69.task_items item ON item.id = ranked.id
+JOIN context69.tasks task ON task.id = ranked.task_id
+WHERE ranked.class_rank <= 333
+FOR UPDATE OF item SKIP LOCKED

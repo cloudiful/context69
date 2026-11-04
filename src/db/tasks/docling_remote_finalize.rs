@@ -16,7 +16,9 @@ pub struct DoclingRecoveryRow {
     pub id: Uuid,
     pub task_id: Uuid,
     pub item_id: Uuid,
-    pub remote_task_id: String,
+    /// Unknown only for a row that never resolved a remote id; listed rows
+    /// stay the known `pending`/`running` states.
+    pub remote_task_id: Option<String>,
     pub endpoint_base_url: Option<String>,
     pub deadline_at: Option<DateTime<chrono::Utc>>,
     pub item_status: String,
@@ -35,10 +37,6 @@ pub struct DoclingRecoverySummary {
 
 fn is_live_status(status: &str) -> bool {
     matches!(status, "queued" | "running" | "waiting")
-}
-
-fn is_docling_park(row: &DoclingRecoveryRow) -> bool {
-    row.item_status == "waiting" && row.item_waiting_reason.as_deref() == Some("docling")
 }
 
 impl Database {
@@ -156,19 +154,6 @@ impl Database {
                 .fetch_all(self.pool())
                 .await?
                 .len() as u64;
-                continue;
-            }
-            if is_docling_park(&row) {
-                let Some(payload) = row.adopt_payload.as_ref() else {
-                    continue;
-                };
-                if self
-                    .requeue_docling_waiting_item(row.item_id, payload)
-                    .await?
-                {
-                    self.recompute_task(row.task_id).await?;
-                    summary.adopted_items += 1;
-                }
                 continue;
             }
         }

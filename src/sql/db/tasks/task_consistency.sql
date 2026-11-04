@@ -26,7 +26,6 @@ WITH scoped_parent AS (
            task.stage,
            task.waiting_reason,
            task.dependency_key,
-           task.lease_until,
            task.started_at
     FROM context69.tasks task
     WHERE ($1::uuid IS NULL OR task.id = $1::uuid)
@@ -44,37 +43,18 @@ item_counts AS (
            count(*) FILTER (WHERE item.status = 'succeeded')::bigint AS succeeded_count,
            count(*) FILTER (WHERE item.status = 'failed')::bigint AS failed_count,
            count(*) FILTER (WHERE item.status = 'cancelled')::bigint AS cancelled_count,
-           -- A parent slot is only legitimately held while one of its item
-           -- leases is still live, so the liveness test belongs here rather
-           -- than in a per-parent correlated subquery.
+           -- The worker lease is the item lease, so liveness is counted here
+           -- from the item rows rather than in a per-parent correlated
+           -- subquery. A running item with no live lease is a crashed worker
+           -- whose library attempt recovery reclaims.
            count(*) FILTER (
                WHERE item.status = 'running'
                  AND (item.lease_until IS NULL OR item.lease_until > now())
            )::bigint AS live_running_count,
            count(*) FILTER (
                WHERE item.status IN ('queued', 'running', 'waiting')
-                 AND item.attempt_count >= 4
-           )::bigint AS near_exhaustion_count,
-           -- Whether any item of this parent could still be served by a claim.
-           -- `claim_candidates.sql` excludes `attempt_count >= 5`, so this is
-           -- the exact eligibility shape the P1 reclaim predicate tests.
-           EXISTS (
-               SELECT 1
-               FROM context69.task_items candidate
-               WHERE candidate.task_id = item.task_id
-                 AND candidate.status IN ('queued', 'running', 'waiting')
-                 AND candidate.attempt_count < 5
-           ) AS claimable_item_exists,
-           -- A `running` item whose lease has already lapsed: the durable
-           -- evidence that its worker is gone, which is one of the two shapes
-           -- `maintain_claim_state.sql` reclaims a parent lease for.
-           EXISTS (
-               SELECT 1
-               FROM context69.task_items lapsed
-               WHERE lapsed.task_id = item.task_id
-                 AND lapsed.status = 'running'
-                 AND (lapsed.lease_until IS NULL OR lapsed.lease_until <= now())
-           ) AS expired_running_item_exists
+                 AND item.execution_failure_count >= 4
+           )::bigint AS near_exhaustion_count
     FROM context69.task_items item
     WHERE item.task_id IN (SELECT parent.id FROM scoped_parent parent)
     GROUP BY item.task_id
@@ -153,7 +133,6 @@ parent_facts AS (
     SELECT parent.id AS task_id,
            parent.status AS parent_status,
            parent.status IN ('queued', 'running', 'waiting') AS is_active,
-           parent.lease_until,
            parent.started_at,
            parent.total_count,
            parent.queued_count AS parent_queued_count,
@@ -179,9 +158,6 @@ parent_facts AS (
            COALESCE(counts.cancelled_count, 0) AS cancelled_count,
            COALESCE(counts.live_running_count, 0) AS live_running_count,
            COALESCE(counts.near_exhaustion_count, 0) AS near_exhaustion_count,
-           COALESCE(counts.claimable_item_exists, false) AS claimable_item_exists,
-           COALESCE(counts.expired_running_item_exists, false)
-               AS expired_running_item_exists,
            -- The status the items imply, derived with exactly the CASE that
            -- `recompute.sql` writes to the parent. A parent whose status
            -- disagrees here is stale even when every counter matches, so the
@@ -286,46 +262,14 @@ SELECT
     )::bigint AS "running_parent_without_running_item_count!",
     (SELECT COALESCE(sum(live_running_count), 0)::bigint FROM verdict)::bigint
         AS "live_running_count!",
-    -- An orphaned parent slot: a live admission lease with no live worker item
-    -- lease, and nothing a future claim could ever serve. This mirrors the
-    -- reclaim predicate of `maintain_claim_state.sql` exactly, so the gauge
-    -- never counts a legitimate wait:
-    --   * a parent whose current item is claimable (queued/running/waiting with
-    --     `attempt_count < 5`, which is what `claim_candidates.sql` admits)
-    --     keeps its slot across a scheduled retry or dependency wait, and is not
-    --     an orphan;
-    --   * a parent whose only `running` item has a lapsed lease is the crashed
-    --     -worker shape maintenance reclaims on its next tick.
-    -- Reading `lease_until` alone would flag every backoff or dependency wait
-    -- as an orphan and drown the real signal.
-    (
-        SELECT count(*) FROM verdict
-        WHERE is_active
-          AND lease_until IS NOT NULL
-          AND lease_until > now()
-          AND live_running_count = 0
-          AND (expired_running_item_exists OR NOT claimable_item_exists)
-    )::bigint AS "lease_without_running_item_count!",
     (SELECT open_attempt_count FROM open_attempts)::bigint AS "open_attempt_count!",
     (
         SELECT COALESCE(sum(near_exhaustion_count), 0)::bigint FROM verdict
     )::bigint AS "near_exhaustion_item_count!",
-    -- Age since admission, not the remaining lease. `started_at` is stamped
-    -- when the claim admits the parent (`started_at = COALESCE(started_at,
-    -- now())`), so it is the earliest timestamp that means "this parent has
-    -- held a slot since". `lease_until` is a future deadline, so measuring
-    -- against it would clamp every value to zero.
-    (
-        SELECT min(started_at) FROM verdict
-        WHERE is_active AND lease_until IS NOT NULL AND lease_until > now()
-    ) AS oldest_admitted_at,
     (
         SELECT count(*) FROM verdict WHERE cardinality(mismatch_fields) > 0
     )::bigint AS "parent_item_mismatch_count!",
     (SELECT current_item_id FROM verdict ORDER BY task_id LIMIT 1) AS current_item_id,
-    -- Single-task scope only: the whole-queue scope has many parents, so this
-    -- column is meaningful exactly when `$1` names one task.
-    (SELECT lease_until FROM verdict ORDER BY task_id LIMIT 1) AS scoped_lease_until,
     (
         SELECT COALESCE(jsonb_agg(DISTINCT field ORDER BY field), '[]'::jsonb)
         FROM (SELECT unnest(mismatch_fields) AS field FROM verdict) names

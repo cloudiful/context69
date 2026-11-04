@@ -14,8 +14,8 @@ use super::cancellation;
 use super::execute;
 use super::list;
 use super::lock::{self, Admission, SessionLock};
-use super::manifest::TestClass;
-use super::output::{RunDir, RunStatus, RunSummary};
+use super::manifest::{TestClass, TestManifest};
+use super::output::{RunDir, RunScope, RunStatus, RunSummary};
 use super::preflight::{self, PreflightObservation, ResetDecision};
 use super::process_signal;
 use super::targets::TestExecutable;
@@ -76,16 +76,70 @@ pub async fn execute(
             finish(&summary, &run_dir)
         }
         Mode::Run => {
+            summary.scope = if invocation.selected_targets.is_empty() {
+                RunScope::Full
+            } else {
+                RunScope::Targets
+            };
+            summary.requested_targets = invocation.selected_targets.clone();
+            let manifest = match list::manifest(repo_root) {
+                Ok(manifest) => manifest,
+                Err(error) => {
+                    summary.record(format!("plan:scope={}", summary.scope.as_str()));
+                    summary.record(format!(
+                        "plan:requested-targets={}",
+                        join_labels(&summary.requested_targets)
+                    ));
+                    summary.record("plan:resolved-targets=-");
+                    summary.failures.push(error);
+                    summary.status = RunStatus::Failed;
+                    return finish(&summary, &run_dir);
+                }
+            };
+            let opt_ins = requested_opt_ins(&invocation);
+            let full_plan = execute::plan(&manifest, &opt_ins);
+            let planned =
+                match execute::select_plan(&manifest, &opt_ins, &invocation.selected_targets) {
+                    Ok(planned) => planned,
+                    Err(error) => {
+                        summary.record(format!("plan:scope={}", summary.scope.as_str()));
+                        summary.record(format!(
+                            "plan:requested-targets={}",
+                            join_labels(&summary.requested_targets)
+                        ));
+                        summary.record("plan:resolved-targets=-");
+                        summary.record(format!("refused:selection:{error}"));
+                        summary.failures.push(error);
+                        summary.status = RunStatus::Refused;
+                        return finish(&summary, &run_dir);
+                    }
+                };
+            summary.resolved_targets = planned.iter().map(|target| target.label.clone()).collect();
+            summary.selected_ordinary_tests = planned
+                .iter()
+                .map(|target| manifest.selection(&target.label, &[TestClass::Db]).len())
+                .sum();
+            summary.database_tests = manifest.entries.len();
+            record_plan(&mut summary, &manifest, &opt_ins, &full_plan, &planned);
+
             let run_dir_ref = &run_dir;
             let invocation_ref = &invocation;
             let summary_ref = &mut summary;
+            let planned_ref = planned.as_slice();
             let result = super::pure::run_before_database(
                 || super::pure::run_workspace_tests(repo_root, run_dir_ref),
                 |outcome| async move {
                     summary_ref.record(super::pure::outcome_action(&outcome));
                     inspect(summary_ref, invocation_ref.allow_idle_connections).await?;
                     if summary_ref.status != RunStatus::Refused {
-                        run_targets(repo_root, run_dir_ref, summary_ref, invocation_ref).await?;
+                        run_targets(
+                            repo_root,
+                            run_dir_ref,
+                            summary_ref,
+                            invocation_ref,
+                            planned_ref,
+                        )
+                        .await?;
                     }
                     Ok(())
                 },
@@ -150,6 +204,7 @@ async fn run_targets(
     run_dir: &RunDir,
     summary: &mut RunSummary,
     invocation: &Invocation,
+    planned: &[super::execute::PlannedTarget],
 ) -> Result<(), String> {
     let allow_idle_connections = invocation.allow_idle_connections;
     if cancellation::requested() {
@@ -190,19 +245,9 @@ async fn run_targets(
     }
     summary.record("lock:acquired");
 
-    let manifest = list::manifest(repo_root)?;
     let executables = list::executables(repo_root, run_dir)?;
     summary.test_executables = executables.len();
     summary.doctest_packages = list::doctest_packages(repo_root, run_dir)?;
-    summary.database_tests = manifest.entries.len();
-
-    let opt_ins = requested_opt_ins(invocation);
-    let planned = execute::plan(&manifest, &opt_ins);
-    summary.record(format!("plan:targets={}", planned.len()));
-    summary.record(format!(
-        "plan:tests={}",
-        manifest.database_test_count(&opt_ins)
-    ));
 
     let report = preflight_report(endpoint, allow_idle_connections).await?;
     record_idle_policy(summary, &report.observation, allow_idle_connections);
@@ -212,8 +257,7 @@ async fn run_targets(
         &report.observation,
         &report.decision,
         &executables,
-        &manifest,
-        &opt_ins,
+        planned,
     )
     .await?;
 
@@ -237,12 +281,44 @@ async fn run_targets(
             .push("the run was interrupted after its active child exited".to_owned());
     }
     summary.status = if summary.failures.is_empty() {
-        summary.record("sequence:complete");
+        summary.record(summary.scope.completion_label());
         RunStatus::Passed
     } else {
         RunStatus::Failed
     };
     Ok(())
+}
+
+/// Record the full and selected plans so a scoped pass can never be mistaken
+/// for the full gate.
+fn record_plan(
+    summary: &mut RunSummary,
+    manifest: &TestManifest,
+    opt_ins: &[TestClass],
+    full_plan: &[super::execute::PlannedTarget],
+    planned: &[super::execute::PlannedTarget],
+) {
+    let requested = join_labels(&summary.requested_targets);
+    let resolved = join_labels(&summary.resolved_targets);
+    let selected_tests: usize = planned.iter().map(|target| target.tests.len()).sum();
+    summary.record(format!("plan:scope={}", summary.scope.as_str()));
+    summary.record(format!("plan:full-targets={}", full_plan.len()));
+    summary.record(format!(
+        "plan:full-tests={}",
+        manifest.database_test_count(opt_ins)
+    ));
+    summary.record(format!("plan:selected-targets={}", planned.len()));
+    summary.record(format!("plan:selected-tests={selected_tests}"));
+    summary.record(format!("plan:requested-targets={requested}"));
+    summary.record(format!("plan:resolved-targets={resolved}"));
+}
+
+fn join_labels(labels: &[String]) -> String {
+    if labels.is_empty() {
+        "-".to_owned()
+    } else {
+        labels.join(",")
+    }
 }
 
 /// Map the opt-in flags to the manifest classes they select.

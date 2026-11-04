@@ -30,6 +30,8 @@ fn selection_query(view: TaskListView) -> TaskSelectionQuery {
         stage: None,
         waiting_reason: None,
         dependency_key: None,
+        group_path: None,
+        source_key: None,
     }
 }
 

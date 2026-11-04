@@ -205,16 +205,10 @@ pub struct TaskQueueConsistencyHealth {
     pub parent_status_counts: Vec<LibraryProcessingMetric>,
     /// Parents reporting `running` while no item of theirs is `running`.
     pub running_parent_without_running_item_count: u64,
-    /// Parents holding a durable admission lease with no live item lease:
-    /// the slot is occupied but no worker owns the work.
-    pub lease_without_running_item_count: u64,
     /// `task_attempts` rows without `finished_at`; every live claim has one.
     pub open_attempt_count: u64,
     /// Items at or one attempt below the five-attempt cap.
     pub near_exhaustion_item_count: u64,
-    /// Age of the oldest admitted parent lease.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub oldest_admitted_age_seconds: Option<u64>,
     /// Parents whose stored counters/stage disagree with their item rows.
     pub parent_item_mismatch_count: u64,
 }

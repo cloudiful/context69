@@ -18,20 +18,33 @@ use std::time::Duration;
 
 use anyhow::Result;
 use cloudiful_tasks::{
-    Attempt, EnqueueOutcome, EnqueueRequest, Queue, TaskId, TaskKind, WorkerConfig,
+    Attempt, EnqueueOutcome, EnqueueRequest, Queue, QueuePolicy, TaskId,
+    TaskKind as LibraryTaskKind, WorkerConfig,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::db::Database;
+use crate::{contracts::TaskKind, db::Database, domain_errors::DomainError};
 
 /// Namespace the library tasks of the item execution live in.
 pub const EXECUTION_NAMESPACE: &str = "context69";
 
 /// Queue the library tasks of the item execution live in.
 pub const EXECUTION_QUEUE: &str = "items";
+
+/// The resource policy key of interactive work.
+pub const INTERACTIVE_RESOURCE: &str = "interactive";
+
+/// The resource policy key of bulk work.
+pub const BULK_RESOURCE: &str = "bulk";
+
+/// The resource policy key of maintenance work.
+pub const MAINTENANCE_RESOURCE: &str = "maintenance";
+
+/// The resource policy key of the shared ingest resource.
+pub const INGEST_RESOURCE: &str = "ingest";
 
 /// Kind of a library task that carries one item execution segment.
 pub const EXECUTION_KIND: &str = "context69.item";
@@ -78,6 +91,80 @@ pub fn execution_config() -> WorkerConfig {
 pub fn worker_id() -> &'static str {
     static WORKER_ID: OnceLock<String> = OnceLock::new();
     WORKER_ID.get_or_init(|| Uuid::new_v4().to_string())
+}
+
+/// The immutable admission class of one task item.
+///
+/// The class is derived from the parent task kind when the segment is produced
+/// and never changes afterwards. Ingest is a shared resource, not a fourth
+/// class, so every segment declares exactly its class and `ingest`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecutionClass {
+    /// User-facing text work.
+    Interactive,
+    /// File and URL batch work.
+    Bulk,
+    /// Every other existing task kind.
+    Maintenance,
+}
+
+impl ExecutionClass {
+    /// The durable class name used by the library.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Interactive => "interactive",
+            Self::Bulk => "bulk",
+            Self::Maintenance => "maintenance",
+        }
+    }
+
+    /// The exact resource keys of a segment of this class.
+    #[must_use]
+    pub fn resources(self) -> Vec<String> {
+        vec![self.as_str().to_owned(), INGEST_RESOURCE.to_owned()]
+    }
+
+    /// Parses a persisted class name.
+    pub fn from_db(value: &str) -> Result<Self> {
+        match value {
+            "interactive" => Ok(Self::Interactive),
+            "bulk" => Ok(Self::Bulk),
+            "maintenance" => Ok(Self::Maintenance),
+            other => anyhow::bail!("unknown admission class `{other}`"),
+        }
+    }
+
+    /// Maps the parent task kind to its immutable admission class.
+    ///
+    /// Every existing kind is matched explicitly. A persisted kind outside the
+    /// typed contract is an error, never an invented default.
+    pub fn for_task_kind(kind: TaskKind) -> Self {
+        match kind {
+            TaskKind::TextBatch => Self::Interactive,
+            TaskKind::FileBatch | TaskKind::UrlBatch => Self::Bulk,
+            TaskKind::SourceSync
+            | TaskKind::DeleteBatch
+            | TaskKind::Translation
+            | TaskKind::VectorRebuild
+            | TaskKind::GitIndex => Self::Maintenance,
+        }
+    }
+}
+
+/// Parses the parent kind stored in the domain row.
+pub fn task_kind_from_db(value: &str) -> Result<TaskKind> {
+    match value {
+        "source_sync" => Ok(TaskKind::SourceSync),
+        "text_batch" => Ok(TaskKind::TextBatch),
+        "file_batch" => Ok(TaskKind::FileBatch),
+        "url_batch" => Ok(TaskKind::UrlBatch),
+        "delete_batch" => Ok(TaskKind::DeleteBatch),
+        "translation" => Ok(TaskKind::Translation),
+        "vector_rebuild" => Ok(TaskKind::VectorRebuild),
+        "git_index" => Ok(TaskKind::GitIndex),
+        other => anyhow::bail!("unknown persisted task kind `{other}`"),
+    }
 }
 
 /// The opaque payload of one execution segment.
@@ -140,12 +227,15 @@ pub async fn produce_segment(
     queue: &Queue,
     transaction: &mut Transaction<'_, Postgres>,
     payload: SegmentPayload,
+    class: ExecutionClass,
 ) -> Result<TaskId, cloudiful_tasks::Error> {
-    let request = EnqueueRequest::new(TaskKind::new(EXECUTION_KIND)?, payload.to_value())
+    let request = EnqueueRequest::new(LibraryTaskKind::new(EXECUTION_KIND)?, payload.to_value())
         .with_idempotency_key(SegmentPayload::idempotency_key(
             payload.item_id,
             payload.generation,
-        ))?;
+        ))?
+        .with_class(class.as_str())?
+        .with_resources(class.resources())?;
     let outcome = queue.enqueue_in(transaction, request).await?;
     Ok(match outcome {
         EnqueueOutcome::Created(task) | EnqueueOutcome::Existing(task) => task.id(),
@@ -189,11 +279,14 @@ pub(crate) async fn produce_and_link_item_segment(
     .fetch_one(&mut **transaction)
     .await?;
     let task_id = generation.task_id;
+    let kind = task_kind_from_db(&generation.kind)?;
     let generation = generation.generation.unwrap_or(FIRST_GENERATION);
+    let class = ExecutionClass::for_task_kind(kind);
     let segment = produce_segment(
         queue,
         transaction,
         SegmentPayload::new(item_id, task_id, generation),
+        class,
     )
     .await?;
     let linked = match link {
@@ -222,6 +315,30 @@ pub(crate) async fn produce_and_link_item_segment(
         anyhow::bail!("item {item_id} does not take a fresh execution segment; nothing was linked");
     }
     Ok(segment.as_uuid())
+}
+
+/// Relinks one queued or waiting item from its exact old segment to a fresh
+/// one, fenced by the old pointer, the old generation and the old segment's
+/// terminal status.
+pub(crate) async fn relink_item_segment(
+    transaction: &mut Transaction<'_, Postgres>,
+    item_id: Uuid,
+    old_segment: Uuid,
+    old_generation: i64,
+    new_segment: Uuid,
+    new_generation: i64,
+) -> Result<bool> {
+    let linked: Option<Uuid> = sqlx::query_file_scalar!(
+        "src/sql/db/tasks/cutover/relink_item_segment.sql",
+        item_id,
+        old_segment,
+        old_generation,
+        new_segment,
+        new_generation
+    )
+    .fetch_optional(&mut **transaction)
+    .await?;
+    Ok(linked.is_some())
 }
 
 /// The captured execution context of one running item.
@@ -282,6 +399,7 @@ impl ExecutionContext {
 struct ItemGeneration {
     task_id: Uuid,
     generation: Option<i64>,
+    kind: String,
 }
 
 /// The outcome of the recovery of the expired execution segments.
@@ -291,16 +409,6 @@ pub struct ExecutionRecoveryOutcome {
     pub sealed_segments: u64,
     /// The domain items the recovery requeued or failed.
     pub recovered_items: u64,
-    /// The parent slots the recovery released, because the worker of their item
-    /// is gone.
-    pub released_parent_leases: u64,
-}
-
-/// One domain item the recovery requeued.
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct RecoveredItem {
-    task_id: Uuid,
-    released_parent_leases: Option<i64>,
 }
 
 impl Database {
@@ -337,7 +445,6 @@ impl Database {
         let mut outcome = ExecutionRecoveryOutcome {
             sealed_segments: sealed.len() as u64,
             recovered_items: 0,
-            released_parent_leases: 0,
         };
         for task in sealed {
             let Some(payload) = SegmentPayload::from_value(task.payload()) else {
@@ -345,8 +452,7 @@ impl Database {
                 // database may interpret.
                 continue;
             };
-            let recovered: Option<RecoveredItem> = sqlx::query_file_as!(
-                RecoveredItem,
+            let recovered: Option<Uuid> = sqlx::query_file_scalar!(
                 "src/sql/db/tasks/recover_expired_item.sql",
                 payload.item_id,
                 task.id().as_uuid(),
@@ -355,18 +461,194 @@ impl Database {
             )
             .fetch_optional(&mut **tx)
             .await?;
-            let Some(recovered) = recovered else {
+            let Some(task_id) = recovered else {
                 continue;
             };
             outcome.recovered_items += 1;
-            outcome.released_parent_leases +=
-                u64::try_from(recovered.released_parent_leases.unwrap_or_default())
-                    .unwrap_or_default();
-            let task_id = recovered.task_id;
             sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
                 .execute(&mut **tx)
                 .await?;
         }
         Ok(outcome)
+    }
+
+    /// Applies only a global execution capacity.
+    ///
+    /// Existing test helpers and callers that own no resource ceilings use this
+    /// compatibility entrypoint; it applies the same atomic global-plus-owned
+    /// resource transaction with every resource following the global cap.
+    pub async fn apply_execution_queue_policy(&self, limit: usize) -> Result<()> {
+        self.apply_execution_admission_policies(
+            limit,
+            &crate::contracts::settings::SchedulerResourceLimits::default(),
+        )
+        .await
+    }
+
+    /// Applies the global and per-resource execution admission policies in one
+    /// database transaction.
+    ///
+    /// The library queue policy is the only execution-capacity owner: every
+    /// replica that opens this namespace and queue shares the same persisted
+    /// limits, so the cap is global and never multiplies per replica. Both the
+    /// global policy and the four owned resource policies are written through
+    /// the caller transaction, so a failure or a concurrent validation refusal
+    /// rolls them back together. A lowered limit applies to future claims only
+    /// and never revokes a running attempt.
+    pub async fn apply_execution_admission_policies(
+        &self,
+        global: usize,
+        limits: &crate::contracts::settings::SchedulerResourceLimits,
+    ) -> Result<()> {
+        validate_execution_admission_policies(global, limits)?;
+        let mut transaction = self.pool.begin().await?;
+        let outcome = self
+            .apply_execution_admission_policies_in(&mut transaction, global, limits)
+            .await;
+        match outcome {
+            Ok(()) => {
+                transaction.commit().await?;
+                Ok(())
+            }
+            Err(error) => {
+                transaction.rollback().await.ok();
+                Err(error)
+            }
+        }
+    }
+
+    /// Applies the admission policies in the transaction of the caller.
+    ///
+    /// The caller owns the commit and the rollback, so the same transaction can
+    /// persist the runtime settings columns and their live policies together.
+    pub(crate) async fn apply_execution_admission_policies_in(
+        &self,
+        transaction: &mut Transaction<'_, Postgres>,
+        global: usize,
+        limits: &crate::contracts::settings::SchedulerResourceLimits,
+    ) -> Result<()> {
+        validate_execution_admission_policies(global, limits)?;
+        let max_concurrent_attempts =
+            u32::try_from(global).map_err(|_| anyhow::anyhow!("execution capacity exceeds u32"))?;
+        let queue = self.execution_queue().await?;
+        queue
+            .set_policy_in(
+                transaction,
+                QueuePolicy {
+                    max_concurrent_attempts: Some(max_concurrent_attempts),
+                },
+            )
+            .await?;
+        for (resource, max) in [
+            (INTERACTIVE_RESOURCE, limits.interactive),
+            (BULK_RESOURCE, limits.bulk),
+            (MAINTENANCE_RESOURCE, limits.maintenance),
+            (INGEST_RESOURCE, limits.ingest),
+        ] {
+            queue
+                .set_resource_policy_in(transaction, resource, max)
+                .await?;
+        }
+        Ok(())
+    }
+}
+
+/// Validates the global scheduler concurrency and every explicit resource cap.
+///
+/// `None` follows the global concurrency. The shared pure helper is used by the
+/// request validation and by the database save boundary, so a direct database
+/// caller cannot persist a cap above the global maximum.
+pub(crate) fn validate_execution_admission_policies(
+    global: usize,
+    limits: &crate::contracts::settings::SchedulerResourceLimits,
+) -> Result<()> {
+    let ceiling = usize::try_from(crate::contracts::settings::SCHEDULER_MAX_CONCURRENCY)
+        .expect("the scheduler concurrency ceiling fits usize");
+    if global == 0 {
+        return Err(DomainError::invalid_argument(
+            "runtime.scheduler.max_concurrency must be greater than 0",
+        )
+        .into());
+    }
+    if global > ceiling {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.scheduler.max_concurrency must not exceed {ceiling}"
+        ))
+        .into());
+    }
+    let global_u32 = u32::try_from(global).expect("the validated global cap fits u32");
+    for (field, value) in [
+        ("interactive", limits.interactive),
+        ("bulk", limits.bulk),
+        ("maintenance", limits.maintenance),
+        ("ingest", limits.ingest),
+    ] {
+        let Some(value) = value else {
+            continue;
+        };
+        if value == 0 {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.scheduler.resource_limits.{field} must be greater than 0"
+            ))
+            .into());
+        }
+        if value > crate::contracts::settings::SCHEDULER_MAX_CONCURRENCY {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.scheduler.resource_limits.{field} must not exceed {}",
+                crate::contracts::settings::SCHEDULER_MAX_CONCURRENCY
+            ))
+            .into());
+        }
+        if value > global_u32 {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.scheduler.resource_limits.{field} must not exceed \
+                 runtime.scheduler.max_concurrency ({global_u32})"
+            ))
+            .into());
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod admission_class_tests {
+    use super::{ExecutionClass, task_kind_from_db};
+    use crate::contracts::TaskKind;
+
+    #[test]
+    fn every_current_kind_maps_to_its_immutable_class() {
+        let cases = [
+            (TaskKind::TextBatch, ExecutionClass::Interactive),
+            (TaskKind::FileBatch, ExecutionClass::Bulk),
+            (TaskKind::UrlBatch, ExecutionClass::Bulk),
+            (TaskKind::SourceSync, ExecutionClass::Maintenance),
+            (TaskKind::DeleteBatch, ExecutionClass::Maintenance),
+            (TaskKind::Translation, ExecutionClass::Maintenance),
+            (TaskKind::VectorRebuild, ExecutionClass::Maintenance),
+            (TaskKind::GitIndex, ExecutionClass::Maintenance),
+        ];
+        for (kind, expected) in cases {
+            assert_eq!(ExecutionClass::for_task_kind(kind), expected);
+            assert_eq!(task_kind_from_db(kind.as_str()).expect("known kind"), kind);
+        }
+    }
+
+    #[test]
+    fn every_class_declares_its_class_and_shared_ingest_resource() {
+        for class in [
+            ExecutionClass::Interactive,
+            ExecutionClass::Bulk,
+            ExecutionClass::Maintenance,
+        ] {
+            assert_eq!(
+                class.resources(),
+                vec![class.as_str().to_string(), "ingest".to_string()]
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_persisted_kind_is_refused() {
+        assert!(task_kind_from_db("future_kind").is_err());
     }
 }
