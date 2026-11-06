@@ -7905,6 +7905,22 @@
         },
         "additionalProperties": false
       },
+      "ChunkingTokenizer": {
+        "type": "string",
+        "description": "Tokenizer that measures the token budget.\n\nThe count only matches the tokenizer that produced it, so a token count is\nnever a count of another model's tokens.",
+        "enum": [
+          "cl100k_base",
+          "o200k_base"
+        ]
+      },
+      "ChunkingUnit": {
+        "type": "string",
+        "description": "Unit the chunking budget is measured in.",
+        "enum": [
+          "chars",
+          "tokens"
+        ]
+      },
       "ClearTaskHistoryRequest": {
         "type": "object",
         "description": "Request body for `POST /v1/tasks/clear`.",
@@ -12106,6 +12122,7 @@
       },
       "RuntimeChunkingSettings": {
         "type": "object",
+        "description": "Chunking budget of the runtime settings.\n\nThe character values keep their own meaning: they are never relabeled as\ntoken counts. The token values are only used while the unit is `tokens`.",
         "required": [
           "max_chars",
           "overlap_chars"
@@ -12113,11 +12130,33 @@
         "properties": {
           "max_chars": {
             "type": "integer",
+            "description": "Character budget of one chunk.",
+            "minimum": 0
+          },
+          "max_tokens": {
+            "type": "integer",
+            "description": "Token budget of one chunk, used while the unit is `tokens`.\n\nStored in a PostgreSQL BIGINT, so the value must fit an `i64`.",
+            "maximum": 9223372036854775807,
             "minimum": 0
           },
           "overlap_chars": {
             "type": "integer",
+            "description": "Character overlap between two chunks.",
             "minimum": 0
+          },
+          "overlap_tokens": {
+            "type": "integer",
+            "description": "Token overlap between two chunks, used while the unit is `tokens`.\n\nStored in a PostgreSQL BIGINT, so the value must fit an `i64`.",
+            "maximum": 9223372036854775807,
+            "minimum": 0
+          },
+          "tokenizer": {
+            "$ref": "#/components/schemas/ChunkingTokenizer",
+            "description": "Tokenizer that measures the token budget."
+          },
+          "unit": {
+            "$ref": "#/components/schemas/ChunkingUnit",
+            "description": "Unit the budget is measured in."
           }
         }
       },

@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use super::TranslationService;
 use crate::{
-    TranslationPublication,
+    TranslationChunkingBudget, TranslationPublication,
     providers::{ProviderTranslationRequest, source_character_count, translate},
     segmenter::{segment_document, translatable_segments, translated_document},
     store::{
@@ -30,11 +30,15 @@ impl TranslationService {
     /// Blocking conversion entry: fail fast when the embedding/vector runtime
     /// is unavailable so the owning task item can retry with backoff instead
     /// of leaving a queued job with no worker behind it.
-    pub(super) async fn run_job_blocking(&self, id: Uuid) -> Result<()> {
+    pub(super) async fn run_job_blocking(
+        &self,
+        id: Uuid,
+        chunking: Option<&TranslationChunkingBudget>,
+    ) -> Result<()> {
         if !self.runtime_ready().await {
             return Err(anyhow!("translation runtime is not ready"));
         }
-        self.run_job(id).await?;
+        self.run_job(id, chunking).await?;
         Ok(())
     }
 
@@ -42,7 +46,11 @@ impl TranslationService {
         self.readiness.is_ready().await.unwrap_or(false)
     }
 
-    async fn run_job(&self, id: Uuid) -> Result<bool> {
+    async fn run_job(
+        &self,
+        id: Uuid,
+        chunking: Option<&TranslationChunkingBudget>,
+    ) -> Result<bool> {
         if !self.runtime_ready().await {
             return Ok(false);
         }
@@ -168,6 +176,7 @@ impl TranslationService {
                                 summary: summary.as_deref(),
                                 body: &body,
                             },
+                            chunking,
                         )
                         .await;
                     if let Err(error) = publish_result {
@@ -262,6 +271,7 @@ impl TranslationService {
         job: &TranslationJobRecord,
         document: &TranslationDocument,
         text: PublishedText<'_>,
+        chunking: Option<&TranslationChunkingBudget>,
     ) -> Result<()> {
         let old_ids = self
             .store
@@ -303,6 +313,7 @@ impl TranslationService {
                     title: text.title,
                     summary: text.summary,
                     body_text: text.body,
+                    chunking,
                 },
                 &input,
             )

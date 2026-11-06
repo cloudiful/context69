@@ -10,7 +10,7 @@ use tokio::sync::{OwnedMutexGuard, RwLock};
 use tracing::{error, info, warn};
 
 use crate::{
-    chunking::{ChunkingConfig, chunk_document},
+    chunking::{ChunkBudget, ChunkingRuntime, chunk_document_with_budget},
     config::{SourceConfig, SyncStrategy},
     contracts::{
         SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind, SourcePageResponse,
@@ -224,7 +224,7 @@ pub struct SyncService {
     store: SecretStore,
     vector: VectorRuntime,
     source_index: SourceVectorIndex,
-    chunking: ChunkingConfig,
+    chunking: ChunkingRuntime,
     max_concurrency: usize,
     source_pools: Arc<RwLock<HashMap<String, PgPool>>>,
     registry: Arc<RwLock<SourceRegistry>>,
@@ -249,7 +249,7 @@ impl SyncService {
         store: SecretStore,
         embedding: impl Into<EmbeddingRuntime>,
         index: Option<QdrantIndex>,
-        chunking: ChunkingConfig,
+        chunking: impl Into<ChunkingRuntime>,
         max_concurrency: usize,
         translation: TranslationService,
     ) -> Self {
@@ -271,7 +271,7 @@ impl SyncService {
         db: Database,
         store: SecretStore,
         vector: VectorRuntime,
-        chunking: ChunkingConfig,
+        chunking: impl Into<ChunkingRuntime>,
         max_concurrency: usize,
         translation: TranslationService,
     ) -> Self {
@@ -291,7 +291,7 @@ impl SyncService {
         store: SecretStore,
         vector: VectorRuntime,
         mode: SourceVectorMode,
-        chunking: ChunkingConfig,
+        chunking: impl Into<ChunkingRuntime>,
         max_concurrency: usize,
         translation: TranslationService,
     ) -> Self {
@@ -304,7 +304,7 @@ impl SyncService {
             store,
             source_index,
             vector,
-            chunking,
+            chunking: chunking.into(),
             max_concurrency,
             source_pools: Arc::new(RwLock::new(HashMap::new())),
             registry: Arc::new(RwLock::new(

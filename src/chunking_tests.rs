@@ -1,7 +1,7 @@
 use chrono::Utc;
 use serde_json::json;
 
-use super::{ChunkingConfig, chunk_document, chunk_document_iter};
+use super::{ChunkBudget, ChunkingConfig, chunk_document, chunk_document_iter};
 use crate::domain::NormalizedDocument;
 
 fn document(body_text: &str) -> NormalizedDocument {
@@ -234,4 +234,94 @@ fn generation_keys_are_unambiguous() {
             "the generation must survive a lossless encode/decode round trip"
         );
     }
+}
+
+#[test]
+fn a_character_budget_keeps_the_legacy_chunks_and_ids() {
+    let body = format!("{}\n\n{}", "a".repeat(900), "b".repeat(900));
+    let document = document(&body);
+    let config = ChunkingConfig {
+        max_chars: 1000,
+        overlap_chars: 100,
+    };
+
+    let legacy = chunk_document(1, "gov-info", &document, &config);
+    let budgeted =
+        super::chunk_document_with_budget(1, "gov-info", &document, &ChunkBudget::from(&config))
+            .expect("the character budget is always valid");
+
+    assert_eq!(
+        budgeted
+            .iter()
+            .map(|chunk| (chunk.id, chunk.text.as_str()))
+            .collect::<Vec<_>>(),
+        legacy
+            .iter()
+            .map(|chunk| (chunk.id, chunk.text.as_str()))
+            .collect::<Vec<_>>(),
+        "the character budget must produce the legacy chunks and ids"
+    );
+}
+
+#[test]
+fn a_malformed_character_snapshot_is_refused_without_changing_the_legacy_api() {
+    for (max_chars, overlap_chars) in [(0, 0), (10, 10)] {
+        let budget = ChunkBudget::chars(ChunkingConfig {
+            max_chars,
+            overlap_chars,
+        });
+        let payload = json!({
+            super::CHUNK_BUDGET_PAYLOAD_KEY: serde_json::to_value(&budget)
+                .expect("the budget serializes")
+        });
+        let error = super::parse_chunk_budget(&payload)
+            .expect_err("a present malformed character snapshot must fail closed");
+        assert!(
+            matches!(error, super::ChunkingError::InvalidSnapshot { .. }),
+            "{max_chars}/{overlap_chars}: {error}"
+        );
+    }
+
+    // The legacy character API keeps its historical coercion of the same
+    // values; only the persisted snapshot boundary refuses them.
+    let document = document("abcdefghij");
+    let chunks = chunk_document(
+        1,
+        "gov-info",
+        &document,
+        &ChunkingConfig {
+            max_chars: 0,
+            overlap_chars: 10,
+        },
+    );
+    assert_eq!(
+        chunks.len(),
+        10,
+        "the legacy iterator still yields one char"
+    );
+}
+
+#[test]
+fn a_character_budget_reports_the_same_chunks_as_the_legacy_api() {
+    let body = format!("{}\n\n{}", "a".repeat(900), "b".repeat(900));
+    let document = document(&body);
+    let config = ChunkingConfig {
+        max_chars: 1000,
+        overlap_chars: 100,
+    };
+
+    let chunks =
+        super::chunk_document_with_budget(1, "gov-info", &document, &ChunkBudget::from(&config))
+            .expect("the character budget is always valid");
+
+    assert_eq!(
+        chunks
+            .iter()
+            .map(|chunk| chunk.text.as_str())
+            .collect::<Vec<_>>(),
+        chunk_document(1, "gov-info", &document, &config)
+            .iter()
+            .map(|chunk| chunk.text.as_str())
+            .collect::<Vec<_>>()
+    );
 }

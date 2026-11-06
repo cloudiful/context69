@@ -1,7 +1,24 @@
+import type { components } from "../../generated/openapi";
 import type {
   SearchMode,
   UpdateDoclingSettingsRequest,
 } from "../../services/api";
+
+type RuntimeChunkingSettings = components["schemas"]["RuntimeChunkingSettings"];
+
+/**
+ * Chunking budget of the runtime draft.
+ *
+ * Every generated field is present, so switching the unit never drops the
+ * inactive budget instead of reinterpreting it.
+ */
+export type DraftChunkingSettings = Required<RuntimeChunkingSettings>;
+
+/** Unit the chunking budget is measured in. */
+export type DraftChunkingUnit = NonNullable<RuntimeChunkingSettings["unit"]>;
+
+/** Tokenizer that measures the token budget. */
+export type DraftChunkingTokenizer = NonNullable<RuntimeChunkingSettings["tokenizer"]>;
 
 export type DraftRuntimeSettings = {
   qdrant: {
@@ -23,10 +40,7 @@ export type DraftRuntimeSettings = {
     job_id: string;
     valkey_url: string;
   };
-  chunking: {
-    max_chars: number;
-    overlap_chars: number;
-  };
+  chunking: DraftChunkingSettings;
   file_library: {
     storage_root: string;
     max_upload_size_mb: number;

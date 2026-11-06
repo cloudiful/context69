@@ -2,13 +2,16 @@ import { AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
+import { FormField } from "@/components/common/form-field";
 import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
 import { ToggleField } from "@/components/common/toggle-field";
 import { Button } from "@/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsGate } from "@/features/settings/settings-gate";
 import { useSettings } from "@/features/settings/settings-context";
+import type { DraftChunkingTokenizer, DraftChunkingUnit } from "@/utils/settings";
 
 import { FileLibraryBlock } from "./file-library-block";
 import { TestConnectionButton, VectorRebuildControl } from "./test-connection-button";
@@ -214,24 +217,97 @@ export function RuntimeSection() {
 
         <SettingsBlock id="settings-chunking" compact title={t("settings.runtime.chunkingTitle")}>
           <div className="grid max-w-2xl gap-3">
-            <NumberField
-              id="runtime-chunking-max-chars"
-              label={t("settings.runtime.chunkingMaxChars")}
-              min={1}
-              value={runtimeDraft.chunking.max_chars}
-              onChange={(value) => updateRuntimeDraft((draft) => {
-                draft.chunking.max_chars = value;
-              })}
-            />
-            <NumberField
-              id="runtime-chunking-overlap"
-              label={t("settings.runtime.chunkingOverlapChars")}
-              min={0}
-              value={runtimeDraft.chunking.overlap_chars}
-              onChange={(value) => updateRuntimeDraft((draft) => {
-                draft.chunking.overlap_chars = value;
-              })}
-            />
+            <FormField
+              label={t("settings.runtime.chunkingUnit")}
+              htmlFor="runtime-chunking-unit"
+              helper={t("settings.runtime.chunkingUnitHelper")}
+            >
+              <Select
+                value={runtimeDraft.chunking.unit}
+                onValueChange={(value) => updateRuntimeDraft((draft) => {
+                  draft.chunking.unit = value as DraftChunkingUnit;
+                })}
+              >
+                <SelectTrigger
+                  id="runtime-chunking-unit"
+                  aria-label={t("settings.runtime.chunkingUnit")}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="chars">{t("settings.runtime.chunkingUnitChars")}</SelectItem>
+                  <SelectItem value="tokens">{t("settings.runtime.chunkingUnitTokens")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {runtimeDraft.chunking.unit === "chars" ? (
+              <>
+                <NumberField
+                  id="runtime-chunking-max-chars"
+                  label={t("settings.runtime.chunkingMaxChars")}
+                  min={1}
+                  value={runtimeDraft.chunking.max_chars}
+                  onChange={(value) => updateRuntimeDraft((draft) => {
+                    draft.chunking.max_chars = value;
+                  })}
+                />
+                <NumberField
+                  id="runtime-chunking-overlap"
+                  label={t("settings.runtime.chunkingOverlapChars")}
+                  min={0}
+                  value={runtimeDraft.chunking.overlap_chars}
+                  onChange={(value) => updateRuntimeDraft((draft) => {
+                    draft.chunking.overlap_chars = value;
+                  })}
+                />
+              </>
+            ) : (
+              <>
+                <FormField
+                  label={t("settings.runtime.chunkingTokenizer")}
+                  htmlFor="runtime-chunking-tokenizer"
+                  helper={t("settings.runtime.chunkingTokenizerHelper")}
+                >
+                  <Select
+                    value={runtimeDraft.chunking.tokenizer}
+                    onValueChange={(value) => updateRuntimeDraft((draft) => {
+                      draft.chunking.tokenizer = value as DraftChunkingTokenizer;
+                    })}
+                  >
+                    <SelectTrigger
+                      id="runtime-chunking-tokenizer"
+                      aria-label={t("settings.runtime.chunkingTokenizer")}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cl100k_base">cl100k_base</SelectItem>
+                      <SelectItem value="o200k_base">o200k_base</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <NumberField
+                  id="runtime-chunking-max-tokens"
+                  label={t("settings.runtime.chunkingMaxTokens")}
+                  min={1}
+                  value={runtimeDraft.chunking.max_tokens}
+                  onChange={(value) => updateRuntimeDraft((draft) => {
+                    draft.chunking.max_tokens = value;
+                  })}
+                />
+                <NumberField
+                  id="runtime-chunking-overlap-tokens"
+                  label={t("settings.runtime.chunkingOverlapTokens")}
+                  min={0}
+                  value={runtimeDraft.chunking.overlap_tokens}
+                  onChange={(value) => updateRuntimeDraft((draft) => {
+                    draft.chunking.overlap_tokens = value;
+                  })}
+                />
+              </>
+            )}
+            <p className="text-xs text-muted-foreground">{t("settings.runtime.chunkingHelper")}</p>
           </div>
         </SettingsBlock>
 

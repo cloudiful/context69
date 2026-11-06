@@ -178,8 +178,20 @@ export const settings = {
     valkeyTestFailed: "Valkey connection failed",
     runOnStart: "Run sync on startup",
     chunkingTitle: "Chunking",
+    chunkingUnit: "Budget Unit",
+    chunkingUnitHelper:
+      "Characters keep the existing behavior. Tokens measure every chunk with the selected tokenizer.",
+    chunkingUnitChars: "Characters",
+    chunkingUnitTokens: "Tokens",
+    chunkingTokenizer: "Tokenizer",
+    chunkingTokenizerHelper:
+      "Token counts match the selected tokenizer only, not the embedding model.",
     chunkingMaxChars: "Max Characters",
     chunkingOverlapChars: "Overlap Characters",
+    chunkingMaxTokens: "Max Tokens",
+    chunkingOverlapTokens: "Overlap Tokens",
+    chunkingHelper:
+      "New tasks use the saved budget. A task that already started keeps the budget it pinned.",
     fileLibraryTitle: "File Library",
     fileLibraryRoot: "Storage Root",
     fileLibraryMaxUploadSize: "Max Upload Size (MB)",

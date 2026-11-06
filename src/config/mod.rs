@@ -12,10 +12,10 @@ pub use defaults::{
 };
 pub use load::load_app_db_url;
 pub use types::{
-    ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, Config, ConnectionConfig,
-    EmbeddingConfig, FileLibraryConfig, McpConfig, PostgresSqlConnectorConfig, QdrantConfig,
-    RegistryQuotaConfig, S3StorageConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
-    SyncStrategy, parse_sync_strategy,
+    ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ChunkingBudgetConfig,
+    Config, ConnectionConfig, EmbeddingConfig, FileLibraryConfig, McpConfig,
+    PostgresSqlConnectorConfig, QdrantConfig, RegistryQuotaConfig, S3StorageConfig,
+    SchedulerConfig, SecretStoreConfig, SourceConfig, SyncStrategy, parse_sync_strategy,
 };
 
 #[cfg(test)]

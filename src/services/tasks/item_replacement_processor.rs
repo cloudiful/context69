@@ -230,10 +230,14 @@ pub(super) async fn process_atomic_first_insert(
         attributes: None,
         sections: replacement_sections,
     };
+    let budget = match item_chunk_budget(service, item) {
+        Ok(budget) => budget,
+        Err(error) => return Ok(terminal("indexing", error)),
+    };
     let fence = TaskWriteFence::from_claimed_item(item)?;
     match service
         .library()
-        .run_task_first_insert(service.db(), fence, &request)
+        .run_task_first_insert(service.db(), fence, &request, &budget)
         .await
     {
         Ok(_outcome) => {
@@ -437,10 +441,14 @@ pub(super) async fn process_ordinary_replacement(
         attributes: Some(attributes),
         sections: replacement_sections,
     };
+    let budget = match item_chunk_budget(service, item) {
+        Ok(budget) => budget,
+        Err(error) => return Ok(terminal("indexing", error)),
+    };
     let fence = TaskWriteFence::from_claimed_item(item)?;
     match service
         .library()
-        .run_task_replacement(service.db(), fence, &request)
+        .run_task_replacement(service.db(), fence, &request, &budget)
         .await
     {
         Ok(_outcome) => {
@@ -620,10 +628,14 @@ pub(super) async fn process_replacement(
         attributes: None,
         sections: replacement_sections,
     };
+    let budget = match item_chunk_budget(service, item) {
+        Ok(budget) => budget,
+        Err(error) => return Ok(terminal("indexing", error)),
+    };
     let fence = TaskWriteFence::from_claimed_item(item)?;
     match service
         .library()
-        .run_task_replacement(service.db(), fence, &request)
+        .run_task_replacement(service.db(), fence, &request, &budget)
         .await
     {
         Ok(_outcome) => {
@@ -783,6 +795,19 @@ fn stored_kind_name(kind: crate::services::library::LibraryFileKind) -> &'static
         crate::services::library::LibraryFileKind::Xlsx => "xlsx",
         crate::services::library::LibraryFileKind::PlainText => "plain_text",
     }
+}
+
+/// The chunk budget the running item pinned at submission.
+///
+/// Every replacement path (ordinary update, atomic first insert, rerun source)
+/// passes this same durable snapshot to the runner, so a settings save between
+/// submission and execution cannot change the chunks the item writes.
+fn item_chunk_budget(
+    service: &TaskService,
+    item: &crate::db::ClaimedItem,
+) -> anyhow::Result<crate::chunking::ChunkBudget> {
+    crate::chunking::resolve_chunk_budget(&item.payload, &service.chunking().legacy_chars_budget())
+        .map_err(anyhow::Error::from)
 }
 
 fn terminal(stage: &str, message: impl ToString) -> ProcessResult {

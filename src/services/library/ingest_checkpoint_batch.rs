@@ -36,6 +36,8 @@ pub(super) struct BatchPersistInputs<'a> {
     /// resume skipped.
     pub(super) completed_chunks_before: usize,
     pub(super) current_hash: &'a str,
+    /// Identity of the pinned chunk budget this run chunks under.
+    pub(super) budget_identity: &'a str,
     pub(super) attempt: i32,
     /// Whoever authorizes this run's payload checkpoint.
     pub(super) checkpoint_write: super::ingest_checkpoint_persistence::CheckpointWrite,
@@ -258,6 +260,7 @@ impl LibraryService {
             total_chunks,
             completed_chunks_before,
             current_hash,
+            budget_identity,
             attempt,
             checkpoint_write,
         } = inputs;
@@ -280,6 +283,7 @@ impl LibraryService {
             next_batch_index: this_batch_index + 1,
             total_batches: Some(total_batches),
             record_hash: Some(current_hash.to_string()),
+            budget_identity: Some(budget_identity.to_string()),
         };
         let progress = PipelineProgress::new(attempt, PipelineProgressStage::Indexing)
             .with_batch_counters(

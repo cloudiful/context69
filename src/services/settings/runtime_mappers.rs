@@ -12,7 +12,115 @@ use crate::{
     support::normalize::normalize_optional_string,
 };
 
+use context69_contracts::settings::{
+    CHUNKING_MAX_TOKENS_DEFAULT, CHUNKING_OVERLAP_TOKENS_DEFAULT, ChunkingTokenizer, ChunkingUnit,
+};
+
+use crate::chunking::chunking_token::TokenizerKind;
+use crate::chunking::{ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget};
+
 use super::secrets::optional_key_patch;
+
+/// The chunking budget of the runtime settings.
+///
+/// Both budgets are carried, so switching the unit never discards the values
+/// of the other one.
+pub(crate) fn chunk_budget(settings: &RuntimeChunkingSettings) -> ChunkBudget {
+    ChunkBudget {
+        mode: chunk_budget_mode(&settings.unit),
+        chars: ChunkingConfig {
+            max_chars: settings.max_chars,
+            overlap_chars: settings.overlap_chars,
+        },
+        tokens: Some(TokenBudget {
+            tokenizer: chunking_tokenizer(&settings.tokenizer),
+            max_tokens: settings.max_tokens,
+            overlap_tokens: settings.overlap_tokens,
+        }),
+    }
+}
+
+/// The runtime settings of a chunking budget.
+pub(crate) fn chunking_settings(budget: &ChunkBudget) -> RuntimeChunkingSettings {
+    let tokens = budget.tokens.clone().unwrap_or(TokenBudget {
+        tokenizer: TokenizerKind::Cl100kBase,
+        max_tokens: CHUNKING_MAX_TOKENS_DEFAULT,
+        overlap_tokens: CHUNKING_OVERLAP_TOKENS_DEFAULT,
+    });
+    RuntimeChunkingSettings {
+        max_chars: budget.chars.max_chars,
+        overlap_chars: budget.chars.overlap_chars,
+        unit: chunking_unit(budget.mode),
+        tokenizer: stored_chunking_tokenizer(tokens.tokenizer),
+        max_tokens: tokens.max_tokens,
+        overlap_tokens: tokens.overlap_tokens,
+    }
+}
+
+/// The chunking budget of the stored settings.
+pub(crate) fn stored_chunk_budget(settings: &StoredRuntimeChunkingSettings) -> ChunkBudget {
+    ChunkBudget {
+        mode: settings.unit,
+        chars: ChunkingConfig {
+            max_chars: settings.max_chars,
+            overlap_chars: settings.overlap_chars,
+        },
+        tokens: Some(TokenBudget {
+            tokenizer: settings.tokenizer,
+            max_tokens: settings.max_tokens,
+            overlap_tokens: settings.overlap_tokens,
+        }),
+    }
+}
+
+/// The stored chunking settings of a chunking budget.
+fn stored_chunking_settings(budget: &ChunkBudget) -> StoredRuntimeChunkingSettings {
+    let tokens = budget.tokens.clone().unwrap_or(TokenBudget {
+        tokenizer: TokenizerKind::Cl100kBase,
+        max_tokens: CHUNKING_MAX_TOKENS_DEFAULT,
+        overlap_tokens: CHUNKING_OVERLAP_TOKENS_DEFAULT,
+    });
+    StoredRuntimeChunkingSettings {
+        max_chars: budget.chars.max_chars,
+        overlap_chars: budget.chars.overlap_chars,
+        unit: budget.mode,
+        tokenizer: tokens.tokenizer,
+        max_tokens: tokens.max_tokens,
+        overlap_tokens: tokens.overlap_tokens,
+    }
+}
+
+/// The chunking unit of the request settings.
+fn chunk_budget_mode(unit: &ChunkingUnit) -> ChunkBudgetMode {
+    match unit {
+        ChunkingUnit::Chars => ChunkBudgetMode::Chars,
+        ChunkingUnit::Tokens => ChunkBudgetMode::Tokens,
+    }
+}
+
+/// The chunking unit of the stored settings.
+fn chunking_unit(unit: ChunkBudgetMode) -> ChunkingUnit {
+    match unit {
+        ChunkBudgetMode::Chars => ChunkingUnit::Chars,
+        ChunkBudgetMode::Tokens => ChunkingUnit::Tokens,
+    }
+}
+
+/// The tokenizer of the request settings.
+fn chunking_tokenizer(tokenizer: &ChunkingTokenizer) -> TokenizerKind {
+    match tokenizer {
+        ChunkingTokenizer::Cl100kBase => TokenizerKind::Cl100kBase,
+        ChunkingTokenizer::O200kBase => TokenizerKind::O200kBase,
+    }
+}
+
+/// The tokenizer of the stored settings.
+fn stored_chunking_tokenizer(tokenizer: TokenizerKind) -> ChunkingTokenizer {
+    match tokenizer {
+        TokenizerKind::Cl100kBase => ChunkingTokenizer::Cl100kBase,
+        TokenizerKind::O200kBase => ChunkingTokenizer::O200kBase,
+    }
+}
 
 /// The patch a runtime S3 update maps to.
 ///
@@ -52,10 +160,7 @@ pub(super) fn runtime_settings_from_request(
             job_id: request.scheduler.job_id.trim().to_string(),
             valkey_url: normalize_optional_string(request.scheduler.valkey_url.clone()),
         },
-        chunking: StoredRuntimeChunkingSettings {
-            max_chars: request.chunking.max_chars,
-            overlap_chars: request.chunking.overlap_chars,
-        },
+        chunking: stored_chunking_settings(&chunk_budget(&request.chunking)),
         file_library: StoredRuntimeFileLibrarySettings {
             storage_root: request.file_library.storage_root.trim().to_string(),
             max_upload_size_mb: request.file_library.max_upload_size_mb,
@@ -119,10 +224,7 @@ pub(super) fn runtime_settings_response(
             job_id: settings.scheduler.job_id,
             valkey_url: settings.scheduler.valkey_url,
         },
-        chunking: RuntimeChunkingSettings {
-            max_chars: settings.chunking.max_chars,
-            overlap_chars: settings.chunking.overlap_chars,
-        },
+        chunking: chunking_settings(&stored_chunk_budget(&settings.chunking)),
         file_library: RuntimeFileLibrarySettings {
             storage_root: settings.file_library.storage_root,
             max_upload_size_mb: settings.file_library.max_upload_size_mb,
@@ -179,10 +281,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             job_id: defaults.scheduler.job_id,
             valkey_url: defaults.scheduler.valkey_url,
         },
-        chunking: RuntimeChunkingSettings {
-            max_chars: defaults.chunking.max_chars,
-            overlap_chars: defaults.chunking.overlap_chars,
-        },
+        chunking: chunking_settings(&defaults.chunking.chunk_budget()),
         file_library: RuntimeFileLibrarySettings {
             storage_root: defaults.file_library.storage_root.display().to_string(),
             max_upload_size_mb: defaults.file_library.max_upload_size_mb,

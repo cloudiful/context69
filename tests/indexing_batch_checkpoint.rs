@@ -159,7 +159,7 @@ fn payload_with_checkpoint_preserves_other_keys() {
         "file_id": "abc",
         "user_supplied_key": {"foo": "bar"}
     });
-    let checkpoint = IndexingCheckpoint::reset("hash".into(), 4);
+    let checkpoint = IndexingCheckpoint::reset("hash".into(), 4, "chars:100:0".into());
     let next = payload_with_checkpoint(&payload, &checkpoint).expect("advance");
     assert_eq!(
         next.get("section_payload")
@@ -242,6 +242,7 @@ fn progress_and_checkpoint_are_independent_siblings_of_the_payload() {
         next_batch_index: 1,
         total_batches: Some(16),
         record_hash: Some("hash".into()),
+        budget_identity: Some("chars:100:0".into()),
     };
     let batch_progress = PipelineProgress::new(1, PipelineProgressStage::Indexing)
         .with_batch_counters(32, 512, 1, 16)
@@ -312,6 +313,7 @@ fn payload_with_checkpoint_first_write_of_zero_next_no_regression_check() {
         next_batch_index: 0,
         total_batches: Some(5),
         record_hash: Some("hash".into()),
+        budget_identity: Some("chars:100:0".into()),
     };
     let next = payload_with_checkpoint(&payload, &checkpoint).expect("first write ok");
     assert_eq!(
@@ -390,7 +392,7 @@ mod integration {
     use anyhow::Result;
     use async_trait::async_trait;
     use chrono::Utc;
-    use context69::chunking::ChunkingConfig;
+    use context69::chunking::{ChunkBudget, ChunkingConfig};
     use context69::config::FileLibraryConfig;
     use context69::db::Database;
     use context69::domain::SourceRecord;
@@ -655,6 +657,13 @@ mod integration {
         (item_id, lease_token)
     }
 
+    fn chars_budget() -> ChunkBudget {
+        ChunkBudget::chars(ChunkingConfig {
+            max_chars: 200,
+            overlap_chars: 0,
+        })
+    }
+
     fn sample_section_payload() -> Value {
         Value::Array(
             (0..33)
@@ -735,6 +744,7 @@ mod integration {
                 lease_token,
                 &payload,
                 1,
+                &chars_budget(),
             )
             .await
             .expect_err("must fail at Qdrant cleanup");
@@ -784,6 +794,7 @@ mod integration {
             next_batch_index: 33,
             total_batches: Some(33),
             record_hash: Some(sample_prepared_record_hash(file_id)),
+            budget_identity: Some(chars_budget().identity()),
         };
         let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &checkpoint)
             .expect("complete checkpoint");
@@ -797,6 +808,7 @@ mod integration {
                 lease_token,
                 &payload,
                 1,
+                &chars_budget(),
             )
             .await
             .expect("completed checkpoint resumes and finalizes");
@@ -824,6 +836,56 @@ mod integration {
         assert_eq!(
             status_row.0, "succeeded",
             "resume finalize must mark file row succeeded"
+        );
+
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    /// A checkpoint produced by another budget is unproven, so the run restarts
+    /// from batch 0 instead of skipping batches chunked under a different
+    /// budget. Restarting reaches the cleanup step, which fails here because the
+    /// fixture Qdrant is unreachable: that failure proves the run did not treat
+    /// the foreign checkpoint as complete.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_checkpoint_from_another_budget_restarts_instead_of_skipping() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let qdrant =
+            QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4).unwrap();
+        let embedding = Arc::new(EmbeddingSpy::default());
+        let (service, storage_root) =
+            build_library_service_with_qdrant(&db, embedding, qdrant).await;
+        let group = seed_group_record(&db).await;
+        let file_id = seed_text_file(&db, &storage_root, &group).await;
+
+        let sections = sample_section_payload();
+        let (item_id, lease_token) = seed_claimed_item(&db, group.id).await;
+        let foreign = IndexingCheckpoint {
+            v: 1,
+            next_batch_index: 33,
+            total_batches: Some(33),
+            record_hash: Some(sample_prepared_record_hash(file_id)),
+            budget_identity: Some("tokens:o200k_base:8:1".to_string()),
+        };
+        let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &foreign)
+            .expect("foreign checkpoint");
+
+        let error = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect_err("a restarted run reaches the unreachable Qdrant cleanup");
+        assert!(
+            error.to_string().to_ascii_lowercase().contains("qdrant"),
+            "the mismatched checkpoint must restart, not finalize: {error}"
         );
 
         cleanup_group(&db, group.id).await;

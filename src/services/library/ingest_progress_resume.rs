@@ -49,7 +49,9 @@ mod tests {
             chunk(1, "b".into()),
             chunk(2, "c".into()),
         ];
-        let batches = ChunkBatchIter::new(chunks.into_iter()).collect::<Vec<_>>();
+        let batches = ChunkBatchIter::new(chunks.into_iter().map(Ok))
+            .collect::<Result<Vec<_>, _>>()
+            .expect("the fixture chunks cleanly");
         assert_eq!(batches.iter().map(Vec::len).collect::<Vec<_>>(), [1, 2]);
 
         let mut progress = ResumeChunkProgress::new(1);

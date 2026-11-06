@@ -12,6 +12,40 @@ pub struct TranslationDirective {
     pub target_locales: Vec<String>,
 }
 
+/// Unit the translation publication measures its chunks in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TranslationChunkingMode {
+    /// Legacy character budget.
+    #[default]
+    Chars,
+    /// Token budget measured with an explicit tokenizer.
+    Tokens,
+}
+
+/// Tokenizer that measures a token budget.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TranslationChunkingTokenizer {
+    #[default]
+    Cl100kBase,
+    O200kBase,
+}
+
+/// The complete chunking budget a translation publication must use.
+///
+/// The translation crate owns this value so a publication carries its chunk
+/// budget without depending on the application's chunking module. Both the
+/// character and the token budget travel together, so switching the unit never
+/// discards the values of the other one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TranslationChunkingBudget {
+    pub mode: TranslationChunkingMode,
+    pub max_chars: usize,
+    pub overlap_chars: usize,
+    pub tokenizer: TranslationChunkingTokenizer,
+    pub max_tokens: usize,
+    pub overlap_tokens: usize,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TranslationStatus {

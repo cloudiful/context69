@@ -88,6 +88,7 @@ serde_json = "1.0.151"
 server = { package = "cloudiful-server", version = "0.3.0" }
 sha2 = "0.11.0"
 sqlx = "0.9.0"
+tiktoken-rs = "0.12.0"
 time = "0.3.55"
 tokio = "1.53.1"
 tokio-util = "0.7"
@@ -164,6 +165,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
 sha2.workspace = true
 sqlx = { workspace = true, features = ["chrono", "json", "macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "tls-rustls", "uuid"] }
+tiktoken-rs.workspace = true
 tokio = { workspace = true, features = [ "macros", "net", "rt-multi-thread", "signal", "sync", "time" ] }
 tokio-util.workspace = true
 time.workspace = true

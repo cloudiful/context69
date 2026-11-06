@@ -288,13 +288,14 @@ impl LibraryService {
         db: &Database,
         fence: TaskWriteFence,
         request: &ReplacementRunRequest,
+        chunking: &crate::chunking::ChunkBudget,
     ) -> Result<ReplacementRunOutcome> {
         let (runtime, identity) = self.captured_runtime()?;
         let embedding = runtime.embedding.require_ready()?;
         let vector = ReplacementVector {
             embedding: embedding.as_ref(),
             index: &runtime.index,
-            chunking: &self.chunking,
+            chunking,
             identity,
         };
         run_replacement(db, &self.store, &vector, fence, request).await
@@ -310,13 +311,14 @@ impl LibraryService {
         db: &Database,
         fence: TaskWriteFence,
         request: &ReplacementRunRequest,
+        chunking: &crate::chunking::ChunkBudget,
     ) -> Result<ReplacementRunOutcome> {
         let (runtime, identity) = self.captured_runtime()?;
         let embedding = runtime.embedding.require_ready()?;
         let vector = ReplacementVector {
             embedding: embedding.as_ref(),
             index: &runtime.index,
-            chunking: &self.chunking,
+            chunking,
             identity,
         };
         run_first_insert(db, &self.store, &vector, fence, request).await

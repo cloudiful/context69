@@ -80,7 +80,14 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     job_id: "context69-sync",
     valkey_url: "redis://valkey:6379/0",
   },
-  chunking: { max_chars: 1200, overlap_chars: 200 },
+  chunking: {
+    max_chars: 1200,
+    overlap_chars: 200,
+    unit: "chars",
+    tokenizer: "cl100k_base",
+    max_tokens: 1024,
+    overlap_tokens: 128,
+  },
   requires_rebuild: false,
   file_library: {
     storage_root: "/data/library",

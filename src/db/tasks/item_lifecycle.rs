@@ -820,7 +820,35 @@ impl Database {
     /// parent holds no rerunnable source, and a `conflict` means every
     /// candidate file is already covered by an active processing task.
     pub async fn rerun_task_source(&self, task_id: Uuid) -> Result<(Uuid, Vec<Uuid>)> {
+        self.rerun_task_source_inner(task_id, None).await
+    }
+
+    /// Forks a fresh-source replacement task and pins one chunk budget into
+    /// every new item payload.
+    ///
+    /// A user-initiated source fork is a new task, so it captures the live
+    /// configuration at creation time instead of falling back to the legacy
+    /// character budget on its first processing. The budget is validated and
+    /// written inside the same task-creation transaction, before the first
+    /// item insert, so an invalid budget creates nothing. The retry/rerun of an
+    /// existing task keeps its stored payload untouched.
+    pub async fn rerun_task_source_with_chunk_budget(
+        &self,
+        task_id: Uuid,
+        budget: &crate::chunking::ChunkBudget,
+    ) -> Result<(Uuid, Vec<Uuid>)> {
+        self.rerun_task_source_inner(task_id, Some(budget)).await
+    }
+
+    async fn rerun_task_source_inner(
+        &self,
+        task_id: Uuid,
+        chunk_budget: Option<&crate::chunking::ChunkBudget>,
+    ) -> Result<(Uuid, Vec<Uuid>)> {
         let mut tx = self.pool().begin().await?;
+        if let Some(budget) = chunk_budget {
+            budget.validate()?;
+        }
         let file_ids =
             sqlx::query_file_scalar!("src/sql/db/tasks/source_rerun_file_ids.sql", task_id)
                 .fetch_all(&mut *tx)
@@ -892,12 +920,16 @@ impl Database {
                 ),
             )
             .await?;
+            let payload = match chunk_budget {
+                Some(budget) => crate::chunking::payload_with_chunk_budget(&item.payload, budget),
+                None => item.payload.clone(),
+            };
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
                 item_id,
                 new_task_id,
                 ordinal as i32,
-                item.payload,
+                payload,
                 INITIAL_ITEM_STAGE,
                 item.file_id,
                 Option::<Uuid>::None,

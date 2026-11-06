@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 
 use super::ingest_batches::ChunkBatchIter;
 use super::ingest_types::PreparedIngestSection;
-use crate::chunking::chunk_document_iter;
+use crate::chunking::{ChunkBudget, ChunkingError, chunk_document_iter_with_budget};
 
 /// Stable JSON key reserved for the indexing checkpoint inside the task item
 /// payload. Other callers should never read or write this key.
@@ -42,6 +42,14 @@ pub struct IndexingCheckpoint {
     pub total_batches: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub record_hash: Option<String>,
+    /// Identity of the chunk budget that produced the checkpointed batches.
+    ///
+    /// A checkpoint whose identity does not match the budget the item pinned
+    /// describes batches of a different chunking pass, so a resume may not skip
+    /// them; the run restarts from batch 0 instead. A legacy checkpoint without
+    /// an identity is treated the same way: it is unproven, not trusted.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub budget_identity: Option<String>,
 }
 
 impl Default for IndexingCheckpoint {
@@ -51,18 +59,27 @@ impl Default for IndexingCheckpoint {
             next_batch_index: 0,
             total_batches: None,
             record_hash: None,
+            budget_identity: None,
         }
     }
 }
 
 impl IndexingCheckpoint {
-    pub fn reset(current_hash: String, total_batches: usize) -> Self {
+    pub fn reset(current_hash: String, total_batches: usize, budget_identity: String) -> Self {
         Self {
             v: INDEXING_CHECKPOINT_VERSION,
             next_batch_index: 0,
             total_batches: Some(total_batches),
             record_hash: Some(current_hash),
+            budget_identity: Some(budget_identity),
         }
+    }
+
+    /// Whether this checkpoint was produced by the same record set and the same
+    /// chunk budget. Anything unproven does not match.
+    pub fn matches(&self, record_hash: &str, budget_identity: &str) -> bool {
+        self.record_hash.as_deref() == Some(record_hash)
+            && self.budget_identity.as_deref() == Some(budget_identity)
     }
 
     /// `true` when the parsed checkpoint carries any actual data (non-default).
@@ -86,6 +103,42 @@ pub fn indexing_checkpoint_to_value(checkpoint: &IndexingCheckpoint) -> Value {
     serde_json::to_value(checkpoint).unwrap_or(Value::Null)
 }
 
+/// Replace the checkpoint of a payload with a fresh one, preserving every other
+/// key.
+///
+/// Only a proven reset (a changed record set or chunk budget) may use this: it
+/// intentionally bypasses the forward-progress rule because restarting from
+/// batch 0 is the whole point.
+pub fn payload_with_checkpoint_reset(
+    payload: &Value,
+    checkpoint: &IndexingCheckpoint,
+) -> anyhow::Result<Value> {
+    write_checkpoint(payload, checkpoint)
+}
+
+fn write_checkpoint(payload: &Value, checkpoint: &IndexingCheckpoint) -> anyhow::Result<Value> {
+    if checkpoint.v != INDEXING_CHECKPOINT_VERSION {
+        bail!("indexing checkpoint version mismatch");
+    }
+    let checkpoint_value = indexing_checkpoint_to_value(checkpoint);
+    let encoded = serde_json::to_string(&checkpoint_value).unwrap_or_default();
+    if encoded.len() > INDEXING_CHECKPOINT_MAX_BYTES {
+        bail!("indexing checkpoint exceeds bounded size");
+    }
+    let mut next = payload.clone();
+    match &mut next {
+        Value::Object(map) => {
+            map.insert(INDEXING_CHECKPOINT_KEY.to_string(), checkpoint_value);
+        }
+        _ => {
+            let mut map = serde_json::Map::new();
+            map.insert(INDEXING_CHECKPOINT_KEY.to_string(), checkpoint_value);
+            next = Value::Object(map);
+        }
+    }
+    Ok(next)
+}
+
 /// Preserve every existing payload key (including `section_payload`) and
 /// add/update only the small `indexing_checkpoint` key.
 ///
@@ -97,11 +150,6 @@ pub fn payload_with_checkpoint(
 ) -> anyhow::Result<Value> {
     if checkpoint.v != INDEXING_CHECKPOINT_VERSION {
         bail!("indexing checkpoint version mismatch");
-    }
-    let checkpoint_value = indexing_checkpoint_to_value(checkpoint);
-    let encoded = serde_json::to_string(&checkpoint_value).unwrap_or_default();
-    if encoded.len() > INDEXING_CHECKPOINT_MAX_BYTES {
-        bail!("indexing checkpoint exceeds bounded size");
     }
     let existing = parse_indexing_checkpoint(payload);
     if existing.is_present() {
@@ -122,18 +170,7 @@ pub fn payload_with_checkpoint(
             );
         }
     }
-    let mut next = payload.clone();
-    match &mut next {
-        Value::Object(map) => {
-            map.insert(INDEXING_CHECKPOINT_KEY.to_string(), checkpoint_value);
-        }
-        _ => {
-            let mut map = serde_json::Map::new();
-            map.insert(INDEXING_CHECKPOINT_KEY.to_string(), checkpoint_value);
-            next = Value::Object(map);
-        }
-    }
-    Ok(next)
+    write_checkpoint(payload, checkpoint)
 }
 
 /// Hex sha256 across the `record_hash` chain of prepared sections.
@@ -171,23 +208,24 @@ pub struct PreparedIngestTotals {
 /// what keeps a resumed run's completed count equal to the batches it skipped.
 pub fn count_prepared_ingest_totals(
     prepared: &[PreparedIngestSection],
-    chunking: &crate::chunking::ChunkingConfig,
-) -> PreparedIngestTotals {
+    chunking: &ChunkBudget,
+) -> Result<PreparedIngestTotals, ChunkingError> {
     let mut totals = PreparedIngestTotals::default();
     for section in prepared {
-        let chunks = chunk_document_iter(
+        let chunks = chunk_document_iter_with_budget(
             0,
             super::FILE_LIBRARY_SOURCE_KEY,
             &section.normalized,
             chunking,
             None,
-        );
+        )?;
         for batch in ChunkBatchIter::new(chunks) {
+            let batch = batch?;
             totals.total_batches += 1;
             totals.total_chunks += batch.len();
         }
     }
-    totals
+    Ok(totals)
 }
 
 #[cfg(test)]
@@ -253,7 +291,7 @@ mod tests {
     #[test]
     fn payload_with_checkpoint_preserves_other_keys() {
         let payload = json!({"section_payload": [1, 2, 3], "file_id": "abc"});
-        let checkpoint = IndexingCheckpoint::reset("hash".into(), 2);
+        let checkpoint = IndexingCheckpoint::reset("hash".into(), 2, "chars:100:0".into());
         let next = payload_with_checkpoint(&payload, &checkpoint).expect("advance");
         assert_eq!(
             next.get("section_payload")
@@ -291,7 +329,7 @@ mod tests {
         });
         let next = IndexingCheckpoint {
             next_batch_index: 4,
-            ..IndexingCheckpoint::reset("abc".into(), 3)
+            ..IndexingCheckpoint::reset("abc".into(), 3, "x".into())
         };
         let err = payload_with_checkpoint(&payload, &next).expect_err("oversize");
         assert!(err.to_string().contains("total batches"));
@@ -299,24 +337,29 @@ mod tests {
 
     #[test]
     fn count_prepared_ingest_totals_matches_chunking_rules() {
-        let cfg = crate::chunking::ChunkingConfig {
+        let cfg = ChunkBudget::chars(crate::chunking::ChunkingConfig {
             max_chars: 100,
             overlap_chars: 0,
-        };
+        });
         let prepared = vec![section("hash", "hi")];
-        assert!(count_prepared_ingest_totals(&prepared, &cfg).total_batches >= 1);
+        assert!(
+            count_prepared_ingest_totals(&prepared, &cfg)
+                .expect("totals")
+                .total_batches
+                >= 1
+        );
     }
 
     #[test]
     fn count_prepared_ingest_totals_counts_boundaries_across_sections() {
-        let cfg = crate::chunking::ChunkingConfig {
+        let cfg = ChunkBudget::chars(crate::chunking::ChunkingConfig {
             max_chars: 100,
             overlap_chars: 0,
-        };
+        });
         // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
         // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
         let body = vec!["x".repeat(60); 33].join("\n\n");
-        let first = count_prepared_ingest_totals(&[section("hash", &body)], &cfg);
+        let first = count_prepared_ingest_totals(&[section("hash", &body)], &cfg).expect("totals");
         assert_eq!(
             first.total_batches, 2,
             "fixture must cross the chunk-count boundary"
@@ -325,7 +368,8 @@ mod tests {
         let both = count_prepared_ingest_totals(
             &[section("hash", &body), section("hash-b", "short")],
             &cfg,
-        );
+        )
+        .expect("totals");
         assert_eq!(
             both.total_batches,
             first.total_batches + 1,
@@ -339,14 +383,14 @@ mod tests {
 
     #[test]
     fn totals_count_chunks_and_batches_from_the_same_pass() {
-        let cfg = crate::chunking::ChunkingConfig {
+        let cfg = ChunkBudget::chars(crate::chunking::ChunkingConfig {
             max_chars: 100,
             overlap_chars: 0,
-        };
+        });
         // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
         // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
         let body = vec!["x".repeat(60); 33].join("\n\n");
-        let totals = count_prepared_ingest_totals(&[section("hash", &body)], &cfg);
+        let totals = count_prepared_ingest_totals(&[section("hash", &body)], &cfg).expect("totals");
         assert_eq!(
             totals.total_batches, 2,
             "fixture must cross the count boundary"
@@ -359,7 +403,7 @@ mod tests {
         // A document that produces no chunks has a real total of zero, which
         // is not the same as an unknown total.
         assert_eq!(
-            count_prepared_ingest_totals(&[section("hash", "")], &cfg),
+            count_prepared_ingest_totals(&[section("hash", "")], &cfg).expect("totals"),
             PreparedIngestTotals::default()
         );
     }
@@ -376,9 +420,10 @@ mod tests {
 
     #[test]
     fn reset_returns_current_hash_and_zero_progress() {
-        let checkpoint = IndexingCheckpoint::reset("hash".into(), 5);
+        let checkpoint = IndexingCheckpoint::reset("hash".into(), 5, "chars:100:0".into());
         assert_eq!(checkpoint.next_batch_index, 0);
         assert_eq!(checkpoint.record_hash.as_deref(), Some("hash"));
         assert_eq!(checkpoint.total_batches, Some(5));
+        assert_eq!(checkpoint.budget_identity.as_deref(), Some("chars:100:0"));
     }
 }

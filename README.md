@@ -18,6 +18,14 @@ Context69 is a retrieval-focused knowledge base service for ingesting documents,
 - Retain task history until users clear it (per-task trash/restore/permanent delete); the processing queue offers cross-page task selection with contextual bulk retry/resume/cancel/trash, and confirmed bulk restore or permanent delete in the trash view; admin cancel-active and Docling recovery stay server-side
 - Expose an HTTP API, MCP over HTTP or stdio, and an optional web UI
 
+### Runtime chunking
+
+The chunking budget is measured in characters or in tokens. Token mode uses an
+explicit tokenizer (`cl100k_base` or `o200k_base`), and the overlap stays inside
+the budget of a single chunk. A saved budget governs new tasks immediately,
+without a restart; a task that already started keeps the budget it was created
+with, and stored documents are never rechunked automatically.
+
 ## Deployment
 
 ### Docker image

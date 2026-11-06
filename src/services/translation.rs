@@ -12,7 +12,11 @@ use tracing::info;
 
 use crate::{
     chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, PayloadLocale, translated_chunk},
-    chunking::{ChunkingConfig, chunk_document},
+    chunking::chunking_token::TokenizerKind,
+    chunking::{
+        ChunkBudget, ChunkBudgetMode, ChunkingConfig, ChunkingRuntime, TokenBudget,
+        chunk_document_with_budget,
+    },
     contracts::Visibility,
     domain::SourceRecord,
     embedding::EmbeddingRuntime,
@@ -21,10 +25,75 @@ use crate::{
     vector_runtime::{VectorRuntime, VectorSnapshot},
 };
 
+impl From<&ChunkBudget> for context69_translation::TranslationChunkingBudget {
+    fn from(budget: &ChunkBudget) -> Self {
+        let tokenizer = budget
+            .tokens
+            .as_ref()
+            .map(|tokens| tokens.tokenizer)
+            .unwrap_or(TokenizerKind::Cl100kBase);
+        let max_tokens = budget
+            .tokens
+            .as_ref()
+            .map(|tokens| tokens.max_tokens)
+            .unwrap_or(0);
+        let overlap_tokens = budget
+            .tokens
+            .as_ref()
+            .map(|tokens| tokens.overlap_tokens)
+            .unwrap_or(0);
+        Self {
+            mode: match budget.mode {
+                ChunkBudgetMode::Chars => context69_translation::TranslationChunkingMode::Chars,
+                ChunkBudgetMode::Tokens => context69_translation::TranslationChunkingMode::Tokens,
+            },
+            max_chars: budget.chars.max_chars,
+            overlap_chars: budget.chars.overlap_chars,
+            tokenizer: match tokenizer {
+                TokenizerKind::Cl100kBase => {
+                    context69_translation::TranslationChunkingTokenizer::Cl100kBase
+                }
+                TokenizerKind::O200kBase => {
+                    context69_translation::TranslationChunkingTokenizer::O200kBase
+                }
+            },
+            max_tokens,
+            overlap_tokens,
+        }
+    }
+}
+
+impl From<&context69_translation::TranslationChunkingBudget> for ChunkBudget {
+    fn from(budget: &context69_translation::TranslationChunkingBudget) -> Self {
+        Self {
+            mode: match budget.mode {
+                context69_translation::TranslationChunkingMode::Chars => ChunkBudgetMode::Chars,
+                context69_translation::TranslationChunkingMode::Tokens => ChunkBudgetMode::Tokens,
+            },
+            chars: ChunkingConfig {
+                max_chars: budget.max_chars,
+                overlap_chars: budget.overlap_chars,
+            },
+            tokens: Some(TokenBudget {
+                tokenizer: match budget.tokenizer {
+                    context69_translation::TranslationChunkingTokenizer::Cl100kBase => {
+                        TokenizerKind::Cl100kBase
+                    }
+                    context69_translation::TranslationChunkingTokenizer::O200kBase => {
+                        TokenizerKind::O200kBase
+                    }
+                },
+                max_tokens: budget.max_tokens,
+                overlap_tokens: budget.overlap_tokens,
+            }),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct TranslationPublisherAdapter {
     vector: VectorRuntime,
-    chunking: ChunkingConfig,
+    chunking: ChunkingRuntime,
     /// The registry-visible publication is opt-in. Without a database handle
     /// and an enabled capacity policy the adapter keeps the legacy sequence, so
     /// a deployment that has not adopted a policy is never affected.
@@ -41,7 +110,7 @@ impl TranslationPublisherAdapter {
     pub fn new(
         embedding: impl Into<EmbeddingRuntime>,
         index: Option<QdrantIndex>,
-        chunking: ChunkingConfig,
+        chunking: impl Into<ChunkingRuntime>,
     ) -> Self {
         Self::with_vector_runtime(
             VectorRuntime::from_legacy(embedding.into(), index, ""),
@@ -49,13 +118,28 @@ impl TranslationPublisherAdapter {
         )
     }
 
-    pub fn with_vector_runtime(vector: VectorRuntime, chunking: ChunkingConfig) -> Self {
+    pub fn with_vector_runtime(
+        vector: VectorRuntime,
+        chunking: impl Into<ChunkingRuntime>,
+    ) -> Self {
         Self {
             vector,
-            chunking,
+            chunking: chunking.into(),
             registry_db: None,
             registry_caps: None,
         }
+    }
+
+    /// The budget a publication must chunk under.
+    ///
+    /// An explicit snapshot on the publication always wins; otherwise the live
+    /// runtime budget is captured once for the whole publication, so a settings
+    /// save cannot change the budget between planning and writing its points.
+    fn chunk_budget(&self, translation: &TranslationPublication<'_>) -> ChunkBudget {
+        translation
+            .chunking
+            .map(ChunkBudget::from)
+            .unwrap_or_else(|| self.chunking.snapshot())
     }
 
     /// Enables the registry-visible committed publication.
@@ -133,12 +217,13 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             "translation:{}:{}",
             translation.source_key, translation.target_locale
         );
-        let chunks = chunk_document(
+        let chunking = self.chunk_budget(&translation);
+        let chunks = chunk_document_with_budget(
             translation.document_id,
             &chunk_source_key,
             &normalized,
-            &self.chunking,
-        );
+            &chunking,
+        )?;
         let texts = chunks
             .iter()
             .map(|chunk| chunk.text.clone())
@@ -233,12 +318,13 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             embedding_fingerprint,
             collection_name: runtime.collection.clone(),
         });
+        let chunking = self.chunk_budget(&translation);
         match crate::services::translation_registry::publish_translation(
             &crate::services::translation_registry::Publication {
                 db,
                 store,
                 snapshot: &runtime,
-                chunking: &self.chunking,
+                chunking: &chunking,
                 quota,
                 identity,
             },
@@ -261,5 +347,9 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             snapshot.index.delete_points(chunk_ids).await?;
         }
         Ok(())
+    }
+
+    fn current_chunking(&self) -> Option<context69_translation::TranslationChunkingBudget> {
+        Some((&self.chunking.snapshot()).into())
     }
 }

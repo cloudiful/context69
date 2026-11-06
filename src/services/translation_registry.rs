@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::chunk_payload::{
     ChunkRef, PayloadDocument, PayloadGroup, PayloadLocale, translated_chunk,
 };
-use crate::chunking::{ChunkingConfig, chunk_document_iter};
+use crate::chunking::{ChunkBudget, chunk_document_iter_with_budget};
 use crate::contracts::Visibility;
 use crate::db::Database;
 use crate::domain::{ChunkPayload, SourceRecord};
@@ -44,7 +44,7 @@ pub(crate) struct Publication<'a> {
     pub db: &'a Database,
     pub store: &'a TranslationStore,
     pub snapshot: &'a VectorSnapshot,
-    pub chunking: &'a ChunkingConfig,
+    pub chunking: &'a ChunkBudget,
     /// The narrowing of the persisted registry capacity policy this
     /// publication admits under.
     pub quota: crate::db::RegistryQuotaOverride,
@@ -157,14 +157,14 @@ async fn plan(
         "translation:{}:{}",
         translation.source_key, translation.target_locale
     );
-    let chunks = chunk_document_iter(
+    let chunks = chunk_document_iter_with_budget(
         translation.document_id,
         &chunk_source_key,
         &normalized,
         handles.chunking,
         Some(generation),
-    )
-    .collect::<Vec<_>>();
+    )?
+    .collect::<Result<Vec<_>, _>>()?;
     if chunks.is_empty() {
         return Ok(None);
     }

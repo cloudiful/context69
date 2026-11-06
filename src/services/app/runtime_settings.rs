@@ -4,15 +4,15 @@ use anyhow::Result;
 use tracing::warn;
 
 use crate::{
-    chunking::ChunkingConfig,
     config::{
-        Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig, RegistryQuotaConfig,
-        SchedulerConfig,
+        ChunkingBudgetConfig, Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig,
+        RegistryQuotaConfig, SchedulerConfig,
     },
     db::{Database, StoredDoclingSettings, StoredRuntimeSettings},
     services::{
         secret_store::SecretStore,
         settings::secrets::{SettingsSecrets, optional_key_patch},
+        settings::stored_chunk_budget,
     },
     source_store::SourceStore,
 };
@@ -69,6 +69,10 @@ pub async fn import_legacy_runtime_if_needed(
         chunking: crate::db::StoredRuntimeChunkingSettings {
             max_chars: config.chunking.max_chars,
             overlap_chars: config.chunking.overlap_chars,
+            unit: config.chunking.unit,
+            tokenizer: config.chunking.tokenizer,
+            max_tokens: config.chunking.max_tokens,
+            overlap_tokens: config.chunking.overlap_tokens,
         },
         file_library: crate::db::StoredRuntimeFileLibrarySettings {
             storage_root: config.file_library.storage_root.display().to_string(),
@@ -261,10 +265,8 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
         execution_guard_ttl: config.scheduler.execution_guard_ttl,
         execution_guard_renew_interval: config.scheduler.execution_guard_renew_interval,
     };
-    config.chunking = ChunkingConfig {
-        max_chars: runtime.chunking.max_chars,
-        overlap_chars: runtime.chunking.overlap_chars,
-    };
+    config.chunking =
+        ChunkingBudgetConfig::from_chunk_budget(&stored_chunk_budget(&runtime.chunking));
     config.file_library = FileLibraryConfig {
         storage_root: PathBuf::from(&runtime.file_library.storage_root),
         max_upload_size_mb: runtime.file_library.max_upload_size_mb,

@@ -4,7 +4,7 @@ use std::{sync::Arc, time::Duration};
 use tracing::warn;
 
 use crate::{
-    chunking::ChunkingConfig,
+    chunking::ChunkingRuntime,
     config::Config,
     db::Database,
     library_store::LibraryStore,
@@ -23,6 +23,8 @@ pub struct ServicesInit {
     pub translation: TranslationService,
     pub sync: SyncService,
     pub query: QueryService,
+    /// The one chunk budget handle every consumer of this process shares.
+    pub chunking: ChunkingRuntime,
     /// The persisted vectors do not match the configured identity. Startup
     /// reports this and schedules nothing: only an explicit rebuild (or a
     /// confirmed same-space acknowledgment) may re-embed or clear it.
@@ -43,10 +45,7 @@ pub async fn initialize(
     // built. Building a handle is just a cipher over the existing pool; the
     // unconfigured state was reported once during config hydration.
     let store = secret_store::build(db, config)?;
-    let chunking = ChunkingConfig {
-        max_chars: config.chunking.max_chars,
-        overlap_chars: config.chunking.overlap_chars,
-    };
+    let chunking = ChunkingRuntime::new(config.chunking.chunk_budget());
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()
@@ -73,7 +72,7 @@ pub async fn initialize(
         db.clone(),
         store.clone(),
         vector.vector.clone(),
-        chunking,
+        chunking.clone(),
         config.scheduler.max_concurrency,
         translation.clone(),
     );
@@ -103,6 +102,7 @@ pub async fn initialize(
         translation,
         sync,
         query,
+        chunking,
         startup_requires_rebuild,
         secrets: store,
     })

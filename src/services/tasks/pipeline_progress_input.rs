@@ -1,10 +1,11 @@
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 
-const TRUSTED_WORKER_PAYLOAD_KEYS: [&str; 3] = [
+const TRUSTED_WORKER_PAYLOAD_KEYS: [&str; 4] = [
     "pipeline_progress",
     "section_payload",
     "indexing_checkpoint",
+    "chunk_budget",
 ];
 
 /// Decode a strict request after removing only fields owned by the worker.

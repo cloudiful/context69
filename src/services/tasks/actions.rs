@@ -314,7 +314,13 @@ impl TaskService {
                 TaskBatchRerunReason::IneligibleStatus,
             ));
         }
-        let (rerun_task_id, item_ids) = self.db.rerun_task_source(task_id).await?;
+        // A source fork is a new task, so it pins the budget that is active
+        // now; the source task's own items keep the snapshot they already have.
+        let budget = self.chunking().snapshot();
+        let (rerun_task_id, item_ids) = self
+            .db
+            .rerun_task_source_with_chunk_budget(task_id, &budget)
+            .await?;
         tracing::info!(
             task_id = %task_id,
             rerun_task_id = %rerun_task_id,
@@ -491,7 +497,13 @@ impl TaskService {
                     )
                     .into());
                 }
-                let (new_task_id, item_ids) = self.db.rerun_task_source(task_id).await?;
+                // One snapshot for this fork: the new task chunks under the
+                // live configuration and never under the legacy fallback.
+                let budget = self.chunking().snapshot();
+                let (new_task_id, item_ids) = self
+                    .db
+                    .rerun_task_source_with_chunk_budget(task_id, &budget)
+                    .await?;
                 if !item_ids.is_empty() {
                     self.notify_dispatch();
                 }

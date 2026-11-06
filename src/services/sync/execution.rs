@@ -1,6 +1,8 @@
 use super::*;
 use std::time::Instant;
 
+use context69_translation::TranslationChunkingBudget;
+
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
 use crate::domain_errors::DomainError;
 use crate::library_store::TaskWriteFence;
@@ -8,6 +10,11 @@ use crate::vector_runtime::RebuildAdmissionError;
 
 impl SyncService {
     pub async fn sync_all(&self, trigger: &str) -> Result<()> {
+        // One budget for the whole fan-out: every source of this operation
+        // chunks under the value captured here, before the first await, so a
+        // settings save cannot assign different budgets to different sources
+        // of one sync_all.
+        let chunking = self.chunking.snapshot();
         let source_keys = self.registry.read().await.source_keys();
         if source_keys.is_empty() {
             return Ok(());
@@ -17,9 +24,12 @@ impl SyncService {
             let service = self.clone();
             let trigger = trigger.to_string();
             let runtime = runtime.clone();
+            let chunking = chunking.clone();
             async move {
                 let _ = runtime;
-                service.sync_source(&source_key, &trigger).await
+                service
+                    .sync_source_with_budget(&source_key, &trigger, &chunking)
+                    .await
             }
         }))
         .buffer_unordered(self.max_concurrency)
@@ -41,6 +51,22 @@ impl SyncService {
     }
 
     pub async fn sync_source(&self, source_key: &str, trigger: &str) -> Result<SyncOutcome> {
+        let chunking = self.chunking.snapshot();
+        self.sync_source_with_budget(source_key, trigger, &chunking)
+            .await
+    }
+
+    /// Syncs one source under an explicit chunk budget.
+    ///
+    /// A task item passes the budget it pinned at submission, so a settings
+    /// save cannot rechunk a multi-record sync that started under an older
+    /// budget.
+    pub async fn sync_source_with_budget(
+        &self,
+        source_key: &str,
+        trigger: &str,
+        chunking: &ChunkBudget,
+    ) -> Result<SyncOutcome> {
         let started = Instant::now();
         let _guard = self.acquire_lock(source_key).await?;
         let (source, connector) = self
@@ -50,7 +76,7 @@ impl SyncService {
             .map_err(anyhow::Error::from)?;
         let run = self.db.start_run(source_key, trigger).await?;
 
-        match self.sync_source_inner(&source, connector).await {
+        match self.sync_source_inner(&source, connector, chunking).await {
             Ok(outcome) => {
                 self.db
                     .finish_run(&run, "completed", &outcome, None)
@@ -96,8 +122,16 @@ impl SyncService {
         &self,
         source: &SourceConfig,
         connector: Arc<dyn SourceConnector>,
+        chunking: &ChunkBudget,
     ) -> Result<SyncOutcome> {
         let runtime = self.runtime()?;
+        // The pinned budget of this source sync governs the translations it
+        // induces too: the scoped service carries it as the explicit snapshot,
+        // so the shared service's live default is never consulted here.
+        let translation = self
+            .translation
+            .clone()
+            .with_default_chunking(Some(TranslationChunkingBudget::from(chunking)));
         // One provider for the whole run: the snapshot pairs it with the index
         // of the same generation, so a settings save mid-sync cannot switch
         // providers between records and a rebuild is fenced out by readiness.
@@ -159,12 +193,12 @@ impl SyncService {
                         .db
                         .list_chunk_ids_for_document(upserted.document_id)
                         .await?;
-                    let chunks = chunk_document(
+                    let chunks = chunk_document_with_budget(
                         upserted.document_id,
                         &source.key,
                         &normalized,
-                        &self.chunking,
-                    );
+                        chunking,
+                    )?;
                     let texts = chunks
                         .iter()
                         .map(|chunk| chunk.text.clone())
@@ -196,7 +230,7 @@ impl SyncService {
                         .index
                         .replace_document_chunks(&existing_chunk_ids, &payloads, &embeddings)
                         .await?;
-                    self.translation
+                    translation
                         .enqueue(context69_translation::EnqueueTranslation {
                             document_id: upserted.document_id,
                             directive: None,

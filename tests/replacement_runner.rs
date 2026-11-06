@@ -26,7 +26,7 @@ mod runner_cases {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use uuid::Uuid;
 
-    use context69::chunking::ChunkingConfig;
+    use context69::chunking::{ChunkBudget, ChunkingConfig};
     use context69::db::{IngestRunSource, RegistryQuotaOverride};
     use context69::embedding::EmbeddingProvider;
     use context69::qdrant_index::QdrantIndex;
@@ -126,10 +126,11 @@ mod runner_cases {
         staged_source_object: Option<Uuid>,
     ) -> Result<ReplacementRunOutcome> {
         let index = QdrantIndex::for_test_unreachable(mock.url(), "runner-collection", DIMENSIONS)?;
+        let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
         let vector = ReplacementVector {
             embedding,
             index: &index,
-            chunking: &ChunkingConfig::default(),
+            chunking: &chunk_budget,
             identity: Some(context69::db::RegistryVectorIdentity {
                 embedding_fingerprint: "runner-fingerprint".into(),
                 collection_name: "runner-collection".into(),
@@ -152,6 +153,58 @@ mod runner_cases {
             &request,
         )
         .await
+    }
+
+    /// Run one replacement under an explicit chunk budget, so a case can pin a
+    /// token budget while the service-level configuration stays characters.
+    async fn run_with_budget(
+        fixture: &harness::SwitchFixture,
+        embedding: &FakeEmbedding,
+        mock: &QdrantPointsMock,
+        chunk_budget: &ChunkBudget,
+        sections: Vec<ReplacementSectionInput>,
+    ) -> Result<ReplacementRunOutcome> {
+        let index = QdrantIndex::for_test_unreachable(mock.url(), "runner-collection", DIMENSIONS)?;
+        let vector = ReplacementVector {
+            embedding,
+            index: &index,
+            chunking: chunk_budget,
+            identity: Some(context69::db::RegistryVectorIdentity {
+                embedding_fingerprint: "runner-fingerprint".into(),
+                collection_name: "runner-collection".into(),
+            }),
+        };
+        let staged = fixture.attach_staged_object().await;
+        let request = ReplacementRunRequest {
+            task_id: fixture.task_id,
+            file_id: fixture.file_id,
+            source: IngestRunSource::Stored,
+            staged_source_object: Some(staged),
+            quota: RegistryQuotaOverride::exact([1000, 1000, 1000]),
+            attributes: None,
+            sections,
+        };
+        run_replacement(
+            &fixture.db,
+            &fixture.store,
+            &vector,
+            fixture.fence,
+            &request,
+        )
+        .await
+    }
+
+    /// The stored chunk text of every point in one upsert call.
+    fn chunk_texts(call: &qdrant_points_mock::UpsertCall) -> Vec<String> {
+        call.points
+            .values()
+            .filter_map(
+                |point| match point.payload.get("chunk_text")?.kind.as_ref()? {
+                    qdrant_client::qdrant::value::Kind::StringValue(text) => Some(text.clone()),
+                    _ => None,
+                },
+            )
+            .collect()
     }
 
     /// The document id a stored mock payload names.
@@ -1259,4 +1312,70 @@ mod runner_cases {
     /// keeps for the cases above.
     #[allow(dead_code)]
     fn retain_imports(_: Option<Arc<()>>) {}
+
+    /// A pinned token budget governs the replacement chunks even though the
+    /// service-level configuration is characters: every stored chunk stays
+    /// within the token limit, the body yields more than one chunk, and an
+    /// invalid token budget fails before any point is staged.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_pinned_token_budget_governs_the_replacement_chunks() {
+        let fixture = harness::SwitchFixture::new().await;
+        let mock = QdrantPointsMock::start().await;
+        let embedding = FakeEmbedding::new(0);
+        let body = vec!["token budget replacement body"; 40].join("\n\n");
+        let sections = vec![section_input("kept", "kept-external", &body)];
+        let budget = ChunkBudget::tokens(
+            context69::chunking::chunking_token::TokenizerKind::Cl100kBase,
+            8,
+            2,
+        );
+
+        let outcome = run_with_budget(&fixture, &embedding, &mock, &budget, sections)
+            .await
+            .expect("the token-budget replacement switches");
+        assert_eq!(outcome.disposition, ReplacementRunDisposition::Switched);
+        assert!(
+            outcome.staged_point_ids.len() > 1,
+            "the token budget must split the body instead of the 1000-char budget"
+        );
+        for call in mock.upsert_calls() {
+            for text in chunk_texts(&call) {
+                let tokens = context69::chunking::chunking_token::token_count(
+                    &text,
+                    context69::chunking::chunking_token::TokenizerKind::Cl100kBase,
+                );
+                assert!(
+                    tokens <= 8,
+                    "a pinned token budget must bound every stored chunk: {tokens} tokens"
+                );
+            }
+        }
+
+        // A malformed token budget is refused while planning, before any
+        // point write or state change.
+        let invalid = ChunkBudget {
+            mode: context69::chunking::ChunkBudgetMode::Tokens,
+            chars: ChunkingConfig::default(),
+            tokens: Some(context69::chunking::TokenBudget {
+                tokenizer: context69::chunking::chunking_token::TokenizerKind::Cl100kBase,
+                max_tokens: 0,
+                overlap_tokens: 0,
+            }),
+        };
+        let mock = QdrantPointsMock::start().await;
+        let fixture = harness::SwitchFixture::new().await;
+        let sections = vec![section_input("kept", "kept-external", &body)];
+        let error = run_with_budget(&fixture, &embedding, &mock, &invalid, sections)
+            .await
+            .expect_err("an invalid token budget must fail before committing");
+        assert!(
+            error.to_string().contains("token"),
+            "the failure names the invalid token budget: {error}"
+        );
+        assert!(
+            mock.upsert_calls().is_empty(),
+            "a refused plan writes no points"
+        );
+    }
 }

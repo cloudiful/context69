@@ -15,8 +15,8 @@ use context69_secret_store::SecretStore;
 use uuid::Uuid;
 
 use crate::{
-    EnqueueTranslation, TranslationCoordinator, TranslationDependencies, TranslationPublisher,
-    TranslationReadiness,
+    EnqueueTranslation, TranslationChunkingBudget, TranslationCoordinator, TranslationDependencies,
+    TranslationPublisher, TranslationReadiness,
     store::{TranslationStore, job_response, normalize_locale, normalize_locales},
 };
 
@@ -26,6 +26,13 @@ pub struct TranslationService {
     http_client: reqwest::Client,
     publisher: Arc<dyn TranslationPublisher>,
     readiness: Arc<dyn TranslationReadiness>,
+    /// The budget a conversion of this service chunks under when the caller
+    /// passes no explicit snapshot.
+    ///
+    /// The running application leaves this `None`; a scoped service built from
+    /// a task item's pinned snapshot carries that snapshot so a conversion
+    /// reached through an existing helper still honors it.
+    default_chunking: Option<TranslationChunkingBudget>,
 }
 
 impl TranslationService {
@@ -35,7 +42,15 @@ impl TranslationService {
             http_client: dependencies.http_client,
             publisher: dependencies.publisher,
             readiness: dependencies.readiness,
+            default_chunking: None,
         }
+    }
+
+    /// A clone of this service whose conversions default to `budget`.
+    #[must_use]
+    pub fn with_default_chunking(mut self, budget: Option<TranslationChunkingBudget>) -> Self {
+        self.default_chunking = budget;
+        self
     }
 
     /// Binds the shared encrypted store this deployment configured.
@@ -111,13 +126,14 @@ impl TranslationService {
     }
 
     pub async fn retry_job(&self, group_id: i64, id: Uuid) -> Result<TranslationJobResponse> {
+        let chunking = self.operation_chunking();
         let job = self
             .store
             .retry_job(group_id, id)
             .await?
             .ok_or_else(|| DomainError::conflict("translation job is not retryable"))
             .map_err(anyhow::Error::from)?;
-        self.run_job_blocking(job.id).await?;
+        self.run_job_blocking(job.id, chunking.as_ref()).await?;
         let record = self
             .store
             .job_in_group(group_id, job.id)
@@ -132,6 +148,29 @@ impl TranslationService {
         document_id: i64,
         request: &RebuildDocumentTranslationsRequest,
     ) -> Result<TranslationJobsResponse> {
+        self.rebuild_document_with_chunking(
+            group_id,
+            document_id,
+            request,
+            self.default_chunking.as_ref(),
+        )
+        .await
+    }
+
+    /// Rebuilds a document's translations under an explicit chunk budget.
+    ///
+    /// `None` keeps the historical behavior: the publisher resolves the budget
+    /// it currently considers active. A task item always passes its pinned
+    /// snapshot, so a settings save cannot rechunk a task that started under an
+    /// older budget.
+    pub async fn rebuild_document_with_chunking(
+        &self,
+        group_id: i64,
+        document_id: i64,
+        request: &RebuildDocumentTranslationsRequest,
+        chunking: Option<&TranslationChunkingBudget>,
+    ) -> Result<TranslationJobsResponse> {
+        let chunking = self.resolve_operation_chunking(chunking);
         let document = self.store.document(document_id).await?;
         if document.group_id != group_id {
             return Err(DomainError::not_found("translation document not found").into());
@@ -145,10 +184,13 @@ impl TranslationService {
             })
         };
         let jobs = self
-            .convert(EnqueueTranslation {
-                document_id,
-                directive,
-            })
+            .convert_with_chunking(
+                EnqueueTranslation {
+                    document_id,
+                    directive,
+                },
+                chunking.as_ref(),
+            )
             .await?;
         Ok(TranslationJobsResponse { jobs })
     }
@@ -160,6 +202,45 @@ impl TranslationCoordinator for TranslationService {
     /// and run them to completion before returning. There is no background
     /// worker, so a job can never be left for a later dispatcher re-claim.
     async fn convert(&self, input: EnqueueTranslation) -> Result<Vec<TranslationJobResponse>> {
+        self.convert_with_chunking(input, self.default_chunking.as_ref())
+            .await
+    }
+}
+
+impl TranslationService {
+    /// Resolves the budget of one translation operation.
+    ///
+    /// An explicit task/default snapshot always wins. Otherwise the publisher
+    /// is asked once for the live budget, and the owned result is passed to
+    /// every locale job of that operation, so a settings save cannot mix
+    /// budgets inside one conversion.
+    fn resolve_operation_chunking(
+        &self,
+        explicit: Option<&TranslationChunkingBudget>,
+    ) -> Option<TranslationChunkingBudget> {
+        explicit
+            .cloned()
+            .or_else(|| self.publisher.current_chunking())
+    }
+
+    /// The budget a conversion of this service would use right now.
+    ///
+    /// A file-level fan-out asks once before its first await and passes the
+    /// owned value to every document conversion it starts.
+    pub fn operation_chunking(&self) -> Option<TranslationChunkingBudget> {
+        self.resolve_operation_chunking(self.default_chunking.as_ref())
+    }
+
+    /// Converts one document under an explicit operation budget.
+    ///
+    /// Resolution happens before the first await, so a settings save after the
+    /// caller entered the operation cannot change its budget.
+    pub async fn convert_with_chunking(
+        &self,
+        input: EnqueueTranslation,
+        chunking: Option<&TranslationChunkingBudget>,
+    ) -> Result<Vec<TranslationJobResponse>> {
+        let chunking = self.resolve_operation_chunking(chunking);
         let document = self.store.document(input.document_id).await?;
         let group = self.store.group_settings(document.group_id).await?;
         let (source_locale, target_locales) = match input.directive {
@@ -185,7 +266,7 @@ impl TranslationCoordinator for TranslationService {
                     &document.record_hash,
                 )
                 .await?;
-            self.run_job_blocking(job.id).await?;
+            self.run_job_blocking(job.id, chunking.as_ref()).await?;
             let record = self
                 .store
                 .job_in_group(document.group_id, job.id)

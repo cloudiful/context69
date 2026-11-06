@@ -1,4 +1,3 @@
-pub mod benchmark;
 pub mod endpoint;
 mod endpoint_review;
 pub mod fixtures;

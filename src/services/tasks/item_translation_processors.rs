@@ -30,17 +30,26 @@ pub(super) async fn process_translation(
         Ok(request) => request,
         Err(error) => return Ok(process_error(stage, error.into())),
     };
+    let budget = match crate::chunking::resolve_chunk_budget(
+        &item.payload,
+        &service.chunking().legacy_chars_budget(),
+    ) {
+        Ok(budget) => budget,
+        Err(error) => return Ok(process_error(stage, error.into())),
+    };
+    let budget = context69_translation::TranslationChunkingBudget::from(&budget);
     // `rebuild_document` is a blocking conversion: it reuses or inserts the
     // document's jobs and runs them to completion before returning, so the
     // terminal status is already known here.
     let jobs = match service
         .translation()
-        .rebuild_document(
+        .rebuild_document_with_chunking(
             group.id,
             request.document_id,
             &RebuildDocumentTranslationsRequest {
                 target_locales: request.target_locales,
             },
+            Some(&budget),
         )
         .await
     {

@@ -25,7 +25,9 @@ mod registry_cases {
     use super::harness;
     use super::qdrant_points_mock::QdrantPointsMock;
     use super::support;
-    use context69_translation::{TranslationPublisher, TranslationStore};
+    use context69_translation::{
+        EnqueueTranslation, TranslationCoordinator, TranslationPublisher, TranslationStore,
+    };
     use uuid::Uuid;
 
     const CAPS: [i64; 3] = [1000, 1000, 1000];
@@ -549,6 +551,7 @@ mod registry_cases {
                     title: &title,
                     summary: None,
                     body_text: "default body",
+                    chunking: None,
                 },
                 &version,
             )
@@ -565,5 +568,97 @@ mod registry_cases {
             version_ids(&fixture.db, seeded.document_id).await,
             vec![version_id]
         );
+    }
+
+    /// A task-scoped conversion resolves its explicit budget once and never
+    /// asks the publisher for a live one, so the pinned budget governs every
+    /// locale of the operation.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn an_explicit_operation_budget_skips_the_live_publisher_snapshot() {
+        let _guard = support::PROVIDER_CASE_LOCK.lock().await;
+        let fixture = harness::SwitchFixture::new().await;
+        let seeded = fixture.seed_section("translated", "old-hash").await;
+        let server = support::LocalTranslationServer::start().await;
+        support::enable_local_translation(&fixture.db, server.endpoint()).await;
+        let pinned = support::pinned_budget(320, 32);
+        let publisher = Arc::new(support::CountingSnapshotPublisher::new());
+        let service = support::translation_service(&fixture.db, publisher.clone())
+            .with_default_chunking(Some(pinned.clone()));
+
+        let jobs = service
+            .convert(EnqueueTranslation {
+                document_id: seeded.document_id,
+                directive: Some(context69_translation::TranslationDirective {
+                    source_locale: Some("en".to_string()),
+                    target_locales: vec!["zh".to_string(), "fr".to_string()],
+                }),
+            })
+            .await
+            .expect("the conversion completes for both locales");
+        support::disable_local_translation(&fixture.db).await;
+
+        assert_eq!(jobs.len(), 2, "both locales ran");
+        assert_eq!(
+            publisher
+                .snapshots
+                .load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "an explicit task budget must not consult the live publisher"
+        );
+        let published = publisher.published_budgets();
+        assert_eq!(published.len(), 2, "both locales published");
+        for budget in published {
+            assert_eq!(
+                budget,
+                Some(pinned.clone()),
+                "both locales publish the pinned budget"
+            );
+        }
+    }
+
+    /// A non-task conversion resolves the publisher's live budget exactly once
+    /// and uses that owned value for every locale, so a save during the
+    /// operation cannot mix budgets.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_non_task_operation_snapshots_the_live_budget_once_for_all_locales() {
+        let _guard = support::PROVIDER_CASE_LOCK.lock().await;
+        let fixture = harness::SwitchFixture::new().await;
+        let seeded = fixture.seed_section("translated", "old-hash").await;
+        let server = support::LocalTranslationServer::start().await;
+        support::enable_local_translation(&fixture.db, server.endpoint()).await;
+        let publisher = Arc::new(support::CountingSnapshotPublisher::new());
+        let service = support::translation_service(&fixture.db, publisher.clone());
+
+        let jobs = service
+            .convert(EnqueueTranslation {
+                document_id: seeded.document_id,
+                directive: Some(context69_translation::TranslationDirective {
+                    source_locale: Some("en".to_string()),
+                    target_locales: vec!["zh".to_string(), "fr".to_string()],
+                }),
+            })
+            .await
+            .expect("the conversion completes for both locales");
+        support::disable_local_translation(&fixture.db).await;
+
+        assert_eq!(jobs.len(), 2, "both locales ran");
+        assert_eq!(
+            publisher
+                .snapshots
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "one operation resolves the live budget once"
+        );
+        let published = publisher.published_budgets();
+        assert_eq!(published.len(), 2, "both locales published");
+        for budget in published {
+            assert_eq!(
+                budget,
+                Some(support::pinned_budget(640, 64)),
+                "one resolved live budget governs every locale publication"
+            );
+        }
     }
 }

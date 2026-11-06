@@ -177,7 +177,7 @@ impl UpgradeRecoveryApp {
         let (settings, secrets, runtime_configured) =
             hydrate_upgrade_recovery(&db, &mut config).await?;
         let vector = vector_runtime::initialize(&db, &config, runtime_configured).await?;
-        let (translation, sync) =
+        let (translation, sync, chunking) =
             build_upgrade_recovery_services(&db, &config, &vector, &secrets).await?;
         let startup = library_startup::initialize_recovery(
             &db,
@@ -186,6 +186,7 @@ impl UpgradeRecoveryApp {
             &settings,
             &sync,
             &translation,
+            &chunking,
         )
         .await?;
         let background = background_tasks::start_upgrade_recovery(
@@ -324,11 +325,12 @@ async fn build_upgrade_recovery_services(
     config: &Config,
     vector: &vector_runtime::VectorRuntime,
     store: &SecretStore,
-) -> Result<(TranslationService, SyncService)> {
-    let chunking = crate::chunking::ChunkingConfig {
-        max_chars: config.chunking.max_chars,
-        overlap_chars: config.chunking.overlap_chars,
-    };
+) -> Result<(
+    TranslationService,
+    SyncService,
+    crate::chunking::ChunkingRuntime,
+)> {
+    let chunking = crate::chunking::ChunkingRuntime::new(config.chunking.chunk_budget());
     let translation = TranslationService::new(context69_translation::TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()
@@ -355,12 +357,12 @@ async fn build_upgrade_recovery_services(
         db.clone(),
         store.clone(),
         vector.vector.clone(),
-        chunking,
+        chunking.clone(),
         config.scheduler.max_concurrency,
         translation.clone(),
     );
     sync.reload_sources().await?;
-    Ok((translation, sync))
+    Ok((translation, sync, chunking))
 }
 
 pub(crate) fn task_worker_capacity(config: &Config) -> usize {

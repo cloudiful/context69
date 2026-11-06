@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
 
+use crate::chunking::ChunkBudgetMode;
+use crate::chunking::chunking_token::TokenizerKind;
 use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
 use super::{
@@ -9,6 +11,36 @@ use super::{
     StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeS3Settings,
     StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
 };
+
+/// The persisted name of a chunking unit.
+fn chunking_unit_value(unit: &ChunkBudgetMode) -> &'static str {
+    match unit {
+        ChunkBudgetMode::Chars => "chars",
+        ChunkBudgetMode::Tokens => "tokens",
+    }
+}
+
+/// The chunking unit a persisted row names.
+///
+/// A row that names a unit this build does not know is refused instead of
+/// being read as the character budget, so a chunker never runs with a budget
+/// the operator did not select.
+fn stored_chunking_unit(value: &str) -> Result<ChunkBudgetMode> {
+    match value {
+        "chars" => Ok(ChunkBudgetMode::Chars),
+        "tokens" => Ok(ChunkBudgetMode::Tokens),
+        other => Err(anyhow::anyhow!(
+            "the persisted chunking unit {other:?} is not supported"
+        )),
+    }
+}
+
+/// The tokenizer a persisted row names.
+fn stored_chunking_tokenizer(value: &str) -> Result<TokenizerKind> {
+    TokenizerKind::from_name(value).ok_or_else(|| {
+        anyhow::anyhow!("the persisted chunking tokenizer {value:?} is not supported")
+    })
+}
 
 impl Database {
     pub async fn runtime_settings_initialized(&self) -> Result<bool> {
@@ -89,6 +121,12 @@ impl Database {
                     .context("runtime chunking max_chars must be non-negative")?,
                 overlap_chars: usize::try_from(chunking.overlap_chars)
                     .context("runtime chunking overlap_chars must be non-negative")?,
+                unit: stored_chunking_unit(&chunking.unit)?,
+                tokenizer: stored_chunking_tokenizer(&chunking.tokenizer)?,
+                max_tokens: usize::try_from(chunking.max_tokens)
+                    .context("runtime chunking max_tokens must be non-negative")?,
+                overlap_tokens: usize::try_from(chunking.overlap_tokens)
+                    .context("runtime chunking overlap_tokens must be non-negative")?,
             },
             file_library: StoredRuntimeFileLibrarySettings {
                 storage_root: file_library.storage_root,
@@ -186,6 +224,10 @@ impl Database {
             i64::try_from(settings.chunking.max_chars).context("chunking max_chars too large")?;
         let chunking_overlap_chars = i64::try_from(settings.chunking.overlap_chars)
             .context("chunking overlap_chars too large")?;
+        let chunking_max_tokens =
+            i64::try_from(settings.chunking.max_tokens).context("chunking max_tokens too large")?;
+        let chunking_overlap_tokens = i64::try_from(settings.chunking.overlap_tokens)
+            .context("chunking overlap_tokens too large")?;
         let file_library_max_upload_size_mb =
             i64::try_from(settings.file_library.max_upload_size_mb)
                 .context("file_library max_upload_size_mb too large")?;
@@ -235,7 +277,11 @@ impl Database {
         sqlx::query_file!(
             "src/sql/db/runtime_settings/save_runtime_chunking_settings.sql",
             chunking_max_chars,
-            chunking_overlap_chars
+            chunking_overlap_chars,
+            chunking_unit_value(&settings.chunking.unit),
+            settings.chunking.tokenizer.as_str(),
+            chunking_max_tokens,
+            chunking_overlap_tokens
         )
         .execute(&mut *tx)
         .await?;

@@ -634,6 +634,15 @@ pub(super) async fn process_file_stage(
                     }
                 }
             };
+            let budget = match crate::chunking::resolve_chunk_budget(
+                &item.payload,
+                &service.chunking().legacy_chars_budget(),
+            ) {
+                Ok(budget) => budget,
+                Err(error) => {
+                    return Ok(process_error(stage, error.into()));
+                }
+            };
             let payload = match service
                 .library()
                 .persist_file_sections_for_task_with_checkpoint_fenced(
@@ -642,6 +651,7 @@ pub(super) async fn process_file_stage(
                     crate::library_store::TaskWriteFence::from_claimed_item(item)?,
                     &item.payload,
                     item.attempt_count,
+                    &budget,
                 )
                 .await
             {
@@ -654,7 +664,17 @@ pub(super) async fn process_file_stage(
             })
         }
         "translation" => {
-            if let Err(error) = service.library().convert_file_translations(file_id).await {
+            let budget = match crate::chunking::resolve_chunk_budget(
+                &item.payload,
+                &service.chunking().legacy_chars_budget(),
+            ) {
+                Ok(budget) => budget,
+                Err(error) => {
+                    return Ok(process_error(stage, error.into()));
+                }
+            };
+            let library = service.library().scoped_chunking(&budget);
+            if let Err(error) = library.convert_file_translations(file_id).await {
                 return Ok(process_error(stage, error));
             }
             Ok(ProcessResult::Progressed { next: "finalize" })

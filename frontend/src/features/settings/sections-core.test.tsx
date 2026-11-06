@@ -144,6 +144,50 @@ describe("runtime settings", () => {
     });
   });
 
+  it("switches the chunking budget to tokens and keeps the character budget", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/runtime");
+
+    // A stored response that carries no token budget must not read as an
+    // unsaved change.
+    expect(await screen.findByLabelText("Max Characters")).toHaveValue(1200);
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByLabelText("Budget Unit"));
+    await userEvent.click(await screen.findByRole("option", { name: "Tokens" }));
+
+    expect(await screen.findByLabelText("Max Tokens")).toHaveValue(1024);
+    expect(screen.queryByLabelText("Max Characters")).not.toBeInTheDocument();
+
+    await userEvent.clear(screen.getByLabelText("Max Tokens"));
+    await userEvent.type(screen.getByLabelText("Max Tokens"), "512");
+    await userEvent.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
+      chunking: {
+        unit: string;
+        tokenizer: string;
+        max_chars: number;
+        overlap_chars: number;
+        max_tokens: number;
+        overlap_tokens: number;
+      };
+    };
+    // The request carries the generated contract exactly: the inactive
+    // character budget is retained and the token budget is sent beside it.
+    expect(body.chunking).toEqual({
+      unit: "tokens",
+      tokenizer: "cl100k_base",
+      max_chars: 1200,
+      overlap_chars: 200,
+      max_tokens: 512,
+      overlap_tokens: 128,
+    });
+  });
+
   it("requires a confirmation before submitting a vector index rebuild", async () => {
     const backend = installFakeBackend({
       vectorTask: { ...(await import("./test-support")).VECTOR_TASK, status: "succeeded" },

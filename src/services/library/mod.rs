@@ -3,7 +3,7 @@ use anyhow::Result;
 use crate::domain_errors::DomainError;
 use bytes::Bytes;
 use chrono::Utc;
-use context69_translation::{TranslationCoordinator, TranslationService};
+use context69_translation::TranslationService;
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
@@ -19,7 +19,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::{
-    chunking::ChunkingConfig,
+    chunking::{ChunkBudget, ChunkingConfig, ChunkingRuntime},
     config::FileLibraryConfig,
     contracts::{
         CreateFolderRequest, LibraryFileDetailResponse, LibraryFileSummary, LibraryFolderNode,
@@ -60,7 +60,7 @@ mod ingest_checkpoint;
 mod processing_health;
 pub use ingest_checkpoint::{
     IndexingCheckpoint, indexing_checkpoint_to_value, parse_indexing_checkpoint,
-    payload_with_checkpoint,
+    payload_with_checkpoint, payload_with_checkpoint_reset,
 };
 mod ingest_checkpoint_batch;
 mod ingest_checkpoint_persistence;
@@ -170,7 +170,8 @@ pub struct LibraryService {
     db: Database,
     store: LibraryStore,
     vector: VectorRuntime,
-    chunking: ChunkingConfig,
+    /// The process-wide active budget, shared with the application.
+    chunking_runtime: ChunkingRuntime,
     settings: SettingsService,
     storage_root: PathBuf,
     storage: Arc<object_storage::LibraryObjectStorage>,
@@ -322,7 +323,7 @@ impl LibraryService {
             db: db.clone(),
             store: LibraryStore::new(db),
             vector,
-            chunking,
+            chunking_runtime: ChunkingRuntime::from(&chunking),
             settings,
             storage_root: file_library.storage_root,
             storage,
@@ -509,6 +510,46 @@ impl LibraryService {
     /// collection, so the pipeline waits instead of adding mixed vectors.
     pub fn set_vector_index_ready(&mut self, ready: Arc<AtomicBool>) {
         self.vector_index_ready = Some(ready);
+    }
+
+    /// The shared chunking budget every chunk consumer of this process reads.
+    pub(crate) fn chunking_runtime(&self) -> &ChunkingRuntime {
+        &self.chunking_runtime
+    }
+
+    /// Installs the process-wide budget handle.
+    ///
+    /// Startup builds one handle and shares it with every consumer, so a
+    /// settings save updates all of them at once.
+    pub fn set_chunking_runtime(&mut self, chunking: ChunkingRuntime) {
+        self.chunking_runtime = chunking;
+    }
+
+    /// The translation service of this scope.
+    ///
+    /// A scoped library carries the pinned budget in its translation service,
+    /// so a caller that must observe the budget this library publishes under
+    /// reads it here instead of the process-wide one.
+    #[cfg(any(test, feature = "integration-test-helpers"))]
+    pub(crate) fn translation(&self) -> &TranslationService {
+        &self.translation
+    }
+
+    /// A clone of this service that chunks under one pinned budget.
+    ///
+    /// A task item that pinned its budget before execution uses this for the
+    /// library helpers that do not take an explicit budget, so a settings save
+    /// cannot change the chunks of a task that already started. The clone
+    /// shares the database, storage, vector runtime, and caches; only the
+    /// chunking budget differs.
+    pub(crate) fn scoped_chunking(&self, budget: &ChunkBudget) -> Self {
+        let mut scoped = self.clone();
+        scoped.chunking_runtime = ChunkingRuntime::new(budget.clone());
+        scoped.translation = self
+            .translation
+            .clone()
+            .with_default_chunking(Some(budget.into()));
+        scoped
     }
 
     /// The registry-visible publication of this service, or `None` while it

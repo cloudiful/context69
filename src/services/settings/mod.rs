@@ -30,6 +30,8 @@ mod runtime_mappers;
 pub(crate) mod secrets;
 mod validate;
 
+pub(crate) use runtime_mappers::stored_chunk_budget;
+
 use self::{
     mappers::{
         canonical_search_settings_from_request, config_from_stored, docling_settings_from_request,
@@ -196,6 +198,9 @@ pub struct SettingsService {
     /// deferred observer refresh takes the same lock, so it can never cross a
     /// save or acknowledgement.
     runtime_save_lock: Arc<Mutex<()>>,
+    /// Applies a committed runtime chunking budget to the shared handle before
+    /// the save reports success, so the next submission observes it.
+    runtime_chunking_applier: Option<Arc<dyn Fn(crate::chunking::ChunkBudget) + Send + Sync>>,
     /// Loads and applies the authoritative runtime configuration for an observer
     /// notification. Installed only by the running application.
     runtime_config_refresher: Option<RuntimeConfigRefresher>,
@@ -242,6 +247,7 @@ impl SettingsService {
             runtime_requires_rebuild: None,
             runtime_rebuild_in_progress: None,
             runtime_save_lock: Arc::new(Mutex::new(())),
+            runtime_chunking_applier: None,
             runtime_config_refresher: None,
             runtime_refresh_requested: Arc::new(AtomicBool::new(false)),
         }
@@ -265,6 +271,19 @@ impl SettingsService {
     /// apply (an identity change while a fixed index is live, or a save racing a
     /// reload/rebuild). It runs before anything is persisted, so a rejected save
     /// leaves the stored row and the running runtime unchanged.
+    /// Installs the synchronous application of a committed chunking budget.
+    ///
+    /// The applier only replaces an in-memory value; it never awaits. It runs
+    /// after the settings transaction commits and before the save returns, so a
+    /// submission that starts after a successful save always sees the new
+    /// budget.
+    pub fn set_runtime_chunking_applier(
+        &mut self,
+        applier: Option<Arc<dyn Fn(crate::chunking::ChunkBudget) + Send + Sync>>,
+    ) {
+        self.runtime_chunking_applier = applier;
+    }
+
     pub fn set_runtime_embedding_guard(&mut self, guard: Option<RuntimeEmbeddingGuard>) {
         self.runtime_embedding_guard = guard;
     }
@@ -518,6 +537,13 @@ impl SettingsService {
             }
             None => self.db.save_runtime_settings(&stored).await?,
         };
+
+        // The budget becomes active synchronously, before this save reports
+        // success and before any later submission can read it. Existing tasks
+        // keep the snapshot they pinned; only new submissions see this value.
+        if let Some(applier) = &self.runtime_chunking_applier {
+            applier(runtime_mappers::chunk_budget(&request.chunking));
+        }
 
         // A confirmed same-space transition reports success only once the live
         // pair serves the acknowledged identity. A failure here withdraws
@@ -967,6 +993,7 @@ mod tests {
         reconcile_runtime_refreshes, refresh_runtime_configuration_under_lock,
     };
     use crate::{
+        contracts::settings::{ChunkingTokenizer, ChunkingUnit},
         contracts::{
             DoclingSettingsSource, RuntimeChunkingSettings, RuntimeQdrantSettings,
             RuntimeSchedulerSettings, UpdateDoclingConnectionSettings,
@@ -1041,6 +1068,10 @@ mod tests {
             chunking: RuntimeChunkingSettings {
                 max_chars: 1200,
                 overlap_chars: 200,
+                unit: ChunkingUnit::Chars,
+                tokenizer: ChunkingTokenizer::Cl100kBase,
+                max_tokens: 1024,
+                overlap_tokens: 128,
             },
             file_library: crate::contracts::UpdateRuntimeFileLibrarySettings {
                 storage_root: "/tmp/library".to_string(),
@@ -1166,6 +1197,59 @@ mod tests {
         let error =
             validate_runtime_settings_request(&request).expect_err("runtime request should fail");
         assert!(error.to_string().contains("overlap_chars"));
+    }
+
+    /// A token budget is refused when it cannot describe a chunk: no token at
+    /// all, or an overlap that reaches the budget of a single chunk.
+    #[test]
+    fn runtime_request_rejects_an_invalid_token_budget() {
+        let mut request = sample_runtime_request();
+        request.chunking.unit = ChunkingUnit::Tokens;
+        request.chunking.max_tokens = 0;
+
+        let error =
+            validate_runtime_settings_request(&request).expect_err("runtime request should fail");
+        assert!(error.to_string().contains("max_tokens"), "{error}");
+
+        let mut request = sample_runtime_request();
+        request.chunking.unit = ChunkingUnit::Tokens;
+        request.chunking.max_tokens = 128;
+        request.chunking.overlap_tokens = 128;
+
+        let error =
+            validate_runtime_settings_request(&request).expect_err("runtime request should fail");
+        assert!(error.to_string().contains("overlap_tokens"), "{error}");
+    }
+
+    /// An old client that only knows the character budget keeps its behavior:
+    /// the fields it does not send carry the documented defaults.
+    #[test]
+    fn an_old_chunking_payload_loads_with_the_documented_defaults() {
+        let settings: RuntimeChunkingSettings =
+            serde_json::from_str(r#"{"max_chars":1200,"overlap_chars":200}"#)
+                .expect("an old chunking payload should parse");
+
+        assert_eq!(settings.unit, ChunkingUnit::Chars);
+        assert_eq!(settings.tokenizer, ChunkingTokenizer::Cl100kBase);
+        assert_eq!(settings.max_tokens, 1024);
+        assert_eq!(settings.overlap_tokens, 128);
+    }
+
+    /// The unit and the tokenizer are named values, so a client that sends an
+    /// unknown one is refused instead of being read as the character budget.
+    #[test]
+    fn an_unknown_chunking_unit_or_tokenizer_is_refused() {
+        let error = serde_json::from_str::<RuntimeChunkingSettings>(
+            r#"{"max_chars":1200,"overlap_chars":200,"unit":"words"}"#,
+        )
+        .expect_err("an unknown unit must be refused");
+        assert!(error.to_string().contains("words"), "{error}");
+
+        let error = serde_json::from_str::<RuntimeChunkingSettings>(
+            r#"{"max_chars":1200,"overlap_chars":200,"tokenizer":"qwen"}"#,
+        )
+        .expect_err("an unknown tokenizer must be refused");
+        assert!(error.to_string().contains("qwen"), "{error}");
     }
 
     #[test]

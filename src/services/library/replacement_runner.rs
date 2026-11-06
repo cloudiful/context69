@@ -24,7 +24,7 @@ use anyhow::{Context, Result, bail, ensure};
 use uuid::Uuid;
 
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
-use crate::chunking::ChunkingConfig;
+use crate::chunking::{ChunkBudget, chunk_document_iter_with_budget};
 use crate::db::{Database, IngestRunMode, IngestRunSource, NewIngestRun, RegistryQuotaOverride};
 use crate::domain::{DocumentChunk, LibraryFileDocumentRecord, LibraryFileRecord};
 use crate::embedding::EmbeddingProvider;
@@ -94,7 +94,7 @@ pub struct ReplacementRunRequest {
 pub struct ReplacementVector<'a> {
     pub embedding: &'a dyn EmbeddingProvider,
     pub index: &'a QdrantIndex,
-    pub chunking: &'a ChunkingConfig,
+    pub chunking: &'a ChunkBudget,
     /// The vector identity this run writes its points under.
     ///
     /// The registry admission records it, and the switch compares it with the
@@ -459,14 +459,16 @@ async fn prepare_plan(
             metadata_json,
         });
 
-        let chunks: Vec<DocumentChunk> = crate::chunking::chunk_document_iter(
+        let chunks: Vec<DocumentChunk> = chunk_document_iter_with_budget(
             document_id,
             &source_key,
             &normalized,
             vector.chunking,
             Some(run.generation),
         )
-        .collect();
+        .map_err(anyhow::Error::from)?
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(anyhow::Error::from)?;
         let payload = seed(
             &PayloadGroup {
                 group_id: file.group_id,

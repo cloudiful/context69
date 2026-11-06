@@ -9,6 +9,8 @@ use super::{
     normalize_legacy_qdrant_url, qdrant_grpc_url_from_rest_port,
 };
 use crate::{
+    chunking::ChunkBudgetMode,
+    chunking::chunking_token::TokenizerKind,
     contracts::SecretPatch,
     db::{
         StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
@@ -42,6 +44,10 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
         chunking: StoredRuntimeChunkingSettings {
             max_chars: 1200,
             overlap_chars: 200,
+            unit: ChunkBudgetMode::Chars,
+            tokenizer: TokenizerKind::Cl100kBase,
+            max_tokens: 1024,
+            overlap_tokens: 128,
         },
         file_library: StoredRuntimeFileLibrarySettings {
             storage_root: "/tmp/library".to_string(),
