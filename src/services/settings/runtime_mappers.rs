@@ -150,8 +150,12 @@ pub(super) fn runtime_settings_from_request(
             // it, so the row never carries a plaintext copy of it.
             api_key: None,
             model: request.embedding.model.trim().to_string(),
+            // A blank query model is the document model, so it is stored as no
+            // query model at all.
+            query_model: normalize_optional_string(request.embedding.query_model.clone()),
             dimensions: request.embedding.dimensions,
             timeout_secs: request.embedding.timeout_secs,
+            batching: request.embedding.batching,
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: request.scheduler.interval_secs,
@@ -213,9 +217,11 @@ pub(super) fn runtime_settings_response(
         embedding: RuntimeEmbeddingSettings {
             base_url: settings.embedding.base_url,
             model: settings.embedding.model,
+            query_model: settings.embedding.query_model,
             dimensions: settings.embedding.dimensions,
             timeout_secs: settings.embedding.timeout_secs,
             has_api_key: has_embedding_api_key,
+            batching: settings.embedding.batching,
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
@@ -266,6 +272,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
         embedding: RuntimeEmbeddingSettings {
             base_url: defaults.embedding.base_url,
             model: defaults.embedding.model,
+            query_model: defaults.embedding.query_model,
             dimensions: defaults.embedding.dimensions,
             timeout_secs: defaults.embedding.timeout.as_secs(),
             has_api_key: defaults
@@ -273,6 +280,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                 .api_key
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty()),
+            batching: defaults.embedding.batching,
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: defaults.scheduler.interval.as_secs(),

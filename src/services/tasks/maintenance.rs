@@ -5,11 +5,21 @@ use anyhow::Result;
 use context69_contracts::pagination::OffsetPageQuery;
 use context69_contracts::{
     CancelActiveTasksResponse, DoclingCleanupPageResponse, DoclingCleanupQuery,
-    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, Pagination,
+    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, Pagination, TaskQueueStateResponse,
+    UpdateTaskQueueStateRequest,
 };
 
 use super::TaskService;
+use crate::db::TaskQueueState;
 use crate::domain::UserRecord;
+
+/// The wire projection of the durable global admission state.
+fn task_queue_state_response(state: TaskQueueState) -> TaskQueueStateResponse {
+    TaskQueueStateResponse {
+        paused: state.paused,
+        updated_at: state.updated_at,
+    }
+}
 
 /// Cadence for local-owner recovery and bounded detached remote cleanup.
 const DOCLING_RECOVERY_INTERVAL: Duration = Duration::from_secs(30);
@@ -488,6 +498,40 @@ impl TaskService {
         Ok(CancelActiveTasksResponse {
             cancelled_tasks: self.db().cancel_all_active_tasks().await?,
         })
+    }
+
+    /// Reads the durable global admission state of the task queue.
+    ///
+    /// Admin-only: the state describes the whole deployment, not one operator's
+    /// work.
+    pub async fn admin_task_queue_state(
+        &self,
+        actor: &UserRecord,
+    ) -> Result<TaskQueueStateResponse> {
+        crate::services::auth::require_admin(actor)?;
+        Ok(task_queue_state_response(
+            self.db().read_task_queue_state().await?,
+        ))
+    }
+
+    /// Writes the durable global admission state of the task queue.
+    ///
+    /// The write commits before the caller is acknowledged, so a pause is
+    /// durable across a restart and visible to every replica. A resume wakes
+    /// this replica's dispatch immediately; another replica picks the queue up
+    /// on its existing recovery tick, which is at most the scheduler interval.
+    /// The pause is never a cancellation: running items keep their leases.
+    pub async fn admin_update_task_queue_state(
+        &self,
+        actor: &UserRecord,
+        request: &UpdateTaskQueueStateRequest,
+    ) -> Result<TaskQueueStateResponse> {
+        crate::services::auth::require_admin(actor)?;
+        let state = self.db().set_task_queue_paused(request.paused).await?;
+        if !state.paused {
+            self.notify_dispatch();
+        }
+        Ok(task_queue_state_response(state))
     }
 
     /// Bounded admin read of the fork's active Docling task identities.

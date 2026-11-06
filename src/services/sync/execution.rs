@@ -4,9 +4,48 @@ use std::time::Instant;
 use context69_translation::TranslationChunkingBudget;
 
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
+use crate::config::QdrantConfig;
 use crate::domain_errors::DomainError;
+use crate::embedding::embedding_runtime::vector_identity_fingerprint;
+use crate::embedding::{EmbeddingIdentity, EmbeddingProvider, build_provider};
 use crate::library_store::TaskWriteFence;
 use crate::vector_runtime::RebuildAdmissionError;
+use uuid::Uuid;
+
+/// Holds the single rebuild start slot until an attempt actually begins.
+///
+/// The reservation is armed while the attempt resolves, proves the provider
+/// and prepares its target, so every return, error or cancellation releases
+/// the tracker gate through `Drop`. It is disarmed only once the tracker has
+/// taken ownership of the admitted generation.
+struct RebuildStartReservation<'a> {
+    tracker: &'a VectorRebuildTracker,
+    armed: bool,
+}
+
+impl RebuildStartReservation<'_> {
+    /// Releases the short-lived gate once the running tracker owns exclusion.
+    fn settle(mut self) {
+        self.tracker.release_start();
+        self.armed = false;
+    }
+}
+
+impl Drop for RebuildStartReservation<'_> {
+    fn drop(&mut self) {
+        if self.armed {
+            self.tracker.release_start();
+        }
+    }
+}
+
+/// The checked grant row of a rebuild completion.
+#[derive(sqlx::FromRow)]
+struct LockedCompletionItem {
+    status: String,
+    owned: bool,
+    matches_execution: bool,
+}
 
 impl SyncService {
     pub async fn sync_all(&self, trigger: &str) -> Result<()> {
@@ -261,23 +300,44 @@ impl SyncService {
     /// the fence, so no page can switch to a provider or collection published
     /// after the work started, and progress is only recorded for the generation
     /// this attempt owns.
-    async fn rebuild_index_with_snapshot(&self, attempt: &RebuildAttempt) -> Result<usize> {
+    async fn rebuild_index_with_snapshot(
+        &self,
+        attempt: &RebuildAttempt,
+        fence: TaskWriteFence,
+    ) -> Result<RebuildProgress> {
         let snapshot = &attempt.snapshot;
         // One provider for the whole rebuild: the snapshot is the coherent
         // provider/index pair this rebuild re-embeds with.
         let embedding = snapshot.embedding.clone();
-        let total_chunks = self.db.count_chunk_payloads_for_reindex().await?;
-        self.set_vector_rebuild_progress(attempt.generation, 0, total_chunks)
+        let counted = self.db.count_chunk_payloads_for_reindex().await?;
+        // The committed counters of an earlier attempt are the resume point. A
+        // shrunken source must not violate the processed <= total constraint, so
+        // the total never falls below the already committed chunks.
+        let barrier = self.db.read_rebuild_barrier().await?;
+        let mut rebuilt = usize::try_from(barrier.processed_chunks)
+            .context("the committed rebuild count must be non-negative")?;
+        let total_chunks = counted.max(rebuilt);
+        let (mut last_document_id, mut last_chunk_index) = barrier
+            .cursor
+            .map(|cursor| (Some(cursor.document_id), Some(cursor.chunk_index)))
+            .unwrap_or((None, None));
+        self.set_vector_rebuild_progress(attempt.generation, rebuilt, total_chunks)
             .await;
         if total_chunks == 0 {
-            return Ok(0);
+            return Ok(RebuildProgress::Completed(0));
         }
 
-        let mut rebuilt = 0usize;
-        let mut last_document_id = None;
-        let mut last_chunk_index = None;
-
         loop {
+            // The durable barrier is the authority before every page: a pause
+            // request parks after the page this attempt already committed, and
+            // a cancelled or superseded owner stops before the next page.
+            let barrier = self.db.read_rebuild_barrier().await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                return Ok(RebuildProgress::Cancelled);
+            }
+            if barrier.pause_requested {
+                return Ok(RebuildProgress::Paused);
+            }
             let batch = self
                 .db
                 .list_chunk_payloads_for_reindex_page(
@@ -302,6 +362,32 @@ impl SyncService {
             let last = batch.last().expect("non-empty reindex batch");
             last_document_id = Some(last.document_id);
             last_chunk_index = Some(last.chunk_index);
+            // The cursor write is authorized by the same captured grant the
+            // rebuild started with.
+            let mut connection = self.db.pool().acquire().await?;
+            let advanced = self
+                .db
+                .advance_rebuild_cursor_in(
+                    &mut connection,
+                    fence.item_id(),
+                    fence.token(),
+                    &attempt.fingerprint,
+                    &snapshot.collection,
+                    crate::db::RebuildCheckpoint {
+                        cursor: crate::db::RebuildCursor {
+                            document_id: last.document_id,
+                            chunk_index: last.chunk_index,
+                        },
+                        processed_chunks: i64::try_from(rebuilt)
+                            .context("the rebuilt count must fit in BIGINT")?,
+                        total_chunks: i64::try_from(total_chunks)
+                            .context("the total count must fit in BIGINT")?,
+                    },
+                )
+                .await?;
+            if !advanced {
+                return Ok(RebuildProgress::Cancelled);
+            }
             self.set_vector_rebuild_progress(attempt.generation, rebuilt, total_chunks)
                 .await;
             info!(
@@ -310,52 +396,118 @@ impl SyncService {
             );
         }
 
+        // A pause requested during the last page still parks before completion:
+        // the resumed attempt then completes from the committed cursor.
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if !rebuild_is_owned(attempt, &fence, &barrier) {
+            return Ok(RebuildProgress::Cancelled);
+        }
+        if barrier.pause_requested {
+            return Ok(RebuildProgress::Paused);
+        }
+
         info!(
             chunks_rebuilt = rebuilt,
             "reindexed qdrant collection from app db"
         );
-        Ok(rebuilt)
+        Ok(RebuildProgress::Completed(rebuilt))
     }
 
     pub async fn vector_index_rebuild_status(&self) -> VectorIndexRebuildStatus {
         self.vector_rebuild_status.status()
     }
 
-    pub(crate) async fn run_vector_index_rebuild(&self, fence: TaskWriteFence) -> Result<usize> {
+    pub(crate) async fn run_vector_index_rebuild(
+        &self,
+        fence: TaskWriteFence,
+        execution: crate::db::ExecutionContext,
+        task_id: Uuid,
+        attempt_id: i64,
+    ) -> Result<super::RebuildRunOutcome> {
+        // A process can die after the durable pause committed but before the
+        // worker parked the item on the paused dependency. The reclaimed item
+        // is the same owner, so it must park again instead of claiming the
+        // paused barrier as a busy qdrant wait. It never resumes on its own:
+        // only the explicit resume clears the flag and reopens the item.
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if paused_rebuild_owned_by(&barrier, fence.item_id()) {
+            return Ok(super::RebuildRunOutcome::Paused);
+        }
         let attempt = self.begin_vector_index_rebuild(fence).await?;
-        let rebuilt = match self.rebuild_index_with_snapshot(&attempt).await {
-            Ok(rebuilt) => rebuilt,
+        let progress = match self.rebuild_index_with_snapshot(&attempt, fence).await {
+            Ok(progress) => progress,
             Err(error) => {
                 self.fail_rebuild_barrier(fence, &error).await;
-                return fail_rebuild_attempt(
+                fail_rebuild_attempt(&self.vector, &self.vector_rebuild_status, &attempt, error)
+                    .await?;
+                unreachable!("a failed rebuild attempt returns its error");
+            }
+        };
+        match progress {
+            RebuildProgress::Paused => {
+                // A paused attempt is not a failure: the durable barrier keeps
+                // its owner and cursor, and only the in-process admission is
+                // released so the explicit resume can admit the next attempt.
+                self.vector.abandon_rebuild(attempt.generation);
+                self.vector_rebuild_status
+                    .fail(attempt.generation, "paused".to_string());
+                Ok(super::RebuildRunOutcome::Paused)
+            }
+            RebuildProgress::Cancelled => {
+                // The barrier was cancelled or taken over. Closing the local
+                // fence without publishing anything is the whole outcome: the
+                // cancelled work must never latch a failure or clear a barrier
+                // that no longer belongs to it.
+                self.vector.abandon_rebuild(attempt.generation);
+                self.vector_rebuild_status
+                    .fail(attempt.generation, "cancelled".to_string());
+                Ok(super::RebuildRunOutcome::Cancelled)
+            }
+            RebuildProgress::Completed(rebuilt) => {
+                // The target is verified before anything is activated: it must
+                // exist, declare the configured dimension, and hold exactly the
+                // chunks this build committed. An unverified target is never
+                // activated, and the old active collection keeps serving.
+                if let Err(error) = self.verify_rebuild_target(&attempt, rebuilt).await {
+                    self.fail_rebuild_barrier(fence, &error).await;
+                    fail_rebuild_attempt(
+                        &self.vector,
+                        &self.vector_rebuild_status,
+                        &attempt,
+                        error,
+                    )
+                    .await?;
+                    unreachable!("a failed rebuild attempt returns its error");
+                }
+                // The writer seam receives the identity the attempt actually
+                // re-embedded with, including the real completed count. The
+                // production closure writes the identity, activates the target,
+                // clears the barrier and moves the epochs in one transaction,
+                // so the identity of a finished rebuild and the barrier that
+                // describes it can never disagree.
+                let db = self.db.clone();
+                let execution = execution.clone();
+                let outcome = settle_successful_rebuild(
                     &self.vector,
                     &self.vector_rebuild_status,
                     &attempt,
-                    error,
+                    rebuilt,
+                    move |identity| {
+                        Box::pin(async move {
+                            complete_rebuild_transaction(
+                                &db, fence, &execution, task_id, attempt_id, &identity,
+                            )
+                            .await
+                        })
+                    },
                 )
                 .await;
+                if let Err(error) = &outcome {
+                    self.fail_rebuild_barrier(fence, error).await;
+                }
+                outcome.map(|_| super::RebuildRunOutcome::Completed)
             }
-        };
-        // The writer seam receives the identity the attempt actually re-embedded
-        // with, including the real completed count. The production closure
-        // writes the identity, clears the barrier and moves the epochs in one
-        // transaction, so the identity of a finished rebuild and the barrier
-        // that describes it can never disagree.
-        let db = self.db.clone();
-        let outcome = settle_successful_rebuild(
-            &self.vector,
-            &self.vector_rebuild_status,
-            &attempt,
-            rebuilt,
-            move |identity| {
-                Box::pin(async move { complete_rebuild_transaction(&db, fence, &identity).await })
-            },
-        )
-        .await;
-        if let Err(error) = &outcome {
-            self.fail_rebuild_barrier(fence, error).await;
         }
-        outcome
     }
 
     /// Records a failed rebuild in the persistent barrier.
@@ -394,37 +546,52 @@ impl SyncService {
 
     /// Admits an explicit rebuild through the runtime's one atomic admission.
     ///
+    /// The rebuild always writes a fresh physical target: the desired
+    /// configuration is resolved from the persisted settings, the provider is
+    /// proven with one synthetic embedding, and the target is named and
+    /// recorded in the durable barrier before any network work happens. An
+    /// interrupted build of the same identity resumes the target the barrier
+    /// already records, with its committed cursor, and never derives a new
+    /// name for it. The fresh-versus-resume decision is made by the claim
+    /// itself, under the epoch lock, so a barrier that became idle between an
+    /// earlier read and the claim can never attach a cancelled or previous
+    /// target.
+    ///
     /// The persistent barrier is taken first: it is the authority that no
     /// registry-admitted publication overlaps the rebuild, and it outlives the
     /// process, so a node that never observed the rebuild still fails closed.
     /// The barrier is claimed under the captured grant of the task item, so
     /// the owner of the barrier is a live writer that can prove it.
     ///
-    /// The runtime then validates and captures the generation, the published
-    /// pair, its identity, and the configured fingerprint together under the
-    /// shared exclusion. A retained snapshot of a superseded generation is
-    /// rejected instead of being relabelled, so a destination change that
-    /// advanced the generation without publishing a replacement pair can never
-    /// be rebuilt as the old collection under the new identity.
+    /// The runtime then admits the target itself, not the published pair: a
+    /// deployment whose active collection is stale, or whose installation
+    /// never had one, can still be rebuilt into a fresh target.
     pub(crate) async fn begin_vector_index_rebuild(
         &self,
         fence: TaskWriteFence,
     ) -> Result<RebuildAttempt> {
-        let (fingerprint, collection) = self.rebuild_identity()?;
+        let plan = self.resolve_rebuild_target().await?;
+        // The target decision is made by the claim below, under the epoch lock
+        // and from the barrier row it updates. This name is only the candidate a
+        // fresh claim would write; an owned resume replaces it with the target
+        // the barrier records.
+        let fresh_collection = fresh_target_name(&plan.base_collection, &plan.fingerprint);
+
         let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
         // The persisted configuration is the authority of the vector space, and
         // the begin kernel compares it with the captured identity after it
         // holds the registry epoch. A settings save therefore either happens
         // entirely before the comparison or entirely after the barrier claim,
         // so a rebuild never re-embeds an old provider under a newer identity.
-        let outcome = self
+        // The fresh-versus-resume decision is part of the same locked claim.
+        let (outcome, resumed) = self
             .db
             .begin_rebuild_checked_in(
                 write.connection(),
                 fence.item_id(),
                 fence.token(),
-                &fingerprint,
-                &collection,
+                &plan.fingerprint,
+                &fresh_collection,
             )
             .await?;
         if !write.commit().await? {
@@ -432,20 +599,144 @@ impl SyncService {
                 "the grant no longer authorizes the rebuild start"
             ));
         }
-        match outcome {
-            crate::db::RebuildStartOutcome::Started(_) => {}
+        let barrier = match outcome {
+            crate::db::RebuildStartOutcome::Started(barrier) => barrier,
             crate::db::RebuildStartOutcome::Refused(reason) => {
                 return Err(rebuild_refusal_error(reason));
             }
-        }
+        };
+        // Retained across the provider and Qdrant awaits: the decision this
+        // attempt made under the claim is never recomputed from a later read.
+        let collection = barrier.collection.clone().ok_or_else(|| {
+            anyhow::anyhow!("the rebuild barrier claimed a start without a target collection")
+        })?;
         if !self.vector_rebuild_status.claim_start() {
             self.release_rebuild_barrier(fence).await;
             return Err(DomainError::conflict("vector index rebuild is already running").into());
         }
-        let admitted = match self.vector.try_admit_rebuild() {
+        // The reservation releases the tracker gate on every later return or
+        // error, so a cancelled or failed start can never block the next
+        // explicit rebuild until the process restarts.
+        let start_reservation = RebuildStartReservation {
+            tracker: &self.vector_rebuild_status,
+            armed: true,
+        };
+        // The provider is proven before a target is written: one synthetic
+        // document embedding, and a query embedding only when the query model
+        // differs from the document model. The vectors must have the
+        // configured dimension and be finite, so even a rebuild without a
+        // single chunk proves that the provider produces the vectors the
+        // target stores.
+        if let Err(error) = plan.prove_provider().await {
+            // The barrier keeps this owner and the recorded target, so the
+            // failed build can be retried on the same target.
+            self.fail_rebuild_barrier(fence, &error).await;
+            return Err(error);
+        }
+        // A cancellation or an expired lease can win while the provider probe
+        // is in flight. The captured grant and the exact durable barrier are
+        // rechecked before target preparation can start another Qdrant
+        // mutation; an already accepted provider request is left to finish.
+        if let Err(error) = self
+            .assert_rebuild_target_authority(fence, &plan.fingerprint, &collection)
+            .await
+        {
+            self.release_rebuild_barrier(fence).await;
+            return Err(error);
+        }
+        // The target is prepared after the barrier records its name, so a crash
+        // leaves a recorded target instead of an unnamed collection. The
+        // durable ownership marker of that target decides what may happen to
+        // it: a target this attempt created is attached, an unmarked target
+        // that already exists is ambiguous and is never adopted, and an absent
+        // target is created. Only the decision made under the claim decides
+        // this, and the recorded target is never the currently active physical
+        // collection.
+        if resumed
+            && let Some(active) = self.db.read_active_vector_index_state().await?
+            && active.collection_name == collection
+        {
+            self.fail_rebuild_barrier(
+                fence,
+                &anyhow::anyhow!(
+                    "the recorded rebuild target is the active collection; it is never rebuilt in \
+                     place"
+                ),
+            )
+            .await;
+            return Err(DomainError::conflict(
+                "the recorded rebuild target is the active collection; it is never rebuilt in place",
+            )
+            .into());
+        }
+        let prepared = QdrantIndex::prepare_rebuild_target(
+            &plan.qdrant,
+            &collection,
+            plan.dimensions,
+            barrier.rebuild_target_created,
+            || self.assert_rebuild_target_authority(fence, &plan.fingerprint, &collection),
+        )
+        .await;
+        let (index, created) = match prepared {
+            Ok(prepared) => prepared,
+            Err(error) if QdrantIndex::is_target_collision(&error) => {
+                // The recorded target is not provably the collection of this
+                // attempt: it is never attached and never written. The own
+                // barrier is released instead, so the next explicit attempt
+                // derives a fresh target name and the refused collection
+                // stays untouched.
+                self.clear_refused_rebuild_target(fence, &collection).await;
+                return Err(DomainError::conflict(error.to_string()).into());
+            }
+            Err(error) => {
+                // The barrier keeps this owner and the recorded target, so the
+                // failed build can be retried on the same target.
+                self.fail_rebuild_barrier(fence, &error).await;
+                return Err(error);
+            }
+        };
+        if created {
+            // The create is recorded under the exact owner before any page is
+            // written, so a later attempt may attach this very collection
+            // instead of mistaking it for a foreign one.
+            let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+            let marked = self
+                .db
+                .mark_rebuild_target_created_in(
+                    write.connection(),
+                    fence.item_id(),
+                    fence.token(),
+                    &plan.fingerprint,
+                    &collection,
+                )
+                .await?;
+            if !write.commit().await? {
+                self.clear_refused_rebuild_target(fence, &collection).await;
+                return Err(anyhow::anyhow!(
+                    "the grant no longer authorizes the rebuild target"
+                ));
+            }
+            if !marked {
+                self.clear_refused_rebuild_target(fence, &collection).await;
+                return Err(anyhow::anyhow!(
+                    "the rebuild target is no longer owned by this attempt"
+                ));
+            }
+        }
+        let snapshot = VectorSnapshot {
+            embedding: plan.provider.clone(),
+            identity: Some(plan.identity.clone()),
+            index: Arc::new(index),
+            collection: collection.clone(),
+            generation: 0,
+            configured_fingerprint: Some(plan.fingerprint.clone()),
+        };
+        let admitted = match self
+            .vector
+            .try_admit_target_rebuild(snapshot, plan.fingerprint.clone())
+        {
             Ok(admitted) => admitted,
             Err(error) => {
-                self.vector_rebuild_status.release_start();
                 self.release_rebuild_barrier(fence).await;
                 return Err(match error {
                     RebuildAdmissionError::NotConfigured
@@ -460,37 +751,139 @@ impl SyncService {
             }
         };
         self.vector_rebuild_status.begin(admitted.generation);
-        self.vector_rebuild_status.release_start();
+        start_reservation.settle();
         Ok(RebuildAttempt {
             generation: admitted.generation,
             snapshot: admitted.snapshot,
             fingerprint: admitted.configured_fingerprint,
+            qdrant: plan.qdrant,
+            dimensions: plan.dimensions,
         })
     }
 
-    /// The identity the rebuild barrier records.
+    /// Resolves the desired vector identity one rebuild target is built from.
     ///
-    /// It is the fingerprint of the vector space of the captured pair and the
-    /// collection it writes into. The pair carries its own identity, so a
-    /// reconfiguration that moved the desired identity forward while the old
-    /// pair is still published is refused here instead of re-embedding the old
-    /// provider under the newer fingerprint.
-    fn rebuild_identity(&self) -> Result<(String, String)> {
-        let (snapshot, fingerprint) = self.vector.published_pair().ok_or_else(|| {
-            DomainError::unavailable(
-                "the published vector pair carries no configured identity fingerprint",
-            )
-        })?;
-        if let Some(desired) = self.vector.configured_fingerprint()
-            && desired != fingerprint
-        {
+    /// The persisted runtime settings are the authority: the rebuild builds
+    /// the space the deployment is configured for, never the space the active
+    /// collection happens to hold. The API key comes from the shared store, so
+    /// the target is embedded with the credential this deployment owns.
+    async fn resolve_rebuild_target(&self) -> Result<RebuildTargetPlan> {
+        let stored = self
+            .db
+            .get_runtime_settings()
+            .await?
+            .ok_or_else(|| -> anyhow::Error {
+                DomainError::unavailable(
+                    "the runtime settings are not configured; the rebuild cannot know which vector \
+                 space to build",
+                )
+                .into()
+            })?;
+        let api_key = crate::services::settings::secrets::resolve_stored(
+            &self.store,
+            crate::services::secret_store::SecretPurpose::EmbeddingApiKey,
+            crate::services::secret_store::key_names::EMBEDDING_API_KEY,
+        )
+        .await?;
+        let embedding = crate::config::EmbeddingConfig {
+            base_url: stored.embedding.base_url.trim().to_string(),
+            api_key,
+            model: stored.embedding.model.trim().to_string(),
+            query_model: stored.embedding.query_model.clone(),
+            dimensions: stored.embedding.dimensions,
+            timeout: Duration::from_secs(stored.embedding.timeout_secs),
+            batching: stored.embedding.batching.clone(),
+        };
+        let provider = build_provider(&embedding)?;
+        let identity = EmbeddingIdentity::from_config(&embedding);
+        let fingerprint = vector_identity_fingerprint(
+            stored.qdrant.url.trim(),
+            stored.qdrant.collection_name.trim(),
+            stored.embedding.base_url.trim(),
+            stored.embedding.model.trim(),
+            stored.embedding.dimensions,
+        );
+        Ok(RebuildTargetPlan {
+            provider,
+            identity,
+            fingerprint,
+            qdrant: QdrantConfig {
+                url: stored.qdrant.url.trim().to_string(),
+                collection_name: stored.qdrant.collection_name.trim().to_string(),
+                recreate_on_dimension_mismatch: false,
+            },
+            base_collection: stored.qdrant.collection_name.trim().to_string(),
+            dimensions: stored.embedding.dimensions,
+        })
+    }
+
+    /// Verifies the target before it may be activated.
+    ///
+    /// The declared dimension and the exact point count are the proof that the
+    /// target holds the vectors this build wrote: a target of another
+    /// dimension is a different vector space, and a count that differs from
+    /// the committed chunk count describes an incomplete build.
+    async fn verify_rebuild_target(&self, attempt: &RebuildAttempt, rebuilt: usize) -> Result<()> {
+        let observed = QdrantIndex::inspect_collection(
+            &attempt.qdrant,
+            &attempt.snapshot.collection,
+            attempt.dimensions,
+        )
+        .await?;
+        let Some((points, dimensions)) = observed else {
+            return Err(anyhow::anyhow!(
+                "the verified rebuild target {} does not exist",
+                attempt.snapshot.collection
+            ));
+        };
+        if dimensions != attempt.dimensions {
+            return Err(anyhow::anyhow!(
+                "the rebuild target {} declares {dimensions} dimensions, but the configured \
+                 identity needs {}",
+                attempt.snapshot.collection,
+                attempt.dimensions
+            ));
+        }
+        let expected = u64::try_from(rebuilt).context("the rebuilt count must fit in a u64")?;
+        if points != expected {
+            return Err(anyhow::anyhow!(
+                "the rebuild target {} holds {points} points, but the build committed {expected} \
+                 chunks",
+                attempt.snapshot.collection
+            ));
+        }
+        Ok(())
+    }
+
+    /// Re-proves the exact rebuild authority immediately before a remote
+    /// mutation.
+    ///
+    /// The captured grant and the durable barrier are rechecked after every
+    /// preceding await. A refusal starts no new Qdrant mutation; it never
+    /// claims that a request already accepted by Qdrant was rolled back.
+    async fn assert_rebuild_target_authority(
+        &self,
+        fence: TaskWriteFence,
+        fingerprint: &str,
+        collection: &str,
+    ) -> Result<()> {
+        if !crate::library_store::task_write_granted(&self.db, fence).await? {
             return Err(DomainError::conflict(
-                "the published vector pair does not match the configured vector identity; retry \
-                 the rebuild after the runtime published the configured pair",
+                "the rebuild grant expired before its target was prepared",
             )
             .into());
         }
-        Ok((fingerprint, snapshot.collection.clone()))
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if !barrier.is_owned_by(fence.item_id(), fence.token())
+            || barrier.fingerprint.as_deref() != Some(fingerprint)
+            || barrier.collection.as_deref() != Some(collection)
+        {
+            return Err(DomainError::conflict(
+                "the rebuild barrier was cancelled or taken over before its target was prepared",
+            )
+            .into());
+        }
+        Ok(())
     }
 
     /// Returns the barrier to idle after the rebuild never started.
@@ -522,6 +915,44 @@ impl SyncService {
         }
     }
 
+    /// Releases the barrier of a rebuild target this attempt may not use.
+    ///
+    /// The clear is fenced by the owner item, its grant token and the recorded
+    /// collection, so it releases the barrier of this attempt and never the
+    /// barrier of a newer owner. The refused collection is left untouched in
+    /// Qdrant: only the durable record is released, so the next explicit
+    /// attempt derives a fresh target name.
+    async fn clear_refused_rebuild_target(&self, fence: TaskWriteFence, collection: &str) {
+        let mut connection = match self.db.pool().acquire().await {
+            Ok(connection) => connection,
+            Err(error) => {
+                tracing::warn!(%error, "failed to open the rebuild refusal transaction");
+                return;
+            }
+        };
+        match self
+            .db
+            .clear_owned_rebuild_target_in(
+                &mut connection,
+                fence.item_id(),
+                fence.token(),
+                collection,
+            )
+            .await
+        {
+            Ok(Some(_)) => {}
+            Ok(None) => {
+                tracing::warn!(
+                    collection,
+                    "the refused rebuild target is no longer owned by this attempt"
+                );
+            }
+            Err(error) => {
+                tracing::warn!(%error, "failed to clear the refused rebuild target");
+            }
+        }
+    }
+
     async fn set_vector_rebuild_progress(
         &self,
         generation: u64,
@@ -533,11 +964,141 @@ impl SyncService {
     }
 }
 
+/// Where one rebuild attempt stopped.
+enum RebuildProgress {
+    Completed(usize),
+    Paused,
+    Cancelled,
+}
+
+/// Whether the durable barrier still belongs to this attempt.
+///
+/// Ownership alone is not enough: the captured identity and physical collection
+/// are part of the record, so a rebuild that was superseded by a new vector
+/// identity stops before its next page.
+fn rebuild_is_owned(
+    attempt: &RebuildAttempt,
+    fence: &TaskWriteFence,
+    barrier: &crate::db::RebuildBarrier,
+) -> bool {
+    barrier.is_owned_by(fence.item_id(), fence.token())
+        && barrier.fingerprint.as_deref() == Some(attempt.fingerprint.as_str())
+        && barrier.collection.as_deref() == Some(attempt.snapshot.collection.as_str())
+}
+
+/// Whether a reclaimed item is the recorded owner of a durably paused rebuild.
+///
+/// The owner token is deliberately not compared: a restart reclaims the item
+/// with a fresh token, while the barrier keeps the token of the dead attempt.
+/// The item identity is the durable owner, and the paused flag keeps the
+/// rebuild resumable until an explicit resume clears it.
+fn paused_rebuild_owned_by(barrier: &crate::db::RebuildBarrier, item_id: Uuid) -> bool {
+    barrier.state == crate::db::RebuildBarrierState::Running
+        && barrier.pause_requested
+        && barrier.owner_item_id == Some(item_id)
+}
+
 /// The immutable context one admitted explicit rebuild owns.
 pub(crate) struct RebuildAttempt {
     pub(crate) generation: u64,
     pub(crate) snapshot: crate::vector_runtime::VectorSnapshot,
     fingerprint: String,
+    /// The destination the target lives in, so the verification can read the
+    /// target back without resolving the configuration again.
+    qdrant: QdrantConfig,
+    /// The dimension the target must declare.
+    dimensions: usize,
+}
+
+/// The desired vector identity one rebuild target is built from.
+///
+/// It is resolved from the persisted runtime settings, so a rebuild builds the
+/// space the deployment is configured for and never the space the active
+/// collection happens to hold.
+struct RebuildTargetPlan {
+    provider: Arc<dyn EmbeddingProvider>,
+    identity: EmbeddingIdentity,
+    /// The logical fingerprint of the desired vector space.
+    fingerprint: String,
+    qdrant: QdrantConfig,
+    /// The logical collection name the settings carry. It names the identity,
+    /// not the physical target.
+    base_collection: String,
+    dimensions: usize,
+}
+
+impl RebuildTargetPlan {
+    /// Proves the provider before any target is written.
+    ///
+    /// One synthetic document embedding exercises the document model, and a
+    /// query embedding is issued only when the query model differs from it.
+    /// The returned vectors must have the configured dimension and hold only
+    /// finite values, so even a rebuild without a single chunk proves that
+    /// the provider produces the vectors the target stores. Neither the probe
+    /// text nor the credential is ever logged.
+    async fn prove_provider(&self) -> Result<()> {
+        let documents = self
+            .provider
+            .embed_texts(&["context69 rebuild target probe".to_string()])
+            .await?;
+        let document = documents.first().ok_or_else(|| {
+            anyhow::anyhow!("the embedding provider returned no vector for the rebuild probe")
+        })?;
+        self.assert_probe_vector(document)?;
+        if self
+            .provider
+            .effective_query_model()
+            .is_some_and(|model| model != self.identity.model)
+        {
+            let query = self
+                .provider
+                .embed_query("context69 rebuild target query probe")
+                .await?;
+            self.assert_probe_vector(&query)?;
+        }
+        Ok(())
+    }
+
+    fn assert_probe_vector(&self, vector: &[f32]) -> Result<()> {
+        if vector.len() != self.dimensions {
+            return Err(anyhow::anyhow!(
+                "the embedding provider returned {} dimensions for the rebuild probe, but the \
+                 configured identity needs {}",
+                vector.len(),
+                self.dimensions
+            ));
+        }
+        if !vector.iter().all(|value| value.is_finite()) {
+            return Err(anyhow::anyhow!(
+                "the embedding provider returned a non-finite value for the rebuild probe"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// The physical name of one fresh rebuild target.
+///
+/// The name carries the identity it is built for and a unique suffix, so two
+/// builds never share a collection and a target stays traceable to the
+/// identity that produced it. The name is bounded, and only the characters
+/// Qdrant accepts for a collection name are kept.
+fn fresh_target_name(base_collection: &str, fingerprint: &str) -> String {
+    let base: String = base_collection
+        .trim()
+        .chars()
+        .filter(|character| {
+            character.is_ascii_alphanumeric() || *character == '_' || *character == '-'
+        })
+        .take(64)
+        .collect();
+    let base = if base.is_empty() {
+        "context69".to_string()
+    } else {
+        base
+    };
+    let identity: String = fingerprint.chars().take(16).collect();
+    format!("{base}__{identity}__{}", Uuid::new_v4().simple())
 }
 
 /// The identity and count an admitted rebuild writes once it succeeds.
@@ -659,15 +1220,47 @@ fn rebuild_refusal_error(reason: crate::db::RebuildRefusalReason) -> anyhow::Err
 async fn complete_rebuild_transaction(
     db: &crate::db::Database,
     fence: TaskWriteFence,
+    execution: &crate::db::ExecutionContext,
+    task_id: Uuid,
+    attempt_id: i64,
     identity: &RebuiltIdentity,
 ) -> Result<()> {
-    let mut write = crate::library_store::begin_task_write(db, fence).await?;
-    // The canonical order is item, epoch, vector identity row. The settings
-    // save takes the same order, so the two transactions serialize instead of
-    // deadlocking on each other.
+    // The completion opens a plain transaction: unlike an ordinary task write
+    // it deliberately makes the item terminal, so it must not run the generic
+    // TaskWriteTx commit whose grant recheck expects a still-running item.
+    let mut tx = db.pool().begin().await?;
+    // The canonical order is item -> epoch -> vector identity rows -> task. The
+    // item is locked and its captured grant verified before the epoch is taken,
+    // exactly like every other worker and cancellation path.
+    let locked = sqlx::query_file_as!(
+        LockedCompletionItem,
+        "src/sql/db/tasks/lock_task_item.sql",
+        fence.item_id(),
+        fence.token(),
+        fence.execution_task_id(),
+        fence.generation()
+    )
+    .fetch_optional(&mut *tx)
+    .await?;
+    let Some(locked) = locked else {
+        tx.rollback().await.ok();
+        return Err(anyhow::anyhow!(
+            "the rebuild completion item is no longer available"
+        ));
+    };
+    if !locked.owned || !locked.matches_execution {
+        tx.rollback().await.ok();
+        return Err(anyhow::anyhow!(
+            "the rebuild completion grant is no longer owned by this attempt (item status {})",
+            locked.status
+        ));
+    }
+    // The epoch is taken under that item lock, so the barrier ownership and
+    // the identity rows describe one instant. A superseded owner writes
+    // nothing: no identity, no active switch, no epoch.
     let cleared = db
         .complete_owned_rebuild_in(
-            write.connection(),
+            &mut tx,
             fence.item_id(),
             fence.token(),
             &crate::db::VectorIndexState {
@@ -681,16 +1274,56 @@ async fn complete_rebuild_transaction(
         )
         .await?;
     if cleared.is_none() {
-        write.rollback().await;
+        tx.rollback().await.ok();
         return Err(anyhow::anyhow!(
             "the rebuild barrier is no longer owned by this attempt"
         ));
     }
-    if !write.commit().await? {
+    // The captured library segment and attempt are sealed in the same
+    // transaction as the activation, before the domain transition. A crash
+    // after the commit therefore leaves every row family terminal: the domain
+    // item and parent succeed, and the segment still reports the same success
+    // instead of waiting for a worker that may never run again.
+    let queue = db.execution_queue().await?;
+    queue.complete_in(&mut tx, &execution.attempt, None).await?;
+    // Activation is the completion linearization point: the owner item is
+    // finished in the same owner-guarded transaction. A cancellation that
+    // waited for the item fence then sees the completed item and reports too
+    // late instead of mutating the activated rebuild into a cancelled one.
+    // The captured library attempt is sealed by the worker's normal success
+    // path, which observes the already-finished item and projects the parent.
+    let resource_id = task_id.to_string();
+    let finished = sqlx::query_file_scalar!(
+        "src/sql/db/tasks/finish_item.sql",
+        fence.item_id(),
+        "succeeded",
+        Some(resource_id.as_str()),
+        Option::<&str>::None,
+        Option::<&str>::None,
+        false,
+        fence.token(),
+        attempt_id,
+        fence.execution_task_id(),
+        fence.generation()
+    )
+    .fetch_one(&mut *tx)
+    .await?;
+    if !finished {
+        tx.rollback().await.ok();
         return Err(anyhow::anyhow!(
-            "the grant no longer authorizes the rebuild completion"
+            "the rebuild activation could not finish its task item"
         ));
     }
+    // The parent projection commits with the activation, so a process that
+    // dies immediately after the commit still observes a completed task rather
+    // than a running task whose only item already succeeded.
+    sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+        .execute(&mut *tx)
+        .await?;
+    // The grant was verified under the item lock before the terminal
+    // transition, and finish_item's own predicate is the final fence. Committing
+    // the plain transaction is the activation linearization point.
+    tx.commit().await?;
     Ok(())
 }
 
@@ -724,6 +1357,13 @@ async fn settle_successful_rebuild(
     if let Err(error) = persist(identity).await {
         return fail_rebuild_attempt(vector, tracker, attempt, error).await;
     }
+    // The verified target is published at the admitted generation before the
+    // rebuild fence is cleared, so the runtime never serves the old pair as
+    // the live one after the activation committed. A superseded generation
+    // publishes nothing and leaves the runtime closed.
+    if !vector.publish_admitted_target(attempt.generation, attempt.snapshot.clone()) {
+        return discard_superseded_rebuild(tracker, attempt).await;
+    }
     if !vector.complete_rebuild_success(attempt.generation) {
         return discard_superseded_rebuild(tracker, attempt).await;
     }
@@ -752,10 +1392,12 @@ mod tests {
     };
 
     use super::{
-        RebuildAttempt, RebuiltIdentity, VectorRebuildTracker, discard_superseded_rebuild,
-        fail_rebuild_attempt, settle_successful_rebuild,
+        RebuildAttempt, RebuildStartReservation, RebuiltIdentity, VectorRebuildTracker,
+        discard_superseded_rebuild, fail_rebuild_attempt, fresh_target_name,
+        settle_successful_rebuild,
     };
     use crate::{
+        config::QdrantConfig,
         contracts::{VectorIndexRebuildState, VectorIndexRebuildStatus},
         embedding::EmbeddingIdentity,
         qdrant_index::QdrantIndex,
@@ -809,16 +1451,26 @@ mod tests {
         }
     }
 
-    /// Admits an attempt through the production admission API, not a fabricated
-    /// matching snapshot.
+    /// Admits an attempt through the production target admission API, not a
+    /// fabricated matching snapshot.
     fn admit(runtime: &VectorRuntime) -> RebuildAttempt {
+        let generation = runtime.generation();
         let admitted = runtime
-            .try_admit_rebuild()
-            .expect("the current published generation is admitted");
+            .try_admit_target_rebuild(
+                snapshot(generation, "collection-a", "model-a", "fingerprint-a"),
+                "fingerprint-a".to_string(),
+            )
+            .expect("the current generation admits a target rebuild");
         RebuildAttempt {
             generation: admitted.generation,
             snapshot: admitted.snapshot,
             fingerprint: admitted.configured_fingerprint,
+            qdrant: QdrantConfig {
+                url: "http://127.0.0.1:1".to_string(),
+                collection_name: "collection-a".to_string(),
+                recreate_on_dimension_mismatch: false,
+            },
+            dimensions: 8,
         }
     }
 
@@ -830,6 +1482,71 @@ mod tests {
 
     fn status_of(tracker: &VectorRebuildTracker) -> VectorIndexRebuildStatus {
         tracker.status()
+    }
+
+    #[test]
+    fn a_reclaimed_paused_owner_parks_instead_of_retrying_qdrant() {
+        let item = uuid::Uuid::new_v4();
+        let mut barrier = crate::db::RebuildBarrier {
+            state: crate::db::RebuildBarrierState::Running,
+            owner_item_id: Some(item),
+            owner_token: Some(uuid::Uuid::new_v4()),
+            fingerprint: Some("fingerprint-a".to_string()),
+            collection: Some("target".to_string()),
+            started_at: None,
+            error: None,
+            pause_requested: true,
+            cursor: None,
+            processed_chunks: 2,
+            total_chunks: 8,
+            rebuild_target_created: false,
+        };
+        assert!(
+            super::paused_rebuild_owned_by(&barrier, item),
+            "the reclaimed item of the paused owner reaches the paused dependency"
+        );
+        assert!(
+            !super::paused_rebuild_owned_by(&barrier, uuid::Uuid::new_v4()),
+            "another item never parks on this paused owner"
+        );
+
+        barrier.pause_requested = false;
+        assert!(
+            !super::paused_rebuild_owned_by(&barrier, item),
+            "a resumed (unpaused) barrier starts normally"
+        );
+        barrier.pause_requested = true;
+        barrier.state = crate::db::RebuildBarrierState::Failed;
+        assert!(
+            !super::paused_rebuild_owned_by(&barrier, item),
+            "a failed barrier is not a parked pause"
+        );
+    }
+
+    #[test]
+    fn a_fresh_target_name_is_unique_bounded_and_carries_its_identity() {
+        let first = fresh_target_name("context69", "abcdef0123456789abcdef");
+        let second = fresh_target_name("context69", "abcdef0123456789abcdef");
+        assert_ne!(
+            first, second,
+            "two builds never share a physical collection"
+        );
+        assert!(
+            first.starts_with("context69__abcdef0123456789__"),
+            "{first}"
+        );
+        assert!(
+            first.len() <= 64 + 2 + 16 + 2 + 32,
+            "the target name is bounded: {first}"
+        );
+
+        // A name that carries characters Qdrant does not accept keeps only the
+        // ones it does.
+        let sanitized = fresh_target_name("context 69/vectors!", "0123456789abcdef");
+        assert!(!sanitized.contains(' '), "{sanitized}");
+        assert!(!sanitized.contains('/'), "{sanitized}");
+        assert!(!sanitized.contains('!'), "{sanitized}");
+        assert!(sanitized.starts_with("context69vectors__"), "{sanitized}");
     }
 
     #[tokio::test]
@@ -1106,5 +1823,335 @@ mod tests {
         let status = status_of(&tracker);
         assert_eq!(status.state, VectorIndexRebuildState::Failed);
         assert!(status.finished_at.is_some());
+    }
+
+    #[test]
+    fn a_dropped_start_reservation_releases_the_gate_for_the_next_attempt() {
+        let tracker = VectorRebuildTracker::new();
+        assert!(tracker.claim_start(), "the first start reserves the slot");
+        {
+            let _reservation = RebuildStartReservation {
+                tracker: &tracker,
+                armed: true,
+            };
+            assert!(
+                !tracker.claim_start(),
+                "an armed reservation holds the start slot"
+            );
+        }
+        assert!(
+            tracker.claim_start(),
+            "a dropped reservation releases the slot for the next attempt"
+        );
+        tracker.release_start();
+    }
+
+    #[test]
+    fn a_settled_start_reservation_lets_a_finished_build_start_again() {
+        let tracker = VectorRebuildTracker::new();
+        assert!(tracker.claim_start());
+        let reservation = RebuildStartReservation {
+            tracker: &tracker,
+            armed: true,
+        };
+        tracker.begin(1);
+        reservation.settle();
+        assert!(tracker.succeed(1, 0));
+        assert!(
+            tracker.claim_start(),
+            "a settled reservation releases the gate after the running build finishes"
+        );
+        tracker.release_start();
+    }
+
+    #[test]
+    fn a_settled_start_reservation_lets_a_paused_build_start_again() {
+        let tracker = VectorRebuildTracker::new();
+        assert!(tracker.claim_start());
+        let reservation = RebuildStartReservation {
+            tracker: &tracker,
+            armed: true,
+        };
+        tracker.begin(1);
+        reservation.settle();
+        assert!(tracker.fail(1, "paused".to_string()));
+        assert!(
+            tracker.claim_start(),
+            "a paused build leaves no start gate behind; only the durable barrier decides resume"
+        );
+        tracker.release_start();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn the_actual_completion_activates_seals_and_recognizes_the_worker() {
+        use uuid::Uuid;
+
+        const TARGET: &str = "execution-completion__target";
+        const STALE: &str = "execution-completion__stale";
+        let url = context69_test_support::accessor::database_url();
+        let db = crate::db::Database::connect(&url)
+            .await
+            .expect("connect test database");
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL, \
+                 rebuild_owner_token = NULL, rebuild_fingerprint = NULL, \
+                 rebuild_collection = NULL, rebuild_started_at = NULL, \
+                 rebuild_error = NULL, rebuild_pause_requested = FALSE, \
+                 rebuild_cursor_document_id = NULL, rebuild_cursor_chunk_index = NULL, \
+                 rebuild_processed_chunks = 0, rebuild_total_chunks = 0, \
+                 rebuild_target_created = FALSE \
+             WHERE id = 1",
+        )
+        .execute(db.pool())
+        .await
+        .expect("reset the rebuild barrier");
+        sqlx::query("DELETE FROM context69.vector_index_state WHERE collection_name = ANY($1)")
+            .bind(&[TARGET.to_string(), STALE.to_string()])
+            .execute(db.pool())
+            .await
+            .expect("clear the recorded vector identities");
+
+        let user_id: i64 = sqlx::query_scalar(
+            "INSERT INTO context69.users (login_name, display_name, password_hash) \
+             VALUES ($1, 'completion owner', 'unused') RETURNING id",
+        )
+        .bind(format!("completion-{}", Uuid::new_v4()))
+        .fetch_one(db.pool())
+        .await
+        .expect("seed user");
+        let task_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO context69.tasks (id, user_id, kind, status, total_count) \
+             VALUES ($1, $2, 'vector_rebuild', 'running', 1)",
+        )
+        .bind(task_id)
+        .bind(user_id)
+        .execute(db.pool())
+        .await
+        .expect("seed task");
+        let item_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO context69.task_items (id, task_id, ordinal, payload, status) \
+             VALUES ($1, $2, 0, '{}'::jsonb, 'queued')",
+        )
+        .bind(item_id)
+        .bind(task_id)
+        .execute(db.pool())
+        .await
+        .expect("seed task item");
+        // The execution is obtained through the production segment/claim path,
+        // never constructed from ids.
+        db.produce_item_segment(item_id)
+            .await
+            .expect("produce the library segment");
+        let mut claimed = None;
+        for _ in 0..20 {
+            if let Some(item) = db
+                .claim_items_fast(200)
+                .await
+                .expect("claim items")
+                .into_iter()
+                .find(|item| item.id == item_id)
+            {
+                claimed = Some(item);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+        let claimed = claimed.expect("the rebuild item is claimable");
+        let execution = claimed
+            .execution_context()
+            .expect("the claim captured a real execution");
+        let fence = crate::library_store::TaskWriteFence::from_claimed_item(&claimed)
+            .expect("the claim captures a write fence");
+        let token = execution.fencing_token();
+        let fingerprint = "completion-fingerprint";
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'running', rebuild_owner_item = $1, \
+                 rebuild_owner_token = $2, rebuild_fingerprint = $3, \
+                 rebuild_collection = $4, rebuild_started_at = now(), \
+                 rebuild_pause_requested = FALSE, rebuild_cursor_document_id = NULL, \
+                 rebuild_cursor_chunk_index = NULL, rebuild_processed_chunks = 0, \
+                 rebuild_total_chunks = 0, rebuild_target_created = TRUE \
+             WHERE id = 1",
+        )
+        .bind(item_id)
+        .bind(token)
+        .bind(fingerprint)
+        .bind(TARGET)
+        .execute(db.pool())
+        .await
+        .expect("own the running barrier");
+
+        let identity = RebuiltIdentity {
+            collection: TARGET.to_string(),
+            fingerprint: fingerprint.to_string(),
+            base_url: "https://embeddings.example/v1".to_string(),
+            model: "completion-model".to_string(),
+            dimensions: 8,
+            rebuilt_chunks: 0,
+        };
+        super::complete_rebuild_transaction(
+            &db,
+            fence,
+            &execution,
+            task_id,
+            claimed.attempt_id,
+            &identity,
+        )
+        .await
+        .expect("the actual completion must commit");
+
+        let active = db
+            .read_active_vector_index_state()
+            .await
+            .expect("read the active vector index")
+            .expect("the completed target is active");
+        assert_eq!(active.collection_name, TARGET);
+        assert_eq!(active.fingerprint, fingerprint);
+        let item_status: String =
+            sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+                .bind(item_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the completed item");
+        assert_eq!(item_status, "succeeded");
+        let task_status: String =
+            sqlx::query_scalar("SELECT status FROM context69.tasks WHERE id = $1")
+                .bind(task_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the completed parent");
+        assert_eq!(task_status, "succeeded");
+        let library_task_status: String =
+            sqlx::query_scalar("SELECT status FROM cloudiful_tasks.tasks WHERE id = $1")
+                .bind(execution.task_id())
+                .fetch_one(db.pool())
+                .await
+                .expect("read the sealed library task");
+        assert_eq!(library_task_status, "succeeded");
+        let library_attempt_status: String =
+            sqlx::query_scalar("SELECT status FROM cloudiful_tasks.attempts WHERE id = $1")
+                .bind(execution.attempt_id())
+                .fetch_one(db.pool())
+                .await
+                .expect("read the sealed library attempt");
+        assert_eq!(library_attempt_status, "succeeded");
+        assert_eq!(
+            db.read_rebuild_barrier()
+                .await
+                .expect("read the completed barrier")
+                .state,
+            crate::db::RebuildBarrierState::Idle
+        );
+
+        // The worker that reaches its normal success path afterwards finds the
+        // exact execution already sealed and recognizes the completion.
+        let recognized = db
+            .finish_task_item(crate::db::FinishTaskItemRequest {
+                task_id,
+                item_id,
+                status: "succeeded",
+                resource_id: None,
+                failure_stage: None,
+                error_message: None,
+                retryable: false,
+                execution: execution.clone(),
+                attempt_id: claimed.attempt_id,
+            })
+            .await
+            .expect("the late worker recognizes the completion");
+        assert!(recognized, "the matching execution reports success");
+
+        // A stale generation cannot activate or seal anything.
+        let stale = RebuiltIdentity {
+            collection: STALE.to_string(),
+            fingerprint: "stale-fingerprint".to_string(),
+            base_url: "https://embeddings.example/v1".to_string(),
+            model: "completion-model".to_string(),
+            dimensions: 8,
+            rebuilt_chunks: 1,
+        };
+        let stale_execution = crate::db::ExecutionContext::new(
+            execution.attempt.clone(),
+            execution.generation + 1,
+            item_id,
+        );
+        let stale_fence = crate::library_store::TaskWriteFence::new(
+            item_id,
+            token,
+            execution.task_id(),
+            execution.generation + 1,
+        );
+        assert!(
+            super::complete_rebuild_transaction(
+                &db,
+                stale_fence,
+                &stale_execution,
+                task_id,
+                claimed.attempt_id,
+                &stale,
+            )
+            .await
+            .is_err(),
+            "a stale generation cannot activate another target"
+        );
+        let active = db
+            .read_active_vector_index_state()
+            .await
+            .expect("read the active vector index after the stale call")
+            .expect("the completed target stays active");
+        assert_eq!(active.collection_name, TARGET);
+
+        sqlx::query(
+            "DELETE FROM cloudiful_tasks.attempts \
+             WHERE task_id IN (SELECT id FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1)",
+        )
+        .bind(item_id.to_string())
+        .execute(db.pool())
+        .await
+        .expect("delete the sealed library attempts");
+        sqlx::query("DELETE FROM cloudiful_tasks.tasks WHERE payload->>'item_id' = $1")
+            .bind(item_id.to_string())
+            .execute(db.pool())
+            .await
+            .expect("delete the sealed library tasks");
+        sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
+            .bind(task_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the seeded items");
+        sqlx::query("DELETE FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the seeded task");
+        sqlx::query("DELETE FROM context69.users WHERE id = $1")
+            .bind(user_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the seeded user");
+        sqlx::query("DELETE FROM context69.vector_index_state WHERE collection_name = ANY($1)")
+            .bind(&[TARGET.to_string(), STALE.to_string()])
+            .execute(db.pool())
+            .await
+            .expect("clear the recorded vector identities");
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL, \
+                 rebuild_owner_token = NULL, rebuild_fingerprint = NULL, \
+                 rebuild_collection = NULL, rebuild_started_at = NULL, \
+                 rebuild_error = NULL, rebuild_pause_requested = FALSE, \
+                 rebuild_cursor_document_id = NULL, rebuild_cursor_chunk_index = NULL, \
+                 rebuild_processed_chunks = 0, rebuild_total_chunks = 0, \
+                 rebuild_target_created = FALSE \
+             WHERE id = 1",
+        )
+        .execute(db.pool())
+        .await
+        .expect("reset the rebuild barrier");
     }
 }

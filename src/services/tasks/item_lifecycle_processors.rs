@@ -198,8 +198,41 @@ pub(super) async fn process_vector_rebuild(
         Ok(fence) => fence,
         Err(error) => return Ok(process_error(stage, error)),
     };
-    match service.sync().run_vector_index_rebuild(fence).await {
-        Ok(_) => Ok(ProcessResult::Progressed { next: "finalize" }),
+    // The completion seals the exact captured library execution, so it must
+    // come from the claimed item rather than from the fence ids.
+    let Some(execution) = item.execution_context() else {
+        return Ok(process_error(
+            stage,
+            DomainError::conflict("the rebuild item has no captured execution").into(),
+        ));
+    };
+    let completion_task_id = task.id;
+    let completion_attempt_id = item.attempt_id;
+    match service
+        .sync()
+        .run_vector_index_rebuild(fence, execution, completion_task_id, completion_attempt_id)
+        .await
+    {
+        Ok(crate::services::sync::RebuildRunOutcome::Completed) => {
+            Ok(ProcessResult::Progressed { next: "finalize" })
+        }
+        // A pause is committed at a batch boundary: the item parks on the exact
+        // dependency the dispatcher never claims and only the explicit resume
+        // reopens. Waiting here must not spend an attempt or retry time.
+        Ok(crate::services::sync::RebuildRunOutcome::Paused) => Ok(ProcessResult::Waiting {
+            reason: "dependency".to_string(),
+            dependency_key: Some(super::rebuild_control::PAUSED_REBUILD_DEPENDENCY.to_string()),
+            next_attempt_at: Utc::now() + ChronoDuration::days(1),
+            message: Some("the vector rebuild is paused".to_string()),
+        }),
+        // A cancelled or superseded owner must not publish success and must not
+        // latch a failure: returning the error stops this worker without a
+        // terminal write, and the durable barrier is already owned elsewhere or
+        // cleared.
+        Ok(crate::services::sync::RebuildRunOutcome::Cancelled) => Err(DomainError::conflict(
+            "the vector rebuild was cancelled or its ownership was superseded",
+        )
+        .into()),
         Err(error) if error.to_string().contains("already running") => Ok(ProcessResult::Waiting {
             reason: "dependency".to_string(),
             dependency_key: Some("qdrant".to_string()),

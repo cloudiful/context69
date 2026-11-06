@@ -65,6 +65,47 @@ pub struct RebuildBarrier {
     pub collection: Option<String>,
     pub started_at: Option<DateTime<Utc>>,
     pub error: Option<String>,
+    /// A pause was requested and the worker has not reached its next batch
+    /// boundary yet. The flag only exists while the barrier is running.
+    pub pause_requested: bool,
+    /// The last successfully written page, or `None` when no page committed.
+    pub cursor: Option<RebuildCursor>,
+    /// Committed chunks of this rebuild.
+    pub processed_chunks: i64,
+    /// Total chunks captured when the rebuild started.
+    pub total_chunks: i64,
+    /// The recorded target collection was created by the owner of this
+    /// barrier.
+    ///
+    /// The marker is the durable proof of ownership: a recorded target with
+    /// the marker set is a collection this attempt created and may be
+    /// attached, while a recorded target without it is absent or ambiguous
+    /// and is never adopted.
+    pub rebuild_target_created: bool,
+}
+
+/// The committed position of a durable rebuild cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RebuildCursor {
+    pub document_id: i64,
+    pub chunk_index: i32,
+}
+
+/// The committed progress one successful rebuild page records.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RebuildCheckpoint {
+    pub cursor: RebuildCursor,
+    pub processed_chunks: i64,
+    pub total_chunks: i64,
+}
+
+impl RebuildBarrier {
+    /// Whether `item` still owns this running barrier with `token`.
+    pub fn is_owned_by(&self, item: Uuid, token: Uuid) -> bool {
+        self.state == RebuildBarrierState::Running
+            && self.owner_item_id == Some(item)
+            && self.owner_token == Some(token)
+    }
 }
 
 /// The vector identity a registry entry was admitted under.
@@ -102,6 +143,40 @@ pub enum RebuildStartOutcome {
     Started(RebuildBarrier),
     /// The barrier was not taken.
     Refused(RebuildRefusalReason),
+}
+
+/// The target choice one claim may make.
+///
+/// The unchecked primitive always writes the caller's collection. The checked
+/// deployment entry lets the claim decide fresh versus recorded resume from the
+/// barrier row it reads while it holds the epoch lock.
+#[derive(Debug, Clone, Copy)]
+enum RebuildTargetChoice<'a> {
+    Given(&'a str),
+    DecideFresh(&'a str),
+}
+
+/// The physical target a claim writes into and whether it resumes it.
+///
+/// This runs while the caller holds the epoch lock, so the decision is taken
+/// from the barrier row the claim is about to update instead of a stale read
+/// made before the lock.
+fn rebuild_target_under_claim(
+    state: RebuildBarrierState,
+    recorded_fingerprint: Option<&str>,
+    recorded_collection: Option<&str>,
+    expected_fingerprint: &str,
+    fresh_collection: &str,
+) -> (String, bool) {
+    if state == RebuildBarrierState::Idle {
+        return (fresh_collection.to_string(), false);
+    }
+    match (recorded_fingerprint, recorded_collection) {
+        (Some(fingerprint), Some(collection)) if fingerprint == expected_fingerprint => {
+            (collection.to_string(), true)
+        }
+        _ => (fresh_collection.to_string(), false),
+    }
 }
 
 /// The outcome of one registry admission.
@@ -205,6 +280,12 @@ struct RebuildBarrierRow {
     rebuild_collection: Option<String>,
     rebuild_started_at: Option<DateTime<Utc>>,
     rebuild_error: Option<String>,
+    rebuild_pause_requested: bool,
+    rebuild_cursor_document_id: Option<i64>,
+    rebuild_cursor_chunk_index: Option<i32>,
+    rebuild_processed_chunks: i64,
+    rebuild_total_chunks: i64,
+    rebuild_target_created: bool,
 }
 
 #[derive(sqlx::FromRow)]
@@ -315,6 +396,14 @@ impl Database {
         let barrier = self.read_rebuild_barrier_in(connection).await?;
         if barrier.state != RebuildBarrierState::Idle {
             return Ok(AdmissionOutcome::RebuildBusy);
+        }
+        // An entry that creates points may only be admitted for the one active
+        // vector index that still matches the desired configuration. A
+        // metadata-only tombstone passes no identity and creates no point, so
+        // it keeps its existing path.
+        if let Some(identity) = identity {
+            self.require_admissible_vector_identity_in(connection, identity)
+                .await?;
         }
         // The persisted policy is the authority. It is read here, inside the
         // admission transaction, so a node that still holds an older policy
@@ -444,6 +533,20 @@ impl Database {
         self.read_rebuild_barrier_in(&mut connection).await
     }
 
+    /// The number of unresolved staging entries of the registry.
+    ///
+    /// An admitted run that never resolved still holds staged points, so it
+    /// blocks a move of the vector space: the staged points belong to the
+    /// space the collection was built with.
+    pub async fn read_staging_count(&self) -> Result<i64> {
+        Ok(
+            sqlx::query_file_scalar!("src/sql/db/search_registry/read_staging_count.sql")
+                .fetch_one(&self.pool)
+                .await
+                .context("read the unresolved staging entries")?,
+        )
+    }
+
     /// The persistent rebuild barrier, read on the caller's connection.
     ///
     /// The caller must already hold the epoch row lock when the answer
@@ -465,6 +568,21 @@ impl Database {
                 row.rebuild_state
             )
         })?;
+        let cursor = match (
+            row.rebuild_cursor_document_id,
+            row.rebuild_cursor_chunk_index,
+        ) {
+            (Some(document_id), Some(chunk_index)) => Some(RebuildCursor {
+                document_id,
+                chunk_index,
+            }),
+            (None, None) => None,
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "the rebuild barrier records an unpaired cursor"
+                ));
+            }
+        };
         Ok(RebuildBarrier {
             state,
             owner_item_id: row.rebuild_owner_item,
@@ -473,6 +591,11 @@ impl Database {
             collection: row.rebuild_collection,
             started_at: row.rebuild_started_at,
             error: row.rebuild_error,
+            pause_requested: row.rebuild_pause_requested,
+            cursor,
+            processed_chunks: row.rebuild_processed_chunks,
+            total_chunks: row.rebuild_total_chunks,
+            rebuild_target_created: row.rebuild_target_created,
         })
     }
 
@@ -502,14 +625,16 @@ impl Database {
         collection: &str,
     ) -> Result<RebuildStartOutcome> {
         self.lock_search_registry_epoch_in(connection).await?;
-        self.claim_rebuild_barrier_in(
-            connection,
-            owner_item_id,
-            owner_token,
-            fingerprint,
-            collection,
-        )
-        .await
+        let (outcome, _) = self
+            .claim_rebuild_barrier_in(
+                connection,
+                owner_item_id,
+                owner_token,
+                fingerprint,
+                RebuildTargetChoice::Given(collection),
+            )
+            .await?;
+        Ok(outcome)
     }
 
     /// Take the rebuild barrier only when the captured identity is still the
@@ -521,27 +646,39 @@ impl Database {
     /// The captured identity is the vector space the caller would rebuild; it
     /// must still describe what the deployment persists, or the rebuild must
     /// stop and retry under the current configuration.
+    ///
+    /// Only the fingerprint is compared: it is the logical identity of the
+    /// desired vector space, while `collection` is the physical target this
+    /// rebuild writes into. A target is named after the identity it is built
+    /// for, so its name never has to equal the logical collection the settings
+    /// name.
+    ///
+    /// `fresh_collection` is the name a fresh claim would write. The fresh
+    /// versus owned-resume decision is made here, under the epoch lock, from
+    /// the barrier row the claim updates: an idle barrier always creates the
+    /// fresh target, and only a running or failed barrier of the same
+    /// fingerprint attaches its recorded target.
     pub async fn begin_rebuild_checked_in(
         &self,
         connection: &mut PgConnection,
         owner_item_id: Uuid,
         owner_token: Uuid,
         fingerprint: &str,
-        collection: &str,
-    ) -> Result<RebuildStartOutcome> {
+        fresh_collection: &str,
+    ) -> Result<(RebuildStartOutcome, bool)> {
         self.lock_search_registry_epoch_in(connection).await?;
         match self.read_persisted_vector_identity_in(connection).await? {
-            Some(persisted)
-                if persisted.embedding_fingerprint == fingerprint
-                    && persisted.collection_name == collection => {}
+            Some(persisted) if persisted.embedding_fingerprint == fingerprint => {}
             Some(_) => {
-                return Ok(RebuildStartOutcome::Refused(
-                    RebuildRefusalReason::PersistedIdentityMismatch,
+                return Ok((
+                    RebuildStartOutcome::Refused(RebuildRefusalReason::PersistedIdentityMismatch),
+                    false,
                 ));
             }
             None => {
-                return Ok(RebuildStartOutcome::Refused(
-                    RebuildRefusalReason::PersistedIdentityMissing,
+                return Ok((
+                    RebuildStartOutcome::Refused(RebuildRefusalReason::PersistedIdentityMissing),
+                    false,
                 ));
             }
         }
@@ -550,46 +687,72 @@ impl Database {
             owner_item_id,
             owner_token,
             fingerprint,
-            collection,
+            RebuildTargetChoice::DecideFresh(fresh_collection),
         )
         .await
     }
 
     /// The barrier claim of one rebuild start; the caller holds the epoch row.
+    ///
+    /// The second value reports whether the claim resumed the recorded target
+    /// of the same identity. It is decided from the barrier row read under the
+    /// caller's epoch lock and must be retained by the attempt across its
+    /// network work.
     async fn claim_rebuild_barrier_in(
         &self,
         connection: &mut PgConnection,
         owner_item_id: Uuid,
         owner_token: Uuid,
         fingerprint: &str,
-        collection: &str,
-    ) -> Result<RebuildStartOutcome> {
+        target: RebuildTargetChoice<'_>,
+    ) -> Result<(RebuildStartOutcome, bool)> {
         let barrier = self.read_rebuild_barrier_in(connection).await?;
+        let (collection, resumed) = match target {
+            RebuildTargetChoice::Given(collection) => (collection.to_string(), false),
+            RebuildTargetChoice::DecideFresh(fresh_collection) => rebuild_target_under_claim(
+                barrier.state,
+                barrier.fingerprint.as_deref(),
+                barrier.collection.as_deref(),
+                fingerprint,
+                fresh_collection,
+            ),
+        };
         let staging_count =
             sqlx::query_file_scalar!("src/sql/db/search_registry/read_staging_count.sql")
                 .fetch_one(&mut *connection)
                 .await
                 .context("read the unresolved staging entries")?;
         if staging_count > 0 {
-            return Ok(RebuildStartOutcome::Refused(
-                RebuildRefusalReason::StagingEntries,
+            return Ok((
+                RebuildStartOutcome::Refused(RebuildRefusalReason::StagingEntries),
+                false,
+            ));
+        }
+        // A paused rebuild is still the running rebuild: it must be resumed by
+        // its owner, never taken over or restarted under it.
+        if barrier.pause_requested {
+            return Ok((
+                RebuildStartOutcome::Refused(RebuildRefusalReason::Busy),
+                false,
             ));
         }
         let identity_matches = barrier.fingerprint.as_deref() == Some(fingerprint)
-            && barrier.collection.as_deref() == Some(collection);
+            && barrier.collection.as_deref() == Some(collection.as_str());
         match barrier.state {
             RebuildBarrierState::Idle => {}
             RebuildBarrierState::Failed => {
                 if !identity_matches {
-                    return Ok(RebuildStartOutcome::Refused(
-                        RebuildRefusalReason::IdentityMismatch,
+                    return Ok((
+                        RebuildStartOutcome::Refused(RebuildRefusalReason::IdentityMismatch),
+                        false,
                     ));
                 }
             }
             RebuildBarrierState::Running => {
                 if !identity_matches {
-                    return Ok(RebuildStartOutcome::Refused(
-                        RebuildRefusalReason::IdentityMismatch,
+                    return Ok((
+                        RebuildStartOutcome::Refused(RebuildRefusalReason::IdentityMismatch),
+                        false,
                     ));
                 }
                 let owner = barrier
@@ -611,7 +774,10 @@ impl Database {
                 .await
                 .context("read the rebuild owner liveness")?;
                 if live {
-                    return Ok(RebuildStartOutcome::Refused(RebuildRefusalReason::Busy));
+                    return Ok((
+                        RebuildStartOutcome::Refused(RebuildRefusalReason::Busy),
+                        false,
+                    ));
                 }
             }
         }
@@ -620,13 +786,14 @@ impl Database {
             owner_item_id,
             owner_token,
             fingerprint,
-            collection
+            &collection
         )
         .fetch_one(&mut *connection)
         .await
         .context("claim the rebuild barrier")?;
-        Ok(RebuildStartOutcome::Started(
-            self.read_rebuild_barrier_in(connection).await?,
+        Ok((
+            RebuildStartOutcome::Started(self.read_rebuild_barrier_in(connection).await?),
+            resumed,
         ))
     }
 
@@ -662,6 +829,13 @@ impl Database {
     /// settings save takes the same order, so the two transactions serialize
     /// instead of deadlocking on each other.
     ///
+    /// The verified target is recorded first and stays inactive, the previous
+    /// active row is deactivated in one statement, and the exact target is
+    /// activated in a second one. Two statements are required: the partial
+    /// unique index that admits one active row is not deferrable, so a single
+    /// unordered update could observe two live rows. The activation commit is
+    /// the completion linearization point.
+    ///
     /// A caller that does not own the barrier writes nothing: the identity is
     /// not persisted either, so a superseded attempt never describes a
     /// collection another owner rebuilt.
@@ -673,7 +847,18 @@ impl Database {
         state: &VectorIndexState<'_>,
     ) -> Result<Option<i64>> {
         self.lock_search_registry_epoch_in(connection).await?;
+        // Ownership is checked under the epoch lock before any identity row is
+        // written. A missing, stale or cancelled owner therefore writes
+        // nothing: no identity, no epoch, no generation.
+        let barrier = self.read_rebuild_barrier_in(connection).await?;
+        if !barrier.is_owned_by(owner_item_id, owner_token) {
+            return Ok(None);
+        }
         self.save_vector_index_state_in(connection, state).await?;
+        self.deactivate_active_vector_index_state_in(connection)
+            .await?;
+        self.activate_vector_index_state_in(connection, state.collection_name)
+            .await?;
         let epoch = self
             .complete_rebuild_in(connection, owner_item_id, owner_token)
             .await?;
@@ -682,6 +867,165 @@ impl Database {
         }
         self.bump_search_generation_in(connection).await?;
         Ok(epoch)
+    }
+
+    /// Records the committed cursor of one owned rebuild page.
+    ///
+    /// The owner, its grant, the captured fingerprint and the physical
+    /// collection are all part of the predicate, so a superseded or cancelled
+    /// attempt advances nothing.
+    pub async fn advance_rebuild_cursor_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+        checkpoint: RebuildCheckpoint,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/advance_rebuild_cursor.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+            checkpoint.cursor.document_id,
+            checkpoint.cursor.chunk_index,
+            checkpoint.processed_chunks,
+            checkpoint.total_chunks,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("advance the rebuild cursor")?;
+        Ok(updated.is_some())
+    }
+
+    /// Requests a pause of one owned running rebuild.
+    ///
+    /// The flag is durable and observed by the worker at its next batch
+    /// boundary; the current page is never interrupted.
+    pub async fn request_rebuild_pause_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+    ) -> Result<bool> {
+        let requested = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/request_rebuild_pause.sql",
+            owner_item_id,
+            owner_token,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("request the rebuild pause")?;
+        Ok(requested.is_some())
+    }
+
+    /// Clears the pause request of the exact owned running rebuild.
+    ///
+    /// The caller has already requeued the parked item in the same
+    /// transaction. A barrier that no longer belongs to that item matches no
+    /// row, so a stale resume never changes a newer rebuild.
+    pub async fn resume_rebuild_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+    ) -> Result<bool> {
+        let resumed = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/resume_rebuild.sql",
+            owner_item_id,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("resume the rebuild")?;
+        Ok(resumed.is_some())
+    }
+
+    /// Frees the rebuild barrier of a cancelled owner and bumps the epoch.
+    ///
+    /// `task_id` narrows the clear to the items of one cancelled task; `None`
+    /// is the bulk cancellation, which frees every barrier whose recorded owner
+    /// can no longer write. `only_failed` is the explicit discard of a terminal
+    /// rebuild and never touches a running barrier.
+    pub async fn cancel_owned_rebuild_in(
+        &self,
+        connection: &mut PgConnection,
+        task_id: Option<Uuid>,
+        only_failed: bool,
+    ) -> Result<Option<i64>> {
+        let epoch = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/cancel_owned_rebuild.sql",
+            task_id,
+            only_failed,
+            Option::<Uuid>::None,
+            Option::<Uuid>::None,
+            Option::<&str>::None,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("free the cancelled rebuild barrier")?;
+        Ok(epoch)
+    }
+
+    /// Clears the exact owned barrier of a refused rebuild target.
+    ///
+    /// A target that this attempt may not adopt is never deleted or emptied:
+    /// only the durable record is released, so the next explicit attempt
+    /// derives a fresh target name instead of writing into a collection that
+    /// is not provably its own.
+    ///
+    /// The clear is fenced by the owner item, its grant token and the
+    /// recorded collection, so a superseded attempt frees its own barrier and
+    /// never the barrier of a newer owner. The epoch row is locked first, so
+    /// the clear and the ownership decision are one atomic decision.
+    pub async fn clear_owned_rebuild_target_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        collection: &str,
+    ) -> Result<Option<i64>> {
+        self.lock_search_registry_epoch_in(connection).await?;
+        let epoch = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/cancel_owned_rebuild.sql",
+            Option::<Uuid>::None,
+            false,
+            owner_item_id,
+            owner_token,
+            collection,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("clear the refused rebuild target")?;
+        Ok(epoch)
+    }
+
+    /// Records that the owner created the recorded rebuild target.
+    ///
+    /// The marker is written under the exact owner: the owner item, its grant
+    /// token, the captured fingerprint and the recorded collection are all
+    /// part of the predicate, so a superseded or cancelled attempt marks
+    /// nothing and no other collection is ever claimed.
+    pub async fn mark_rebuild_target_created_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+    ) -> Result<bool> {
+        self.lock_search_registry_epoch_in(connection).await?;
+        let epoch = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/mark_rebuild_target_created.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("mark the created rebuild target")?;
+        Ok(epoch.is_some())
     }
 
     /// Clear the rebuild barrier of its owner and publish the new epoch.
@@ -750,11 +1094,11 @@ impl Database {
 
     /// Refuse a switch whose entry was admitted under another vector identity.
     ///
-    /// The persisted configuration is the authority: it describes the vector
-    /// space of the deployment, not what one node believes. A run that was
-    /// admitted before a settings change on another node would publish points
-    /// of the old space, so the switch refuses it and the caller retries under
-    /// the current configuration.
+    /// The active pointer and the desired configuration are the authority: they
+    /// describe the vector space of the deployment, not what one node believes.
+    /// A run that was admitted before a settings change on another node would
+    /// publish points of the old space, so the switch refuses it and the caller
+    /// retries under the current configuration.
     pub async fn require_matching_vector_identity_in(
         &self,
         connection: &mut PgConnection,
@@ -769,11 +1113,54 @@ impl Database {
                      cannot publish points"
                 )
             })?;
-        if let Some(persisted) = self.read_persisted_vector_identity_in(connection).await?
-            && persisted != entry_identity
+        self.require_admissible_vector_identity_in(connection, &entry_identity)
+            .await
+    }
+
+    /// Refuse an ordinary point write unless the captured identity is the one
+    /// active vector index that still matches the desired configuration.
+    ///
+    /// The caller must already hold the registry epoch row lock, so the desired
+    /// settings, the active pointer and the captured identity describe one
+    /// instant and no admission can slip between them. The desired fingerprint
+    /// stays logical: a target built into a different physical collection is
+    /// admissible as long as the active row records that same logical identity
+    /// and the captured identity names the active physical collection.
+    pub async fn require_admissible_vector_identity_in(
+        &self,
+        connection: &mut PgConnection,
+        identity: &RegistryVectorIdentity,
+    ) -> Result<()> {
+        let desired = self
+            .read_persisted_vector_identity_in(connection)
+            .await?
+            .ok_or_else(|| {
+                crate::domain_errors::DomainError::conflict(
+                    "the deployment has no desired vector identity; configure the embedding and \
+                     vector settings before writing points",
+                )
+            })?;
+        let active = self
+            .read_active_vector_index_state_in(connection)
+            .await?
+            .ok_or_else(|| {
+                crate::domain_errors::DomainError::conflict(
+                    "the deployment has no active vector index; rebuild and activate a vector \
+                     collection before writing points",
+                )
+            })?;
+        if desired.embedding_fingerprint != active.fingerprint {
+            return Err(crate::domain_errors::DomainError::conflict(
+                "the desired vector configuration differs from the active vector index; rebuild \
+                 and activate the configured vector space before writing points",
+            )
+            .into());
+        }
+        if identity.embedding_fingerprint != active.fingerprint
+            || identity.collection_name != active.collection_name
         {
             return Err(crate::domain_errors::DomainError::conflict(
-                "the configured vector identity changed since the run was admitted; retry it under \
+                "the captured vector identity does not match the active vector index; retry under \
                  the current configuration",
             )
             .into());
@@ -1015,7 +1402,10 @@ impl Database {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_entries, validate_phase, validate_transition};
+    use super::{
+        RebuildBarrierState, parse_entries, rebuild_target_under_claim, validate_phase,
+        validate_transition,
+    };
 
     fn entry_json(phase: &str) -> serde_json::Value {
         serde_json::json!([
@@ -1031,6 +1421,58 @@ mod tests {
                 "phase": phase,
             }
         ])
+    }
+
+    #[test]
+    fn only_an_owned_resume_attaches_the_recorded_target() {
+        let (target, resumed) = rebuild_target_under_claim(
+            RebuildBarrierState::Running,
+            Some("fingerprint-a"),
+            Some("recorded-target"),
+            "fingerprint-a",
+            "fresh-target",
+        );
+        assert_eq!(target, "recorded-target");
+        assert!(resumed, "a same-identity running claim resumes its target");
+
+        let (target, resumed) = rebuild_target_under_claim(
+            RebuildBarrierState::Failed,
+            Some("fingerprint-a"),
+            Some("recorded-target"),
+            "fingerprint-a",
+            "fresh-target",
+        );
+        assert_eq!(target, "recorded-target");
+        assert!(resumed, "a same-identity failed claim retries its target");
+    }
+
+    #[test]
+    fn an_idle_claim_always_creates_a_fresh_target() {
+        // The stale pre-read this decision replaces could have seen the old
+        // owner just before the barrier returned to idle; the claim must not
+        // attach that recorded target.
+        let (target, resumed) = rebuild_target_under_claim(
+            RebuildBarrierState::Idle,
+            Some("fingerprint-a"),
+            Some("cancelled-target"),
+            "fingerprint-a",
+            "fresh-target",
+        );
+        assert_eq!(target, "fresh-target");
+        assert!(!resumed);
+    }
+
+    #[test]
+    fn a_different_identity_never_reuses_the_recorded_target() {
+        let (target, resumed) = rebuild_target_under_claim(
+            RebuildBarrierState::Running,
+            Some("fingerprint-a"),
+            Some("recorded-target"),
+            "fingerprint-b",
+            "fresh-target",
+        );
+        assert_eq!(target, "fresh-target");
+        assert!(!resumed);
     }
 
     #[test]

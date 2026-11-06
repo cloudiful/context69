@@ -211,8 +211,65 @@ describe("runtime settings", () => {
       expect(backend.callsFor("POST", "/v1/settings/runtime/vector-index/rebuild")).toHaveLength(1);
     });
     await waitFor(() => {
-      expect(backend.callsFor("GET", "/v1/tasks/{task_id}").length).toBeGreaterThan(0);
+      expect(
+        backend.callsFor("GET", "/v1/settings/runtime/vector-index/rebuild").length,
+      ).toBeGreaterThan(0);
     });
+  });
+});
+
+describe("vector index rebuild control", () => {
+  beforeAll(() => installDomPolyfills());
+  beforeEach(() => {
+    resetToasts();
+    installMockStorage();
+    resetPreferences();
+    resetAuth();
+  });
+  afterEach(() => {
+    resetToasts();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("pauses the exact rebuild its status observed", async () => {
+    const backend = installFakeBackend({
+      rebuildStatus: {
+        ...(await import("./test-support")).VECTOR_REBUILD_STATUS,
+        state: "running",
+        processed_chunks: 4,
+        total_chunks: 10,
+        can_pause: true,
+        can_cancel: true,
+      },
+    });
+    await openSettings("/settings/runtime");
+
+    const pause = await screen.findByTestId("runtime-vector-rebuild-pause");
+    await userEvent.click(pause);
+
+    await waitFor(() => {
+      const calls = backend.callsFor("POST", "/v1/settings/runtime/vector-index/rebuild/pause");
+      expect(calls).toHaveLength(1);
+      expect(calls[0].body).toEqual({ task_id: "task-vector-1" });
+    });
+    // A control is never a resubmission.
+    expect(backend.callsFor("POST", "/v1/settings/runtime/vector-index/rebuild")).toHaveLength(0);
+  });
+
+  it("discovers capabilities even when the connection probe fails", async () => {
+    const backend = installFakeBackend({ fail: { testEmbedding: true } });
+    await openSettings("/settings/runtime");
+
+    await userEvent.click(screen.getByTestId("runtime-embedding-test"));
+
+    expect(
+      await screen.findByTestId("runtime-embedding-capabilities"),
+    ).toBeInTheDocument();
+    expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/capabilities")).toHaveLength(1);
+    // The discovered facts never activate or save anything on their own.
+    expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(0);
+    expect(screen.getByLabelText("Document model")).toHaveValue("embed-1");
   });
 });
 

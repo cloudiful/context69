@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Clear the recorded vector indices of a test deployment (issue 1212 P4a).\n--\n-- A fixture owns the shared schema, so it removes the previous identities\n-- before it seeds its own. No collection of the disposable test database is\n-- live afterwards.\nDELETE FROM context69.vector_index_state\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "ac311a39d25fad222781ad189e9dd1fee6288f5772b8659d12d8301414442128"
+}

@@ -517,6 +517,35 @@ fn a_failed_rebuild_latches_the_requirement_from_a_ready_start() {
 }
 
 #[test]
+fn a_paused_or_cancelled_rebuild_closes_the_fence_without_publishing_success() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
+    assert!(runtime.is_ready());
+    let rebuild = runtime.begin_rebuild();
+
+    assert!(runtime.abandon_rebuild(rebuild));
+    assert!(!runtime.is_rebuilding(), "the in-process fence is released");
+    assert!(
+        !runtime.is_ready(),
+        "a paused or cancelled rebuild is not ready"
+    );
+    assert!(
+        runtime.requires_rebuild(),
+        "the pair stays fail-closed until a completed rebuild"
+    );
+    assert!(
+        !runtime.restore_ready(rebuild),
+        "a probe cannot reopen the pair under an abandoned rebuild"
+    );
+
+    // A superseded attempt cannot close a newer fence.
+    let newer = runtime.begin_generation();
+    assert!(!runtime.abandon_rebuild(rebuild));
+    assert_eq!(runtime.generation(), newer);
+}
+
+#[test]
 fn a_stale_failed_rebuild_cannot_latch_a_newer_generation() {
     let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
     let generation = runtime.generation();
@@ -705,5 +734,115 @@ fn an_unchanged_runtime_reconfiguration_keeps_readiness() {
     assert!(
         runtime.is_ready(),
         "a credential-only change keeps the pair"
+    );
+}
+
+/// A target rebuild is admitted without a published pair at all: a deployment
+/// whose installation never had an active collection can still be rebuilt into
+/// a fresh target.
+#[test]
+fn a_target_rebuild_is_admitted_without_a_published_pair() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+    let admitted = runtime
+        .try_admit_target_rebuild(
+            snapshot(generation, "model-b", "fingerprint-b"),
+            "fingerprint-b".to_string(),
+        )
+        .expect("a target is admitted without a published pair");
+
+    assert!(admitted.generation > generation);
+    assert_eq!(admitted.configured_fingerprint, "fingerprint-b");
+    assert_eq!(admitted.snapshot.collection, "test");
+    assert!(
+        runtime.snapshot().is_none(),
+        "no pair was published for the target"
+    );
+    assert!(runtime.is_rebuilding());
+    assert!(!runtime.is_ready());
+    assert_eq!(
+        runtime.configured_fingerprint().as_deref(),
+        Some("fingerprint-b"),
+        "the desired identity of the target is recorded"
+    );
+}
+
+/// The pair that was published before the build is retained until the
+/// verified target replaces it, and the target is published at the admitted
+/// generation before the fence is cleared.
+#[test]
+fn a_target_rebuild_replaces_the_published_pair_only_when_it_is_verified() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+    runtime.publish(generation, snapshot(generation, "model-a", "fingerprint-a"));
+    assert!(runtime.is_ready());
+
+    let admitted = runtime
+        .try_admit_target_rebuild(
+            snapshot(generation, "model-b", "fingerprint-b"),
+            "fingerprint-b".to_string(),
+        )
+        .expect("the target is admitted");
+    let retained = runtime.snapshot().expect("the old pair is retained");
+    assert_eq!(retained.generation, generation);
+    assert!(
+        !runtime.is_ready(),
+        "readiness is withdrawn while the target is written"
+    );
+
+    // A stale generation publishes nothing.
+    assert!(!runtime.publish_admitted_target(generation, admitted.snapshot.clone()));
+    assert_eq!(
+        runtime.snapshot().map(|snapshot| snapshot.generation),
+        Some(generation),
+        "a stale target publication changes nothing"
+    );
+
+    assert!(runtime.publish_admitted_target(admitted.generation, admitted.snapshot.clone()));
+    assert_eq!(
+        runtime.snapshot().map(|snapshot| snapshot.collection),
+        Some("test".to_string())
+    );
+    assert!(
+        !runtime.is_ready(),
+        "the rebuild fence is still open after the publication"
+    );
+    assert!(runtime.complete_rebuild_success(admitted.generation));
+    assert!(runtime.is_ready());
+    assert!(!runtime.requires_rebuild());
+}
+
+/// A target without a usable identity, or without the fingerprint that names
+/// its vector space, is never admitted.
+#[test]
+fn a_target_rebuild_refuses_an_unusable_target() {
+    let runtime = VectorRuntime::configured(Arc::new(AtomicBool::new(false)));
+    let generation = runtime.generation();
+
+    let mut without_identity = snapshot(generation, "model-b", "fingerprint-b");
+    without_identity.identity = None;
+    assert!(matches!(
+        runtime.try_admit_target_rebuild(without_identity, "fingerprint-b".to_string()),
+        Err(super::RebuildAdmissionError::MissingIdentity)
+    ));
+
+    let mut without_collection = snapshot(generation, "model-b", "fingerprint-b");
+    without_collection.collection = "  ".to_string();
+    assert!(matches!(
+        runtime.try_admit_target_rebuild(without_collection, "fingerprint-b".to_string()),
+        Err(super::RebuildAdmissionError::MissingIdentity)
+    ));
+
+    assert!(matches!(
+        runtime.try_admit_target_rebuild(
+            snapshot(generation, "model-b", "fingerprint-b"),
+            "  ".to_string()
+        ),
+        Err(super::RebuildAdmissionError::MissingFingerprint)
+    ));
+
+    assert!(
+        !runtime.is_rebuilding(),
+        "a refused target leaves no fence open"
     );
 }

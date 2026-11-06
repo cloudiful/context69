@@ -7,6 +7,8 @@ import {
   AUTH_ERROR,
   CLEANUP_TASKS,
   DOCLING_SETTINGS,
+  EMBEDDING_CAPABILITIES,
+  EMBEDDING_LIMITS,
   GROUP,
   PREVIEW_DOCUMENT,
   REMOTE_TASKS,
@@ -21,6 +23,7 @@ import {
   WORKSPACE_TREE,
   workspaceFileDetail,
   RUNTIME_SETTINGS,
+  VECTOR_REBUILD_STATUS,
   QUEUE_ACTIVE_TASK,
   QUEUE_COMPLETED_TASK,
   QUEUE_DIAGNOSE,
@@ -46,6 +49,7 @@ import {
   type TaskDiagnoseFixture,
   type TaskFixture,
   type TaskItemsFixture,
+  type VectorIndexRebuildStatusFixture,
 } from "./fixtures";
 
 /** Origin of the preview app; cross-origin requests are refused, not mocked. */
@@ -62,6 +66,8 @@ export interface AppTransportOptions {
   /** Enables the settings endpoints the settings suite drives. */
   settings?: boolean;
   embeddingTestFails?: boolean;
+  /** The durable vector-index rebuild status the runtime section observes. */
+  rebuildStatus?: VectorIndexRebuildStatusFixture;
   /** Fails one settings group so a partial save is reachable. */
   settingsFailures?: { doclingPut?: BackendFailure; runtimeGet?: BackendFailure; runtimeGetFailReads?: number };
   adminUsers?: (typeof ADMIN_USER_ROW)[];
@@ -77,6 +83,8 @@ export interface AppTransportOptions {
 }
 
 export interface QueueMock {
+  /** Starts with the durable global queue paused. */
+  queuePaused?: boolean;
   /** Rows of the processing view (everything not succeeded and not trashed). */
   processing?: TaskFixture[];
   completed?: TaskFixture[];
@@ -245,6 +253,8 @@ export async function installAppTransport(
   const unmocked: string[] = [];
   const saved = {
     runtime: structuredClone(RUNTIME_SETTINGS),
+    rebuild: structuredClone(options.rebuildStatus ?? VECTOR_REBUILD_STATUS),
+    queuePaused: options.queue?.queuePaused === true,
     docling: structuredClone(DOCLING_SETTINGS),
     search: structuredClone(SEARCH_SETTINGS),
     translation: structuredClone(TRANSLATION_SETTINGS),
@@ -371,6 +381,17 @@ export async function installAppTransport(
     const queue = options.queue;
     if (!queue) {
       return false;
+    }
+
+    if (url.pathname === "/v1/admin/tasks/queue") {
+      if (method === "PUT" && body) {
+        saved.queuePaused = Boolean((body as { paused?: boolean }).paused);
+      }
+      await route.fulfill(json(200, {
+        paused: saved.queuePaused,
+        updated_at: "2026-01-01T00:00:00Z",
+      }));
+      return true;
     }
 
     if (url.pathname === "/v1/tasks/stream" && method === "GET" && queue.streamUpdates) {
@@ -1327,8 +1348,58 @@ export async function installAppTransport(
       return true;
     }
 
-    if (path === "/v1/settings/runtime/vector-index/rebuild") {
-      await route.fulfill(json(200, { task_id: "task-vector-1" }));
+    if (path === "/v1/settings/runtime/embedding/capabilities") {
+      await route.fulfill(json(200, {
+        ...EMBEDDING_CAPABILITIES,
+        document_model: saved.runtime.embedding.model,
+        query_model: saved.runtime.embedding.query_model ?? saved.runtime.embedding.model,
+        manual_limits: saved.runtime.embedding.batching ?? EMBEDDING_LIMITS,
+        effective_limits: saved.runtime.embedding.batching ?? EMBEDDING_LIMITS,
+      }));
+      return true;
+    }
+
+    if (path === "/v1/settings/runtime/vector-index/rebuild" && method === "GET") {
+      await route.fulfill(json(200, saved.rebuild));
+      return true;
+    }
+
+    if (path === "/v1/settings/runtime/vector-index/rebuild" && method === "POST") {
+      saved.rebuild = {
+        ...saved.rebuild,
+        state: "queued",
+        processed_chunks: 0,
+        total_chunks: 0,
+        task_id: "task-vector-1",
+        can_pause: false,
+        can_resume: false,
+        can_cancel: true,
+      };
+      await route.fulfill(json(202, { task_id: "task-vector-1", item_ids: [] }));
+      return true;
+    }
+
+    if (path.startsWith("/v1/settings/runtime/vector-index/rebuild/")) {
+      const action = path.slice("/v1/settings/runtime/vector-index/rebuild/".length);
+      const next = { ...saved.rebuild };
+      if (action === "pause") {
+        next.state = "pausing";
+        next.can_pause = false;
+        next.can_resume = false;
+        next.can_cancel = true;
+      } else if (action === "resume") {
+        next.state = "running";
+        next.can_pause = true;
+        next.can_resume = false;
+        next.can_cancel = true;
+      } else if (action === "cancel") {
+        next.state = "cancelled";
+        next.can_pause = false;
+        next.can_resume = false;
+        next.can_cancel = false;
+      }
+      saved.rebuild = next;
+      await route.fulfill(json(200, next));
       return true;
     }
 

@@ -29,9 +29,16 @@ export function normalizeRuntimePayload(
     embedding: {
       base_url: value.embedding.base_url.trim(),
       model: value.embedding.model.trim(),
+      query_model: cleanOptional(value.embedding.query_model),
       dimensions: Number(value.embedding.dimensions),
       timeout_secs: Number(value.embedding.timeout_secs),
       api_key: cleanOptional("api_key" in value.embedding ? value.embedding.api_key : undefined),
+      batching: {
+        max_items_per_request: Number(value.embedding.batching.max_items_per_request),
+        max_item_chars: Number(value.embedding.batching.max_item_chars),
+        max_request_chars: Number(value.embedding.batching.max_request_chars),
+        max_request_bytes: Number(value.embedding.batching.max_request_bytes),
+      },
     },
     scheduler: {
       interval_secs: Number(value.scheduler.interval_secs),

@@ -49,6 +49,13 @@ pub(crate) mod task_maintenance;
 mod tasks;
 mod translations;
 
+/// The typed control and status of the vector index rebuild.
+///
+/// The module lives under `tasks/` but is wired here, because the task module
+/// root is `tasks.rs` and this control surface is its own handler set.
+#[path = "tasks/rebuild_control.rs"]
+pub(crate) mod rebuild_control;
+
 /// Disposable Git scratch rows shared by the database-gated manifest and
 /// exact-file round trips, so one fixture seeds both reads.
 #[cfg(test)]
@@ -163,13 +170,18 @@ pub(crate) use library::{
 pub(crate) use personal_access_tokens::{
     create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,
 };
+pub(crate) use rebuild_control::{
+    cancel_vector_index_rebuild, get_vector_index_rebuild_status, pause_vector_index_rebuild,
+    resume_vector_index_rebuild,
+};
 pub(crate) use sources::{
     create_source, create_source_connection, delete_source, delete_source_connection,
     list_source_connections, list_sources, sync_source, update_source, update_source_connection,
 };
 pub(crate) use task_inputs::{create_text_payload, file_batch_payloads};
 pub(crate) use task_maintenance::{
-    cancel_active_tasks, list_docling_cleanup, list_docling_remote_tasks, wake_docling_cleanup,
+    cancel_active_tasks, get_task_queue_state, list_docling_cleanup, list_docling_remote_tasks,
+    update_task_queue_state, wake_docling_cleanup,
 };
 pub(crate) use tasks::{
     batch_retry_tasks, cancel_task, clear_task_history, delete_task, ensure_scope, get_task,

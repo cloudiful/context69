@@ -59,6 +59,19 @@ impl Database {
         remote_status: &str,
     ) -> Result<Option<Uuid>> {
         let mut transaction = self.pool().begin().await?;
+        // The domain item is locked and its grant is checked before the
+        // library segment is renewed, so the worker and a cancellation take
+        // the same item -> segment order and never invert each other's locks.
+        let locked = super::item_lifecycle::lock_task_item_for_worker_in(
+            &mut transaction,
+            item_id,
+            execution,
+        )
+        .await?;
+        if !locked.is_some_and(|locked| locked.owned) {
+            transaction.rollback().await.ok();
+            return Ok(None);
+        }
         let queue = self.execution_queue().await?;
         let lease_until = match queue.renew_in(&mut transaction, &execution.attempt).await {
             Ok(lease_until) => lease_until,

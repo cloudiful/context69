@@ -34,6 +34,8 @@ export type TaskRefFixture = Schemas["TaskRef"];
 export type TaskFixture = Schemas["TaskResponse"];
 export type TaskItemsFixture = Schemas["TaskItemsResponse"];
 export type TaskDiagnoseFixture = Schemas["TaskDiagnoseResponse"];
+export type VectorIndexRebuildStatusFixture = Schemas["VectorIndexRebuildStatus"];
+export type EmbeddingCapabilitiesFixture = Schemas["EmbeddingCapabilitiesResponse"];
 
 export const ADMIN_USER: AuthUserFixture = {
   user_id: 1,
@@ -101,6 +103,42 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     registry_max_ids_per_file: 16384,
     registry_max_ids_per_run: 8192,
   },
+};
+
+export const EMBEDDING_LIMITS: Schemas["EmbeddingBatchingSettings"] = {
+  max_items_per_request: 32,
+  max_item_chars: 8000,
+  max_request_chars: 64000,
+  max_request_bytes: 1048576,
+};
+
+export const EMBEDDING_CAPABILITIES: EmbeddingCapabilitiesFixture = {
+  base_url: "http://embedding:8080/v1",
+  source: "unknown",
+  document_model: "embed-1",
+  query_model: "embed-1",
+  manual_limits: EMBEDDING_LIMITS,
+  effective_limits: EMBEDDING_LIMITS,
+};
+
+/**
+ * The durable rebuild status the settings runtime section observes.
+ *
+ * The default is a completed rebuild, so the page opens settled and only a
+ * running state starts polling.
+ */
+export const VECTOR_REBUILD_STATUS: VectorIndexRebuildStatusFixture = {
+  state: "idle",
+  processed_chunks: 0,
+  total_chunks: 0,
+  active_dimensions: 768,
+  desired_dimensions: 768,
+  physical_collection: "context69",
+  active_model: "embed-1",
+  can_pause: false,
+  can_resume: false,
+  can_cancel: false,
+  queue_paused: false,
 };
 
 export const DOCLING_SETTINGS: DoclingSettingsFixture = {

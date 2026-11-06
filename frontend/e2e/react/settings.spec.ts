@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN_USER, MEMBER_USER } from "./fixtures";
+import { ADMIN_USER, MEMBER_USER, VECTOR_REBUILD_STATUS } from "./fixtures";
 import { installAppTransport, recordExternalRequests } from "./transport";
 
 /**
@@ -118,7 +118,7 @@ test.describe("react settings", () => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
     await page.goto("/settings/runtime");
-    await page.getByLabel("Embedding Model").fill("embed-2");
+    await page.getByLabel("Document model").fill("embed-2");
 
     await page.locator('a[href="/settings/search"]').first().click();
     const dialog = page.getByRole("alertdialog");
@@ -247,6 +247,50 @@ test.describe("react settings", () => {
     expect(transport.calls.filter((call) => (
       call.method !== "GET" && call.path.startsWith("/v1/admin/users")
     ))).toEqual([]);
+  });
+
+  test("pauses the observed rebuild and shows the provider capabilities", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      settings: true,
+      rebuildStatus: {
+        ...VECTOR_REBUILD_STATUS,
+        state: "running",
+        processed_chunks: 4,
+        total_chunks: 10,
+        task_id: "task-vector-1",
+        can_pause: true,
+        can_cancel: true,
+      },
+    });
+
+    await page.goto("/settings/runtime");
+
+    const state = page.getByTestId("runtime-vector-rebuild-state");
+    await expect(state).toContainText("Rebuilding");
+    await expect(page.getByTestId("runtime-vector-rebuild-dimensions")).toContainText(
+      "Active dimensions 768",
+    );
+
+    await page.getByTestId("runtime-vector-rebuild-pause").click();
+    await expect(state).toContainText("Pausing");
+    await expect(page.getByText("A committed batch still finishes before the rebuild parks."))
+      .toBeVisible();
+    const pause = transport.calls.find((call) => (
+      call.method === "POST" && call.path === "/v1/settings/runtime/vector-index/rebuild/pause"
+    ));
+    expect(pause?.body).toEqual({ task_id: "task-vector-1" });
+    // A control is never a resubmission.
+    expect(transport.calls.some((call) => (
+      call.method === "POST" && call.path === "/v1/settings/runtime/vector-index/rebuild"
+    ))).toBe(false);
+
+    await page.getByTestId("runtime-embedding-test").click();
+    const capabilities = page.getByTestId("runtime-embedding-capabilities");
+    await expect(capabilities).toContainText("Provider capabilities");
+    await expect(capabilities).toContainText("Source: unknown");
+    await expect(capabilities).toContainText("Effective inputs per request: 32");
+    expect(transport.unmocked).toEqual([]);
   });
 
   test("saves the chunking fields and restores the original mock value", async ({ page }) => {

@@ -285,6 +285,70 @@
         }
       }
     },
+    "/v1/admin/tasks/queue": {
+      "get": {
+        "tags": [],
+        "operationId": "get_task_queue_state",
+        "responses": {
+          "200": {
+            "description": "Durable global task-queue admission state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskQueueStateResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "update_task_queue_state",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateTaskQueueStateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Durable global task-queue admission state",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskQueueStateResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/admin/users": {
       "get": {
         "tags": [],
@@ -5540,6 +5604,56 @@
         }
       }
     },
+    "/v1/settings/runtime/embedding/capabilities": {
+      "post": {
+        "tags": [],
+        "summary": "A non-persisting capability request against the submitted embedding\nprovider.",
+        "description": "It reports what the provider advertises about itself - its model, its\naliases, its dimensions, and the request limits it accepts - and which\nlimits are in effect. A provider that publishes no capability document is\nreported as `unknown` with the manual limits, so the caller always learns\nthe limits that apply. The response never carries a credential, a remote\nprompt, or a raw provider body.",
+        "operationId": "embedding_capabilities",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TestRuntimeEmbeddingRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EmbeddingCapabilitiesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/runtime/embedding/test": {
       "post": {
         "tags": [],
@@ -5717,6 +5831,42 @@
       }
     },
     "/v1/settings/runtime/vector-index/rebuild": {
+      "get": {
+        "tags": [],
+        "operationId": "get_vector_index_rebuild_status",
+        "responses": {
+          "200": {
+            "description": "The durable status of the vector index rebuild",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "The durable state could not be read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
       "post": {
         "tags": [],
         "operationId": "submit_vector_index_rebuild",
@@ -5733,6 +5883,180 @@
           },
           "409": {
             "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/runtime/vector-index/rebuild/cancel": {
+      "post": {
+        "tags": [],
+        "operationId": "cancel_vector_index_rebuild",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildControlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The rebuild attempt was cancelled; the existing collections are kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The observed task is not a vector rebuild",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The observed task is already terminal",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/runtime/vector-index/rebuild/pause": {
+      "post": {
+        "tags": [],
+        "operationId": "pause_vector_index_rebuild",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildControlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The pause was requested; the current batch may still finish",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The observed task is not a vector rebuild",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The observed task does not own a running rebuild",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/runtime/vector-index/rebuild/resume": {
+      "post": {
+        "tags": [],
+        "operationId": "resume_vector_index_rebuild",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RebuildControlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "The paused rebuild continues after its last written page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VectorIndexRebuildStatus"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The observed task is not a vector rebuild",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The observed task is not paused on a running rebuild",
             "content": {
               "application/json": {
                 "schema": {
@@ -9062,6 +9386,177 @@
           }
         ]
       },
+      "EmbeddingBatchingSettings": {
+        "type": "object",
+        "description": "The manual limits of the embedding request planner.\n\nThey bound one provider request: how many inputs it may carry, how long one\ninput may be, how long the whole request may be, and how many serialized\nbytes it may occupy. An advertised provider limit may only tighten them, so\nthe effective limit is the smaller of the two.\n\nEvery value is positive and representable in a PostgreSQL BIGINT, because\nthe settings row stores them there. A request that carries none keeps these\ndefaults, so an older client never changes the planner's behavior.",
+        "properties": {
+          "max_item_chars": {
+            "type": "integer",
+            "description": "The maximum number of characters one input may have. An input that is\nlonger is refused, never split or shortened.",
+            "default": 8000,
+            "maximum": 9223372036854775807,
+            "minimum": 0
+          },
+          "max_items_per_request": {
+            "type": "integer",
+            "description": "The maximum number of inputs one provider request may carry.",
+            "default": 32,
+            "maximum": 9223372036854775807,
+            "minimum": 0
+          },
+          "max_request_bytes": {
+            "type": "integer",
+            "description": "The maximum number of serialized bytes one provider request may carry.",
+            "default": 1048576,
+            "maximum": 9223372036854775807,
+            "minimum": 0
+          },
+          "max_request_chars": {
+            "type": "integer",
+            "description": "The maximum number of characters one provider request may carry.",
+            "default": 64000,
+            "maximum": 9223372036854775807,
+            "minimum": 0
+          }
+        }
+      },
+      "EmbeddingCapabilitiesResponse": {
+        "type": "object",
+        "description": "The provider facts one same-origin capability request reported.\n\nEverything but the source is optional: a provider that does not advertise a\nfield simply leaves it unknown, and an unknown field never constrains the\nmanual limits. No remote prompt text, credential, or raw response body is\never part of this projection.",
+        "required": [
+          "source",
+          "base_url",
+          "document_model",
+          "query_model",
+          "manual_limits",
+          "effective_limits"
+        ],
+        "properties": {
+          "advertised_max_inputs_per_request": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The maximum number of inputs the provider accepts in one request.",
+            "minimum": 0
+          },
+          "advertised_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model the provider advertises."
+          },
+          "advertised_tokens_per_input_limit": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The per-input token limit the provider advertises. The provider enforces\nit, so it is never a locally computed token count.",
+            "minimum": 0
+          },
+          "base_url": {
+            "type": "string",
+            "description": "The origin the capability request was derived from. It never carries a\ncredential."
+          },
+          "document_model": {
+            "type": "string",
+            "description": "The model documents are embedded with."
+          },
+          "effective_limits": {
+            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
+            "description": "The limits in effect: the manual ones, tightened by what the provider\nadvertises."
+          },
+          "internal_batch_size": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The provider's own execution batch size. It is server-side execution\nmetadata, never a client-side request limit.",
+            "minimum": 0
+          },
+          "manual_limits": {
+            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
+            "description": "The limits this deployment configures."
+          },
+          "max_concurrent_encodes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The concurrency the provider advertises.",
+            "minimum": 0
+          },
+          "query_model": {
+            "type": "string",
+            "description": "The model queries are embedded with: the configured alias, or the\ndocument model."
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Why the advertised facts are unavailable, in operator-facing words."
+          },
+          "role_aliases": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "description": "The aliases the provider advertises, as alias name to role.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "source": {
+            "$ref": "#/components/schemas/EmbeddingCapabilitiesSource",
+            "description": "Where the advertised facts come from."
+          },
+          "supported_dimensions": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "The dimensions the provider advertises."
+          },
+          "token_limit_enforced_by_server": {
+            "type": "boolean",
+            "description": "Whether the advertised token limit is enforced by the provider itself.\nIt always is: no local tokenizer reproduces it."
+          },
+          "tokens_include_role_prefix": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the advertised token limit counts the role prefix."
+          },
+          "tokens_include_special_tokens": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether the advertised token limit counts special tokens."
+          }
+        }
+      },
+      "EmbeddingCapabilitiesSource": {
+        "type": "string",
+        "description": "Where the advertised embedding facts come from.\n\n`discovered` means the provider answered a same-origin capability request;\n`unknown` means it did not, so only the manual limits apply.",
+        "enum": [
+          "discovered",
+          "unknown"
+        ]
+      },
       "EnsureScopeResponse": {
         "type": "object",
         "required": [
@@ -12087,6 +12582,20 @@
           }
         }
       },
+      "RebuildControlRequest": {
+        "type": "object",
+        "description": "The request one rebuild control carries.\n\nThe observed task id is the only input: the control acts on the rebuild\nthat task owns, and on no other one.",
+        "required": [
+          "task_id"
+        ],
+        "properties": {
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "additionalProperties": false
+      },
       "RebuildDocumentTranslationsRequest": {
         "type": "object",
         "properties": {
@@ -12173,6 +12682,10 @@
           "base_url": {
             "type": "string"
           },
+          "batching": {
+            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
+            "description": "The manual limits of the embedding request planner."
+          },
           "dimensions": {
             "type": "integer",
             "minimum": 0
@@ -12181,7 +12694,15 @@
             "type": "boolean"
           },
           "model": {
-            "type": "string"
+            "type": "string",
+            "description": "The model documents are embedded with."
+          },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model queries are embedded with. Absent means the document model."
           },
           "timeout_secs": {
             "type": "integer",
@@ -14219,6 +14740,23 @@
           }
         }
       },
+      "TaskQueueStateResponse": {
+        "type": "object",
+        "description": "The durable global admission state of the task queue.\n\nA pause stops new claims across every replica; already claimed work keeps\nrunning. `updated_at` is the last committed write of the state, so an\nidempotent update still advances it.",
+        "required": [
+          "paused",
+          "updated_at"
+        ],
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "TaskRef": {
         "type": "object",
         "required": [
@@ -14951,6 +15489,13 @@
           "model": {
             "type": "string"
           },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model queries are embedded with. An absent or blank value means the\ndocument model."
+          },
           "timeout_secs": {
             "type": "integer",
             "format": "int64",
@@ -15542,6 +16087,10 @@
           "base_url": {
             "type": "string"
           },
+          "batching": {
+            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
+            "description": "The manual limits of the embedding request planner."
+          },
           "confirm_vector_space_unchanged": {
             "type": "boolean",
             "description": "Operator assertion that a changed gateway/model alias still produces the\nsame vector space, so existing vectors may be kept. Transient: it is\nnever stored as a runtime setting."
@@ -15551,7 +16100,15 @@
             "minimum": 0
           },
           "model": {
-            "type": "string"
+            "type": "string",
+            "description": "The model documents are embedded with."
+          },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model queries are embedded with. An absent or blank value means the\ndocument model, so a deployment that never configures one keeps its\ncurrent behavior."
           },
           "timeout_secs": {
             "type": "integer",
@@ -15696,6 +16253,18 @@
           }
         }
       },
+      "UpdateTaskQueueStateRequest": {
+        "type": "object",
+        "description": "The requested durable global admission state of the task queue.",
+        "required": [
+          "paused"
+        ],
+        "properties": {
+          "paused": {
+            "type": "boolean"
+          }
+        }
+      },
       "UpdateTranslationSettingsRequest": {
         "type": "object",
         "required": [
@@ -15836,6 +16405,123 @@
           "user_id": {
             "type": "integer",
             "format": "int64"
+          }
+        }
+      },
+      "VectorIndexRebuildState": {
+        "type": "string",
+        "description": "The durable state of the vector index rebuild.\n\nThe states are the rebuild's own, not the task queue's: a rebuild that\nwaits for the queue is still `Queued`, and a rebuild that waits for an\noperator is `Paused` or `Pausing`.",
+        "enum": [
+          "idle",
+          "queued",
+          "running",
+          "pausing",
+          "paused",
+          "succeeded",
+          "failed",
+          "cancelled"
+        ]
+      },
+      "VectorIndexRebuildStatus": {
+        "type": "object",
+        "description": "The durable status of the vector index rebuild.\n\nThe optional fields are the durable facts an operator needs beside the\nstate: the task the controls bind to, the active and desired dimensions,\nthe physical collection that serves today and the one a running build\nwrites into. Every one of them is absent when the deployment has not\nrecorded it, so an older client and an older deployment keep working.",
+        "required": [
+          "state",
+          "processed_chunks",
+          "total_chunks"
+        ],
+        "properties": {
+          "active_dimensions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The dimensions of the active collection.",
+            "minimum": 0
+          },
+          "active_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model the active collection was built with."
+          },
+          "can_cancel": {
+            "type": "boolean",
+            "description": "Whether a cancellation would be accepted right now."
+          },
+          "can_pause": {
+            "type": "boolean",
+            "description": "Whether a pause would be accepted right now."
+          },
+          "can_resume": {
+            "type": "boolean",
+            "description": "Whether a resume would be accepted right now."
+          },
+          "desired_dimensions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The dimensions the deployment is configured for.",
+            "minimum": 0
+          },
+          "error_message": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "physical_collection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The physical collection ordinary writers use today."
+          },
+          "processed_chunks": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "queue_paused": {
+            "type": "boolean",
+            "description": "Whether the global task queue is paused.\n\nA queued rebuild then waits for the queue, not for the rebuild\ncontrols."
+          },
+          "started_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/VectorIndexRebuildState"
+          },
+          "target_collection": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The physical collection a running build writes into."
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The rebuild task the controls act on.\n\nA control request carries this id, so an operator can never act on a\nrebuild the status they observed is not."
+          },
+          "total_chunks": {
+            "type": "integer",
+            "minimum": 0
           }
         }
       },

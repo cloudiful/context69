@@ -10,9 +10,43 @@ use crate::{
 };
 
 use super::types::{
-    AppConfig, AuthConfig, ChunkingBudgetConfig, ConnectionConfig, FileLibraryConfig,
-    SchedulerConfig, SecretStoreConfig, SourceConfig,
+    AppConfig, AuthConfig, ChunkingBudgetConfig, ConnectionConfig, EmbeddingConfig,
+    FileLibraryConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
 };
+
+/// Validates the embedding configuration of a deployment.
+///
+/// The batching limits are stored in a PostgreSQL BIGINT, so a value the column
+/// cannot hold is refused here rather than at the first settings save.
+pub(super) fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> {
+    if config.dimensions == 0 {
+        return Err(anyhow!("embedding.dimensions must be greater than 0"));
+    }
+    let limits =
+        crate::embedding::embedding_batch::EmbeddingBatchLimits::from_settings(&config.batching);
+    if !limits.is_positive() {
+        return Err(anyhow!(
+            "embedding.batching limits must all be greater than 0"
+        ));
+    }
+    for (name, value) in [
+        (
+            "max_items_per_request",
+            config.batching.max_items_per_request,
+        ),
+        ("max_item_chars", config.batching.max_item_chars),
+        ("max_request_chars", config.batching.max_request_chars),
+        ("max_request_bytes", config.batching.max_request_bytes),
+    ] {
+        if i64::try_from(value).is_err() {
+            return Err(anyhow!(
+                "embedding.batching.{name} must be at most {}",
+                i64::MAX
+            ));
+        }
+    }
+    Ok(())
+}
 
 pub(super) fn validate_scheduler_config(config: &SchedulerConfig) -> Result<()> {
     if config.max_concurrency == 0 {

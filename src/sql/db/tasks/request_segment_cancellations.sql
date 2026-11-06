@@ -1,7 +1,15 @@
--- The distinct library segments of the items one cancellation covers
--- (issue 1020 P4B).
+-- The distinct library segments of the items one cancellation covers.
 --
--- `$1` is the parent task, or NULL when the cancellation covers every
--- active task. The domain cancellation and the cancellation of the
--- segments of these items commit in one transaction.
-SELECT DISTINCT execution_task_id FROM context69.task_items WHERE execution_task_id IS NOT NULL AND ($1::uuid IS NULL OR task_id = $1)
+-- `$1` is the list of the item ids the cancellation actually cancelled. Only
+-- those items are considered: a cancellation never scans the segments of
+-- items it did not cancel, so a task that arrived after the captured item set
+-- is never touched by it.
+--
+-- The segments are ordered by their library task id, so two cancellations that
+-- cover the same items request their segment cancellations in one deterministic
+-- order.
+SELECT DISTINCT execution_task_id
+FROM context69.task_items
+WHERE id = ANY($1::uuid[])
+  AND execution_task_id IS NOT NULL
+ORDER BY execution_task_id

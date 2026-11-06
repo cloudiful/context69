@@ -7,6 +7,7 @@ import { useAuthSession } from "@/hooks/use-auth";
 import { apiClient } from "@/services/api";
 import type {
   DoclingSettingsResponse,
+  EmbeddingCapabilitiesResponse,
   RuntimeSettingsResponse,
   SearchSettingsResponse,
   TranslationProviderInput,
@@ -33,6 +34,7 @@ import {
 
 import { errorMessage } from "./settings-error";
 import { useAppearanceDraft, type AppearanceValues } from "./use-appearance-draft";
+import { lastObservedRebuildStatus, rebuildHoldsBarrier } from "./use-vector-rebuild";
 
 export interface TranslationProviderDraft extends Omit<TranslationProviderInput, "enabled"> {
   enabled: boolean;
@@ -71,6 +73,32 @@ function embeddingSignature(identity: {
     normalizeEndpoint(identity.base_url),
     identity.model.trim(),
     identity.dimensions,
+  ]);
+}
+
+/**
+ * The full effective request identity of one embedding probe.
+ *
+ * Every input that can change what the provider checks is part of it: the
+ * endpoint, the document model, the distinct query alias, the dimension, the
+ * timeout and the credential. A response is presented only while this exact
+ * request is still the observed draft.
+ */
+function embeddingProbeSignature(request: {
+  base_url: string;
+  model: string;
+  query_model?: string;
+  dimensions: number;
+  timeout_secs: number;
+  api_key?: string;
+}) {
+  return JSON.stringify([
+    normalizeEndpoint(request.base_url),
+    request.model.trim(),
+    (request.query_model ?? "").trim(),
+    request.dimensions,
+    request.timeout_secs,
+    (request.api_key ?? "").trim(),
   ]);
 }
 
@@ -188,11 +216,23 @@ export function useSettingsPage() {
   const [s3Testing, setS3Testing] = useState(false);
   const [valkeyTesting, setValkeyTesting] = useState(false);
   const [embeddingTesting, setEmbeddingTesting] = useState(false);
+  const [embeddingCapabilities, setEmbeddingCapabilities] =
+    useState<EmbeddingCapabilitiesResponse | null>(null);
   const [qdrantTesting, setQdrantTesting] = useState(false);
   const [doclingTesting, setDoclingTesting] = useState(false);
   const qdrantUrlRevision = useRef(0);
   const qdrantToastId = useRef<string | null>(null);
   const qdrantProbeSeq = useRef(0);
+
+  // The full draft embedding request the operator last asked the provider
+  // about. A capability or connection outcome that arrives after any probe
+  // input moved (including the query alias) is discarded instead of
+  // describing or validating a request the form no longer shows.
+  const embeddingProbeTarget = embeddingProbeSignature(runtimeDraft.embedding);
+  const embeddingProbeTargetRef = useRef(embeddingProbeTarget);
+  useEffect(() => {
+    embeddingProbeTargetRef.current = embeddingProbeTarget;
+  }, [embeddingProbeTarget]);
 
   const showErrorToast = useCallback((error: unknown, fallback: string) => {
     toast.error(t("common.error"), {
@@ -577,6 +617,24 @@ export function useSettingsPage() {
     if (savingRef.current || !hasChanges) {
       return;
     }
+    // A rebuild that owns the durable barrier refuses an identity change, so
+    // the operator is told to cancel that rebuild instead of meeting a bare
+    // conflict. Only the identity is blocked: a chunking or scheduler edit is
+    // saved as usual.
+    if (isAdmin && runtimeHasChanges && runtimeData) {
+      const candidate = buildRuntimePayload(runtimeDraft).embedding;
+      const live = runtimeResponseToPayload(runtimeData).embedding;
+      if (
+        embeddingSignature(candidate) !== embeddingSignature(live)
+        && rebuildHoldsBarrier(lastObservedRebuildStatus())
+      ) {
+        toast.error(t("common.error"), {
+          description: t("settings.runtime.vectorRebuildBlocksIdentitySave"),
+          duration: 5000,
+        });
+        return;
+      }
+    }
     // Gate the whole save on the compatibility decision: a cancelled
     // confirmation must write nothing, not even the other sections.
     if (
@@ -596,7 +654,7 @@ export function useSettingsPage() {
       return;
     }
     await performSave(false);
-  }, [hasChanges, performSave, runtimeData, runtimeDraft, runtimeHasChanges]);
+  }, [hasChanges, isAdmin, performSave, runtimeData, runtimeDraft, runtimeHasChanges, t]);
 
   const confirmCompatibility = useCallback(() => {
     const candidate = compatibilityCandidate;
@@ -648,17 +706,49 @@ export function useSettingsPage() {
   }, [runtimeDraft.scheduler.valkey_url, showErrorToast, t]);
 
   const testEmbeddingConnection = useCallback(async () => {
+    // Snapshot the request once. Both outcomes are presented only while this
+    // exact request (including the query alias and credential) is still the
+    // observed draft; the revision also covers an edit that lands before the
+    // next render updates the signature ref.
+    const request = {
+      base_url: runtimeDraft.embedding.base_url.trim(),
+      model: runtimeDraft.embedding.model.trim(),
+      // The probe must exercise the same distinct query alias the deployment
+      // would use: an invalid query model otherwise passes Test Connection
+      // while real query embeddings fail.
+      query_model: runtimeDraft.embedding.query_model.trim() || undefined,
+      dimensions: runtimeDraft.embedding.dimensions,
+      timeout_secs: runtimeDraft.embedding.timeout_secs,
+      api_key: runtimeDraft.embedding.api_key.trim() || undefined,
+    };
+    const requestRevision = runtimeRevision.current;
+    const requestSignature = embeddingProbeSignature(request);
+    const isStale = () => requestRevision !== runtimeRevision.current
+      || embeddingProbeTargetRef.current !== requestSignature;
     setEmbeddingTesting(true);
+    // The capability document is asked for on the explicit detect action and is
+    // independent of the connection probe: a draft model or dimension the
+    // provider refuses still discovers the aliases and dimensions it accepts.
     try {
-      await apiClient.testEmbeddingConnection({
-        base_url: runtimeDraft.embedding.base_url.trim(),
-        model: runtimeDraft.embedding.model.trim(),
-        dimensions: runtimeDraft.embedding.dimensions,
-        timeout_secs: runtimeDraft.embedding.timeout_secs,
-        api_key: runtimeDraft.embedding.api_key.trim() || undefined,
-      });
+      const capabilities = await apiClient.embeddingCapabilities(request);
+      if (!isStale()) {
+        setEmbeddingCapabilities(capabilities);
+      }
+    } catch {
+      if (!isStale()) {
+        setEmbeddingCapabilities(null);
+      }
+    }
+    try {
+      await apiClient.testEmbeddingConnection(request);
+      if (isStale()) {
+        return;
+      }
       toast.success(t("settings.runtime.embeddingTestSuccess"), { duration: 2500 });
     } catch (error) {
+      if (isStale()) {
+        return;
+      }
       showErrorToast(error, t("settings.runtime.embeddingTestFailed"));
     } finally {
       setEmbeddingTesting(false);
@@ -726,6 +816,7 @@ export function useSettingsPage() {
     doclingHasChanges,
     doclingQuery,
     doclingTesting,
+    embeddingCapabilities,
     embeddingTesting,
     hasChanges,
     isAdmin,

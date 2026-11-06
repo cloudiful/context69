@@ -11,6 +11,27 @@ import { installFakeEventSource } from "@/test-utils/event-source";
 
 import { ProcessingQueuePage } from "./queue-page";
 
+const auth = vi.hoisted(() => ({ admin: false }));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuthSession: () => ({
+    status: auth.admin ? "authenticated" : "guest",
+    user: auth.admin
+      ? {
+          user_id: 1,
+          login_name: "admin",
+          display_name: "Admin",
+          is_admin: true,
+          disabled_at: null,
+          created_at: "2026-01-01T00:00:00Z",
+          updated_at: "2026-01-01T00:00:00Z",
+        }
+      : null,
+    ready: true,
+    lastFailureReason: null,
+    restoreError: null,
+  }),
+}));
+
 function task(overrides: Partial<TaskResponse> = {}): TaskResponse {
   return {
     task_id: "task-1",
@@ -57,6 +78,7 @@ function renderPage(path = "/processing-queue") {
 
 describe("ProcessingQueuePage", () => {
   beforeEach(() => {
+    auth.admin = false;
     installFakeEventSource();
   });
 
@@ -350,6 +372,24 @@ describe("ProcessingQueuePage", () => {
     renderPage();
     expect(await screen.findByText("Failed to load the processing queue")).toBeInTheDocument();
     expect(screen.getByText("queue unavailable")).toBeInTheDocument();
+  });
+
+  it("keeps the queue toggle disabled and offers a retry when the admission state is unknown", async () => {
+    auth.admin = true;
+    vi.spyOn(apiClient, "listTasks").mockResolvedValue(page([task()]));
+    const getState = vi
+      .spyOn(apiClient, "getTaskQueueState")
+      .mockRejectedValueOnce(new Error("queue state unavailable"))
+      .mockResolvedValueOnce({ paused: true, updated_at: "2026-01-01T00:00:00Z" });
+    renderPage();
+
+    expect(await screen.findByText("Failed to read the queue state")).toBeInTheDocument();
+    expect(screen.getByTestId("queue-pause-toggle")).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: "Retry queue state" }));
+    await waitFor(() => expect(getState).toHaveBeenCalledTimes(2));
+    expect(await screen.findByRole("button", { name: "Resume queue" })).toBeEnabled();
+    expect(screen.queryByText("Failed to read the queue state")).not.toBeInTheDocument();
   });
 
   it("shows the trash-specific empty copy", async () => {

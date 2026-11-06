@@ -403,10 +403,14 @@ async fn cancelling_a_dormant_supervisor_ends_it_without_touching_a_dependency()
     assert!(runtime.snapshot().is_none());
 }
 
-/// The production unrecorded-collection bootstrap, driven against a loopback
+/// The unrecorded-collection compatibility seam, driven against a loopback
 /// Qdrant mock: an unknown populated collection at the configured dimension
 /// yields a read-only index that recovery publishes for the explicit rebuild
 /// only, never as readiness and never with an adopted identity.
+///
+/// The seam is no longer part of the production startup, which attaches the
+/// active physical collection and never adopts or creates one. It stays as the
+/// non-destructive helper other callers may still need.
 #[tokio::test]
 async fn an_unknown_populated_collection_is_recoverable_only_through_an_explicit_rebuild() {
     use context69::config::QdrantConfig;
@@ -823,7 +827,7 @@ async fn an_unknown_populated_collection_is_recoverable_only_through_an_explicit
     runtime.set_requires_rebuild(true);
 
     let connector = Arc::new(RebuildSeamConnector {
-        index: Mutex::new(Some(index)),
+        index: Mutex::new(Some(index.clone())),
     });
     let recovery = VectorRecovery::new(
         runtime.clone(),
@@ -840,13 +844,34 @@ async fn an_unknown_populated_collection_is_recoverable_only_through_an_explicit
     assert!(runtime.require_ready().is_err());
     assert!(
         runtime.require_snapshot().is_ok(),
-        "manual rebuild admission needs the snapshot"
+        "the rebuild needs the published snapshot"
     );
-    let generation = runtime
-        .try_begin_rebuild()
+
+    // The explicit rebuild admits the target it writes into, not the published
+    // pair: a deployment whose active collection is stale, or whose
+    // installation never had one, is still rebuilt into a fresh target. The
+    // target is published at the admitted generation before the fence is
+    // cleared, exactly as the production completion does it.
+    let target = context69::vector_runtime::VectorSnapshot {
+        embedding: Arc::new(TestProvider),
+        identity: Some(EmbeddingIdentity {
+            base_url: "https://embeddings.example/v1".to_string(),
+            model: "model-a".to_string(),
+            dimensions: 8,
+        }),
+        index,
+        collection: "unknown_collection__target".to_string(),
+        generation: runtime.generation(),
+        configured_fingerprint: Some("target-fingerprint".to_string()),
+    };
+    let admitted = runtime
+        .try_admit_target_rebuild(target, "target-fingerprint".to_string())
         .expect("the explicit rebuild is admitted from the rebuild-only state");
-    runtime.set_requires_rebuild(false);
-    assert!(runtime.complete_rebuild(generation));
+    assert!(
+        runtime.publish_admitted_target(admitted.generation, admitted.snapshot.clone()),
+        "the verified target is published at the admitted generation"
+    );
+    assert!(runtime.complete_rebuild_success(admitted.generation));
     assert!(runtime.is_ready());
 
     let _ = shutdown.send(());

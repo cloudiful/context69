@@ -1,0 +1,122 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The embedding provider API key is not projected: the shared encrypted store\n-- owns it, and the settings service resolves it through that store alone.\n--\n-- The query model is optional: NULL means the document model embeds queries\n-- too. The batching limits are optional for the same reason: a row that\n-- predates them is read with the published defaults.\nSELECT base_url,\n       model,\n       query_model,\n       dimensions,\n       timeout_secs,\n       max_items_per_request,\n       max_item_chars,\n       max_request_chars,\n       max_request_bytes\nFROM context69.runtime_embedding_settings\nWHERE singleton = TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "model"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "query_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "query_model"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "timeout_secs",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "timeout_secs"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "max_items_per_request",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "max_items_per_request"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "max_item_chars",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "max_item_chars"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "max_request_chars",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "max_request_chars"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "max_request_bytes",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.runtime_embedding_settings",
+            "name": "max_request_bytes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "40c4e205026f2f0f58f50e90b0d0715397548394b89e0f76c95ad7ae750c9fa2"
+}

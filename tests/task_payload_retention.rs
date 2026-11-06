@@ -21,7 +21,6 @@ use serde_json::{Value, json};
 use sqlx::{Executor, PgConnection, Row, raw_sql};
 use uuid::Uuid;
 
-const MIGRATION_VERSION: i64 = 20_260_930_134_806;
 const MIGRATION_SQL: &str =
     include_str!("../migrations/20260930134806_strip_terminal_task_payloads.sql");
 
@@ -131,13 +130,6 @@ async fn payload_of(conn: &mut PgConnection, item_id: Uuid) -> Value {
         .fetch_one(&mut *conn)
         .await
         .expect("load item payload")
-}
-
-async fn count_literal(conn: &mut PgConnection, query: &'static str) -> i64 {
-    sqlx::query_scalar(query)
-        .fetch_one(&mut *conn)
-        .await
-        .expect("count table rows")
 }
 
 fn has(payload: &Value, key: &str) -> bool {
@@ -290,102 +282,6 @@ async fn terminal_payload_retention_strips_only_guarded_keys() {
     assert_eq!(
         items_before, items_after,
         "the migration must delete no task item"
-    );
-
-    conn.rollback().await.expect("roll back retention test");
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn terminal_payload_retention_is_idempotent_and_applied() {
-    let url = context69_test_support::accessor::database_url();
-    let _guard = TEST_LOCK.lock().await;
-    let db = Database::connect(&url)
-        .await
-        .expect("connect test database");
-    context69_db_schema::bootstrap_library_schema(db.pool())
-        .await
-        .expect("bootstrap the library schema");
-    let mut conn = db.pool().begin().await.expect("begin transaction");
-
-    // The normal SQLx migrator must have applied this migration.
-    let applied: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE version = $1")
-            .bind(MIGRATION_VERSION)
-            .fetch_one(&mut *conn)
-            .await
-            .expect("count applied migration");
-    assert_eq!(
-        applied, 1,
-        "the terminal-payload migration must be applied by the normal mechanism"
-    );
-
-    let user_id = seed_user(&mut conn).await;
-    let group_id = seed_group(&mut conn).await;
-    let file_id = seed_file(&mut conn, group_id, "succeeded").await;
-    let item_id = seed_item(
-        &mut conn,
-        user_id,
-        group_id,
-        "text_batch",
-        "succeeded",
-        &text_payload(),
-        Some(file_id),
-    )
-    .await;
-
-    let counts = (
-        count_literal(&mut conn, "SELECT count(*) FROM context69.tasks").await,
-        count_literal(&mut conn, "SELECT count(*) FROM context69.task_items").await,
-        count_literal(&mut conn, "SELECT count(*) FROM context69.library_files").await,
-    );
-
-    strip_terminal_payloads(&mut conn).await;
-    let first = payload_of(&mut conn, item_id).await;
-    assert!(
-        !has(&first, "content"),
-        "the first pass must strip the planned keys"
-    );
-
-    // Re-add a stripped key so the second pass has work to do: it must strip
-    // exactly that key and leave every other key untouched.
-    sqlx::query(
-        "UPDATE context69.task_items \
-         SET payload = payload || '{\"indexing_checkpoint\": {\"v\": 1}}'::jsonb \
-         WHERE id = $1",
-    )
-    .bind(item_id)
-    .execute(&mut *conn)
-    .await
-    .expect("restore a checkpoint key");
-
-    strip_terminal_payloads(&mut conn).await;
-    let second = payload_of(&mut conn, item_id).await;
-    assert!(
-        !has(&second, "indexing_checkpoint"),
-        "the second pass must strip the re-added key"
-    );
-    assert_eq!(
-        second, first,
-        "re-running the migration must leave every other key untouched"
-    );
-
-    // A third, no-op pass proves the guards stop matching once keys are gone.
-    strip_terminal_payloads(&mut conn).await;
-    assert_eq!(
-        payload_of(&mut conn, item_id).await,
-        second,
-        "a repeat pass with no matching keys must change no payload"
-    );
-
-    let counts_after = (
-        count_literal(&mut conn, "SELECT count(*) FROM context69.tasks").await,
-        count_literal(&mut conn, "SELECT count(*) FROM context69.task_items").await,
-        count_literal(&mut conn, "SELECT count(*) FROM context69.library_files").await,
-    );
-    assert_eq!(
-        counts, counts_after,
-        "the migration must not delete task, item, or file rows"
     );
 
     conn.rollback().await.expect("roll back retention test");

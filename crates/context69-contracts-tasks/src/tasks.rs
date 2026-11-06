@@ -783,6 +783,23 @@ pub struct CancelActiveTasksResponse {
     pub cancelled_tasks: i64,
 }
 
+/// The durable global admission state of the task queue.
+///
+/// A pause stops new claims across every replica; already claimed work keeps
+/// running. `updated_at` is the last committed write of the state, so an
+/// idempotent update still advances it.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskQueueStateResponse {
+    pub paused: bool,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// The requested durable global admission state of the task queue.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct UpdateTaskQueueStateRequest {
+    pub paused: bool,
+}
+
 /// Query for `GET /v1/tasks/stream` (issue 405 Task E2).
 ///
 /// `task_ids` is a comma-separated list of task UUIDs to watch. Absent or

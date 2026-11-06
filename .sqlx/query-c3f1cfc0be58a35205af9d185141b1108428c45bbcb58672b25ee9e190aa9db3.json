@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Requests a pause of one owned rebuild at its next batch boundary\n-- (issue 1212 P3).\n--\n-- A pause never interrupts the current page: the flag is durable, and the\n-- worker observes it after the page it already committed. Only the owner of the\n-- running barrier may set it, so a pause can never target a superseded attempt\n-- or a newer unseen task.\nUPDATE context69.search_registry_epoch\nSET rebuild_pause_requested = TRUE,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\nRETURNING rebuild_pause_requested AS \"pause_requested!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pause_requested!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_pause_requested"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "c3f1cfc0be58a35205af9d185141b1108428c45bbcb58672b25ee9e190aa9db3"
+}

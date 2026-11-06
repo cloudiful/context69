@@ -76,16 +76,29 @@ pub struct VectorRuntime {
 
 /// The startup truth table for a persisted identity mismatch.
 ///
-/// Only a persisted row proves this installation already holds vectors for an
-/// identity. A missing row is the safe zero-data bootstrap path, even though
-/// the configured fingerprint trivially differs from "no row", and a matching
-/// legacy identity stays ready with no upgrade-wide rebuild.
+/// The active pointer is the authority of the live vector space: only the
+/// physical collection it names holds the vectors ordinary writers may use. A
+/// deployment without an active collection has no vectors at all, so it owes
+/// an explicit rebuild even when nothing was ever persisted, and a row whose
+/// logical identity or dimension differs from the configured one describes a
+/// different vector space and fails closed.
 pub(crate) fn requires_rebuild_from_persisted(
     runtime_configured: bool,
-    stored_fingerprint: Option<&str>,
+    active: Option<&crate::db::ActiveVectorIndexState>,
     configured_fingerprint: &str,
+    configured_dimensions: usize,
 ) -> bool {
-    runtime_configured && stored_fingerprint.is_some_and(|stored| stored != configured_fingerprint)
+    if !runtime_configured {
+        // An unconfigured runtime has no vector work to gate.
+        return false;
+    }
+    match active {
+        None => true,
+        Some(active) => {
+            active.fingerprint != configured_fingerprint
+                || active.dimensions != configured_dimensions
+        }
+    }
 }
 
 pub async fn initialize(
@@ -94,13 +107,15 @@ pub async fn initialize(
     runtime_configured: bool,
 ) -> Result<VectorRuntime> {
     let fingerprint = super::vector_identity::fingerprint(config);
-    let stored_fingerprint = db
-        .get_vector_index_fingerprint(&config.qdrant.collection_name)
-        .await?;
+    // The active pointer is read globally: the collection that holds the
+    // vectors is the one the activation published, not the logical collection
+    // name the settings carry.
+    let active = db.read_active_vector_index_state().await?;
     let requires_rebuild = requires_rebuild_from_persisted(
         runtime_configured,
-        stored_fingerprint.as_deref(),
+        active.as_ref(),
         &fingerprint,
+        config.embedding.dimensions,
     );
 
     // The shared handle exists for the whole process lifetime, so every consumer
@@ -145,14 +160,12 @@ pub async fn initialize(
 
 /// Rejects a runtime embedding update that the live runtime cannot apply.
 ///
-/// While a fixed vector index is live, only credential and timeout changes are
-/// hot-swappable: the API key and timeout are not part of the identity, so a
-/// change to either installs live. A model, dimension, or base-URL change would
-/// need a full reindex and is rejected before anything is persisted, so the
-/// save fails instead of reporting success while the live runtime stays on the
-/// old identity. An identity-changing save is likewise rejected while a live
-/// reload or rebuild is in progress, and any save is rejected while a reload is
-/// applying, so a racing save can never report success while unapplied.
+/// A desired identity or dimension change is permitted while the runtime is
+/// quiet: it is saved as the desired configuration, and the active collection
+/// keeps serving until an explicit rebuild activates a fresh target for it.
+/// Only a live transition refuses it, and it refuses it before anything is
+/// persisted, so a save never reports success while the change it describes is
+/// still unapplied.
 #[derive(Clone)]
 pub struct EmbeddingSettingsGuard {
     runtime: EmbeddingRuntime,
@@ -205,32 +218,11 @@ impl EmbeddingSettingsGuard {
             )
             .into());
         }
-        if self.vector.snapshot().is_none() || !self.runtime.is_ready() {
-            return Err(DomainError::invalid_argument(
-                "embedding identity cannot change until the vector runtime is ready with a \
-                 published vector identity",
-            )
-            .into());
-        }
-        if candidate.dimensions != current.dimensions {
-            return Err(DomainError::invalid_argument(
-                "runtime.embedding.dimensions cannot change against existing vectors; a different \
-                 vector space requires an explicit dimension migration",
-            )
-            .into());
-        }
-        if !embedding.confirm_vector_space_unchanged {
-            return Err(DomainError::invalid_argument(
-                "runtime.embedding model/base URL cannot change without an explicit confirmation \
-                 that the new gateway/alias produces the same vector space",
-            )
-            .into());
-        }
-        // A confirmed same-space transition must not report success while a live
-        // reload, rebuild, or another transition is in progress: its identity
-        // would remain unapplied. Credential and timeout saves stay live-safe and
-        // are not blocked, so a broken credential can still be repaired during a
-        // rebuild.
+        // A desired identity change is refused while a live reload, rebuild, or
+        // another transition is in progress: the identity would be saved while
+        // the runtime still applies the old one. Credential and timeout saves
+        // stay live-safe and are not blocked, so a broken credential can still
+        // be repaired during a rebuild.
         if self.reload_in_progress.load(Ordering::Acquire)
             || self.vector.is_rebuilding()
             || self.vector.is_transitioning()
@@ -308,11 +300,20 @@ impl EmbeddingRuntimeReloader {
         runtime_settings::apply_runtime_settings(&mut effective, stored);
 
         let candidate_identity = EmbeddingIdentity::from_config(&effective.embedding);
-        let previous = self.context.runtime.current_identity();
-        if self.context.vector.snapshot().is_some()
-            && previous
-                .as_ref()
-                .is_some_and(|previous| previous != &candidate_identity)
+        // The published pair is the authority of the live vector space: the
+        // collection holds the vectors of that identity, so a credential or
+        // timeout change may replace its provider while an identity change
+        // may not. The comparison uses the published identity rather than the
+        // standalone handle, which a rebuild that activated a different
+        // vector space leaves behind.
+        let published = self
+            .context
+            .vector
+            .snapshot()
+            .and_then(|snapshot| snapshot.identity.clone());
+        if published
+            .as_ref()
+            .is_some_and(|published| published != &candidate_identity)
         {
             warn!(
                 "embedding identity change was not applied live; only credential and timeout \

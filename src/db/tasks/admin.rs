@@ -14,14 +14,23 @@ impl Database {
     /// segment that already ended is left alone: the library refuses a
     /// cancellation of a terminal segment, and the domain row is terminal
     /// anyway.
+    ///
+    /// Only the items the cancellation actually cancelled are considered: the
+    /// caller passes exactly those ids, so a task that arrived after the
+    /// captured item set keeps its segments. The segments are requested in the
+    /// order of their library task id, so two cancellations that cover the
+    /// same items take the same segment locks in one deterministic order.
     async fn request_segment_cancellations(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        task_id: Option<Uuid>,
+        item_ids: &[Uuid],
     ) -> Result<()> {
+        if item_ids.is_empty() {
+            return Ok(());
+        }
         let segments: Vec<Option<Uuid>> = sqlx::query_file_scalar!(
             "src/sql/db/tasks/request_segment_cancellations.sql",
-            task_id
+            item_ids
         )
         .fetch_all(&mut **tx)
         .await?;
@@ -40,11 +49,30 @@ impl Database {
 
     pub async fn cancel_task(&self, task_id: Uuid, user_id: i64) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
+        // The canonical order is item -> epoch -> segment -> task. The items
+        // are locked and cancelled first, the epoch follows because it is
+        // shared with the settings save and the activation, the segments of
+        // exactly the cancelled items follow, and the task row is the last
+        // mutation. The task projection closes the transaction.
+        let cancelled_items: Vec<Uuid> =
+            sqlx::query_file_scalar!("src/sql/db/tasks/cancel_items.sql", task_id)
+                .fetch_all(&mut *tx)
+                .await?;
+        self.lock_search_registry_epoch_in(&mut tx).await?;
+        // The library owns the execution of the cancelled items: their
+        // segments are cancelled in the same transaction, so the segment and
+        // the domain row never disagree about the cancellation. Only the
+        // items this cancellation really cancelled are covered.
+        self.request_segment_cancellations(&mut tx, &cancelled_items)
+            .await?;
         let updated = sqlx::query_file!("src/sql/db/tasks/cancel.sql", task_id, user_id)
             .fetch_optional(&mut *tx)
             .await?
             .is_some();
         if !updated {
+            // The caller may not manage the task, or the activation committed
+            // first and the task is already succeeded: the item, epoch and
+            // segment writes above rolled back with the refusal.
             tx.rollback().await?;
             return Ok(false);
         }
@@ -58,14 +86,6 @@ impl Database {
         )
         .fetch_all(&mut *tx)
         .await?;
-        sqlx::query_file!("src/sql/db/tasks/cancel_items.sql", task_id)
-            .execute(&mut *tx)
-            .await?;
-        // The library owns the execution of the cancelled items: their segments
-        // are cancelled in the same transaction, so the segment and the domain
-        // row never disagree about the cancellation.
-        self.request_segment_cancellations(&mut tx, Some(task_id))
-            .await?;
         sqlx::query_file!(
             "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
             task_id,
@@ -73,6 +93,12 @@ impl Database {
         )
         .execute(&mut *tx)
         .await?;
+        // A cancelled rebuild owner must not keep the durable barrier: the
+        // cancelled work can no longer complete, and a late page of it must
+        // write nothing. The item rows are already terminal and the epoch row
+        // is already held.
+        self.cancel_owned_rebuild_in(&mut tx, Some(task_id), false)
+            .await?;
         sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
             .execute(&mut *tx)
             .await?;
@@ -146,39 +172,93 @@ impl Database {
         Ok(result.rows_affected())
     }
 
+    /// Frees the barrier of an explicitly discarded failed rebuild.
+    ///
+    /// The task is terminal and is not reopened: only its owned failed barrier
+    /// and the recorded cursor are cleared, so the observed failure stops
+    /// blocking a new build. A running barrier matches nothing here and needs
+    /// the generic task cancellation instead.
+    pub async fn discard_failed_rebuild(&self, task_id: Uuid) -> Result<bool> {
+        let mut tx = self.pool().begin().await?;
+        self.lock_search_registry_epoch_in(&mut tx).await?;
+        let epoch = self
+            .cancel_owned_rebuild_in(&mut tx, Some(task_id), true)
+            .await?;
+        tx.commit().await?;
+        Ok(epoch.is_some())
+    }
+
     pub async fn cancel_all_active_tasks(&self) -> Result<i64> {
         let mut tx = self.pool().begin().await?;
-        let ids = sqlx::query_file_scalar!("src/sql/db/tasks/cancel_active.sql")
-            .fetch_all(&mut *tx)
-            .await?;
-        if !ids.is_empty() {
-            for task_id in &ids {
-                sqlx::query_file_scalar!(
-                    "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_task.sql",
-                    task_id,
-                    "business_cancel",
-                )
+        // The candidate set is selected once, without locking, inside this
+        // transaction. The path then follows the same item -> epoch -> task
+        // order as activation and paused resume, so no cancellation can invert
+        // those locks. A task that an activation completes between this select
+        // and the task update simply remains succeeded.
+        let candidates: Vec<Uuid> =
+            sqlx::query_file_scalar!("src/sql/db/tasks/select_active_task_ids.sql")
                 .fetch_all(&mut *tx)
                 .await?;
-                sqlx::query_file!(
-                    "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
-                    task_id,
-                    Option::<&str>::None,
-                )
-                .execute(&mut *tx)
-                .await?;
-            }
-            sqlx::query_file!("src/sql/db/tasks/cancel_active_items.sql")
-                .execute(&mut *tx)
-                .await?;
-            // The library owns the execution of the cancelled items: their
-            // segments are cancelled in the same transaction.
-            self.request_segment_cancellations(&mut tx, None).await?;
-            sqlx::query_file!("src/sql/db/tasks/recompute_cancelled.sql")
-                .execute(&mut *tx)
-                .await?;
+        if candidates.is_empty() {
+            tx.commit().await?;
+            return Ok(0);
         }
+        // Lock and cancel exactly the candidate tasks' items first; completed
+        // items keep their status and their task keeps its completion.
+        let cancelled_items: Vec<Uuid> =
+            sqlx::query_file_scalar!("src/sql/db/tasks/cancel_active_items.sql", &candidates)
+                .fetch_all(&mut *tx)
+                .await?;
+        // The epoch is taken after the item locks and before the segments and
+        // the task rows, which is the order activation, paused resume and the
+        // single-task cancellation all use.
+        self.lock_search_registry_epoch_in(&mut tx).await?;
+        // The library owns the execution of the cancelled items: the segments
+        // of exactly the cancelled items are cancelled in the same
+        // transaction. A task that arrived after the captured task set keeps
+        // its segments.
+        self.request_segment_cancellations(&mut tx, &cancelled_items)
+            .await?;
+        // Only a barrier whose recorded owner this cancellation actually
+        // cancelled may be freed. A rebuild task that arrived after the
+        // candidate snapshot is outside the captured set, so its paused
+        // barrier and cursor stay untouched.
+        let barrier = self.read_rebuild_barrier_in(&mut tx).await?;
+        if barrier
+            .owner_item_id
+            .is_some_and(|owner| cancelled_items.contains(&owner))
+        {
+            for candidate in &candidates {
+                self.cancel_owned_rebuild_in(&mut tx, Some(*candidate), false)
+                    .await?;
+            }
+        }
+        // Cancel exactly the still-active candidate task rows. The active
+        // predicate keeps a task that completed in the meantime.
+        let cancelled: Vec<Uuid> =
+            sqlx::query_file_scalar!("src/sql/db/tasks/cancel_active.sql", &candidates)
+                .fetch_all(&mut *tx)
+                .await?;
+        for task_id in &cancelled {
+            sqlx::query_file_scalar!(
+                "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_task.sql",
+                task_id,
+                "business_cancel",
+            )
+            .fetch_all(&mut *tx)
+            .await?;
+            sqlx::query_file!(
+                "src/sql/db/tasks/docling_remote_jobs/cancel_active_for_task.sql",
+                task_id,
+                Option::<&str>::None,
+            )
+            .execute(&mut *tx)
+            .await?;
+        }
+        sqlx::query_file!("src/sql/db/tasks/recompute_cancelled.sql")
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
-        Ok(ids.len() as i64)
+        Ok(cancelled.len() as i64)
     }
 }

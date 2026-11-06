@@ -64,6 +64,65 @@ struct SourceRerunItem {
     payload: Value,
 }
 
+/// The locked domain item of one worker.
+///
+/// The row is locked before the worker touches its library segment, so the
+/// domain order is item -> epoch -> segment -> task on every path.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub(crate) struct LockedTaskItem {
+    pub(crate) status: String,
+    /// The captured grant still describes the item.
+    pub(crate) owned: bool,
+    /// The captured execution is the item's persistent segment identity.
+    ///
+    /// `execution_task_id` and `execution_generation` survive the terminal
+    /// transition, so an already-succeeded item can prove that a late worker
+    /// belongs to the exact execution the activation sealed.
+    pub(crate) matches_execution: bool,
+}
+
+impl LockedTaskItem {
+    /// Whether the worker may still act on the segment of this item.
+    ///
+    /// An item that is already succeeded keeps its segment only for the exact
+    /// captured execution: the rebuild activation completes the owner item and
+    /// seals that segment in its own transaction, and the worker that arrives
+    /// afterwards must recognize the committed completion without resealing or
+    /// undoing it. A succeeded item of another generation is still refused.
+    pub(crate) fn may_act(&self) -> bool {
+        self.owned || (self.status == "succeeded" && self.matches_execution)
+    }
+}
+
+/// Locks the domain item of one worker on the transaction of the caller and
+/// reports whether it may act.
+///
+/// The lock is the ordering half of the fence: the worker takes its domain
+/// item before it seals, fails, renews or parks the library segment, exactly
+/// like a cancellation takes the item before it requests the cancellation of
+/// that segment. The grant comparison is the safety half: a worker whose
+/// lease, token or generation is gone must not touch the segment at all.
+///
+/// The lock is held by the caller's transaction until it commits, so the
+/// segment of the item is only touched while the item is still locked.
+pub(crate) async fn lock_task_item_for_worker_in(
+    tx: &mut Transaction<'_, Postgres>,
+    item_id: Uuid,
+    execution: &ExecutionContext,
+) -> Result<Option<LockedTaskItem>> {
+    let locked = sqlx::query_file_as!(
+        LockedTaskItem,
+        "src/sql/db/tasks/lock_task_item.sql",
+        item_id,
+        execution.fencing_token(),
+        execution.task_id(),
+        execution.generation
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    Ok(locked)
+}
+
 impl Database {
     /// Ends the segment of a running item and projects the outcome into the
     /// domain.
@@ -76,6 +135,31 @@ impl Database {
     /// segment behind a domain row it did not own.
     pub async fn finish_task_item(&self, request: FinishTaskItemRequest<'_>) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
+        // The domain item is locked and its grant is checked before the
+        // library segment is touched: the domain order is item -> epoch ->
+        // segment -> task, and a worker that lost its item must not seal the
+        // segment it no longer owns.
+        let locked =
+            lock_task_item_for_worker_in(&mut tx, request.item_id, &request.execution).await?;
+        let Some(locked) = locked else {
+            // The item is gone: the segment and the domain stay as they are, so
+            // a stale worker never reports a success.
+            tx.rollback().await.ok();
+            return Ok(false);
+        };
+        if !locked.may_act() {
+            // The grant of this worker is not the one the item carries any
+            // more: the segment and the domain stay as they are, so a stale
+            // worker never reports a success.
+            tx.rollback().await.ok();
+            return Ok(false);
+        }
+        // The rebuild activation marks its owner item succeeded and seals the
+        // captured segment in one transaction. A late worker of the exact same
+        // execution then finds this true and must recognize the committed
+        // completion instead of resealing it. Any other execution is refused by
+        // `may_act` above.
+        let completed_by_activation = locked.status == "succeeded" && locked.matches_execution;
         let queue = self.execution_queue().await?;
         let attempt = &request.execution.attempt;
         let outcome = match if request.status == "failed" {
@@ -97,6 +181,14 @@ impl Database {
         } {
             Ok(outcome) => outcome,
             Err(error) if is_lease_lost(&error) => {
+                if completed_by_activation && request.status == "succeeded" {
+                    // The activation already sealed this exact execution, so the
+                    // lease is gone for the right reason: project the parent and
+                    // report the recognized completion without resealing.
+                    recompute_parent(&mut tx, request.task_id).await?;
+                    tx.commit().await?;
+                    return Ok(true);
+                }
                 // The lease is gone: the segment and the domain stay as they
                 // are, so a stale worker never reports a success.
                 tx.rollback().await.ok();
@@ -129,6 +221,17 @@ impl Database {
         .fetch_one(&mut *tx)
         .await?;
         if !updated {
+            // The rebuild activation marks its owner item succeeded in the same
+            // transaction as the activation. A worker that reaches its normal
+            // success path afterwards finds an already-finished item; keep the
+            // sealed attempt and project the parent instead of discarding the
+            // committed completion. Any other refused transition still rolls
+            // the whole write back.
+            if completed_by_activation {
+                recompute_parent(&mut tx, request.task_id).await?;
+                tx.commit().await?;
+                return Ok(true);
+            }
             // The domain does not own this attempt: the seal of the library
             // is undone with the transition, so the two never disagree.
             tx.rollback().await.ok();
@@ -164,6 +267,14 @@ impl Database {
     /// its lease learns about it instead of extending a lease it does not hold.
     pub async fn heartbeat_task_item(&self, execution: &ExecutionContext) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
+        // The domain item is locked and its grant is checked before the
+        // library segment is renewed, so the worker never extends a lease of
+        // an item it does not own any more.
+        let locked = lock_task_item_for_worker_in(&mut tx, execution.item_id, execution).await?;
+        if !locked.is_some_and(|locked| locked.owned) {
+            tx.rollback().await.ok();
+            return Ok(false);
+        }
         let queue = self.execution_queue().await?;
         let lease_until = match queue.renew_in(&mut tx, &execution.attempt).await {
             Ok(lease_until) => lease_until,
@@ -209,6 +320,14 @@ impl Database {
         attempt_id: i64,
     ) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
+        // The domain item is locked and its grant is checked before the
+        // library segment is closed, so a worker that lost its item never
+        // releases the segment of that item.
+        let locked = lock_task_item_for_worker_in(&mut tx, item_id, execution).await?;
+        if !locked.is_some_and(|locked| locked.owned) {
+            tx.rollback().await.ok();
+            return Ok(false);
+        }
         let queue = self.execution_queue().await?;
         if let Err(error) = queue
             .complete_in(
@@ -517,6 +636,15 @@ impl Database {
     /// never leaves a running segment behind.
     pub async fn wait_task_item(&self, request: WaitTaskItemRequest<'_>) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
+        // The domain item is locked and its grant is checked before the
+        // library segment is closed, so a worker that lost its item never
+        // parks the item of that segment.
+        let locked =
+            lock_task_item_for_worker_in(&mut tx, request.item_id, &request.execution).await?;
+        if !locked.is_some_and(|locked| locked.owned) {
+            tx.rollback().await.ok();
+            return Ok(false);
+        }
         let queue = self.execution_queue().await?;
         let deferred = serde_json::json!({
             "outcome": "deferred",
@@ -678,6 +806,57 @@ impl Database {
         }
         tx.commit().await?;
         Ok(resumed.into_iter().map(|item| item.id).collect())
+    }
+
+    /// Reopens the exact parked item of a paused vector rebuild (issue 1212 P3).
+    ///
+    /// The item row is locked before the epoch row, keeping the canonical
+    /// item-then-epoch order. The requeue only matches the waiting item whose
+    /// `vector_rebuild_paused` dependency is owned by the running barrier; the
+    /// pause flag is then reread under the epoch lock and must still describe
+    /// that item before it is cleared. A stale or superseded resume therefore
+    /// reopens nothing and undoes its own requeue.
+    ///
+    /// The resume keeps the committed cursor and only restarts the collapsed
+    /// item at `processing`; the explicit resume also recharges the attempt
+    /// count, so waiting behind the pause never spent one.
+    pub async fn resume_paused_rebuild_item(&self, task_id: Uuid) -> Result<bool> {
+        let mut tx = self.pool().begin().await?;
+        let resumed = sqlx::query_file_as!(
+            RequeuedItem,
+            "src/sql/db/tasks/resume_paused_rebuild_item.sql",
+            task_id
+        )
+        .fetch_all(&mut *tx)
+        .await?;
+        if resumed.is_empty() {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        self.lock_search_registry_epoch_in(&mut tx).await?;
+        let barrier = self.read_rebuild_barrier_in(&mut tx).await?;
+        let owned = barrier.pause_requested
+            && barrier.state == crate::db::RebuildBarrierState::Running
+            && barrier
+                .owner_item_id
+                .is_some_and(|owner| resumed.iter().any(|row| row.id == owner));
+        if !owned {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        let owner = barrier
+            .owner_item_id
+            .expect("the checked barrier has an owner");
+        if !self.resume_rebuild_in(&mut tx, owner).await? {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        self.link_unlinked_rows(&mut tx, &resumed).await?;
+        sqlx::query_file!("src/sql/db/tasks/recompute.sql", task_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(true)
     }
 
     /// Opens the execution segment of every requeued row the library does not

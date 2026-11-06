@@ -105,16 +105,17 @@ mod ordinary_replacement_cases {
         attributes: ReplacementFileAttributes,
     ) -> Result<ReplacementRunOutcome> {
         let embedding = FakeEmbedding;
-        let index = QdrantIndex::for_test_unreachable(mock.url(), "ordinary", DIMENSIONS)?;
+        let index = QdrantIndex::for_test_unreachable(
+            mock.url(),
+            &fixture.identity.collection_name,
+            DIMENSIONS,
+        )?;
         let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
         let vector = ReplacementVector {
             embedding: &embedding,
             index: &index,
             chunking: &chunk_budget,
-            identity: Some(context69::db::RegistryVectorIdentity {
-                embedding_fingerprint: "ordinary-fingerprint".into(),
-                collection_name: "ordinary".into(),
-            }),
+            identity: Some(fixture.identity.clone()),
         };
         let staged = fixture.attach_staged_object().await;
         let request = ReplacementRunRequest {
@@ -219,6 +220,16 @@ mod ordinary_replacement_cases {
         storage_root: &Path,
         mock: &QdrantPointsMock,
     ) -> TaskService {
+        let identity = harness::seed_active_vector_identity(
+            db,
+            harness::SWITCH_QDRANT_URL,
+            harness::SWITCH_LOGICAL_COLLECTION,
+            harness::SWITCH_PHYSICAL_COLLECTION,
+            harness::SWITCH_EMBEDDING_BASE_URL,
+            harness::SWITCH_EMBEDDING_MODEL,
+            harness::SWITCH_DIMENSIONS,
+        )
+        .await;
         let chunking = ChunkingConfig {
             max_chars: 1000,
             overlap_chars: 100,
@@ -230,20 +241,21 @@ mod ordinary_replacement_cases {
             "",
         );
         let generation = runtime.generation();
-        let index = QdrantIndex::for_test_unreachable(mock.url(), "ordinary", DIMENSIONS)
-            .expect("build test index");
+        let index =
+            QdrantIndex::for_test_unreachable(mock.url(), &identity.collection_name, DIMENSIONS)
+                .expect("build test index");
         assert!(runtime.publish(
             generation,
             VectorSnapshot {
                 embedding,
                 identity: None,
                 index: Arc::new(index),
-                collection: "ordinary".into(),
+                collection: identity.collection_name.clone(),
                 generation,
-                configured_fingerprint: Some("ordinary_replacement-fingerprint".to_string()),
+                configured_fingerprint: Some(identity.embedding_fingerprint.clone()),
             }
         ));
-        runtime.set_configured_fingerprint(Some("ordinary-fingerprint".to_string()));
+        runtime.set_configured_fingerprint(Some(identity.embedding_fingerprint));
         let translation = TranslationService::new(TranslationDependencies {
             pool: db.pool().clone(),
             http_client: reqwest::Client::new(),

@@ -13,6 +13,7 @@ use crate::{
 
 use context69_contracts::settings::ChunkingUnit;
 use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
+use context69_contracts::settings::EmbeddingBatchingSettings;
 
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
     if request.qdrant.url.trim().is_empty() {
@@ -46,6 +47,7 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         )
         .into());
     }
+    embedding_batching_request(&request.embedding.batching)?;
     if request.scheduler.interval_secs == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.scheduler.interval_secs must be greater than 0",
@@ -166,6 +168,35 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         }
     }
     registry_capacity_request(&request.file_library)?;
+    Ok(())
+}
+
+/// The batching limits a request carries.
+///
+/// They are persisted as PostgreSQL BIGINT and bound every provider request, so
+/// a limit that is not positive or not representable is refused here, before any
+/// secret or settings write.
+fn embedding_batching_request(batching: &EmbeddingBatchingSettings) -> Result<()> {
+    for (name, value) in [
+        ("max_items_per_request", batching.max_items_per_request),
+        ("max_item_chars", batching.max_item_chars),
+        ("max_request_chars", batching.max_request_chars),
+        ("max_request_bytes", batching.max_request_bytes),
+    ] {
+        if value == 0 {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.embedding.batching.{name} must be greater than 0"
+            ))
+            .into());
+        }
+        if i64::try_from(value).is_err() {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.embedding.batching.{name} must be at most {}",
+                i64::MAX
+            ))
+            .into());
+        }
+    }
     Ok(())
 }
 

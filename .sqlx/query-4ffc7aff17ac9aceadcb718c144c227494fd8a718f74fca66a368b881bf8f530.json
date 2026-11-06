@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The distinct library segments of the items one cancellation covers.\n--\n-- `$1` is the list of the item ids the cancellation actually cancelled. Only\n-- those items are considered: a cancellation never scans the segments of\n-- items it did not cancel, so a task that arrived after the captured item set\n-- is never touched by it.\n--\n-- The segments are ordered by their library task id, so two cancellations that\n-- cover the same items request their segment cancellations in one deterministic\n-- order.\nSELECT DISTINCT execution_task_id\nFROM context69.task_items\nWHERE id = ANY($1::uuid[])\n  AND execution_task_id IS NOT NULL\nORDER BY execution_task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "4ffc7aff17ac9aceadcb718c144c227494fd8a718f74fca66a368b881bf8f530"
+}

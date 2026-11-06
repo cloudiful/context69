@@ -24,10 +24,12 @@ fn update(
     UpdateRuntimeEmbeddingSettings {
         base_url: base_url.to_string(),
         model: model.to_string(),
+        query_model: None,
         dimensions,
         timeout_secs: 30,
         api_key: api_key.map(str::to_string),
         confirm_vector_space_unchanged: confirm,
+        batching: Default::default(),
     }
 }
 
@@ -54,21 +56,20 @@ fn guard_with_identity(index_present: bool) -> (EmbeddingSettingsGuard, Arc<Atom
 }
 
 #[test]
-fn an_unconfirmed_identity_change_is_rejected_while_the_index_is_live() {
+fn an_unconfirmed_identity_change_is_permitted_while_the_runtime_is_quiet() {
     let (guard, _) = guard_with_identity(true);
 
+    // A desired identity or dimension change is saved as the desired
+    // configuration: the active collection keeps serving until an explicit
+    // rebuild activates a fresh target for it.
     for candidate in [
         update("https://other.example/v1", "model-a", 8, None, false),
         update("https://embeddings.example/v1", "model-b", 8, None, false),
+        update("https://embeddings.example/v1", "model-a", 16, None, false),
     ] {
-        let error = guard
+        guard
             .check(&candidate)
-            .expect_err("an unconfirmed identity change must be rejected");
-        assert!(error.to_string().contains("cannot change"), "{error}");
-        assert!(
-            error.to_string().contains("confirmation"),
-            "the error must ask for an explicit confirmation: {error}"
-        );
+            .expect("a desired change is permitted while the runtime is quiet");
     }
 
     // A credential or timeout change keeps the identity and is allowed. The
@@ -111,10 +112,13 @@ fn a_confirmed_same_dimension_change_is_allowed_on_a_ready_index() {
 }
 
 #[test]
-fn a_dimension_change_is_rejected_even_with_confirmation() {
+fn a_dimension_change_is_permitted_by_the_guard_but_never_acknowledged() {
     let (guard, _) = guard_with_identity(true);
 
-    let error = guard
+    // The guard is not the place that refuses a dimension change: the settings
+    // service decides, and it refuses to acknowledge a change of dimension,
+    // destination, or logical base even when the request confirms it.
+    guard
         .check(&update(
             "https://embeddings.example/v1",
             "model-a",
@@ -122,9 +126,7 @@ fn a_dimension_change_is_rejected_even_with_confirmation() {
             None,
             true,
         ))
-        .expect_err("a dimension change must never be confirmable");
-    assert!(error.to_string().contains("dimensions"), "{error}");
-    assert!(error.to_string().contains("cannot change"), "{error}");
+        .expect("the guard permits the desired change; the acknowledgment refuses it");
 }
 
 #[test]
@@ -214,21 +216,40 @@ fn a_rebuild_fence_closes_and_reopens_through_committed_state() {
 
 #[test]
 fn the_startup_truth_table_only_requires_a_rebuild_for_a_persisted_mismatch() {
+    let active = |fingerprint: &str, dimensions: usize| crate::db::ActiveVectorIndexState {
+        collection_name: "physical-target".to_string(),
+        fingerprint: fingerprint.to_string(),
+        dimensions,
+    };
     assert!(
-        !super::requires_rebuild_from_persisted(false, Some("stale"), "configured"),
+        !super::requires_rebuild_from_persisted(false, Some(&active("stale", 8)), "configured", 8),
         "an unconfigured runtime has no vector work to gate"
     );
     assert!(
-        !super::requires_rebuild_from_persisted(true, None, "configured"),
-        "a missing persisted identity is the safe zero-data bootstrap path"
+        super::requires_rebuild_from_persisted(true, None, "configured", 8),
+        "a deployment without an active collection owes an explicit rebuild"
     );
     assert!(
-        !super::requires_rebuild_from_persisted(true, Some("configured"), "configured"),
-        "a matching legacy identity stays ready with no upgrade-wide rebuild"
+        !super::requires_rebuild_from_persisted(
+            true,
+            Some(&active("configured", 8)),
+            "configured",
+            8
+        ),
+        "a matching active identity stays ready with no upgrade-wide rebuild"
     );
     assert!(
-        super::requires_rebuild_from_persisted(true, Some("stale"), "configured"),
+        super::requires_rebuild_from_persisted(true, Some(&active("stale", 8)), "configured", 8),
         "a persisted mismatch requires an explicit rebuild"
+    );
+    assert!(
+        super::requires_rebuild_from_persisted(
+            true,
+            Some(&active("configured", 8)),
+            "configured",
+            16
+        ),
+        "an active collection of another dimension is a different vector space"
     );
 }
 

@@ -32,6 +32,49 @@ pub(crate) async fn cancel_active_tasks(
 
 #[utoipa::path(
     get,
+    path = "/v1/admin/tasks/queue",
+    responses(
+        (status = 200, description = "Durable global task-queue admission state", body = crate::contracts::TaskQueueStateResponse),
+        (status = 403, description = "Admin access required", body = context69_contracts::ApiErrorResponse)
+    )
+)]
+pub(crate) async fn get_task_queue_state(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+) -> Response {
+    match state.app.tasks.admin_task_queue_state(&session.user).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => super::error_mapping::task_maintenance_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    put,
+    path = "/v1/admin/tasks/queue",
+    request_body = crate::contracts::UpdateTaskQueueStateRequest,
+    responses(
+        (status = 200, description = "Durable global task-queue admission state", body = crate::contracts::TaskQueueStateResponse),
+        (status = 403, description = "Admin access required", body = context69_contracts::ApiErrorResponse)
+    )
+)]
+pub(crate) async fn update_task_queue_state(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<crate::contracts::UpdateTaskQueueStateRequest>,
+) -> Response {
+    match state
+        .app
+        .tasks
+        .admin_update_task_queue_state(&session.user, &request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => super::error_mapping::task_maintenance_error_response(error),
+    }
+}
+
+#[utoipa::path(
+    get,
     path = "/v1/admin/docling/tasks",
     params(crate::contracts::DoclingRemoteTasksQuery),
     responses(

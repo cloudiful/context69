@@ -125,16 +125,17 @@ mod runner_cases {
         sections: Vec<ReplacementSectionInput>,
         staged_source_object: Option<Uuid>,
     ) -> Result<ReplacementRunOutcome> {
-        let index = QdrantIndex::for_test_unreachable(mock.url(), "runner-collection", DIMENSIONS)?;
+        let index = QdrantIndex::for_test_unreachable(
+            mock.url(),
+            &fixture.identity.collection_name,
+            DIMENSIONS,
+        )?;
         let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
         let vector = ReplacementVector {
             embedding,
             index: &index,
             chunking: &chunk_budget,
-            identity: Some(context69::db::RegistryVectorIdentity {
-                embedding_fingerprint: "runner-fingerprint".into(),
-                collection_name: "runner-collection".into(),
-            }),
+            identity: Some(fixture.identity.clone()),
         };
         let request = ReplacementRunRequest {
             task_id: fixture.task_id,
@@ -164,15 +165,16 @@ mod runner_cases {
         chunk_budget: &ChunkBudget,
         sections: Vec<ReplacementSectionInput>,
     ) -> Result<ReplacementRunOutcome> {
-        let index = QdrantIndex::for_test_unreachable(mock.url(), "runner-collection", DIMENSIONS)?;
+        let index = QdrantIndex::for_test_unreachable(
+            mock.url(),
+            &fixture.identity.collection_name,
+            DIMENSIONS,
+        )?;
         let vector = ReplacementVector {
             embedding,
             index: &index,
             chunking: chunk_budget,
-            identity: Some(context69::db::RegistryVectorIdentity {
-                embedding_fingerprint: "runner-fingerprint".into(),
-                collection_name: "runner-collection".into(),
-            }),
+            identity: Some(fixture.identity.clone()),
         };
         let staged = fixture.attach_staged_object().await;
         let request = ReplacementRunRequest {
@@ -285,7 +287,7 @@ mod runner_cases {
             &embedding,
             &mock,
             [1000, 1000, 1000],
-            sections,
+            sections.clone(),
             Some(staged),
         )
         .await
@@ -308,6 +310,12 @@ mod runner_cases {
         assert!(!upserts.is_empty());
         for call in &upserts {
             assert!(call.insert_only, "staging must be insert-only");
+            for point in call.points.values() {
+                assert!(
+                    !point.payload.contains_key("c69_ix_state"),
+                    "no hidden-state payload marker is written"
+                );
+            }
             for id in &call.point_ids {
                 assert_eq!(
                     payload_document_id(call, id),
@@ -406,6 +414,34 @@ mod runner_cases {
                 .any(|link| link.document_id == outcome.document_ids[1]),
             "the new section is linked"
         );
+
+        // A replay of the same durable run is already applied and writes
+        // nothing: no staged/document/retired ids and no extra upsert.
+        let upserts_after_switch = upserts.len();
+        let replay = run_with_source(
+            &fixture,
+            &embedding,
+            &mock,
+            [1000, 1000, 1000],
+            sections,
+            Some(staged),
+        )
+        .await
+        .expect("the resolved replay is already applied");
+        assert_eq!(
+            replay.disposition,
+            ReplacementRunDisposition::AlreadyApplied
+        );
+        assert_eq!(replay.run_id, run_id);
+        assert!(replay.staged_point_ids.is_empty());
+        assert!(replay.document_ids.is_empty());
+        assert!(replay.retired_point_ids.is_empty());
+        assert_eq!(
+            mock.upsert_calls().len(),
+            upserts_after_switch,
+            "a replay writes no points"
+        );
+        assert_eq!(fixture.registry_entry(run_id).await.phase, "switched");
     }
 
     fn point_matches_hash(call: &qdrant_points_mock::UpsertCall, id: &str, hash: &str) -> bool {
@@ -782,49 +818,6 @@ mod runner_cases {
         assert!(mock.upsert_calls().is_empty());
     }
 
-    /// A replay of a resolved successful run writes no points.
-    #[tokio::test]
-    #[ignore = "requires configured reusable PostgreSQL"]
-    async fn a_resolved_replay_writes_no_points() {
-        let fixture = harness::SwitchFixture::new().await;
-        let kept = fixture.seed_section("kept", "old-hash").await;
-        fixture.attach_staged_object().await;
-        let (run_id, _generation) = fixture.create_run().await;
-        let mock = QdrantPointsMock::start().await;
-        let embedding = FakeEmbedding::new(0);
-        let sections = vec![section_input("kept", &kept.external_id, "new body")];
-
-        let first = run(
-            &fixture,
-            &embedding,
-            &mock,
-            [1000, 1000, 1000],
-            sections.clone(),
-        )
-        .await
-        .expect("the first run switches");
-        assert_eq!(first.disposition, ReplacementRunDisposition::Switched);
-        let upserts_after_first = mock.upsert_calls().len();
-
-        let replay = run(&fixture, &embedding, &mock, [1000, 1000, 1000], sections)
-            .await
-            .expect("the replay is already applied");
-        assert_eq!(
-            replay.disposition,
-            ReplacementRunDisposition::AlreadyApplied
-        );
-        assert!(replay.staged_point_ids.is_empty());
-        assert!(replay.document_ids.is_empty());
-        assert!(replay.retired_point_ids.is_empty());
-        assert_eq!(replay.run_id, run_id);
-        assert_eq!(
-            mock.upsert_calls().len(),
-            upserts_after_first,
-            "a replay writes no points"
-        );
-        assert_eq!(fixture.registry_entry(run_id).await.phase, "switched");
-    }
-
     /// A physical cleanup failure is tolerated: the run still reports a
     /// successful switch and the tombstone stays.
     #[tokio::test]
@@ -1174,33 +1167,6 @@ mod runner_cases {
             .await
             .unwrap();
         assert_eq!(stored[0].record_hash, normalized.record_hash);
-    }
-
-    /// The staged payload carries no hidden-state marker: the registry plus
-    /// epoch control visibility, never a payload flip.
-    #[tokio::test]
-    #[ignore = "requires configured reusable PostgreSQL"]
-    async fn the_staged_payload_carries_no_hidden_state_marker() {
-        let fixture = harness::SwitchFixture::new().await;
-        let kept = fixture.seed_section("kept", "old-hash").await;
-        let _run_id = fixture.create_run().await;
-        let mock = QdrantPointsMock::start().await;
-        let embedding = FakeEmbedding::new(0);
-        let sections = vec![section_input("kept", &kept.external_id, "new body")];
-        let outcome = run(&fixture, &embedding, &mock, [1000, 1000, 1000], sections)
-            .await
-            .expect("the replacement switches");
-        let upserts = mock.upsert_calls();
-        assert!(!upserts.is_empty());
-        for call in &upserts {
-            for point in call.points.values() {
-                assert!(
-                    !point.payload.contains_key("c69_ix_state"),
-                    "no hidden-state payload marker is written"
-                );
-            }
-        }
-        assert!(!outcome.staged_point_ids.is_empty());
     }
 
     /// An insert-only upsert never overwrites a live point that shares an id:

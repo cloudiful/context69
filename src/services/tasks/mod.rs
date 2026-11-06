@@ -50,6 +50,7 @@ mod lifecycle_logging;
 mod maintenance;
 mod pipeline_progress;
 mod pipeline_progress_input;
+mod rebuild_control;
 mod responses;
 mod runtime;
 mod runtime_driver;

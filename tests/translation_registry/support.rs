@@ -75,9 +75,10 @@ impl EmbeddingProvider for FakeEmbedding {
 pub fn runtime(
     embedding: Arc<FakeEmbedding>,
     mock: &QdrantPointsMock,
-    collection: &str,
+    identity: &context69::db::RegistryVectorIdentity,
 ) -> Result<VectorRuntime> {
-    let index = QdrantIndex::for_test_unreachable(mock.url(), collection, DIMENSIONS)?;
+    let index =
+        QdrantIndex::for_test_unreachable(mock.url(), &identity.collection_name, DIMENSIONS)?;
     let provider: Arc<dyn EmbeddingProvider> = embedding.clone();
     let runtime = VectorRuntime::from_legacy(
         EmbeddingRuntime::new(Some(provider.clone()), None),
@@ -91,12 +92,12 @@ pub fn runtime(
             embedding: provider,
             identity: None,
             index: Arc::new(index),
-            collection: collection.into(),
+            collection: identity.collection_name.clone(),
             generation,
-            configured_fingerprint: Some("support-fingerprint".to_string()),
+            configured_fingerprint: Some(identity.embedding_fingerprint.clone()),
         }
     ));
-    runtime.set_configured_fingerprint(Some("translation-fingerprint".to_string()));
+    runtime.set_configured_fingerprint(Some(identity.embedding_fingerprint.clone()));
     Ok(runtime)
 }
 

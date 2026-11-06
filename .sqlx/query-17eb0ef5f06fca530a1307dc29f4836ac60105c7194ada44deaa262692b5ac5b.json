@@ -1,0 +1,38 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The durable global admission state of the task queue.\n--\n-- The singleton row always exists, so a deployment that never paused reads as\n-- unpaused. A claim reads it inside its own transaction, after the admission\n-- lock, so a committed pause is always observed before any item is selected.\nSELECT paused, updated_at\nFROM context69.task_queue_control\nWHERE id = 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "paused",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_queue_control",
+            "name": "paused"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_queue_control",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "17eb0ef5f06fca530a1307dc29f4836ac60105c7194ada44deaa262692b5ac5b"
+}

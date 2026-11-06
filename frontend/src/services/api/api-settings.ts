@@ -16,6 +16,8 @@ import type {
   DoclingCleanupOutcome,
   DoclingCleanupPageResponse,
   DoclingCleanupStatus,
+  EmbeddingCapabilitiesResponse,
+  VectorIndexRebuildStatus,
 } from "./api-types";
 
 type TestRuntimeEmbeddingRequest = components["schemas"]["TestRuntimeEmbeddingRequest"];
@@ -81,6 +83,45 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
           signal: options?.signal,
         }),
       ) as Promise<TaskRef>;
+    },
+    getVectorIndexRebuildStatus(options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.GET("/v1/settings/runtime/vector-index/rebuild", {
+          signal: options?.signal,
+        }),
+      ) as Promise<VectorIndexRebuildStatus>;
+    },
+    pauseVectorIndexRebuild(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/vector-index/rebuild/pause", {
+          body: { task_id: taskId },
+          signal: options?.signal,
+        }),
+      ) as Promise<VectorIndexRebuildStatus>;
+    },
+    resumeVectorIndexRebuild(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/vector-index/rebuild/resume", {
+          body: { task_id: taskId },
+          signal: options?.signal,
+        }),
+      ) as Promise<VectorIndexRebuildStatus>;
+    },
+    cancelVectorIndexRebuild(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/vector-index/rebuild/cancel", {
+          body: { task_id: taskId },
+          signal: options?.signal,
+        }),
+      ) as Promise<VectorIndexRebuildStatus>;
+    },
+    embeddingCapabilities(payload: TestRuntimeEmbeddingRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/embedding/capabilities", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      ) as Promise<EmbeddingCapabilitiesResponse>;
     },
     getDoclingSettings(options?: RequestOptions) {
       return unwrapResponse(

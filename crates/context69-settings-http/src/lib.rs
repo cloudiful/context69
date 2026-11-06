@@ -11,7 +11,8 @@ use axum::{
 };
 use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
-    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
+    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, EmbeddingBatchingSettings,
+    EmbeddingCapabilitiesResponse, EmbeddingCapabilitiesSource, RuntimeSettingsResponse,
     SearchSettingsResponse, TestLlmProviderOutcome, TestLlmProviderRequest,
     TestLlmProviderResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
     TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
@@ -30,6 +31,13 @@ pub trait SettingsApi: Send + Sync {
     async fn test_s3_connection(&self, request: &UpdateRuntimeS3Settings) -> Result<()>;
     async fn test_valkey_connection(&self, request: &TestRuntimeValkeyRequest) -> Result<()>;
     async fn test_embedding_connection(&self, request: &TestRuntimeEmbeddingRequest) -> Result<()>;
+    /// A non-persisting capability request against a submitted embedding
+    /// provider. It reports what the provider advertises, or that it advertises
+    /// nothing, and never writes a row.
+    async fn embedding_capabilities(
+        &self,
+        request: &TestRuntimeEmbeddingRequest,
+    ) -> Result<EmbeddingCapabilitiesResponse>;
     /// A non-persisting connectivity check against a submitted Qdrant endpoint.
     async fn test_qdrant_connection(&self, request: &TestRuntimeQdrantRequest) -> Result<()>;
     async fn get_docling_settings(&self) -> Result<DoclingSettingsResponse>;
@@ -82,6 +90,10 @@ where
             axum::routing::post(test_embedding_connection),
         )
         .route(
+            "/v1/settings/runtime/embedding/capabilities",
+            axum::routing::post(embedding_capabilities),
+        )
+        .route(
             "/v1/settings/runtime/qdrant/test",
             axum::routing::post(test_qdrant_connection),
         )
@@ -111,6 +123,7 @@ where
         test_s3_connection,
         test_valkey_connection,
         test_embedding_connection,
+        embedding_capabilities,
         test_qdrant_connection,
         get_docling_settings,
         update_docling_settings,
@@ -127,6 +140,9 @@ where
             UpdateRuntimeS3Settings,
             TestRuntimeValkeyRequest,
             TestRuntimeEmbeddingRequest,
+            EmbeddingCapabilitiesResponse,
+            EmbeddingCapabilitiesSource,
+            EmbeddingBatchingSettings,
             TestRuntimeQdrantRequest,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,
@@ -194,6 +210,26 @@ async fn test_embedding_connection(
 ) -> impl IntoResponse {
     match state.settings.test_embedding_connection(&request).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+/// A non-persisting capability request against the submitted embedding
+/// provider.
+///
+/// It reports what the provider advertises about itself - its model, its
+/// aliases, its dimensions, and the request limits it accepts - and which
+/// limits are in effect. A provider that publishes no capability document is
+/// reported as `unknown` with the manual limits, so the caller always learns
+/// the limits that apply. The response never carries a credential, a remote
+/// prompt, or a raw provider body.
+#[utoipa::path(post, path = "/v1/settings/runtime/embedding/capabilities", request_body = TestRuntimeEmbeddingRequest, responses((status = 200, body = EmbeddingCapabilitiesResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn embedding_capabilities(
+    State(state): State<SettingsHttpState>,
+    axum::Json(request): axum::Json<TestRuntimeEmbeddingRequest>,
+) -> impl IntoResponse {
+    match state.settings.embedding_capabilities(&request).await {
+        Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
         Err(error) => settings_management_error_response(error),
     }
 }

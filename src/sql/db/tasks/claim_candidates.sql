@@ -47,6 +47,14 @@ eligible_items AS (
             ti.status = 'waiting'
             AND COALESCE(ti.waiting_reason, '') = 'docling'
         )
+      -- A paused vector rebuild is awoken by an explicit resume, never by the
+      -- dispatcher: the exact dependency key stays unclaimable across a
+      -- restart, so a pause cannot turn into an automatic claim loop.
+      AND NOT (
+            ti.status = 'waiting'
+            AND COALESCE(ti.waiting_reason, '') = 'dependency'
+            AND ti.dependency_key = 'vector_rebuild_paused'
+        )
 ),
 work AS (
     -- Parents that need the dispatcher now (a due item) or are already running

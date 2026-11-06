@@ -227,10 +227,12 @@ pub fn runtime_request(
         embedding: context69::contracts::UpdateRuntimeEmbeddingSettings {
             base_url: "http://127.0.0.1:1/v1".to_string(),
             model: "context69-secret-store-test".to_string(),
+            query_model: None,
             dimensions: 128,
             timeout_secs: 5,
             api_key: embedding_api_key.map(str::to_string),
             confirm_vector_space_unchanged: false,
+            batching: Default::default(),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,
@@ -280,13 +282,24 @@ pub fn s3_request(secret_key: Option<&str>) -> context69::contracts::UpdateRunti
     }
 }
 
+/// The persisted vector-identity row this suite owns.
+///
+/// The active flag is part of it: an acknowledged identity may only rekey the
+/// row that ordinary point writers use, so a test that asserts an
+/// acknowledgment has to seed the row as the active one.
+pub struct VectorIdentityRow {
+    pub fingerprint: String,
+    pub rebuilt_chunks: i64,
+    pub rebuilt_at: chrono::DateTime<chrono::Utc>,
+    pub dimensions: i64,
+    pub active: bool,
+}
+
 /// The persisted vector-identity row this suite owns: fingerprint, chunks, and
 /// the timestamp a confirmed transition must preserve.
-pub async fn vector_identity_state(
-    db: &Database,
-) -> Option<(String, i64, chrono::DateTime<chrono::Utc>)> {
+pub async fn vector_identity_state(db: &Database) -> Option<VectorIdentityRow> {
     let row = sqlx::query(
-        "SELECT fingerprint, rebuilt_chunks, rebuilt_at
+        "SELECT fingerprint, rebuilt_chunks, rebuilt_at, dimensions, active
          FROM context69.vector_index_state
          WHERE collection_name = $1",
     )
@@ -294,34 +307,45 @@ pub async fn vector_identity_state(
     .fetch_optional(db.pool())
     .await
     .expect("read the owned vector identity row");
-    row.map(|row| {
-        (
-            row.get::<String, _>("fingerprint"),
-            row.get::<i64, _>("rebuilt_chunks"),
-            row.get::<chrono::DateTime<chrono::Utc>, _>("rebuilt_at"),
-        )
+    row.map(|row| VectorIdentityRow {
+        fingerprint: row.get::<String, _>("fingerprint"),
+        rebuilt_chunks: row.get::<i64, _>("rebuilt_chunks"),
+        rebuilt_at: row.get::<chrono::DateTime<chrono::Utc>, _>("rebuilt_at"),
+        dimensions: row.get::<i64, _>("dimensions"),
+        active: row.get::<bool, _>("active"),
     })
 }
 
 /// Seeds the persisted identity of the owned test collection with a synthetic
 /// chunk count. Only the settings transaction may rewrite the fingerprint.
+///
+/// The row is seeded as the active one: it is the collection ordinary point
+/// writers use, and a confirmed same-space transition may only acknowledge the
+/// active row. The active pointer is unique, so the seed claims it first: the
+/// suites share one database, and each of them activates the collection it
+/// owns.
 pub async fn seed_vector_identity(
     db: &Database,
     fingerprint: &str,
     dimensions: i64,
 ) -> chrono::DateTime<chrono::Utc> {
+    sqlx::query("UPDATE context69.vector_index_state SET active = FALSE WHERE active")
+        .execute(db.pool())
+        .await
+        .expect("claim the active vector index");
     sqlx::query(
         "INSERT INTO context69.vector_index_state (
              collection_name, fingerprint, embedding_base_url, embedding_model,
-             dimensions, rebuilt_chunks
+             dimensions, rebuilt_chunks, active
          )
-         VALUES ($1, $2, $3, $4, $5, $6)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE)
          ON CONFLICT (collection_name) DO UPDATE
          SET fingerprint = EXCLUDED.fingerprint,
              embedding_base_url = EXCLUDED.embedding_base_url,
              embedding_model = EXCLUDED.embedding_model,
              dimensions = EXCLUDED.dimensions,
              rebuilt_chunks = EXCLUDED.rebuilt_chunks,
+             active = TRUE,
              rebuilt_at = NOW()
          RETURNING rebuilt_at",
     )

@@ -93,9 +93,19 @@ export interface UseQueueOptions {
   openTask?: (taskId: string) => void;
   /** The `?task=<uuid>` value the page reads from its route. */
   focusedTaskId?: string | null;
+  /**
+   * Whether the admin queue-admission controls are available.
+   *
+   * Default false: a caller that does not opt in never issues the admin queue
+   * read and never sees a pause control.
+   */
+  enableQueueControls?: boolean;
 }
 
 const EMPTY_SELECTION: QueueSelection = { ids: [], statuses: {}, snapshot: false };
+
+/** The cache key of the durable global queue-admission state. */
+const queueStateQueryKey = ["tasks", "queue-state"] as const;
 
 class QueueListTimeoutError extends Error {
   constructor() {
@@ -221,6 +231,21 @@ export interface QueueState {
   confirmDeleteTask: (task: TaskResponse) => void;
   confirmAccept: () => void;
   confirmCancel: () => void;
+  /** Whether the admin queue controls are available to this caller. */
+  queueControls: boolean;
+  /** The durable global admission state; null until the first admin read. */
+  queuePaused: boolean | null;
+  /** Whether the durable admission state has been read successfully. */
+  queueStateKnown: boolean;
+  /** Whether the durable admission state read is in flight. */
+  queueStateLoading: boolean;
+  /** The failed durable admission state read, when the state is unknown. */
+  queueStateError: unknown;
+  /** Retry the durable admission state read after a failure. */
+  refreshQueueState: () => void;
+  /** Whether a queue-state write is in flight. */
+  queueControlBusy: boolean;
+  toggleQueuePaused: () => void;
 }
 
 function initialScope(): QueueScope {
@@ -255,6 +280,8 @@ function isConflict(error: unknown): boolean {
 export function useQueue(options: UseQueueOptions = {}): QueueState {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const enableQueueControls = options.enableQueueControls === true;
+  const [queueControlBusy, setQueueControlBusy] = useState(false);
   const [scope, setScope] = useState<QueueScope>(initialScope);
   const [searchInput, setSearchInput] = useState("");
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -296,6 +323,51 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     },
     refetchIntervalInBackground: false,
   });
+
+  /**
+   * The durable global admission state of the queue.
+   *
+   * The read is admin-scoped, so the query stays disabled until the page opts
+   * in with an admin viewer: a non-admin never issues it. The hook is always
+   * created, so the hook order never depends on the viewer's role.
+   */
+  const queueStateQuery = useQuery({
+    queryKey: queueStateQueryKey,
+    queryFn: ({ signal }) => apiClient.getTaskQueueState({ signal }),
+    enabled: enableQueueControls,
+    retry: false,
+  });
+
+  const toggleQueuePaused = useCallback(() => {
+    // The durable state is the authority of the toggle direction. Until it was
+    // read successfully the button stays unavailable: treating an unknown
+    // state as "not paused" would send a blind pause that can never resume an
+    // already paused deployment.
+    if (!enableQueueControls || queueControlBusy || queueStateQuery.data === undefined) {
+      return;
+    }
+    const next = !queueStateQuery.data.paused;
+    setQueueControlBusy(true);
+    void (async () => {
+      try {
+        const response = await apiClient.updateTaskQueueState(next);
+        queryClient.setQueryData(queueStateQueryKey, response);
+        toast.success(
+          t(next ? "processingQueue.queuePaused" : "processingQueue.queueResumed"),
+          { duration: 2500 },
+        );
+      } catch (error) {
+        toast.error(t("common.error"), {
+          description: error instanceof Error && error.message
+            ? error.message
+            : t("processingQueue.queueControlFailed"),
+          duration: 5000,
+        });
+      } finally {
+        setQueueControlBusy(false);
+      }
+    })();
+  }, [enableQueueControls, queryClient, queueControlBusy, queueStateQuery.data, t]);
 
   /**
    * Re-read one focused detail query by id. A mutation passes the id it
@@ -1070,6 +1142,11 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     refresh: () => {
       reload();
       refetchFocusedTask();
+      // Refresh is the operator's explicit reread: the durable admission state
+      // is part of the queue and must be refetched instead of staying stale.
+      if (enableQueueControls) {
+        void queryClient.invalidateQueries({ queryKey: queueStateQueryKey });
+      }
     },
     toggleExpanded,
     isActing,
@@ -1091,5 +1168,15 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
       request?.action();
     },
     confirmCancel: () => setConfirm(null),
+    queueControls: enableQueueControls,
+    queuePaused: queueStateQuery.data?.paused ?? null,
+    queueStateKnown: queueStateQuery.isSuccess && queueStateQuery.data !== undefined,
+    queueStateLoading: queueStateQuery.isLoading,
+    queueStateError: queueStateQuery.isError ? queueStateQuery.error : null,
+    refreshQueueState: () => {
+      void queueStateQuery.refetch();
+    },
+    queueControlBusy,
+    toggleQueuePaused,
   };
 }

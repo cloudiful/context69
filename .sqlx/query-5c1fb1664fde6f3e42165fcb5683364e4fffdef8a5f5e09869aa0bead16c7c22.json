@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Record that the owned rebuild target was created (issue 1212 R3).\n--\n-- The marker is the durable proof that the recorded target collection is the\n-- one this attempt created, so a later attempt may attach it. It is written\n-- immediately after a successful create and only under the exact owner: the\n-- owner item, its grant token, the captured fingerprint and the recorded\n-- collection are all part of the predicate, so a superseded or cancelled\n-- attempt marks nothing.\n--\n-- `$1` is the owner item, `$2` the grant token, `$3` the captured fingerprint\n-- and `$4` the recorded collection.\nUPDATE context69.search_registry_epoch\nSET rebuild_target_created = TRUE,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\nRETURNING epoch\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "5c1fb1664fde6f3e42165fcb5683364e4fffdef8a5f5e09869aa0bead16c7c22"
+}

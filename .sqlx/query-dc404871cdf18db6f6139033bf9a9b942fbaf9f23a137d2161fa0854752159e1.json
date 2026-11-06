@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Writes the durable global admission state of the task queue.\n--\n-- The caller takes the task-admission lock in the same transaction before this\n-- statement, so the write serializes against every claim: no claim can admit\n-- work after a pause commits. `updated_at` also advances on an idempotent\n-- write, so it reports the last committed change of the state.\nUPDATE context69.task_queue_control\nSET paused = $1,\n    updated_at = now()\nWHERE id = 1\nRETURNING paused, updated_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "paused",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.task_queue_control",
+            "name": "paused"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_queue_control",
+            "name": "updated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "dc404871cdf18db6f6139033bf9a9b942fbaf9f23a137d2161fa0854752159e1"
+}

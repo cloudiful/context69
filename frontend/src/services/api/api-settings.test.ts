@@ -153,3 +153,55 @@ describe("settings api llm provider probe", () => {
     );
   });
 });
+
+describe("settings api vector index rebuild control", () => {
+  it("reads the durable status without a body", async () => {
+    const status = { state: "running", task_id: "task-vector-1" };
+    const get = vi.fn().mockResolvedValue({ data: status, response: { ok: true, status: 200 } });
+    const api = createApi(get);
+
+    expect(await api.getVectorIndexRebuildStatus()).toBe(status);
+    expect(get).toHaveBeenCalledWith("/v1/settings/runtime/vector-index/rebuild", {
+      signal: undefined,
+    });
+  });
+
+  it("carries the observed task id on every control", async () => {
+    const post = vi.fn().mockResolvedValue({
+      data: { state: "pausing", task_id: "task-vector-1" },
+      response: { ok: true, status: 200 },
+    });
+    const api = createSettingsApi({ openapiClient: { POST: post } as never, unwrapResponse });
+
+    await api.pauseVectorIndexRebuild("task-vector-1");
+    await api.resumeVectorIndexRebuild("task-vector-1");
+    await api.cancelVectorIndexRebuild("task-vector-1");
+
+    for (const action of ["pause", "resume", "cancel"]) {
+      expect(post).toHaveBeenCalledWith(
+        `/v1/settings/runtime/vector-index/rebuild/${action}`,
+        { body: { task_id: "task-vector-1" }, signal: undefined },
+      );
+    }
+  });
+});
+
+describe("settings api embedding capabilities", () => {
+  it("posts the draft target to the capability path", async () => {
+    const response = { source: "unknown", document_model: "bge-small" };
+    const post = vi.fn().mockResolvedValue({ data: response, response: { ok: true, status: 200 } });
+    const api = createSettingsApi({ openapiClient: { POST: post } as never, unwrapResponse });
+    const payload = {
+      base_url: "https://embeddings.example/v1",
+      model: "bge-small",
+      dimensions: 768,
+      timeout_secs: 30,
+    };
+
+    expect(await api.embeddingCapabilities(payload)).toBe(response);
+    expect(post).toHaveBeenCalledWith("/v1/settings/runtime/embedding/capabilities", {
+      body: payload,
+      signal: undefined,
+    });
+  });
+});

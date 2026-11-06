@@ -22,6 +22,17 @@ export const DEFAULT_CHUNKING_MAX_TOKENS = 1024;
 /** Token overlap two chunks share when the response carries no overlap. */
 export const DEFAULT_CHUNKING_OVERLAP_TOKENS = 128;
 
+/**
+ * The embedding request planner defaults of a deployment that stored none.
+ *
+ * They match the contract defaults, so an older deployment and a fresh draft
+ * describe the same limits.
+ */
+export const DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST = 32;
+export const DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS = 8_000;
+export const DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS = 64_000;
+export const DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES = 1_048_576;
+
 export function createRuntimeDraft(): DraftRuntimeSettings {
   return {
     qdrant: {
@@ -33,8 +44,15 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       base_url: "",
       api_key: "",
       model: "",
+      query_model: "",
       dimensions: 768,
       timeout_secs: 30,
+      batching: {
+        max_items_per_request: DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
+        max_item_chars: DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
+        max_request_chars: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
+        max_request_bytes: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
+      },
     },
     scheduler: {
       interval_secs: 300,
@@ -121,8 +139,23 @@ export function runtimeResponseToDraft(
       base_url: response.embedding.base_url,
       api_key: "",
       model: response.embedding.model,
+      query_model: response.embedding.query_model ?? "",
       dimensions: response.embedding.dimensions,
       timeout_secs: response.embedding.timeout_secs,
+      batching: {
+        max_items_per_request:
+          response.embedding.batching?.max_items_per_request
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
+        max_item_chars:
+          response.embedding.batching?.max_item_chars
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
+        max_request_chars:
+          response.embedding.batching?.max_request_chars
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
+        max_request_bytes:
+          response.embedding.batching?.max_request_bytes
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
+      },
     },
     scheduler: {
       interval_secs: response.scheduler.interval_secs,

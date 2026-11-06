@@ -19,6 +19,7 @@ fn probe_request(
     context69::contracts::settings::TestRuntimeEmbeddingRequest {
         base_url: "http://127.0.0.1:1/v1".to_string(),
         model: "context69-secret-store-test".to_string(),
+        query_model: None,
         dimensions: 128,
         timeout_secs: 1,
         api_key: api_key.map(str::to_string),
@@ -129,12 +130,17 @@ fn a_probe_without_a_key_sent_the_stored_key() {
     run(async |db| {
         reset(db).await;
         let settings = service(db, keyed(db));
+
+        let (base_url, recorded) = recording_embedding_endpoint(axum::http::StatusCode::OK).await;
+        // The stored configuration names the same origin as the probe, so the
+        // stored credential is the one the probe falls back to.
+        let mut stored = runtime_request(Some(SYNTHETIC_KEY), None);
+        stored.embedding.base_url = base_url.clone();
         settings
-            .update_runtime_settings(&runtime_request(Some(SYNTHETIC_KEY), None))
+            .update_runtime_settings(&stored)
             .await
             .expect("seed the sealed row");
 
-        let (base_url, recorded) = recording_embedding_endpoint(axum::http::StatusCode::OK).await;
         settings
             .test_embedding_connection(&live_probe_request(&base_url, None))
             .await
@@ -144,6 +150,46 @@ fn a_probe_without_a_key_sent_the_stored_key() {
             recorded.bearer_tokens(),
             vec![SYNTHETIC_KEY.to_string()],
             "an absent key must fall back to the sealed stored one"
+        );
+        assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
+
+        reset(db).await;
+    });
+}
+
+/// The stored credential belongs to the origin it was configured for. A draft
+/// that names another origin is probed without it, so the credential never
+/// leaves the origin it belongs to.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn the_stored_credential_is_not_sent_to_another_origin() {
+    run(async |db| {
+        reset(db).await;
+        let settings = service(db, keyed(db));
+
+        let (stored_url, _stored_endpoint) =
+            recording_embedding_endpoint(axum::http::StatusCode::OK).await;
+        let mut stored = runtime_request(Some(SYNTHETIC_KEY), None);
+        stored.embedding.base_url = stored_url.clone();
+        settings
+            .update_runtime_settings(&stored)
+            .await
+            .expect("seed the sealed row");
+
+        // The draft names another origin, and submits no key of its own.
+        let (draft_url, draft_endpoint) =
+            recording_embedding_endpoint(axum::http::StatusCode::OK).await;
+        settings
+            .test_embedding_connection(&live_probe_request(&draft_url, None))
+            .await
+            .expect("the recording endpoint answers the probe");
+
+        let headers = draft_endpoint.recorded_authorization_headers();
+        assert_eq!(headers.len(), 1, "the draft endpoint saw one request");
+        assert!(
+            headers[0].is_none(),
+            "the stored credential must not reach another origin: {:?}",
+            headers[0]
         );
         assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
 
@@ -181,6 +227,46 @@ fn a_refused_probe_reports_the_failure_without_the_submitted_key() {
                 .await
                 .is_none(),
             "a refused probe must not persist the submitted key"
+        );
+
+        reset(db).await;
+    });
+}
+
+/// A configuration with a distinct query model is probed with both models: a
+/// reachable document model says nothing about the alias that embeds queries.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn a_probe_checks_the_document_model_and_the_query_model() {
+    run(async |db| {
+        reset(db).await;
+        let settings = service(db, keyed(db));
+
+        let (base_url, recorded) = recording_embedding_endpoint(axum::http::StatusCode::OK).await;
+        let mut request = live_probe_request(&base_url, Some(SYNTHETIC_KEY));
+        request.query_model = Some("context69-query-alias".to_string());
+        settings
+            .test_embedding_connection(&request)
+            .await
+            .expect("both models answer the probe");
+
+        assert_eq!(
+            recorded.bearer_tokens().len(),
+            2,
+            "the document model and the query model are both probed"
+        );
+
+        // The same configuration without a query model is probed once, with the
+        // document model alone.
+        let (base_url, recorded) = recording_embedding_endpoint(axum::http::StatusCode::OK).await;
+        settings
+            .test_embedding_connection(&live_probe_request(&base_url, Some(SYNTHETIC_KEY)))
+            .await
+            .expect("the document model answers the probe");
+        assert_eq!(
+            recorded.bearer_tokens().len(),
+            1,
+            "a configuration without a query model is probed once"
         );
 
         reset(db).await;

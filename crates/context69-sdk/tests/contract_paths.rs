@@ -31,11 +31,22 @@ struct Captured {
     query: Option<String>,
     idempotency: Option<String>,
     auth: Option<String>,
+    body: Option<Value>,
 }
 
 type SharedLog = Arc<Mutex<Vec<Captured>>>;
 
 fn record(method: &Method, uri: &OriginalUri, headers: &HeaderMap, log: &SharedLog) {
+    record_body(method, uri, headers, None, log);
+}
+
+fn record_body(
+    method: &Method,
+    uri: &OriginalUri,
+    headers: &HeaderMap,
+    body: Option<Value>,
+    log: &SharedLog,
+) {
     let path = uri.path().to_string();
     let query = uri.query().map(str::to_string);
     let idempotency = headers
@@ -52,6 +63,7 @@ fn record(method: &Method, uri: &OriginalUri, headers: &HeaderMap, log: &SharedL
         query,
         idempotency,
         auth,
+        body,
     });
 }
 
@@ -65,6 +77,27 @@ fn file_id() -> String {
 
 fn now() -> String {
     "2026-01-01T00:00:00Z".to_string()
+}
+
+fn rebuild_status_json() -> Value {
+    json!({
+        "state": "running",
+        "processed_chunks": 12,
+        "total_chunks": 40,
+        "error_message": null,
+        "started_at": now(),
+        "finished_at": null,
+        "task_id": task_id(),
+        "active_dimensions": 768,
+        "desired_dimensions": 1024,
+        "physical_collection": "context69",
+        "target_collection": "context69__target",
+        "active_model": "bge-small",
+        "can_pause": true,
+        "can_resume": false,
+        "can_cancel": true,
+        "queue_paused": false
+    })
 }
 
 fn task_response_json(id: &str) -> Value {
@@ -679,6 +712,58 @@ async fn test_router(log: SharedLog) -> axum::Router {
                     async move {
                         record(&method, &uri, &headers, &log);
                         (StatusCode::OK, Json(me_json()))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild",
+            get({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap| {
+                    let log = log.clone();
+                    async move {
+                        record(&method, &uri, &headers, &log);
+                        (StatusCode::OK, Json(rebuild_status_json()))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild/pause",
+            post({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(body): Json<Value>| {
+                    let log = log.clone();
+                    async move {
+                        record_body(&method, &uri, &headers, Some(body), &log);
+                        (StatusCode::OK, Json(rebuild_status_json()))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild/resume",
+            post({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(body): Json<Value>| {
+                    let log = log.clone();
+                    async move {
+                        record_body(&method, &uri, &headers, Some(body), &log);
+                        (StatusCode::OK, Json(rebuild_status_json()))
+                    }
+                }
+            }),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild/cancel",
+            post({
+                let log = log.clone();
+                move |method: Method, uri: OriginalUri, headers: HeaderMap, Json(body): Json<Value>| {
+                    let log = log.clone();
+                    async move {
+                        record_body(&method, &uri, &headers, Some(body), &log);
+                        (StatusCode::OK, Json(rebuild_status_json()))
                     }
                 }
             }),
@@ -1319,6 +1404,72 @@ async fn facade_emits_canonical_paths_methods_and_idempotency() {
     assert_eq!(me.user.login_name, "alice");
     assert_eq!(last(&log).method, "GET");
     assert_eq!(last(&log).path, "/v1/auth/me");
+
+    // The rebuild status is read on its own path, and every control carries
+    // the observed task id so it can only act on the rebuild it describes.
+    let rebuild_status = client
+        .vector_index_rebuild_status()
+        .await
+        .expect("rebuild status");
+    assert_eq!(last(&log).method, "GET");
+    assert_eq!(last(&log).path, "/v1/settings/runtime/vector-index/rebuild");
+    assert_eq!(
+        rebuild_status.state,
+        context69_contracts::VectorIndexRebuildState::Running
+    );
+    assert_eq!(rebuild_status.task_id, Some(task_uuid));
+    assert_eq!(rebuild_status.active_dimensions, Some(768));
+    assert_eq!(rebuild_status.desired_dimensions, Some(1024));
+    assert!(rebuild_status.can_pause);
+    assert!(!rebuild_status.can_resume);
+
+    let paused: context69_contracts::VectorIndexRebuildStatus = client
+        .pause_vector_index_rebuild(task_uuid)
+        .await
+        .expect("pause rebuild");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(
+        last(&log).path,
+        "/v1/settings/runtime/vector-index/rebuild/pause"
+    );
+    assert_eq!(
+        last(&log).body,
+        Some(json!({"task_id": task_uuid.to_string()})),
+        "the control must carry the observed task id"
+    );
+    assert_eq!(paused.task_id, Some(task_uuid));
+
+    let resumed: context69_contracts::VectorIndexRebuildStatus = client
+        .resume_vector_index_rebuild(task_uuid)
+        .await
+        .expect("resume rebuild");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(
+        last(&log).path,
+        "/v1/settings/runtime/vector-index/rebuild/resume"
+    );
+    assert_eq!(
+        last(&log).body,
+        Some(json!({"task_id": task_uuid.to_string()})),
+        "the control must carry the observed task id"
+    );
+    assert_eq!(resumed.task_id, Some(task_uuid));
+
+    let cancelled: context69_contracts::VectorIndexRebuildStatus = client
+        .cancel_vector_index_rebuild(task_uuid)
+        .await
+        .expect("cancel rebuild");
+    assert_eq!(last(&log).method, "POST");
+    assert_eq!(
+        last(&log).path,
+        "/v1/settings/runtime/vector-index/rebuild/cancel"
+    );
+    assert_eq!(
+        last(&log).body,
+        Some(json!({"task_id": task_uuid.to_string()})),
+        "the control must carry the observed task id"
+    );
+    assert_eq!(cancelled.task_id, Some(task_uuid));
 
     client.healthz().await.expect("healthz");
     assert_eq!(last(&log).method, "GET");

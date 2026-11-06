@@ -273,7 +273,19 @@ impl SearchEmbeddingProvider for EmbeddingAdapter {
     }
 
     fn embedding_identity(&self) -> String {
-        self.vector.cache_identity()
+        // The identity scopes the cached query vectors, so it names the model
+        // queries are embedded with: a changed query alias invalidates that
+        // cache and nothing else. A provider without a distinct query model
+        // embeds queries with the document model, which the base identity
+        // already names.
+        let base = self.vector.cache_identity();
+        let Some(snapshot) = self.vector.snapshot() else {
+            return format!("{base}|query:");
+        };
+        match snapshot.embedding.effective_query_model() {
+            Some(model) => format!("{base}|query:{model}"),
+            None => format!("{base}|query:"),
+        }
     }
 }
 

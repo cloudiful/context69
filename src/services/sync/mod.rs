@@ -98,6 +98,17 @@ impl SourceVectorIndex {
 /// Progress and completion only mutate the status for that generation, so a
 /// superseded attempt can never replace a newer Running, Succeeded, or Failed
 /// status. The public status contract and its serialization are unchanged.
+/// The terminal outcome of one admitted rebuild attempt.
+///
+/// A pause and a cancellation both stop the attempt without publishing a
+/// success and without latching a failure: the durable barrier, not this
+/// in-process value, is the authority of what happens next.
+pub(crate) enum RebuildRunOutcome {
+    Completed,
+    Paused,
+    Cancelled,
+}
+
 #[derive(Clone)]
 pub(crate) struct VectorRebuildTracker {
     inner: Arc<std::sync::RwLock<TrackedRebuild>>,
@@ -121,6 +132,16 @@ impl VectorRebuildTracker {
                     error_message: None,
                     started_at: None,
                     finished_at: None,
+                    task_id: None,
+                    active_dimensions: None,
+                    desired_dimensions: None,
+                    physical_collection: None,
+                    target_collection: None,
+                    active_model: None,
+                    can_pause: false,
+                    can_resume: false,
+                    can_cancel: false,
+                    queue_paused: false,
                 },
             })),
             start_gate: Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -170,6 +191,16 @@ impl VectorRebuildTracker {
             error_message: None,
             started_at: Some(chrono::Utc::now()),
             finished_at: None,
+            task_id: None,
+            active_dimensions: None,
+            desired_dimensions: None,
+            physical_collection: None,
+            target_collection: None,
+            active_model: None,
+            can_pause: false,
+            can_resume: false,
+            can_cancel: false,
+            queue_paused: false,
         };
     }
 

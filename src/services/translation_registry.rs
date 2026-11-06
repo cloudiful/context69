@@ -247,23 +247,9 @@ async fn admit(
     })?;
     let mut tx = handles.db.pool().begin().await?;
     handles.db.lock_search_registry_epoch_in(&mut tx).await?;
-    // The captured identity must still describe the persisted configuration.
-    // The persisted rows are the authority: a node whose pair predates a
-    // settings change on another node must not stage points under the older
-    // identity.
-    if let Some(persisted) = handles
-        .db
-        .read_persisted_vector_identity_in(&mut tx)
-        .await?
-        && persisted != *identity
-    {
-        tx.rollback().await?;
-        return Err(crate::domain_errors::DomainError::conflict(
-            "the configured vector identity changed since the translation captured it; retry it \
-             under the current configuration",
-        )
-        .into());
-    }
+    // The admission validates the captured identity against the active vector
+    // index under the registry epoch lock, so a settings change on another node
+    // can never be overtaken by a pre-check made before the lock.
     let stored_ids = handles
         .store
         .all_translation_chunk_ids_in(&mut tx, version.document_id, Some(version.target_locale))

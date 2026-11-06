@@ -1,0 +1,45 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lock the domain item of one worker before it touches its library segment\n-- (issue 1212 R3).\n--\n-- The canonical order of the domain is item -> epoch -> segment -> task. A\n-- worker therefore locks its domain item before it seals, fails, renews or\n-- parks the library segment, and a cancellation locks the same item before it\n-- requests the cancellation of that segment. The two paths can no longer take\n-- each other's locks in the opposite order.\n--\n-- The row lock is taken before the grant is compared, so a worker that waited\n-- for the lock decides on the row as it is after the transition it waited for.\n-- The lease deadline is compared against the clock of the database, never\n-- against the worker's clock.\n--\n-- `owned` reports whether the captured grant still describes the item: the\n-- fencing token of the library attempt, the library task, the execution\n-- generation, the running status and the lease deadline. A worker that does\n-- not own the item any more must not seal, fail, renew or park its segment.\n--\n-- `$1` is the item, `$2` the fencing token of the library attempt, `$3` the\n-- library task of the segment and `$4` the execution generation.\nSELECT\n    item.status,\n    COALESCE(\n        item.lease_token = $2\n        AND item.status = 'running'\n        AND item.lease_until IS NOT NULL\n        AND item.lease_until > clock_timestamp()\n        AND item.execution_task_id = $3\n        AND item.execution_generation = $4,\n        FALSE\n    ) AS \"owned!: bool\",\n    COALESCE(\n        item.execution_task_id = $3\n        AND item.execution_generation = $4,\n        FALSE\n    ) AS \"matches_execution!: bool\"\nFROM context69.task_items AS item\nWHERE item.id = $1\nFOR UPDATE OF item\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "owned!: bool",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "matches_execution!: bool",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      null,
+      null
+    ]
+  },
+  "hash": "6341800315d2a2dd73768ee85fe7e46f44f4945ad9cf04f6ecefdb59a616360c"
+}

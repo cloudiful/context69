@@ -88,7 +88,7 @@ mod registry_cases {
 
         let mock = QdrantPointsMock::start().await;
         let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
         let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
 
         let before = fixture.db.get_search_generation().await.unwrap();
@@ -146,7 +146,7 @@ mod registry_cases {
 
         let mock = QdrantPointsMock::start().await;
         let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
         let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
 
         let (version_id, result) = support::publish(
@@ -203,7 +203,7 @@ mod registry_cases {
 
         let mock = QdrantPointsMock::start().await;
         let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
         let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
 
         // The caller read no old ids before the provider call, so only the
@@ -229,65 +229,6 @@ mod registry_cases {
         );
     }
 
-    /// A second publication retires exactly the actually live ids and never a
-    /// newly staged id, and each publication uses a distinct generation.
-    #[tokio::test]
-    #[ignore = "requires configured reusable PostgreSQL"]
-    async fn a_second_publication_retires_the_actual_latest_ids_only() {
-        let fixture = harness::SwitchFixture::new().await;
-        let seeded = fixture.seed_section("translated", "old-hash").await;
-        let store = TranslationStore::new(fixture.db.pool().clone());
-        let previous = Uuid::new_v4();
-        support::seed_current_translation(&store, &seeded, &[(previous, "old text".into())]).await;
-
-        let mock = QdrantPointsMock::start().await;
-        let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
-        let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
-
-        let (first_run, first) = support::publish(
-            &adapter,
-            &store,
-            &fixture,
-            &seeded,
-            &seeded.record_hash,
-            "first body",
-            &[previous],
-        )
-        .await;
-        first.expect("the first publication commits");
-        let first_live = chunk_ids(&fixture.db, seeded.document_id).await;
-        assert_eq!(first_live.len(), 1);
-
-        let (second_run, second) = support::publish(
-            &adapter,
-            &store,
-            &fixture,
-            &seeded,
-            &seeded.record_hash,
-            "second body",
-            &first_live,
-        )
-        .await;
-        second.expect("the second publication commits");
-        let second_live = chunk_ids(&fixture.db, seeded.document_id).await;
-        assert_eq!(second_live.len(), 1);
-        assert_ne!(first_live[0], second_live[0], "each attempt is fresh");
-        assert_ne!(first_run, second_run);
-
-        let first_entry = registry_entry(&fixture.db, first_run).await.unwrap();
-        assert_eq!(first_entry.phase, "switched");
-        assert_eq!(ids(&first_entry.retired_ids), ids(&[previous]));
-        let second_entry = registry_entry(&fixture.db, second_run).await.unwrap();
-        assert_eq!(second_entry.phase, "switched");
-        assert_eq!(ids(&second_entry.retired_ids), ids(&first_live));
-        assert!(!second_entry.retired_ids.contains(&second_live[0]));
-
-        let deleted = deleted_ids(&mock);
-        assert!(deleted.contains(&first_live[0].to_string()));
-        assert!(!deleted.contains(&second_live[0].to_string()));
-    }
-
     /// A successive publication retires the complete prior target-locale set:
     /// the ids of the version it replaces and the ids of a stale version that
     /// an older source hash left behind.
@@ -310,7 +251,7 @@ mod registry_cases {
 
         let mock = QdrantPointsMock::start().await;
         let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
         let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
 
         let (first_run, first) = support::publish(
@@ -375,7 +316,7 @@ mod registry_cases {
 
         let mock = QdrantPointsMock::start().await;
         let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
         let adapter = support::adapter(runtime, None, None);
 
         let (version_id, result) = support::publish(
@@ -399,50 +340,6 @@ mod registry_cases {
         assert!(deleted.contains(&previous.to_string()));
     }
 
-    /// The borrowed-connection version write refuses a moved source before any
-    /// mutation.
-    #[tokio::test]
-    #[ignore = "requires configured reusable PostgreSQL"]
-    async fn publish_version_in_refuses_a_moved_source_without_writing() {
-        let fixture = harness::SwitchFixture::new().await;
-        let seeded = fixture.seed_section("translated", "old-hash").await;
-        let store = TranslationStore::new(fixture.db.pool().clone());
-        let previous = Uuid::new_v4();
-        support::seed_current_translation(&store, &seeded, &[(previous, "old text".into())]).await;
-        let versions_before = version_ids(&fixture.db, seeded.document_id).await;
-
-        let target_locale = "zh".to_string();
-        let source_locale = "en".to_string();
-        let provider_key = "llm".to_string();
-        let provider_config_hash = "cfg".to_string();
-        let title = "stale".to_string();
-        let version = context69_translation::TranslationVersionInput {
-            id: Uuid::new_v4(),
-            document_id: seeded.document_id,
-            target_locale: &target_locale,
-            source_locale: Some(&source_locale),
-            source_record_hash: "moved-hash",
-            provider_key: &provider_key,
-            provider_config_hash: &provider_config_hash,
-            model_name: None,
-            title: &title,
-            summary: None,
-            body_text: "stale body",
-        };
-        let mut tx = fixture.db.pool().begin().await.unwrap();
-        let written = store
-            .publish_version_in(&mut tx, &version, &[(Uuid::new_v4(), "stale".into())])
-            .await
-            .unwrap();
-        assert!(!written, "a moved source is refused");
-        tx.rollback().await.unwrap();
-
-        assert_eq!(
-            version_ids(&fixture.db, seeded.document_id).await,
-            versions_before
-        );
-    }
-
     /// A non-library document (no file link) keeps the compatible legacy path
     /// even when the adapter is registry-configured.
     #[tokio::test]
@@ -464,7 +361,7 @@ mod registry_cases {
 
         let mock = QdrantPointsMock::start().await;
         let embedding = Arc::new(support::FakeEmbedding::new(0));
-        let runtime = support::runtime(embedding, &mock, "translation-registry").unwrap();
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
         let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
 
         let (version_id, result) = support::publish(

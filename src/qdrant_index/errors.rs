@@ -175,3 +175,67 @@ pub fn qdrant_timeout_error(operation: &str, collection: &str, extra: &str) -> a
 
 #[cfg(test)]
 mod tests;
+
+/// Why a rebuild target collection may not be used by the attempt that
+/// recorded its name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RebuildTargetCollisionReason {
+    /// The name is already taken by a collection this attempt did not create.
+    AlreadyExists,
+    /// The existing collection declares another vector space.
+    DimensionMismatch,
+    /// The recorded target of this attempt no longer exists.
+    Missing,
+}
+
+/// The typed refusal of a rebuild target collection (issue 1212 R3).
+///
+/// A rebuild writes into a collection it created itself. When the durable
+/// record cannot prove that, the collection is never attached and never
+/// written: the attempt refuses the target and releases its own barrier, so
+/// the next explicit attempt derives a fresh target name and the refused
+/// collection stays untouched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RebuildTargetCollision {
+    /// The refused collection.
+    pub collection: String,
+    /// Why the collection may not be used.
+    pub reason: RebuildTargetCollisionReason,
+}
+
+impl RebuildTargetCollision {
+    /// The typed refusal of one rebuild target collection.
+    pub(super) fn new(collection: &str, reason: RebuildTargetCollisionReason) -> Self {
+        Self {
+            collection: collection.to_string(),
+            reason,
+        }
+    }
+}
+
+impl std::fmt::Display for RebuildTargetCollision {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.reason {
+            RebuildTargetCollisionReason::AlreadyExists => write!(
+                formatter,
+                "qdrant rebuild target {} already exists and is not a collection this attempt \
+                 created; it is never adopted, emptied or written",
+                self.collection
+            ),
+            RebuildTargetCollisionReason::DimensionMismatch => write!(
+                formatter,
+                "qdrant rebuild target {} declares another vector space; a target of another \
+                 dimension is never adopted, emptied or recreated",
+                self.collection
+            ),
+            RebuildTargetCollisionReason::Missing => write!(
+                formatter,
+                "qdrant rebuild target {} no longer exists; the owned target of this attempt is \
+                 gone and is never written under another name",
+                self.collection
+            ),
+        }
+    }
+}
+
+impl std::error::Error for RebuildTargetCollision {}

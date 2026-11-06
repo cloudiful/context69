@@ -17,8 +17,10 @@ fn provider() -> Arc<dyn crate::embedding::EmbeddingProvider> {
         base_url: "https://embeddings.example/v1".to_string(),
         api_key: None,
         model: "model-a".to_string(),
+        query_model: None,
         dimensions: 8,
         timeout: Duration::from_secs(5),
+        batching: Default::default(),
     })
     .expect("build a provider without network access")
 }

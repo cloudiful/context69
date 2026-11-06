@@ -250,23 +250,34 @@ fn a_confirmed_same_space_transition_acknowledges_identity_in_the_settings_trans
             "success is reported only after the runtime apply ran"
         );
 
-        let (fingerprint, chunks, after) = vector_identity_state(db)
+        let identity = vector_identity_state(db)
             .await
             .expect("the acknowledged identity row exists");
         assert_eq!(
-            fingerprint,
+            identity.fingerprint,
             identity_fingerprint("http://127.0.0.1:1/gateway", "alias-model", 128)
         );
-        assert_eq!(chunks, 7, "the rebuilt chunk count is preserved");
-        assert_eq!(after, rebuilt_at, "the rebuild timestamp is preserved");
+        assert_eq!(
+            identity.rebuilt_chunks, 7,
+            "the rebuilt chunk count is preserved"
+        );
+        assert_eq!(
+            identity.rebuilt_at, rebuilt_at,
+            "the rebuild timestamp is preserved"
+        );
+        assert!(identity.active, "the acknowledged row is the active one");
 
         reset(db).await;
     });
 }
 
+/// An unconfirmed identity change is a desired change: it is saved as the
+/// desired configuration, the active collection keeps the identity it was
+/// built with, and the deployment owes an explicit rebuild for the new
+/// identity.
 #[test]
 #[ignore = "requires configured reusable PostgreSQL"]
-fn an_unconfirmed_identity_change_is_rejected_before_any_write() {
+fn an_unconfirmed_identity_change_is_saved_as_the_desired_configuration() {
     run(async |db| {
         reset(db).await;
         let mut settings = service(db, keyed(db));
@@ -281,31 +292,72 @@ fn an_unconfirmed_identity_change_is_rejected_before_any_write() {
         settings.set_runtime_embedding_guard(Some(allow_all_guard()));
         settings.set_runtime_embedding_transition(Some(open_transition()));
 
-        let mut changed = runtime_request(Some("replacement-key-that-must-not-be-stored"), None);
+        let mut changed = runtime_request(Some("replacement-key"), None);
         changed.embedding.model = "alias-model".to_string();
-        let error = settings
+        let response = settings
             .update_runtime_settings(&changed)
             .await
-            .expect_err("an unconfirmed identity change must be rejected");
-        assert!(error.to_string().contains("confirmation"), "{error}");
-
-        assert_stored_bytes_exclude(
-            db.pool(),
-            key_names::EMBEDDING_API_KEY,
-            "replacement-key-that-must-not-be-stored",
-        )
-        .await;
-        assert_eq!(
-            settings
-                .get_runtime_settings()
-                .await
-                .expect("read back the settings")
-                .embedding
-                .model,
-            "context69-secret-store-test"
+            .expect("an unconfirmed identity change is a desired change");
+        assert_eq!(response.embedding.model, "alias-model");
+        assert!(
+            response.requires_rebuild,
+            "the desired identity no longer matches the active collection"
         );
-        let (fingerprint, _, _) = vector_identity_state(db).await.expect("baseline identity");
-        assert_eq!(fingerprint, baseline_fingerprint);
+
+        // The active identity is untouched: the desired save did not rekey the
+        // collection ordinary point writers use.
+        let identity = vector_identity_state(db)
+            .await
+            .expect("the active identity row");
+        assert_eq!(identity.fingerprint, baseline_fingerprint);
+        assert!(identity.active);
+        assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
+
+        reset(db).await;
+    });
+}
+
+/// A desired dimension change is saved while the runtime is quiet: the active
+/// collection keeps its identity and its dimension, and the deployment owes an
+/// explicit rebuild for the new space.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn a_quiet_dimension_change_leaves_the_active_identity_unchanged() {
+    run(async |db| {
+        reset(db).await;
+        let mut settings = service(db, keyed(db));
+        settings
+            .update_runtime_settings(&runtime_request(Some(SYNTHETIC_KEY), None))
+            .await
+            .expect("seed the baseline runtime settings");
+        let baseline_fingerprint =
+            identity_fingerprint("http://127.0.0.1:1/v1", "context69-secret-store-test", 128);
+        seed_vector_identity(db, &baseline_fingerprint, 128).await;
+
+        settings.set_runtime_embedding_guard(Some(allow_all_guard()));
+        settings.set_runtime_embedding_transition(Some(open_transition()));
+
+        let mut changed = runtime_request(Some(SYNTHETIC_KEY), None);
+        changed.embedding.dimensions = 1024;
+        let response = settings
+            .update_runtime_settings(&changed)
+            .await
+            .expect("a quiet dimension change is a desired change");
+        assert_eq!(response.embedding.dimensions, 1024);
+        assert!(
+            response.requires_rebuild,
+            "the desired dimensions no longer match the active collection"
+        );
+
+        let identity = vector_identity_state(db)
+            .await
+            .expect("the active identity row");
+        assert_eq!(
+            identity.fingerprint, baseline_fingerprint,
+            "the active identity is not rewritten by a desired save"
+        );
+        assert_eq!(identity.dimensions, 128);
+        assert!(identity.active);
 
         reset(db).await;
     });
@@ -350,7 +402,10 @@ fn a_confirmed_transition_without_a_matching_persisted_identity_fails_the_whole_
             "context69-secret-store-test",
             "the settings transaction rolled back"
         );
-        let (fingerprint, _, _) = vector_identity_state(db).await.expect("owned identity row");
+        let fingerprint = vector_identity_state(db)
+            .await
+            .expect("owned identity row")
+            .fingerprint;
         assert_eq!(
             fingerprint, "not-the-stored-identity",
             "no fake acknowledgment row was written"
@@ -386,7 +441,10 @@ fn a_dimension_change_is_rejected_even_when_confirmed() {
             .expect_err("a dimension change must never be confirmable");
         assert!(error.to_string().contains("dimensions"), "{error}");
 
-        let (fingerprint, _, _) = vector_identity_state(db).await.expect("baseline identity");
+        let fingerprint = vector_identity_state(db)
+            .await
+            .expect("baseline identity")
+            .fingerprint;
         assert_eq!(fingerprint, baseline_fingerprint);
 
         reset(db).await;
@@ -425,7 +483,10 @@ fn a_confirmed_transition_is_refused_while_another_transition_owns_the_exclusion
             .expect_err("a busy exclusion must reject the save");
         assert!(error.to_string().contains("in progress"), "{error}");
 
-        let (fingerprint, _, _) = vector_identity_state(db).await.expect("baseline identity");
+        let fingerprint = vector_identity_state(db)
+            .await
+            .expect("baseline identity")
+            .fingerprint;
         assert_eq!(fingerprint, baseline_fingerprint);
 
         reset(db).await;
@@ -513,7 +574,10 @@ fn a_confirmed_alias_cannot_acknowledge_a_changed_qdrant_destination() {
             assert_eq!(after.embedding.model, "context69-secret-store-test");
             assert_eq!(after.qdrant.url, "http://127.0.0.1:1");
             assert_eq!(after.qdrant.collection_name, "context69-secret-store-test");
-            let (fingerprint, _, _) = vector_identity_state(db).await.expect("baseline identity");
+            let fingerprint = vector_identity_state(db)
+                .await
+                .expect("baseline identity")
+                .fingerprint;
             assert_eq!(fingerprint, baseline_fingerprint, "{case}");
         }
 

@@ -11,14 +11,16 @@ pub use context69_contracts::{
     ImportLibraryFileFromUrlRequest as UrlBatchItem, IngestOptions, LibraryFileDetailResponse,
     LibraryTextContentFormat as TextContentFormat, ListDocumentResultsQuery,
     ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
-    MetadataValueKind, OffsetPageQuery, OffsetPagination, RerunTaskResponse, ScopeMetadataIndex,
-    ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort, SecretPatch, SortDirection,
-    SourcePolicy, TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryRequest,
-    TaskBatchRetryResponse, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
-    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
-    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
-    TextBatchRequest, TranslationDirective, TranslationStatus,
-    UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, Visibility,
+    MetadataValueKind, OffsetPageQuery, OffsetPagination, RebuildControlRequest, RerunTaskResponse,
+    ScopeMetadataIndex, ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort,
+    SecretPatch, SortDirection, SourcePolicy, TaskBatchRerunRequest, TaskBatchRerunResponse,
+    TaskBatchRetryRequest, TaskBatchRetryResponse, TaskDiagnoseResponse, TaskItemResponse,
+    TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
+    TaskPageResponse, TaskProgress, TaskQueueStateResponse, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
+    TranslationDirective, TranslationStatus, UpdateTaskQueueStateRequest,
+    UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, VectorIndexRebuildStatus,
+    Visibility,
 };
 use reqwest::Method;
 use uuid::Uuid;
@@ -459,6 +461,109 @@ impl Context69Client {
         self.execute_json(
             self.authorized_request(Method::POST, "/v1/admin/tasks/cancel-active")
                 .await?,
+        )
+        .await
+    }
+
+    /// Reads the durable global admission state of the task queue
+    /// (`GET /v1/admin/tasks/queue`).
+    ///
+    /// A pause stops new claims across every replica; already claimed work keeps
+    /// running.
+    pub async fn task_queue_state(&self) -> Result<TaskQueueStateResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::GET, "/v1/admin/tasks/queue")
+                .await?,
+        )
+        .await
+    }
+
+    /// Writes the durable global admission state of the task queue
+    /// (`PUT /v1/admin/tasks/queue`).
+    ///
+    /// The write commits before it answers, so a pause survives a restart. A
+    /// resume wakes the receiving replica's dispatch immediately; another
+    /// replica picks the queue up on its recovery tick.
+    pub async fn update_task_queue_state(
+        &self,
+        paused: bool,
+    ) -> Result<TaskQueueStateResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::PUT, "/v1/admin/tasks/queue")
+                .await?
+                .json(&UpdateTaskQueueStateRequest { paused }),
+        )
+        .await
+    }
+
+    /// Reads the durable status of the vector index rebuild
+    /// (`GET /v1/settings/runtime/vector-index/rebuild`).
+    ///
+    /// The status names the task the controls act on, so a control can never
+    /// touch a rebuild the caller did not observe.
+    pub async fn vector_index_rebuild_status(&self) -> Result<VectorIndexRebuildStatus, Error> {
+        self.execute_json(
+            self.authorized_request(Method::GET, "/v1/settings/runtime/vector-index/rebuild")
+                .await?,
+        )
+        .await
+    }
+
+    /// Pauses the rebuild the observed task owns
+    /// (`POST /v1/settings/runtime/vector-index/rebuild/pause`).
+    ///
+    /// The pause takes effect at the next batch boundary: the committed page
+    /// still finishes.
+    pub async fn pause_vector_index_rebuild(
+        &self,
+        task_id: Uuid,
+    ) -> Result<VectorIndexRebuildStatus, Error> {
+        self.execute_json(
+            self.authorized_request(
+                Method::POST,
+                "/v1/settings/runtime/vector-index/rebuild/pause",
+            )
+            .await?
+            .json(&RebuildControlRequest { task_id }),
+        )
+        .await
+    }
+
+    /// Resumes the rebuild the observed task owns
+    /// (`POST /v1/settings/runtime/vector-index/rebuild/resume`).
+    ///
+    /// The rebuild continues after its last written page.
+    pub async fn resume_vector_index_rebuild(
+        &self,
+        task_id: Uuid,
+    ) -> Result<VectorIndexRebuildStatus, Error> {
+        self.execute_json(
+            self.authorized_request(
+                Method::POST,
+                "/v1/settings/runtime/vector-index/rebuild/resume",
+            )
+            .await?
+            .json(&RebuildControlRequest { task_id }),
+        )
+        .await
+    }
+
+    /// Cancels the rebuild the observed task owns
+    /// (`POST /v1/settings/runtime/vector-index/rebuild/cancel`).
+    ///
+    /// The cancelled attempt cannot continue; the existing collections are
+    /// kept.
+    pub async fn cancel_vector_index_rebuild(
+        &self,
+        task_id: Uuid,
+    ) -> Result<VectorIndexRebuildStatus, Error> {
+        self.execute_json(
+            self.authorized_request(
+                Method::POST,
+                "/v1/settings/runtime/vector-index/rebuild/cancel",
+            )
+            .await?
+            .json(&RebuildControlRequest { task_id }),
         )
         .await
     }
