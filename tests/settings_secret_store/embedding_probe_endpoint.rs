@@ -33,6 +33,16 @@ impl RecordingEndpoint {
             .collect()
     }
 
+    /// The `Authorization` headers of every request, in arrival order. A
+    /// request that carried no credential is recorded as `None`, so a case can
+    /// observe that no credential was sent at all.
+    pub fn recorded_authorization_headers(&self) -> Vec<Option<String>> {
+        self.headers
+            .lock()
+            .expect("the recording endpoint lock")
+            .clone()
+    }
+
     /// The body the endpoint sent last, or None when it never refused.
     pub fn last_body(&self) -> Option<String> {
         self.bodies
@@ -209,6 +219,7 @@ pub fn live_probe_request(
     context69::contracts::settings::TestRuntimeEmbeddingRequest {
         base_url: base_url.to_string(),
         model: "context69-secret-store-test".to_string(),
+        query_model: None,
         dimensions: 2,
         timeout_secs: 5,
         api_key: api_key.map(str::to_string),

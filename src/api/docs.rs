@@ -60,13 +60,18 @@ use crate::api::{
         __path_create_personal_access_token, __path_list_personal_access_tokens,
         __path_revoke_personal_access_token,
     },
+    rebuild_control::{
+        __path_cancel_vector_index_rebuild, __path_get_vector_index_rebuild_status,
+        __path_pause_vector_index_rebuild, __path_resume_vector_index_rebuild,
+    },
     sources::{
         __path_create_source, __path_create_source_connection, __path_delete_source,
         __path_delete_source_connection, __path_list_source_connections, __path_list_sources,
         __path_sync_source, __path_update_source, __path_update_source_connection,
     },
     task_maintenance::{
-        __path_cancel_active_tasks, __path_list_docling_cleanup, __path_list_docling_remote_tasks,
+        __path_cancel_active_tasks, __path_get_task_queue_state, __path_list_docling_cleanup,
+        __path_list_docling_remote_tasks, __path_update_task_queue_state,
         __path_wake_docling_cleanup,
     },
     tasks::{
@@ -109,24 +114,26 @@ use crate::contracts::{
     MetadataIndexPageResponse, MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind,
     MoveFileRequest, MoveFolderRequest, OffsetPageQuery, PersonalAccessTokenPageQuery,
     PersonalAccessTokenPageResponse, PersonalAccessTokenResponse, PersonalAccessTokenScope,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, RebuildDocumentTranslationsRequest,
-    RerunTaskResponse, ResetAdminUserPasswordRequest, ScopeMetadataIndex, ScopeSpec, SearchMode,
-    SecretPatch, SortDirection, SortOrder, SourceConfigInput, SourceConnectionResponse,
-    SourceFolderResponse, SourcePageQuery, SourcePageResponse, SourcePolicy, SourceStatus,
-    SyncOutcome, TaskAttemptView, TaskBatchRerunItem, TaskBatchRerunOutcome, TaskBatchRerunReason,
-    TaskBatchRerunRequest, TaskBatchRerunResponse, TaskBatchRetryItem, TaskBatchRetryOutcome,
-    TaskBatchRetryReason, TaskBatchRetryRequest, TaskBatchRetryResponse, TaskConsistencyReport,
-    TaskDiagnoseItem, TaskDiagnoseParent, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus,
-    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse,
-    TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone,
-    TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest,
-    TextBatchRequest, TranslationDirective, TranslationGlossaryEntry, TranslationJobResponse,
-    TranslationJobsResponse, TranslationLlmApiKind, TranslationProviderInput,
-    TranslationProviderKind, TranslationProviderPageQuery, TranslationProviderPageResponse,
-    TranslationProviderResponse, TranslationSettingsResponse, TranslationStatus,
-    UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest, UpdateMetadataIndexRequest,
-    UpdateTranslationSettingsRequest, UpsertLibraryTextRequest, UpsertSourceConnectionRequest,
-    UrlBatchRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, RebuildControlRequest,
+    RebuildDocumentTranslationsRequest, RerunTaskResponse, ResetAdminUserPasswordRequest,
+    ScopeMetadataIndex, ScopeSpec, SearchMode, SecretPatch, SortDirection, SortOrder,
+    SourceConfigInput, SourceConnectionResponse, SourceFolderResponse, SourcePageQuery,
+    SourcePageResponse, SourcePolicy, SourceStatus, SyncOutcome, TaskAttemptView,
+    TaskBatchRerunItem, TaskBatchRerunOutcome, TaskBatchRerunReason, TaskBatchRerunRequest,
+    TaskBatchRerunResponse, TaskBatchRetryItem, TaskBatchRetryOutcome, TaskBatchRetryReason,
+    TaskBatchRetryRequest, TaskBatchRetryResponse, TaskConsistencyReport, TaskDiagnoseItem,
+    TaskDiagnoseParent, TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery,
+    TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress,
+    TaskQueueStateResponse, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus,
+    TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot, TaskStreamUpdate,
+    TaskSubmitRequest, TextBatchRequest, TranslationDirective, TranslationGlossaryEntry,
+    TranslationJobResponse, TranslationJobsResponse, TranslationLlmApiKind,
+    TranslationProviderInput, TranslationProviderKind, TranslationProviderPageQuery,
+    TranslationProviderPageResponse, TranslationProviderResponse, TranslationSettingsResponse,
+    TranslationStatus, UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest,
+    UpdateMetadataIndexRequest, UpdateTaskQueueStateRequest, UpdateTranslationSettingsRequest,
+    UpsertLibraryTextRequest, UpsertSourceConnectionRequest, UrlBatchRequest,
+    VectorIndexRebuildState, VectorIndexRebuildStatus,
 };
 
 use crate::contracts::sources::{
@@ -241,6 +248,10 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         submit_delete_batch,
         submit_task,
         submit_vector_index_rebuild,
+        get_vector_index_rebuild_status,
+        pause_vector_index_rebuild,
+        resume_vector_index_rebuild,
+        cancel_vector_index_rebuild,
         get_task,
         list_tasks,
         list_task_selection,
@@ -257,6 +268,8 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         delete_task,
         clear_task_history,
         cancel_active_tasks,
+        get_task_queue_state,
+        update_task_queue_state,
         list_docling_remote_tasks,
         list_docling_cleanup,
         wake_docling_cleanup
@@ -442,6 +455,11 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         TaskStreamUpdate,
         TaskSortBy,
         CancelActiveTasksResponse,
+        TaskQueueStateResponse,
+        UpdateTaskQueueStateRequest,
+        VectorIndexRebuildState,
+        VectorIndexRebuildStatus,
+        RebuildControlRequest,
         DoclingCleanupReasonCode,
         DoclingCleanupOutcome,
         DoclingCleanupStatus,
@@ -583,6 +601,7 @@ mod tests {
             "/v1/tasks/{task_id}/trash",
             "/v1/tasks/{task_id}/restore",
             "/v1/admin/tasks/cancel-active",
+            "/v1/admin/tasks/queue",
             "/v1/admin/docling/tasks",
             "/v1/admin/docling/cleanup",
         ] {
@@ -613,7 +632,18 @@ mod tests {
             .and_then(Value::as_object)
             .expect("vector rebuild path to exist");
         assert!(vector_rebuild.contains_key("post"));
-        assert!(!vector_rebuild.contains_key("get"));
+        assert!(vector_rebuild.contains_key("get"));
+        for path in [
+            "/v1/settings/runtime/vector-index/rebuild/pause",
+            "/v1/settings/runtime/vector-index/rebuild/resume",
+            "/v1/settings/runtime/vector-index/rebuild/cancel",
+        ] {
+            let action = paths
+                .get(path)
+                .and_then(Value::as_object)
+                .expect("vector rebuild control path to exist");
+            assert!(action.contains_key("post"), "missing post for {path}");
+        }
 
         let task_actions = paths
             .get("/v1/tasks/{task_id}")
@@ -660,6 +690,9 @@ mod tests {
             "TaskStreamUpdate",
             "ClearTaskHistoryRequest",
             "ClearTaskHistoryResponse",
+            "VectorIndexRebuildState",
+            "VectorIndexRebuildStatus",
+            "RebuildControlRequest",
         ] {
             assert!(schemas.contains_key(schema), "missing schema {schema}");
         }

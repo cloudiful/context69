@@ -13,8 +13,7 @@
     "check": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "test:e2e:queue-perf": "playwright test --config playwright.queue-perf.config.ts"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",

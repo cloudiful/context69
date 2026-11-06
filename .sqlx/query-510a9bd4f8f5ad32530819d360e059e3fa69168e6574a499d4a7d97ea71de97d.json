@@ -1,0 +1,170 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The persistent rebuild barrier of the registry epoch row.\n--\n-- The barrier is read under the epoch row lock, so a caller that locked the\n-- epoch before it reads the barrier sees the state of the same instant as\n-- every other writer.\nSELECT\n    rebuild_state,\n    rebuild_owner_item,\n    rebuild_owner_token,\n    rebuild_fingerprint,\n    rebuild_collection,\n    rebuild_started_at,\n    rebuild_error,\n    rebuild_pause_requested,\n    rebuild_cursor_document_id,\n    rebuild_cursor_chunk_index,\n    rebuild_processed_chunks,\n    rebuild_total_chunks,\n    rebuild_target_created\nFROM context69.search_registry_epoch\nWHERE id = 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rebuild_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_state"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rebuild_owner_item",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_owner_item"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rebuild_owner_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_owner_token"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rebuild_fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "rebuild_collection",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_collection"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "rebuild_started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "rebuild_error",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_error"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "rebuild_pause_requested",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_pause_requested"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "rebuild_cursor_document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_cursor_document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "rebuild_cursor_chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_cursor_chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "rebuild_processed_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_processed_chunks"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "rebuild_total_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_total_chunks"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "rebuild_target_created",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_target_created"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "510a9bd4f8f5ad32530819d360e059e3fa69168e6574a499d4a7d97ea71de97d"
+}

@@ -1,7 +1,8 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { apiClient } from "@/services/api";
 import { installMockStorage } from "@/test-utils/storage";
 
 import {
@@ -67,8 +68,8 @@ describe("embedding compatibility confirmation", () => {
     await userEvent.type(screen.getByLabelText("Rerank Candidates"), "55");
     await goToSection(router, "Runtime", "/settings/runtime");
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "alias-model");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "alias-model");
     await userEvent.click(screen.getByTestId("settings-save"));
 
     const dialog = await screen.findByRole("alertdialog");
@@ -88,8 +89,8 @@ describe("embedding compatibility confirmation", () => {
     const backend = setup();
     await openSettings("/settings/runtime");
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "alias-model");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "alias-model");
     await userEvent.click(screen.getByTestId("settings-save"));
     const dialog = await screen.findByRole("alertdialog");
     await userEvent.click(within(dialog).getByRole("button", { name: "Keep vectors and save" }));
@@ -125,14 +126,14 @@ describe("embedding compatibility confirmation", () => {
     const backend = setup();
     await openSettings("/settings/runtime");
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "alias-one");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "alias-one");
     await userEvent.click(screen.getByTestId("settings-save"));
     const firstDialog = await screen.findByRole("alertdialog");
     await userEvent.click(within(firstDialog).getByRole("button", { name: "Cancel" }));
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "alias-two");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "alias-two");
     await userEvent.click(screen.getByTestId("settings-save"));
     const secondDialog = await screen.findByRole("alertdialog");
     await userEvent.click(
@@ -152,8 +153,8 @@ describe("embedding compatibility confirmation", () => {
     await waitFor(() => {
       expect(screen.getByTestId("settings-save")).toBeDisabled();
     });
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "alias-three");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "alias-three");
     await userEvent.click(screen.getByTestId("settings-save"));
     expect(await screen.findByRole("alertdialog")).toBeInTheDocument();
     expect(runtimePuts(backend)).toHaveLength(1);
@@ -223,20 +224,61 @@ describe("embedding compatibility confirmation", () => {
     const backend = setup();
     await openSettings("/settings/runtime");
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "alias-model");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "alias-model");
+    await userEvent.clear(screen.getByLabelText("Query model"));
+    await userEvent.type(screen.getByLabelText("Query model"), "invalid-query-alias");
     await userEvent.click(screen.getByTestId("runtime-embedding-test"));
 
     await waitFor(() => {
       expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/test")).toHaveLength(1);
+      expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/capabilities")).toHaveLength(1);
     });
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(runtimePuts(backend)).toHaveLength(0);
     const body = backend.callsFor("POST", "/v1/settings/runtime/embedding/test")[0].body as {
       confirm_vector_space_unchanged?: boolean;
       model: string;
+      query_model?: string;
     };
     expect(body.model).toBe("alias-model");
+    expect(body.query_model).toBe("invalid-query-alias");
     expect(body.confirm_vector_space_unchanged).toBeUndefined();
+    const capabilityBody = backend
+      .callsFor("POST", "/v1/settings/runtime/embedding/capabilities")[0]
+      .body as { query_model?: string };
+    expect(capabilityBody.query_model).toBe("invalid-query-alias");
+  });
+
+  it("discards a pending probe outcome after the query alias is edited", async () => {
+    setup();
+    await openSettings("/settings/runtime");
+
+    let resolveProbe!: () => void;
+    const pendingProbe = new Promise<void>((resolve) => {
+      resolveProbe = resolve;
+    });
+    const probe = vi
+      .spyOn(apiClient, "testEmbeddingConnection")
+      .mockReturnValue(pendingProbe as never);
+
+    await userEvent.click(screen.getByTestId("runtime-embedding-test"));
+    await waitFor(() => expect(probe).toHaveBeenCalledTimes(1));
+
+    // The request the pending probe checks is no longer the observed draft.
+    await userEvent.clear(screen.getByLabelText("Query model"));
+    await userEvent.type(screen.getByLabelText("Query model"), "changed-alias");
+
+    await act(async () => {
+      resolveProbe();
+      await pendingProbe;
+    });
+
+    // The old success must not be presented for the new request, and the form
+    // must leave its testing state.
+    await waitFor(() => {
+      expect(screen.queryByText("Embedding connection succeeded")).not.toBeInTheDocument();
+    });
+    expect(screen.getByTestId("runtime-embedding-test")).toBeEnabled();
   });
 });

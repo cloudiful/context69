@@ -434,10 +434,14 @@ impl SettingsService {
         //
         // The persistent barrier is the authority: it is visible to every
         // node, so a rebuild that runs on another node still refuses the save
-        // here. The in-process flag stays a local fast path.
+        // here. An unresolved ingestion run holds staged points of the current
+        // space, so it refuses the move for the same reason. The in-process
+        // flag stays a local fast path.
         let barrier_busy =
             self.db.read_rebuild_barrier().await?.state != crate::db::RebuildBarrierState::Idle;
+        let staging_busy = self.db.read_staging_count().await? > 0;
         let rebuild_busy = barrier_busy
+            || staging_busy
             || self
                 .runtime_rebuild_in_progress
                 .as_ref()
@@ -482,8 +486,16 @@ impl SettingsService {
                 base_url: request.embedding.base_url.trim().to_string(),
                 api_key: embedding_api_key.clone(),
                 model: request.embedding.model.trim().to_string(),
+                query_model: request
+                    .embedding
+                    .query_model
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|model| !model.is_empty())
+                    .map(str::to_string),
                 dimensions: request.embedding.dimensions,
                 timeout: std::time::Duration::from_secs(request.embedding.timeout_secs),
+                batching: request.embedding.batching,
             })?),
             None => None,
         };
@@ -584,8 +596,12 @@ impl SettingsService {
     }
 
     /// Whether the persisted vector identity still matches the stored embedding
-    /// configuration. A missing persisted row is not a mismatch: it describes an
-    /// installation whose vectors have not been built yet, not a stale space.
+    /// configuration.
+    ///
+    /// The active pointer is the authority: it names the one physical
+    /// collection ordinary writers may use and the logical identity it was
+    /// built for. A deployment without an active collection owes an explicit
+    /// rebuild, including a fresh installation that never had any vectors.
     async fn requires_rebuild(&self, stored: &StoredRuntimeSettings) -> Result<bool> {
         // A rebuild that owns the persistent barrier, or that failed and left
         // it behind, is a rebuild this deployment still owes. The barrier
@@ -594,10 +610,6 @@ impl SettingsService {
         if self.db.read_rebuild_barrier().await?.state != crate::db::RebuildBarrierState::Idle {
             return Ok(true);
         }
-        let stored_fingerprint = self
-            .db
-            .get_vector_index_fingerprint(&stored.qdrant.collection_name)
-            .await?;
         if self
             .runtime_requires_rebuild
             .as_ref()
@@ -605,25 +617,31 @@ impl SettingsService {
         {
             return Ok(true);
         }
-        let Some(stored_fingerprint) = stored_fingerprint else {
-            return Ok(false);
+        // The active row is compared with the desired configuration, never with
+        // the logical collection name the settings carry: a build that landed
+        // in a derived physical collection still satisfies the desired
+        // identity.
+        let Some(active) = self.db.read_active_vector_index_state().await? else {
+            return Ok(true);
         };
-        Ok(stored_fingerprint
-            != vector_identity_fingerprint(
-                stored.qdrant.url.trim(),
-                stored.qdrant.collection_name.trim(),
-                stored.embedding.base_url.trim(),
-                stored.embedding.model.trim(),
-                stored.embedding.dimensions,
-            ))
+        let desired = vector_identity_fingerprint(
+            stored.qdrant.url.trim(),
+            stored.qdrant.collection_name.trim(),
+            stored.embedding.base_url.trim(),
+            stored.embedding.model.trim(),
+            stored.embedding.dimensions,
+        );
+        Ok(active.fingerprint != desired || active.dimensions != stored.embedding.dimensions)
     }
 
     /// Decides whether the request is a confirmed same-space identity
     /// transition, and whether the persisted identity may be acknowledged.
     ///
-    /// An unconfirmed identity change, a dimension change, a collection change,
-    /// or a missing/mismatched persisted identity is rejected here, before any
-    /// secret or settings write.
+    /// An unconfirmed identity change is a desired change: it is saved as the
+    /// desired configuration and leaves the active collection alone, so the
+    /// explicit rebuild can build and activate a fresh target for it. A
+    /// confirmed change is acknowledged instead, and only when the active row
+    /// describes the vector space the confirmation claims.
     async fn plan_identity_acknowledgment(
         &self,
         existing: Option<&StoredRuntimeSettings>,
@@ -650,21 +668,24 @@ impl SettingsService {
             return Ok(None);
         }
 
-        if candidate.dimensions != existing_identity.dimensions {
-            return Err(DomainError::invalid_argument(
-                "runtime.embedding.dimensions cannot change against existing vectors; a different \
-                 vector space requires an explicit dimension migration",
-            )
-            .into());
-        }
         if !request.embedding.confirm_vector_space_unchanged {
-            return Err(DomainError::invalid_argument(
-                "runtime.embedding model/base URL changes require an explicit confirmation that \
-                 the new gateway/alias produces the same vector space",
-            )
-            .into());
+            // An unconfirmed change is a desired change. It is saved without
+            // touching the active identity, and the deployment owes an
+            // explicit rebuild for the new identity.
+            return Ok(None);
         }
 
+        // The confirmation never bypasses a dimension, a destination, or a
+        // logical base change: each of them describes a different vector
+        // space, which needs an explicit rebuild rather than a rekey of the
+        // live one.
+        if candidate.dimensions != existing_identity.dimensions {
+            return Err(DomainError::invalid_argument(
+                "runtime.embedding.dimensions cannot change while acknowledging existing vectors; \
+                 a different vector space requires an explicit rebuild",
+            )
+            .into());
+        }
         // The acknowledgment names the vector destination as well as the
         // provider identity: a confirmed alias may never also move the vectors
         // to another Qdrant URL or collection.
@@ -683,6 +704,20 @@ impl SettingsService {
             .into());
         }
 
+        // The active row is the authority of the acknowledged identity: it
+        // names the physical collection ordinary writers use and the logical
+        // identity that collection was built for. A row that was deactivated
+        // by a concurrent activation can never be rekeyed.
+        let active = self
+            .db
+            .read_active_vector_index_state()
+            .await?
+            .ok_or_else(|| {
+                DomainError::invalid_argument(
+                    "the deployment has no active vector index; a confirmed same-space transition \
+                     cannot acknowledge it",
+                )
+            })?;
         let expected_fingerprint = vector_identity_fingerprint(
             existing.qdrant.url.trim(),
             existing.qdrant.collection_name.trim(),
@@ -690,11 +725,9 @@ impl SettingsService {
             &existing_identity.model,
             existing_identity.dimensions,
         );
-        let persisted = self
-            .db
-            .get_vector_index_fingerprint(collection_name)
-            .await?;
-        if persisted.as_deref() != Some(expected_fingerprint.as_str()) {
+        if active.fingerprint != expected_fingerprint
+            || active.dimensions != existing_identity.dimensions
+        {
             return Err(DomainError::invalid_argument(
                 "the persisted vector identity does not match the stored embedding settings; a \
                  confirmed same-space transition cannot acknowledge it",
@@ -703,7 +736,7 @@ impl SettingsService {
         }
 
         Ok(Some(PlannedAck {
-            collection_name: collection_name.to_string(),
+            collection_name: active.collection_name,
             expected_fingerprint,
             expected_dimensions: existing_identity.dimensions,
             candidate_fingerprint: vector_identity_fingerprint(
@@ -1053,10 +1086,12 @@ mod tests {
             embedding: UpdateRuntimeEmbeddingSettings {
                 base_url: "https://openrouter.ai/api/v1".to_string(),
                 model: "text-embedding-3-large".to_string(),
+                query_model: None,
                 dimensions: 3072,
                 timeout_secs: 30,
                 api_key: None,
                 confirm_vector_space_unchanged: false,
+                batching: Default::default(),
             },
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,

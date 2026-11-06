@@ -590,6 +590,81 @@ impl VectorRuntime {
         admitted
     }
 
+    /// Admits an explicit rebuild that writes a fresh physical target.
+    ///
+    /// The target is provided by the caller: it is the provider/index pair the
+    /// caller resolved from the desired configuration, not the published pair.
+    /// A rebuild therefore needs no published pair at all, so a deployment
+    /// whose active collection is stale, or whose installation never had one,
+    /// can still be rebuilt into a fresh target.
+    ///
+    /// The published pair is retained for diagnostics, but readiness is
+    /// withdrawn and the rebuild fence is opened, so no consumer can observe
+    /// the old space while the target is being written. The returned attempt is
+    /// bound to the generation this admission opened, and the desired
+    /// fingerprint is recorded with it, so a later attempt can tell the target
+    /// from the pair that was published before it.
+    pub fn try_admit_target_rebuild(
+        &self,
+        target: VectorSnapshot,
+        fingerprint: String,
+    ) -> std::result::Result<AdmittedRebuild, RebuildAdmissionError> {
+        if !self.try_begin_identity_transition() {
+            return Err(RebuildAdmissionError::Busy);
+        }
+        let admitted = self.with_write_state(|state| {
+            if state.rebuilding {
+                return Err(RebuildAdmissionError::Busy);
+            }
+            let Some(identity) = target.identity.as_ref() else {
+                return Err(RebuildAdmissionError::MissingIdentity);
+            };
+            if identity.dimensions == 0 || target.collection.trim().is_empty() {
+                return Err(RebuildAdmissionError::MissingIdentity);
+            }
+            if fingerprint.trim().is_empty() {
+                return Err(RebuildAdmissionError::MissingFingerprint);
+            }
+            state.generation += 1;
+            state.rebuilding = true;
+            state.ready = false;
+            state.failure = None;
+            state.configured_fingerprint = Some(fingerprint.clone());
+            Ok(AdmittedRebuild {
+                generation: state.generation,
+                snapshot: VectorSnapshot {
+                    generation: state.generation,
+                    ..target
+                },
+                configured_fingerprint: fingerprint,
+            })
+        });
+        self.end_identity_transition();
+        admitted
+    }
+
+    /// Publishes the verified target of an admitted rebuild.
+    ///
+    /// The caller owns the shared exclusion, so the transition check that
+    /// protects a recovery publication does not apply here: this is the
+    /// completion of the attempt that holds the exclusion. The generation
+    /// fence still applies, so a superseded attempt can never replace a newer
+    /// pair, and readiness stays closed while the rebuild fence is open.
+    pub fn publish_admitted_target(&self, generation: u64, snapshot: VectorSnapshot) -> bool {
+        self.with_write_state(|state| {
+            if state.generation != generation {
+                return false;
+            }
+            state.snapshot = Some(VectorSnapshot {
+                generation,
+                ..snapshot
+            });
+            state.failure = None;
+            state.ready = !state.rebuilding && !state.requires_rebuild;
+            true
+        })
+    }
+
     /// Rewrites the published pair's provider, identity and fingerprint in
     /// place for a confirmed same-space transition.
     ///
@@ -693,6 +768,24 @@ impl VectorRuntime {
     /// confirmed reconciliation clears the latch. A stale generation mutates
     /// nothing.
     pub fn fail_rebuild(&self, generation: u64) -> bool {
+        self.with_write_state(|state| {
+            if state.generation != generation {
+                return false;
+            }
+            state.rebuilding = false;
+            state.ready = false;
+            state.requires_rebuild = true;
+            true
+        })
+    }
+
+    /// Closes the rebuild fence of `generation` without claiming success.
+    ///
+    /// Used by a paused or cancelled attempt: the in-process admission is
+    /// released so an explicit resume can admit the next attempt, but readiness
+    /// stays closed and the rebuild requirement stays latched until a completed
+    /// rebuild reopens the pair. The durable barrier is never touched here.
+    pub fn abandon_rebuild(&self, generation: u64) -> bool {
         self.with_write_state(|state| {
             if state.generation != generation {
                 return false;
@@ -863,7 +956,12 @@ impl VectorRuntime {
 /// The legacy `recreate_on_dimension_mismatch` setting is deliberately not an
 /// input: no value of it can authorize deleting, recreating, or adopting
 /// existing vectors.
+///
+/// The decision is kept for the non-destructive compatibility seam only: the
+/// production startup attaches the active physical collection and never
+/// adopts or creates a collection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg(any(test, feature = "integration-test-helpers"))]
 pub(crate) enum UnrecordedCollection {
     /// No collection exists: safe zero-data bootstrap may create it.
     CreateMissing,
@@ -879,6 +977,7 @@ pub(crate) enum UnrecordedCollection {
     BlockedDimensions { found: usize, points: u64 },
 }
 
+#[cfg(any(test, feature = "integration-test-helpers"))]
 pub(crate) fn decide_unrecorded_collection(
     existing: Option<(u64, usize)>,
     dimensions: usize,
@@ -894,6 +993,7 @@ pub(crate) fn decide_unrecorded_collection(
 }
 
 /// The index and the decision for a collection that has no recorded identity.
+#[cfg(feature = "integration-test-helpers")]
 pub(crate) struct UnrecordedAttach {
     pub(crate) decision: UnrecordedCollection,
     /// Present for the create, empty-adopt, and rebuild-only paths; absent when
@@ -909,6 +1009,11 @@ pub(crate) struct UnrecordedAttach {
 /// rebuild-only index: its vectors are never adopted as an empty space, no
 /// identity is persisted here, and the caller decides whether the explicit
 /// manual rebuild may run.
+///
+/// The seam is not part of the production startup: startup attaches the
+/// active physical collection and never adopts or creates one. It exists for
+/// the compatibility tests that drive the same read-only inspection.
+#[cfg(feature = "integration-test-helpers")]
 pub(crate) async fn attach_unrecorded_collection(
     config: &crate::config::QdrantConfig,
     dimensions: usize,

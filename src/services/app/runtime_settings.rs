@@ -56,8 +56,10 @@ pub async fn import_legacy_runtime_if_needed(
             base_url: config.embedding.base_url.clone(),
             api_key: None,
             model: config.embedding.model.clone(),
+            query_model: config.embedding.query_model.clone(),
             dimensions: config.embedding.dimensions,
             timeout_secs: config.embedding.timeout.as_secs(),
+            batching: config.embedding.batching,
         },
         scheduler: crate::db::StoredRuntimeSchedulerSettings {
             interval_secs: config.scheduler.interval.as_secs(),
@@ -253,8 +255,13 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
         base_url: runtime.embedding.base_url.clone(),
         api_key: runtime.embedding.api_key.clone(),
         model: runtime.embedding.model.clone(),
+        // The query model and the request limits are part of the provider
+        // configuration but not of the vector space: they never change the
+        // identity the collection was built with.
+        query_model: runtime.embedding.query_model.clone(),
         dimensions: runtime.embedding.dimensions,
         timeout: Duration::from_secs(runtime.embedding.timeout_secs),
+        batching: runtime.embedding.batching,
     };
     config.scheduler = SchedulerConfig {
         interval: Duration::from_secs(runtime.scheduler.interval_secs),

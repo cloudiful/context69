@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Acknowledge a confirmed same-space identity for the active vector index.\n--\n-- Only the active row may be rekeyed: an acknowledgement describes the\n-- collection ordinary point writers use, so a row that a concurrent activation\n-- already deactivated can never be rekeyed behind the live pointer's back.\nUPDATE context69.vector_index_state\nSET fingerprint = $1,\n    embedding_base_url = $2,\n    embedding_model = $3,\n    dimensions = $4\nWHERE collection_name = $5\n  AND fingerprint = $6\n  AND dimensions = $7\n  AND active\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a973b484f1e1a51e1c9844dc30d9eb174557ff4a148ac2e3d01ef997e87c4e4d"
+}

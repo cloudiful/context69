@@ -281,37 +281,48 @@ pub fn build_probe_provider(
     timeout_secs: u64,
     api_key: Option<String>,
 ) -> Result<Arc<dyn EmbeddingProvider>> {
-    let base_url = base_url.trim();
-    if base_url.is_empty() {
+    build_probe_provider_with_config(EmbeddingConfig {
+        base_url: base_url.to_string(),
+        api_key,
+        model: model.to_string(),
+        query_model: None,
+        dimensions,
+        timeout: std::time::Duration::from_secs(timeout_secs),
+        batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
+    })
+}
+
+/// The same probe provider, built from a complete provider configuration.
+///
+/// A probe that checks a second model builds one configuration per model, so
+/// the query model and the request limits reach the provider the same way a
+/// saved configuration reaches it.
+pub fn build_probe_provider_with_config(
+    config: EmbeddingConfig,
+) -> Result<Arc<dyn EmbeddingProvider>> {
+    if config.base_url.trim().is_empty() {
         return Err(
             DomainError::invalid_argument("runtime.embedding.base_url must not be empty").into(),
         );
     }
-    let model = model.trim();
-    if model.is_empty() {
+    if config.model.trim().is_empty() {
         return Err(
             DomainError::invalid_argument("runtime.embedding.model must not be empty").into(),
         );
     }
-    if dimensions == 0 {
+    if config.dimensions == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.embedding.dimensions must be greater than 0",
         )
         .into());
     }
-    if timeout_secs == 0 {
+    if config.timeout.as_secs() == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.embedding.timeout_secs must be greater than 0",
         )
         .into());
     }
-    build_provider(&EmbeddingConfig {
-        base_url: base_url.to_string(),
-        api_key,
-        model: model.to_string(),
-        dimensions,
-        timeout: std::time::Duration::from_secs(timeout_secs),
-    })
+    build_provider(&config)
 }
 
 #[cfg(test)]

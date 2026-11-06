@@ -2,6 +2,7 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Deserializer, Serialize};
 use utoipa::ToSchema;
+use uuid::Uuid;
 
 use context69_contracts_search::SearchMode;
 
@@ -10,8 +11,9 @@ pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTO
 mod connection_tests;
 
 pub use connection_tests::{
-    TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
-    TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
+    EmbeddingCapabilitiesResponse, EmbeddingCapabilitiesSource, TestLlmProviderOutcome,
+    TestLlmProviderRequest, TestLlmProviderResponse, TestRuntimeEmbeddingRequest,
+    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
 };
 
 fn default_search_vector_weight() -> f32 {
@@ -194,16 +196,29 @@ pub struct RuntimeQdrantSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeEmbeddingSettings {
     pub base_url: String,
+    /// The model documents are embedded with.
     pub model: String,
+    /// The model queries are embedded with. Absent means the document model.
+    #[serde(default)]
+    pub query_model: Option<String>,
     pub dimensions: usize,
     pub timeout_secs: u64,
     pub has_api_key: bool,
+    /// The manual limits of the embedding request planner.
+    #[serde(default)]
+    pub batching: EmbeddingBatchingSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateRuntimeEmbeddingSettings {
     pub base_url: String,
+    /// The model documents are embedded with.
     pub model: String,
+    /// The model queries are embedded with. An absent or blank value means the
+    /// document model, so a deployment that never configures one keeps its
+    /// current behavior.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_model: Option<String>,
     pub dimensions: usize,
     pub timeout_secs: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -213,6 +228,58 @@ pub struct UpdateRuntimeEmbeddingSettings {
     /// never stored as a runtime setting.
     #[serde(default)]
     pub confirm_vector_space_unchanged: bool,
+    /// The manual limits of the embedding request planner.
+    #[serde(default)]
+    pub batching: EmbeddingBatchingSettings,
+}
+
+/// The default number of inputs one embedding provider request may carry.
+pub const EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST_DEFAULT: usize = 32;
+/// The default number of characters one embedded input may have.
+pub const EMBEDDING_BATCH_MAX_ITEM_CHARS_DEFAULT: usize = 8_000;
+/// The default number of characters one embedding provider request may carry.
+pub const EMBEDDING_BATCH_MAX_REQUEST_CHARS_DEFAULT: usize = 64_000;
+/// The default number of serialized bytes one embedding provider request may
+/// carry.
+pub const EMBEDDING_BATCH_MAX_REQUEST_BYTES_DEFAULT: usize = 1_048_576;
+
+/// The manual limits of the embedding request planner.
+///
+/// They bound one provider request: how many inputs it may carry, how long one
+/// input may be, how long the whole request may be, and how many serialized
+/// bytes it may occupy. An advertised provider limit may only tighten them, so
+/// the effective limit is the smaller of the two.
+///
+/// Every value is positive and representable in a PostgreSQL BIGINT, because
+/// the settings row stores them there. A request that carries none keeps these
+/// defaults, so an older client never changes the planner's behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(default)]
+pub struct EmbeddingBatchingSettings {
+    /// The maximum number of inputs one provider request may carry.
+    #[schema(maximum = 9_223_372_036_854_775_807i64)]
+    pub max_items_per_request: usize,
+    /// The maximum number of characters one input may have. An input that is
+    /// longer is refused, never split or shortened.
+    #[schema(maximum = 9_223_372_036_854_775_807i64)]
+    pub max_item_chars: usize,
+    /// The maximum number of characters one provider request may carry.
+    #[schema(maximum = 9_223_372_036_854_775_807i64)]
+    pub max_request_chars: usize,
+    /// The maximum number of serialized bytes one provider request may carry.
+    #[schema(maximum = 9_223_372_036_854_775_807i64)]
+    pub max_request_bytes: usize,
+}
+
+impl Default for EmbeddingBatchingSettings {
+    fn default() -> Self {
+        Self {
+            max_items_per_request: EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST_DEFAULT,
+            max_item_chars: EMBEDDING_BATCH_MAX_ITEM_CHARS_DEFAULT,
+            max_request_chars: EMBEDDING_BATCH_MAX_REQUEST_CHARS_DEFAULT,
+            max_request_bytes: EMBEDDING_BATCH_MAX_REQUEST_BYTES_DEFAULT,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -225,15 +292,35 @@ pub struct RuntimeSchedulerSettings {
     pub valkey_url: Option<String>,
 }
 
+/// The durable state of the vector index rebuild.
+///
+/// The states are the rebuild's own, not the task queue's: a rebuild that
+/// waits for the queue is still `Queued`, and a rebuild that waits for an
+/// operator is `Paused` or `Pausing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum VectorIndexRebuildState {
     Idle,
+    /// The rebuild is accepted and waits for the queue or for a worker.
+    Queued,
     Running,
+    /// A pause was requested; the committed page still finishes.
+    Pausing,
+    /// The rebuild is parked and waits for an explicit resume.
+    Paused,
     Succeeded,
     Failed,
+    /// The rebuild was cancelled; its target was never activated.
+    Cancelled,
 }
 
+/// The durable status of the vector index rebuild.
+///
+/// The optional fields are the durable facts an operator needs beside the
+/// state: the task the controls bind to, the active and desired dimensions,
+/// the physical collection that serves today and the one a running build
+/// writes into. Every one of them is absent when the deployment has not
+/// recorded it, so an older client and an older deployment keep working.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct VectorIndexRebuildStatus {
     pub state: VectorIndexRebuildState,
@@ -245,6 +332,52 @@ pub struct VectorIndexRebuildStatus {
     pub started_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub finished_at: Option<DateTime<Utc>>,
+    /// The rebuild task the controls act on.
+    ///
+    /// A control request carries this id, so an operator can never act on a
+    /// rebuild the status they observed is not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<Uuid>,
+    /// The dimensions of the active collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_dimensions: Option<usize>,
+    /// The dimensions the deployment is configured for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub desired_dimensions: Option<usize>,
+    /// The physical collection ordinary writers use today.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub physical_collection: Option<String>,
+    /// The physical collection a running build writes into.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_collection: Option<String>,
+    /// The model the active collection was built with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_model: Option<String>,
+    /// Whether a pause would be accepted right now.
+    #[serde(default)]
+    pub can_pause: bool,
+    /// Whether a resume would be accepted right now.
+    #[serde(default)]
+    pub can_resume: bool,
+    /// Whether a cancellation would be accepted right now.
+    #[serde(default)]
+    pub can_cancel: bool,
+    /// Whether the global task queue is paused.
+    ///
+    /// A queued rebuild then waits for the queue, not for the rebuild
+    /// controls.
+    #[serde(default)]
+    pub queue_paused: bool,
+}
+
+/// The request one rebuild control carries.
+///
+/// The observed task id is the only input: the control acts on the rebuild
+/// that task owns, and on no other one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct RebuildControlRequest {
+    pub task_id: Uuid,
 }
 
 /// Unit the chunking budget is measured in.
@@ -641,4 +774,68 @@ pub struct UpdateDoclingVlmSettings {
     pub code_formula_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture_description_preset: Option<String>,
+}
+
+#[cfg(test)]
+mod rebuild_status_tests {
+    use super::{RebuildControlRequest, VectorIndexRebuildState, VectorIndexRebuildStatus};
+    use serde_json::json;
+
+    #[test]
+    fn the_rebuild_states_keep_their_wire_names() {
+        for (state, wire) in [
+            (VectorIndexRebuildState::Idle, "idle"),
+            (VectorIndexRebuildState::Queued, "queued"),
+            (VectorIndexRebuildState::Running, "running"),
+            (VectorIndexRebuildState::Pausing, "pausing"),
+            (VectorIndexRebuildState::Paused, "paused"),
+            (VectorIndexRebuildState::Succeeded, "succeeded"),
+            (VectorIndexRebuildState::Failed, "failed"),
+            (VectorIndexRebuildState::Cancelled, "cancelled"),
+        ] {
+            assert_eq!(
+                serde_json::to_value(state).expect("state serializes"),
+                json!(wire)
+            );
+        }
+    }
+
+    #[test]
+    fn an_older_status_payload_still_decodes_with_safe_defaults() {
+        let status: VectorIndexRebuildStatus = serde_json::from_value(json!({
+            "state": "running",
+            "processed_chunks": 4,
+            "total_chunks": 10,
+        }))
+        .expect("the pre-controls payload decodes");
+        assert_eq!(status.state, VectorIndexRebuildState::Running);
+        assert_eq!(status.task_id, None);
+        assert_eq!(status.active_dimensions, None);
+        assert_eq!(status.physical_collection, None);
+        assert_eq!(status.target_collection, None);
+        assert!(!status.can_pause);
+        assert!(!status.can_resume);
+        assert!(!status.can_cancel);
+        assert!(!status.queue_paused);
+    }
+
+    #[test]
+    fn a_control_request_is_strict_and_requires_the_observed_task() {
+        let task_id = uuid::Uuid::new_v4();
+        let request: RebuildControlRequest =
+            serde_json::from_value(json!({ "task_id": task_id })).expect("the request decodes");
+        assert_eq!(request.task_id, task_id);
+
+        assert!(
+            serde_json::from_value::<RebuildControlRequest>(json!({})).is_err(),
+            "the observed task id is required"
+        );
+        assert!(
+            serde_json::from_value::<RebuildControlRequest>(
+                json!({ "task_id": task_id, "kind": "vector_rebuild" })
+            )
+            .is_err(),
+            "an unknown field is refused instead of ignored"
+        );
+    }
 }

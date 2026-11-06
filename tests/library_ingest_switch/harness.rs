@@ -8,7 +8,7 @@
 
 use context69::db::{
     CreateTaskSubmissionRequest, Database, ExecutionContext, IngestRunMode, IngestRunSource,
-    NewIngestRun, RegistryQuotaOverride,
+    NewIngestRun, RegistryQuotaOverride, RegistryVectorIdentity,
 };
 use context69::domain::{ChunkPayload, DocumentChunk, LibraryFileDocumentRecord};
 use context69::library_store::{LibraryStore, NewLibraryFile, TaskWriteFence, begin_task_write};
@@ -26,6 +26,79 @@ pub struct SeededSection {
     pub chunk_id: Uuid,
     pub external_id: String,
     pub record_hash: String,
+}
+
+/// The qdrant endpoint of the shared switch fixture.
+pub const SWITCH_QDRANT_URL: &str = "http://127.0.0.1:1";
+/// The logical base collection the shared switch fixture is configured with.
+pub const SWITCH_LOGICAL_COLLECTION: &str = "switch-desired";
+/// The physical collection the shared switch fixture activates.
+pub const SWITCH_PHYSICAL_COLLECTION: &str = "switch-physical";
+/// The embedding endpoint of the shared switch fixture.
+pub const SWITCH_EMBEDDING_BASE_URL: &str = "http://127.0.0.1:1/v1";
+/// The embedding model of the shared switch fixture.
+pub const SWITCH_EMBEDDING_MODEL: &str = "switch-model";
+/// The embedding dimensions of the shared switch fixture.
+pub const SWITCH_DIMENSIONS: usize = 4;
+
+/// Seed the desired runtime identity and activate the physical collection the
+/// shared switch fixture writes into.
+///
+/// The fingerprint stays logical: it is computed from the configured base
+/// collection, while the active row names a different physical collection.
+/// Ordinary point writers therefore prove that the two may differ.
+pub async fn seed_active_vector_identity(
+    db: &Database,
+    qdrant_url: &str,
+    logical_collection: &str,
+    physical_collection: &str,
+    embedding_base_url: &str,
+    embedding_model: &str,
+    dimensions: usize,
+) -> RegistryVectorIdentity {
+    let dimensions = i64::try_from(dimensions).expect("the dimensions fit");
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+        qdrant_url,
+        logical_collection,
+        embedding_base_url,
+        embedding_model,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .expect("seed the desired vector identity");
+    let fingerprint = context69::embedding::embedding_runtime::vector_identity_fingerprint(
+        qdrant_url,
+        logical_collection,
+        embedding_base_url,
+        embedding_model,
+        usize::try_from(dimensions).expect("the dimensions are non-negative"),
+    );
+    clear_active_vector_identity(db).await;
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_active_index.sql",
+        physical_collection,
+        fingerprint,
+        embedding_base_url,
+        embedding_model,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .expect("activate the physical vector collection");
+    RegistryVectorIdentity {
+        embedding_fingerprint: fingerprint,
+        collection_name: physical_collection.to_string(),
+    }
+}
+
+/// Leave no active vector index behind.
+pub async fn clear_active_vector_identity(db: &Database) {
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the active vector index");
 }
 
 /// The source and status of the library file.
@@ -49,6 +122,7 @@ pub struct SwitchFixture {
     pub file_id: Uuid,
     pub old_object: Uuid,
     pub fence: TaskWriteFence,
+    pub identity: RegistryVectorIdentity,
     execution: ExecutionContext,
 }
 
@@ -60,10 +134,10 @@ impl SwitchFixture {
         context69_db_schema::bootstrap_library_schema(db.pool())
             .await
             .unwrap();
-        // The fixture supplies its own captured vector identity to the runner.
-        // The shared test database may still hold the persisted identity of
-        // another target, so it is removed here: a case must not be refused
-        // because a target that ran earlier configured another vector space.
+        // The fixture owns the desired and active vector identity of its
+        // deployment. The shared test database may still hold the rows of
+        // another target, so they are removed before the fixture seeds its own
+        // coherent configuration.
         sqlx::query("DELETE FROM context69.runtime_embedding_settings WHERE singleton = TRUE")
             .execute(db.pool())
             .await
@@ -85,6 +159,19 @@ impl SwitchFixture {
         .execute(db.pool())
         .await
         .unwrap();
+        // The fixture writes points under a real desired and active identity:
+        // the desired configuration is logical, the activated collection is
+        // physical, and both share the same fingerprint.
+        let identity = seed_active_vector_identity(
+            &db,
+            SWITCH_QDRANT_URL,
+            SWITCH_LOGICAL_COLLECTION,
+            SWITCH_PHYSICAL_COLLECTION,
+            SWITCH_EMBEDDING_BASE_URL,
+            SWITCH_EMBEDDING_MODEL,
+            SWITCH_DIMENSIONS,
+        )
+        .await;
         let user = sqlx::query_file_scalar!(
             "tests/sql/task_execution/seed_user.sql",
             format!("switch-{}", Uuid::new_v4()),
@@ -183,6 +270,7 @@ impl SwitchFixture {
             file_id: file.id,
             old_object,
             fence,
+            identity,
             execution,
         }
     }
@@ -354,10 +442,7 @@ impl SwitchFixture {
             .db
             .admit_search_registry_entry_checked_in(
                 &entry,
-                Some(&context69::db::RegistryVectorIdentity {
-                    embedding_fingerprint: "switch-fingerprint".into(),
-                    collection_name: "switch-collection".into(),
-                }),
+                Some(&self.identity),
                 anticipated_retired,
                 RegistryQuotaOverride::exact([1000, 1000, 1000]),
                 &mut tx,

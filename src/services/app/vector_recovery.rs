@@ -4,9 +4,9 @@
 //! nothing about the database, runtime settings, or dependency gates. This
 //! module supplies:
 //!
-//! - the production connector: resolve the configured provider/identity,
-//!   attach read-only to Qdrant (create only for a genuinely uninitialized
-//!   collection), and probe with read-only RPCs;
+//! - the production connector: resolve the configured provider/identity, attach
+//!   read-only to the active physical collection, and probe with read-only
+//!   RPCs;
 //! - the observer: install the recovered provider on the standalone embedding
 //!   handle and report the probe outcome through the existing dependency-gate
 //!   lease protocol;
@@ -34,7 +34,6 @@ use crate::{
 };
 
 use super::{vector_identity, vector_runtime::VectorIndexGate};
-use crate::vector_runtime::UnrecordedCollection;
 
 /// Cancels the ongoing supervisor when the last application handle is dropped.
 pub struct RecoveryShutdown(CancellationToken);
@@ -176,7 +175,6 @@ impl VectorRecoveryWiring {
 struct AppVectorConnector {
     db: Database,
     config: RwLock<Config>,
-    runtime: VectorRuntime,
 }
 
 impl AppVectorConnector {
@@ -201,71 +199,49 @@ impl VectorConnector for AppVectorConnector {
         let config = self.config();
         let embedding = build_provider(&config.embedding)?;
         let identity = EmbeddingIdentity::from_config(&config.embedding);
+        let configured_fingerprint = vector_identity::fingerprint(&config);
+        // The active pointer is the only collection this deployment may serve.
+        // Without it there are no vectors to read at all, and an active row
+        // whose logical identity or dimension differs from the configured one
+        // describes a different vector space. Both fail closed: startup never
+        // creates, adopts, or empties a collection.
+        let active = self
+            .db
+            .read_active_vector_index_state()
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "configuration: no active vector index is recorded; an explicit rebuild must \
+                     activate a vector collection before the runtime can serve vector traffic"
+                )
+            })?;
+        if active.fingerprint != configured_fingerprint
+            || active.dimensions != config.embedding.dimensions
+        {
+            return Err(anyhow::anyhow!(
+                "configuration: the active vector index does not match the configured vector \
+                 identity; an explicit rebuild must activate a matching collection"
+            ));
+        }
         Ok(VectorPair {
             embedding,
             identity,
-            collection: config.qdrant.collection_name.clone(),
-            configured_fingerprint: Some(vector_identity::fingerprint(&config)),
+            collection: active.collection_name,
+            configured_fingerprint: Some(configured_fingerprint),
         })
     }
 
-    async fn attach(&self, _pair: &VectorPair) -> Result<Arc<QdrantIndex>> {
+    async fn attach(&self, pair: &VectorPair) -> Result<Arc<QdrantIndex>> {
         let config = self.config();
-        let dimensions = config.embedding.dimensions;
-        // A persisted row proves this collection previously existed, so it may
-        // only be attached read-only: a missing or mismatched collection is an
-        // error, never an empty replacement.
-        let known_collection = self
-            .db
-            .get_vector_index_fingerprint(&config.qdrant.collection_name)
-            .await?
-            .is_some();
-        if known_collection {
-            let (index, _created) =
-                QdrantIndex::bootstrap(&config.qdrant, dimensions, false).await?;
-            return Ok(Arc::new(index));
-        }
-
-        // No recorded identity. Distinguish a genuinely uninitialized
-        // installation from a collection that already holds vectors.
-        let attached =
-            crate::vector_runtime::attach_unrecorded_collection(&config.qdrant, dimensions).await?;
-        match attached.decision {
-            UnrecordedCollection::CreateMissing | UnrecordedCollection::AdoptEmpty => {
-                let index = attached
-                    .index
-                    .expect("a creatable or empty collection yields an index");
-                self.record_empty_identity(&config).await;
-                Ok(index)
-            }
-            UnrecordedCollection::RebuildOnly { points } => {
-                // Unknown populated vectors must never be adopted as an empty
-                // space or re-embedded implicitly, but they must still be
-                // recoverable: the read-only index is published so the explicit
-                // manual rebuild can run, while readiness and normal vector work
-                // stay closed. No identity is persisted here.
-                self.runtime.set_requires_rebuild(true);
-                let index = attached
-                    .index
-                    .expect("a rebuild-only collection yields a read-only index");
-                warn!(
-                    collection_name = config.qdrant.collection_name,
-                    points,
-                    "qdrant collection holds vectors without a recorded identity; publishing a \
-                     rebuild-only runtime"
-                );
-                Ok(index)
-            }
-            UnrecordedCollection::BlockedDimensions { found, points } => {
-                self.runtime.set_requires_rebuild(true);
-                Err(anyhow::anyhow!(
-                    "configuration: qdrant collection {} declares {found} dimensions ({points} \
-                     points) but the configured identity needs {dimensions}; a different vector \
-                     space requires an explicit migration",
-                    config.qdrant.collection_name
-                ))
-            }
-        }
+        // The active collection is only ever read: the attach performs the
+        // existence, dimension, and count checks and nothing else.
+        let index = QdrantIndex::attach_read_only_collection(
+            &config.qdrant,
+            &pair.collection,
+            config.embedding.dimensions,
+        )
+        .await?;
+        Ok(Arc::new(index))
     }
 
     async fn probe(&self, snapshot: &VectorSnapshot) -> Result<()> {
@@ -274,34 +250,6 @@ impl VectorConnector for AppVectorConnector {
 
     fn configuration_fingerprint(&self) -> String {
         vector_identity::configuration_fingerprint(&self.config())
-    }
-}
-
-impl AppVectorConnector {
-    /// Persists a zero-chunk identity for a collection that was created empty or
-    /// adopted while genuinely empty. The row is what later starts treat as
-    /// prior vector state, so it must never be written for unknown populated
-    /// data.
-    async fn record_empty_identity(&self, config: &Config) {
-        let fingerprint = vector_identity::fingerprint(config);
-        if let Err(error) = self
-            .db
-            .save_vector_index_state(&crate::db::VectorIndexState {
-                collection_name: &config.qdrant.collection_name,
-                fingerprint: &fingerprint,
-                embedding_base_url: &config.embedding.base_url,
-                embedding_model: &config.embedding.model,
-                dimensions: config.embedding.dimensions,
-                rebuilt_chunks: 0,
-            })
-            .await
-        {
-            warn!(
-                %error,
-                collection_name = config.qdrant.collection_name,
-                "failed to record the empty vector identity"
-            );
-        }
     }
 }
 
@@ -407,7 +355,6 @@ pub async fn startup_recovery(
     let connector = Arc::new(AppVectorConnector {
         db: db.clone(),
         config: RwLock::new(config.clone()),
-        runtime: runtime.clone(),
     });
     let wiring = Arc::new(VectorRecoveryWiring {
         runtime: runtime.clone(),

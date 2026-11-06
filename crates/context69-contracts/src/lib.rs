@@ -95,14 +95,14 @@ pub use context69_contracts_search::search::{
 pub use context69_contracts_settings::settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingConnectionSettingsResponse,
     DoclingSettingsResponse, DoclingSettingsSource, DoclingVlmSettingsResponse,
-    RuntimeChunkingSettings, RuntimeEmbeddingSettings, RuntimeFileLibrarySettings,
-    RuntimeQdrantSettings, RuntimeS3SettingsResponse, RuntimeSchedulerSettings,
-    RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch, TestLlmProviderOutcome,
-    TestLlmProviderRequest, TestLlmProviderResponse, TestRuntimeValkeyRequest,
-    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
-    UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings, UpdateRuntimeS3Settings,
-    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, VectorIndexRebuildState,
-    VectorIndexRebuildStatus,
+    RebuildControlRequest, RuntimeChunkingSettings, RuntimeEmbeddingSettings,
+    RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeS3SettingsResponse,
+    RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch,
+    TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
+    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
+    UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+    VectorIndexRebuildState, VectorIndexRebuildStatus,
 };
 pub use context69_contracts_sources::sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,
@@ -126,8 +126,9 @@ pub use context69_contracts_tasks::tasks::{
     TaskBatchRetryRequest, TaskBatchRetryResponse, TaskConsistencyReport, TaskDiagnoseItem,
     TaskDiagnoseParent, TaskDiagnoseResponse, TaskItemProgress, TaskItemResponse, TaskItemStatus,
     TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
-    TaskPageResponse, TaskProgress, TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy,
-    TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery, TaskStreamSnapshot,
-    TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest, TranslationSubmitItem, UrlBatchRequest,
+    TaskPageResponse, TaskProgress, TaskQueueStateResponse, TaskRef, TaskResponse,
+    TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery,
+    TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest,
+    TranslationSubmitItem, UpdateTaskQueueStateRequest, UrlBatchRequest,
 };
 pub use context69_contracts_translation::translation::*;

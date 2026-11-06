@@ -187,10 +187,12 @@ fn identity_from_update_normalizes_and_excludes_credentials() {
     let update = UpdateRuntimeEmbeddingSettings {
         base_url: "  https://embeddings.example/v1/  ".to_string(),
         model: " model-a ".to_string(),
+        query_model: None,
         dimensions: 8,
         timeout_secs: 5,
         api_key: Some("a-rotated-key".to_string()),
         confirm_vector_space_unchanged: false,
+        batching: Default::default(),
     };
     assert_eq!(
         EmbeddingIdentity::from_update(&update),

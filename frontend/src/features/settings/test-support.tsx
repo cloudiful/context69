@@ -17,6 +17,7 @@ import type {
   DoclingCleanupTask,
   DoclingRemoteTasksResponse,
   DoclingSettingsResponse,
+  EmbeddingCapabilitiesResponse,
   PersonalAccessTokenPageResponse,
   PersonalAccessTokenResponse,
   RuntimeSettingsResponse,
@@ -25,6 +26,7 @@ import type {
   TestLlmProviderResponse,
   TranslationProviderPageResponse,
   TranslationSettingsResponse,
+  VectorIndexRebuildStatus,
 } from "@/services/api";
 
 export interface RecordedCall {
@@ -45,6 +47,8 @@ export interface FakeBackendOptions {
   adminUsersFailReads?: number;
   runtimeGetFailReads?: number;
   vectorTask?: TaskResponse | null;
+  rebuildStatus?: VectorIndexRebuildStatus | null;
+  capabilities?: EmbeddingCapabilitiesResponse | null;
   remote?: DoclingRemoteTasksResponse;
   cleanup?: DoclingCleanupTask[];
   fail?: {
@@ -53,6 +57,7 @@ export interface FakeBackendOptions {
     searchPut?: boolean;
     translationPut?: boolean;
     testEmbedding?: boolean;
+    capabilities?: boolean;
     cleanupList?: boolean;
   };
 }
@@ -223,6 +228,40 @@ export const VECTOR_TASK: TaskResponse = {
   updated_at: "2026-10-10T08:05:00Z",
 };
 
+export const VECTOR_REBUILD_STATUS: VectorIndexRebuildStatus = {
+  state: "succeeded",
+  processed_chunks: 10,
+  total_chunks: 10,
+  task_id: "task-vector-1",
+  active_dimensions: 768,
+  desired_dimensions: 768,
+  physical_collection: "context69",
+  active_model: "bge-small",
+  can_pause: false,
+  can_resume: false,
+  can_cancel: false,
+  queue_paused: false,
+};
+
+export const EMBEDDING_CAPABILITIES: EmbeddingCapabilitiesResponse = {
+  base_url: "https://embeddings.example/v1",
+  source: "unknown",
+  document_model: "bge-small",
+  query_model: "bge-small",
+  manual_limits: {
+    max_items_per_request: 32,
+    max_item_chars: 8000,
+    max_request_chars: 64000,
+    max_request_bytes: 1048576,
+  },
+  effective_limits: {
+    max_items_per_request: 32,
+    max_item_chars: 8000,
+    max_request_chars: 64000,
+    max_request_bytes: 1048576,
+  },
+};
+
 export const REMOTE_TASKS: DoclingRemoteTasksResponse = {
   items: [
     {
@@ -331,6 +370,12 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
     tokens: structuredClone(options.tokens ?? [ACCESS_TOKEN]),
     users: structuredClone(options.users ?? [ADMIN_USER_ROW]),
     vectorTask: options.vectorTask === undefined ? structuredClone(VECTOR_TASK) : options.vectorTask,
+    rebuildStatus: options.rebuildStatus === undefined
+      ? structuredClone(VECTOR_REBUILD_STATUS)
+      : options.rebuildStatus,
+    capabilities: options.capabilities === undefined
+      ? structuredClone(EMBEDDING_CAPABILITIES)
+      : options.capabilities,
     remote: structuredClone(options.remote ?? REMOTE_TASKS),
     cleanup: structuredClone(options.cleanup ?? CLEANUP_TASKS),
     isAdmin: options.isAdmin ?? true,
@@ -600,8 +645,45 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
     }
 
     if (path === "/v1/settings/runtime/vector-index/rebuild") {
-      state.vectorTask = { ...VECTOR_TASK, status: "running" };
-      return ok({ task_id: VECTOR_TASK.task_id });
+      if (method === "POST") {
+        state.vectorTask = { ...VECTOR_TASK, status: "queued" };
+        state.rebuildStatus = {
+          ...VECTOR_REBUILD_STATUS,
+          state: "queued",
+          processed_chunks: 1,
+          total_chunks: 10,
+          can_pause: false,
+          can_cancel: true,
+        };
+        return ok({ task_id: VECTOR_TASK.task_id, item_ids: [] });
+      }
+      return ok(state.rebuildStatus);
+    }
+
+    if (path.startsWith("/v1/settings/runtime/vector-index/rebuild/")) {
+      const action = path.slice("/v1/settings/runtime/vector-index/rebuild/".length);
+      const next: VectorIndexRebuildStatus = { ...VECTOR_REBUILD_STATUS };
+      if (action === "pause") {
+        next.state = "pausing";
+        next.can_pause = false;
+        next.can_cancel = true;
+      } else if (action === "resume") {
+        next.state = "running";
+        next.can_pause = true;
+        next.can_resume = false;
+      } else if (action === "cancel") {
+        next.state = "cancelled";
+        next.can_cancel = false;
+      }
+      state.rebuildStatus = next;
+      return ok(next);
+    }
+
+    if (path === "/v1/settings/runtime/embedding/capabilities") {
+      if (fail.capabilities) {
+        return failure(502, "capability discovery failed");
+      }
+      return ok(state.capabilities);
     }
 
     if (path.startsWith("/v1/settings/runtime/") || path === "/v1/settings/docling/test") {

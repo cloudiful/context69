@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Cancel exactly the eligible task rows of one bulk cancellation (issue 1212 R2).\n--\n-- `$1` is the selected active task id list. The rows are locked in id order\n-- before they are updated, and the UPDATE keeps the active-status predicate:\n-- a task that an activation already completed between the selection and this\n-- statement is not cancelled. The statement runs after the item locks and the\n-- registry epoch, so it completes the canonical item -> epoch -> task order.\nWITH targets AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE task.id = ANY($1::uuid[])\n      AND task.status IN ('queued', 'running', 'waiting')\n    ORDER BY task.id\n    FOR UPDATE\n)\nUPDATE context69.tasks task\nSET status = 'cancelled',\n    lease_token = NULL,\n    lease_until = NULL,\n    next_attempt_at = NULL,\n    finished_at = now(),\n    updated_at = now()\nFROM targets\nWHERE task.id = targets.id\nRETURNING task.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e64de9155ebe5a31e96c1c43105e801095e30aab180c0d1a8964363bda4d580b"
+}

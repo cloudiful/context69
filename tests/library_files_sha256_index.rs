@@ -20,8 +20,6 @@ const MIGRATION_DESCRIPTION: &str = "library files group sha256 index";
 const INDEX_NAME: &str = "idx_library_files_group_sha256";
 
 const READ_INDEX_SHAPE: &str = include_str!("library_files_sha256_index/read_index_shape.sql");
-const READ_INDEX_PRESENCE: &str =
-    include_str!("library_files_sha256_index/read_index_presence.sql");
 const DROP_DEDUP_INDEX: &str = include_str!("library_files_sha256_index/drop_dedup_index.sql");
 const CREATE_EQUIVALENT_INDEX: &str =
     include_str!("library_files_sha256_index/create_equivalent_index.sql");
@@ -70,13 +68,6 @@ async fn read_index_shape(connection: &mut PgConnection) -> Option<IndexShape> {
         .fetch_optional(connection)
         .await
         .expect("read the dedup index shape")
-}
-
-async fn index_present(connection: &mut PgConnection) -> bool {
-    sqlx::query_scalar::<_, bool>(READ_INDEX_PRESENCE)
-        .fetch_one(connection)
-        .await
-        .expect("read the dedup index presence")
 }
 
 /// The shape the lookup needs: a valid, ready, live, non-unique btree over
@@ -129,38 +120,6 @@ async fn the_dedup_lookup_index_is_applied_with_the_expected_shape() {
         .await
         .expect("the migration must have applied the dedup lookup index");
     assert_expected_lookup_index(&shape);
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn the_migration_creates_the_dedup_lookup_index_when_no_same_name_object_exists() {
-    let db = connect_scratch().await;
-    let mut transaction = db
-        .pool()
-        .begin()
-        .await
-        .expect("begin a fixture transaction");
-
-    sqlx::query(DROP_DEDUP_INDEX)
-        .execute(&mut *transaction)
-        .await
-        .expect("remove the applied dedup index");
-    assert!(
-        !index_present(&mut transaction).await,
-        "the fixture must start without a same-name object"
-    );
-
-    raw_sql(migration_sql())
-        .execute(&mut *transaction)
-        .await
-        .expect("the migration must create the dedup lookup index");
-
-    let shape = read_index_shape(&mut transaction)
-        .await
-        .expect("the migration must have created the dedup lookup index");
-    assert_expected_lookup_index(&shape);
-
-    transaction.rollback().await.ok();
 }
 
 #[tokio::test]

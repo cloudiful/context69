@@ -39,6 +39,76 @@ use crate::qdrant_points_mock::QdrantPointsMock;
 /// themselves.
 pub static CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
+/// The physical collection the fixture activates and publishes.
+pub const SOURCE_RERUN_COLLECTION: &str = "source-rerun";
+/// The embedding endpoint the fixture configures.
+pub const SOURCE_RERUN_EMBEDDING_BASE_URL: &str = "http://127.0.0.1:1/v1";
+/// The embedding model the fixture configures.
+pub const SOURCE_RERUN_EMBEDDING_MODEL: &str = "source-rerun-model";
+/// The embedding dimensions of the fixture: the fake provider answers with
+/// vectors of exactly this width.
+pub const SOURCE_RERUN_DIMENSIONS: usize = 4;
+
+/// Seeds the desired runtime identity and the matching active collection.
+///
+/// The deployment of the fixture writes real points, so it needs the coherent
+/// identity a production deployment has: a desired configuration, an activated
+/// collection that carries the same logical fingerprint, and a published
+/// runtime that names that fingerprint. The production admission stays
+/// strict: the fixture seeds the desired rows instead of deleting them, and it
+/// never lets a missing active collection through.
+///
+/// The fingerprint is the logical identity of the configured vector space, so
+/// it is computed with the same helper the deployment uses.
+pub async fn seed_vector_identity(db: &Database, qdrant_url: &str) -> String {
+    // The URL download path reads the whole runtime settings family, not only
+    // the desired vector identity. Seed the missing defaults once so the
+    // fixture never relies on production admission tolerating a missing row.
+    sqlx::raw_sql(include_str!(
+        "../sql/vector_registry/seed_runtime_family.sql"
+    ))
+    .execute(db.pool())
+    .await
+    .expect("seed the runtime settings family");
+    let dimensions = i64::try_from(SOURCE_RERUN_DIMENSIONS).expect("the dimensions fit");
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+        qdrant_url,
+        SOURCE_RERUN_COLLECTION,
+        SOURCE_RERUN_EMBEDDING_BASE_URL,
+        SOURCE_RERUN_EMBEDDING_MODEL,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .expect("seed the desired vector identity");
+    let fingerprint = context69::embedding::embedding_runtime::vector_identity_fingerprint(
+        qdrant_url,
+        SOURCE_RERUN_COLLECTION,
+        SOURCE_RERUN_EMBEDDING_BASE_URL,
+        SOURCE_RERUN_EMBEDDING_MODEL,
+        SOURCE_RERUN_DIMENSIONS,
+    );
+    // The activated collection belongs to the fixture: the row of another
+    // target is removed before the fixture activates its own.
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the previous active vector index");
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_active_index.sql",
+        SOURCE_RERUN_COLLECTION,
+        &fingerprint,
+        SOURCE_RERUN_EMBEDDING_BASE_URL,
+        SOURCE_RERUN_EMBEDDING_MODEL,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .expect("activate the seeded vector index");
+    fingerprint
+}
+
 /// An embedding provider that fails the first calls when it is asked to.
 pub struct FakeEmbedding {
     fail_first_calls: AtomicUsize,
@@ -506,20 +576,24 @@ pub async fn build_service_with_transport(
         "",
     );
     let generation = runtime.generation();
-    let index =
-        QdrantIndex::for_test_unreachable(mock.url(), "source-rerun", 4).expect("build test index");
+    let index = QdrantIndex::for_test_unreachable(mock.url(), SOURCE_RERUN_COLLECTION, 4)
+        .expect("build test index");
+    // The deployment writes points under a real identity: the desired
+    // configuration, the activated collection and the published runtime all
+    // name the same logical fingerprint.
+    let fingerprint = seed_vector_identity(db, mock.url()).await;
     assert!(runtime.publish(
         generation,
         VectorSnapshot {
             embedding: embedding.clone(),
             identity: None,
             index: Arc::new(index),
-            collection: "source-rerun".into(),
+            collection: SOURCE_RERUN_COLLECTION.into(),
             generation,
-            configured_fingerprint: Some("task_source_rerun-fingerprint".to_string()),
+            configured_fingerprint: Some(fingerprint.clone()),
         }
     ));
-    runtime.set_configured_fingerprint(Some("source-rerun-fingerprint".to_string()));
+    runtime.set_configured_fingerprint(Some(fingerprint.clone()));
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::new(),
@@ -548,7 +622,7 @@ pub async fn build_service_with_transport(
             },
             valkey_url: None,
             embedding_vector_configured: true,
-            embedding_vector_configuration_fingerprint: "source-rerun".to_string(),
+            embedding_vector_configuration_fingerprint: fingerprint,
         },
         SettingsService::new(db.clone()),
         translation.clone(),

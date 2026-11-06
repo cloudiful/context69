@@ -1,7 +1,11 @@
-import { cleanup, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, renderHook, screen, waitFor, within, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { I18nextProvider } from "react-i18next";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { restoreSession } from "@/lib/auth-store";
+import { i18n } from "@/lib/i18n";
+import { apiClient } from "@/services/api";
 import { installMockStorage } from "@/test-utils/storage";
 
 import {
@@ -13,6 +17,9 @@ import {
   resetToasts,
   type FakeBackendOptions,
 } from "./test-support";
+import { shouldRetryStatusPoll } from "./use-vector-rebuild";
+import { useVectorRebuild } from "./use-vector-rebuild";
+import { VECTOR_REBUILD_STATUS } from "./test-support";
 
 function settingsNav() {
   return screen.getByRole("navigation", { name: "Settings" });
@@ -41,7 +48,6 @@ async function acceptCompatibility() {
 
 describe("settings save orchestration", () => {
   beforeAll(() => installDomPolyfills());
-
   beforeEach(() => {
     resetToasts();
     installMockStorage();
@@ -52,15 +58,72 @@ describe("settings save orchestration", () => {
   afterEach(() => {
     cleanup();
     resetToasts();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("retries a transient rebuild status failure a bounded number of times", () => {
+    expect(shouldRetryStatusPoll(0)).toBe(true);
+    expect(shouldRetryStatusPoll(3)).toBe(true);
+    expect(shouldRetryStatusPoll(4)).toBe(false);
+    expect(shouldRetryStatusPoll(5)).toBe(false);
+  });
+
+  it("recovers a transient rebuild poll failure and stops after an external cancel", async () => {
+    installFakeBackend({});
+    await restoreSession();
+    const running = {
+      ...VECTOR_REBUILD_STATUS,
+      state: "running" as const,
+      can_pause: true,
+      can_cancel: true,
+    };
+    const cancelled = {
+      ...VECTOR_REBUILD_STATUS,
+      state: "cancelled" as const,
+      can_pause: false,
+      can_cancel: false,
+    };
+    const statusRead = vi
+      .spyOn(apiClient, "getVectorIndexRebuildStatus")
+      .mockRejectedValueOnce(new Error("status unavailable"))
+      .mockResolvedValue(running);
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <I18nextProvider i18n={i18n}>{children}</I18nextProvider>
+    );
+    const { result } = renderHook(() => useVectorRebuild(), { wrapper });
+
+    await waitFor(() => expect(statusRead).toHaveBeenCalledTimes(1));
+    expect(result.current.status).toBeNull();
+
+    // The transient failure keeps the last known status and reschedules the
+    // read instead of stopping the poll.
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+    });
+    await waitFor(() => expect(result.current.status?.state).toBe("running"));
+
+    // Another operator cancels the rebuild; the recovered poll observes it and
+    // stops.
+    statusRead.mockResolvedValue(cancelled);
+    await act(async () => {
+      vi.advanceTimersByTime(1_500);
+    });
+    await waitFor(() => expect(result.current.status?.state).toBe("cancelled"));
+    const calls = statusRead.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(statusRead.mock.calls.length).toBe(calls);
   });
 
   it("stops at the runtime admission step when the runtime save fails", async () => {
     const backend = installFakeBackend({ fail: { runtimePut: true } });
     const router = await openSettings("/settings/runtime");
 
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "-2");
+    await userEvent.type(screen.getByLabelText("Document model"), "-2");
     await goToSection(router, "Search", "/settings/search");
     await userEvent.clear(screen.getByLabelText("Rerank Candidates"));
     await userEvent.type(screen.getByLabelText("Rerank Candidates"), "55");
@@ -81,8 +144,8 @@ describe("settings save orchestration", () => {
     const backend = setup();
     const router = await openSettings("/settings/runtime");
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "embed-2");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "embed-2");
 
     await goToSection(router, "Search", "/settings/search");
     await userEvent.clear(screen.getByLabelText("Rerank Candidates"));
@@ -176,8 +239,8 @@ describe("settings save orchestration", () => {
       return originalPut(path, init);
     });
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "embed-2");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "embed-2");
     await userEvent.click(screen.getByTestId("settings-save"));
     await acceptCompatibility();
 
@@ -185,8 +248,8 @@ describe("settings save orchestration", () => {
       expect(screen.getByTestId("settings-save")).toBeDisabled();
     });
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "embed-3");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "embed-3");
 
     resolveRuntime({
       data: {
@@ -199,7 +262,7 @@ describe("settings save orchestration", () => {
     await waitFor(() => {
       expect(screen.getByTestId("settings-save")).toBeEnabled();
     });
-    expect(screen.getByLabelText("Embedding Model")).toHaveValue("embed-3");
+    expect(screen.getByLabelText("Document model")).toHaveValue("embed-3");
     expect(screen.queryByText("Settings saved")).not.toBeInTheDocument();
     expect(router.state.location.pathname).toBe("/settings/runtime");
   });
@@ -208,11 +271,11 @@ describe("settings save orchestration", () => {
     setup();
     await openSettings("/settings/runtime");
 
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "-2");
+    await userEvent.type(screen.getByLabelText("Document model"), "-2");
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
 
-    await userEvent.clear(screen.getByLabelText("Embedding Model"));
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "embed-1");
+    await userEvent.clear(screen.getByLabelText("Document model"));
+    await userEvent.type(screen.getByLabelText("Document model"), "embed-1");
 
     await waitFor(() => {
       expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
@@ -224,12 +287,12 @@ describe("settings save orchestration", () => {
     const backend = setup();
     await openSettings("/settings/runtime");
 
-    await userEvent.type(screen.getByLabelText("Embedding Model"), "-2");
+    await userEvent.type(screen.getByLabelText("Document model"), "-2");
     cleanup();
 
     await openSettings("/settings/runtime");
 
-    expect(await screen.findByLabelText("Embedding Model")).toHaveValue("embed-1");
+    expect(await screen.findByLabelText("Document model")).toHaveValue("embed-1");
     expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(0);
   });
 

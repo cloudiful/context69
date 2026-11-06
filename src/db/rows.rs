@@ -197,8 +197,13 @@ pub(super) struct RuntimeQdrantSettingsRow {
 pub(super) struct RuntimeEmbeddingSettingsRow {
     pub(super) base_url: String,
     pub(super) model: String,
+    pub(super) query_model: Option<String>,
     pub(super) dimensions: i64,
     pub(super) timeout_secs: i64,
+    pub(super) max_items_per_request: Option<i64>,
+    pub(super) max_item_chars: Option<i64>,
+    pub(super) max_request_chars: Option<i64>,
+    pub(super) max_request_bytes: Option<i64>,
 }
 
 #[derive(Debug, Clone, FromRow)]

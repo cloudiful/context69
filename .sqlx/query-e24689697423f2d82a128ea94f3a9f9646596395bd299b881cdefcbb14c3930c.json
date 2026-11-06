@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Clears the pause request of one owned running rebuild (issue 1212 P3).\n--\n-- The caller has already requeued the exact parked item in the same\n-- transaction, so the barrier and the item agree when this commits. The barrier\n-- keeps its owner, its identity and its committed cursor: a resume continues\n-- after the last written page, never from the beginning. The epoch does not move\n-- because the registry's visible entry set does not change.\nUPDATE context69.search_registry_epoch\nSET rebuild_pause_requested = FALSE,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_pause_requested\nRETURNING rebuild_pause_requested AS \"pause_requested!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pause_requested!",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_pause_requested"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e24689697423f2d82a128ea94f3a9f9646596395bd299b881cdefcbb14c3930c"
+}

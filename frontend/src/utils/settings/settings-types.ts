@@ -1,10 +1,19 @@
 import type { components } from "../../generated/openapi";
 import type {
+  EmbeddingBatchingSettings,
   SearchMode,
   UpdateDoclingSettingsRequest,
 } from "../../services/api";
 
 type RuntimeChunkingSettings = components["schemas"]["RuntimeChunkingSettings"];
+
+/**
+ * The manual limits of the embedding request planner.
+ *
+ * Every generated field is present, so a save always carries the limits the
+ * operator sees instead of dropping them.
+ */
+export type DraftEmbeddingBatching = Required<EmbeddingBatchingSettings>;
 
 /**
  * Chunking budget of the runtime draft.
@@ -29,9 +38,13 @@ export type DraftRuntimeSettings = {
   embedding: {
     base_url: string;
     api_key: string;
+    /** The model documents are embedded with. */
     model: string;
+    /** The model queries are embedded with; blank inherits the document model. */
+    query_model: string;
     dimensions: number;
     timeout_secs: number;
+    batching: DraftEmbeddingBatching;
   };
   scheduler: {
     interval_secs: number;

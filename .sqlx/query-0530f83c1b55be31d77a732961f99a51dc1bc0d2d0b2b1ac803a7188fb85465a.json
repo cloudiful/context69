@@ -1,0 +1,50 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The one physical collection ordinary point writers may use.\n--\n-- The active row is the authority of the live vector space: its fingerprint is\n-- the desired logical identity the deployment was configured with, and its\n-- collection name is the physical collection that identity was built into.\nSELECT collection_name, fingerprint, dimensions\nFROM context69.vector_index_state\nWHERE active\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "dimensions"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0530f83c1b55be31d77a732961f99a51dc1bc0d2d0b2b1ac803a7188fb85465a"
+}

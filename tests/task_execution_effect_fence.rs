@@ -7,7 +7,7 @@
 //! commits and can roll back, and a capture from an earlier generation is
 //! refused after the item moved on.
 
-use context69::db::{CreateTaskSubmissionRequest, Database};
+use context69::db::{CreateTaskSubmissionRequest, Database, FinishTaskItemRequest};
 use context69::library_store::{TaskWriteDenied, TaskWriteFence};
 use serde_json::json;
 use uuid::Uuid;
@@ -420,6 +420,62 @@ async fn a_cancelled_item_cannot_write_business_rows() {
         file_count(&db, group_id).await,
         0,
         "the cancelled item leaves no file behind"
+    );
+
+    cleanup(&db, task_id, user_id, group_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_worker_of_a_cancelled_item_never_seals_its_segment() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let group_id = seed_group(&db).await;
+    let (task_id, item_id) = seed_task(&db, user_id, group_id).await;
+    let item = claim(&db, item_id).await;
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    assert!(
+        db.cancel_task(task_id, user_id)
+            .await
+            .expect("cancel the task"),
+        "the cancel must move the task"
+    );
+
+    // The worker of the cancelled item arrives with its captured execution.
+    // The domain item is locked and its grant is checked before the library
+    // segment is touched, so the stale worker never seals that segment.
+    let finished = db
+        .finish_task_item(FinishTaskItemRequest {
+            task_id,
+            item_id,
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: false,
+            execution: execution.clone(),
+            attempt_id: item.attempt_id,
+        })
+        .await
+        .expect("the refused finish is not an error");
+    assert!(
+        !finished,
+        "the worker of a cancelled item never finishes that item"
+    );
+
+    let segment_status: String =
+        sqlx::query_scalar("SELECT status FROM cloudiful_tasks.tasks WHERE id = $1")
+            .bind(execution.task_id())
+            .fetch_one(db.pool())
+            .await
+            .expect("read the library segment");
+    assert_eq!(
+        segment_status, "cancel_requested",
+        "the worker never seals the segment of a cancelled item"
     );
 
     cleanup(&db, task_id, user_id, group_id).await;

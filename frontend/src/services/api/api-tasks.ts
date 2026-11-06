@@ -20,6 +20,7 @@ import type {
   TaskSortBy,
   TaskStatus,
   TaskSubmitRequest,
+  TaskQueueStateResponse,
 } from "./api-types";
 import type { components } from "@/generated/openapi";
 
@@ -176,6 +177,17 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
       return unwrapResponse(openapiClient.POST("/v1/admin/tasks/cancel-active", {
         signal: options?.signal,
       })) as Promise<CancelActiveTasksResponse>;
+    },
+    getTaskQueueState(options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/admin/tasks/queue", {
+        signal: options?.signal,
+      })) as Promise<TaskQueueStateResponse>;
+    },
+    updateTaskQueueState(paused: boolean, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.PUT("/v1/admin/tasks/queue", {
+        body: { paused },
+        signal: options?.signal,
+      })) as Promise<TaskQueueStateResponse>;
     },
   };
 }

@@ -83,6 +83,88 @@ describe("useQueue", () => {
     toast.warning.mockReset();
   });
 
+  it("never issues the admin queue read unless the caller opts in", async () => {
+    const getState = vi.spyOn(apiClient, "getTaskQueueState");
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    expect(result.current.queueControls).toBe(false);
+    expect(getState).not.toHaveBeenCalled();
+  });
+
+  it("reads and toggles the durable admission state for an opted-in caller", async () => {
+    const getState = vi.spyOn(apiClient, "getTaskQueueState").mockResolvedValue({
+      paused: false,
+      updated_at: "2026-01-01T00:00:00Z",
+    });
+    const updateState = vi.spyOn(apiClient, "updateTaskQueueState").mockResolvedValue({
+      paused: true,
+      updated_at: "2026-01-01T00:01:00Z",
+    });
+    const { result } = renderQueue({ enableQueueControls: true });
+    await waitFor(() => expect(result.current.queuePaused).toBe(false));
+    expect(getState).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      result.current.toggleQueuePaused();
+    });
+    await waitFor(() => expect(result.current.queuePaused).toBe(true));
+    expect(updateState).toHaveBeenCalledWith(true);
+    expect(result.current.queueControlBusy).toBe(false);
+    expect(toast.success).toHaveBeenCalled();
+  });
+
+  it("refuses a toggle when the controls are disabled", async () => {
+    const updateState = vi.spyOn(apiClient, "updateTaskQueueState");
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
+    act(() => {
+      result.current.toggleQueuePaused();
+    });
+    expect(updateState).not.toHaveBeenCalled();
+  });
+
+  it("refuses a blind toggle until the admission state is known, then recovers", async () => {
+    const getState = vi
+      .spyOn(apiClient, "getTaskQueueState")
+      .mockRejectedValueOnce(new Error("queue state unavailable"))
+      .mockResolvedValueOnce({ paused: true, updated_at: "2026-01-01T00:00:00Z" });
+    const updateState = vi.spyOn(apiClient, "updateTaskQueueState");
+    const { result } = renderQueue({ enableQueueControls: true });
+    await waitFor(() => expect(result.current.queueStateError).not.toBeNull());
+
+    expect(result.current.queuePaused).toBeNull();
+    expect(result.current.queueStateKnown).toBe(false);
+    act(() => {
+      result.current.toggleQueuePaused();
+    });
+    expect(updateState).not.toHaveBeenCalled();
+
+    act(() => {
+      result.current.refreshQueueState();
+    });
+    await waitFor(() => expect(result.current.queuePaused).toBe(true));
+    expect(result.current.queueStateKnown).toBe(true);
+    expect(getState).toHaveBeenCalledTimes(2);
+    expect(updateState).not.toHaveBeenCalled();
+  });
+
+  it("refetches the durable admission state on Refresh", async () => {
+    const getState = vi
+      .spyOn(apiClient, "getTaskQueueState")
+      .mockResolvedValueOnce({ paused: false, updated_at: "2026-01-01T00:00:00Z" })
+      .mockResolvedValueOnce({ paused: true, updated_at: "2026-01-01T00:01:00Z" });
+    const { result } = renderQueue({ enableQueueControls: true });
+    await waitFor(() => expect(result.current.queuePaused).toBe(false));
+
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.queuePaused).toBe(true));
+    expect(getState).toHaveBeenCalledTimes(2);
+  });
+
   it("loads the processing view with the complete default scope", async () => {
     const { result } = renderQueue();
     await waitFor(() => expect(result.current.items).toHaveLength(1));

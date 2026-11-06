@@ -50,6 +50,13 @@ impl SettingsApi for SettingsApiAdapter {
         self.service.test_embedding_connection(request).await
     }
 
+    async fn embedding_capabilities(
+        &self,
+        request: &crate::contracts::settings::TestRuntimeEmbeddingRequest,
+    ) -> anyhow::Result<crate::contracts::settings::EmbeddingCapabilitiesResponse> {
+        self.service.embedding_capabilities(request).await
+    }
+
     async fn test_qdrant_connection(
         &self,
         request: &crate::contracts::settings::TestRuntimeQdrantRequest,

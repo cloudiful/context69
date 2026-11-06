@@ -14,8 +14,13 @@ mod qdrant_points_mock;
 mod fixture;
 
 #[cfg(feature = "integration-test-helpers")]
+#[path = "library_ingest_switch/harness.rs"]
+mod harness;
+
+#[cfg(feature = "integration-test-helpers")]
 mod atomic_first_insert_cases {
     use super::fixture::FirstInsertFixture;
+    use super::harness;
     use super::qdrant_points_mock::QdrantPointsMock;
     use anyhow::Result;
     use async_trait::async_trait;
@@ -78,11 +83,27 @@ mod atomic_first_insert_cases {
         root
     }
 
+    /// Seed the desired and active vector identity of the shared switch fixture
+    /// and return the captured identity a point writer records.
+    async fn seed_switch_identity(db: &Database) -> context69::db::RegistryVectorIdentity {
+        harness::seed_active_vector_identity(
+            db,
+            harness::SWITCH_QDRANT_URL,
+            harness::SWITCH_LOGICAL_COLLECTION,
+            harness::SWITCH_PHYSICAL_COLLECTION,
+            harness::SWITCH_EMBEDDING_BASE_URL,
+            harness::SWITCH_EMBEDDING_MODEL,
+            harness::SWITCH_DIMENSIONS,
+        )
+        .await
+    }
+
     async fn build_service(
         db: &Database,
         storage_root: &Path,
         mock: &QdrantPointsMock,
     ) -> TaskService {
+        let identity = seed_switch_identity(db).await;
         let chunking = ChunkingConfig {
             max_chars: 1000,
             overlap_chars: 100,
@@ -94,20 +115,21 @@ mod atomic_first_insert_cases {
             "",
         );
         let generation = runtime.generation();
-        let index = QdrantIndex::for_test_unreachable(mock.url(), "first-insert", DIMENSIONS)
-            .expect("build the test index");
+        let index =
+            QdrantIndex::for_test_unreachable(mock.url(), &identity.collection_name, DIMENSIONS)
+                .expect("build the test index");
         assert!(runtime.publish(
             generation,
             VectorSnapshot {
                 embedding,
                 identity: None,
                 index: Arc::new(index),
-                collection: "first-insert".into(),
+                collection: identity.collection_name.clone(),
                 generation,
-                configured_fingerprint: Some("atomic_first_insert-fingerprint".to_string()),
+                configured_fingerprint: Some(identity.embedding_fingerprint.clone()),
             }
         ));
-        runtime.set_configured_fingerprint(Some("first-insert-fingerprint".to_string()));
+        runtime.set_configured_fingerprint(Some(identity.embedding_fingerprint));
         let translation = TranslationService::new(TranslationDependencies {
             pool: db.pool().clone(),
             http_client: reqwest::Client::new(),
@@ -482,17 +504,16 @@ mod atomic_first_insert_cases {
             .expect("the item owns a durable run");
 
         let embedding = FakeEmbedding;
-        let index = QdrantIndex::for_test_unreachable(mock.url(), "first-insert", DIMENSIONS)
-            .expect("build the test index");
+        let identity = seed_switch_identity(&fixture.db).await;
+        let index =
+            QdrantIndex::for_test_unreachable(mock.url(), &identity.collection_name, DIMENSIONS)
+                .expect("build the test index");
         let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
         let vector = ReplacementVector {
             embedding: &embedding,
             index: &index,
             chunking: &chunk_budget,
-            identity: Some(context69::db::RegistryVectorIdentity {
-                embedding_fingerprint: "first-insert-fingerprint".into(),
-                collection_name: "first-insert".into(),
-            }),
+            identity: Some(identity),
         };
         let request = ReplacementRunRequest {
             task_id: fixture.task_id,

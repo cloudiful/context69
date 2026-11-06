@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Return the active pointer to no live collection.\n--\n-- An activation deactivates the previous active row in one statement and\n-- activates the exact target in a second one, so the partial unique index never\n-- observes two active rows.\nUPDATE context69.vector_index_state\nSET active = FALSE\nWHERE active\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "d603d8046586e36a996b2de3b58f59f885ca7c45368a3483ada796de3f50dd73"
+}

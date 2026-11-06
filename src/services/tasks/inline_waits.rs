@@ -6,6 +6,7 @@ use context69_contracts::TaskKind;
 
 use super::TaskService;
 use super::item_processors::{ProcessResult, process_item_blocking};
+use super::rebuild_control::PAUSED_REBUILD_DEPENDENCY;
 use crate::db::Database;
 
 /// Bound for consecutive inline waits inside one worker run (issue 650 P3).
@@ -31,6 +32,17 @@ pub(super) fn inline_wait_until(
     rounds_used: u32,
 ) -> Option<DateTime<Utc>> {
     if rounds_used >= MAX_INLINE_WAIT_ROUNDS {
+        return None;
+    }
+    // A paused rebuild is never an inline sleep: the item must park through the
+    // existing wait path so the pause survives a restart and only an explicit
+    // resume reopens it.
+    if let ProcessResult::Waiting {
+        dependency_key: Some(key),
+        ..
+    } = result
+        && key == PAUSED_REBUILD_DEPENDENCY
+    {
         return None;
     }
     match result {
@@ -165,6 +177,16 @@ mod tests {
     #[test]
     fn retryable_outcomes_wait_inline_until_the_budget_runs_out() {
         assert!(inline_wait_until(&waiting(30), 1, 0).is_some());
+        let paused = ProcessResult::Waiting {
+            reason: "dependency".to_string(),
+            dependency_key: Some(super::PAUSED_REBUILD_DEPENDENCY.to_string()),
+            next_attempt_at: Utc::now() + ChronoDuration::days(1),
+            message: None,
+        };
+        assert!(
+            inline_wait_until(&paused, 1, 0).is_none(),
+            "a paused rebuild must park instead of sleeping inline"
+        );
         assert!(inline_wait_until(&failed(true), 3, 0).is_some());
         assert!(inline_wait_until(&waiting(30), 1, MAX_INLINE_WAIT_ROUNDS).is_none());
         assert!(inline_wait_until(&failed(true), 3, MAX_INLINE_WAIT_ROUNDS).is_none());

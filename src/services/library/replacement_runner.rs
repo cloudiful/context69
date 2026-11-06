@@ -724,22 +724,9 @@ async fn ensure_admission(
         );
         return Ok(());
     }
-    // The captured identity must still describe the persisted configuration.
-    // The persisted rows are the authority: a node whose pair predates a
-    // settings change on another node must not stage points under the older
-    // identity.
-    if let Some(persisted) = db
-        .read_persisted_vector_identity_in(write.connection())
-        .await?
-        && persisted != *identity
-    {
-        write.rollback().await;
-        return Err(crate::domain_errors::DomainError::conflict(
-            "the configured vector identity changed since the replacement captured it; retry it \
-             under the current configuration",
-        )
-        .into());
-    }
+    // The admission transaction validates the captured identity against the
+    // active vector index under the registry epoch lock, so a settings change on
+    // another node can never be overtaken by a pre-check made before the lock.
     let admitted = db
         .admit_search_registry_entry_checked_in(
             entry,

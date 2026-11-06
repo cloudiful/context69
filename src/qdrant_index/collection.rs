@@ -1,4 +1,8 @@
-use super::{QdrantIndex, format_qdrant_error};
+use super::{
+    QdrantIndex,
+    errors::{RebuildTargetCollision, RebuildTargetCollisionReason},
+    format_qdrant_error,
+};
 use crate::config::QdrantConfig;
 use anyhow::{Context, Result, anyhow};
 use qdrant_client::{
@@ -8,6 +12,7 @@ use qdrant_client::{
         PayloadSchemaType, VectorParamsBuilder, vectors_config,
     },
 };
+use std::future::Future;
 
 /// Payload fields the collection must be indexed on, with their exact Qdrant
 /// `FieldType`. Every entry is created with `create_field_index` during
@@ -48,7 +53,56 @@ const LIBRARY_FILE_ID_FIELD: &str = "library_file_id";
 /// looks for still reach `is_qdrant_transient`.
 const CREATE_FIELD_INDEX_OPERATION: &str = "create_field_index";
 
+/// The decision one rebuild target preparation makes.
+///
+/// The decision is pure so the ownership boundary is testable without a
+/// Qdrant server: a collection this attempt created is only attached, a
+/// collection it did not create is never adopted, and only an absent target
+/// may be created.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetPreparation {
+    /// The exact target exists at the expected dimension; attach it.
+    Attach,
+    /// The exact target is absent; create it at the expected dimension.
+    Create,
+    /// The target may not be used by this attempt; never attach or write it.
+    Collision(RebuildTargetCollisionReason),
+}
+
+/// Decides how one rebuild target is prepared.
+///
+/// `created_by_owner` is the durable ownership marker of the recorded target:
+/// it says that the attempt which owns the barrier created that collection
+/// itself. A marked target may only be attached, an unmarked target that
+/// already exists is ambiguous and is refused, and a target that does not
+/// exist may only be created while no other attempt could have created it.
+pub(crate) fn target_preparation(
+    created_by_owner: bool,
+    existing_dimensions: Option<usize>,
+    expected_dimensions: usize,
+) -> TargetPreparation {
+    match existing_dimensions {
+        Some(dimensions) if dimensions != expected_dimensions => {
+            TargetPreparation::Collision(RebuildTargetCollisionReason::DimensionMismatch)
+        }
+        Some(_) if created_by_owner => TargetPreparation::Attach,
+        Some(_) => TargetPreparation::Collision(RebuildTargetCollisionReason::AlreadyExists),
+        None if created_by_owner => {
+            TargetPreparation::Collision(RebuildTargetCollisionReason::Missing)
+        }
+        None => TargetPreparation::Create,
+    }
+}
+
 impl QdrantIndex {
+    /// Whether the error is the typed refusal of a rebuild target collection.
+    ///
+    /// The refusal is typed so the caller can release its own durable barrier
+    /// and derive a fresh target name, instead of adopting a collection that
+    /// is not provably its own.
+    pub fn is_target_collision(error: &anyhow::Error) -> bool {
+        error.downcast_ref::<RebuildTargetCollision>().is_some()
+    }
     pub async fn ensure_metadata_field_index(&self, path: &str, data_type: &str) -> Result<()> {
         let field_type = match data_type {
             "keyword" => FieldType::Keyword,
@@ -118,10 +172,23 @@ impl QdrantIndex {
     /// reported to the caller, which decides whether creation is permitted for
     /// a genuinely uninitialized installation.
     pub async fn attach_read_only(config: &QdrantConfig, dimensions: usize) -> Result<Self> {
+        Self::attach_read_only_collection(config, &config.collection_name, dimensions).await
+    }
+
+    /// Attaches to one named existing collection with read-only validation
+    /// only.
+    ///
+    /// The collection is named explicitly because a rebuild target is a
+    /// physical collection of its own, not the collection the settings name.
+    pub async fn attach_read_only_collection(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+    ) -> Result<Self> {
         let client = Qdrant::from_url(&config.url).build()?;
         let index = Self {
             client,
-            collection_name: config.collection_name.clone(),
+            collection_name: collection_name.to_string(),
             dimensions,
         };
         index.probe_collection().await?;
@@ -139,10 +206,22 @@ impl QdrantIndex {
         config: &QdrantConfig,
         dimensions: usize,
     ) -> Result<Option<(u64, usize)>> {
+        Self::inspect_collection(config, &config.collection_name, dimensions).await
+    }
+
+    /// Read-only inspection of one named collection.
+    ///
+    /// The same contract as [`Self::inspect_existing`], for a physical
+    /// collection that is not the one the settings name.
+    pub async fn inspect_collection(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+    ) -> Result<Option<(u64, usize)>> {
         let client = Qdrant::from_url(&config.url).build()?;
         let index = Self {
             client,
-            collection_name: config.collection_name.clone(),
+            collection_name: collection_name.to_string(),
             dimensions,
         };
         if !index.collection_exists_checked().await? {
@@ -158,6 +237,86 @@ impl QdrantIndex {
             .context("missing qdrant vector size in collection config")?;
         let points = index.count_points().await?;
         Ok(Some((points, actual_dimensions)))
+    }
+
+    /// Prepares the exact physical collection of one rebuild target.
+    ///
+    /// The durable ownership marker decides what may happen to the recorded
+    /// collection. A marked target is one this attempt created: it is attached
+    /// and probed, and a target of another dimension is refused. An unmarked
+    /// target that already exists is ambiguous - the attempt cannot prove that
+    /// it created that collection - so it is refused and never adopted. An
+    /// absent unmarked target is created with the attempt dimension and probed.
+    ///
+    /// The returned flag says whether this call created the collection, so the
+    /// caller can record the ownership marker directly after the create. No
+    /// path deletes, empties or recreates a collection.
+    pub async fn prepare_rebuild_target<F, Fut>(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+        created_by_owner: bool,
+        authorize: F,
+    ) -> Result<(Self, bool)>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        let client = Qdrant::from_url(&config.url).build()?;
+        let index = Self {
+            client,
+            collection_name: collection_name.to_string(),
+            dimensions,
+        };
+        let existing_dimensions = index.existing_dimensions().await?;
+        match target_preparation(created_by_owner, existing_dimensions, dimensions) {
+            TargetPreparation::Attach => {
+                index.probe_collection().await?;
+                Ok((index, false))
+            }
+            TargetPreparation::Create => {
+                match index
+                    .create_collection_guarded(dimensions, &authorize)
+                    .await
+                {
+                    Ok(()) => {
+                        index.probe_collection().await?;
+                        Ok((index, true))
+                    }
+                    Err(error) if is_collection_already_exists(&error) => {
+                        // A concurrent preparation created the same name. It is
+                        // not provably the collection of this attempt, so it is
+                        // refused instead of adopted.
+                        Err(RebuildTargetCollision::new(
+                            collection_name,
+                            RebuildTargetCollisionReason::AlreadyExists,
+                        )
+                        .into())
+                    }
+                    Err(error) => Err(error),
+                }
+            }
+            TargetPreparation::Collision(reason) => {
+                Err(RebuildTargetCollision::new(collection_name, reason).into())
+            }
+        }
+    }
+
+    /// The declared dimension of the named collection, or `None` when it does
+    /// not exist.
+    async fn existing_dimensions(&self) -> Result<Option<usize>> {
+        if !self.collection_exists_checked().await? {
+            return Ok(None);
+        }
+        let collection = self
+            .client
+            .collection_info(&self.collection_name)
+            .await?
+            .result
+            .context("missing qdrant collection info")?;
+        Ok(Some(collection_vector_size(&collection).context(
+            "missing qdrant vector size in collection config",
+        )?))
     }
 
     /// Attaches to an existing collection, or creates it only when `allow_create`
@@ -280,6 +439,40 @@ impl QdrantIndex {
             .await?;
 
         for &(field, field_type) in PAYLOAD_FIELD_INDEXES {
+            self.ensure_field_index_idempotent(field, field_type)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Creates one rebuild target after re-proving its authority at every
+    /// independent mutation boundary.
+    ///
+    /// Existence discovery and every preceding network await can outlive the
+    /// grant that started the build, so the authority callback runs again
+    /// immediately before the create RPC and before each payload-index
+    /// mutation. A refusal at any boundary starts no new Qdrant mutation; a
+    /// request already accepted by Qdrant is never promised to be rolled back.
+    async fn create_collection_guarded<F, Fut>(
+        &self,
+        dimensions: usize,
+        authorize: &F,
+    ) -> Result<()>
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = Result<()>>,
+    {
+        authorize().await?;
+        self.client
+            .create_collection(
+                CreateCollectionBuilder::new(&self.collection_name).vectors_config(
+                    VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
+                ),
+            )
+            .await?;
+
+        for &(field, field_type) in PAYLOAD_FIELD_INDEXES {
+            authorize().await?;
             self.ensure_field_index_idempotent(field, field_type)
                 .await?;
         }

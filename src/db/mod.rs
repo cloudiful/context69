@@ -62,8 +62,8 @@ pub use metadata_payload_sync::{ClaimedMetadataPayloadSyncJob, MetadataPayloadSy
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use search_registry::{
-    AdmissionOutcome, RebuildBarrier, RebuildBarrierState, RebuildRefusalReason,
-    RebuildStartOutcome, RegistryVectorIdentity,
+    AdmissionOutcome, RebuildBarrier, RebuildBarrierState, RebuildCheckpoint, RebuildCursor,
+    RebuildRefusalReason, RebuildStartOutcome, RegistryVectorIdentity,
 };
 pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
@@ -73,13 +73,13 @@ pub use tasks::{
     RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
     StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
     TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,
-    WaitTaskItemRequest,
+    TaskQueueState, WaitTaskItemRequest,
 };
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
     UpgradeAdmission, UpgradeGuardCounts,
 };
-pub use vector_index_state::VectorIndexState;
+pub use vector_index_state::{ActiveVectorIndexState, VectorIndexState};
 
 #[derive(Clone)]
 pub struct Database {
@@ -181,9 +181,15 @@ pub struct StoredRuntimeEmbeddingSettings {
     /// loaded these settings. It is an in-memory value, never a persisted one: a
     /// stored row always reports `None` here.
     pub api_key: Option<String>,
+    /// The model documents are embedded with.
     pub model: String,
+    /// The model queries are embedded with. `None` means the document model
+    /// embeds queries too.
+    pub query_model: Option<String>,
     pub dimensions: usize,
     pub timeout_secs: u64,
+    /// The manual limits of the embedding request planner.
+    pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
 }
 
 #[derive(Debug, Clone)]

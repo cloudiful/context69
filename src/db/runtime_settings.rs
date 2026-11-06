@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 
 use crate::chunking::ChunkBudgetMode;
 use crate::chunking::chunking_token::TokenizerKind;
+use crate::contracts::settings::EmbeddingBatchingSettings;
 use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
 use super::{
@@ -40,6 +41,42 @@ fn stored_chunking_tokenizer(value: &str) -> Result<TokenizerKind> {
     TokenizerKind::from_name(value).ok_or_else(|| {
         anyhow::anyhow!("the persisted chunking tokenizer {value:?} is not supported")
     })
+}
+
+/// The batching limits a persisted row describes.
+///
+/// A row that predates the limits stores NULL for them, which is the published
+/// default: a deployment that never configured a limit keeps the documented
+/// one instead of losing its planner.
+fn stored_embedding_batching(
+    row: &RuntimeEmbeddingSettingsRow,
+) -> Result<EmbeddingBatchingSettings> {
+    let defaults = EmbeddingBatchingSettings::default();
+    Ok(EmbeddingBatchingSettings {
+        max_items_per_request: stored_batching_limit(
+            row.max_items_per_request,
+            defaults.max_items_per_request,
+        )?,
+        max_item_chars: stored_batching_limit(row.max_item_chars, defaults.max_item_chars)?,
+        max_request_chars: stored_batching_limit(
+            row.max_request_chars,
+            defaults.max_request_chars,
+        )?,
+        max_request_bytes: stored_batching_limit(
+            row.max_request_bytes,
+            defaults.max_request_bytes,
+        )?,
+    })
+}
+
+/// One persisted batching limit, or the default when the row carries none.
+fn stored_batching_limit(value: Option<i64>, fallback: usize) -> Result<usize> {
+    match value {
+        None => Ok(fallback),
+        Some(value) => {
+            usize::try_from(value).context("runtime embedding batching limit must be non-negative")
+        }
+    }
 }
 
 impl Database {
@@ -92,6 +129,7 @@ impl Database {
         // the reported policy is the one the admission enforces.
         let quota = self.read_registry_quota().await?;
 
+        let embedding_batching = stored_embedding_batching(&embedding)?;
         Ok(Some(StoredRuntimeSettings {
             qdrant: StoredRuntimeQdrantSettings {
                 url: qdrant.url,
@@ -102,10 +140,17 @@ impl Database {
                 base_url: embedding.base_url,
                 api_key: None,
                 model: embedding.model,
+                // A blank query model is the document model, so it is read as
+                // no query model at all.
+                query_model: embedding
+                    .query_model
+                    .map(|model| model.trim().to_string())
+                    .filter(|model| !model.is_empty()),
                 dimensions: usize::try_from(embedding.dimensions)
                     .context("runtime embedding dimensions must be non-negative")?,
                 timeout_secs: u64::try_from(embedding.timeout_secs)
                     .context("runtime embedding timeout_secs must be non-negative")?,
+                batching: embedding_batching,
             },
             scheduler: StoredRuntimeSchedulerSettings {
                 interval_secs: u64::try_from(scheduler.interval_secs)
@@ -216,6 +261,17 @@ impl Database {
             .context("embedding dimensions too large")?;
         let embedding_timeout_secs = i64::try_from(settings.embedding.timeout_secs)
             .context("embedding timeout too large")?;
+        let embedding_max_items_per_request =
+            i64::try_from(settings.embedding.batching.max_items_per_request)
+                .context("embedding max_items_per_request too large")?;
+        let embedding_max_item_chars = i64::try_from(settings.embedding.batching.max_item_chars)
+            .context("embedding max_item_chars too large")?;
+        let embedding_max_request_chars =
+            i64::try_from(settings.embedding.batching.max_request_chars)
+                .context("embedding max_request_chars too large")?;
+        let embedding_max_request_bytes =
+            i64::try_from(settings.embedding.batching.max_request_bytes)
+                .context("embedding max_request_bytes too large")?;
         let scheduler_interval_secs = i64::try_from(settings.scheduler.interval_secs)
             .context("scheduler interval too large")?;
         let scheduler_max_concurrency = i64::try_from(settings.scheduler.max_concurrency)
@@ -257,8 +313,13 @@ impl Database {
             "src/sql/db/runtime_settings/save_runtime_embedding_settings.sql",
             settings.embedding.base_url,
             settings.embedding.model,
+            settings.embedding.query_model,
             embedding_dimensions,
-            embedding_timeout_secs
+            embedding_timeout_secs,
+            embedding_max_items_per_request,
+            embedding_max_item_chars,
+            embedding_max_request_chars,
+            embedding_max_request_bytes
         )
         .execute(&mut *tx)
         .await?;

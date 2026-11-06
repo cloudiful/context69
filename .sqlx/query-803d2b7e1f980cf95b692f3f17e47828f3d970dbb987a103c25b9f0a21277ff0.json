@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The candidate task ids of one bulk cancellation (issue 1212 R2).\n--\n-- The set is selected once, without locking, inside the cancellation\n-- transaction. The caller then locks/cancels the items of exactly these tasks\n-- before taking the registry epoch and cancelling exactly these task rows.\n-- That keeps the bulk path on the canonical item -> epoch -> task order that\n-- activation and paused resume already use, and a task that completes between\n-- the selection and the update is simply not eligible when its row is updated.\n--\n-- Ordered ids make any two bulk cancellations acquire the same task rows in\n-- one deterministic order.\nSELECT id\nFROM context69.tasks\nWHERE status IN ('queued', 'running', 'waiting')\nORDER BY id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "803d2b7e1f980cf95b692f3f17e47828f3d970dbb987a103c25b9f0a21277ff0"
+}

@@ -19,6 +19,7 @@ use super::{
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
+    validate::validate_embedding_config,
 };
 
 /// Chunking budget of a deployment.
@@ -147,10 +148,17 @@ pub struct QdrantConfig {
 pub struct EmbeddingConfig {
     pub base_url: String,
     pub api_key: Option<String>,
+    /// The model documents are embedded with.
     pub model: String,
+    /// The model queries are embedded with. Absent means the document model.
+    #[serde(default)]
+    pub query_model: Option<String>,
     pub dimensions: usize,
     #[serde(rename = "timeout_secs", with = "serde_helpers::seconds")]
     pub timeout: Duration,
+    /// The manual limits of the embedding request planner.
+    #[serde(default)]
+    pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -411,6 +419,7 @@ impl TryFrom<FileConfig> for Config {
 
     fn try_from(file_config: FileConfig) -> Result<Self> {
         validate_loaded_config(&file_config)?;
+        validate_embedding_config(&file_config.embedding)?;
         Ok(Self {
             app: file_config.app,
             app_db: file_config.app_db,

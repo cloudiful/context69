@@ -26,25 +26,26 @@ use crate::services::app::Context69App;
 use super::health::{livez, readyz};
 use super::resource_routes::{document_routes, library_routes, task_routes};
 use super::{
-    ApiState, auth_middleware, build_api_state, cancel_active_tasks, create_admin_user,
-    create_git_connection, create_git_webhook_registration, create_group_source_folder,
-    create_personal_access_token, create_source, create_source_connection,
-    delete_git_repository_connection, delete_source, delete_source_connection,
-    diff_git_repository_files, disable_admin_user, disable_git_connection, enable_admin_user,
-    enable_git_connection, forbid_personal_access_token_middleware, get_git_connection_readiness,
-    get_git_repository, get_git_repository_file, get_git_repository_file_content,
-    get_git_repository_webhook, get_translation_settings, healthz, index_git_repository,
-    list_admin_users, list_docling_cleanup, list_docling_remote_tasks,
+    ApiState, auth_middleware, build_api_state, cancel_active_tasks, cancel_vector_index_rebuild,
+    create_admin_user, create_git_connection, create_git_webhook_registration,
+    create_group_source_folder, create_personal_access_token, create_source,
+    create_source_connection, delete_git_repository_connection, delete_source,
+    delete_source_connection, diff_git_repository_files, disable_admin_user,
+    disable_git_connection, enable_admin_user, enable_git_connection,
+    forbid_personal_access_token_middleware, get_git_connection_readiness, get_git_repository,
+    get_git_repository_file, get_git_repository_file_content, get_git_repository_webhook,
+    get_task_queue_state, get_translation_settings, get_vector_index_rebuild_status, healthz,
+    index_git_repository, list_admin_users, list_docling_cleanup, list_docling_remote_tasks,
     list_git_provider_connections, list_git_repositories, list_git_repository_files,
     list_personal_access_tokens, list_source_connections, list_sources, list_translation_providers,
-    login, logout, me, openapi_json, receive_git_webhook, register_git_repository,
-    require_admin_scope_middleware, require_search_scope_middleware,
+    login, logout, me, openapi_json, pause_vector_index_rebuild, receive_git_webhook,
+    register_git_repository, require_admin_scope_middleware, require_search_scope_middleware,
     require_settings_scope_middleware, require_sources_scope_middleware,
-    require_workspace_scope_middleware, reset_admin_user_password, revoke_personal_access_token,
-    search_git_repository_code, set_git_repository_connection, submit_vector_index_rebuild,
-    sync_group_source_folder, sync_source, touch_personal_access_token_middleware,
-    update_admin_user, update_group_source_folder_config, update_source, update_source_connection,
-    update_translation_settings,
+    require_workspace_scope_middleware, reset_admin_user_password, resume_vector_index_rebuild,
+    revoke_personal_access_token, search_git_repository_code, set_git_repository_connection,
+    submit_vector_index_rebuild, sync_group_source_folder, sync_source,
+    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
+    update_source, update_source_connection, update_task_queue_state, update_translation_settings,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -221,6 +222,10 @@ fn admin_routes(api_state: ApiState) -> Router<ApiState> {
             post(reset_admin_user_password),
         )
         .route("/v1/admin/tasks/cancel-active", post(cancel_active_tasks))
+        .route(
+            "/v1/admin/tasks/queue",
+            get(get_task_queue_state).put(update_task_queue_state),
+        )
         .route("/v1/admin/docling/tasks", get(list_docling_remote_tasks))
         .route(
             "/v1/admin/docling/cleanup",
@@ -340,7 +345,19 @@ fn settings_routes(api_state: ApiState) -> Router<ApiState> {
     context69_settings_http::router::<ApiState>()
         .route(
             "/v1/settings/runtime/vector-index/rebuild",
-            post(submit_vector_index_rebuild),
+            post(submit_vector_index_rebuild).get(get_vector_index_rebuild_status),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild/pause",
+            post(pause_vector_index_rebuild),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild/resume",
+            post(resume_vector_index_rebuild),
+        )
+        .route(
+            "/v1/settings/runtime/vector-index/rebuild/cancel",
+            post(cancel_vector_index_rebuild),
         )
         .route(
             "/v1/settings/translation",

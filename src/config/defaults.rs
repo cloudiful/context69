@@ -115,8 +115,10 @@ impl Default for FileConfig {
                 base_url: "http://127.0.0.1:11434/v1".to_string(),
                 api_key: None,
                 model: "nomic-embed-text".to_string(),
+                query_model: None,
                 dimensions: 768,
                 timeout: Duration::from_secs(30),
+                batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
             },
             docling: None,
             auth: AuthConfig {

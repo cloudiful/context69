@@ -258,10 +258,12 @@ pub fn runtime_settings_request(
         embedding: UpdateRuntimeEmbeddingSettings {
             base_url: SENTINEL_EMBEDDING_URL.to_string(),
             model: format!("app-startup-{marker}"),
+            query_model: None,
             dimensions: 128,
             timeout_secs: 5,
             api_key: None,
             confirm_vector_space_unchanged: false,
+            batching: Default::default(),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,

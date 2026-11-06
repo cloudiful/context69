@@ -31,8 +31,10 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             base_url: "https://embedding.invalid/v1".to_string(),
             api_key: Some("resolved-embedding-key".to_string()),
             model: "text-embedding-3-large".to_string(),
+            query_model: None,
             dimensions: 3072,
             timeout_secs: 30,
+            batching: Default::default(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: 300,

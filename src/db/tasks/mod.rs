@@ -12,6 +12,8 @@ mod docling_remote_finalize;
 mod docling_remote_jobs;
 mod item_lifecycle;
 mod queries;
+mod queue_control;
+mod rebuild_control;
 mod submission;
 mod types;
 
@@ -28,6 +30,7 @@ pub use artifact_backfill::{
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use execution::{ExecutionContext, SegmentPayload};
+pub use queue_control::TaskQueueState;
 pub use types::{
     AttachTaskItemArtifactRequest, ClaimMaintenanceOutcome, ClaimedItem,
     CreateTaskSubmissionRequest, FinishTaskItemRequest, StoredTask, StoredTaskAttempt,

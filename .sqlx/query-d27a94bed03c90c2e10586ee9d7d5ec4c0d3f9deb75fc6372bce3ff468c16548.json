@@ -1,0 +1,218 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The durable state of the vector index rebuild control surface.\n--\n-- One row per vector rebuild task, plus the one active vector index the\n-- deployment currently serves.\n--\n-- The base row keeps the projection readable when the deployment never ran a\n-- rebuild: the active index is still reported, and the task columns are null.\n-- The active pointer is unique (at most one collection is active), so the\n-- active columns are the same on every row.\n--\n-- The task that owns the durable rebuild barrier is ordered first, so a newer\n-- queued rebuild never hides the running or paused owner of the barrier. The\n-- owner is read from the epoch row itself, which records it while a rebuild\n-- runs or while a failed rebuild still holds the barrier.\n--\n-- The item is the lowest-ordinal item of the task: a rebuild is submitted\n-- with one item, and the parked dependency of a paused rebuild is recorded on\n-- it. `item_dependency_key` is what tells a parked rebuild from a running one.\nSELECT\n    active.collection_name AS active_collection_name,\n    active.embedding_model AS active_model,\n    active.dimensions AS active_dimensions,\n    active.rebuilt_chunks AS active_rebuilt_chunks,\n    task.id AS id,\n    task.status AS status,\n    task.stage AS stage,\n    task.waiting_reason AS waiting_reason,\n    task.dependency_key AS dependency_key,\n    task.error_summary AS error_summary,\n    task.created_at AS created_at,\n    task.updated_at AS updated_at,\n    task.started_at AS started_at,\n    task.finished_at AS finished_at,\n    task.item_id AS item_id,\n    task.item_status AS item_status,\n    task.item_dependency_key AS item_dependency_key\nFROM (SELECT 1 AS base) base\nLEFT JOIN LATERAL (\n    SELECT collection_name, embedding_model, dimensions, rebuilt_chunks\n    FROM context69.vector_index_state\n    WHERE active\n    LIMIT 1\n) active ON TRUE\nLEFT JOIN LATERAL (\n    SELECT\n        task.id,\n        task.status,\n        task.stage,\n        task.waiting_reason,\n        task.dependency_key,\n        task.error_summary,\n        task.created_at,\n        task.updated_at,\n        task.started_at,\n        task.finished_at,\n        item.id AS item_id,\n        item.status AS item_status,\n        item.dependency_key AS item_dependency_key\n    FROM context69.tasks task\n    LEFT JOIN LATERAL (\n        SELECT id, status, dependency_key\n        FROM context69.task_items\n        WHERE task_id = task.id\n        ORDER BY ordinal\n        LIMIT 1\n    ) item ON TRUE\n    WHERE task.kind = 'vector_rebuild'\n      AND task.deleted_at IS NULL\n    ORDER BY\n        (item.id = (\n            SELECT epoch.rebuild_owner_item\n            FROM context69.search_registry_epoch epoch\n            WHERE epoch.id = 1\n        )) DESC NULLS LAST,\n        task.created_at DESC,\n        task.id DESC\n    LIMIT 20\n) task ON TRUE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "active_collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "active_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "embedding_model"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "active_dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "active_rebuilt_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "rebuilt_chunks"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "stage"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "waiting_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "error_summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "error_summary"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "started_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "started_at"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "finished_at"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "item_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "item_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "item_dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "dependency_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "d27a94bed03c90c2e10586ee9d7d5ec4c0d3f9deb75fc6372bce3ff468c16548"
+}

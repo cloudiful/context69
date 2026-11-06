@@ -1,4 +1,4 @@
-import { ListChecks, RotateCcw, Search, X } from "lucide-react";
+import { ListChecks, Pause, Play, RotateCcw, Search, X } from "lucide-react";
 import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
@@ -9,6 +9,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAuthSession } from "@/hooks/use-auth";
 import type { TaskListView } from "@/services/api";
 
 import { QueueBulkReport } from "./queue-bulk-report";
@@ -29,6 +30,8 @@ const TASK_PARAM = "task";
 export function ProcessingQueuePage() {
   const { t } = useTranslation();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { user } = useAuthSession();
+  const isAdmin = user?.is_admin === true;
   const focusedTaskId = searchParams.get(TASK_PARAM)?.trim() || null;
 
   const openTask = useCallback((taskId: string) => {
@@ -47,7 +50,7 @@ export function ProcessingQueuePage() {
     }, { replace: true });
   }, [setSearchParams]);
 
-  const queue = useQueue({ openTask, focusedTaskId });
+  const queue = useQueue({ openTask, focusedTaskId, enableQueueControls: isAdmin });
   const busy = queue.selectionBusy;
 
   return (
@@ -57,12 +60,67 @@ export function ProcessingQueuePage() {
           <h1 className="text-lg font-semibold">{t("nav.processingQueue")}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {isAdmin ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              data-testid="queue-pause-toggle"
+              aria-pressed={queue.queuePaused === true}
+              disabled={queue.queueControlBusy || !queue.queueStateKnown}
+              title={queue.queueStateKnown
+                ? undefined
+                : t("processingQueue.queueStateFailed")}
+              onClick={queue.toggleQueuePaused}
+            >
+              {queue.queuePaused === true
+                ? <Play aria-hidden="true" />
+                : <Pause aria-hidden="true" />}
+              {queue.queuePaused === true
+                ? t("processingQueue.queueResume")
+                : t("processingQueue.queuePause")}
+            </Button>
+          ) : null}
           <Button type="button" variant="outline" size="sm" onClick={queue.refresh}>
             <RotateCcw aria-hidden="true" />
             {t("processingQueue.refresh")}
           </Button>
         </div>
       </div>
+
+      {isAdmin && queue.queueStateError ? (
+        <Alert variant="destructive" data-testid="queue-state-error">
+          <AlertTitle>{t("processingQueue.queueStateFailed")}</AlertTitle>
+          <AlertDescription>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <span>
+                {queue.queueStateError instanceof Error
+                  ? queue.queueStateError.message
+                  : null}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={queue.refreshQueueState}
+              >
+                <RotateCcw aria-hidden="true" />
+                {t("processingQueue.queueStateRetry")}
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {isAdmin && queue.queuePaused === true ? (
+        <div
+          role="status"
+          data-testid="queue-paused-banner"
+          className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-sm"
+        >
+          {t("processingQueue.queuePausedBanner")}
+        </div>
+      ) : null}
 
       <Tabs
         value={queue.scope.view}

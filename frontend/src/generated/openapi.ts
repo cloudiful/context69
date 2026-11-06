@@ -100,6 +100,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tasks/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_task_queue_state"];
+        put: operations["update_task_queue_state"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/users": {
         parameters: {
             query?: never;
@@ -1367,6 +1383,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/runtime/embedding/capabilities": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * A non-persisting capability request against the submitted embedding
+         *     provider.
+         * @description It reports what the provider advertises about itself - its model, its
+         *     aliases, its dimensions, and the request limits it accepts - and which
+         *     limits are in effect. A provider that publishes no capability document is
+         *     reported as `unknown` with the manual limits, so the caller always learns
+         *     the limits that apply. The response never carries a credential, a remote
+         *     prompt, or a raw provider body.
+         */
+        post: operations["embedding_capabilities"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/runtime/embedding/test": {
         parameters: {
             query?: never;
@@ -1448,9 +1490,57 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        get: operations["get_vector_index_rebuild_status"];
         put?: never;
         post: operations["submit_vector_index_rebuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/runtime/vector-index/rebuild/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancel_vector_index_rebuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/runtime/vector-index/rebuild/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause_vector_index_rebuild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/settings/runtime/vector-index/rebuild/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume_vector_index_rebuild"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2432,6 +2522,118 @@ export interface components {
             field: "metadata";
             path: string;
         };
+        /**
+         * @description The manual limits of the embedding request planner.
+         *
+         *     They bound one provider request: how many inputs it may carry, how long one
+         *     input may be, how long the whole request may be, and how many serialized
+         *     bytes it may occupy. An advertised provider limit may only tighten them, so
+         *     the effective limit is the smaller of the two.
+         *
+         *     Every value is positive and representable in a PostgreSQL BIGINT, because
+         *     the settings row stores them there. A request that carries none keeps these
+         *     defaults, so an older client never changes the planner's behavior.
+         */
+        EmbeddingBatchingSettings: {
+            /**
+             * @description The maximum number of characters one input may have. An input that is
+             *     longer is refused, never split or shortened.
+             * @default 8000
+             */
+            max_item_chars: number;
+            /**
+             * @description The maximum number of inputs one provider request may carry.
+             * @default 32
+             */
+            max_items_per_request: number;
+            /**
+             * @description The maximum number of serialized bytes one provider request may carry.
+             * @default 1048576
+             */
+            max_request_bytes: number;
+            /**
+             * @description The maximum number of characters one provider request may carry.
+             * @default 64000
+             */
+            max_request_chars: number;
+        };
+        /**
+         * @description The provider facts one same-origin capability request reported.
+         *
+         *     Everything but the source is optional: a provider that does not advertise a
+         *     field simply leaves it unknown, and an unknown field never constrains the
+         *     manual limits. No remote prompt text, credential, or raw response body is
+         *     ever part of this projection.
+         */
+        EmbeddingCapabilitiesResponse: {
+            /** @description The maximum number of inputs the provider accepts in one request. */
+            advertised_max_inputs_per_request?: number | null;
+            /** @description The model the provider advertises. */
+            advertised_model?: string | null;
+            /**
+             * Format: int64
+             * @description The per-input token limit the provider advertises. The provider enforces
+             *     it, so it is never a locally computed token count.
+             */
+            advertised_tokens_per_input_limit?: number | null;
+            /**
+             * @description The origin the capability request was derived from. It never carries a
+             *     credential.
+             */
+            base_url: string;
+            /** @description The model documents are embedded with. */
+            document_model: string;
+            /**
+             * @description The limits in effect: the manual ones, tightened by what the provider
+             *     advertises.
+             */
+            effective_limits: components["schemas"]["EmbeddingBatchingSettings"];
+            /**
+             * Format: int64
+             * @description The provider's own execution batch size. It is server-side execution
+             *     metadata, never a client-side request limit.
+             */
+            internal_batch_size?: number | null;
+            /** @description The limits this deployment configures. */
+            manual_limits: components["schemas"]["EmbeddingBatchingSettings"];
+            /**
+             * Format: int64
+             * @description The concurrency the provider advertises.
+             */
+            max_concurrent_encodes?: number | null;
+            /**
+             * @description The model queries are embedded with: the configured alias, or the
+             *     document model.
+             */
+            query_model: string;
+            /** @description Why the advertised facts are unavailable, in operator-facing words. */
+            reason?: string | null;
+            /** @description The aliases the provider advertises, as alias name to role. */
+            role_aliases?: {
+                [key: string]: string;
+            } | null;
+            /** @description Where the advertised facts come from. */
+            source: components["schemas"]["EmbeddingCapabilitiesSource"];
+            /** @description The dimensions the provider advertises. */
+            supported_dimensions?: number[] | null;
+            /**
+             * @description Whether the advertised token limit is enforced by the provider itself.
+             *     It always is: no local tokenizer reproduces it.
+             */
+            token_limit_enforced_by_server?: boolean;
+            /** @description Whether the advertised token limit counts the role prefix. */
+            tokens_include_role_prefix?: boolean | null;
+            /** @description Whether the advertised token limit counts special tokens. */
+            tokens_include_special_tokens?: boolean | null;
+        };
+        /**
+         * @description Where the advertised embedding facts come from.
+         *
+         *     `discovered` means the provider answered a same-origin capability request;
+         *     `unknown` means it did not, so only the manual limits apply.
+         * @enum {string}
+         */
+        EmbeddingCapabilitiesSource: "discovered" | "unknown";
         EnsureScopeResponse: {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
@@ -3747,6 +3949,16 @@ export interface components {
             task?: null | components["schemas"]["TaskRef"];
             upload_required: boolean;
         };
+        /**
+         * @description The request one rebuild control carries.
+         *
+         *     The observed task id is the only input: the control acts on the rebuild
+         *     that task owns, and on no other one.
+         */
+        RebuildControlRequest: {
+            /** Format: uuid */
+            task_id: string;
+        };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
         };
@@ -3786,9 +3998,14 @@ export interface components {
         };
         RuntimeEmbeddingSettings: {
             base_url: string;
+            /** @description The manual limits of the embedding request planner. */
+            batching?: components["schemas"]["EmbeddingBatchingSettings"];
             dimensions: number;
             has_api_key: boolean;
+            /** @description The model documents are embedded with. */
             model: string;
+            /** @description The model queries are embedded with. Absent means the document model. */
+            query_model?: string | null;
             /** Format: int64 */
             timeout_secs: number;
         };
@@ -4577,6 +4794,18 @@ export interface components {
              */
             running_parent_without_running_item_count: number;
         };
+        /**
+         * @description The durable global admission state of the task queue.
+         *
+         *     A pause stops new claims across every replica; already claimed work keeps
+         *     running. `updated_at` is the last committed write of the state, so an
+         *     idempotent update still advances it.
+         */
+        TaskQueueStateResponse: {
+            paused: boolean;
+            /** Format: date-time */
+            updated_at: string;
+        };
         TaskRef: {
             item_ids?: string[];
             /** Format: uuid */
@@ -4823,6 +5052,11 @@ export interface components {
             base_url: string;
             dimensions: number;
             model: string;
+            /**
+             * @description The model queries are embedded with. An absent or blank value means the
+             *     document model.
+             */
+            query_model?: string | null;
             /** Format: int64 */
             timeout_secs: number;
         };
@@ -4985,6 +5219,8 @@ export interface components {
         UpdateRuntimeEmbeddingSettings: {
             api_key?: string | null;
             base_url: string;
+            /** @description The manual limits of the embedding request planner. */
+            batching?: components["schemas"]["EmbeddingBatchingSettings"];
             /**
              * @description Operator assertion that a changed gateway/model alias still produces the
              *     same vector space, so existing vectors may be kept. Transient: it is
@@ -4992,7 +5228,14 @@ export interface components {
              */
             confirm_vector_space_unchanged?: boolean;
             dimensions: number;
+            /** @description The model documents are embedded with. */
             model: string;
+            /**
+             * @description The model queries are embedded with. An absent or blank value means the
+             *     document model, so a deployment that never configures one keeps its
+             *     current behavior.
+             */
+            query_model?: string | null;
             /** Format: int64 */
             timeout_secs: number;
         };
@@ -5041,6 +5284,10 @@ export interface components {
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
         };
+        /** @description The requested durable global admission state of the task queue. */
+        UpdateTaskQueueStateRequest: {
+            paused: boolean;
+        };
         UpdateTranslationSettingsRequest: {
             providers: components["schemas"]["TranslationProviderInput"][];
         };
@@ -5078,6 +5325,65 @@ export interface components {
             login_name: string;
             /** Format: int64 */
             user_id: number;
+        };
+        /**
+         * @description The durable state of the vector index rebuild.
+         *
+         *     The states are the rebuild's own, not the task queue's: a rebuild that
+         *     waits for the queue is still `Queued`, and a rebuild that waits for an
+         *     operator is `Paused` or `Pausing`.
+         * @enum {string}
+         */
+        VectorIndexRebuildState: "idle" | "queued" | "running" | "pausing" | "paused" | "succeeded" | "failed" | "cancelled";
+        /**
+         * @description The durable status of the vector index rebuild.
+         *
+         *     The optional fields are the durable facts an operator needs beside the
+         *     state: the task the controls bind to, the active and desired dimensions,
+         *     the physical collection that serves today and the one a running build
+         *     writes into. Every one of them is absent when the deployment has not
+         *     recorded it, so an older client and an older deployment keep working.
+         */
+        VectorIndexRebuildStatus: {
+            /** @description The dimensions of the active collection. */
+            active_dimensions?: number | null;
+            /** @description The model the active collection was built with. */
+            active_model?: string | null;
+            /** @description Whether a cancellation would be accepted right now. */
+            can_cancel?: boolean;
+            /** @description Whether a pause would be accepted right now. */
+            can_pause?: boolean;
+            /** @description Whether a resume would be accepted right now. */
+            can_resume?: boolean;
+            /** @description The dimensions the deployment is configured for. */
+            desired_dimensions?: number | null;
+            error_message?: string | null;
+            /** Format: date-time */
+            finished_at?: string | null;
+            /** @description The physical collection ordinary writers use today. */
+            physical_collection?: string | null;
+            processed_chunks: number;
+            /**
+             * @description Whether the global task queue is paused.
+             *
+             *     A queued rebuild then waits for the queue, not for the rebuild
+             *     controls.
+             */
+            queue_paused?: boolean;
+            /** Format: date-time */
+            started_at?: string | null;
+            state: components["schemas"]["VectorIndexRebuildState"];
+            /** @description The physical collection a running build writes into. */
+            target_collection?: string | null;
+            /**
+             * Format: uuid
+             * @description The rebuild task the controls act on.
+             *
+             *     A control request carries this id, so an operator can never act on a
+             *     rebuild the status they observed is not.
+             */
+            task_id?: string | null;
+            total_chunks: number;
         };
         /** @enum {string} */
         Visibility: "public" | "private";
@@ -5298,6 +5604,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CancelActiveTasksResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_task_queue_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Durable global task-queue admission state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskQueueStateResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_task_queue_state: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateTaskQueueStateRequest"];
+            };
+        };
+        responses: {
+            /** @description Durable global task-queue admission state */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskQueueStateResponse"];
                 };
             };
             /** @description Admin access required */
@@ -9184,6 +9552,45 @@ export interface operations {
             };
         };
     };
+    embedding_capabilities: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TestRuntimeEmbeddingRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingCapabilitiesResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     test_embedding_connection: {
         parameters: {
             query?: never;
@@ -9340,6 +9747,44 @@ export interface operations {
             };
         };
     };
+    get_vector_index_rebuild_status: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The durable status of the vector index rebuild */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorIndexRebuildStatus"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The durable state could not be read */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     submit_vector_index_rebuild: {
         parameters: {
             query?: never;
@@ -9357,6 +9802,159 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    cancel_vector_index_rebuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebuildControlRequest"];
+            };
+        };
+        responses: {
+            /** @description The rebuild attempt was cancelled; the existing collections are kept */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorIndexRebuildStatus"];
+                };
+            };
+            /** @description The observed task is not a vector rebuild */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The observed task is already terminal */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    pause_vector_index_rebuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebuildControlRequest"];
+            };
+        };
+        responses: {
+            /** @description The pause was requested; the current batch may still finish */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorIndexRebuildStatus"];
+                };
+            };
+            /** @description The observed task is not a vector rebuild */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The observed task does not own a running rebuild */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    resume_vector_index_rebuild: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RebuildControlRequest"];
+            };
+        };
+        responses: {
+            /** @description The paused rebuild continues after its last written page */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VectorIndexRebuildStatus"];
+                };
+            };
+            /** @description The observed task is not a vector rebuild */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Admin access required */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description The observed task is not paused on a running rebuild */
             409: {
                 headers: {
                     [name: string]: unknown;

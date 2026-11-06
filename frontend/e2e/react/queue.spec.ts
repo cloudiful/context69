@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN_USER, QUEUE_ACTIVE_TASK, QUEUE_COMPLETED_TASK, QUEUE_FAILED_TASK } from "./fixtures";
+import { ADMIN_USER, MEMBER_USER, QUEUE_ACTIVE_TASK, QUEUE_COMPLETED_TASK, QUEUE_FAILED_TASK } from "./fixtures";
 import { installAppTransport, recordExternalRequests } from "./transport";
 
 const queue = {
@@ -8,6 +8,43 @@ const queue = {
 };
 
 test.describe("react processing queue", () => {
+  test("pauses and resumes new work for an admin", async ({ page }) => {
+    const transport = await installAppTransport(page, {
+      user: ADMIN_USER,
+      queue: { ...queue, queuePaused: false },
+    });
+
+    await page.goto("/processing-queue");
+
+    const toggle = page.getByTestId("queue-pause-toggle");
+    await expect(toggle).toContainText("Pause queue");
+    await expect(page.getByTestId("queue-paused-banner")).toHaveCount(0);
+
+    await toggle.click();
+    await expect(page.getByTestId("queue-paused-banner")).toContainText(
+      "New work is paused; running tasks continue",
+    );
+    await expect(toggle).toContainText("Resume queue");
+    expect(transport.calls.some((call) => (
+      call.method === "PUT" && call.path === "/v1/admin/tasks/queue"
+    ))).toBe(true);
+
+    await toggle.click();
+    await expect(page.getByTestId("queue-paused-banner")).toHaveCount(0);
+    expect(transport.unmocked).toEqual([]);
+  });
+
+  test("never shows the pause control or reads the admin queue for a member", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: MEMBER_USER, queue });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await expect(page.getByTestId("queue-pause-toggle")).toHaveCount(0);
+    expect(transport.calls.some((call) => call.path === "/v1/admin/tasks/queue")).toBe(false);
+    expect(transport.unmocked).toEqual([]);
+  });
+
   test("lists the processing rows and narrows them from the status header", async ({ page }) => {
     const external = recordExternalRequests(page);
     const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
@@ -459,6 +496,9 @@ test.describe("react processing queue", () => {
 
   test("fails a hung list at the deadline and loads it on the next Refresh", async ({ page }) => {
     await page.clock.install();
+    // Freeze virtual time before any elapsed page work, so the deadline can
+    // never be crossed by the test's own setup.
+    await page.clock.pauseAt(new Date());
     const transport = await installAppTransport(page, {
       user: ADMIN_USER,
       // Keep the live stream pending so only the explicit reads are in play.
@@ -469,8 +509,7 @@ test.describe("react processing queue", () => {
     await expect(page.getByText("Loading")).toBeVisible();
     await expect(page.getByTestId("queue-task-row")).toHaveCount(0);
 
-    // Freeze virtual time where the page currently is, then cross the deadline.
-    await page.clock.pauseAt(new Date(Date.now()));
+    // Cross the deadline on the frozen clock.
     await page.clock.runFor(16_000);
 
     await expect(page.getByText("Failed to load the processing queue")).toBeVisible();
@@ -490,6 +529,8 @@ test.describe("react processing queue", () => {
 
   test("keeps the loaded rows when a Refresh times out", async ({ page }) => {
     await page.clock.install();
+    // Freeze before the page work so the later deadline run is always forward.
+    await page.clock.pauseAt(new Date());
     const transport = await installAppTransport(page, {
       user: ADMIN_USER,
       queue: { hangListAfter: 1, streamUpdates: { delayMs: 600_000, tasks: [] } },
@@ -497,7 +538,6 @@ test.describe("react processing queue", () => {
 
     await page.goto("/processing-queue");
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
-    await page.clock.pauseAt(new Date(Date.now()));
 
     await page.getByRole("button", { name: "Refresh queue" }).click();
     await expect(page.getByText("Loading")).toHaveCount(0);

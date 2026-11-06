@@ -618,69 +618,6 @@ async fn deleting_artifacts_enqueues_the_exact_old_identity_and_dedupes() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn a_retarget_enqueues_only_the_replaced_object() {
-    let (_guard, db) = prepare().await;
-    let root = storage_root();
-    let owner = seed_owner(&db).await;
-    let (_, item) = seed_task_item(&db, &owner).await;
-    let (first, first_key, first_sha) = seed_object(&db, &root, owner.group_id, b"first").await;
-    let (second, second_key, second_sha) = seed_object(&db, &root, owner.group_id, b"second").await;
-    seed_artifact(&db, item, KIND_DOWNLOAD, first).await;
-
-    sqlx::query_file!(
-        "tests/task_item_artifacts/touch_artifact_same_object.sql",
-        item,
-        KIND_DOWNLOAD
-    )
-    .execute(db.pool())
-    .await
-    .expect("same-object update");
-    assert_eq!(
-        open_intents(&db, first).await,
-        0,
-        "an update that keeps the same object is not a release"
-    );
-
-    sqlx::query_file!(
-        "tests/task_item_artifacts/retarget_artifact.sql",
-        item,
-        KIND_DOWNLOAD,
-        second
-    )
-    .execute(db.pool())
-    .await
-    .expect("retarget artifact");
-    assert_eq!(open_intents(&db, first).await, 1);
-    assert_eq!(open_intents(&db, second).await, 0);
-    let replaced = sqlx::query_file!("tests/task_item_artifacts/open_intent_identity.sql", first)
-        .fetch_one(db.pool())
-        .await
-        .expect("read replaced identity");
-    assert_eq!(replaced.object_key, first_key);
-    assert_eq!(replaced.sha256.as_deref(), Some(first_sha.as_str()));
-
-    sqlx::query_file!(
-        "tests/task_item_artifacts/delete_artifact.sql",
-        item,
-        KIND_DOWNLOAD
-    )
-    .execute(db.pool())
-    .await
-    .expect("delete artifact");
-    assert_eq!(open_intents(&db, second).await, 1);
-    let released = sqlx::query_file!("tests/task_item_artifacts/open_intent_identity.sql", second)
-        .fetch_one(db.pool())
-        .await
-        .expect("read released identity");
-    assert_eq!(released.object_key, second_key);
-    assert_eq!(released.sha256.as_deref(), Some(second_sha.as_str()));
-
-    cleanup(&db, &[owner.group_id], owner.user_id).await;
-    let _ = std::fs::remove_dir_all(root);
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_task_cascade_enqueues_the_old_object_and_rolls_back_with_the_delete() {
     let (_guard, db) = prepare().await;
     let root = storage_root();
@@ -1662,6 +1599,18 @@ async fn a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop() {
             .0,
         second.object_id
     );
+    let replaced = sqlx::query_file!(
+        "tests/task_item_artifacts/open_intent_identity.sql",
+        first.object_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read replaced identity");
+    assert_eq!(
+        replaced.object_key,
+        format!("objects/{}/{}", owner.group_id, first.sha256)
+    );
+    assert_eq!(replaced.sha256.as_deref(), Some(first.sha256.as_str()));
 
     assert!(
         service
@@ -1674,6 +1623,28 @@ async fn a_retarget_releases_only_the_replaced_object_and_a_repeat_is_a_noop() {
         0,
         "a still-referenced object has no release intent"
     );
+
+    sqlx::query_file!(
+        "tests/task_item_artifacts/delete_artifact.sql",
+        item,
+        "download"
+    )
+    .execute(db.pool())
+    .await
+    .expect("delete artifact");
+    assert_eq!(open_intents(&db, second.object_id).await, 1);
+    let released = sqlx::query_file!(
+        "tests/task_item_artifacts/open_intent_identity.sql",
+        second.object_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read released identity");
+    assert_eq!(
+        released.object_key,
+        format!("objects/{}/{}", owner.group_id, second.sha256)
+    );
+    assert_eq!(released.sha256.as_deref(), Some(second.sha256.as_str()));
 
     cleanup(&db, &[owner.group_id], owner.user_id).await;
     let _ = std::fs::remove_dir_all(root);
@@ -1874,6 +1845,22 @@ async fn the_database_guards_refuse_a_wrong_digest_size_or_group() {
         "an item may only attach an object from its own task group"
     );
     assert_eq!(artifact_count(&db, foreign_item).await, 0);
+
+    // The schema refuses any kind/encoding pair outside the two versioned pairs.
+    let invalid_pair = sqlx::query_file!(
+        "tests/task_item_artifacts/seed_artifact.sql",
+        item,
+        "download",
+        staged.object_id,
+        "ingest-sections-json-v1",
+    )
+    .execute(db.pool())
+    .await;
+    assert!(
+        invalid_pair.is_err(),
+        "the schema must refuse an invalid kind/encoding pair"
+    );
+    assert_eq!(artifact_count(&db, item).await, 0);
 
     // The owning group still attaches; only the declared identity matters.
     assert!(

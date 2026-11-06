@@ -77,8 +77,10 @@ pub async fn runtime_settings(
             base_url,
             api_key: None,
             model,
+            query_model: None,
             dimensions: usize::try_from(dimensions).expect("the dimensions are non-negative"),
             timeout_secs: u64::try_from(timeout_secs).expect("the timeout is non-negative"),
+            batching: Default::default(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: 300,
@@ -114,36 +116,19 @@ pub async fn runtime_settings(
     }
 }
 
-/// The vector identity the deployment persists, if it persists one.
+/// The vector identity the deployment has active, if it has one.
 ///
 /// A writer captures the identity of the vector space it stages its points
-/// under, and the admission compares it with the persisted configuration.
+/// under, and the admission compares it with the one active index. The
+/// fingerprint stays logical while the collection is the active physical target.
 pub async fn registry_identity(db: &Database) -> Option<context69::db::RegistryVectorIdentity> {
-    let qdrant: Option<(String, String)> = sqlx::query_as(
-        "SELECT url, collection_name FROM context69.runtime_qdrant_settings WHERE singleton = TRUE",
-    )
-    .fetch_optional(db.pool())
-    .await
-    .expect("read the qdrant settings");
-    let embedding: Option<(String, String, i64)> = sqlx::query_as(
-        "SELECT base_url, model, dimensions \
-         FROM context69.runtime_embedding_settings WHERE singleton = TRUE",
-    )
-    .fetch_optional(db.pool())
-    .await
-    .expect("read the embedding settings");
-    let (Some((url, collection)), Some((base_url, model, dimensions))) = (qdrant, embedding) else {
-        return None;
-    };
-    Some(context69::db::RegistryVectorIdentity {
-        embedding_fingerprint: context69::embedding::embedding_runtime::vector_identity_fingerprint(
-            url.trim(),
-            collection.trim(),
-            base_url.trim(),
-            model.trim(),
-            usize::try_from(dimensions).expect("the dimensions are non-negative"),
-        ),
-        collection_name: collection.trim().to_string(),
+    let row = sqlx::query_file!("src/sql/db/vector_index_state/get_active.sql")
+        .fetch_optional(db.pool())
+        .await
+        .expect("read the active vector index");
+    row.map(|row| context69::db::RegistryVectorIdentity {
+        embedding_fingerprint: row.fingerprint,
+        collection_name: row.collection_name,
     })
 }
 
@@ -168,6 +153,10 @@ pub async fn identity_rows_exist(db: &Database) -> bool {
 
 /// Remove the vector identity rows again.
 pub async fn clear_identity_rows(db: &Database) {
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the active vector index");
     sqlx::query("DELETE FROM context69.runtime_qdrant_settings WHERE singleton = TRUE")
         .execute(db.pool())
         .await

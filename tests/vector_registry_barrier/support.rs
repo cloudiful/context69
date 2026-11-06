@@ -12,12 +12,29 @@ pub async fn connect() -> Database {
         .expect("connect test database")
 }
 
+/// One seeded task item with the ids its task-scoped controls need.
+pub struct SeededTaskItem {
+    pub user_id: i64,
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub token: Uuid,
+}
+
 /// Seed one task item in the given status and return its id and lease token.
 ///
 /// The owner of a rebuild barrier is a task item, and the recorded owner token
 /// is that item's grant, so a fixture that wants a live owner hands the same
 /// token to the barrier.
 pub async fn seed_task_item(db: &Database, status: &str) -> (Uuid, Uuid) {
+    let seeded = seed_task_item_full(db, status, "file_batch").await;
+    (seeded.item_id, seeded.token)
+}
+
+/// Seed one task item of an explicit task kind with its task and user ids.
+///
+/// The rebuild controls are task-scoped, so their cases need the task and the
+/// owning user, not only the item.
+pub async fn seed_task_item_full(db: &Database, status: &str, kind: &str) -> SeededTaskItem {
     let mut connection = db.pool().acquire().await.expect("acquire");
     let user_id: i64 = sqlx::query_scalar(
         "INSERT INTO context69.users (login_name, display_name, password_hash) \
@@ -29,15 +46,13 @@ pub async fn seed_task_item(db: &Database, status: &str) -> (Uuid, Uuid) {
     .await
     .expect("seed user");
     let task_id = Uuid::new_v4();
-    // The task kind stays an ordinary batch task: the barrier observes the
-    // liveness of the owner through the item row, and one active vector
-    // rebuild task is a product rule the fixture must not violate.
     sqlx::query(
         "INSERT INTO context69.tasks (id, user_id, kind, status, total_count) \
-         VALUES ($1, $2, 'file_batch', $3, 1)",
+         VALUES ($1, $2, $3, $4, 1)",
     )
     .bind(task_id)
     .bind(user_id)
+    .bind(kind)
     .bind(status)
     .execute(&mut *connection)
     .await
@@ -55,7 +70,12 @@ pub async fn seed_task_item(db: &Database, status: &str) -> (Uuid, Uuid) {
     .execute(&mut *connection)
     .await
     .expect("seed task item");
-    (item_id, lease_token)
+    SeededTaskItem {
+        user_id,
+        task_id,
+        item_id,
+        token: lease_token,
+    }
 }
 
 /// Replace the lease of one task item.
@@ -92,16 +112,38 @@ pub async fn set_item_lease(db: &Database, item_id: Uuid, token: Uuid, expired: 
 /// Every test of this target observes the barrier, and the target owns the
 /// schema, so the barrier is restored between the cases.
 pub async fn reset_barrier(db: &Database) {
+    // The product allows one active vector rebuild task. A failed case of this
+    // target may have left its seeded task behind, so the target's own rebuild
+    // tasks are cleared before a case seeds one.
+    sqlx::query(
+        "DELETE FROM context69.tasks \
+         WHERE kind = 'vector_rebuild' \
+           AND user_id IN ( \
+               SELECT id FROM context69.users WHERE login_name LIKE 'barrier-%' \
+           )",
+    )
+    .execute(db.pool())
+    .await
+    .expect("clear the target's rebuild tasks");
     sqlx::query(
         "UPDATE context69.search_registry_epoch \
          SET rebuild_state = 'idle', rebuild_owner_item = NULL, rebuild_owner_token = NULL, \
              rebuild_fingerprint = NULL, rebuild_collection = NULL, \
-             rebuild_started_at = NULL, rebuild_error = NULL \
+             rebuild_started_at = NULL, rebuild_error = NULL, \
+             rebuild_pause_requested = FALSE, rebuild_cursor_document_id = NULL, \
+             rebuild_cursor_chunk_index = NULL, rebuild_processed_chunks = 0, \
+             rebuild_total_chunks = 0, rebuild_target_created = FALSE \
          WHERE id = 1",
     )
     .execute(db.pool())
     .await
     .expect("reset the rebuild barrier");
+    // The fixture owns the shared schema, so a case that does not seed its own
+    // identity must not inherit the recorded indices of an earlier case.
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the recorded vector identities");
 }
 
 /// Remove the registry entries this target owns, so every case observes the
@@ -111,6 +153,25 @@ pub async fn clear_registry_entries(db: &Database) {
         .execute(db.pool())
         .await
         .expect("clear registry entries");
+}
+
+/// Remove the task rows this target seeded.
+///
+/// A case that seeds a task of another kind leaves it behind otherwise, and
+/// the next case of the target would meet an active task it did not seed.
+pub async fn delete_tasks(db: &Database, task_ids: &[Uuid]) {
+    for task_id in task_ids {
+        sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
+            .bind(task_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the task items");
+        sqlx::query("DELETE FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the task");
+    }
 }
 
 /// The state of the barrier, read after every case.
@@ -171,31 +232,18 @@ pub async fn seed_runtime_settings(
     base_url: &str,
     model: &str,
     dimensions: i64,
-) {
-    sqlx::query(
-        "INSERT INTO context69.runtime_qdrant_settings (singleton, url, collection_name) \
-         VALUES (TRUE, $1, $2) \
-         ON CONFLICT (singleton) DO UPDATE SET url = EXCLUDED.url, \
-             collection_name = EXCLUDED.collection_name",
+) -> RegistryVectorIdentity {
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+        qdrant_url,
+        collection,
+        base_url,
+        model,
+        dimensions
     )
-    .bind(qdrant_url)
-    .bind(collection)
     .execute(db.pool())
     .await
-    .expect("seed the qdrant settings");
-    sqlx::query(
-        "INSERT INTO context69.runtime_embedding_settings \
-         (singleton, base_url, model, dimensions, timeout_secs) \
-         VALUES (TRUE, $1, $2, $3, 30) \
-         ON CONFLICT (singleton) DO UPDATE SET base_url = EXCLUDED.base_url, \
-             model = EXCLUDED.model, dimensions = EXCLUDED.dimensions",
-    )
-    .bind(base_url)
-    .bind(model)
-    .bind(dimensions)
-    .execute(db.pool())
-    .await
-    .expect("seed the embedding settings");
+    .expect("seed the desired vector identity");
     sqlx::query(
         "INSERT INTO context69.runtime_scheduler_settings \
          (singleton, interval_secs, run_on_start, max_concurrency, job_id) \
@@ -224,10 +272,70 @@ pub async fn seed_runtime_settings(
     .execute(db.pool())
     .await
     .expect("seed the file library settings");
+    // The activated collection is the physical target, while the fingerprint
+    // stays the desired logical identity computed from the configured base
+    // collection.
+    let computed = fingerprint(
+        qdrant_url,
+        collection,
+        base_url,
+        model,
+        usize::try_from(dimensions).expect("the dimensions are non-negative"),
+    );
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the previous active vector index");
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_active_index.sql",
+        collection,
+        computed,
+        base_url,
+        model,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .expect("activate the seeded vector index");
+    RegistryVectorIdentity {
+        embedding_fingerprint: computed,
+        collection_name: collection.to_string(),
+    }
+}
+
+/// Activate one recorded physical collection without touching the desired
+/// runtime settings.
+pub async fn activate_index(
+    db: &Database,
+    physical_collection: &str,
+    fingerprint: &str,
+    base_url: &str,
+    model: &str,
+    dimensions: i64,
+) {
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the previous active vector index");
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_active_index.sql",
+        physical_collection,
+        fingerprint,
+        base_url,
+        model,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .expect("activate the seeded vector index");
 }
 
 /// Remove the seeded runtime settings again.
 pub async fn clear_runtime_settings(db: &Database) {
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the active vector index");
     sqlx::query("DELETE FROM context69.runtime_embedding_settings WHERE singleton = TRUE")
         .execute(db.pool())
         .await

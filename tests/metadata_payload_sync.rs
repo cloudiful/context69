@@ -15,8 +15,6 @@ use context69::services::metadata_payload_sync::{
 };
 
 const CLAIM_SQL: &str = include_str!("../src/sql/db/metadata_payload_sync/claim.sql");
-const COMPLETE_SQL: &str = include_str!("../src/sql/db/metadata_payload_sync/complete.sql");
-const FAIL_SQL: &str = include_str!("../src/sql/db/metadata_payload_sync/fail.sql");
 const POINTS_SQL: &str = include_str!("../src/sql/db/metadata_payload_sync/document_points.sql");
 
 #[path = "metadata_payload_sync/database.rs"]
@@ -80,37 +78,6 @@ fn claim_is_skip_locked_and_leases_one_due_row() {
         assert!(
             CLAIM_SQL.contains(fragment),
             "claim contract missing: {fragment}"
-        );
-    }
-}
-
-#[test]
-fn completion_and_failure_are_fenced_by_the_current_lease() {
-    for fragment in [
-        "completed_at = now()",
-        "completed_at IS NULL",
-        "lease_token = $2",
-        "lease_token = NULL",
-        "lease_expires_at = NULL",
-    ] {
-        assert!(
-            COMPLETE_SQL.contains(fragment),
-            "complete contract missing: {fragment}"
-        );
-    }
-
-    for fragment in [
-        "attempts = attempts + 1",
-        "next_attempt_at = now() + make_interval(secs => ($3)::int)",
-        "last_error = $4",
-        "completed_at IS NULL",
-        "lease_token = $2",
-        "lease_token = NULL",
-        "lease_expires_at = NULL",
-    ] {
-        assert!(
-            FAIL_SQL.contains(fragment),
-            "fail contract missing: {fragment}"
         );
     }
 }

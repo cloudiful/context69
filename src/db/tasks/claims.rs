@@ -6,6 +6,7 @@ use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use super::execution::{self, SegmentPayload};
+use super::queue_control::task_queue_paused_in;
 use super::types::{ClaimMaintenanceOutcome, ClaimedItem};
 use crate::db::Database;
 
@@ -99,6 +100,12 @@ impl Database {
 
     /// Claims the items the domain policy selected.
     ///
+    /// The durable global admission state is read first, inside this claim's own
+    /// transaction and after the admission lock, so a pause that committed
+    /// before this claim is observed here and no item is selected while the
+    /// queue is paused. A claim that already holds its items keeps them: the
+    /// pause is an admission gate, never a cancellation.
+    ///
     /// Every candidate is claimed through the library: the segment the item
     /// already owns when it is still queued, or a fresh segment in the next
     /// generation when the item is parked and became eligible again. An item
@@ -108,6 +115,9 @@ impl Database {
         tx: &mut Transaction<'_, Postgres>,
         capacity: i64,
     ) -> Result<Vec<ClaimedItem>> {
+        if task_queue_paused_in(tx).await? {
+            return Ok(Vec::new());
+        }
         let candidates = sqlx::query_file_as!(
             ClaimCandidate,
             "src/sql/db/tasks/claim_candidates.sql",
@@ -275,7 +285,10 @@ impl Database {
 /// admission across replicas. Must be the statement immediately before the
 /// admission claim in the same transaction; the lock is released when that
 /// transaction commits or rolls back.
-async fn lock_task_admission(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
+///
+/// The durable queue-control write takes the same lock, so a pause serializes
+/// against every claim instead of racing one.
+pub(super) async fn lock_task_admission(tx: &mut Transaction<'_, Postgres>) -> Result<()> {
     sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
         .execute(&mut **tx)
         .await?;
