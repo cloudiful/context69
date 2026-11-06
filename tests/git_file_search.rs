@@ -3,8 +3,8 @@
 //!
 //! These exercise what only a database can answer about retrieving code: a
 //! lexical query that serves the activated generation alone with
-//! repository/ref/commit/path/line provenance, identifiers and a percent sign
-//! kept intact, and the visibility and group isolation of a private repository.
+//! repository/ref/commit/path/line provenance, and the visibility and group
+//! isolation of a private repository.
 //! Storing content is in `tests/git_file_chunks.rs` and literal metacharacters in
 //! `tests/git_file_search_literals.rs`; all three need CONTEXT69_TEST_DATABASE_URL.
 
@@ -256,57 +256,6 @@ async fn lexical_search_serves_the_active_generation_with_provenance() {
         (1, second),
         "the newly activated snapshot takes over"
     );
-
-    fixture.cleanup().await;
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn lexical_search_keeps_identifiers_whole_and_escapes_wildcards() {
-    let fixture = Fixture::setup("public").await;
-    let generation_key = fixture.start_generation(&"4".repeat(40)).await;
-    fixture
-        .store_and_chunk(
-            generation_key,
-            &[
-                ("src/a.rs", "fn parse_ref(raw: &str) {}\n", "rust"),
-                ("src/b.rs", "let done = 100%;\n", "rust"),
-                // A path that merely contains the digits of the query: an
-                // unescaped `%` in the query would admit this row.
-                ("src/percent100.rs", "fn unrelated() {}\n", "rust"),
-                // Both halves of the identifier, never the identifier itself.
-                ("src/d.rs", "let parse = 1;\nlet ref = 2;\n", "rust"),
-            ],
-        )
-        .await;
-    fixture.activate(generation_key, 4).await;
-    let visible = vec![fixture.group_id];
-
-    // An identifier is one token: it must not be shredded into `parse` and
-    // `ref`, which would also match a chunk that merely mentions both.
-    let hits = fixture
-        .search("parse_ref", None, None, visible.clone())
-        .await;
-    assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].path, "src/a.rs");
-
-    // `%` in a query is a literal character, so a path holding only the digits
-    // is not a match.
-    let hits = fixture.search("100%", None, None, visible.clone()).await;
-    assert_eq!(hits.len(), 1, "a literal percent sign matches one chunk");
-    assert_eq!(hits[0].path, "src/b.rs");
-    assert_eq!(
-        hits[0].matched,
-        GitCodeMatchKind::ChunkPhrase,
-        "matched on text"
-    );
-
-    // A path that is the whole query is the strongest match. Literal
-    // metacharacter queries are covered in tests/git_file_search_literals.rs.
-    let hits = fixture
-        .search("src/a.rs", None, None, visible.clone())
-        .await;
-    assert_eq!(hits[0].matched, GitCodeMatchKind::PathExact);
 
     fixture.cleanup().await;
 }

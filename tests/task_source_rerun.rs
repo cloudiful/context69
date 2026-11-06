@@ -18,6 +18,8 @@ mod source_rerun_cases {
 
     use uuid::Uuid;
 
+    use context69::chunking::chunking_token::{TokenizerKind, token_count};
+    use context69::chunking::{ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget};
     use context69::library_store::LibraryStore;
 
     use crate::qdrant_points_mock::QdrantPointsMock;
@@ -312,6 +314,171 @@ mod source_rerun_cases {
             .await
             .expect("read links");
         assert!(!links.is_empty(), "the replacement links its documents");
+    }
+
+    /// A user-triggered source fork captures the live token budget as the new
+    /// task's snapshot, so the fork chunks under it, while the source task
+    /// keeps the snapshot it already had.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_pinned_token_snapshot_governs_the_rerun_source_chunks() {
+        let _guard = CASE_LOCK.lock().await;
+        let db = connect_db().await;
+        let user = seed_user(&db).await;
+        let group = seed_group(&db).await;
+        // The fork runs through the real service action, so the user must be
+        // able to manage the group's task.
+        sqlx::query(
+            "INSERT INTO context69.group_memberships (group_id, user_id, role) \
+             VALUES ($1, $2, 'owner') ON CONFLICT DO NOTHING",
+        )
+        .bind(group.id)
+        .bind(user)
+        .execute(db.pool())
+        .await
+        .expect("seed group membership");
+        let file = seed_file(&db, &group, true).await;
+        let (source_task, source_item) = seed_succeeded_source(
+            &db,
+            user,
+            &group,
+            &file,
+            source_payload(&file),
+            "file_batch",
+        )
+        .await;
+        let source_before: serde_json::Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(source_item)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the source payload");
+
+        let mock = QdrantPointsMock::start().await;
+        let service = build_service(
+            &db,
+            &file.storage_root,
+            Arc::new(FakeEmbedding::new(0)),
+            &mock,
+            Some([1000, 1000, 1000]),
+        )
+        .await;
+        let pinned = ChunkBudget {
+            mode: ChunkBudgetMode::Tokens,
+            chars: ChunkingConfig::default(),
+            tokens: Some(TokenBudget {
+                tokenizer: TokenizerKind::Cl100kBase,
+                max_tokens: 4,
+                overlap_tokens: 1,
+            }),
+        };
+        // The live budget a successful settings save activates; the fork is
+        // created through the same service action a user triggers.
+        service.chunking_runtime().replace(pinned.clone());
+        let fork = service
+            .rerun(source_task, user)
+            .await
+            .expect("the source fork is created");
+        let (new_task, new_items) = (fork.task.task_id, fork.task.item_ids);
+
+        let payload: serde_json::Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(new_items[0])
+                .fetch_one(db.pool())
+                .await
+                .expect("read the forked item payload");
+        assert_eq!(
+            context69::chunking::parse_chunk_budget(&payload).expect("the snapshot parses"),
+            Some(pinned.clone()),
+            "the fork captures the live budget inside its creation transaction"
+        );
+
+        // A malformed candidate budget is refused before anything is created.
+        let forks_before: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM context69.tasks WHERE origin = 'rerun_source'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("count source forks");
+        let invalid_token = ChunkBudget {
+            mode: ChunkBudgetMode::Tokens,
+            chars: ChunkingConfig::default(),
+            tokens: Some(TokenBudget {
+                tokenizer: TokenizerKind::Cl100kBase,
+                max_tokens: 0,
+                overlap_tokens: 0,
+            }),
+        };
+        let invalid_zero_chars = ChunkBudget::chars(ChunkingConfig {
+            max_chars: 0,
+            overlap_chars: 0,
+        });
+        let invalid_overlap_chars = ChunkBudget::chars(ChunkingConfig {
+            max_chars: 10,
+            overlap_chars: 10,
+        });
+        for (candidate, expected) in [
+            (invalid_token, "token"),
+            (invalid_zero_chars, "character"),
+            (invalid_overlap_chars, "character"),
+        ] {
+            let error = db
+                .rerun_task_source_with_chunk_budget(source_task, &candidate)
+                .await
+                .expect_err("an invalid candidate budget is refused");
+            assert!(
+                error.to_string().contains(expected),
+                "the refusal names the invalid {expected} budget: {error}"
+            );
+        }
+        let forks_after: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM context69.tasks WHERE origin = 'rerun_source'",
+        )
+        .fetch_one(db.pool())
+        .await
+        .expect("count source forks after the refusals");
+        assert_eq!(
+            forks_after, forks_before,
+            "an invalid candidate must not create a fork"
+        );
+
+        // Forking never rewrites the source task's existing payload snapshot.
+        let source_after: serde_json::Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(source_item)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the source payload after the fork");
+        assert_eq!(
+            source_after, source_before,
+            "the source task keeps the snapshot it already had"
+        );
+
+        let item = claim_item(&db, new_task).await;
+        service
+            .run_item_for_test(item)
+            .await
+            .expect("the rerun item runs");
+
+        let texts: Vec<String> = sqlx::query_scalar(
+            "SELECT chunk_text FROM context69.document_chunks WHERE document_id IN (\
+                 SELECT document_id FROM context69.library_file_documents WHERE file_id = $1)",
+        )
+        .bind(file.file_id)
+        .fetch_all(db.pool())
+        .await
+        .expect("read the stored chunks");
+        assert!(
+            texts.len() > 1,
+            "the pinned 4-token budget must split the source"
+        );
+        for text in &texts {
+            let tokens = token_count(text, TokenizerKind::Cl100kBase);
+            assert!(
+                tokens <= 4,
+                "every stored chunk stays within the pinned budget: {tokens} tokens"
+            );
+        }
     }
 
     /// A transient embed failure keeps the staging admission and the old live

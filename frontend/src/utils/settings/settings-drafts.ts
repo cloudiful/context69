@@ -16,6 +16,12 @@ type DoclingVlmSettingsResponse = components["schemas"]["DoclingVlmSettingsRespo
 /** The Docling OCR preset a fresh or unconfigured installation uses. */
 export const DEFAULT_DOCLING_OCR_PRESET = "rapidocr";
 
+/** Token budget a chunk uses when the response carries no token budget. */
+export const DEFAULT_CHUNKING_MAX_TOKENS = 1024;
+
+/** Token overlap two chunks share when the response carries no overlap. */
+export const DEFAULT_CHUNKING_OVERLAP_TOKENS = 128;
+
 export function createRuntimeDraft(): DraftRuntimeSettings {
   return {
     qdrant: {
@@ -38,8 +44,12 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       valkey_url: "",
     },
     chunking: {
+      unit: "chars",
+      tokenizer: "cl100k_base",
       max_chars: 1200,
       overlap_chars: 200,
+      max_tokens: DEFAULT_CHUNKING_MAX_TOKENS,
+      overlap_tokens: DEFAULT_CHUNKING_OVERLAP_TOKENS,
     },
     file_library: {
       storage_root: "",
@@ -122,8 +132,15 @@ export function runtimeResponseToDraft(
       valkey_url: response.scheduler.valkey_url ?? "",
     },
     chunking: {
+      // A response from a deployment that never stored a token budget keeps
+      // the character behavior; the token values fall back to their defaults
+      // instead of being reinterpreted as characters.
+      unit: response.chunking.unit ?? "chars",
+      tokenizer: response.chunking.tokenizer ?? "cl100k_base",
       max_chars: response.chunking.max_chars,
       overlap_chars: response.chunking.overlap_chars,
+      max_tokens: response.chunking.max_tokens ?? DEFAULT_CHUNKING_MAX_TOKENS,
+      overlap_tokens: response.chunking.overlap_tokens ?? DEFAULT_CHUNKING_OVERLAP_TOKENS,
     },
     file_library: {
       storage_root: response.file_library.storage_root,

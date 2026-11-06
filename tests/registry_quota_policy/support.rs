@@ -9,6 +9,8 @@
 //! the capacity policy never changes the vector space the deployment writes
 //! under.
 
+use context69::chunking::ChunkBudgetMode;
+use context69::chunking::chunking_token::TokenizerKind;
 use context69::db::{
     Database, StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
     StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeSchedulerSettings,
@@ -88,6 +90,10 @@ pub async fn runtime_settings(
         chunking: StoredRuntimeChunkingSettings {
             max_chars: 1000,
             overlap_chars: 100,
+            unit: ChunkBudgetMode::Chars,
+            tokenizer: TokenizerKind::Cl100kBase,
+            max_tokens: 1024,
+            overlap_tokens: 128,
         },
         file_library: StoredRuntimeFileLibrarySettings {
             storage_root: std::env::temp_dir()

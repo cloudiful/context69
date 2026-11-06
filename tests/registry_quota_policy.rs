@@ -368,7 +368,7 @@ async fn an_admission_without_a_stored_row_uses_the_documented_policy() {
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn a_refused_replacement_is_deterministic_and_keeps_the_old_data() {
     use async_trait::async_trait;
-    use context69::chunking::ChunkingConfig;
+    use context69::chunking::{ChunkBudget, ChunkingConfig};
     use context69::db::IngestRunSource;
     use context69::embedding::EmbeddingProvider;
     use context69::qdrant_index::QdrantIndex;
@@ -405,10 +405,11 @@ async fn a_refused_replacement_is_deterministic_and_keeps_the_old_data() {
     let identity = support::registry_identity(&fixture.db)
         .await
         .unwrap_or_else(support::fallback_identity);
+    let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
     let vector = ReplacementVector {
         embedding: &embedding,
         index: &index,
-        chunking: &ChunkingConfig::default(),
+        chunking: &chunk_budget,
         identity: Some(identity),
     };
     let staged = fixture.attach_staged_object().await;

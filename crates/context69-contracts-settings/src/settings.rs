@@ -247,10 +247,73 @@ pub struct VectorIndexRebuildStatus {
     pub finished_at: Option<DateTime<Utc>>,
 }
 
+/// Unit the chunking budget is measured in.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChunkingUnit {
+    /// Character budget. This is the legacy behavior.
+    #[default]
+    Chars,
+    /// Token budget measured with the selected tokenizer.
+    Tokens,
+}
+
+/// Tokenizer that measures the token budget.
+///
+/// The count only matches the tokenizer that produced it, so a token count is
+/// never a count of another model's tokens.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChunkingTokenizer {
+    /// The `cl100k_base` tokenizer.
+    #[default]
+    Cl100kBase,
+    /// The `o200k_base` tokenizer.
+    O200kBase,
+}
+
+/// Token budget of one chunk when the unit is `tokens`.
+pub const CHUNKING_MAX_TOKENS_DEFAULT: usize = 1024;
+
+/// Token overlap between two chunks when the unit is `tokens`.
+pub const CHUNKING_OVERLAP_TOKENS_DEFAULT: usize = 128;
+
+fn default_chunking_max_tokens() -> usize {
+    CHUNKING_MAX_TOKENS_DEFAULT
+}
+
+fn default_chunking_overlap_tokens() -> usize {
+    CHUNKING_OVERLAP_TOKENS_DEFAULT
+}
+
+/// Chunking budget of the runtime settings.
+///
+/// The character values keep their own meaning: they are never relabeled as
+/// token counts. The token values are only used while the unit is `tokens`.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeChunkingSettings {
+    /// Character budget of one chunk.
     pub max_chars: usize,
+    /// Character overlap between two chunks.
     pub overlap_chars: usize,
+    /// Unit the budget is measured in.
+    #[serde(default)]
+    pub unit: ChunkingUnit,
+    /// Tokenizer that measures the token budget.
+    #[serde(default)]
+    pub tokenizer: ChunkingTokenizer,
+    /// Token budget of one chunk, used while the unit is `tokens`.
+    ///
+    /// Stored in a PostgreSQL BIGINT, so the value must fit an `i64`.
+    #[serde(default = "default_chunking_max_tokens")]
+    #[schema(maximum = 9_223_372_036_854_775_807i64)]
+    pub max_tokens: usize,
+    /// Token overlap between two chunks, used while the unit is `tokens`.
+    ///
+    /// Stored in a PostgreSQL BIGINT, so the value must fit an `i64`.
+    #[serde(default = "default_chunking_overlap_tokens")]
+    #[schema(maximum = 9_223_372_036_854_775_807i64)]
+    pub overlap_tokens: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]

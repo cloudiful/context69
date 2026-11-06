@@ -298,14 +298,17 @@ impl LibraryService {
                     true,
                 ));
             }
-            let chunks = crate::chunking::chunk_document_iter(
+            let budget = self.chunking_runtime.snapshot();
+            let chunks = crate::chunking::chunk_document_iter_with_budget(
                 document_id,
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,
-                &self.chunking,
+                &budget,
                 None,
-            );
+            )
+            .map_err(|error| task_failure("indexing", error, false))?;
             for batch in super::ingest_batches::ChunkBatchIter::new(chunks) {
+                let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
                 self.persist_batch_content(
                     Some(fence),
                     file,

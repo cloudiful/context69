@@ -12,6 +12,7 @@ use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::{
+    chunking::{ChunkBudget, ChunkingRuntime},
     db::{Database, RegistryQuotaOverride, StoredTask},
     domain_errors::DomainError,
     services::{
@@ -73,6 +74,9 @@ pub struct TaskService {
     source_folders: SourceFoldersService,
     translation: TranslationService,
     settings: SettingsService,
+    /// The process-wide chunking budget, shared with the library, the sync
+    /// service, and the translation publisher.
+    chunking: ChunkingRuntime,
     worker_slots: Arc<Semaphore>,
     worker_capacity: usize,
     dispatch_notify: Arc<Notify>,
@@ -142,6 +146,7 @@ impl TaskService {
         // whether they run, and this service inherits that decision instead
         // of carrying a second one.
         let replacement_caps = library.registry_caps();
+        let chunking = library.chunking_runtime().clone();
         Self {
             settings: SettingsService::new(db.clone()),
             db,
@@ -151,6 +156,7 @@ impl TaskService {
             sync,
             source_folders,
             translation,
+            chunking,
             worker_slots: Arc::new(Semaphore::new(worker_capacity)),
             worker_capacity,
             dispatch_notify: Arc::new(Notify::new()),
@@ -332,6 +338,35 @@ impl TaskService {
     }
     pub(crate) fn settings(&self) -> &SettingsService {
         &self.settings
+    }
+
+    /// A clone of this service whose chunk consumers use one pinned budget.
+    ///
+    /// A claimed item pins its budget before any stage runs; the stage runner
+    /// then works on this clone, so every library, metadata, and translation
+    /// helper that does not take a budget parameter still sees the item's
+    /// snapshot. The clone shares the database, vector runtime, and caches;
+    /// only the chunk budget differs, and the shared runtime is never mutated.
+    pub(crate) fn scoped_chunking(&self, budget: &ChunkBudget) -> Self {
+        let mut scoped = self.clone();
+        scoped.chunking = ChunkingRuntime::new(budget.clone());
+        scoped.library = self.library.scoped_chunking(budget);
+        scoped.translation = self
+            .translation
+            .clone()
+            .with_default_chunking(Some(budget.into()));
+        scoped
+    }
+    /// The process-wide chunking budget.
+    pub(crate) fn chunking(&self) -> &ChunkingRuntime {
+        &self.chunking
+    }
+
+    /// The process-wide chunking budget handle, for tests that drive the same
+    /// activation a settings save performs.
+    #[cfg(any(test, feature = "integration-test-helpers"))]
+    pub fn chunking_runtime(&self) -> ChunkingRuntime {
+        self.chunking.clone()
     }
     /// The registry-visible replacement processor, or `None` while it stays
     /// disabled (issue 1138 P17).

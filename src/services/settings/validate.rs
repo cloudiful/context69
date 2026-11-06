@@ -11,6 +11,7 @@ use crate::{
     db::StoredSearchSettings,
 };
 
+use context69_contracts::settings::ChunkingUnit;
 use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
 
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
@@ -73,6 +74,39 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
             "runtime.chunking.overlap_chars must be smaller than runtime.chunking.max_chars",
         )
         .into());
+    }
+    // The token integers are persisted as PostgreSQL BIGINT in both modes, so a
+    // value the column cannot hold must be refused here, before any settings or
+    // secret write, instead of failing the settings transaction after the
+    // secret patches were already committed. The active-mode rules below still
+    // apply on top of this storage check.
+    if i64::try_from(request.chunking.max_tokens).is_err() {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.chunking.max_tokens must be at most {}",
+            i64::MAX
+        ))
+        .into());
+    }
+    if i64::try_from(request.chunking.overlap_tokens).is_err() {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.chunking.overlap_tokens must be at most {}",
+            i64::MAX
+        ))
+        .into());
+    }
+    if request.chunking.unit == ChunkingUnit::Tokens {
+        if request.chunking.max_tokens == 0 {
+            return Err(DomainError::invalid_argument(
+                "runtime.chunking.max_tokens must be greater than 0",
+            )
+            .into());
+        }
+        if request.chunking.overlap_tokens >= request.chunking.max_tokens {
+            return Err(DomainError::invalid_argument(
+                "runtime.chunking.overlap_tokens must be smaller than runtime.chunking.max_tokens",
+            )
+            .into());
+        }
     }
     if request.file_library.storage_root.trim().is_empty() {
         return Err(DomainError::invalid_argument(

@@ -1126,7 +1126,10 @@ pub async fn build_maintenance_library(
         EmbeddingRuntime::default(),
         None,
         LibraryServiceConfig {
-            chunking: config.chunking.clone(),
+            chunking: crate::chunking::ChunkingConfig {
+                max_chars: config.chunking.max_chars,
+                overlap_chars: config.chunking.overlap_chars,
+            },
             file_library: config.file_library.clone(),
             valkey_url: None,
             embedding_vector_configured: false,

@@ -35,7 +35,7 @@ pub(super) async fn process_url(
             return Ok(ProcessResult::Progressed { next: "storage" });
         }
         let request: ImportLibraryFileFromUrlRequest =
-            match serde_json::from_value(item.payload.clone()) {
+            match super::pipeline_progress_input::deserialize_worker_input(&item.payload) {
                 Ok(request) => request,
                 Err(error) => return Ok(process_error("download", error.into())),
             };
@@ -403,7 +403,14 @@ pub(super) fn url_storage_request(payload: &Value) -> Result<ImportLibraryFileFr
     if let Some(object) = without_artifact.as_object_mut() {
         object.remove("download_artifact");
     }
-    serde_json::from_value(without_artifact).map_err(anyhow::Error::from)
+    // The stored payload of a claimed item also carries the worker's own
+    // metadata, among them the pinned chunk budget. The trusted sanitizer
+    // removes those keys before the strict request is decoded, exactly as the
+    // download stage does; the artifact stays this helper's own removal
+    // because it belongs to the download stage alone. The stored payload and
+    // its snapshot are untouched: the decode works on a copy.
+    super::pipeline_progress_input::deserialize_worker_input(&without_artifact)
+        .map_err(anyhow::Error::from)
 }
 
 #[cfg(test)]
@@ -597,5 +604,63 @@ mod tests {
             }))
             .expect("storage request without a title parses");
         assert_eq!(request.title, None);
+    }
+
+    /// The stored payload of a claimed URL item carries the worker's own
+    /// metadata: the download artifact and the pinned chunk budget. The
+    /// storage decode removes the artifact and the trusted worker keys, keeps
+    /// the request fields, and still refuses an unknown client key.
+    #[test]
+    fn url_storage_request_accepts_the_worker_snapshot_keys_and_still_rejects_unknown_client_fields()
+     {
+        let payload = json!({
+            "url": "https://example.com/file.pdf",
+            "title": "  Quarterly   Filing ",
+            "options": {
+                "metadata": { "external_id": "doc-1" },
+                "source_policy": "retain"
+            },
+            "download_artifact": {
+                "source_url": "https://example.com/file.pdf",
+                "filename": "file.pdf",
+                "media_type": "application/pdf",
+                "sha256": "a".repeat(64)
+            },
+            "chunk_budget": {
+                "mode": "chars",
+                "chars": { "max_chars": 1200, "overlap_chars": 200 },
+                "tokens": null
+            },
+            "pipeline_progress": { "v": 1, "stage": "storage", "attempt": 1 }
+        });
+
+        let request = super::url_storage_request(&payload)
+            .expect("the stamped payload decodes at the storage boundary");
+        assert_eq!(request.url, "https://example.com/file.pdf");
+        assert_eq!(
+            request.title.as_deref(),
+            Some("Quarterly Filing"),
+            "the request fields survive the worker metadata"
+        );
+        assert_eq!(
+            request.options.metadata.external_id.as_deref(),
+            Some("doc-1"),
+            "the ingest options survive the worker metadata"
+        );
+        assert!(
+            !request.options.is_release(),
+            "the source policy survives the worker metadata"
+        );
+        assert!(
+            payload.get("chunk_budget").is_some(),
+            "the decode works on a copy: the stored snapshot stays untouched"
+        );
+
+        let mut with_unknown = payload;
+        with_unknown["client_extension"] = json!(true);
+        assert!(
+            super::url_storage_request(&with_unknown).is_err(),
+            "an unknown client key is still rejected"
+        );
     }
 }

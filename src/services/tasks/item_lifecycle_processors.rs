@@ -104,6 +104,13 @@ pub(super) async fn process_sync(
             DomainError::invalid_argument(format!("unsupported sync task stage {stage}")).into(),
         ));
     }
+    let budget = match crate::chunking::resolve_chunk_budget(
+        &item.payload,
+        &service.chunking().legacy_chars_budget(),
+    ) {
+        Ok(budget) => budget,
+        Err(error) => return Ok(process_error(stage, error.into())),
+    };
     let resource_id = if let Some(folder_id) = item
         .payload
         .get("source_folder_id")
@@ -115,10 +122,11 @@ pub(super) async fn process_sync(
         ))?;
         service
             .source_folders()
-            .sync_source_folder_in_project(
+            .sync_source_folder_in_project_with_budget(
                 group,
                 folder_id,
                 crate::library_store::TaskWriteFence::from_claimed_item(item)?,
+                &budget,
             )
             .await
             .map(|_| folder_id.to_string())
@@ -145,7 +153,7 @@ pub(super) async fn process_sync(
         }
         service
             .sync()
-            .sync_source(source_key, "task")
+            .sync_source_with_budget(source_key, "task", &budget)
             .await
             .map(|_| source_key.to_string())
     };

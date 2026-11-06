@@ -42,16 +42,24 @@ impl LibraryService {
 
     /// Blocking translation conversion for every document mapped to the file.
     /// Runs inline on the calling worker; there is no background scheduler.
+    ///
+    /// One budget is resolved before the first read and passed to every
+    /// document conversion, so a settings save in the middle of the fan-out
+    /// cannot mix budgets inside one file-level operation.
     pub(crate) async fn convert_file_translations(&self, file_id: Uuid) -> Result<()> {
+        let chunking = self.translation.operation_chunking();
         let Some(directive) = self.store.file_translation_directive(file_id).await? else {
             return Ok(());
         };
         for mapping in self.store.list_file_documents(file_id).await? {
             self.translation
-                .convert(context69_translation::EnqueueTranslation {
-                    document_id: mapping.document_id,
-                    directive: Some(directive.clone()),
-                })
+                .convert_with_chunking(
+                    context69_translation::EnqueueTranslation {
+                        document_id: mapping.document_id,
+                        directive: Some(directive.clone()),
+                    },
+                    chunking.as_ref(),
+                )
                 .await?;
         }
         Ok(())

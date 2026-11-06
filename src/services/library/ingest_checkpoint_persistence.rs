@@ -14,7 +14,7 @@ use uuid::Uuid;
 use super::ingest_batches::ChunkBatchIter;
 use super::ingest_checkpoint::{
     IndexingCheckpoint, compute_prepared_record_hash, count_prepared_ingest_totals,
-    parse_indexing_checkpoint, payload_with_checkpoint,
+    parse_indexing_checkpoint, payload_with_checkpoint_reset,
 };
 use super::ingest_checkpoint_batch::BatchPersistInputs;
 use super::ingest_progress::{PipelineProgress, PipelineProgressStage};
@@ -25,7 +25,7 @@ use super::task_ingest::{
     normalize_indexing_runtime_failure, normalize_task_failure, task_failure,
 };
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
-use crate::chunking::chunk_document_iter;
+use crate::chunking::{ChunkBudget, chunk_document_iter_with_budget};
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
@@ -140,6 +140,7 @@ impl LibraryService {
         fence: crate::library_store::TaskWriteFence,
         current_payload: &Value,
         attempt: i32,
+        budget: &ChunkBudget,
     ) -> Result<Value, UnifiedIngestError> {
         self.persist_sections_with_checkpoint(
             file_id,
@@ -147,6 +148,7 @@ impl LibraryService {
             CheckpointWrite::Fenced(fence),
             current_payload,
             attempt,
+            budget,
         )
         .await
     }
@@ -165,6 +167,7 @@ impl LibraryService {
         lease_token: Uuid,
         current_payload: &Value,
         attempt: i32,
+        budget: &ChunkBudget,
     ) -> Result<Value, UnifiedIngestError> {
         self.persist_sections_with_checkpoint(
             file_id,
@@ -175,6 +178,7 @@ impl LibraryService {
             },
             current_payload,
             attempt,
+            budget,
         )
         .await
     }
@@ -186,6 +190,7 @@ impl LibraryService {
         checkpoint_write: CheckpointWrite,
         current_payload: &Value,
         attempt: i32,
+        budget: &ChunkBudget,
     ) -> Result<Value, UnifiedIngestError> {
         let lease_token = checkpoint_write.lease_token();
         let file = self
@@ -225,23 +230,31 @@ impl LibraryService {
             .clone();
 
         let current_hash = compute_prepared_record_hash(&prepared);
+        let budget_identity = budget.identity();
         // One counting pass feeds both the batch checkpoint and the chunk
         // counters the progress record publishes, so a total can never
         // disagree with the batches it is measured against.
-        let totals = count_prepared_ingest_totals(&prepared, &self.chunking);
+        let totals = count_prepared_ingest_totals(&prepared, budget)
+            .map_err(|error| task_failure("indexing", error, false))?;
         let total_batches = totals.total_batches;
         let total_chunks = totals.total_chunks;
 
         let mut checkpoint = parse_indexing_checkpoint(current_payload);
         let mut current_payload_value = current_payload.clone();
 
-        // Old tasks without checkpoint start at batch 0. A hash mismatch with a
-        // carried checkpoint forces a reset to 0 and a fresh cleanup.
-        if checkpoint.record_hash.as_deref() != Some(current_hash.as_str())
-            && checkpoint.next_batch_index != 0
+        // Old tasks without checkpoint start at batch 0. A checkpoint whose
+        // record set or chunk budget does not match the pinned snapshot is
+        // unproven, including a legacy checkpoint that carries no budget
+        // identity at all: it restarts from 0 with a fresh cleanup instead of
+        // skipping batches chunked under another budget.
+        if !checkpoint.matches(&current_hash, &budget_identity) && checkpoint.next_batch_index != 0
         {
-            checkpoint = IndexingCheckpoint::reset(current_hash.clone(), total_batches);
-            let reset_payload = payload_with_checkpoint(&current_payload_value, &checkpoint)
+            checkpoint = IndexingCheckpoint::reset(
+                current_hash.clone(),
+                total_batches,
+                budget_identity.clone(),
+            );
+            let reset_payload = payload_with_checkpoint_reset(&current_payload_value, &checkpoint)
                 .map_err(|error| task_failure("indexing", error, false))?;
             let ok = checkpoint_write
                 .write(&self.db, &reset_payload)
@@ -258,6 +271,7 @@ impl LibraryService {
         } else if checkpoint.record_hash.is_none() {
             checkpoint.record_hash = Some(current_hash.clone());
             checkpoint.total_batches = Some(total_batches);
+            checkpoint.budget_identity = Some(budget_identity.clone());
         }
 
         // Cleanup runs once per file, before any embedding. Skip when resuming
@@ -313,15 +327,17 @@ impl LibraryService {
                     &mut mappings,
                 )
                 .await?;
-            let chunks = chunk_document_iter(
+            let chunks = chunk_document_iter_with_budget(
                 document_id,
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,
-                &self.chunking,
+                budget,
                 None,
-            );
+            )
+            .map_err(|error| task_failure("indexing", error, false))?;
 
             for batch in ChunkBatchIter::new(chunks) {
+                let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
                 let this_batch_index = global_batch_index;
                 global_batch_index += 1;
 
@@ -343,6 +359,7 @@ impl LibraryService {
                         total_chunks,
                         completed_chunks_before: resume_progress.completed_chunks(),
                         current_hash: &current_hash,
+                        budget_identity: &budget_identity,
                         attempt,
                         checkpoint_write,
                     },

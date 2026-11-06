@@ -81,6 +81,15 @@ impl TaskService {
                 return Err(error);
             }
         }
+        // One snapshot for the whole submission, taken after the idempotency
+        // hash of the original request and after the file staging read the
+        // client payload: the hash keeps describing the client request, and
+        // every item carries the budget that governs it. A settings save that
+        // lands later cannot change this task.
+        let budget = self.chunking().snapshot();
+        for payload in &mut payloads {
+            *payload = crate::chunking::payload_with_chunk_budget(payload, &budget);
+        }
         let key = request
             .idempotency_key
             .as_deref()

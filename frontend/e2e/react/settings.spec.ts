@@ -278,6 +278,40 @@ test.describe("react settings", () => {
     await expect(page.getByLabel("Max Characters")).toHaveValue("1200");
   });
 
+  test("saves the token budget and the tokenizer beside the character budget", async ({ page }) => {
+    const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
+
+    await page.goto("/settings/runtime");
+    await page.locator("#runtime-chunking-unit").click();
+    await page.getByRole("option", { name: "Tokens" }).click();
+
+    const maxTokens = page.getByLabel("Max Tokens");
+    await expect(maxTokens).toHaveValue("1024");
+    await maxTokens.fill("512");
+
+    await page.locator("#runtime-chunking-tokenizer").click();
+    await page.getByRole("option", { name: "o200k_base" }).click();
+
+    await page.getByTestId("settings-save").click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "PUT" && call.path === "/v1/settings/runtime"
+    )).length).toBe(1);
+    const put = transport.calls.find((call) => call.method === "PUT" && call.path === "/v1/settings/runtime");
+    expect((put?.body as { chunking: Record<string, unknown> }).chunking).toEqual({
+      unit: "tokens",
+      tokenizer: "o200k_base",
+      max_chars: 1200,
+      overlap_chars: 200,
+      max_tokens: 512,
+      overlap_tokens: 128,
+    });
+
+    await page.reload();
+    await expect(page.locator("#runtime-chunking-unit")).toContainText("Tokens");
+    await expect(page.locator("#runtime-chunking-tokenizer")).toContainText("o200k_base");
+    await expect(page.getByLabel("Max Tokens")).toHaveValue("512");
+  });
+
   test("keeps a rejected docling group dirty, adopts the fulfilled peer and commits no appearance", async ({ page }) => {
     await page.setViewportSize({ width: 600, height: 900 });
     const transport = await installAppTransport(page, {

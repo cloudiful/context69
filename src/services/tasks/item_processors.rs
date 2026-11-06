@@ -61,6 +61,10 @@ pub(super) async fn process_item_blocking(
     item: &mut crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
     let mut working = item.clone();
+    pin_chunk_budget(service, &mut working).await?;
+    let budget = crate::chunking::parse_chunk_budget(&working.payload)?
+        .ok_or_else(|| DomainError::internal("task item chunk budget was not pinned"))?;
+    let service = &service.scoped_chunking(&budget);
     if task.origin == "rerun_source" {
         let outcome = super::item_replacement_processor::process_replacement(
             service,
@@ -208,6 +212,31 @@ async fn run_stage(
             super::item_git_index_processor::process_git_index(service, group, item, stage).await
         }
     }
+}
+
+/// Pins the chunk budget of an item that predates durable snapshots.
+///
+/// A task submitted after P3 already carries its snapshot. A legacy item has
+/// no recoverable original configuration, so it is pinned once, before any
+/// stage runs, to the legacy character budget. The write is lease-fenced, so a
+/// worker that lost its claim leaves the payload untouched and the next claim
+/// pins it instead. Pinning is durable on purpose: a retry must resume under
+/// the same budget, not a transient one.
+async fn pin_chunk_budget(service: &TaskService, item: &mut crate::db::ClaimedItem) -> Result<()> {
+    if crate::chunking::parse_chunk_budget(&item.payload)?.is_some() {
+        return Ok(());
+    }
+    let budget = service.chunking().legacy_chars_budget();
+    let payload = crate::chunking::payload_with_chunk_budget(&item.payload, &budget);
+    let fence = crate::library_store::TaskWriteFence::from_claimed_item(item)?;
+    if !crate::library_store::write_task_item_payload(service.db(), fence, &payload).await? {
+        return Err(DomainError::conflict(
+            "task item lease was lost while pinning the chunking budget",
+        )
+        .into());
+    }
+    item.payload = payload;
+    Ok(())
 }
 
 pub(super) async fn set_file(
@@ -603,5 +632,185 @@ mod tests {
         let stale: anyhow::Error =
             crate::domain_errors::DomainError::conflict("stale target").into();
         assert!(is_retryable_failure(&stale));
+    }
+
+    /// The task-entry scope of one item.
+    ///
+    /// A file or URL task that reuses an already-succeeded file converts that
+    /// file's translations through the library's translation service while it
+    /// stores the file, before the item's own translation stage runs. The
+    /// scoped clone is what keeps that conversion on the item's snapshot.
+    mod chunking_scope {
+        use std::path::PathBuf;
+        use std::sync::Arc;
+
+        use anyhow::Result;
+        use async_trait::async_trait;
+        use context69_translation::{
+            TranslationChunkingBudget, TranslationDependencies, TranslationReadiness,
+            TranslationService,
+        };
+        use uuid::Uuid;
+
+        use crate::chunking::{ChunkBudget, ChunkingConfig, ChunkingRuntime};
+        use crate::config::FileLibraryConfig;
+        use crate::db::Database;
+        use crate::embedding::EmbeddingRuntime;
+        use crate::services::document_store::DocumentStoreService;
+        use crate::services::library::{LibraryService, LibraryServiceConfig};
+        use crate::services::namespace::NamespaceService;
+        use crate::services::secret_store;
+        use crate::services::settings::SettingsService;
+        use crate::services::source_folders::SourceFoldersService;
+        use crate::services::sync::SyncService;
+        use crate::services::tasks::{TaskService, TaskServiceDependencies};
+        use crate::services::translation::TranslationPublisherAdapter;
+        use crate::vector_runtime::VectorRuntime;
+
+        /// The translation service never becomes ready: this case observes the
+        /// budget a conversion would use, it never runs a translation.
+        struct NotReady;
+
+        #[async_trait]
+        impl TranslationReadiness for NotReady {
+            async fn is_ready(&self) -> Result<bool> {
+                Ok(false)
+            }
+        }
+
+        async fn connect_db() -> Database {
+            let url = context69_test_support::accessor::database_url();
+            let db = Database::connect(&url)
+                .await
+                .expect("connect test database");
+            context69_db_schema::bootstrap_library_schema(db.pool())
+                .await
+                .expect("bootstrap the library schema");
+            db
+        }
+
+        /// A task service whose library, translation publisher, and task share
+        /// one process-wide budget handle, exactly like the running
+        /// application: a settings save replaces the budget in that handle.
+        async fn build_task_service(db: &Database) -> (TaskService, ChunkingRuntime, PathBuf) {
+            let chunking = ChunkingRuntime::new(ChunkBudget::chars(ChunkingConfig {
+                max_chars: 1000,
+                overlap_chars: 100,
+            }));
+            let translation = TranslationService::new(TranslationDependencies {
+                pool: db.pool().clone(),
+                http_client: reqwest::Client::new(),
+                publisher: Arc::new(TranslationPublisherAdapter::new(
+                    None,
+                    None,
+                    chunking.clone(),
+                )),
+                concurrency: 1,
+                readiness: Arc::new(NotReady),
+            });
+            let storage_root =
+                std::env::temp_dir().join(format!("context69-r5-{}", Uuid::new_v4()));
+            let mut library = LibraryService::with_vector_runtime(
+                db.clone(),
+                VectorRuntime::from_legacy(EmbeddingRuntime::new(None, None), None, ""),
+                LibraryServiceConfig {
+                    chunking: ChunkingConfig {
+                        max_chars: 1000,
+                        overlap_chars: 100,
+                    },
+                    file_library: FileLibraryConfig {
+                        storage_root: storage_root.clone(),
+                        max_upload_size_mb: 1,
+                        max_upload_request_size_mb: 1,
+                        ingest_concurrency: 1,
+                        url_import_concurrency: 1,
+                        url_import_min_interval_ms: 1000,
+                        trusted_proxy_enabled: false,
+                        s3: None,
+                    },
+                    valkey_url: None,
+                    embedding_vector_configured: true,
+                    embedding_vector_configuration_fingerprint: "r5-chunking-scope".to_string(),
+                },
+                SettingsService::new(db.clone()),
+                translation.clone(),
+            )
+            .await
+            .expect("build library service");
+            library.set_chunking_runtime(chunking.clone());
+            let sync = SyncService::new(
+                db.clone(),
+                secret_store::build_unkeyed(db),
+                None,
+                None,
+                ChunkingConfig {
+                    max_chars: 1000,
+                    overlap_chars: 100,
+                },
+                1,
+                translation.clone(),
+            );
+            let service = TaskService::new(TaskServiceDependencies {
+                db: db.clone(),
+                namespace: NamespaceService::new(db.clone()),
+                document_store: DocumentStoreService::new(db.clone(), None, library.clone()),
+                library: library.clone(),
+                sync: sync.clone(),
+                source_folders: SourceFoldersService::new(db.clone(), library, sync),
+                translation,
+                concurrency: 1,
+            });
+            (service, chunking, storage_root)
+        }
+
+        /// A scoped item publishes under its own snapshot while the live
+        /// budget a settings save installed stays untouched.
+        ///
+        /// The library of the scope carries the snapshot in both its chunking
+        /// handle and its translation service, so a reused file converts its
+        /// translations under the task's budget instead of the live one.
+        #[tokio::test]
+        #[ignore = "requires configured reusable PostgreSQL"]
+        async fn a_task_scope_carries_its_pinned_budget_into_the_library_and_translation() {
+            let db = connect_db().await;
+            let (service, live, storage_root) = build_task_service(&db).await;
+
+            // A settings save installs a new budget in the shared handle.
+            let installed = ChunkBudget::chars(ChunkingConfig {
+                max_chars: 2000,
+                overlap_chars: 200,
+            });
+            live.replace(installed.clone());
+            let pinned = ChunkBudget::chars(ChunkingConfig {
+                max_chars: 900,
+                overlap_chars: 90,
+            });
+            let scoped = service.scoped_chunking(&pinned);
+
+            assert_eq!(scoped.chunking().snapshot(), pinned);
+            assert_eq!(scoped.library().chunking_runtime().snapshot(), pinned);
+            assert_eq!(
+                scoped.translation().operation_chunking(),
+                Some(TranslationChunkingBudget::from(&pinned)),
+                "the scoped task publishes under its own snapshot"
+            );
+            assert_eq!(
+                scoped.library().translation().operation_chunking(),
+                Some(TranslationChunkingBudget::from(&pinned)),
+                "a reused file converts its translations under the task's snapshot"
+            );
+            assert_eq!(
+                service.library().translation().operation_chunking(),
+                Some(TranslationChunkingBudget::from(&installed)),
+                "the unscoped library keeps the live budget"
+            );
+            assert_eq!(
+                live.snapshot(),
+                installed,
+                "the live handle keeps the installed budget"
+            );
+
+            let _ = std::fs::remove_dir_all(storage_root);
+        }
     }
 }

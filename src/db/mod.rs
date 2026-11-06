@@ -7,6 +7,8 @@ use std::sync::Arc;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
+use crate::chunking::ChunkBudgetMode;
+use crate::chunking::chunking_token::TokenizerKind;
 use crate::contracts::{SearchMode, SyncOutcome};
 use crate::domain::SyncCheckpoint;
 
@@ -197,6 +199,12 @@ pub struct StoredRuntimeSchedulerSettings {
 pub struct StoredRuntimeChunkingSettings {
     pub max_chars: usize,
     pub overlap_chars: usize,
+    /// Unit the persisted budget is measured in.
+    pub unit: ChunkBudgetMode,
+    /// Tokenizer that measures the persisted token budget.
+    pub tokenizer: TokenizerKind,
+    pub max_tokens: usize,
+    pub overlap_tokens: usize,
 }
 
 #[derive(Debug, Clone)]

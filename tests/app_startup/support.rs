@@ -243,6 +243,7 @@ pub fn runtime_settings_request(
     marker: &str,
     storage_root: &Path,
 ) -> context69::contracts::UpdateRuntimeSettingsRequest {
+    use context69::contracts::settings::{ChunkingTokenizer, ChunkingUnit};
     use context69::contracts::{
         RuntimeChunkingSettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
         UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
@@ -272,6 +273,10 @@ pub fn runtime_settings_request(
         chunking: RuntimeChunkingSettings {
             max_chars: 1200,
             overlap_chars: 100,
+            unit: ChunkingUnit::Chars,
+            tokenizer: ChunkingTokenizer::Cl100kBase,
+            max_tokens: 1024,
+            overlap_tokens: 128,
         },
         file_library: UpdateRuntimeFileLibrarySettings {
             storage_root: storage_root.display().to_string(),

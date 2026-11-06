@@ -25,7 +25,10 @@ mod ordinary_replacement_cases {
     use std::path::{Path, PathBuf};
     use std::sync::Arc;
 
-    use context69::chunking::ChunkingConfig;
+    use context69::chunking::chunking_token::{TokenizerKind, token_count};
+    use context69::chunking::{
+        ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget, payload_with_chunk_budget,
+    };
     use context69::config::FileLibraryConfig;
     use context69::db::{
         CreateTaskSubmissionRequest, Database, IngestRunSource, RegistryQuotaOverride,
@@ -103,10 +106,11 @@ mod ordinary_replacement_cases {
     ) -> Result<ReplacementRunOutcome> {
         let embedding = FakeEmbedding;
         let index = QdrantIndex::for_test_unreachable(mock.url(), "ordinary", DIMENSIONS)?;
+        let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
         let vector = ReplacementVector {
             embedding: &embedding,
             index: &index,
-            chunking: &ChunkingConfig::default(),
+            chunking: &chunk_budget,
             identity: Some(context69::db::RegistryVectorIdentity {
                 embedding_fingerprint: "ordinary-fingerprint".into(),
                 collection_name: "ordinary".into(),
@@ -421,6 +425,126 @@ mod ordinary_replacement_cases {
         };
         assert_eq!(item_state.0, "succeeded");
         assert_eq!(item_state.1, None);
+    }
+
+    /// A text task whose item pinned a token budget chunks with that snapshot,
+    /// not with the live character budget of the service.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_pinned_token_snapshot_governs_the_ordinary_replacement_chunks() {
+        let _guard = CASE_LOCK.lock().await;
+        let db = connect_db().await;
+        let user = seed_user(&db).await;
+        let group = seed_group(&db).await;
+        let storage_root = std::env::temp_dir().join(format!("ordinary-token-{}", Uuid::new_v4()));
+        std::fs::create_dir_all(&storage_root).expect("create storage root");
+        let store = LibraryStore::new(db.clone());
+        let old_body = b"old token body\n";
+        let file = store
+            .create_file_in_project(
+                group.id,
+                &NewLibraryFile {
+                    id: Uuid::new_v4(),
+                    folder_id: None,
+                    external_id: Some("ordinary-token".into()),
+                    filename: "ordinary-token.txt".into(),
+                    media_type: "text/plain".into(),
+                    size_bytes: old_body.len() as i64,
+                    sha256: sha256(old_body),
+                    storage_rel_path: format!("objects/{}", Uuid::new_v4()),
+                    storage_object_id: None,
+                    delete_source_after_processing: false,
+                },
+            )
+            .await
+            .expect("seed ordinary file");
+        store
+            .update_file_status(
+                file.id,
+                context69::contracts::LibraryIngestStatus::Succeeded,
+                None,
+                true,
+            )
+            .await
+            .expect("mark succeeded")
+            .expect("file exists");
+
+        let fresh_body = vec!["pinned token snapshot body"; 40].join("\n\n");
+        let task_id = Uuid::new_v4();
+        let (_, _, items) = db
+            .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+                task_id,
+                user_id: user,
+                group_id: Some(group.id),
+                kind: "text_batch",
+                group_path: Some("test/ordinary"),
+                source_key: None,
+                payloads: &[serde_json::json!({
+                    "external_id": "ordinary-token",
+                    "title": "Ordinary Token",
+                    "content": fresh_body,
+                    "content_format": "plain_text",
+                    "metadata_json": {"owner": "token"}
+                })],
+                input_storage_object_ids: None,
+                idempotency_key: None,
+                request_hash: &format!("ordinary-token-{}", Uuid::new_v4()),
+            })
+            .await
+            .expect("create ordinary task");
+
+        // Pin a token budget on the item exactly as a submission does, while
+        // the service itself stays on its character budget.
+        let pinned = ChunkBudget {
+            mode: ChunkBudgetMode::Tokens,
+            chars: ChunkingConfig::default(),
+            tokens: Some(TokenBudget {
+                tokenizer: TokenizerKind::Cl100kBase,
+                max_tokens: 8,
+                overlap_tokens: 2,
+            }),
+        };
+        let current: serde_json::Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(items[0])
+                .fetch_one(db.pool())
+                .await
+                .expect("read item payload");
+        let payload = payload_with_chunk_budget(&current, &pinned);
+        sqlx::query("UPDATE context69.task_items SET payload = $2 WHERE id = $1")
+            .bind(items[0])
+            .bind(payload)
+            .execute(db.pool())
+            .await
+            .expect("pin the token snapshot");
+
+        let mock = QdrantPointsMock::start().await;
+        let service = build_service(&db, &storage_root, &mock).await;
+        let item = claim_task_item(&db, task_id).await;
+        service
+            .run_item_for_test(item)
+            .await
+            .expect("the pinned item runs");
+
+        let texts: Vec<String> = sqlx::query_scalar(
+            "SELECT chunk_text FROM context69.document_chunks WHERE document_id IN (\
+                 SELECT document_id FROM context69.library_file_documents WHERE file_id = $1)",
+        )
+        .bind(file.id)
+        .fetch_all(db.pool())
+        .await
+        .expect("read the stored chunks");
+        assert!(
+            texts.len() > 1,
+            "the pinned 8-token budget must split the body"
+        );
+        for text in &texts {
+            let tokens = token_count(text, TokenizerKind::Cl100kBase);
+            assert!(
+                tokens <= 8,
+                "every stored chunk stays within the pinned budget: {tokens} tokens"
+            );
+        }
     }
 
     /// The projected folder/external identity/filename/media/source/published

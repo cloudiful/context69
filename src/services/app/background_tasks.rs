@@ -55,6 +55,13 @@ pub async fn start(
             });
         }
     })));
+    // A committed runtime settings save activates the new chunk budget before
+    // it returns, so the next submission is governed by it without a restart.
+    // Existing tasks keep the snapshot they pinned and are never rechunked.
+    settings.set_runtime_chunking_applier(Some(Arc::new({
+        let chunking = services.chunking.clone();
+        move |budget| chunking.replace(budget)
+    })));
     // While a fixed vector index is live, only credential and timeout changes
     // are hot-swappable: a model/base-URL/dimensions change is rejected here,
     // before any secret or settings write, so the save fails loudly instead of

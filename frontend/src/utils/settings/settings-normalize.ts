@@ -43,6 +43,10 @@ export function normalizeRuntimePayload(
     chunking: {
       max_chars: Number(value.chunking.max_chars),
       overlap_chars: Number(value.chunking.overlap_chars),
+      unit: value.chunking.unit,
+      tokenizer: value.chunking.tokenizer,
+      max_tokens: Number(value.chunking.max_tokens),
+      overlap_tokens: Number(value.chunking.overlap_tokens),
     },
     file_library: {
       storage_root: value.file_library.storage_root.trim(),

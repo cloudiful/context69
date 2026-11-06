@@ -19,7 +19,10 @@ mod atomic_first_insert_cases {
     use super::qdrant_points_mock::QdrantPointsMock;
     use anyhow::Result;
     use async_trait::async_trait;
-    use context69::chunking::ChunkingConfig;
+    use context69::chunking::chunking_token::{TokenizerKind, token_count};
+    use context69::chunking::{
+        ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget, payload_with_chunk_budget,
+    };
     use context69::config::FileLibraryConfig;
     use context69::db::{Database, IngestRunMode, IngestRunSource, RegistryQuotaOverride};
     use context69::embedding::{EmbeddingProvider, EmbeddingRuntime};
@@ -481,10 +484,11 @@ mod atomic_first_insert_cases {
         let embedding = FakeEmbedding;
         let index = QdrantIndex::for_test_unreachable(mock.url(), "first-insert", DIMENSIONS)
             .expect("build the test index");
+        let chunk_budget = ChunkBudget::chars(ChunkingConfig::default());
         let vector = ReplacementVector {
             embedding: &embedding,
             index: &index,
-            chunking: &ChunkingConfig::default(),
+            chunking: &chunk_budget,
             identity: Some(context69::db::RegistryVectorIdentity {
                 embedding_fingerprint: "first-insert-fingerprint".into(),
                 collection_name: "first-insert".into(),
@@ -960,6 +964,78 @@ mod atomic_first_insert_cases {
         .await
         .expect("count the run rows");
         assert_eq!(runs, 0, "the cascade removed the run history");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A first insert chunks under the token snapshot its item pinned, not the
+    /// live character budget of the service.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_pinned_token_snapshot_governs_the_first_insert_chunks() {
+        let _guard = CASE_LOCK.lock().await;
+        let body = vec!["pinned first insert body"; 40].join("\n\n");
+        let fixture = FirstInsertFixture::new(serde_json::json!({
+            "external_id": "atomic-token",
+            "title": "Atomic Token",
+            "content": body,
+            "content_format": "plain_text",
+            "metadata_json": {"owner": "token"}
+        }))
+        .await;
+        let pinned = ChunkBudget {
+            mode: ChunkBudgetMode::Tokens,
+            chars: ChunkingConfig::default(),
+            tokens: Some(TokenBudget {
+                tokenizer: TokenizerKind::Cl100kBase,
+                max_tokens: 8,
+                overlap_tokens: 2,
+            }),
+        };
+        let current: serde_json::Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(fixture.item.id)
+                .fetch_one(fixture.db.pool())
+                .await
+                .expect("read the item payload");
+        let payload = payload_with_chunk_budget(&current, &pinned);
+        sqlx::query("UPDATE context69.task_items SET payload = $2 WHERE id = $1")
+            .bind(fixture.item.id)
+            .bind(&payload)
+            .execute(fixture.db.pool())
+            .await
+            .expect("pin the token snapshot");
+
+        let root = storage_root("first-insert-token");
+        let mock = QdrantPointsMock::start().await;
+        let service = build_service(&fixture.db, &root, &mock).await;
+        // The fixture claimed the item before the pin, so the in-memory claim
+        // carries the persisted snapshot to the worker.
+        let mut item = fixture.item.clone();
+        item.payload = payload;
+        service
+            .run_item_for_test(item)
+            .await
+            .expect("the pinned first insert runs");
+
+        let texts: Vec<String> = sqlx::query_scalar(
+            "SELECT chunk_text FROM context69.document_chunks WHERE document_id IN (\
+                 SELECT id FROM context69.documents WHERE group_id = $1)",
+        )
+        .bind(fixture.group)
+        .fetch_all(fixture.db.pool())
+        .await
+        .expect("read the stored chunks");
+        assert!(
+            texts.len() > 1,
+            "the pinned 8-token budget must split the body"
+        );
+        for text in &texts {
+            let tokens = token_count(text, TokenizerKind::Cl100kBase);
+            assert!(
+                tokens <= 8,
+                "every stored chunk stays within the pinned budget: {tokens} tokens"
+            );
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 }

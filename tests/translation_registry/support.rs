@@ -18,7 +18,9 @@ use context69::qdrant_index::QdrantIndex;
 use context69::services::translation::TranslationPublisherAdapter;
 use context69::vector_runtime::{VectorRuntime, VectorSnapshot};
 use context69_translation::{
-    TranslationPublication, TranslationPublisher, TranslationStore, TranslationVersionInput,
+    TranslationChunkingBudget, TranslationChunkingMode, TranslationChunkingTokenizer,
+    TranslationDependencies, TranslationPublication, TranslationPublisher, TranslationReadiness,
+    TranslationService, TranslationStore, TranslationVersionInput,
 };
 
 use super::harness;
@@ -169,6 +171,7 @@ pub async fn publish(
                 title: &title,
                 summary: None,
                 body_text: body,
+                chunking: None,
             },
             &version,
         )
@@ -281,4 +284,198 @@ impl TranslationPublisher for CountingPublisher {
     async fn delete(&self, _chunk_ids: &[Uuid]) -> Result<()> {
         Ok(())
     }
+}
+
+/// A translation readiness gate that is always ready.
+pub struct AlwaysReady;
+
+#[async_trait]
+impl TranslationReadiness for AlwaysReady {
+    async fn is_ready(&self) -> Result<bool> {
+        Ok(true)
+    }
+}
+
+/// A character budget in the translated form the publisher reports.
+pub fn pinned_budget(max_chars: usize, overlap_chars: usize) -> TranslationChunkingBudget {
+    TranslationChunkingBudget {
+        mode: TranslationChunkingMode::Chars,
+        max_chars,
+        overlap_chars,
+        tokenizer: TranslationChunkingTokenizer::Cl100kBase,
+        max_tokens: 0,
+        overlap_tokens: 0,
+    }
+}
+
+/// The provider row these two operation-budget cases share, so they do not
+/// race each other while enabling the local endpoint.
+pub static PROVIDER_CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A publisher that counts live-budget requests and records every publication's
+/// actual chunk budget.
+pub struct CountingSnapshotPublisher {
+    pub snapshots: AtomicUsize,
+    pub publications: std::sync::Mutex<Vec<Option<TranslationChunkingBudget>>>,
+    budget: TranslationChunkingBudget,
+}
+
+impl CountingSnapshotPublisher {
+    pub fn new() -> Self {
+        Self {
+            snapshots: AtomicUsize::new(0),
+            publications: std::sync::Mutex::new(Vec::new()),
+            budget: pinned_budget(640, 64),
+        }
+    }
+
+    pub fn published_budgets(&self) -> Vec<Option<TranslationChunkingBudget>> {
+        self.publications.lock().expect("publication log").clone()
+    }
+}
+
+#[async_trait]
+impl TranslationPublisher for CountingSnapshotPublisher {
+    async fn publish(
+        &self,
+        _old_chunk_ids: &[Uuid],
+        translation: TranslationPublication<'_>,
+    ) -> Result<Vec<context69_translation::TranslationChunkPublication>> {
+        self.publications
+            .lock()
+            .expect("publication log")
+            .push(translation.chunking.cloned());
+        Ok(vec![context69_translation::TranslationChunkPublication {
+            chunk_id: Uuid::new_v4(),
+            document_id: translation.document_id,
+            target_locale: translation.target_locale.to_string(),
+            source_locale: translation.source_locale.map(ToOwned::to_owned),
+            provider_key: translation.provider_key.to_string(),
+            chunk_index: 0,
+            chunk_text: translation.body_text.to_string(),
+        }])
+    }
+
+    async fn delete(&self, _chunk_ids: &[Uuid]) -> Result<()> {
+        Ok(())
+    }
+
+    fn current_chunking(&self) -> Option<TranslationChunkingBudget> {
+        self.snapshots.fetch_add(1, Ordering::SeqCst);
+        Some(self.budget.clone())
+    }
+}
+
+/// A translation service on the fixture database with the given publisher.
+pub fn translation_service(
+    db: &Database,
+    publisher: Arc<dyn TranslationPublisher>,
+) -> TranslationService {
+    TranslationService::new(TranslationDependencies {
+        pool: db.pool().clone(),
+        http_client: reqwest::Client::new(),
+        publisher,
+        concurrency: 1,
+        readiness: Arc::new(AlwaysReady),
+    })
+}
+
+/// A loopback LibreTranslate endpoint that answers every segment.
+///
+/// The retained operation-budget cases need a publication to observe the
+/// budget that actually reached the publisher, so this serves the smallest
+/// valid provider response instead of letting the job fail before publishing.
+pub struct LocalTranslationServer {
+    endpoint: String,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl LocalTranslationServer {
+    pub async fn start() -> Self {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind the translation stub");
+        let address = listener.local_addr().expect("stub address");
+        let task = tokio::spawn(async move {
+            loop {
+                let Ok((mut stream, _)) = listener.accept().await else {
+                    return;
+                };
+                tokio::spawn(async move {
+                    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+                    let mut buffer = vec![0u8; 64 * 1024];
+                    let Ok(read) = stream.read(&mut buffer).await else {
+                        return;
+                    };
+                    let request = String::from_utf8_lossy(&buffer[..read]).to_string();
+                    let body = request
+                        .find("\r\n\r\n")
+                        .map(|index| &request[index + 4..])
+                        .unwrap_or_default();
+                    let payload: serde_json::Value =
+                        serde_json::from_str(body).unwrap_or(serde_json::Value::Null);
+                    let count = payload
+                        .get("q")
+                        .and_then(|value| value.as_array())
+                        .map(Vec::len)
+                        .unwrap_or(1);
+                    let translated = vec!["translated"; count];
+                    let body = serde_json::json!({ "translatedText": translated }).to_string();
+                    let response = format!(
+                        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    );
+                    let _ = stream.write_all(response.as_bytes()).await;
+                });
+            }
+        });
+        Self {
+            endpoint: format!("http://{address}"),
+            task,
+        }
+    }
+
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
+    }
+}
+
+impl Drop for LocalTranslationServer {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+/// Points the enabled LibreTranslate provider at the local stub.
+pub async fn enable_local_translation(db: &Database, endpoint: &str) {
+    sqlx::query(
+        "UPDATE context69.translation_provider_settings SET enabled = FALSE \
+         WHERE provider_key <> 'libretranslate'",
+    )
+    .execute(db.pool())
+    .await
+    .expect("disable the other translation providers");
+    sqlx::query(
+        "INSERT INTO context69.translation_provider_settings \
+         (provider_key, enabled, priority, endpoint, monthly_character_limit) \
+         VALUES ('libretranslate', TRUE, 30, $1, 1000000) \
+         ON CONFLICT (provider_key) DO UPDATE SET enabled = TRUE, \
+         endpoint = EXCLUDED.endpoint, monthly_character_limit = 1000000",
+    )
+    .bind(endpoint)
+    .execute(db.pool())
+    .await
+    .expect("enable the local translation provider");
+}
+
+/// Restores the provider rows to their disabled, endpoint-less state.
+pub async fn disable_local_translation(db: &Database) {
+    sqlx::query(
+        "UPDATE context69.translation_provider_settings \
+         SET enabled = FALSE, endpoint = NULL WHERE provider_key = 'libretranslate'",
+    )
+    .execute(db.pool())
+    .await
+    .expect("disable the local translation provider");
 }

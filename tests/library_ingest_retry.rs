@@ -171,7 +171,7 @@ mod integration {
     use std::sync::{Arc, atomic::AtomicUsize};
 
     use async_trait::async_trait;
-    use context69::chunking::ChunkingConfig;
+    use context69::chunking::{ChunkBudget, ChunkingConfig};
     use context69::config::FileLibraryConfig;
     use context69::db::{CreateTaskSubmissionRequest, Database};
     use context69::embedding::{EmbeddingProvider, EmbeddingRuntime};
@@ -672,6 +672,10 @@ mod integration {
                 item.lease_token,
                 &item.payload,
                 item.attempt_count,
+                &ChunkBudget::chars(ChunkingConfig {
+                    max_chars: 1000,
+                    overlap_chars: 100,
+                }),
             )
             .await
             .expect_err("a missing pair must park the indexing attempt");
@@ -704,6 +708,10 @@ mod integration {
                 item.lease_token,
                 &item.payload,
                 item.attempt_count,
+                &ChunkBudget::chars(ChunkingConfig {
+                    max_chars: 1000,
+                    overlap_chars: 100,
+                }),
             )
             .await
             .expect("the recovered indexing attempt succeeds");
@@ -734,6 +742,10 @@ mod integration {
                 item.lease_token,
                 &payload_after,
                 item.attempt_count,
+                &ChunkBudget::chars(ChunkingConfig {
+                    max_chars: 1000,
+                    overlap_chars: 100,
+                }),
             )
             .await
             .expect("the checkpointed resume succeeds");

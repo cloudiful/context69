@@ -13,6 +13,7 @@ use std::sync::{Mutex, PoisonError};
 
 use anyhow::Result;
 use context69::{
+    contracts::settings::{ChunkingTokenizer, ChunkingUnit},
     contracts::{
         RuntimeQdrantSettings, RuntimeSchedulerSettings, UpdateRuntimeFileLibrarySettings,
         UpdateRuntimeSettingsRequest,
@@ -241,6 +242,10 @@ pub fn runtime_request(
         chunking: context69::contracts::RuntimeChunkingSettings {
             max_chars: 1200,
             overlap_chars: 100,
+            unit: ChunkingUnit::Chars,
+            tokenizer: ChunkingTokenizer::Cl100kBase,
+            max_tokens: 1024,
+            overlap_tokens: 128,
         },
         file_library: UpdateRuntimeFileLibrarySettings {
             storage_root: std::env::temp_dir()

@@ -10,6 +10,9 @@ use super::support::{
     vector_identity_state,
 };
 use context69::{
+    chunking::ChunkingRuntime,
+    contracts::settings::{ChunkingTokenizer, ChunkingUnit},
+    db::Database,
     domain_errors::DomainError,
     services::{secret_store::key_names, settings::RuntimeEmbeddingTransition},
 };
@@ -586,6 +589,252 @@ fn a_destination_change_is_refused_while_a_rebuild_is_running() {
             .await
             .expect("a same-destination credential change is accepted");
         assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
+
+        reset(db).await;
+    });
+}
+
+/// The chunking budget belongs to the settings family: a token budget must
+/// survive a save and a read, and a rejected budget must leave the stored
+/// configuration exactly as it was.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn a_token_chunking_budget_survives_a_save_and_a_read() {
+    run(async |db| {
+        reset(db).await;
+        let settings = service(db, keyed(db));
+        let mut request = runtime_request(None, None);
+        request.chunking.unit = ChunkingUnit::Tokens;
+        request.chunking.tokenizer = ChunkingTokenizer::O200kBase;
+        request.chunking.max_tokens = 512;
+        request.chunking.overlap_tokens = 64;
+
+        let saved = settings
+            .update_runtime_settings(&request)
+            .await
+            .expect("a token budget should be saved");
+        assert_eq!(saved.chunking.unit, ChunkingUnit::Tokens);
+        assert_eq!(saved.chunking.tokenizer, ChunkingTokenizer::O200kBase);
+        assert_eq!(saved.chunking.max_tokens, 512);
+        assert_eq!(saved.chunking.overlap_tokens, 64);
+
+        let read = settings
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings back");
+        assert_eq!(read.chunking.unit, ChunkingUnit::Tokens);
+        assert_eq!(read.chunking.tokenizer, ChunkingTokenizer::O200kBase);
+        assert_eq!(read.chunking.max_tokens, 512);
+        assert_eq!(read.chunking.overlap_tokens, 64);
+
+        reset(db).await;
+    });
+}
+
+/// A rejected budget is refused before anything is written, so the stored
+/// configuration still describes the chunks it described before.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn a_rejected_chunking_budget_leaves_the_stored_configuration_unchanged() {
+    run(async |db| {
+        reset(db).await;
+        let settings = service(db, keyed(db));
+        let mut request = runtime_request(None, None);
+        request.chunking.unit = ChunkingUnit::Tokens;
+        request.chunking.max_tokens = 256;
+        request.chunking.overlap_tokens = 64;
+        settings
+            .update_runtime_settings(&request)
+            .await
+            .expect("a token budget should be saved");
+
+        let mut invalid = runtime_request(None, None);
+        invalid.chunking.unit = ChunkingUnit::Tokens;
+        invalid.chunking.max_tokens = 64;
+        invalid.chunking.overlap_tokens = 64;
+        let error = settings
+            .update_runtime_settings(&invalid)
+            .await
+            .expect_err("an overlap that reaches the budget must be refused");
+        assert!(error.to_string().contains("overlap_tokens"), "{error}");
+
+        let read = settings
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings back");
+        assert_eq!(read.chunking.unit, ChunkingUnit::Tokens);
+        assert_eq!(read.chunking.max_tokens, 256);
+        assert_eq!(read.chunking.overlap_tokens, 64);
+
+        reset(db).await;
+    });
+}
+
+/// A character-mode save keeps an inactive token budget that token mode would
+/// refuse, and the refused token-mode save leaves the settings and the stored
+/// secrets alone.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn an_inactive_token_budget_does_not_block_a_character_save() {
+    run(async |db| {
+        reset(db).await;
+        let settings = service(db, keyed(db));
+
+        // The inactive token budget would be refused while token mode is
+        // active, but the character budget is the one in effect, so the save
+        // commits the settings row and the supplied secret patch together.
+        let mut character = runtime_request(Some(SYNTHETIC_KEY), None);
+        character.chunking.unit = ChunkingUnit::Chars;
+        character.chunking.max_chars = 900;
+        character.chunking.overlap_chars = 90;
+        character.chunking.max_tokens = 10;
+        character.chunking.overlap_tokens = 10;
+        let saved = settings
+            .update_runtime_settings(&character)
+            .await
+            .expect("a character budget must ignore its inactive token budget");
+        assert_eq!(saved.chunking.unit, ChunkingUnit::Chars);
+        assert_eq!(saved.chunking.max_chars, 900);
+        assert_eq!(saved.chunking.overlap_chars, 90);
+        assert_eq!(
+            (saved.chunking.max_tokens, saved.chunking.overlap_tokens),
+            (10, 10),
+            "the inactive token values are persisted unchanged"
+        );
+        assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, PURPOSE).await;
+        let sealed_before = sealed_secret_bytes(db, key_names::EMBEDDING_API_KEY).await;
+
+        // The same budget is invalid once it becomes the active one, so the
+        // token-mode save is refused before any settings or secret write.
+        let mut tokens = runtime_request(Some("refused-embedding-key"), None);
+        tokens.chunking.unit = ChunkingUnit::Tokens;
+        tokens.chunking.max_tokens = 10;
+        tokens.chunking.overlap_tokens = 10;
+        let error = settings
+            .update_runtime_settings(&tokens)
+            .await
+            .expect_err("an invalid active token budget must be refused");
+        assert!(error.to_string().contains("overlap_tokens"), "{error}");
+
+        let after = settings
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings back");
+        assert_eq!(after.chunking.unit, ChunkingUnit::Chars);
+        assert_eq!(after.chunking.max_chars, 900);
+        assert_eq!(
+            (after.chunking.max_tokens, after.chunking.overlap_tokens),
+            (10, 10)
+        );
+        assert_eq!(
+            sealed_secret_bytes(db, key_names::EMBEDDING_API_KEY).await,
+            sealed_before,
+            "a refused save must not rewrite the stored secret"
+        );
+
+        // The persisted token integers are PostgreSQL BIGINT, so a value above
+        // i64::MAX is refused before any settings or secret write in either
+        // mode; otherwise the conversion would fail after the secret commit.
+        if let Some(over_limit) = usize::try_from(i64::MAX)
+            .ok()
+            .and_then(|max| max.checked_add(1))
+        {
+            for (unit_name, unit) in [
+                ("chars", ChunkingUnit::Chars),
+                ("tokens", ChunkingUnit::Tokens),
+            ] {
+                for field in ["max_tokens", "overlap_tokens"] {
+                    let mut oversized = runtime_request(Some("oversized-embedding-key"), None);
+                    oversized.chunking.unit = unit;
+                    oversized.chunking.max_chars = 900;
+                    oversized.chunking.overlap_chars = 90;
+                    oversized.chunking.max_tokens = 10;
+                    oversized.chunking.overlap_tokens = 0;
+                    if field == "max_tokens" {
+                        oversized.chunking.max_tokens = over_limit;
+                    } else {
+                        oversized.chunking.overlap_tokens = over_limit;
+                    }
+                    let error = settings
+                        .update_runtime_settings(&oversized)
+                        .await
+                        .expect_err("an unrepresentable token integer must be refused");
+                    assert!(
+                        error.to_string().contains(field),
+                        "{unit_name}/{field}: {error}"
+                    );
+                }
+            }
+        }
+
+        let after_oversized = settings
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings back");
+        assert_eq!(after_oversized.chunking.unit, ChunkingUnit::Chars);
+        assert_eq!(after_oversized.chunking.max_chars, 900);
+        assert_eq!(after_oversized.chunking.overlap_chars, 90);
+        assert_eq!(
+            (
+                after_oversized.chunking.max_tokens,
+                after_oversized.chunking.overlap_tokens
+            ),
+            (10, 10),
+            "a refused oversized save must not change the stored settings"
+        );
+        assert_eq!(
+            sealed_secret_bytes(db, key_names::EMBEDDING_API_KEY).await,
+            sealed_before,
+            "a refused oversized save must not rewrite the stored secret"
+        );
+
+        reset(db).await;
+    });
+}
+
+/// The sealed bytes of one stored secret.
+///
+/// A rewrite reseals the value with a fresh nonce, so equal bytes prove that a
+/// refused save did not touch the stored secret.
+async fn sealed_secret_bytes(db: &Database, key: &str) -> Vec<u8> {
+    sqlx::query_scalar("SELECT value FROM context69.internal_secrets WHERE key = $1")
+        .bind(key)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the sealed secret")
+}
+
+/// A committed save activates the new chunk budget through the same applier
+/// the running application installs, so the next submission observes it
+/// without a restart.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn a_committed_save_activates_the_chunk_budget() {
+    run(async |db| {
+        reset(db).await;
+        let mut settings = service(db, keyed(db));
+        let runtime = ChunkingRuntime::default();
+        let applied = runtime.clone();
+        settings.set_runtime_chunking_applier(Some(Arc::new(move |budget| {
+            applied.replace(budget);
+        })));
+
+        let mut request = runtime_request(None, None);
+        request.chunking.unit = ChunkingUnit::Tokens;
+        request.chunking.tokenizer = ChunkingTokenizer::O200kBase;
+        request.chunking.max_tokens = 512;
+        request.chunking.overlap_tokens = 64;
+
+        settings
+            .update_runtime_settings(&request)
+            .await
+            .expect("a token budget saves");
+
+        assert_eq!(
+            runtime.snapshot().identity(),
+            "tokens:o200k_base:512:64",
+            "the save applies the committed budget synchronously"
+        );
 
         reset(db).await;
     });

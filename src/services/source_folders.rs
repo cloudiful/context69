@@ -216,6 +216,29 @@ impl SourceFoldersService {
             .await
     }
 
+    /// Sync one source folder under one pinned chunk budget.
+    ///
+    /// The folder sync writes through the library helpers that do not take a
+    /// budget parameter, so it runs on a scoped library clone carrying the
+    /// task item's pinned snapshot. A settings save during the sync therefore
+    /// cannot change the chunks of an item that already started.
+    pub async fn sync_source_folder_in_project_with_budget(
+        &self,
+        project: &GroupRecord,
+        folder_id: Uuid,
+        fence: crate::library_store::TaskWriteFence,
+        budget: &crate::chunking::ChunkBudget,
+    ) -> Result<SyncOutcome> {
+        let scoped = Self {
+            library: self.library.scoped_chunking(budget),
+            sync: self.sync.clone(),
+            source_store: self.source_store.clone(),
+        };
+        scoped
+            .sync_source_folder_in_project(project, folder_id, fence)
+            .await
+    }
+
     /// Returns the stable source id for a source folder, persisting a fresh
     /// one into source.json on first sync of a legacy config that lacks it.
     async fn persist_source_id_for_sync(

@@ -2,7 +2,7 @@ use anyhow::Result;
 use tracing::{info, warn};
 
 use crate::{
-    chunking::ChunkingConfig,
+    chunking::ChunkingRuntime,
     config::Config,
     db::Database,
     services::{
@@ -36,8 +36,9 @@ pub async fn initialize_recovery(
     settings: &SettingsService,
     sync: &crate::services::sync::SyncService,
     translation: &context69_translation::TranslationService,
+    chunking: &ChunkingRuntime,
 ) -> Result<LibraryStartup> {
-    let library = build_library(db, config, vector, settings, translation).await?;
+    let library = build_library(db, config, vector, settings, translation, chunking).await?;
     let source_folders = SourceFoldersService::new(db.clone(), library.clone(), sync.clone());
     library.initialize_dependency_gates().await?;
     Ok(LibraryStartup {
@@ -52,12 +53,13 @@ async fn build_library(
     vector: &VectorRuntime,
     settings: &SettingsService,
     translation: &context69_translation::TranslationService,
+    chunking: &ChunkingRuntime,
 ) -> Result<LibraryService> {
     let library = LibraryService::with_vector_runtime(
         db.clone(),
         vector.vector.clone(),
         LibraryServiceConfig {
-            chunking: ChunkingConfig {
+            chunking: crate::chunking::ChunkingConfig {
                 max_chars: config.chunking.max_chars,
                 overlap_chars: config.chunking.overlap_chars,
             },
@@ -72,10 +74,10 @@ async fn build_library(
         translation.clone(),
     )
     .await?;
-    // The registry-visible writers are enabled by the persisted capacity
-    // policy: the admission reads it inside its own transaction, so every
-    // writer of this deployment admits under the same caps.
+    // One budget handle for the whole process: the settings save updates it,
+    // and every consumer (library, sync, translation) observes the same value.
     let mut library = library.with_registry_publication();
+    library.set_chunking_runtime(chunking.clone());
     // Wire the shared readiness flag before the startup gates resolve, so a
     // startup rebuild keeps the embedding/qdrant gates closed until it is done.
     library.set_vector_index_ready(vector.gate.flag());
@@ -95,7 +97,15 @@ pub async fn initialize(
     settings: &SettingsService,
     services: &ServicesInit,
 ) -> Result<LibraryStartup> {
-    let library = build_library(db, config, vector, settings, &services.translation).await?;
+    let library = build_library(
+        db,
+        config,
+        vector,
+        settings,
+        &services.translation,
+        &services.chunking,
+    )
+    .await?;
     // Before task workers resume, migrate any remaining legacy UUID
     // direct-path library files (storage_object_id IS NULL) onto the
     // content-addressed layout. This runs after LibraryService is ready and

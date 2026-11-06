@@ -2040,6 +2040,19 @@ export interface components {
             published_at?: string | null;
             source_uri?: string | null;
         };
+        /**
+         * @description Tokenizer that measures the token budget.
+         *
+         *     The count only matches the tokenizer that produced it, so a token count is
+         *     never a count of another model's tokens.
+         * @enum {string}
+         */
+        ChunkingTokenizer: "cl100k_base" | "o200k_base";
+        /**
+         * @description Unit the chunking budget is measured in.
+         * @enum {string}
+         */
+        ChunkingUnit: "chars" | "tokens";
         /** @description Request body for `POST /v1/tasks/clear`. */
         ClearTaskHistoryRequest: {
             view: components["schemas"]["ClearTaskHistoryView"];
@@ -3743,9 +3756,33 @@ export interface components {
         ResetAdminUserPasswordRequest: {
             password: string;
         };
+        /**
+         * @description Chunking budget of the runtime settings.
+         *
+         *     The character values keep their own meaning: they are never relabeled as
+         *     token counts. The token values are only used while the unit is `tokens`.
+         */
         RuntimeChunkingSettings: {
+            /** @description Character budget of one chunk. */
             max_chars: number;
+            /**
+             * @description Token budget of one chunk, used while the unit is `tokens`.
+             *
+             *     Stored in a PostgreSQL BIGINT, so the value must fit an `i64`.
+             */
+            max_tokens?: number;
+            /** @description Character overlap between two chunks. */
             overlap_chars: number;
+            /**
+             * @description Token overlap between two chunks, used while the unit is `tokens`.
+             *
+             *     Stored in a PostgreSQL BIGINT, so the value must fit an `i64`.
+             */
+            overlap_tokens?: number;
+            /** @description Tokenizer that measures the token budget. */
+            tokenizer?: components["schemas"]["ChunkingTokenizer"];
+            /** @description Unit the budget is measured in. */
+            unit?: components["schemas"]["ChunkingUnit"];
         };
         RuntimeEmbeddingSettings: {
             base_url: string;

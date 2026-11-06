@@ -5,13 +5,13 @@ use anyhow::{Result, anyhow};
 use context69_secret_crypto::MasterKey;
 
 use crate::{
-    chunking::ChunkingConfig,
+    chunking::ChunkBudgetMode,
     docling::{DoclingConfig, resolve_vlm_runtime_config},
 };
 
 use super::types::{
-    AppConfig, AuthConfig, ConnectionConfig, FileLibraryConfig, SchedulerConfig, SecretStoreConfig,
-    SourceConfig,
+    AppConfig, AuthConfig, ChunkingBudgetConfig, ConnectionConfig, FileLibraryConfig,
+    SchedulerConfig, SecretStoreConfig, SourceConfig,
 };
 
 pub(super) fn validate_scheduler_config(config: &SchedulerConfig) -> Result<()> {
@@ -56,7 +56,7 @@ pub(super) fn validate_docling_config(config: Option<&DoclingConfig>) -> Result<
 
 pub(super) fn validate_storage_config(
     file_library: &FileLibraryConfig,
-    chunking: &ChunkingConfig,
+    chunking: &ChunkingBudgetConfig,
 ) -> Result<()> {
     if file_library.max_upload_size_mb == 0 {
         return Err(anyhow!(
@@ -92,6 +92,16 @@ pub(super) fn validate_storage_config(
         return Err(anyhow!(
             "chunking.overlap_chars must be smaller than chunking.max_chars"
         ));
+    }
+    if chunking.unit == ChunkBudgetMode::Tokens {
+        if chunking.max_tokens == 0 {
+            return Err(anyhow!("chunking.max_tokens must be greater than 0"));
+        }
+        if chunking.overlap_tokens >= chunking.max_tokens {
+            return Err(anyhow!(
+                "chunking.overlap_tokens must be smaller than chunking.max_tokens"
+            ));
+        }
     }
     Ok(())
 }

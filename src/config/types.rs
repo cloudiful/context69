@@ -3,13 +3,15 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-use crate::chunking::ChunkingConfig;
+use crate::chunking::chunking_token::TokenizerKind;
+use crate::chunking::{ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget};
 use crate::docling::DoclingConfig;
 use crate::serde_helpers;
 
 use super::{
     defaults::{
-        DEFAULT_MCP_BIND_ADDR, default_registry_max_ids_per_file, default_registry_max_ids_per_run,
+        DEFAULT_MCP_BIND_ADDR, default_chunking_max_tokens, default_chunking_overlap_tokens,
+        default_registry_max_ids_per_file, default_registry_max_ids_per_run,
         default_registry_max_ids_total, default_scheduler_execution_guard_renew_interval,
         default_scheduler_execution_guard_ttl, default_secret_store_key_version,
         default_session_idle_ttl, default_url_import_concurrency,
@@ -18,6 +20,66 @@ use super::{
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
 };
+
+/// Chunking budget of a deployment.
+///
+/// The character values keep their own meaning and are never relabeled as
+/// token counts. The token values are only used while the unit is `tokens`,
+/// and they stay as they are while another unit is in effect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChunkingBudgetConfig {
+    /// Character budget of one chunk.
+    pub max_chars: usize,
+    /// Character overlap between two chunks.
+    pub overlap_chars: usize,
+    /// Unit the budget is measured in.
+    pub unit: ChunkBudgetMode,
+    /// Tokenizer that measures the token budget.
+    pub tokenizer: TokenizerKind,
+    /// Token budget of one chunk, used while the unit is `tokens`.
+    pub max_tokens: usize,
+    /// Token overlap between two chunks, used while the unit is `tokens`.
+    pub overlap_tokens: usize,
+}
+
+impl ChunkingBudgetConfig {
+    /// The chunking budget of this configuration.
+    ///
+    /// Both budgets are carried, so switching the unit never discards the
+    /// values of the other one.
+    pub fn chunk_budget(&self) -> ChunkBudget {
+        ChunkBudget {
+            mode: self.unit,
+            chars: ChunkingConfig {
+                max_chars: self.max_chars,
+                overlap_chars: self.overlap_chars,
+            },
+            tokens: Some(TokenBudget {
+                tokenizer: self.tokenizer,
+                max_tokens: self.max_tokens,
+                overlap_tokens: self.overlap_tokens,
+            }),
+        }
+    }
+
+    /// The configuration of a chunking budget.
+    pub fn from_chunk_budget(budget: &ChunkBudget) -> Self {
+        let tokens = budget.tokens.clone().unwrap_or(TokenBudget {
+            tokenizer: TokenizerKind::Cl100kBase,
+            max_tokens: default_chunking_max_tokens(),
+            overlap_tokens: default_chunking_overlap_tokens(),
+        });
+        Self {
+            max_chars: budget.chars.max_chars,
+            overlap_chars: budget.chars.overlap_chars,
+            unit: budget.mode,
+            tokenizer: tokens.tokenizer,
+            max_tokens: tokens.max_tokens,
+            overlap_tokens: tokens.overlap_tokens,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -36,7 +98,7 @@ pub struct Config {
     pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
-    pub chunking: ChunkingConfig,
+    pub chunking: ChunkingBudgetConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -327,7 +389,7 @@ pub(super) struct FileConfig {
     pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
-    pub chunking: ChunkingConfig,
+    pub chunking: ChunkingBudgetConfig,
 }
 
 impl Config {

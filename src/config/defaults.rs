@@ -1,11 +1,12 @@
 use std::{path::PathBuf, time::Duration};
 
-use crate::chunking::ChunkingConfig;
+use crate::chunking::ChunkBudgetMode;
+use crate::chunking::chunking_token::TokenizerKind;
 
 use super::types::{
-    ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ConnectionConfig,
-    EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig, QdrantConfig, RegistryQuotaConfig,
-    SchedulerConfig, SecretStoreConfig, SourceConfig, default_mcp_bind_addr,
+    ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ChunkingBudgetConfig,
+    ConnectionConfig, EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig, QdrantConfig,
+    RegistryQuotaConfig, SchedulerConfig, SecretStoreConfig, SourceConfig, default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -72,6 +73,32 @@ pub(super) fn default_registry_max_ids_per_run() -> i64 {
     DEFAULT_REGISTRY_MAX_IDS_PER_RUN
 }
 
+/// The default token budget of one chunk.
+pub(super) const DEFAULT_CHUNKING_MAX_TOKENS: usize = 1024;
+/// The default token overlap between two chunks.
+pub(super) const DEFAULT_CHUNKING_OVERLAP_TOKENS: usize = 128;
+
+pub(super) fn default_chunking_max_tokens() -> usize {
+    DEFAULT_CHUNKING_MAX_TOKENS
+}
+
+pub(super) fn default_chunking_overlap_tokens() -> usize {
+    DEFAULT_CHUNKING_OVERLAP_TOKENS
+}
+
+impl Default for ChunkingBudgetConfig {
+    fn default() -> Self {
+        Self {
+            max_chars: 1200,
+            overlap_chars: 200,
+            unit: ChunkBudgetMode::Chars,
+            tokenizer: TokenizerKind::Cl100kBase,
+            max_tokens: default_chunking_max_tokens(),
+            overlap_tokens: default_chunking_overlap_tokens(),
+        }
+    }
+}
+
 impl Default for FileConfig {
     fn default() -> Self {
         Self {
@@ -136,10 +163,7 @@ impl Default for FileConfig {
             },
             connections: Vec::<ConnectionConfig>::new(),
             sources: Vec::<SourceConfig>::new(),
-            chunking: ChunkingConfig {
-                max_chars: 1200,
-                overlap_chars: 200,
-            },
+            chunking: ChunkingBudgetConfig::default(),
         }
     }
 }

@@ -3,6 +3,7 @@ use std::time::Instant;
 
 use crate::{
     chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk},
+    chunking::{ChunkingError, chunk_document_iter_with_budget},
     contracts::LibraryIngestFailureStage,
     domain::{DocumentChunk, LibraryFileRecord, NormalizedDocument},
 };
@@ -18,12 +19,16 @@ pub(crate) const MAX_BATCH_CHARS: usize = 64_000;
 /// that would push a non-empty batch past the character budget is carried over
 /// and starts the next batch, so a single oversized chunk still forms its own
 /// batch. Only one batch is materialized at a time.
+///
+/// A chunking failure ends the stream with that error instead of truncating the
+/// batches silently, so a token budget that cannot describe the document fails
+/// the ingest rather than storing a partial one.
 pub(crate) struct ChunkBatchIter<I> {
     chunks: I,
-    pending: Option<DocumentChunk>,
+    pending: Option<Result<DocumentChunk, ChunkingError>>,
 }
 
-impl<I: Iterator<Item = DocumentChunk>> ChunkBatchIter<I> {
+impl<I: Iterator<Item = Result<DocumentChunk, ChunkingError>>> ChunkBatchIter<I> {
     pub(crate) fn new(chunks: I) -> Self {
         Self {
             chunks,
@@ -32,8 +37,8 @@ impl<I: Iterator<Item = DocumentChunk>> ChunkBatchIter<I> {
     }
 }
 
-impl<I: Iterator<Item = DocumentChunk>> Iterator for ChunkBatchIter<I> {
-    type Item = Vec<DocumentChunk>;
+impl<I: Iterator<Item = Result<DocumentChunk, ChunkingError>>> Iterator for ChunkBatchIter<I> {
+    type Item = Result<Vec<DocumentChunk>, ChunkingError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut batch = Vec::with_capacity(MAX_BATCH_CHUNKS);
@@ -43,15 +48,19 @@ impl<I: Iterator<Item = DocumentChunk>> Iterator for ChunkBatchIter<I> {
             let Some(chunk) = next else {
                 break;
             };
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(error) => return Some(Err(error)),
+            };
             let chunk_chars = chunk.text.chars().count();
             if !batch.is_empty() && batch_chars + chunk_chars > MAX_BATCH_CHARS {
-                self.pending = Some(chunk);
+                self.pending = Some(Ok(chunk));
                 break;
             }
             batch_chars += chunk_chars;
             batch.push(chunk);
         }
-        (!batch.is_empty()).then_some(batch)
+        (!batch.is_empty()).then_some(Ok(batch))
     }
 }
 
@@ -77,17 +86,21 @@ impl LibraryService {
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
 
-        let chunks = crate::chunking::chunk_document_iter(
+        let budget = self.chunking_runtime.snapshot();
+        let chunks = chunk_document_iter_with_budget(
             document_id,
             FILE_LIBRARY_SOURCE_KEY,
             normalized,
-            &self.chunking,
+            &budget,
             None,
-        );
+        )
+        .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
         let mut chunk_count = 0;
         let mut embedding_batch_count = 0;
 
         for batch in ChunkBatchIter::new(chunks) {
+            let batch = batch
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
             let texts = batch
                 .iter()
                 .map(|chunk| chunk.text.clone())
@@ -177,13 +190,15 @@ mod tests {
     }
 
     fn batches_of(chunks: Vec<DocumentChunk>) -> Vec<Vec<DocumentChunk>> {
-        ChunkBatchIter::new(chunks.into_iter()).collect()
+        ChunkBatchIter::new(chunks.into_iter().map(Ok))
+            .collect::<Result<Vec<_>, ChunkingError>>()
+            .expect("a bounded fixture chunks cleanly")
     }
 
     #[test]
     fn empty_source_yields_no_batches() {
         assert!(
-            ChunkBatchIter::new(std::iter::empty::<DocumentChunk>())
+            ChunkBatchIter::new(std::iter::empty::<Result<DocumentChunk, ChunkingError>>())
                 .next()
                 .is_none()
         );
@@ -264,9 +279,12 @@ mod tests {
 
     #[test]
     fn batches_stream_lazily_from_an_unbounded_source() {
-        let endless = std::iter::repeat_with(|| test_chunk(0, "x".into()));
+        let endless = std::iter::repeat_with(|| Ok(test_chunk(0, "x".into())));
 
-        let batches = ChunkBatchIter::new(endless).take(3).collect::<Vec<_>>();
+        let batches = ChunkBatchIter::new(endless)
+            .take(3)
+            .collect::<Result<Vec<_>, ChunkingError>>()
+            .expect("the endless fixture chunks cleanly");
 
         assert_eq!(batches.len(), 3);
         assert!(

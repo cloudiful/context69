@@ -7,12 +7,17 @@ use std::{future::Future, pin::Pin, sync::Arc};
 
 use anyhow::Result;
 use async_trait::async_trait;
-use context69_contracts_translation::{TranslationDirective, TranslationJobResponse};
+pub use context69_contracts_translation::TranslationDirective;
+use context69_contracts_translation::TranslationJobResponse;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 pub use store::{StoredGroupTranslationSettings, TranslationStore, TranslationVersionInput};
 pub use worker::TranslationService;
+
+pub use context69_contracts_translation::{
+    TranslationChunkingBudget, TranslationChunkingMode, TranslationChunkingTokenizer,
+};
 
 #[derive(Debug, Clone)]
 pub struct TranslationChunkPublication {
@@ -78,6 +83,13 @@ pub struct TranslationPublication<'a> {
     pub title: &'a str,
     pub summary: Option<&'a str>,
     pub body_text: &'a str,
+    /// The chunk budget this publication must use.
+    ///
+    /// `Some` is an explicit snapshot pinned by the caller (a task item), and
+    /// it always wins over the live budget. `None` keeps the historical
+    /// behavior of chunking with whatever the publisher currently considers
+    /// active.
+    pub chunking: Option<&'a TranslationChunkingBudget>,
 }
 
 #[async_trait]
@@ -117,6 +129,17 @@ pub trait TranslationPublisher: Send + Sync {
     }
 
     async fn delete(&self, chunk_ids: &[Uuid]) -> Result<()>;
+
+    /// The budget this publisher considers active right now.
+    ///
+    /// An operation boundary asks for it once and passes the owned value to
+    /// every publication of that operation, so a settings save cannot change
+    /// the budget between locales. The default keeps every existing
+    /// implementor source-compatible: without an answer, the historical
+    /// per-publication resolution stays in effect.
+    fn current_chunking(&self) -> Option<TranslationChunkingBudget> {
+        None
+    }
 }
 
 /// The default [`TranslationPublisher::publish_committed`] sequence.

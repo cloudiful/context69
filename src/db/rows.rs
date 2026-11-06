@@ -214,6 +214,10 @@ pub(super) struct RuntimeSchedulerSettingsRow {
 pub(super) struct RuntimeChunkingSettingsRow {
     pub(super) max_chars: i64,
     pub(super) overlap_chars: i64,
+    pub(super) unit: String,
+    pub(super) tokenizer: String,
+    pub(super) max_tokens: i64,
+    pub(super) overlap_tokens: i64,
 }
 
 #[derive(Debug, Clone, FromRow)]

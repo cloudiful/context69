@@ -603,6 +603,12 @@
     {
       "package": "context69",
       "target": "context69",
+      "test": "services::tasks::item_processors::tests::chunking_scope::a_task_scope_carries_its_pinned_budget_into_the_library_and_translation",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "context69",
       "test": "services::tasks::item_git_index_processor::tests::failed_blob_fetch_retries_and_keeps_the_prior_generation",
       "class": "db"
     },
@@ -1065,12 +1071,6 @@
     {
       "package": "context69",
       "target": "git_file_search",
-      "test": "lexical_search_keeps_identifiers_whole_and_escapes_wildcards",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "git_file_search",
       "test": "lexical_search_serves_the_active_generation_with_provenance",
       "class": "db"
     },
@@ -1121,12 +1121,6 @@
       "target": "indexing_batch_checkpoint",
       "test": "integration::cleanup_failure_preserves_file_row_during_first_run",
       "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "keyword_search_candidates",
-      "test": "keyword_search_benchmark_baseline",
-      "class": "benchmark"
     },
     {
       "package": "context69",
@@ -1828,6 +1822,24 @@
       "package": "context69",
       "target": "settings_secret_store",
       "test": "cases_embedding_guards::a_destination_change_is_refused_while_a_rebuild_is_running",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_token_chunking_budget_survives_a_save_and_a_read",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_rejected_chunking_budget_leaves_the_stored_configuration_unchanged",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::an_inactive_token_budget_does_not_block_a_character_save",
       "class": "db"
     },
     {
@@ -3783,6 +3795,18 @@
     {
       "package": "context69",
       "target": "translation_registry",
+      "test": "registry_cases::an_explicit_operation_budget_skips_the_live_publisher_snapshot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
+      "test": "registry_cases::a_non_task_operation_snapshots_the_live_budget_once_for_all_locales",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "translation_registry",
       "test": "registry_cases::a_document_without_a_file_link_uses_the_legacy_path",
       "class": "db"
     },
@@ -4054,6 +4078,54 @@
       "package": "context69",
       "target": "docling_source_rerun",
       "test": "docling_source_rerun_cases::a_retryable_poll_failure_adopts_the_submitted_job_without_a_second_submit",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "chunking_task_snapshot",
+      "test": "a_later_activation_governs_only_new_submissions",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "chunking_task_snapshot",
+      "test": "an_idempotent_resubmission_keeps_the_original_snapshot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "indexing_batch_checkpoint",
+      "test": "integration::a_checkpoint_from_another_budget_restarts_instead_of_skipping",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_committed_save_activates_the_chunk_budget",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "ordinary_replacement",
+      "test": "ordinary_replacement_cases::a_pinned_token_snapshot_governs_the_ordinary_replacement_chunks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "atomic_first_insert",
+      "test": "atomic_first_insert_cases::a_pinned_token_snapshot_governs_the_first_insert_chunks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "replacement_runner",
+      "test": "runner_cases::a_pinned_token_budget_governs_the_replacement_chunks",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_source_rerun",
+      "test": "source_rerun_cases::a_pinned_token_snapshot_governs_the_rerun_source_chunks",
       "class": "db"
     }
   ]
