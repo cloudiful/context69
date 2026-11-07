@@ -54,8 +54,6 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
         max_request_bytes: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
       },
       input_policy: {
-        tokenizer: "cl100k_base",
-        tokenizer_sha256: null,
         max_input_tokens: null,
         document_server_prefix: "",
         query_server_prefix: "",
@@ -166,8 +164,6 @@ export function runtimeResponseToDraft(
           ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
       },
       input_policy: {
-        tokenizer: response.embedding.input_policy?.tokenizer ?? "cl100k_base",
-        tokenizer_sha256: response.embedding.input_policy?.tokenizer_sha256 ?? null,
         max_input_tokens: response.embedding.input_policy?.max_input_tokens ?? null,
         document_server_prefix:
           response.embedding.input_policy?.document_server_prefix ?? "",

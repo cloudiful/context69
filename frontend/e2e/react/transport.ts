@@ -1333,6 +1333,33 @@ export async function installAppTransport(
       return true;
     }
 
+    if (path === "/v1/settings/runtime/tokenizer-artifacts/provision" && method === "POST") {
+      const presetId = (body as { preset_id?: string } | undefined)?.preset_id ?? "";
+      const preset = saved.runtime.tokenizer_presets?.find(
+        (candidate) => candidate.id === presetId,
+      );
+      if (!preset) {
+        await route.fulfill(json(400, { code: "invalid_argument", message: "the preset is not known" }));
+        return true;
+      }
+      // The preparation activates the preset in the serving process.
+      saved.runtime = {
+        ...saved.runtime,
+        tokenizer_presets: saved.runtime.tokenizer_presets?.map((candidate) =>
+          candidate.id === preset.id ? { ...candidate, ready: true } : candidate,
+        ),
+      };
+      await route.fulfill(json(200, {
+        preset_id: preset.id,
+        sha256: preset.sha256,
+        size_bytes: preset.size_bytes,
+        status: "provisioned",
+        ready: true,
+        license: preset.license,
+      }));
+      return true;
+    }
+
     if (path === "/v1/settings/runtime/embedding/test") {
       if (options.embeddingTestFails) {
         await route.fulfill(json(502, { code: "upstream", message: "embedding refused" }));

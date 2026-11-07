@@ -150,6 +150,9 @@ export type TestLlmProviderRequest = Schemas["TestLlmProviderRequest"];
 export type TestLlmProviderResponse = Schemas["TestLlmProviderResponse"];
 export type GroupTranslationSettingsResponse = Schemas["GroupTranslationSettingsResponse"];
 export type UpdateGroupTranslationSettingsRequest = Schemas["UpdateGroupTranslationSettingsRequest"];
+export type TokenizerPresetDescriptor = Schemas["TokenizerPresetDescriptor"];
+export type TokenizerProvisionRequest = Schemas["TokenizerProvisionRequest"];
+export type TokenizerProvisionResponse = Schemas["TokenizerProvisionResponse"];
 
 export interface RequestOptions {
   signal?: AbortSignal;

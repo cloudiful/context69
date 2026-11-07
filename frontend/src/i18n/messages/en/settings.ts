@@ -159,12 +159,8 @@ export const settings = {
       "A provider limit can only tighten these values; the provider refuses a request above them.",
     embeddingBatchingAdvanced: "Advanced request limits",
     embeddingInputPolicyTitle: "Input token envelope",
-    embeddingInputTokenizer: "Input tokenizer",
     embeddingInputTokenizerHelper:
-      "Counts the provider input only; independent of the chunking tokenizer.",
-    embeddingInputArtifact: "Verified input artifact",
-    embeddingInputArtifactHelper:
-      "Read from the read-only artifact directory. Adding one requires a restart.",
+      "The input envelope is counted with the tokenizer selected in the chunking section.",
     embeddingInputLimit: "Enforce input token limit",
     embeddingInputLimitHelper:
       "Reject a document or query whose full counted input exceeds the cap.",
@@ -245,8 +241,28 @@ export const settings = {
     chunkingUnitTokens: "Tokens",
     chunkingTokenizer: "Tokenizer",
     chunkingTokenizerHelper:
-      "Token counts match the selected tokenizer only, not the embedding model.",
-    chunkingTokenizerHfLocal: "Local HF artifact",
+      "Token counts match the selected tokenizer only, not the embedding model. The input check below follows this selection.",
+    chunkingTokenizerCustom: "Mounted tokenizer file",
+    chunkingTokenizerAdvanced: "Advanced: mounted tokenizer file",
+    chunkingTokenizerPresetLicense:
+      "License {license}. This is the upstream license, not a permission for commercial use.",
+    chunkingTokenizerPresetLicenseLink: "License terms",
+    chunkingTokenizerPresetSourceLink: "Pinned source",
+    chunkingTokenizerPresetPrepare: "Prepare tokenizer",
+    chunkingTokenizerPresetRetry: "Retry preparation",
+    chunkingTokenizerPresetPending: "Preparing the tokenizer file…",
+    chunkingTokenizerPresetFailed: "The tokenizer file could not be prepared.",
+    chunkingTokenizerPresetReady: "The tokenizer file is verified and active.",
+    chunkingTokenizerPresetNotReady:
+      "The tokenizer file is not prepared yet. Preparing it downloads the pinned file into this deployment.",
+    chunkingTokenizerPresetBlocksSavePending:
+      "The selected tokenizer is still being prepared. Save once it is ready.",
+    chunkingTokenizerPresetBlocksSaveFailed:
+      "The selected tokenizer could not be prepared. Retry the preparation before saving.",
+    chunkingTokenizerPresetBlocksSaveNotPrepared:
+      "The selected tokenizer is not prepared yet. Prepare it before saving.",
+    chunkingTokenizerInputPolicyWarning:
+      "The stored input check still counts with another tokenizer. Saving aligns it with the selection here.",
     chunkingTokenizerArtifact: "Verified tokenizer artifact",
     chunkingTokenizerArtifactHelper:
       "Read from the read-only artifact directory. Adding one requires a restart.",

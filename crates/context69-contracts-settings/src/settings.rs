@@ -177,6 +177,12 @@ pub struct RuntimeSettingsResponse {
     /// The verified local tokenizer artifacts this process can select.
     #[serde(default)]
     pub tokenizer_artifacts: Vec<TokenizerArtifactDescriptor>,
+    /// The known tokenizer presets this deployment can prepare.
+    ///
+    /// A preset is a pinned upstream file, not an installed artifact: `ready`
+    /// tells whether this process already holds a verified engine for it.
+    #[serde(default)]
+    pub tokenizer_presets: Vec<TokenizerPresetDescriptor>,
     /// True when the persisted vector identity does not match the stored
     /// embedding configuration, so existing vectors must be re-embedded through
     /// an explicit rebuild. Never inferred from connectivity alone.
@@ -426,6 +432,73 @@ pub struct TokenizerArtifactDescriptor {
     pub sha256: String,
     /// The artifact size in bytes.
     pub size_bytes: u64,
+}
+
+/// One known tokenizer preset.
+///
+/// A preset describes one pinned upstream `tokenizer.json`. It is not an
+/// installed artifact: `ready` tells whether this process already holds a
+/// verified engine for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TokenizerPresetDescriptor {
+    /// The stable preset identifier a provisioning request names.
+    pub id: String,
+    /// The operator-facing label.
+    pub label: String,
+    /// The lowercase SHA256 of the pinned file bytes.
+    pub sha256: String,
+    /// The expected size of the pinned file in bytes.
+    pub size_bytes: u64,
+    /// The license identifier the upstream project publishes.
+    pub license: String,
+    /// The official license URL.
+    pub license_url: String,
+    /// The upstream repository the preset is pinned to.
+    pub source_repo: String,
+    /// The official source URL of the pinned revision.
+    pub source_url: String,
+    /// The pinned upstream revision.
+    pub revision: String,
+    /// True when this process already holds a verified engine for the preset.
+    pub ready: bool,
+}
+
+/// The outcome of one tokenizer preset provisioning request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenizerProvisionStatus {
+    /// The file was fetched, verified, and activated by this request.
+    Provisioned,
+    /// A verified file was already cached and has now been activated.
+    AlreadyPresent,
+    /// The preset was already active in this process.
+    AlreadyReady,
+}
+
+/// The request that prepares one known tokenizer preset.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TokenizerProvisionRequest {
+    /// The known preset identifier to prepare.
+    pub preset_id: String,
+}
+
+/// The outcome of preparing one known tokenizer preset.
+///
+/// The response never discloses a filesystem path or a credential.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TokenizerProvisionResponse {
+    /// The preset that was prepared.
+    pub preset_id: String,
+    /// The lowercase SHA256 of the verified file bytes.
+    pub sha256: String,
+    /// The size of the verified file in bytes.
+    pub size_bytes: u64,
+    /// What the request did.
+    pub status: TokenizerProvisionStatus,
+    /// True only when a verified engine is usable right now.
+    pub ready: bool,
+    /// The license identifier the upstream project publishes.
+    pub license: String,
 }
 
 /// Token budget of one chunk when the unit is `tokens`.

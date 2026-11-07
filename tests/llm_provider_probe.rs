@@ -21,8 +21,9 @@ use context69_contracts::settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
     SearchSettingsResponse, TestLlmProviderOutcome, TestLlmProviderRequest,
     TestLlmProviderResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
-    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
-    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    TestRuntimeValkeyRequest, TokenizerProvisionRequest, TokenizerProvisionResponse,
+    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings,
+    UpdateRuntimeSettingsRequest,
 };
 use context69_settings_http::{SettingsApi, SettingsHttpState};
 
@@ -146,6 +147,13 @@ impl SettingsApi for FakeSettingsApi {
         _request: &CanonicalUpdateSearchSettingsRequest,
     ) -> anyhow::Result<SearchSettingsResponse> {
         unreachable!("the LLM probe route must not reach update_search_settings")
+    }
+
+    async fn provision_tokenizer_preset(
+        &self,
+        _request: &TokenizerProvisionRequest,
+    ) -> anyhow::Result<TokenizerProvisionResponse> {
+        unreachable!("the LLM probe route must not reach provision_tokenizer_preset")
     }
 }
 

@@ -5,8 +5,9 @@ use crate::chunking::chunking_token::TokenizerKind;
 
 use super::types::{
     ApiConfig, AppConfig, AppDbConfig, AuthConfig, BootstrapAdminConfig, ChunkingBudgetConfig,
-    ConnectionConfig, EmbeddingConfig, FileConfig, FileLibraryConfig, McpConfig, QdrantConfig,
-    RegistryQuotaConfig, SchedulerConfig, SecretStoreConfig, SourceConfig, default_mcp_bind_addr,
+    ChunkingFileConfig, ConnectionConfig, EmbeddingConfig, FileConfig, FileLibraryConfig,
+    McpConfig, QdrantConfig, RegistryQuotaConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
+    default_mcp_bind_addr,
 };
 
 pub(super) const DEFAULT_APP_DB_URL: &str = "postgres://postgres:postgres@127.0.0.1:5432/context69";
@@ -91,6 +92,11 @@ pub(super) fn default_tokenizer_artifact_dir() -> std::path::PathBuf {
     std::path::PathBuf::from("./data/tokenizers")
 }
 
+/// The default writable directory where prepared tokenizer presets are cached.
+pub(super) fn default_tokenizer_download_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from("./data/tokenizers.cache")
+}
+
 impl Default for ChunkingBudgetConfig {
     fn default() -> Self {
         Self {
@@ -173,7 +179,7 @@ impl Default for FileConfig {
             },
             connections: Vec::<ConnectionConfig>::new(),
             sources: Vec::<SourceConfig>::new(),
-            chunking: ChunkingBudgetConfig::default(),
+            chunking: ChunkingFileConfig::default(),
         }
     }
 }

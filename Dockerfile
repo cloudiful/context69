@@ -19,6 +19,11 @@ ENV RUST_LOG=context69=info,sqlx=warn
 ENV CONTEXT69_API_BIND_ADDR=127.0.0.1:8096
 ENV CONTEXT69_MCP_BIND_ADDR=0.0.0.0:8097
 ENV CONTEXT69_CHUNKING__TOKENIZER_ARTIFACT_DIR=/var/lib/context69/tokenizers
+# Writable cache of prepared pinned tokenizer presets. Mount this path
+# persistently so a prepared preset survives a restart and stays usable
+# offline; it is never the read-only artifact directory.
+ENV CONTEXT69_CHUNKING__TOKENIZER_DOWNLOAD_DIR=/var/lib/context69/tokenizers.cache
+RUN mkdir -p /var/lib/context69/tokenizers.cache
 
 EXPOSE 80 8097
 

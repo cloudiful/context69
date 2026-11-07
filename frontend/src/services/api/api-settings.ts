@@ -17,6 +17,8 @@ import type {
   DoclingCleanupPageResponse,
   DoclingCleanupStatus,
   VectorIndexRebuildStatus,
+  TokenizerProvisionRequest,
+  TokenizerProvisionResponse,
 } from "./api-types";
 
 type TestRuntimeEmbeddingRequest = components["schemas"]["TestRuntimeEmbeddingRequest"];
@@ -210,6 +212,14 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
           signal: options?.signal,
         }),
       ) as Promise<TestLlmProviderResponse>;
+    },
+    provisionTokenizerPreset(payload: TokenizerProvisionRequest, options?: RequestOptions) {
+      return unwrapResponse(
+        openapiClient.POST("/v1/settings/runtime/tokenizer-artifacts/provision", {
+          body: payload,
+          signal: options?.signal,
+        }),
+      ) as Promise<TokenizerProvisionResponse>;
     },
   };
 }

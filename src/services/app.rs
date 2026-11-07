@@ -330,9 +330,11 @@ async fn build_upgrade_recovery_services(
     SyncService,
     crate::chunking::ChunkingRuntime,
 )> {
-    let catalog = crate::chunking::chunking_token_artifact::TokenizerCatalog::ensure_installed(
-        &config.chunking.tokenizer_artifact_dir,
-    )?;
+    let catalog =
+        crate::chunking::chunking_token_artifact::TokenizerCatalog::ensure_installed_with_presets(
+            &config.chunking.tokenizer_artifact_dir,
+            &config.tokenizer_download_dir,
+        )?;
     let chunking =
         crate::chunking::ChunkingRuntime::with_catalog(config.chunking.chunk_budget(), catalog);
     let translation = TranslationService::new(context69_translation::TranslationDependencies {

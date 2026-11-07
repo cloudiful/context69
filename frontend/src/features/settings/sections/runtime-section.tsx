@@ -22,6 +22,42 @@ export function RuntimeSection() {
   const { page, vector } = useSettings();
   const { runtimeDraft, updateRuntimeDraft, updateQdrantUrl } = page;
   const tokenizerArtifacts = page.runtimeQuery.data?.tokenizer_artifacts ?? [];
+  const tokenizerPresets = page.runtimeQuery.data?.tokenizer_presets ?? [];
+
+  const chunking = runtimeDraft.chunking;
+  // A known preset is selected by its pinned hash; every other local hash is
+  // an operator-mounted artifact of its own.
+  const selectedPreset = chunking.tokenizer === "hf_local"
+    ? tokenizerPresets.find((preset) => preset.sha256 === chunking.tokenizer_sha256)
+    : undefined;
+  const customSelection = chunking.tokenizer === "hf_local" && !selectedPreset;
+  const tokenizerValue = selectedPreset
+    ? `preset:${selectedPreset.id}`
+    : customSelection
+      ? "custom"
+      : chunking.tokenizer;
+
+  function selectTokenizer(value: string) {
+    const preset = tokenizerPresets.find((candidate) => `preset:${candidate.id}` === value);
+    updateRuntimeDraft((draft) => {
+      if (preset) {
+        draft.chunking.tokenizer = "hf_local";
+        draft.chunking.tokenizer_sha256 = preset.sha256;
+        return;
+      }
+      if (value === "custom") {
+        draft.chunking.tokenizer = "hf_local";
+        return;
+      }
+      draft.chunking.tokenizer = value as DraftChunkingTokenizer;
+      // A built-in tokenizer counts without special tokens and pins no file.
+      draft.chunking.tokenizer_sha256 = null;
+      draft.embedding.input_policy.add_special_tokens = false;
+    });
+    if (preset) {
+      void page.prepareTokenizerPreset(preset);
+    }
+  }
 
   return (
     <SettingsSection title={t("settings.runtime.title")}>
@@ -181,6 +217,170 @@ export function RuntimeSection() {
               </Select>
             </FormField>
 
+            {/*
+              The one editable tokenizer. It measures the token budget and
+              governs the input check, so the two never disagree.
+            */}
+            <FormField
+              label={t("settings.runtime.chunkingTokenizer")}
+              htmlFor="runtime-chunking-tokenizer"
+              helper={t("settings.runtime.chunkingTokenizerHelper")}
+            >
+              <Select value={tokenizerValue} onValueChange={selectTokenizer}>
+                <SelectTrigger
+                  id="runtime-chunking-tokenizer"
+                  aria-label={t("settings.runtime.chunkingTokenizer")}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="cl100k_base">cl100k_base</SelectItem>
+                  <SelectItem value="o200k_base">o200k_base</SelectItem>
+                  {tokenizerPresets.map((preset) => (
+                    <SelectItem key={preset.id} value={`preset:${preset.id}`}>
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                  {customSelection ? (
+                    <SelectItem value="custom">
+                      {t("settings.runtime.chunkingTokenizerCustom")}
+                    </SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            </FormField>
+
+            {/*
+              A deployment that stored an input envelope of its own is told
+              once that the next save aligns it with the lower selection.
+            */}
+            {!page.inputPolicyAligned ? (
+              <p
+                role="status"
+                data-testid="runtime-chunking-input-policy-warning"
+                className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+              >
+                {t("settings.runtime.chunkingTokenizerInputPolicyWarning")}
+              </p>
+            ) : null}
+
+            {tokenizerPresets.map((preset) => {
+              const selected = selectedPreset?.id === preset.id;
+              const state = page.tokenizerPreparationFor(preset.id);
+              const status = state?.status ?? (preset.ready ? "ready" : "idle");
+              return (
+                <div
+                  key={preset.id}
+                  data-testid={`runtime-tokenizer-preset-${preset.id}`}
+                  className="grid gap-1 rounded-md border border-border/60 p-3 text-xs"
+                >
+                  <p className="text-sm font-medium">{preset.label}</p>
+                  <p className="text-muted-foreground">
+                    {t("settings.runtime.chunkingTokenizerPresetLicense", {
+                      license: preset.license,
+                    })}
+                  </p>
+                  <p className="flex flex-wrap gap-3">
+                    <a
+                      className="underline"
+                      href={preset.license_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t("settings.runtime.chunkingTokenizerPresetLicenseLink")}
+                    </a>
+                    <a
+                      className="underline"
+                      href={preset.source_url}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {t("settings.runtime.chunkingTokenizerPresetSourceLink")}
+                    </a>
+                  </p>
+                  {selected ? (
+                    <p
+                      data-testid={`runtime-tokenizer-preset-status-${preset.id}`}
+                      className="text-muted-foreground"
+                    >
+                      {status === "pending"
+                        ? t("settings.runtime.chunkingTokenizerPresetPending")
+                        : status === "error"
+                          ? `${t("settings.runtime.chunkingTokenizerPresetFailed")}${
+                            state?.message ? ` ${state.message}` : ""
+                          }`
+                          : status === "ready"
+                            ? t("settings.runtime.chunkingTokenizerPresetReady")
+                            : t("settings.runtime.chunkingTokenizerPresetNotReady")}
+                    </p>
+                  ) : null}
+                  {selected && (status === "idle" || status === "error") ? (
+                    <div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        data-testid={`runtime-tokenizer-preset-prepare-${preset.id}`}
+                        onClick={() => void page.prepareTokenizerPreset(preset)}
+                      >
+                        {status === "error"
+                          ? t("settings.runtime.chunkingTokenizerPresetRetry")
+                          : t("settings.runtime.chunkingTokenizerPresetPrepare")}
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              );
+            })}
+
+            {/*
+              The manual path stays available: an operator mounts a verified
+              tokenizer file and selects it here.
+            */}
+            <details className="rounded-md border border-border/60 p-2">
+              <summary className="cursor-pointer text-sm">
+                {t("settings.runtime.chunkingTokenizerAdvanced")}
+              </summary>
+              <div className="mt-3 grid gap-3">
+                {tokenizerArtifacts.length > 0 ? (
+                  <FormField
+                    label={t("settings.runtime.chunkingTokenizerArtifact")}
+                    htmlFor="runtime-chunking-artifact"
+                    helper={t("settings.runtime.chunkingTokenizerArtifactHelper")}
+                  >
+                    <Select
+                      value={customSelection ? (chunking.tokenizer_sha256 ?? undefined) : undefined}
+                      onValueChange={(value) => updateRuntimeDraft((draft) => {
+                        draft.chunking.tokenizer = "hf_local";
+                        draft.chunking.tokenizer_sha256 = value;
+                      })}
+                    >
+                      <SelectTrigger
+                        id="runtime-chunking-artifact"
+                        aria-label={t("settings.runtime.chunkingTokenizerArtifact")}
+                      >
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {tokenizerArtifacts.map((artifact) => (
+                          <SelectItem key={artifact.sha256} value={artifact.sha256}>
+                            {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </FormField>
+                ) : (
+                  <p
+                    data-testid="runtime-chunking-artifact-empty"
+                    className="text-xs text-muted-foreground"
+                  >
+                    {t("settings.runtime.chunkingTokenizerArtifactEmpty")}
+                  </p>
+                )}
+              </div>
+            </details>
+
             {runtimeDraft.chunking.unit === "chars" ? (
               <>
                 <NumberField
@@ -204,69 +404,6 @@ export function RuntimeSection() {
               </>
             ) : (
               <>
-                <FormField
-                  label={t("settings.runtime.chunkingTokenizer")}
-                  htmlFor="runtime-chunking-tokenizer"
-                  helper={t("settings.runtime.chunkingTokenizerHelper")}
-                >
-                  <Select
-                    value={runtimeDraft.chunking.tokenizer}
-                    onValueChange={(value) => updateRuntimeDraft((draft) => {
-                      draft.chunking.tokenizer = value as DraftChunkingTokenizer;
-                    })}
-                  >
-                    <SelectTrigger
-                      id="runtime-chunking-tokenizer"
-                      aria-label={t("settings.runtime.chunkingTokenizer")}
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="cl100k_base">cl100k_base</SelectItem>
-                      <SelectItem value="o200k_base">o200k_base</SelectItem>
-                      <SelectItem value="hf_local">
-                        {t("settings.runtime.chunkingTokenizerHfLocal")}
-                      </SelectItem>
-                    </SelectContent>
-                  </Select>
-                </FormField>
-                {runtimeDraft.chunking.tokenizer === "hf_local" ? (
-                  tokenizerArtifacts.length > 0 ? (
-                    <FormField
-                      label={t("settings.runtime.chunkingTokenizerArtifact")}
-                      htmlFor="runtime-chunking-artifact"
-                      helper={t("settings.runtime.chunkingTokenizerArtifactHelper")}
-                    >
-                      <Select
-                        value={runtimeDraft.chunking.tokenizer_sha256 ?? undefined}
-                        onValueChange={(value) => updateRuntimeDraft((draft) => {
-                          draft.chunking.tokenizer_sha256 = value;
-                        })}
-                      >
-                        <SelectTrigger
-                          id="runtime-chunking-artifact"
-                          aria-label={t("settings.runtime.chunkingTokenizerArtifact")}
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {tokenizerArtifacts.map((artifact) => (
-                            <SelectItem key={artifact.sha256} value={artifact.sha256}>
-                              {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormField>
-                  ) : (
-                    <p
-                      data-testid="runtime-chunking-artifact-empty"
-                      className="text-xs text-muted-foreground"
-                    >
-                      {t("settings.runtime.chunkingTokenizerArtifactEmpty")}
-                    </p>
-                  )
-                ) : null}
                 <NumberField
                   id="runtime-chunking-max-tokens"
                   label={t("settings.runtime.chunkingMaxTokens")}

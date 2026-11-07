@@ -35,6 +35,14 @@ function SettingsLayoutContent() {
     page.hasChanges && currentLocation.pathname !== nextLocation.pathname
   ));
 
+  // A selected tokenizer preset that this process has not prepared blocks the
+  // save: the deployment would chunk with a tokenizer it cannot use yet. The
+  // runtime section shows the preparation state and its retry action.
+  const selectedPreset = page.selectedTokenizerPreset;
+  const tokenizerNotReady = selectedPreset !== undefined
+    && !selectedPreset.ready
+    && page.tokenizerPreparationFor(selectedPreset.id)?.status !== "ready";
+
   useEffect(() => {
     if (blocker.state === "blocked") {
       setLeaveOpen(true);
@@ -112,7 +120,7 @@ function SettingsLayoutContent() {
           type="button"
           data-testid="settings-save"
           className="min-w-28"
-          disabled={page.saving || !page.hasChanges}
+          disabled={page.saving || !page.hasChanges || tokenizerNotReady}
           aria-busy={page.saving}
           onClick={() => void page.saveSettings()}
         >

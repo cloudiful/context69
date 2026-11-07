@@ -99,10 +99,11 @@ pub use context69_contracts_settings::settings::{
     RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeS3SettingsResponse,
     RuntimeSchedulerSettings, RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch,
     TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
-    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
-    UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings,
-    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
-    VectorIndexRebuildState, VectorIndexRebuildStatus,
+    TestRuntimeValkeyRequest, TokenizerPresetDescriptor, TokenizerProvisionRequest,
+    TokenizerProvisionResponse, TokenizerProvisionStatus, UpdateDoclingConnectionSettings,
+    UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings, UpdateRuntimeEmbeddingSettings,
+    UpdateRuntimeFileLibrarySettings, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    UpdateSearchSettingsRequest, VectorIndexRebuildState, VectorIndexRebuildStatus,
 };
 pub use context69_contracts_sources::sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,

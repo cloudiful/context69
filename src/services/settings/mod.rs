@@ -28,6 +28,7 @@ mod mappers;
 pub mod qdrant_probe;
 mod runtime_mappers;
 pub(crate) mod secrets;
+pub mod tokenizer_provisioning;
 mod validate;
 
 pub(crate) use runtime_mappers::stored_chunk_budget;
@@ -49,8 +50,9 @@ use self::{
 use crate::{
     contracts::{
         CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, DoclingSettingsSource,
-        RuntimeSettingsResponse, SearchSettingsResponse, UpdateDoclingSettingsRequest,
-        UpdateRuntimeEmbeddingSettings, UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+        RuntimeSettingsResponse, SearchSettingsResponse, TokenizerProvisionRequest,
+        TokenizerProvisionResponse, UpdateDoclingSettingsRequest, UpdateRuntimeEmbeddingSettings,
+        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::{Database, default_search_settings},
     docling::DoclingConfig,
@@ -390,6 +392,21 @@ impl SettingsService {
             has_s3_secret_key,
             requires_rebuild,
         ))
+    }
+
+    /// Prepares one known tokenizer preset.
+    ///
+    /// The action is bounded and explicit: it retrieves the one pinned file of
+    /// a known preset, verifies it, and activates it in this process. It
+    /// writes no setting and no secret, so a failed preparation leaves the
+    /// persisted configuration exactly as it was.
+    pub async fn provision_tokenizer_preset(
+        &self,
+        request: &TokenizerProvisionRequest,
+    ) -> Result<TokenizerProvisionResponse> {
+        tokenizer_provisioning::TokenizerProvisioning::for_process()?
+            .provision(request)
+            .await
     }
 
     pub async fn trusted_proxy_enabled(&self) -> Result<bool> {

@@ -56,6 +56,8 @@ export interface FakeBackendOptions {
     translationPut?: boolean;
     testEmbedding?: boolean;
     cleanupList?: boolean;
+    /** The number of preparations that fail before one succeeds. */
+    tokenizerProvisionFails?: number;
   };
 }
 
@@ -80,6 +82,14 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     has_api_key: true,
     model: "embed-1",
     timeout_secs: 30,
+    input_policy: {
+      tokenizer: "cl100k_base",
+      tokenizer_sha256: null,
+      max_input_tokens: null,
+      document_server_prefix: "",
+      query_server_prefix: "",
+      add_special_tokens: false,
+    },
   },
   scheduler: {
     interval_secs: 300,
@@ -101,6 +111,21 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     {
       sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       size_bytes: 1024,
+    },
+  ],
+  tokenizer_presets: [
+    {
+      id: "jina_v5_small_retrieval_r6856e76",
+      label: "Jina embeddings v5 text small retrieval",
+      sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      size_bytes: 11422654,
+      license: "cc-by-nc-4.0",
+      license_url: "https://creativecommons.org/licenses/by-nc/4.0/",
+      source_repo: "jinaai/jina-embeddings-v5-text-small-retrieval",
+      source_url:
+        "https://huggingface.co/jinaai/jina-embeddings-v5-text-small-retrieval/blob/6856e76bb72982e58de0620458a4e8b3614da340",
+      revision: "6856e76bb72982e58de0620458a4e8b3614da340",
+      ready: false,
     },
   ],
   requires_rebuild: false,
@@ -413,6 +438,7 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             timeout_secs: number;
             api_key?: string;
             confirm_vector_space_unchanged?: boolean;
+            input_policy?: RuntimeSettingsResponse["embedding"]["input_policy"];
           };
           scheduler: RuntimeSettingsResponse["scheduler"];
           chunking: RuntimeSettingsResponse["chunking"];
@@ -443,6 +469,10 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             dimensions: payload.embedding.dimensions,
             timeout_secs: payload.embedding.timeout_secs,
             has_api_key: !!payload.embedding.api_key || state.runtime.embedding.has_api_key,
+            // The saved request aligns the input envelope with the selected
+            // tokenizer.
+            input_policy: payload.embedding.input_policy
+              ?? state.runtime.embedding.input_policy,
           },
           scheduler: {
             interval_secs: payload.scheduler.interval_secs,
@@ -452,6 +482,10 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             valkey_url: payload.scheduler.valkey_url ?? null,
           },
           chunking: payload.chunking,
+          // The verified artifacts and the known presets belong to the
+          // serving process, not to the saved settings.
+          tokenizer_artifacts: state.runtime.tokenizer_artifacts,
+          tokenizer_presets: state.runtime.tokenizer_presets,
           // Only an explicit same-space acknowledgement clears a pending
           // rebuild; an ordinary save never does.
           requires_rebuild: payload.embedding.confirm_vector_space_unchanged
@@ -624,6 +658,36 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
 
     if (path.endsWith("/embedding/test") && fail.testEmbedding) {
       return failure(502, "embedding refused");
+    }
+
+    if (path === "/v1/settings/runtime/tokenizer-artifacts/provision" && method === "POST") {
+      if ((fail.tokenizerProvisionFails ?? 0) > 0) {
+        fail.tokenizerProvisionFails = (fail.tokenizerProvisionFails ?? 0) - 1;
+        return failure(502, "tokenizer preparation refused");
+      }
+      const presetId = (body as { preset_id?: string } | undefined)?.preset_id ?? "";
+      const preset = state.runtime.tokenizer_presets?.find(
+        (candidate) => candidate.id === presetId,
+      );
+      if (!preset) {
+        return failure(400, "the tokenizer preset is not known");
+      }
+      // The preparation activates the preset in the serving process, so the
+      // next response reports it as ready.
+      state.runtime = {
+        ...state.runtime,
+        tokenizer_presets: state.runtime.tokenizer_presets?.map((candidate) =>
+          candidate.id === preset.id ? { ...candidate, ready: true } : candidate,
+        ),
+      };
+      return ok({
+        preset_id: preset.id,
+        sha256: preset.sha256,
+        size_bytes: preset.size_bytes,
+        status: "provisioned",
+        ready: true,
+        license: preset.license,
+      });
     }
 
     if (path === "/v1/settings/runtime/vector-index/rebuild") {

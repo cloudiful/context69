@@ -1,11 +1,9 @@
 import { useTranslation } from "react-i18next";
 
-import { FormField } from "@/components/common/form-field";
 import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
 import { ToggleField } from "@/components/common/toggle-field";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettings } from "@/features/settings/settings-context";
 
 import { TestConnectionButton } from "./test-connection-button";
@@ -23,7 +21,9 @@ export function EmbeddingBlock() {
   const { runtimeDraft, updateRuntimeDraft } = page;
   const batching = runtimeDraft.embedding.batching;
   const inputPolicy = runtimeDraft.embedding.input_policy;
-  const tokenizerArtifacts = page.runtimeQuery.data?.tokenizer_artifacts ?? [];
+  // The tokenizer is owned by the lower chunking selector, so the input
+  // envelope follows it instead of naming one of its own.
+  const countsLocalArtifact = runtimeDraft.chunking.tokenizer === "hf_local";
   const maxInputEnabled = inputPolicy.max_input_tokens != null;
 
   return (
@@ -101,74 +101,9 @@ export function EmbeddingBlock() {
 
         <div className="grid gap-3 rounded-md border border-border/60 p-3">
           <p className="text-sm font-medium">{t("settings.runtime.embeddingInputPolicyTitle")}</p>
-          <FormField
-            label={t("settings.runtime.embeddingInputTokenizer")}
-            htmlFor="runtime-embedding-input-tokenizer"
-            helper={t("settings.runtime.embeddingInputTokenizerHelper")}
-          >
-            <Select
-              value={inputPolicy.tokenizer}
-              onValueChange={(value) => updateRuntimeDraft((draft) => {
-                draft.embedding.input_policy.tokenizer =
-                  value as typeof draft.embedding.input_policy.tokenizer;
-                if (value !== "hf_local") {
-                  draft.embedding.input_policy.tokenizer_sha256 = null;
-                  draft.embedding.input_policy.add_special_tokens = false;
-                }
-              })}
-            >
-              <SelectTrigger
-                id="runtime-embedding-input-tokenizer"
-                aria-label={t("settings.runtime.embeddingInputTokenizer")}
-              >
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="cl100k_base">cl100k_base</SelectItem>
-                <SelectItem value="o200k_base">o200k_base</SelectItem>
-                <SelectItem value="hf_local">
-                  {t("settings.runtime.chunkingTokenizerHfLocal")}
-                </SelectItem>
-              </SelectContent>
-            </Select>
-          </FormField>
-          {inputPolicy.tokenizer === "hf_local" ? (
-            tokenizerArtifacts.length > 0 ? (
-              <FormField
-                label={t("settings.runtime.embeddingInputArtifact")}
-                htmlFor="runtime-embedding-input-artifact"
-                helper={t("settings.runtime.embeddingInputArtifactHelper")}
-              >
-                <Select
-                  value={inputPolicy.tokenizer_sha256 ?? undefined}
-                  onValueChange={(value) => updateRuntimeDraft((draft) => {
-                    draft.embedding.input_policy.tokenizer_sha256 = value;
-                  })}
-                >
-                  <SelectTrigger
-                    id="runtime-embedding-input-artifact"
-                    aria-label={t("settings.runtime.embeddingInputArtifact")}
-                  >
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {tokenizerArtifacts.map((artifact) => (
-                      <SelectItem key={artifact.sha256} value={artifact.sha256}>
-                        {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </FormField>
-            ) : (
-              <p
-                data-testid="runtime-embedding-input-artifact-empty"
-                className="text-xs text-muted-foreground"
-              >
-                {t("settings.runtime.chunkingTokenizerArtifactEmpty")}
-              </p>
-            )
-          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {t("settings.runtime.embeddingInputTokenizerHelper")}
+          </p>
           <ToggleField
             id="runtime-embedding-input-limit"
             testId="runtime-embedding-input-limit"
@@ -208,7 +143,7 @@ export function EmbeddingBlock() {
               draft.embedding.input_policy.query_server_prefix = value;
             })}
           />
-          {inputPolicy.tokenizer === "hf_local" ? (
+          {countsLocalArtifact ? (
             <ToggleField
               id="runtime-embedding-input-special"
               testId="runtime-embedding-input-special"

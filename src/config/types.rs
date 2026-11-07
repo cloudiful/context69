@@ -14,13 +14,41 @@ use super::{
         default_registry_max_ids_per_file, default_registry_max_ids_per_run,
         default_registry_max_ids_total, default_scheduler_execution_guard_renew_interval,
         default_scheduler_execution_guard_ttl, default_secret_store_key_version,
-        default_session_idle_ttl, default_url_import_concurrency,
+        default_session_idle_ttl, default_tokenizer_download_dir, default_url_import_concurrency,
         default_url_import_min_interval_ms,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
     validate::validate_embedding_config,
 };
+
+/// The chunking section of the file configuration.
+///
+/// The runtime budget and the writable preset cache directory live together
+/// here, because the cache directory is a deployment path next to the budget
+/// that consumes the cached files. The runtime configuration keeps only the
+/// budget, so a persisted runtime-settings reload never rewrites the cache
+/// path an operator configured.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub(super) struct ChunkingFileConfig {
+    #[serde(flatten)]
+    pub budget: ChunkingBudgetConfig,
+    /// Writable directory where prepared tokenizer presets are cached.
+    ///
+    /// It is separate from the read-only artifact directory: this one is
+    /// written by the process when an operator prepares a preset.
+    pub tokenizer_download_dir: PathBuf,
+}
+
+impl Default for ChunkingFileConfig {
+    fn default() -> Self {
+        Self {
+            budget: ChunkingBudgetConfig::default(),
+            tokenizer_download_dir: default_tokenizer_download_dir(),
+        }
+    }
+}
 
 /// Chunking budget of a deployment.
 ///
@@ -117,6 +145,11 @@ pub struct Config {
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
     pub chunking: ChunkingBudgetConfig,
+    /// The writable directory where prepared tokenizer presets are cached.
+    ///
+    /// It is a deployment path, not a runtime setting: a persisted
+    /// runtime-settings reload never rewrites it.
+    pub tokenizer_download_dir: PathBuf,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -417,7 +450,7 @@ pub(super) struct FileConfig {
     pub secret_store: SecretStoreConfig,
     pub connections: Vec<ConnectionConfig>,
     pub sources: Vec<SourceConfig>,
-    pub chunking: ChunkingBudgetConfig,
+    pub chunking: ChunkingFileConfig,
 }
 
 impl Config {
@@ -463,7 +496,8 @@ impl TryFrom<FileConfig> for Config {
                 .into_iter()
                 .map(normalize_source_config)
                 .collect::<Result<Vec<_>>>()?,
-            chunking: file_config.chunking,
+            chunking: file_config.chunking.budget,
+            tokenizer_download_dir: file_config.chunking.tokenizer_download_dir,
         })
     }
 }

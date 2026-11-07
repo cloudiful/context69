@@ -21,6 +21,8 @@ pub mod services;
 pub mod source_store;
 pub mod sources;
 pub mod support;
+pub mod tokenizer_artifact_download;
+pub mod tokenizer_presets;
 pub mod vector_runtime;
 
 pub use context69_contracts as contracts;

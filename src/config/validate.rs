@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::types::{
-    AppConfig, AuthConfig, ChunkingBudgetConfig, ConnectionConfig, EmbeddingConfig,
+    AppConfig, AuthConfig, ChunkingFileConfig, ConnectionConfig, EmbeddingConfig,
     FileLibraryConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
 };
 
@@ -94,7 +94,7 @@ pub(super) fn validate_docling_config(config: Option<&DoclingConfig>) -> Result<
 
 pub(super) fn validate_storage_config(
     file_library: &FileLibraryConfig,
-    chunking: &ChunkingBudgetConfig,
+    chunking: &ChunkingFileConfig,
 ) -> Result<()> {
     if file_library.max_upload_size_mb == 0 {
         return Err(anyhow!(
@@ -126,26 +126,34 @@ pub(super) fn validate_storage_config(
             "file_library.url_import_min_interval_ms must be greater than 0"
         ));
     }
-    if chunking.overlap_chars >= chunking.max_chars {
+    if chunking.budget.overlap_chars >= chunking.budget.max_chars {
         return Err(anyhow!(
             "chunking.overlap_chars must be smaller than chunking.max_chars"
         ));
     }
-    if let Some(sha256) = &chunking.tokenizer_sha256
+    if let Some(sha256) = &chunking.budget.tokenizer_sha256
         && !crate::chunking::chunking_token_artifact::is_lower_sha256(sha256)
     {
         return Err(anyhow!(
             "chunking.tokenizer_sha256 must be a lowercase 64-hex artifact hash"
         ));
     }
-    if chunking.tokenizer_artifact_dir.as_os_str().is_empty() {
+    if chunking
+        .budget
+        .tokenizer_artifact_dir
+        .as_os_str()
+        .is_empty()
+    {
         return Err(anyhow!("chunking.tokenizer_artifact_dir must not be empty"));
     }
-    if chunking.unit == ChunkBudgetMode::Tokens {
-        if chunking.max_tokens == 0 {
+    if chunking.tokenizer_download_dir.as_os_str().is_empty() {
+        return Err(anyhow!("chunking.tokenizer_download_dir must not be empty"));
+    }
+    if chunking.budget.unit == ChunkBudgetMode::Tokens {
+        if chunking.budget.max_tokens == 0 {
             return Err(anyhow!("chunking.max_tokens must be greater than 0"));
         }
-        if chunking.overlap_tokens >= chunking.max_tokens {
+        if chunking.budget.overlap_tokens >= chunking.budget.max_tokens {
             return Err(anyhow!(
                 "chunking.overlap_tokens must be smaller than chunking.max_tokens"
             ));
