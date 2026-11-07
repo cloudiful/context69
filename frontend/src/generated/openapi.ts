@@ -1383,32 +1383,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/v1/settings/runtime/embedding/capabilities": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * A non-persisting capability request against the submitted embedding
-         *     provider.
-         * @description It reports what the provider advertises about itself - its model, its
-         *     aliases, its dimensions, and the request limits it accepts - and which
-         *     limits are in effect. A provider that publishes no capability document is
-         *     reported as `unknown` with the manual limits, so the caller always learns
-         *     the limits that apply. The response never carries a credential, a remote
-         *     prompt, or a raw provider body.
-         */
-        post: operations["embedding_capabilities"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/v1/settings/runtime/embedding/test": {
         parameters: {
             query?: never;
@@ -1874,6 +1848,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/{task_id}/pause": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["pause_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/{task_id}/rerun": {
         parameters: {
             query?: never;
@@ -1900,6 +1890,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["restore_task"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/{task_id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["resume_task"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2137,7 +2143,7 @@ export interface components {
          *     never a count of another model's tokens.
          * @enum {string}
          */
-        ChunkingTokenizer: "cl100k_base" | "o200k_base";
+        ChunkingTokenizer: "cl100k_base" | "o200k_base" | "hf_local";
         /**
          * @description Unit the chunking budget is measured in.
          * @enum {string}
@@ -2558,82 +2564,49 @@ export interface components {
             max_request_chars: number;
         };
         /**
-         * @description The provider facts one same-origin capability request reported.
+         * @description The exact input-token envelope and server-added prefixes of one provider.
          *
-         *     Everything but the source is optional: a provider that does not advertise a
-         *     field simply leaves it unknown, and an unknown field never constrains the
-         *     manual limits. No remote prompt text, credential, or raw response body is
-         *     ever part of this projection.
+         *     `max_input_tokens = None` disables the guard while keeping the policy
+         *     serialized and versioned. The prefixes are counted only; they are never
+         *     sent to the provider, trimmed, normalized or separated from the input.
          */
-        EmbeddingCapabilitiesResponse: {
-            /** @description The maximum number of inputs the provider accepts in one request. */
-            advertised_max_inputs_per_request?: number | null;
-            /** @description The model the provider advertises. */
-            advertised_model?: string | null;
+        EmbeddingInputPolicy: {
             /**
-             * Format: int64
-             * @description The per-input token limit the provider advertises. The provider enforces
-             *     it, so it is never a locally computed token count.
+             * @description Whether the tokenizer adds its special tokens when it counts.
+             * @default false
              */
-            advertised_tokens_per_input_limit?: number | null;
+            add_special_tokens: boolean;
             /**
-             * @description The origin the capability request was derived from. It never carries a
-             *     credential.
+             * @description Text the provider prepends to every document input before tokenizing.
+             * @default
              */
-            base_url: string;
-            /** @description The model documents are embedded with. */
-            document_model: string;
+            document_server_prefix: string;
             /**
-             * @description The limits in effect: the manual ones, tightened by what the provider
-             *     advertises.
+             * @description The full input-token cap. `None` disables the guard.
+             * @default null
              */
-            effective_limits: components["schemas"]["EmbeddingBatchingSettings"];
+            max_input_tokens: number | null;
             /**
-             * Format: int64
-             * @description The provider's own execution batch size. It is server-side execution
-             *     metadata, never a client-side request limit.
+             * @description Text the provider prepends to every query input before tokenizing.
+             * @default
              */
-            internal_batch_size?: number | null;
-            /** @description The limits this deployment configures. */
-            manual_limits: components["schemas"]["EmbeddingBatchingSettings"];
+            query_server_prefix: string;
+            /** @default cl100k_base */
+            tokenizer: components["schemas"]["EmbeddingTokenizer"];
             /**
-             * Format: int64
-             * @description The concurrency the provider advertises.
+             * @description The pinned local artifact hash. Present exactly for `hf_local`.
+             * @default null
              */
-            max_concurrent_encodes?: number | null;
-            /**
-             * @description The model queries are embedded with: the configured alias, or the
-             *     document model.
-             */
-            query_model: string;
-            /** @description Why the advertised facts are unavailable, in operator-facing words. */
-            reason?: string | null;
-            /** @description The aliases the provider advertises, as alias name to role. */
-            role_aliases?: {
-                [key: string]: string;
-            } | null;
-            /** @description Where the advertised facts come from. */
-            source: components["schemas"]["EmbeddingCapabilitiesSource"];
-            /** @description The dimensions the provider advertises. */
-            supported_dimensions?: number[] | null;
-            /**
-             * @description Whether the advertised token limit is enforced by the provider itself.
-             *     It always is: no local tokenizer reproduces it.
-             */
-            token_limit_enforced_by_server?: boolean;
-            /** @description Whether the advertised token limit counts the role prefix. */
-            tokens_include_role_prefix?: boolean | null;
-            /** @description Whether the advertised token limit counts special tokens. */
-            tokens_include_special_tokens?: boolean | null;
+            tokenizer_sha256: string | null;
         };
         /**
-         * @description Where the advertised embedding facts come from.
+         * @description Tokenizer that measures the embedding input envelope.
          *
-         *     `discovered` means the provider answered a same-origin capability request;
-         *     `unknown` means it did not, so only the manual limits apply.
+         *     It is separate from the chunking tokenizer: an operator may chunk with one
+         *     vocabulary and count the provider input with another.
          * @enum {string}
          */
-        EmbeddingCapabilitiesSource: "discovered" | "unknown";
+        EmbeddingTokenizer: "cl100k_base" | "o200k_base" | "hf_local";
         EnsureScopeResponse: {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
@@ -3993,6 +3966,8 @@ export interface components {
             overlap_tokens?: number;
             /** @description Tokenizer that measures the token budget. */
             tokenizer?: components["schemas"]["ChunkingTokenizer"];
+            /** @description The pinned local artifact hash. Required for `hf_local`, absent otherwise. */
+            tokenizer_sha256?: string | null;
             /** @description Unit the budget is measured in. */
             unit?: components["schemas"]["ChunkingUnit"];
         };
@@ -4002,6 +3977,8 @@ export interface components {
             batching?: components["schemas"]["EmbeddingBatchingSettings"];
             dimensions: number;
             has_api_key: boolean;
+            /** @description The explicit input-token envelope and server-added prefixes. */
+            input_policy?: components["schemas"]["EmbeddingInputPolicy"];
             /** @description The model documents are embedded with. */
             model: string;
             /** @description The model queries are embedded with. Absent means the document model. */
@@ -4069,6 +4046,8 @@ export interface components {
              */
             requires_rebuild: boolean;
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
+            /** @description The verified local tokenizer artifacts this process can select. */
+            tokenizer_artifacts?: components["schemas"]["TokenizerArtifactDescriptor"][];
         };
         ScopeMetadataIndex: components["schemas"]["CreateMetadataIndexRequest"] & {
             source_key: string;
@@ -4720,6 +4699,15 @@ export interface components {
             items: components["schemas"]["TaskResponse"][];
             pagination: components["schemas"]["Pagination"];
         };
+        /**
+         * @description Cooperative pause state of one parent task.
+         *
+         *     It is independent of [`TaskStatus`]: a queued task stays queued while
+         *     paused, and a running task enters `pausing` until its current attempt parks
+         *     at a safe checkpoint.
+         * @enum {string}
+         */
+        TaskPauseState: "unpaused" | "pausing" | "paused";
         TaskProgress: {
             /** Format: int64 */
             cancelled: number;
@@ -4842,6 +4830,12 @@ export interface components {
             group_path?: string | null;
             kind: components["schemas"]["TaskKind"];
             origin: components["schemas"]["TaskOrigin"];
+            pause_state?: null | components["schemas"]["TaskPauseState"];
+            /**
+             * Format: date-time
+             * @description When the pause last became effective; `None` while unpaused.
+             */
+            paused_at?: string | null;
             progress: components["schemas"]["TaskProgress"];
             source_key?: string | null;
             stage?: string | null;
@@ -5076,6 +5070,16 @@ export interface components {
         TextBatchRequest: {
             items: components["schemas"]["UpsertLibraryTextRequest"][];
         };
+        /** @description One verified local tokenizer artifact. */
+        TokenizerArtifactDescriptor: {
+            /** @description The lowercase SHA256 of the artifact bytes, which is also its file name. */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description The artifact size in bytes.
+             */
+            size_bytes: number;
+        };
         TranslationDirective: {
             source_locale?: string | null;
             target_locales?: string[];
@@ -5228,6 +5232,8 @@ export interface components {
              */
             confirm_vector_space_unchanged?: boolean;
             dimensions: number;
+            /** @description The explicit input-token envelope and server-added prefixes. */
+            input_policy?: components["schemas"]["EmbeddingInputPolicy"];
             /** @description The model documents are embedded with. */
             model: string;
             /**
@@ -9552,45 +9558,6 @@ export interface operations {
             };
         };
     };
-    embedding_capabilities: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["TestRuntimeEmbeddingRequest"];
-            };
-        };
-        responses: {
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["EmbeddingCapabilitiesResponse"];
-                };
-            };
-            400: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-            500: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ApiErrorResponse"];
-                };
-            };
-        };
-    };
     test_embedding_connection: {
         parameters: {
             query?: never;
@@ -10942,6 +10909,51 @@ export interface operations {
             };
         };
     };
+    pause_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     rerun_task: {
         parameters: {
             query?: never;
@@ -11015,6 +11027,51 @@ export interface operations {
                 };
             };
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    resume_task: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

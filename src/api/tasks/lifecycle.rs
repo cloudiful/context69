@@ -171,6 +171,30 @@ pub(crate) async fn batch_rerun_tasks(
     }
 }
 
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/pause", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+pub(crate) async fn pause_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    match state.app.tasks.pause_task(task_id, session.user.id).await {
+        Ok(task) => (StatusCode::OK, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/resume", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+pub(crate) async fn resume_task(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(task_id): Path<Uuid>,
+) -> Response {
+    match state.app.tasks.resume_task(task_id, session.user.id).await {
+        Ok(task) => (StatusCode::OK, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
 #[utoipa::path(post, path = "/v1/tasks/{task_id}/cancel", params(("task_id" = Uuid, Path)), responses((status = 204), (status = 404, body = ApiErrorResponse)))]
 pub(crate) async fn cancel_task(
     State(state): State<ApiState>,

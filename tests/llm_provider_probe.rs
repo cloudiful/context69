@@ -18,11 +18,11 @@ use axum::response::IntoResponse;
 use context69::domain_errors::DomainError;
 use context69::services::settings::llm_probe::probe_with_key;
 use context69_contracts::settings::{
-    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, EmbeddingCapabilitiesResponse,
-    RuntimeSettingsResponse, SearchSettingsResponse, TestLlmProviderOutcome,
-    TestLlmProviderRequest, TestLlmProviderResponse, TestRuntimeEmbeddingRequest,
-    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings,
-    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
+    SearchSettingsResponse, TestLlmProviderOutcome, TestLlmProviderRequest,
+    TestLlmProviderResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
+    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
 use context69_settings_http::{SettingsApi, SettingsHttpState};
 
@@ -110,13 +110,6 @@ impl SettingsApi for FakeSettingsApi {
         _request: &TestRuntimeEmbeddingRequest,
     ) -> anyhow::Result<()> {
         unreachable!("the LLM probe route must not reach test_embedding_connection")
-    }
-
-    async fn embedding_capabilities(
-        &self,
-        _request: &TestRuntimeEmbeddingRequest,
-    ) -> anyhow::Result<EmbeddingCapabilitiesResponse> {
-        unreachable!("the LLM probe route must not reach embedding_capabilities")
     }
 
     async fn test_qdrant_connection(

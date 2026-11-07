@@ -86,6 +86,11 @@ pub(super) fn default_chunking_overlap_tokens() -> usize {
     DEFAULT_CHUNKING_OVERLAP_TOKENS
 }
 
+/// The default local directory of operator-provisioned tokenizer artifacts.
+pub(super) fn default_tokenizer_artifact_dir() -> std::path::PathBuf {
+    std::path::PathBuf::from("./data/tokenizers")
+}
+
 impl Default for ChunkingBudgetConfig {
     fn default() -> Self {
         Self {
@@ -93,6 +98,8 @@ impl Default for ChunkingBudgetConfig {
             overlap_chars: 200,
             unit: ChunkBudgetMode::Chars,
             tokenizer: TokenizerKind::Cl100kBase,
+            tokenizer_sha256: None,
+            tokenizer_artifact_dir: default_tokenizer_artifact_dir(),
             max_tokens: default_chunking_max_tokens(),
             overlap_tokens: default_chunking_overlap_tokens(),
         }
@@ -119,6 +126,7 @@ impl Default for FileConfig {
                 dimensions: 768,
                 timeout: Duration::from_secs(30),
                 batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
+                input_policy: Default::default(),
             },
             docling: None,
             auth: AuthConfig {

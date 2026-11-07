@@ -185,23 +185,3 @@ describe("settings api vector index rebuild control", () => {
     }
   });
 });
-
-describe("settings api embedding capabilities", () => {
-  it("posts the draft target to the capability path", async () => {
-    const response = { source: "unknown", document_model: "bge-small" };
-    const post = vi.fn().mockResolvedValue({ data: response, response: { ok: true, status: 200 } });
-    const api = createSettingsApi({ openapiClient: { POST: post } as never, unwrapResponse });
-    const payload = {
-      base_url: "https://embeddings.example/v1",
-      model: "bge-small",
-      dimensions: 768,
-      timeout_secs: 30,
-    };
-
-    expect(await api.embeddingCapabilities(payload)).toBe(response);
-    expect(post).toHaveBeenCalledWith("/v1/settings/runtime/embedding/capabilities", {
-      body: payload,
-      signal: undefined,
-    });
-  });
-});

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The bounded selection of adoptable unlinked task items (issue 116 P1).\n--\n-- The filter is applied in SQL before the page bound, so any number of older\n-- running, terminal, linked or retired-parent rows can never starve an eligible\n-- queued or waiting item out of the batch. The caller runs this inside the\n-- handover transaction under the admission lock, then locks the selected ids in\n-- its deterministic order and rechecks every row before linking it.\n--\n-- `$1` is the batch bound (at most MAX_HANDOVER_ITEMS).\nSELECT item.id\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.execution_task_id IS NULL\n  AND item.status IN ('queued', 'waiting')\n  AND task.deleted_at IS NULL\n  AND task.status IN ('queued', 'running', 'waiting')\n  -- A paused parent is not adopted by the automatic batch; the explicit\n  -- adoption is refused instead. The post-item-lock gate in\n  -- `produce_and_link_item_segment` remains the authoritative check.\n  AND task.pause_state = 'unpaused'\nORDER BY item.created_at, item.id\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7d43ac6fa80e49d1b956c65a0082ff11911b2322767aa8340e6113f99c7250e3"
+}

@@ -37,6 +37,7 @@ mod item_lifecycle_processors;
 #[cfg(test)]
 mod item_pipeline_tests;
 mod item_replacement_processor;
+mod pause_control;
 
 /// The claim is a global primitive over the shared scratch database, so every
 /// case that claims an item serializes on this lock.

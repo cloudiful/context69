@@ -1839,6 +1839,12 @@
     {
       "package": "context69",
       "target": "settings_secret_store",
+      "test": "cases_embedding_guards::a_local_tokenizer_hash_round_trips_and_an_unavailable_one_changes_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "settings_secret_store",
       "test": "cases_embedding_guards::an_inactive_token_budget_does_not_block_a_character_save",
       "class": "db"
     },
@@ -4210,6 +4216,162 @@
       "package": "context69",
       "target": "task_execution_effect_fence",
       "test": "a_worker_of_a_cancelled_item_never_seals_its_segment",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_pause_parks_the_attempt_without_spending_the_attempt_budget",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_resume_claims_the_same_segment_without_resetting_the_budget",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_segments",
+      "test": "a_cancel_requested_before_the_park_wins_over_the_pause",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "a_paused_parent_admits_no_item_and_creates_no_fresh_segment",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "a_paused_expired_attempt_is_requeued_without_a_failure",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "an_outsider_cannot_pause_or_resume_a_task",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "the_common_pause_sets_the_barrier_flag_and_keeps_the_cursor",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "the_common_resume_clears_the_barrier_flag_without_moving_the_cursor",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_adoption_eligibility::a_paused_owner_keeps_its_active_remote_for_adoption",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_exhausted::maintain_claim_state_skips_a_paused_parent_at_the_physical_cap",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_dispatcher_fast_path",
+      "test": "cases_maintenance_exhausted::maintain_claim_state_keeps_a_paused_running_parent_slot",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "a_waiting_item_with_an_ended_segment_pauses_and_resumes_through_the_parent_gate",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_parent_admission",
+      "test": "a_terminal_cancel_clears_the_pause_projection_atomically",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "a_running_vector_checkpoint_parks_through_the_driver_and_resumes_immediately",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_execution_cutover",
+      "test": "adopt_never_mints_a_segment_for_a_paused_parent_until_the_resume",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_handover",
+      "test": "a_paused_legacy_item_is_skipped_and_adopted_after_the_resume",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_resume",
+      "test": "a_cancelled_resume_clears_the_real_paused_counters_coherently",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_retry_policy",
+      "test": "a_manual_retry_clears_the_real_paused_count_together_with_the_attempt_count",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "task_retry_policy",
+      "test": "an_in_place_progress_clears_the_real_paused_count_together_with_the_attempt_count",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "an_actual_rebuild_pauses_at_its_committed_batch_boundary_and_resumes_the_same_segment",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_adoption_eligibility::a_resumed_owner_adopts_the_active_remote_without_a_new_submit",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "an_actual_rebuild_provider_failure_before_the_first_data_batch_terminates_and_cleans_up",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "an_actual_rebuild_refuses_a_nonempty_runtime_fixture_before_any_write",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "docling_remote_jobs",
+      "test": "cases_adoption_eligibility::a_docling_setup_failure_after_the_settings_write_restores_prior_state_and_owns_nothing",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "an_actual_rebuild_missing_resumed_claim_reports_and_cleans_up",
+      "class": "db"
+    },
+    {
+      "package": "context69",
+      "target": "vector_registry_barrier",
+      "test": "an_actual_rebuild_panic_after_the_collection_exists_retains_the_panic_and_cleans_up",
       "class": "db"
     }
   ]

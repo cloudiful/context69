@@ -190,6 +190,22 @@ pub(crate) async fn produce_and_link_item_segment(
     .await?;
     let task_id = generation.task_id;
     let generation = generation.generation.unwrap_or(FIRST_GENERATION);
+    // The parent pause gate is the shared choke point: every caller (handover,
+    // cutover adoption, retry link) holds the item lock here and must not mint
+    // a segment for a parent that a pause is holding back. It is a plain read
+    // after the item, so the canonical item -> parent order is preserved and
+    // no early parent lock is taken.
+    let pause_state =
+        sqlx::query_file_scalar!("src/sql/db/tasks/cutover/parent_pause_gate.sql", item_id)
+            .fetch_optional(&mut **transaction)
+            .await?;
+    match pause_state.as_deref() {
+        Some("unpaused") => {}
+        Some(state) => anyhow::bail!(
+            "item {item_id} belongs to a parent paused as `{state}`; no execution segment was minted"
+        ),
+        None => anyhow::bail!("item {item_id} has no parent task; no execution segment was minted"),
+    }
     let segment = produce_segment(
         queue,
         transaction,
@@ -345,6 +361,23 @@ impl Database {
                 // database may interpret.
                 continue;
             };
+            if task.pause_state() == cloudiful_tasks::TaskPauseState::Paused
+                && task.status() == cloudiful_tasks::TaskStatus::Queued
+            {
+                // The library sealed an expired attempt as a pause checkpoint:
+                // the item is requeued without a failure and the parent pause
+                // survives.
+                if self
+                    .recover_expired_paused_item(tx, &payload, task.id().as_uuid())
+                    .await?
+                {
+                    outcome.recovered_items += 1;
+                    sqlx::query_file!("src/sql/db/tasks/recompute.sql", payload.task_id)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+                continue;
+            }
             let recovered: Option<RecoveredItem> = sqlx::query_file_as!(
                 RecoveredItem,
                 "src/sql/db/tasks/recover_expired_item.sql",

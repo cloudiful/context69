@@ -44,7 +44,7 @@ bytes = "1.12.1"
 base64 = "0.23.1"
 chacha20poly1305 = "0.11.0"
 chrono = "0.4.45"
-cloudiful-tasks = { git = "https://github.com/cloudiful/tasks", rev = "09ca2b383cd489f5a1d8eac697e6f093adbb40b4" }
+cloudiful-tasks = { git = "https://github.com/cloudiful/tasks", rev = "143fb74e067b5fd983e3957612a94f0cd41ac247" }
 config = { package = "cloudiful-config", version = "0.6.3" }
 context69-contracts = { path = "crates/context69-contracts", version = "0.25.10" }
 context69-contracts-auth = { path = "crates/context69-contracts-auth", version = "0.1.0" }
@@ -90,6 +90,7 @@ sha2 = "0.11.0"
 sqlx = "0.9.0"
 tiktoken-rs = "0.12.0"
 time = "0.3.55"
+tokenizers = { version = "0.22.1", default-features = false, features = ["fancy-regex"] }
 tokio = "1.53.1"
 tokio-util = "0.7"
 toml = "1.1.6"
@@ -166,6 +167,7 @@ serde_json.workspace = true
 sha2.workspace = true
 sqlx = { workspace = true, features = ["chrono", "json", "macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "tls-rustls", "uuid"] }
 tiktoken-rs.workspace = true
+tokenizers.workspace = true
 tokio = { workspace = true, features = [ "macros", "net", "rt-multi-thread", "signal", "sync", "time" ] }
 tokio-util.workspace = true
 time.workspace = true

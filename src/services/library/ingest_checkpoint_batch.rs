@@ -74,10 +74,26 @@ impl LibraryService {
                 error,
             ))
         })?;
-        let embeddings = embedding.embed_texts(&texts).await.map_err(|error| {
-            let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
-            normalize_task_failure(failure)
+        // The task service is scoped to the item's pinned budget, so its live
+        // snapshot is the snapshot that chunked this batch: the provider guard
+        // uses the exact policy the task pinned, never a later settings save.
+        let resolved_budget = self.chunking_runtime.resolve_snapshot().map_err(|error| {
+            normalize_task_failure(IngestFailure::new(
+                LibraryIngestFailureStage::Embedding,
+                error,
+            ))
         })?;
+        let input_policy = resolved_budget.input_policy().cloned();
+        let embeddings = embedding
+            .embed_texts_with_policy(
+                &texts,
+                crate::embedding::InputPolicySelection::Pinned(input_policy.as_ref()),
+            )
+            .await
+            .map_err(|error| {
+                let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
+                normalize_task_failure(failure)
+            })?;
         let group = PayloadGroup {
             group_id: file.group_id,
             group_key: &file.group_key,

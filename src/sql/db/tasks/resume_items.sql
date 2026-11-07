@@ -53,6 +53,7 @@ WITH RECURSIVE inherited_groups AS (
         -- re-derives its own progress from payload/file state.
         stage = 'processing',
         attempt_count = 0,
+        paused_attempts = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

@@ -16,7 +16,7 @@ use context69_contracts::settings::{
     CHUNKING_MAX_TOKENS_DEFAULT, CHUNKING_OVERLAP_TOKENS_DEFAULT, ChunkingTokenizer, ChunkingUnit,
 };
 
-use crate::chunking::chunking_token::TokenizerKind;
+use crate::chunking::chunking_token::TokenizerRef;
 use crate::chunking::{ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget};
 
 use super::secrets::optional_key_patch;
@@ -33,25 +33,28 @@ pub(crate) fn chunk_budget(settings: &RuntimeChunkingSettings) -> ChunkBudget {
             overlap_chars: settings.overlap_chars,
         },
         tokens: Some(TokenBudget {
-            tokenizer: chunking_tokenizer(&settings.tokenizer),
+            tokenizer: chunking_tokenizer(settings),
             max_tokens: settings.max_tokens,
             overlap_tokens: settings.overlap_tokens,
         }),
+        input_policy: None,
     }
 }
 
 /// The runtime settings of a chunking budget.
 pub(crate) fn chunking_settings(budget: &ChunkBudget) -> RuntimeChunkingSettings {
     let tokens = budget.tokens.clone().unwrap_or(TokenBudget {
-        tokenizer: TokenizerKind::Cl100kBase,
+        tokenizer: TokenizerRef::Cl100kBase,
         max_tokens: CHUNKING_MAX_TOKENS_DEFAULT,
         overlap_tokens: CHUNKING_OVERLAP_TOKENS_DEFAULT,
     });
+    let (tokenizer, tokenizer_sha256) = stored_chunking_tokenizer(&tokens.tokenizer);
     RuntimeChunkingSettings {
         max_chars: budget.chars.max_chars,
         overlap_chars: budget.chars.overlap_chars,
         unit: chunking_unit(budget.mode),
-        tokenizer: stored_chunking_tokenizer(tokens.tokenizer),
+        tokenizer,
+        tokenizer_sha256,
         max_tokens: tokens.max_tokens,
         overlap_tokens: tokens.overlap_tokens,
     }
@@ -66,17 +69,18 @@ pub(crate) fn stored_chunk_budget(settings: &StoredRuntimeChunkingSettings) -> C
             overlap_chars: settings.overlap_chars,
         },
         tokens: Some(TokenBudget {
-            tokenizer: settings.tokenizer,
+            tokenizer: settings.tokenizer.clone(),
             max_tokens: settings.max_tokens,
             overlap_tokens: settings.overlap_tokens,
         }),
+        input_policy: None,
     }
 }
 
 /// The stored chunking settings of a chunking budget.
 fn stored_chunking_settings(budget: &ChunkBudget) -> StoredRuntimeChunkingSettings {
     let tokens = budget.tokens.clone().unwrap_or(TokenBudget {
-        tokenizer: TokenizerKind::Cl100kBase,
+        tokenizer: TokenizerRef::Cl100kBase,
         max_tokens: CHUNKING_MAX_TOKENS_DEFAULT,
         overlap_tokens: CHUNKING_OVERLAP_TOKENS_DEFAULT,
     });
@@ -107,18 +111,22 @@ fn chunking_unit(unit: ChunkBudgetMode) -> ChunkingUnit {
 }
 
 /// The tokenizer of the request settings.
-fn chunking_tokenizer(tokenizer: &ChunkingTokenizer) -> TokenizerKind {
-    match tokenizer {
-        ChunkingTokenizer::Cl100kBase => TokenizerKind::Cl100kBase,
-        ChunkingTokenizer::O200kBase => TokenizerKind::O200kBase,
+fn chunking_tokenizer(settings: &RuntimeChunkingSettings) -> TokenizerRef {
+    match &settings.tokenizer {
+        ChunkingTokenizer::Cl100kBase => TokenizerRef::Cl100kBase,
+        ChunkingTokenizer::O200kBase => TokenizerRef::O200kBase,
+        ChunkingTokenizer::HfLocal => TokenizerRef::HfLocal {
+            sha256: settings.tokenizer_sha256.clone().unwrap_or_default(),
+        },
     }
 }
 
 /// The tokenizer of the stored settings.
-fn stored_chunking_tokenizer(tokenizer: TokenizerKind) -> ChunkingTokenizer {
+fn stored_chunking_tokenizer(tokenizer: &TokenizerRef) -> (ChunkingTokenizer, Option<String>) {
     match tokenizer {
-        TokenizerKind::Cl100kBase => ChunkingTokenizer::Cl100kBase,
-        TokenizerKind::O200kBase => ChunkingTokenizer::O200kBase,
+        TokenizerRef::Cl100kBase => (ChunkingTokenizer::Cl100kBase, None),
+        TokenizerRef::O200kBase => (ChunkingTokenizer::O200kBase, None),
+        TokenizerRef::HfLocal { sha256 } => (ChunkingTokenizer::HfLocal, Some(sha256.clone())),
     }
 }
 
@@ -156,6 +164,7 @@ pub(super) fn runtime_settings_from_request(
             dimensions: request.embedding.dimensions,
             timeout_secs: request.embedding.timeout_secs,
             batching: request.embedding.batching,
+            input_policy: request.embedding.input_policy.clone(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: request.scheduler.interval_secs,
@@ -222,6 +231,7 @@ pub(super) fn runtime_settings_response(
             timeout_secs: settings.embedding.timeout_secs,
             has_api_key: has_embedding_api_key,
             batching: settings.embedding.batching,
+            input_policy: settings.embedding.input_policy.clone(),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
@@ -257,6 +267,10 @@ pub(super) fn runtime_settings_response(
                     has_secret_key: has_s3_secret_key,
                 }),
         },
+        tokenizer_artifacts:
+            crate::chunking::chunking_token_artifact::TokenizerCatalog::installed_or_empty()
+                .descriptors()
+                .to_vec(),
         requires_rebuild,
     }
 }
@@ -281,6 +295,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty()),
             batching: defaults.embedding.batching,
+            input_policy: defaults.embedding.input_policy.clone(),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: defaults.scheduler.interval.as_secs(),
@@ -317,6 +332,10 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                     has_secret_key: !s3.secret_key.is_empty(),
                 }),
         },
+        tokenizer_artifacts:
+            crate::chunking::chunking_token_artifact::TokenizerCatalog::installed_or_empty()
+                .descriptors()
+                .to_vec(),
         requires_rebuild: false,
     }
 }

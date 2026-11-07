@@ -35,7 +35,6 @@ export type TaskFixture = Schemas["TaskResponse"];
 export type TaskItemsFixture = Schemas["TaskItemsResponse"];
 export type TaskDiagnoseFixture = Schemas["TaskDiagnoseResponse"];
 export type VectorIndexRebuildStatusFixture = Schemas["VectorIndexRebuildStatus"];
-export type EmbeddingCapabilitiesFixture = Schemas["EmbeddingCapabilitiesResponse"];
 
 export const ADMIN_USER: AuthUserFixture = {
   user_id: 1,
@@ -87,9 +86,16 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     overlap_chars: 200,
     unit: "chars",
     tokenizer: "cl100k_base",
+    tokenizer_sha256: null,
     max_tokens: 1024,
     overlap_tokens: 128,
   },
+  tokenizer_artifacts: [
+    {
+      sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      size_bytes: 1024,
+    },
+  ],
   requires_rebuild: false,
   file_library: {
     storage_root: "/data/library",
@@ -103,22 +109,6 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     registry_max_ids_per_file: 16384,
     registry_max_ids_per_run: 8192,
   },
-};
-
-export const EMBEDDING_LIMITS: Schemas["EmbeddingBatchingSettings"] = {
-  max_items_per_request: 32,
-  max_item_chars: 8000,
-  max_request_chars: 64000,
-  max_request_bytes: 1048576,
-};
-
-export const EMBEDDING_CAPABILITIES: EmbeddingCapabilitiesFixture = {
-  base_url: "http://embedding:8080/v1",
-  source: "unknown",
-  document_model: "embed-1",
-  query_model: "embed-1",
-  manual_limits: EMBEDDING_LIMITS,
-  effective_limits: EMBEDDING_LIMITS,
 };
 
 /**
@@ -713,6 +703,8 @@ export function queueTaskFixture(
     stage: "indexing",
     waiting_reason: null,
     dependency_key: null,
+    pause_state: "unpaused",
+    paused_at: null,
     failure_stage: null,
     error_summary: null,
     eta_seconds: null,

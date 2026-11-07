@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The lowest non-terminal item of one parent and the parent pause gate.\n--\n-- The item row is locked with the same ordinal selection the claim path uses,\n-- so a pause serializes with the claim that would run that item. The parent\n-- row is only read, never locked: the canonical order is item -> epoch ->\n-- segment -> task, and the task row is the last mutation of the caller.\nWITH lowest AS (\n    SELECT min(item.ordinal) AS ordinal\n    FROM context69.task_items item\n    WHERE item.task_id = $1\n      AND item.status IN ('queued', 'running', 'waiting')\n),\ncurrent_item AS (\n    SELECT item.id,\n           item.task_id,\n           item.status,\n           item.attempt_count,\n           item.paused_attempts,\n           item.execution_task_id,\n           item.execution_generation,\n           item.dependency_key,\n           item.waiting_reason\n    FROM context69.task_items item\n    JOIN lowest ON lowest.ordinal = item.ordinal\n    WHERE item.task_id = $1\n      AND item.status IN ('queued', 'running', 'waiting')\n    FOR UPDATE OF item\n)\nSELECT current_item.id AS \"item_id!\",\n       current_item.status AS \"item_status!\",\n       current_item.execution_task_id,\n       current_item.dependency_key,\n       current_item.waiting_reason,\n       task.kind AS \"task_kind!\",\n       task.status AS \"task_status!\",\n       task.pause_state AS \"task_pause_state!\"\nFROM current_item\nJOIN context69.tasks task ON task.id = current_item.task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "item_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "item_status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "dependency_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "dependency_key"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "waiting_reason",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "waiting_reason"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "task_kind!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "task_status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "task_pause_state!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "pause_state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "dbeba95f3f7a1e95b128bda41ddbf1313f8533612dd031c293e939247aa17109"
+}

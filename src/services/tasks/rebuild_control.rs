@@ -43,75 +43,54 @@ impl TaskService {
         task_id: uuid::Uuid,
     ) -> Result<()> {
         require_admin(actor)?;
-        let owner = self.owned_rebuild_item(task_id).await?;
-        let barrier = self.db().read_rebuild_barrier().await?;
-        if barrier.state != RebuildBarrierState::Running {
-            return Err(DomainError::conflict(
-                "the observed task does not own a running vector rebuild",
-            )
-            .into());
-        }
-        let owner_token = barrier
-            .owner_token
-            .ok_or_else(|| anyhow!("the running rebuild barrier records no owner token"))?;
-        let mut tx = self.db().pool().begin().await?;
-        // The epoch row is the serialization point of every barrier write, so
-        // the pause is decided against the same row a claim or completion sees.
-        self.db().lock_search_registry_epoch_in(&mut tx).await?;
-        let barrier = self.db().read_rebuild_barrier_in(&mut tx).await?;
-        if barrier.state != RebuildBarrierState::Running
-            || barrier.owner_item_id != Some(owner)
-            || barrier.owner_token != Some(owner_token)
-        {
-            return Err(DomainError::conflict(
-                "the observed task no longer owns the running vector rebuild",
-            )
-            .into());
-        }
-        if !self
+        if self
             .db()
-            .request_rebuild_pause_in(&mut tx, owner, owner_token)
+            .request_task_pause(task_id, actor.id, true)
             .await?
         {
-            return Err(DomainError::conflict(
-                "the observed task no longer owns the running vector rebuild",
+            Ok(())
+        } else {
+            Err(
+                DomainError::conflict("the observed task does not own a running vector rebuild")
+                    .into(),
             )
-            .into());
         }
-        tx.commit().await?;
-        Ok(())
     }
 
     /// Resumes the exact item parked by a paused rebuild of the observed task.
     ///
     /// The same item and task are requeued and the committed cursor is kept, so
-    /// the rebuild continues after its last written page. A cancelled or failed
-    /// item is never reopened here.
+    /// the rebuild continues after its last written page.
     pub async fn admin_resume_vector_rebuild(
         &self,
         actor: &UserRecord,
         task_id: uuid::Uuid,
     ) -> Result<()> {
         require_admin(actor)?;
-        let owner = self.owned_rebuild_item(task_id).await?;
-        let barrier = self.db().read_rebuild_barrier().await?;
-        if barrier.state != RebuildBarrierState::Running
-            || !barrier.pause_requested
-            || barrier.owner_item_id != Some(owner)
-        {
+        let task = self
+            .db()
+            .get_task_internal(task_id)
+            .await?
+            .ok_or_else(|| DomainError::not_found("task not found"))?;
+        if task.pause_state == "unpaused" {
             return Err(DomainError::conflict(
                 "the observed task is not paused on a running vector rebuild",
             )
             .into());
         }
-        if !self.db().resume_paused_rebuild_item(task_id).await? {
-            return Err(DomainError::conflict(
+        if self
+            .db()
+            .request_task_resume(task_id, actor.id, true)
+            .await?
+        {
+            self.notify_dispatch();
+            Ok(())
+        } else {
+            Err(DomainError::conflict(
                 "the observed task is no longer paused on that vector rebuild",
             )
-            .into());
+            .into())
         }
-        self.notify_dispatch();
-        Ok(())
     }
 
     /// Frees the failed barrier of a terminal rebuild task.
@@ -241,6 +220,7 @@ impl TaskService {
                 id,
                 status,
                 item_id: row.item_id,
+                item_status: row.item_status,
                 item_dependency_key: row.item_dependency_key,
                 dependency_key: row.dependency_key,
                 error_summary: row.error_summary,
@@ -285,6 +265,7 @@ struct RebuildTaskInput {
     id: Uuid,
     status: String,
     item_id: Option<Uuid>,
+    item_status: Option<String>,
     item_dependency_key: Option<String>,
     dependency_key: Option<String>,
     error_summary: Option<String>,
@@ -294,9 +275,15 @@ struct RebuildTaskInput {
 
 impl RebuildTaskInput {
     /// Whether the item of this task is parked by a paused rebuild.
-    fn parked_by_pause(&self) -> bool {
+    ///
+    /// The legacy path records the exact dependency key. The common fenced park
+    /// leaves no dependency: the item simply returns to `queued` while the
+    /// barrier still owns the pause, so a due queued item beside a requested
+    /// pause is a parked rebuild too.
+    fn parked_by_pause(&self, pause_requested: bool) -> bool {
         self.item_dependency_key.as_deref() == Some(PAUSED_REBUILD_DEPENDENCY)
             || self.dependency_key.as_deref() == Some(PAUSED_REBUILD_DEPENDENCY)
+            || (pause_requested && self.item_status.as_deref() == Some("queued"))
     }
 }
 
@@ -337,7 +324,7 @@ fn rebuild_state(
     };
     match inputs.barrier.state {
         RebuildBarrierState::Running => {
-            if task.parked_by_pause() {
+            if task.parked_by_pause(inputs.barrier.pause_requested) {
                 VectorIndexRebuildState::Paused
             } else if inputs.barrier.pause_requested {
                 VectorIndexRebuildState::Pausing
@@ -391,7 +378,7 @@ fn project_rebuild_status(inputs: &RebuildStatusInputs) -> VectorIndexRebuildSta
         (Some(task), Some(owner)) => task.item_id == Some(owner),
         _ => false,
     };
-    let parked = observed.is_some_and(RebuildTaskInput::parked_by_pause);
+    let parked = observed.is_some_and(|task| task.parked_by_pause(inputs.barrier.pause_requested));
     let running = inputs.barrier.state == RebuildBarrierState::Running;
     let can_pause = owned && running && !inputs.barrier.pause_requested && !parked;
     let can_resume = owned && running && inputs.barrier.pause_requested && parked;
@@ -462,6 +449,7 @@ mod tests {
             id,
             status: status.to_string(),
             item_id: Some(item),
+            item_status: Some(status.to_string()),
             item_dependency_key: None,
             dependency_key: None,
             error_summary: None,
@@ -519,6 +507,21 @@ mod tests {
         );
         assert_eq!(status.processed_chunks, 12);
         assert_eq!(status.total_chunks, 40);
+    }
+
+    #[test]
+    fn a_generic_park_without_a_legacy_dependency_is_paused() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut owner = task(owner_task, "queued", owner_item);
+        owner.item_status = Some("queued".to_string());
+        let status = project_rebuild_status(&inputs(
+            barrier(RebuildBarrierState::Running, Some(owner_item), true),
+            vec![owner],
+        ));
+        assert_eq!(status.state, VectorIndexRebuildState::Paused);
+        assert!(status.can_resume);
+        assert!(!status.can_pause);
     }
 
     #[test]

@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.runtime_chunking_settings (\n    singleton,\n    max_chars,\n    overlap_chars,\n    unit,\n    tokenizer,\n    tokenizer_sha256,\n    max_tokens,\n    overlap_tokens,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, now())\nON CONFLICT (singleton) DO UPDATE\nSET max_chars = EXCLUDED.max_chars,\n    overlap_chars = EXCLUDED.overlap_chars,\n    unit = EXCLUDED.unit,\n    tokenizer = EXCLUDED.tokenizer,\n    tokenizer_sha256 = EXCLUDED.tokenizer_sha256,\n    max_tokens = EXCLUDED.max_tokens,\n    overlap_tokens = EXCLUDED.overlap_tokens,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ad6a2d5847e0b9ef40646a3695ebbe46fa6103f012b6e38facf1728bc7804d9b"
+}

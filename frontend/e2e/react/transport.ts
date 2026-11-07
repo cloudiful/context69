@@ -7,8 +7,6 @@ import {
   AUTH_ERROR,
   CLEANUP_TASKS,
   DOCLING_SETTINGS,
-  EMBEDDING_CAPABILITIES,
-  EMBEDDING_LIMITS,
   GROUP,
   PREVIEW_DOCUMENT,
   REMOTE_TASKS,
@@ -617,7 +615,7 @@ export async function installAppTransport(
       return true;
     }
 
-    const actionMatch = /^\/v1\/tasks\/([^/]+)\/(retry|rerun|cancel|trash|restore)$/.exec(url.pathname);
+    const actionMatch = /^\/v1\/tasks\/([^/]+)\/(retry|rerun|cancel|trash|restore|pause|resume)$/.exec(url.pathname);
     if (actionMatch && method === "POST") {
       const taskId = decodeURIComponent(actionMatch[1]);
       const action = actionMatch[2];
@@ -640,6 +638,19 @@ export async function installAppTransport(
       if (action === "rerun") {
         const childId = queue.rerunChildIds?.[taskId] ?? `${taskId}-child`;
         await route.fulfill(json(200, { task: { task_id: childId } }));
+        return true;
+      }
+      if (action === "pause" || action === "resume") {
+        const paused = action === "pause";
+        if (source) {
+          source.pause_state = paused ? "paused" : "unpaused";
+          source.paused_at = paused ? "2026-01-02T10:00:00Z" : null;
+          source.updated_at = paused ? "2026-01-02T10:00:00Z" : "2026-01-02T10:01:00Z";
+        }
+        await route.fulfill(json(200, {
+          ...(source ?? QUEUE_FAILED_TASK),
+          task_id: taskId,
+        }));
         return true;
       }
       await route.fulfill(json(200, {
@@ -1345,17 +1356,6 @@ export async function installAppTransport(
           safe_endpoint: "https://openrouter.ai/api/v1",
         }
         : {}));
-      return true;
-    }
-
-    if (path === "/v1/settings/runtime/embedding/capabilities") {
-      await route.fulfill(json(200, {
-        ...EMBEDDING_CAPABILITIES,
-        document_model: saved.runtime.embedding.model,
-        query_model: saved.runtime.embedding.query_model ?? saved.runtime.embedding.model,
-        manual_limits: saved.runtime.embedding.batching ?? EMBEDDING_LIMITS,
-        effective_limits: saved.runtime.embedding.batching ?? EMBEDDING_LIMITS,
-      }));
       return true;
     }
 

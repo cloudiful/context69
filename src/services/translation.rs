@@ -12,10 +12,10 @@ use tracing::info;
 
 use crate::{
     chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, PayloadLocale, translated_chunk},
-    chunking::chunking_token::TokenizerKind,
+    chunking::chunking_token::TokenizerRef,
     chunking::{
         ChunkBudget, ChunkBudgetMode, ChunkingConfig, ChunkingRuntime, TokenBudget,
-        chunk_document_with_budget,
+        chunk_document_resolved,
     },
     contracts::Visibility,
     domain::SourceRecord,
@@ -30,8 +30,8 @@ impl From<&ChunkBudget> for context69_translation::TranslationChunkingBudget {
         let tokenizer = budget
             .tokens
             .as_ref()
-            .map(|tokens| tokens.tokenizer)
-            .unwrap_or(TokenizerKind::Cl100kBase);
+            .map(|tokens| tokens.tokenizer.clone())
+            .unwrap_or(TokenizerRef::Cl100kBase);
         let max_tokens = budget
             .tokens
             .as_ref()
@@ -49,16 +49,20 @@ impl From<&ChunkBudget> for context69_translation::TranslationChunkingBudget {
             },
             max_chars: budget.chars.max_chars,
             overlap_chars: budget.chars.overlap_chars,
-            tokenizer: match tokenizer {
-                TokenizerKind::Cl100kBase => {
+            tokenizer: match &tokenizer {
+                TokenizerRef::Cl100kBase => {
                     context69_translation::TranslationChunkingTokenizer::Cl100kBase
                 }
-                TokenizerKind::O200kBase => {
+                TokenizerRef::O200kBase => {
                     context69_translation::TranslationChunkingTokenizer::O200kBase
+                }
+                TokenizerRef::HfLocal { sha256 } => {
+                    context69_translation::TranslationChunkingTokenizer::HfLocal(sha256.clone())
                 }
             },
             max_tokens,
             overlap_tokens,
+            input_policy: budget.input_policy.clone(),
         }
     }
 }
@@ -75,17 +79,23 @@ impl From<&context69_translation::TranslationChunkingBudget> for ChunkBudget {
                 overlap_chars: budget.overlap_chars,
             },
             tokens: Some(TokenBudget {
-                tokenizer: match budget.tokenizer {
+                tokenizer: match &budget.tokenizer {
                     context69_translation::TranslationChunkingTokenizer::Cl100kBase => {
-                        TokenizerKind::Cl100kBase
+                        TokenizerRef::Cl100kBase
                     }
                     context69_translation::TranslationChunkingTokenizer::O200kBase => {
-                        TokenizerKind::O200kBase
+                        TokenizerRef::O200kBase
+                    }
+                    context69_translation::TranslationChunkingTokenizer::HfLocal(sha256) => {
+                        TokenizerRef::HfLocal {
+                            sha256: sha256.clone(),
+                        }
                     }
                 },
                 max_tokens: budget.max_tokens,
                 overlap_tokens: budget.overlap_tokens,
             }),
+            input_policy: budget.input_policy.clone(),
         }
     }
 }
@@ -217,8 +227,8 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             "translation:{}:{}",
             translation.source_key, translation.target_locale
         );
-        let chunking = self.chunk_budget(&translation);
-        let chunks = chunk_document_with_budget(
+        let chunking = self.chunking.resolve(&self.chunk_budget(&translation))?;
+        let chunks = chunk_document_resolved(
             translation.document_id,
             &chunk_source_key,
             &normalized,
@@ -228,7 +238,12 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             .iter()
             .map(|chunk| chunk.text.clone())
             .collect::<Vec<_>>();
-        let embeddings = embedding.embed_texts(&texts).await?;
+        let embeddings = embedding
+            .embed_texts_with_policy(
+                &texts,
+                crate::embedding::InputPolicySelection::Pinned(chunking.input_policy()),
+            )
+            .await?;
         let group = PayloadGroup {
             group_id: translation.group_id,
             group_key: translation.group_key,
@@ -318,7 +333,7 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             embedding_fingerprint,
             collection_name: runtime.collection.clone(),
         });
-        let chunking = self.chunk_budget(&translation);
+        let chunking = self.chunking.resolve(&self.chunk_budget(&translation))?;
         match crate::services::translation_registry::publish_translation(
             &crate::services::translation_registry::Publication {
                 db,
@@ -351,5 +366,34 @@ impl TranslationPublisher for TranslationPublisherAdapter {
 
     fn current_chunking(&self) -> Option<context69_translation::TranslationChunkingBudget> {
         Some((&self.chunking.snapshot()).into())
+    }
+}
+
+#[cfg(test)]
+mod input_policy_round_trip_tests {
+    use super::*;
+    use crate::chunking::chunking_token::TokenizerKind;
+    use context69_contracts::settings::EmbeddingInputPolicy;
+
+    /// Both conversion directions carry the complete policy unchanged, so a
+    /// translation publication counts under the exact budget a task pinned.
+    #[test]
+    fn a_translation_budget_round_trip_carries_the_input_policy() {
+        let mut policy = EmbeddingInputPolicy::default();
+        policy.max_input_tokens = Some(1024);
+        policy.document_server_prefix = "document:".to_string();
+        policy.query_server_prefix = "query:".to_string();
+        let mut budget = ChunkBudget::tokens(TokenizerKind::O200kBase, 512, 64);
+        budget.input_policy = Some(policy.clone());
+
+        let translation: context69_translation::TranslationChunkingBudget = (&budget).into();
+        assert_eq!(translation.input_policy, Some(policy.clone()));
+        let back: ChunkBudget = (&translation).into();
+        assert_eq!(back.input_policy, Some(policy));
+        assert_eq!(back.identity(), budget.identity());
+
+        let legacy: context69_translation::TranslationChunkingBudget =
+            (&ChunkBudget::chars(ChunkingConfig::default())).into();
+        assert_eq!(legacy.input_policy, None);
     }
 }

@@ -32,6 +32,9 @@ pub(super) enum ProcessResult {
         message: String,
         retryable: bool,
     },
+    /// The parent task requested a cooperative pause and the current attempt
+    /// reached a safe stage boundary.
+    Paused,
 }
 
 /// Upper bound for the steps one blocking run may take. Every step either
@@ -138,6 +141,9 @@ impl ItemStageRunner for ServiceStageRunner<'_> {
         item: &mut crate::db::ClaimedItem,
         stage: &'static str,
     ) -> Result<ProcessResult> {
+        if self.service.pause_requested(item).await? {
+            return Ok(ProcessResult::Paused);
+        }
         run_stage(self.service, self.kind, self.group, self.task, item, stage).await
     }
 }

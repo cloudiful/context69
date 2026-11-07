@@ -736,3 +736,430 @@ async fn crash_holder(db: &Database, item: &context69::db::ClaimedItem) {
             .expect("expire the domain mirror");
     }
 }
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_paused_parent_admits_no_item_and_creates_no_fresh_segment() {
+    let db = connect().await;
+    let _guard = ADMISSION_LOCK.lock().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(
+        &db,
+        user_id,
+        &[json!({"external_id": "paused"})],
+        &format!("paused-parent-{}", Uuid::new_v4()),
+    )
+    .await;
+
+    let segments_before: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/count_item_segments.sql",
+        item_ids[0].to_string()
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count the segments before the pause");
+
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("pause the queued parent"),
+        "the owner pauses a queued parent"
+    );
+
+    let claimed = db.claim_items_fast(10).await.expect("claim while paused");
+    assert!(
+        !claimed.iter().any(|item| item.task_id == task_id),
+        "a paused parent admits no item"
+    );
+
+    let counts = sqlx::query_file!(
+        "tests/sql/task_execution/read_item_status_counts.sql",
+        task_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the item statuses");
+    assert_eq!(counts.queued, 1);
+    assert_eq!(counts.running, 0);
+
+    let segments_after: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/count_item_segments.sql",
+        item_ids[0].to_string()
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count the segments after the pause");
+    assert_eq!(
+        segments_after, segments_before,
+        "the pause mints no fresh segment"
+    );
+
+    cleanup(&db, &[task_id], user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_waiting_item_with_an_ended_segment_pauses_and_resumes_through_the_parent_gate() {
+    let db = connect().await;
+    let _guard = ADMISSION_LOCK.lock().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(
+        &db,
+        user_id,
+        &[json!({"external_id": "ended-segment"})],
+        &format!("ended-segment-{}", Uuid::new_v4()),
+    )
+    .await;
+
+    let claimed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim the parent")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the head item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    assert!(
+        db.wait_task_item(WaitTaskItemRequest {
+            task_id,
+            item_id: claimed.id,
+            execution: execution.clone(),
+            waiting_reason: "backoff",
+            dependency_key: None,
+            next_attempt_at: Utc::now() - Duration::seconds(1),
+            error_message: None,
+        })
+        .await
+        .expect("park the item with an ended segment")
+    );
+    let segment = sqlx::query_file!(
+        "tests/sql/task_execution/read_library_task_status.sql",
+        execution.task_id()
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the ended segment");
+    assert_eq!(
+        segment.status, "succeeded",
+        "the waiting projection ends the native segment"
+    );
+
+    let segments_before: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/count_item_segments.sql",
+        item_ids[0].to_string()
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count the segments before the pause");
+
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("pause the waiting parent"),
+        "a waiting item with an ended segment still takes the parent pause"
+    );
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the paused projection");
+    assert_eq!(projection.pause_state, "paused");
+    assert_eq!(projection.item_status, "waiting");
+    assert_eq!(
+        projection.execution_task_id,
+        Some(execution.task_id()),
+        "the ended segment id is kept for history"
+    );
+
+    let claimed_while_paused = db.claim_items_fast(10).await.expect("claim while paused");
+    assert!(
+        claimed_while_paused
+            .iter()
+            .all(|item| item.task_id != task_id),
+        "the parent gate holds the waiting item back"
+    );
+
+    assert!(
+        db.request_task_resume(task_id, user_id, false)
+            .await
+            .expect("resume the waiting parent"),
+        "the parent gate resumes without touching the ended segment"
+    );
+    let resumed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim after the resume")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the resumed item is claimable");
+    assert_eq!(
+        resumed.execution_generation,
+        claimed.execution_generation + 1,
+        "the claim opens exactly the next generation"
+    );
+    let segments_after: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/count_item_segments.sql",
+        item_ids[0].to_string()
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("count the segments after the resume");
+    assert_eq!(
+        segments_after,
+        segments_before + 1,
+        "the pause/resume mints no segment; only the claim opens one"
+    );
+
+    cleanup(&db, &[task_id], user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_paused_expired_attempt_is_requeued_without_a_failure() {
+    let db = connect().await;
+    let _guard = ADMISSION_LOCK.lock().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(
+        &db,
+        user_id,
+        &[json!({"external_id": "recover-paused"})],
+        &format!("paused-recovery-{}", Uuid::new_v4()),
+    )
+    .await;
+
+    let claimed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim the parent")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the head item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("pause the running parent")
+    );
+
+    sqlx::query_file!(
+        "tests/sql/task_execution/expire_library_attempt_by_id.sql",
+        execution.attempt_id()
+    )
+    .execute(db.pool())
+    .await
+    .expect("expire the library attempt");
+    sqlx::query_file!("tests/sql/task_execution/expire_item_lease.sql", claimed.id)
+        .execute(db.pool())
+        .await
+        .expect("expire the domain mirror");
+
+    let reclaimed = db
+        .claim_items_fast(10)
+        .await
+        .expect("recover the expired attempt");
+    assert!(
+        !reclaimed.iter().any(|item| item.task_id == task_id),
+        "the recovered paused parent still admits no item"
+    );
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the recovered projection");
+    assert_eq!(projection.pause_state, "paused");
+    assert_eq!(projection.item_status, "queued");
+    assert_eq!(projection.attempt_count, 1);
+    assert_eq!(projection.paused_attempts, 1);
+    assert!(
+        projection.next_attempt_at.is_none(),
+        "recovery spends no backoff on the paused attempt"
+    );
+
+    let attempt = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_attempt.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the recovered attempt");
+    assert_eq!(attempt.status, "paused");
+    assert!(attempt.error_message.is_none());
+
+    let parent = sqlx::query_file!("tests/sql/task_execution/read_parent_state.sql", task_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the parent state");
+    assert_eq!(parent.failed_count, 0);
+
+    cleanup(&db, &[task_id], user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_terminal_cancel_clears_the_pause_projection_atomically() {
+    let db = connect().await;
+    let _guard = ADMISSION_LOCK.lock().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(
+        &db,
+        user_id,
+        &[json!({"external_id": "cancel-paused"})],
+        &format!("cancel-paused-{}", Uuid::new_v4()),
+    )
+    .await;
+
+    db.claim_items_fast(10).await.expect("claim the parent");
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("pause the running parent")
+    );
+    let paused = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the paused projection");
+    assert_eq!(paused.pause_state, "pausing");
+    assert!(paused.paused_at.is_none());
+
+    assert!(
+        db.cancel_task(task_id, user_id)
+            .await
+            .expect("cancel the paused task"),
+        "the owner cancels its paused task"
+    );
+
+    let terminal = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the terminal projection");
+    assert_eq!(terminal.pause_state, "unpaused");
+    assert!(terminal.paused_at.is_none());
+    assert_eq!(terminal.item_status, "cancelled");
+
+    let parent = sqlx::query_file!("tests/sql/task_execution/read_parent_status.sql", task_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the parent status");
+    assert_eq!(parent.status, "cancelled");
+
+    cleanup(&db, &[task_id], user_id).await;
+
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(
+        &db,
+        user_id,
+        &[json!({"external_id": "finish-pausing"})],
+        &format!("finish-pausing-{}", Uuid::new_v4()),
+    )
+    .await;
+    let item = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim the parent")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the item is claimed");
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("request pause")
+    );
+    assert!(
+        db.finish_task_item(FinishTaskItemRequest {
+            task_id,
+            item_id: item.id,
+            status: "succeeded",
+            resource_id: None,
+            failure_stage: None,
+            error_message: None,
+            retryable: true,
+            execution: item.execution_context().expect("captured execution"),
+            attempt_id: item.attempt_id,
+        })
+        .await
+        .expect("finish while pause is requested")
+    );
+    let terminal = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read finished projection");
+    assert_eq!(terminal.item_status, "succeeded");
+    assert_eq!(terminal.pause_state, "unpaused");
+    assert!(terminal.paused_at.is_none());
+    let parent = sqlx::query_file!("tests/sql/task_execution/read_parent_status.sql", task_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read finished parent");
+    assert_eq!(parent.status, "succeeded");
+    cleanup(&db, &[task_id], user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_outsider_cannot_pause_or_resume_a_task() {
+    let db = connect().await;
+    let _guard = ADMISSION_LOCK.lock().await;
+    let owner_id = seed_test_user(&db).await;
+    let outsider_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = seed_task(
+        &db,
+        owner_id,
+        &[json!({"external_id": "permission"})],
+        &format!("pause-permission-{}", Uuid::new_v4()),
+    )
+    .await;
+
+    assert!(
+        !db.request_task_pause(task_id, outsider_id, false)
+            .await
+            .expect("refuse the outsider pause"),
+        "an outsider cannot pause the task"
+    );
+    assert!(
+        db.request_task_pause(task_id, owner_id, false)
+            .await
+            .expect("pause the task"),
+        "the owner pauses the task"
+    );
+    assert!(
+        !db.request_task_resume(task_id, outsider_id, false)
+            .await
+            .expect("refuse the outsider resume"),
+        "an outsider cannot resume the task"
+    );
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the paused projection");
+    assert_eq!(projection.pause_state, "paused");
+
+    cleanup(&db, &[task_id], owner_id).await;
+    sqlx::query_file!("tests/sql/task_execution/delete_user.sql", outsider_id)
+        .execute(db.pool())
+        .await
+        .expect("clean up the outsider");
+}

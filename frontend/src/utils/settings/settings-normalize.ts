@@ -39,6 +39,17 @@ export function normalizeRuntimePayload(
         max_request_chars: Number(value.embedding.batching.max_request_chars),
         max_request_bytes: Number(value.embedding.batching.max_request_bytes),
       },
+      input_policy: {
+        tokenizer: value.embedding.input_policy.tokenizer,
+        tokenizer_sha256: value.embedding.input_policy.tokenizer_sha256 ?? null,
+        max_input_tokens:
+          value.embedding.input_policy.max_input_tokens == null
+            ? null
+            : Number(value.embedding.input_policy.max_input_tokens),
+        document_server_prefix: value.embedding.input_policy.document_server_prefix,
+        query_server_prefix: value.embedding.input_policy.query_server_prefix,
+        add_special_tokens: value.embedding.input_policy.add_special_tokens,
+      },
     },
     scheduler: {
       interval_secs: Number(value.scheduler.interval_secs),
@@ -52,6 +63,7 @@ export function normalizeRuntimePayload(
       overlap_chars: Number(value.chunking.overlap_chars),
       unit: value.chunking.unit,
       tokenizer: value.chunking.tokenizer,
+      tokenizer_sha256: value.chunking.tokenizer_sha256 ?? null,
       max_tokens: Number(value.chunking.max_tokens),
       overlap_tokens: Number(value.chunking.overlap_tokens),
     },

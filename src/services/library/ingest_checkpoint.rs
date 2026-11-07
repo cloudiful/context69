@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 
 use super::ingest_batches::ChunkBatchIter;
 use super::ingest_types::PreparedIngestSection;
-use crate::chunking::{ChunkBudget, ChunkingError, chunk_document_iter_with_budget};
+use crate::chunking::{ChunkingError, chunk_document_iter_resolved};
 
 /// Stable JSON key reserved for the indexing checkpoint inside the task item
 /// payload. Other callers should never read or write this key.
@@ -208,11 +208,11 @@ pub struct PreparedIngestTotals {
 /// what keeps a resumed run's completed count equal to the batches it skipped.
 pub fn count_prepared_ingest_totals(
     prepared: &[PreparedIngestSection],
-    chunking: &ChunkBudget,
+    chunking: &crate::chunking::ResolvedChunkBudget,
 ) -> Result<PreparedIngestTotals, ChunkingError> {
     let mut totals = PreparedIngestTotals::default();
     for section in prepared {
-        let chunks = chunk_document_iter_with_budget(
+        let chunks = chunk_document_iter_resolved(
             0,
             super::FILE_LIBRARY_SOURCE_KEY,
             &section.normalized,
@@ -231,6 +231,7 @@ pub fn count_prepared_ingest_totals(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chunking::ChunkBudget;
     use crate::domain::NormalizedDocument;
     use serde_json::json;
 
@@ -335,6 +336,12 @@ mod tests {
         assert!(err.to_string().contains("total batches"));
     }
 
+    fn resolved_budget(cfg: &ChunkBudget) -> crate::chunking::ResolvedChunkBudget {
+        crate::chunking::ChunkingRuntime::new(cfg.clone())
+            .resolve(cfg)
+            .expect("resolve the static test budget")
+    }
+
     #[test]
     fn count_prepared_ingest_totals_matches_chunking_rules() {
         let cfg = ChunkBudget::chars(crate::chunking::ChunkingConfig {
@@ -343,7 +350,7 @@ mod tests {
         });
         let prepared = vec![section("hash", "hi")];
         assert!(
-            count_prepared_ingest_totals(&prepared, &cfg)
+            count_prepared_ingest_totals(&prepared, &resolved_budget(&cfg))
                 .expect("totals")
                 .total_batches
                 >= 1
@@ -359,7 +366,8 @@ mod tests {
         // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
         // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
         let body = vec!["x".repeat(60); 33].join("\n\n");
-        let first = count_prepared_ingest_totals(&[section("hash", &body)], &cfg).expect("totals");
+        let first = count_prepared_ingest_totals(&[section("hash", &body)], &resolved_budget(&cfg))
+            .expect("totals");
         assert_eq!(
             first.total_batches, 2,
             "fixture must cross the chunk-count boundary"
@@ -367,7 +375,7 @@ mod tests {
 
         let both = count_prepared_ingest_totals(
             &[section("hash", &body), section("hash-b", "short")],
-            &cfg,
+            &resolved_budget(&cfg),
         )
         .expect("totals");
         assert_eq!(
@@ -390,7 +398,9 @@ mod tests {
         // 33 paragraphs of 60 chars each overflow the 100-char chunking budget
         // pairwise, so chunking yields 33 chunks => 32 + 1 batches.
         let body = vec!["x".repeat(60); 33].join("\n\n");
-        let totals = count_prepared_ingest_totals(&[section("hash", &body)], &cfg).expect("totals");
+        let totals =
+            count_prepared_ingest_totals(&[section("hash", &body)], &resolved_budget(&cfg))
+                .expect("totals");
         assert_eq!(
             totals.total_batches, 2,
             "fixture must cross the count boundary"
@@ -403,7 +413,8 @@ mod tests {
         // A document that produces no chunks has a real total of zero, which
         // is not the same as an unknown total.
         assert_eq!(
-            count_prepared_ingest_totals(&[section("hash", "")], &cfg).expect("totals"),
+            count_prepared_ingest_totals(&[section("hash", "")], &resolved_budget(&cfg))
+                .expect("totals"),
             PreparedIngestTotals::default()
         );
     }

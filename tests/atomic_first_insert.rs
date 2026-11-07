@@ -1007,10 +1007,11 @@ mod atomic_first_insert_cases {
             mode: ChunkBudgetMode::Tokens,
             chars: ChunkingConfig::default(),
             tokens: Some(TokenBudget {
-                tokenizer: TokenizerKind::Cl100kBase,
+                tokenizer: TokenizerKind::Cl100kBase.into(),
                 max_tokens: 8,
                 overlap_tokens: 2,
             }),
+            input_policy: None,
         };
         let current: serde_json::Value =
             sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")

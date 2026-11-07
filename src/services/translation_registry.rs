@@ -23,7 +23,7 @@ use uuid::Uuid;
 use crate::chunk_payload::{
     ChunkRef, PayloadDocument, PayloadGroup, PayloadLocale, translated_chunk,
 };
-use crate::chunking::{ChunkBudget, chunk_document_iter_with_budget};
+use crate::chunking::{ResolvedChunkBudget, chunk_document_iter_resolved};
 use crate::contracts::Visibility;
 use crate::db::Database;
 use crate::domain::{ChunkPayload, SourceRecord};
@@ -44,7 +44,7 @@ pub(crate) struct Publication<'a> {
     pub db: &'a Database,
     pub store: &'a TranslationStore,
     pub snapshot: &'a VectorSnapshot,
-    pub chunking: &'a ChunkBudget,
+    pub chunking: &'a ResolvedChunkBudget,
     /// The narrowing of the persisted registry capacity policy this
     /// publication admits under.
     pub quota: crate::db::RegistryQuotaOverride,
@@ -79,7 +79,8 @@ pub(crate) async fn publish_translation(
 
     admit(handles, file_id, version, plan.generation, &staged_ids).await?;
 
-    if let Err(error) = write_points(handles.snapshot, &plan).await {
+    if let Err(error) = write_points(handles.snapshot, &plan, handles.chunking.input_policy()).await
+    {
         abandon_staging(
             handles.db,
             version.id,
@@ -157,7 +158,7 @@ async fn plan(
         "translation:{}:{}",
         translation.source_key, translation.target_locale
     );
-    let chunks = chunk_document_iter_with_budget(
+    let chunks = chunk_document_iter_resolved(
         translation.document_id,
         &chunk_source_key,
         &normalized,
@@ -304,13 +305,23 @@ async fn admit(
 }
 
 /// Embeds and writes every staged point insert-only, then verifies identity.
-async fn write_points(snapshot: &VectorSnapshot, plan: &PlannedTranslation) -> Result<()> {
+async fn write_points(
+    snapshot: &VectorSnapshot,
+    plan: &PlannedTranslation,
+    input_policy: Option<&crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
+) -> Result<()> {
     let texts: Vec<String> = plan
         .payloads
         .iter()
         .map(|payload| payload.chunk_text.clone())
         .collect();
-    let embeddings = snapshot.embedding.embed_texts(&texts).await?;
+    let embeddings = snapshot
+        .embedding
+        .embed_texts_with_policy(
+            &texts,
+            crate::embedding::InputPolicySelection::Pinned(input_policy),
+        )
+        .await?;
     ensure!(
         embeddings.len() == plan.payloads.len(),
         "the embedding provider returned the wrong vector count"

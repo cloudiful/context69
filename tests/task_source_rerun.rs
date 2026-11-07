@@ -367,10 +367,11 @@ mod source_rerun_cases {
             mode: ChunkBudgetMode::Tokens,
             chars: ChunkingConfig::default(),
             tokens: Some(TokenBudget {
-                tokenizer: TokenizerKind::Cl100kBase,
+                tokenizer: TokenizerKind::Cl100kBase.into(),
                 max_tokens: 4,
                 overlap_tokens: 1,
             }),
+            input_policy: None,
         };
         // The live budget a successful settings save activates; the fork is
         // created through the same service action a user triggers.
@@ -404,10 +405,11 @@ mod source_rerun_cases {
             mode: ChunkBudgetMode::Tokens,
             chars: ChunkingConfig::default(),
             tokens: Some(TokenBudget {
-                tokenizer: TokenizerKind::Cl100kBase,
+                tokenizer: TokenizerKind::Cl100kBase.into(),
                 max_tokens: 0,
                 overlap_tokens: 0,
             }),
+            input_policy: None,
         };
         let invalid_zero_chars = ChunkBudget::chars(ChunkingConfig {
             max_chars: 0,

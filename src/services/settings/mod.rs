@@ -405,6 +405,27 @@ impl SettingsService {
         request: &UpdateRuntimeSettingsRequest,
     ) -> Result<RuntimeSettingsResponse> {
         settings_validate::runtime_settings_request(request)?;
+        if request.embedding.input_policy.tokenizer
+            == context69_contracts::settings::EmbeddingTokenizer::HfLocal
+        {
+            let sha256 = request
+                .embedding
+                .input_policy
+                .tokenizer_sha256
+                .as_deref()
+                .unwrap_or_default();
+            crate::chunking::chunking_token_artifact::require_installed(sha256)
+                .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
+        }
+        if request.chunking.tokenizer == context69_contracts::settings::ChunkingTokenizer::HfLocal {
+            let sha256 = request
+                .chunking
+                .tokenizer_sha256
+                .as_deref()
+                .unwrap_or_default();
+            crate::chunking::chunking_token_artifact::require_installed(sha256)
+                .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
+        }
 
         // Saves are serialized across clones, so the identity decision, the
         // settings transaction, and the hot apply are one ordered operation.
@@ -496,6 +517,7 @@ impl SettingsService {
                 dimensions: request.embedding.dimensions,
                 timeout: std::time::Duration::from_secs(request.embedding.timeout_secs),
                 batching: request.embedding.batching,
+                input_policy: request.embedding.input_policy.clone(),
             })?),
             None => None,
         };
@@ -554,7 +576,11 @@ impl SettingsService {
         // success and before any later submission can read it. Existing tasks
         // keep the snapshot they pinned; only new submissions see this value.
         if let Some(applier) = &self.runtime_chunking_applier {
-            applier(runtime_mappers::chunk_budget(&request.chunking));
+            let mut chunk_budget = runtime_mappers::chunk_budget(&request.chunking);
+            if !request.embedding.input_policy.is_default() {
+                chunk_budget.input_policy = Some(request.embedding.input_policy.clone());
+            }
+            applier(chunk_budget);
         }
 
         // A confirmed same-space transition reports success only once the live
@@ -1092,6 +1118,7 @@ mod tests {
                 api_key: None,
                 confirm_vector_space_unchanged: false,
                 batching: Default::default(),
+                input_policy: Default::default(),
             },
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,
@@ -1105,6 +1132,7 @@ mod tests {
                 overlap_chars: 200,
                 unit: ChunkingUnit::Chars,
                 tokenizer: ChunkingTokenizer::Cl100kBase,
+                tokenizer_sha256: None,
                 max_tokens: 1024,
                 overlap_tokens: 128,
             },

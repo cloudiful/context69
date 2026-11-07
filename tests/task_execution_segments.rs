@@ -497,3 +497,233 @@ async fn a_deterministic_failure_closes_the_captured_segment_without_a_retry() {
 
     cleanup(&db, task_id, user_id).await;
 }
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_pause_parks_the_attempt_without_spending_the_attempt_budget() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+    let item = claim_head(&db, task_id).await;
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("request the pause"),
+        "the owner pauses the active parent"
+    );
+
+    let before = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the running projection");
+    assert_eq!(before.pause_state, "pausing");
+    assert_eq!(before.item_status, "running");
+    assert_eq!(before.attempt_count, 1);
+    assert_eq!(before.paused_attempts, 0);
+
+    assert!(
+        !db.park_paused_item(&stale_execution(&execution), task_id)
+            .await
+            .expect("reject a stale pause fence"),
+        "a stale generation cannot park the current attempt"
+    );
+    assert!(
+        db.park_paused_item(&execution, task_id)
+            .await
+            .expect("park the paused attempt"),
+        "the captured attempt parks at its safe checkpoint"
+    );
+
+    let after = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the parked projection");
+    assert_eq!(after.pause_state, "paused");
+    assert_eq!(after.item_status, "queued");
+    assert_eq!(
+        after.attempt_count, 1,
+        "the physical attempt stays recorded"
+    );
+    assert_eq!(
+        after.paused_attempts, 1,
+        "only the parked attempt is exempt"
+    );
+    assert!(
+        after.next_attempt_at.is_none(),
+        "a paused item carries no backoff"
+    );
+
+    let attempt = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_attempt.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the sealed attempt");
+    assert_eq!(attempt.status, "paused");
+    assert!(attempt.failure_stage.is_none());
+    assert!(attempt.error_message.is_none());
+
+    cleanup(&db, task_id, user_id).await;
+
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "withdraw"})]).await;
+    let item = claim_head(&db, task_id).await;
+    let execution = item.execution_context().expect("captured execution");
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("request pause")
+    );
+    assert!(
+        db.request_task_resume(task_id, user_id, false)
+            .await
+            .expect("withdraw pause")
+    );
+    assert!(
+        db.park_paused_item(&execution, task_id)
+            .await
+            .expect("park the in-flight checkpoint")
+    );
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read withdrawn projection");
+    assert_eq!(projection.pause_state, "unpaused");
+    assert_eq!(projection.item_status, "queued");
+    let resumed = claim_head(&db, task_id).await;
+    assert_eq!(
+        resumed
+            .execution_context()
+            .expect("resumed execution")
+            .task_id(),
+        execution.task_id()
+    );
+    cleanup(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_resume_claims_the_same_segment_without_resetting_the_budget() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+    let item = claim_head(&db, task_id).await;
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    let segment = execution.task_id();
+
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("request the pause")
+    );
+    assert!(
+        db.park_paused_item(&execution, task_id)
+            .await
+            .expect("park the paused attempt")
+    );
+    assert!(
+        db.request_task_resume(task_id, user_id, false)
+            .await
+            .expect("resume the paused parent")
+    );
+
+    let resumed = claim_head(&db, task_id).await;
+    let resumed_execution = resumed
+        .execution_context()
+        .expect("the resumed item carries its captured execution");
+    assert_eq!(
+        resumed_execution.task_id(),
+        segment,
+        "a resume continues the parked segment instead of minting a new one"
+    );
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the resumed projection");
+    assert_eq!(projection.pause_state, "unpaused");
+    assert_eq!(projection.item_status, "running");
+    assert_eq!(projection.attempt_count, 2);
+    assert_eq!(projection.paused_attempts, 1);
+    assert_eq!(
+        projection.attempt_count - projection.paused_attempts,
+        1,
+        "the effective failure usage is not reset by the resume"
+    );
+
+    cleanup(&db, task_id, user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_cancel_requested_before_the_park_wins_over_the_pause() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let (task_id, item_ids) = seed_task(&db, user_id, &[json!({"external_id": "a"})]).await;
+    let item = claim_head(&db, task_id).await;
+    let execution = item
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("request the pause")
+    );
+    assert!(
+        db.cancel_task(task_id, user_id)
+            .await
+            .expect("cancel the task"),
+        "the owner cancels the paused task"
+    );
+
+    assert!(
+        !db.park_paused_item(&execution, task_id)
+            .await
+            .expect("a lost park is not an error"),
+        "the cancellation owns the outcome, so the park is refused"
+    );
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the cancelled projection");
+    assert_eq!(projection.item_status, "cancelled");
+    assert_eq!(projection.paused_attempts, 0);
+
+    let attempt = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_attempt.sql",
+        item_ids[0]
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the cancelled attempt");
+    assert_ne!(attempt.status, "paused");
+
+    cleanup(&db, task_id, user_id).await;
+}

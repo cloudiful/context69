@@ -62,8 +62,9 @@ WITH to_exhaust AS (
                 AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
             )
         )
+      AND task.pause_state = 'unpaused'
       AND item.status IN ('queued', 'waiting')
-      AND item.attempt_count >= 5
+      AND (item.attempt_count - item.paused_attempts) >= 5
       AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
     FOR UPDATE OF item
 ), exhausted AS (
@@ -273,13 +274,14 @@ WITH to_exhaust AS (
             AND NOT EXISTS (SELECT 1 FROM expired_workers revoked WHERE revoked.id = item.id)
       )
       AND (
-          EXISTS (SELECT 1 FROM expired_workers revoked WHERE revoked.task_id = task.id)
+          task.pause_state <> 'unpaused'
+          OR EXISTS (SELECT 1 FROM expired_workers revoked WHERE revoked.task_id = task.id)
           OR NOT EXISTS (
               SELECT 1
               FROM context69.task_items item
               WHERE item.task_id = task.id
                 AND item.status IN ('queued', 'running', 'waiting')
-                AND item.attempt_count < 5
+                AND (item.attempt_count - item.paused_attempts) < 5
           )
       )
     RETURNING task.id

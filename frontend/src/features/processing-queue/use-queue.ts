@@ -224,6 +224,8 @@ export interface QueueState {
   selectAllMatching: () => void;
   runBulkAction: (action: QueueBulkAction) => void;
   recoverTask: (task: TaskResponse) => void;
+  pauseTask: (task: TaskResponse) => void;
+  resumeTask: (task: TaskResponse) => void;
   rerunTask: (task: TaskResponse) => void;
   cancelTask: (task: TaskResponse) => void;
   confirmTrashTask: (task: TaskResponse) => void;
@@ -685,7 +687,39 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     }
   }, [beginAction, endAction, refetchFocusedTask, reload, t]);
 
+  const pauseTask = useCallback((task: TaskResponse) => {
+    if (!ACTIVE_STATUSES.includes(task.status) || (task.pause_state ?? "unpaused") !== "unpaused" || actionIds.includes(task.task_id)) {
+      return;
+    }
+    void runTaskAction(
+      task,
+      () => apiClient.pauseTask(task.task_id),
+      "processingQueue.pauseAccepted",
+      "processingQueue.pauseFailed",
+    );
+  }, [actionIds, runTaskAction]);
+
+  const resumeTask = useCallback((task: TaskResponse) => {
+    if (!ACTIVE_STATUSES.includes(task.status) || (task.pause_state ?? "unpaused") === "unpaused" || actionIds.includes(task.task_id)) {
+      return;
+    }
+    void runTaskAction(
+      task,
+      () => apiClient.resumeTask(task.task_id),
+      "processingQueue.resumePausedAccepted",
+      "processingQueue.resumePausedFailed",
+    );
+  }, [actionIds, runTaskAction]);
+
   const recoverTask = useCallback((task: TaskResponse) => {
+    if (ACTIVE_STATUSES.includes(task.status)) {
+      if ((task.pause_state ?? "unpaused") === "unpaused") {
+        pauseTask(task);
+      } else {
+        resumeTask(task);
+      }
+      return;
+    }
     if (!isRecoverableTask(task) || actionIds.includes(task.task_id)) {
       return;
     }
@@ -699,7 +733,7 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
       // would hide the row the user just recovered.
       { clearStatusOnSuccess: resumed },
     );
-  }, [actionIds, runTaskAction]);
+  }, [actionIds, pauseTask, resumeTask, runTaskAction]);
 
   /**
    * Reprocess a succeeded task from its current source. The server creates a
@@ -1157,6 +1191,8 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     selectAllMatching,
     runBulkAction: requestBulkAction,
     recoverTask,
+    pauseTask,
+    resumeTask,
     rerunTask,
     cancelTask,
     confirmTrashTask,

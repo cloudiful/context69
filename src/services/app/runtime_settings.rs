@@ -60,6 +60,7 @@ pub async fn import_legacy_runtime_if_needed(
             dimensions: config.embedding.dimensions,
             timeout_secs: config.embedding.timeout.as_secs(),
             batching: config.embedding.batching,
+            input_policy: config.embedding.input_policy.clone(),
         },
         scheduler: crate::db::StoredRuntimeSchedulerSettings {
             interval_secs: config.scheduler.interval.as_secs(),
@@ -72,7 +73,12 @@ pub async fn import_legacy_runtime_if_needed(
             max_chars: config.chunking.max_chars,
             overlap_chars: config.chunking.overlap_chars,
             unit: config.chunking.unit,
-            tokenizer: config.chunking.tokenizer,
+            tokenizer: match &config.chunking.tokenizer_sha256 {
+                Some(sha256) => crate::chunking::chunking_token::TokenizerRef::HfLocal {
+                    sha256: sha256.clone(),
+                },
+                None => config.chunking.tokenizer.into(),
+            },
             max_tokens: config.chunking.max_tokens,
             overlap_tokens: config.chunking.overlap_tokens,
         },
@@ -262,6 +268,7 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
         dimensions: runtime.embedding.dimensions,
         timeout: Duration::from_secs(runtime.embedding.timeout_secs),
         batching: runtime.embedding.batching,
+        input_policy: runtime.embedding.input_policy.clone(),
     };
     config.scheduler = SchedulerConfig {
         interval: Duration::from_secs(runtime.scheduler.interval_secs),
@@ -272,8 +279,10 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
         execution_guard_ttl: config.scheduler.execution_guard_ttl,
         execution_guard_renew_interval: config.scheduler.execution_guard_renew_interval,
     };
-    config.chunking =
-        ChunkingBudgetConfig::from_chunk_budget(&stored_chunk_budget(&runtime.chunking));
+    config.chunking = ChunkingBudgetConfig::from_chunk_budget(
+        &stored_chunk_budget(&runtime.chunking),
+        config.chunking.tokenizer_artifact_dir.clone(),
+    );
     config.file_library = FileLibraryConfig {
         storage_root: PathBuf::from(&runtime.file_library.storage_root),
         max_upload_size_mb: runtime.file_library.max_upload_size_mb,

@@ -84,6 +84,41 @@ impl TaskStatus {
     }
 }
 
+/// Cooperative pause state of one parent task.
+///
+/// It is independent of [`TaskStatus`]: a queued task stays queued while
+/// paused, and a running task enters `pausing` until its current attempt parks
+/// at a safe checkpoint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskPauseState {
+    /// No pause was requested, or the task was resumed.
+    Unpaused,
+    /// A running attempt will park at its next safe checkpoint.
+    Pausing,
+    /// The task is intentionally parked and is not admitted.
+    Paused,
+}
+
+impl TaskPauseState {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Unpaused => "unpaused",
+            Self::Pausing => "pausing",
+            Self::Paused => "paused",
+        }
+    }
+
+    pub fn from_wire(value: &str) -> Option<Self> {
+        match value {
+            "unpaused" => Some(Self::Unpaused),
+            "pausing" => Some(Self::Pausing),
+            "paused" => Some(Self::Paused),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskItemStatus {
@@ -153,6 +188,11 @@ pub struct TaskResponse {
     pub stage: Option<String>,
     pub waiting_reason: Option<String>,
     pub dependency_key: Option<String>,
+    /// The cooperative pause state of this parent task. Missing means the
+    /// legacy `unpaused` default.
+    pub pause_state: Option<TaskPauseState>,
+    /// When the pause last became effective; `None` while unpaused.
+    pub paused_at: Option<DateTime<Utc>>,
     pub progress: TaskProgress,
     pub failure_stage: Option<String>,
     pub error_summary: Option<String>,

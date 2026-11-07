@@ -624,6 +624,27 @@ export function summarizeQueueBulkOutcomes(
  * `retryable` flag is never consulted here, so a row whose item payload says
  * `retryable: false` still offers the manual action and the server decides.
  */
+/**
+ * Whether the parent task carries an actionable cooperative pause request. A
+ * running task may still be `pausing` while its current attempt parks at a safe
+ * checkpoint, but a terminal task never shows an actionable pause: a historic
+ * malformed terminal row must not offer a pause or resume. The backend clears
+ * the projection as the primary repair; this predicate is the display guard.
+ */
+export function isPauseRequested(task: TaskResponse): boolean {
+  return ACTIVE_STATUSES.includes(task.status) && (task.pause_state ?? "unpaused") !== "unpaused";
+}
+
+/** A task that can accept a new pause request now. */
+export function canPauseTask(task: TaskResponse): boolean {
+  return ACTIVE_STATUSES.includes(task.status) && (task.pause_state ?? "unpaused") === "unpaused";
+}
+
+/** A task whose pause can be withdrawn now. */
+export function canResumeTask(task: TaskResponse): boolean {
+  return ACTIVE_STATUSES.includes(task.status) && (task.pause_state ?? "unpaused") !== "unpaused";
+}
+
 export function isRecoverableTask(task: TaskResponse): boolean {
   return task.status === "failed" || task.status === "cancelled";
 }

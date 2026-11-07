@@ -11,7 +11,7 @@
 -- generation of the segment and `$4` the domain parent task the segment was
 -- produced for.
 WITH target AS (
-    SELECT item.id, item.task_id, item.attempt_count
+    SELECT item.id, item.task_id, item.attempt_count, item.paused_attempts
     FROM context69.task_items item
     WHERE item.id = $1
       AND item.execution_task_id = $2
@@ -33,7 +33,7 @@ interrupted AS (
 ),
 requeued AS (
     UPDATE context69.task_items item
-    SET status = CASE WHEN target.attempt_count < 5 THEN 'queued' ELSE 'failed' END,
+    SET status = CASE WHEN (target.attempt_count - target.paused_attempts) < 5 THEN 'queued' ELSE 'failed' END,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = NULL,

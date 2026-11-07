@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use crate::chunking::ChunkBudgetMode;
-use crate::chunking::chunking_token::TokenizerKind;
+use crate::chunking::chunking_token::TokenizerRef;
 use crate::contracts::settings::EmbeddingBatchingSettings;
 use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
@@ -37,10 +37,29 @@ fn stored_chunking_unit(value: &str) -> Result<ChunkBudgetMode> {
 }
 
 /// The tokenizer a persisted row names.
-fn stored_chunking_tokenizer(value: &str) -> Result<TokenizerKind> {
-    TokenizerKind::from_name(value).ok_or_else(|| {
-        anyhow::anyhow!("the persisted chunking tokenizer {value:?} is not supported")
-    })
+fn stored_chunking_tokenizer(value: &str, sha256: Option<String>) -> Result<TokenizerRef> {
+    match value {
+        "hf_local" => {
+            let sha256 = sha256.ok_or_else(|| {
+                anyhow::anyhow!("the persisted hf_local chunking tokenizer carries no sha256")
+            })?;
+            let reference = TokenizerRef::HfLocal { sha256 };
+            reference.validate().map_err(anyhow::Error::from)?;
+            Ok(reference)
+        }
+        other => {
+            let kind = crate::chunking::chunking_token::TokenizerKind::from_name(other)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("the persisted chunking tokenizer {other:?} is not supported")
+                })?;
+            if sha256.is_some() {
+                anyhow::bail!(
+                    "the persisted chunking tokenizer {other:?} carries an artifact hash"
+                );
+            }
+            Ok(kind.into())
+        }
+    }
 }
 
 /// The batching limits a persisted row describes.
@@ -130,6 +149,31 @@ impl Database {
         let quota = self.read_registry_quota().await?;
 
         let embedding_batching = stored_embedding_batching(&embedding)?;
+        let input_tokenizer = context69_contracts::settings::EmbeddingTokenizer::from_name(
+            &embedding.input_tokenizer,
+        )
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "the persisted embedding input tokenizer {:?} is not supported",
+                embedding.input_tokenizer
+            )
+        })?;
+        let input_policy = context69_contracts::settings::EmbeddingInputPolicy {
+            tokenizer: input_tokenizer,
+            tokenizer_sha256: embedding.input_tokenizer_sha256,
+            max_input_tokens: embedding
+                .max_input_tokens
+                .map(|max| {
+                    usize::try_from(max).context("embedding max_input_tokens must be non-negative")
+                })
+                .transpose()?,
+            document_server_prefix: embedding.document_server_prefix,
+            query_server_prefix: embedding.query_server_prefix,
+            add_special_tokens: embedding.add_special_tokens,
+        };
+        input_policy.validate().map_err(|reason| {
+            anyhow::anyhow!("the persisted embedding input policy is invalid: {reason}")
+        })?;
         Ok(Some(StoredRuntimeSettings {
             qdrant: StoredRuntimeQdrantSettings {
                 url: qdrant.url,
@@ -151,6 +195,7 @@ impl Database {
                 timeout_secs: u64::try_from(embedding.timeout_secs)
                     .context("runtime embedding timeout_secs must be non-negative")?,
                 batching: embedding_batching,
+                input_policy,
             },
             scheduler: StoredRuntimeSchedulerSettings {
                 interval_secs: u64::try_from(scheduler.interval_secs)
@@ -167,7 +212,10 @@ impl Database {
                 overlap_chars: usize::try_from(chunking.overlap_chars)
                     .context("runtime chunking overlap_chars must be non-negative")?,
                 unit: stored_chunking_unit(&chunking.unit)?,
-                tokenizer: stored_chunking_tokenizer(&chunking.tokenizer)?,
+                tokenizer: stored_chunking_tokenizer(
+                    &chunking.tokenizer,
+                    chunking.tokenizer_sha256,
+                )?,
                 max_tokens: usize::try_from(chunking.max_tokens)
                     .context("runtime chunking max_tokens must be non-negative")?,
                 overlap_tokens: usize::try_from(chunking.overlap_tokens)
@@ -272,6 +320,12 @@ impl Database {
         let embedding_max_request_bytes =
             i64::try_from(settings.embedding.batching.max_request_bytes)
                 .context("embedding max_request_bytes too large")?;
+        let embedding_max_input_tokens = settings
+            .embedding
+            .input_policy
+            .max_input_tokens
+            .map(|max| i64::try_from(max).context("embedding max_input_tokens too large"))
+            .transpose()?;
         let scheduler_interval_secs = i64::try_from(settings.scheduler.interval_secs)
             .context("scheduler interval too large")?;
         let scheduler_max_concurrency = i64::try_from(settings.scheduler.max_concurrency)
@@ -319,7 +373,13 @@ impl Database {
             embedding_max_items_per_request,
             embedding_max_item_chars,
             embedding_max_request_chars,
-            embedding_max_request_bytes
+            embedding_max_request_bytes,
+            embedding_max_input_tokens,
+            settings.embedding.input_policy.document_server_prefix,
+            settings.embedding.input_policy.query_server_prefix,
+            settings.embedding.input_policy.add_special_tokens,
+            settings.embedding.input_policy.tokenizer.name(),
+            settings.embedding.input_policy.tokenizer_sha256
         )
         .execute(&mut *tx)
         .await?;
@@ -340,7 +400,8 @@ impl Database {
             chunking_max_chars,
             chunking_overlap_chars,
             chunking_unit_value(&settings.chunking.unit),
-            settings.chunking.tokenizer.as_str(),
+            settings.chunking.tokenizer.name(),
+            settings.chunking.tokenizer.sha256(),
             chunking_max_tokens,
             chunking_overlap_tokens
         )

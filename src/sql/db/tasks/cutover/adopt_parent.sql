@@ -3,7 +3,7 @@
 -- A handover never touches the item of a parent that the operator deleted or
 -- that is already finished: the link would resurrect work nobody owns. The row
 -- is locked so the parent status cannot change under the handover.
-SELECT task.id
+SELECT task.id, task.pause_state
 FROM context69.tasks task
 WHERE task.id = $1
   AND task.deleted_at IS NULL

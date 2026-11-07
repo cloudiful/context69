@@ -480,3 +480,222 @@ async fn maintain_claim_state_still_exhausts_ordinary_waiting_items_at_cap() {
     cleanup_task(&db, task_id, user_id).await;
     cleanup_user(&db, user_id).await;
 }
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn maintain_claim_state_skips_a_paused_parent_at_the_physical_cap() {
+    let url = context69_test_support::accessor::database_url();
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    let user_id = seed_test_user(&db).await;
+
+    let task_id = Uuid::new_v4();
+    let (task_id, _reused, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "paused-cap"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-paused-cap-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create paused-cap task");
+    let item_id = item_ids[0];
+
+    sqlx::query(
+        "UPDATE context69.task_items \
+         SET status = 'queued', attempt_count = 5, paused_attempts = 2, \
+             next_attempt_at = NULL \
+         WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("park item at the physical cap");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'queued', pause_state = 'paused', \
+             paused_at = now() WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("pause the parent");
+
+    let paused = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds while paused");
+    assert_eq!(
+        paused.exhausted_items, 0,
+        "a paused parent at the physical cap is never exhausted"
+    );
+    let item_status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+            .bind(item_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("load paused item status");
+    assert_eq!(item_status, "queued");
+
+    sqlx::query(
+        "UPDATE context69.tasks SET pause_state = 'unpaused', paused_at = NULL WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("resume the parent");
+    let effective_budget = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds after resume");
+    assert_eq!(
+        effective_budget.exhausted_items, 0,
+        "the effective usage 5 - 2 = 3 stays claimable after resume"
+    );
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(task.failed_count, 0);
+
+    // With no parked attempts the effective usage equals the physical cap, so
+    // the next unpaused maintenance tick exhausts the item.
+    sqlx::query(
+        "UPDATE context69.task_items SET status = 'queued', paused_attempts = 0 WHERE id = $1",
+    )
+    .bind(item_id)
+    .execute(db.pool())
+    .await
+    .expect("reset paused attempts");
+    sqlx::query(
+        "UPDATE context69.tasks SET status = 'queued', pause_state = 'paused', \
+             paused_at = now() WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("pause the parent again");
+    let paused_again = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds while paused again");
+    assert_eq!(paused_again.exhausted_items, 0);
+
+    sqlx::query(
+        "UPDATE context69.tasks SET pause_state = 'unpaused', paused_at = NULL WHERE id = $1",
+    )
+    .bind(task_id)
+    .execute(db.pool())
+    .await
+    .expect("resume the parent again");
+    let exhausted = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds at the effective cap");
+    assert_eq!(
+        exhausted.exhausted_items, 1,
+        "the unpaused effective cap is exhausted"
+    );
+    let item_status: String =
+        sqlx::query_scalar("SELECT status FROM context69.task_items WHERE id = $1")
+            .bind(item_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("load exhausted item status");
+    assert_eq!(item_status, "failed");
+    let task = db
+        .get_task_internal(task_id)
+        .await
+        .expect("load task")
+        .expect("task exists");
+    assert_eq!(task.failed_count, 1);
+
+    cleanup_task(&db, task_id, user_id).await;
+    cleanup_user(&db, user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn maintain_claim_state_keeps_a_paused_running_parent_slot() {
+    let url = context69_test_support::accessor::database_url();
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    let user_id = seed_test_user(&db).await;
+
+    let task_id = Uuid::new_v4();
+    let (task_id, _reused, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: None,
+            kind: "text_batch",
+            group_path: Some("test/fast-path"),
+            source_key: None,
+            payloads: &[json!({"external_id": "paused-running"})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("fast-path-paused-running-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create paused-running task");
+    let item_id = item_ids[0];
+
+    let claimed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim the running item")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the head item is claimed");
+    assert_eq!(claimed.id, item_id);
+    let lease_before = sqlx::query!(
+        "SELECT lease_token FROM context69.tasks WHERE id = $1",
+        task_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("load parent lease")
+    .lease_token
+    .expect("the claimed parent holds a lease");
+
+    sqlx::query("UPDATE context69.tasks SET pause_state = 'pausing' WHERE id = $1")
+        .bind(task_id)
+        .execute(db.pool())
+        .await
+        .expect("mark the parent pausing");
+
+    let outcome = db
+        .maintain_claim_state()
+        .await
+        .expect("maintenance succeeds");
+    assert_eq!(
+        outcome.revoked_parent_leases, 0,
+        "a paused parent with a live running item keeps its slot"
+    );
+    let lease_after: Option<Uuid> =
+        sqlx::query_scalar("SELECT lease_token FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("reload parent lease");
+    assert_eq!(lease_after, Some(lease_before));
+
+    cleanup_task(&db, task_id, user_id).await;
+    cleanup_user(&db, user_id).await;
+}

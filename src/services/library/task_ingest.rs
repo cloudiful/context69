@@ -298,8 +298,11 @@ impl LibraryService {
                     true,
                 ));
             }
-            let budget = self.chunking_runtime.snapshot();
-            let chunks = crate::chunking::chunk_document_iter_with_budget(
+            let budget = self
+                .chunking_runtime
+                .resolve_snapshot()
+                .map_err(|error| task_failure("indexing", error, false))?;
+            let chunks = crate::chunking::chunk_document_iter_resolved(
                 document_id,
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,

@@ -1,4 +1,5 @@
 pub mod common;
+pub mod embedding;
 pub mod errors;
 pub mod pagination;
 

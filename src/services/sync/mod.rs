@@ -10,7 +10,7 @@ use tokio::sync::{OwnedMutexGuard, RwLock};
 use tracing::{error, info, warn};
 
 use crate::{
-    chunking::{ChunkBudget, ChunkingRuntime, chunk_document_with_budget},
+    chunking::{ChunkBudget, ChunkingRuntime},
     config::{SourceConfig, SyncStrategy},
     contracts::{
         SourceConfigInput, SourceConnectionResponse, SourceOriginStatusKind, SourcePageResponse,

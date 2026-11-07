@@ -210,6 +210,82 @@ async fn item_count(db: &Database, task_id: Uuid) -> i64 {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
+async fn a_cancelled_resume_clears_the_real_paused_counters_coherently() {
+    let db = scratch_db().await;
+    let user_id = seed_test_user(&db).await;
+    let (task_id, item_ids) = text_task(&db, user_id, 1).await;
+
+    let claimed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim the item")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+    assert!(
+        db.request_task_pause(task_id, user_id, false)
+            .await
+            .expect("pause the running item"),
+        "the owner pauses the running item"
+    );
+    assert!(
+        db.park_paused_item(&execution, task_id)
+            .await
+            .expect("park the paused item"),
+        "the common primitive parks the exact attempt"
+    );
+
+    let parked = sqlx::query(
+        "SELECT status, attempt_count, paused_attempts \
+         FROM context69.task_items WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .fetch_one(db.pool())
+    .await
+    .expect("read the parked counters");
+    let status: String = parked.get("status");
+    let attempt_count: i32 = parked.get("attempt_count");
+    let paused_attempts: i32 = parked.get("paused_attempts");
+    assert_eq!(status, "queued");
+    assert_eq!(attempt_count, 1);
+    assert_eq!(paused_attempts, 1);
+
+    assert!(
+        db.cancel_task(task_id, user_id)
+            .await
+            .expect("cancel the parked task"),
+        "the owner cancels the parked task"
+    );
+    let resumed = db
+        .resume_cancelled_task_items(task_id, user_id)
+        .await
+        .expect("resume the cancelled task");
+    assert_eq!(resumed, vec![item_ids[0]]);
+
+    let after = sqlx::query(
+        "SELECT attempt_count, paused_attempts \
+         FROM context69.task_items WHERE id = $1",
+    )
+    .bind(item_ids[0])
+    .fetch_one(db.pool())
+    .await
+    .expect("read the reset counters");
+    let attempt_count: i32 = after.get("attempt_count");
+    let paused_attempts: i32 = after.get("paused_attempts");
+    assert_eq!(attempt_count, 0);
+    assert_eq!(
+        paused_attempts, 0,
+        "a real reset of the attempt count also resets the paused count"
+    );
+
+    cleanup(&db, user_id, task_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn resume_reopens_the_same_task_without_inserting_a_replacement() {
     let db = scratch_db().await;
     let user_id = seed_test_user(&db).await;

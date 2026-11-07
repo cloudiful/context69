@@ -170,6 +170,7 @@ describe("runtime settings", () => {
       chunking: {
         unit: string;
         tokenizer: string;
+        tokenizer_sha256: string | null;
         max_chars: number;
         overlap_chars: number;
         max_tokens: number;
@@ -181,6 +182,7 @@ describe("runtime settings", () => {
     expect(body.chunking).toEqual({
       unit: "tokens",
       tokenizer: "cl100k_base",
+      tokenizer_sha256: null,
       max_chars: 1200,
       overlap_chars: 200,
       max_tokens: 512,
@@ -255,21 +257,6 @@ describe("vector index rebuild control", () => {
     });
     // A control is never a resubmission.
     expect(backend.callsFor("POST", "/v1/settings/runtime/vector-index/rebuild")).toHaveLength(0);
-  });
-
-  it("discovers capabilities even when the connection probe fails", async () => {
-    const backend = installFakeBackend({ fail: { testEmbedding: true } });
-    await openSettings("/settings/runtime");
-
-    await userEvent.click(screen.getByTestId("runtime-embedding-test"));
-
-    expect(
-      await screen.findByTestId("runtime-embedding-capabilities"),
-    ).toBeInTheDocument();
-    expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/capabilities")).toHaveLength(1);
-    // The discovered facts never activate or save anything on their own.
-    expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(0);
-    expect(screen.getByLabelText("Document model")).toHaveValue("embed-1");
   });
 });
 

@@ -34,6 +34,28 @@ test.describe("react processing queue", () => {
     expect(transport.unmocked).toEqual([]);
   });
 
+  test("pauses and resumes one task without touching another", async ({ page }) => {
+    const transport = await installAppTransport(page, { user: ADMIN_USER, queue });
+
+    await page.goto("/processing-queue");
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await page.getByRole("button", { name: "Pause task" }).first().click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000001/pause"
+    )).length).toBe(1);
+    await expect(page.getByText("Paused", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Cancel task" }).first()).toBeVisible();
+
+    await page.getByRole("button", { name: "Resume task" }).first().click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/tasks/a1b2c3d4-0000-4000-8000-000000000001/resume"
+    )).length).toBe(1);
+    await expect(page.getByText("Paused", { exact: true })).toHaveCount(0);
+    await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+    expect(transport.unmocked).toEqual([]);
+  });
+
   test("never shows the pause control or reads the admin queue for a member", async ({ page }) => {
     const transport = await installAppTransport(page, { user: MEMBER_USER, queue });
 

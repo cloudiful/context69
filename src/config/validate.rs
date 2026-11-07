@@ -29,6 +29,10 @@ pub(super) fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> 
             "embedding.batching limits must all be greater than 0"
         ));
     }
+    config
+        .input_policy
+        .validate()
+        .map_err(|reason| anyhow!("embedding.input_policy is invalid: {reason}"))?;
     for (name, value) in [
         (
             "max_items_per_request",
@@ -126,6 +130,16 @@ pub(super) fn validate_storage_config(
         return Err(anyhow!(
             "chunking.overlap_chars must be smaller than chunking.max_chars"
         ));
+    }
+    if let Some(sha256) = &chunking.tokenizer_sha256
+        && !crate::chunking::chunking_token_artifact::is_lower_sha256(sha256)
+    {
+        return Err(anyhow!(
+            "chunking.tokenizer_sha256 must be a lowercase 64-hex artifact hash"
+        ));
+    }
+    if chunking.tokenizer_artifact_dir.as_os_str().is_empty() {
+        return Err(anyhow!("chunking.tokenizer_artifact_dir must not be empty"));
     }
     if chunking.unit == ChunkBudgetMode::Tokens {
         if chunking.max_tokens == 0 {

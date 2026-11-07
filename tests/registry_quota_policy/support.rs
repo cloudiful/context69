@@ -10,7 +10,7 @@
 //! under.
 
 use context69::chunking::ChunkBudgetMode;
-use context69::chunking::chunking_token::TokenizerKind;
+use context69::chunking::chunking_token::TokenizerRef;
 use context69::db::{
     Database, StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
     StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeSchedulerSettings,
@@ -81,6 +81,7 @@ pub async fn runtime_settings(
             dimensions: usize::try_from(dimensions).expect("the dimensions are non-negative"),
             timeout_secs: u64::try_from(timeout_secs).expect("the timeout is non-negative"),
             batching: Default::default(),
+            input_policy: Default::default(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: 300,
@@ -93,7 +94,7 @@ pub async fn runtime_settings(
             max_chars: 1000,
             overlap_chars: 100,
             unit: ChunkBudgetMode::Chars,
-            tokenizer: TokenizerKind::Cl100kBase,
+            tokenizer: TokenizerRef::Cl100kBase,
             max_tokens: 1024,
             overlap_tokens: 128,
         },

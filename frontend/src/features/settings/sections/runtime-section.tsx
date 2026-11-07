@@ -21,6 +21,7 @@ export function RuntimeSection() {
   const { t } = useTranslation();
   const { page, vector } = useSettings();
   const { runtimeDraft, updateRuntimeDraft, updateQdrantUrl } = page;
+  const tokenizerArtifacts = page.runtimeQuery.data?.tokenizer_artifacts ?? [];
 
   return (
     <SettingsSection title={t("settings.runtime.title")}>
@@ -223,9 +224,49 @@ export function RuntimeSection() {
                     <SelectContent>
                       <SelectItem value="cl100k_base">cl100k_base</SelectItem>
                       <SelectItem value="o200k_base">o200k_base</SelectItem>
+                      <SelectItem value="hf_local">
+                        {t("settings.runtime.chunkingTokenizerHfLocal")}
+                      </SelectItem>
                     </SelectContent>
                   </Select>
                 </FormField>
+                {runtimeDraft.chunking.tokenizer === "hf_local" ? (
+                  tokenizerArtifacts.length > 0 ? (
+                    <FormField
+                      label={t("settings.runtime.chunkingTokenizerArtifact")}
+                      htmlFor="runtime-chunking-artifact"
+                      helper={t("settings.runtime.chunkingTokenizerArtifactHelper")}
+                    >
+                      <Select
+                        value={runtimeDraft.chunking.tokenizer_sha256 ?? undefined}
+                        onValueChange={(value) => updateRuntimeDraft((draft) => {
+                          draft.chunking.tokenizer_sha256 = value;
+                        })}
+                      >
+                        <SelectTrigger
+                          id="runtime-chunking-artifact"
+                          aria-label={t("settings.runtime.chunkingTokenizerArtifact")}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {tokenizerArtifacts.map((artifact) => (
+                            <SelectItem key={artifact.sha256} value={artifact.sha256}>
+                              {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  ) : (
+                    <p
+                      data-testid="runtime-chunking-artifact-empty"
+                      className="text-xs text-muted-foreground"
+                    >
+                      {t("settings.runtime.chunkingTokenizerArtifactEmpty")}
+                    </p>
+                  )
+                ) : null}
                 <NumberField
                   id="runtime-chunking-max-tokens"
                   label={t("settings.runtime.chunkingMaxTokens")}

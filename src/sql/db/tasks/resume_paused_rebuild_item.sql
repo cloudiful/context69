@@ -6,10 +6,10 @@
 -- row lock is taken on the item before the caller locks the epoch, keeping the
 -- canonical item-then-epoch order.
 --
--- The cursor and the barrier stay untouched here: the resume keeps the committed
--- progress and only restarts the collapsed item at `processing`, exactly like
--- the existing manual retry. The explicit resume resets the attempt count, so the
--- paused wait itself never spends an attempt.
+-- The cursor, the barrier and the attempt counters stay untouched here: the
+-- resume keeps the committed progress and the effective failure budget. A
+-- paused wait never spends an attempt, so no counter reset is required or
+-- allowed.
 WITH locked AS (
     SELECT item.id, item.execution_task_id
     FROM context69.task_items item
@@ -26,13 +26,15 @@ WITH locked AS (
     UPDATE context69.task_items item
     SET status = 'queued',
         stage = 'processing',
-        attempt_count = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
-        next_attempt_at = now(),
         failure_stage = NULL,
         error_message = NULL,
         retryable = TRUE,
+        -- The legacy pause parked the item a day out; that delay was only the
+        -- artificial pause wait, so the explicit resume makes it due now. No
+        -- counter is reset and no committed cursor is touched.
+        next_attempt_at = now(),
         waiting_since = NULL,
         lease_token = NULL,
         lease_until = NULL,

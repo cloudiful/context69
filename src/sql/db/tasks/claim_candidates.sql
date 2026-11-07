@@ -34,8 +34,12 @@ eligible_items AS (
     SELECT item.id, item.task_id, item.ordinal
     FROM current_items item
     JOIN context69.task_items ti ON ti.id = item.id
+    JOIN context69.tasks parent ON parent.id = item.task_id
     WHERE ti.status IN ('queued', 'waiting')
-      AND ti.attempt_count < 5
+      -- The effective failure usage is attempt_count - paused_attempts < 5;
+      -- a parked pause consumes no budget.
+      AND (ti.attempt_count - ti.paused_attempts) < 5
+      AND parent.pause_state = 'unpaused'
       AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
       -- Active remote references survive handoff: the newly leased worker
       -- adopts the recorded identity rather than submitting a replacement.
@@ -81,6 +85,7 @@ slot_candidates AS (
     WHERE (task.lease_token IS NULL OR task.lease_until IS NULL OR task.lease_until <= now())
       AND task.status IN ('queued', 'running', 'waiting')
       AND task.deleted_at IS NULL
+      AND task.pause_state = 'unpaused'
       AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())
       AND task.id IN (SELECT task_id FROM work)
     ORDER BY task.created_at, task.id
@@ -96,6 +101,7 @@ admitted_work AS (
       AND task.lease_until > now()
       AND task.status IN ('queued', 'running', 'waiting')
       AND task.deleted_at IS NULL
+      AND task.pause_state = 'unpaused'
       AND task.id IN (SELECT task_id FROM eligible_items)
 ),
 claim_targets AS (

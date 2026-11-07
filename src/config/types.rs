@@ -3,7 +3,7 @@ use std::{path::PathBuf, time::Duration};
 use anyhow::{Result, anyhow};
 use serde::{Deserialize, Serialize};
 
-use crate::chunking::chunking_token::TokenizerKind;
+use crate::chunking::chunking_token::{TokenizerKind, TokenizerRef};
 use crate::chunking::{ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget};
 use crate::docling::DoclingConfig;
 use crate::serde_helpers;
@@ -38,6 +38,10 @@ pub struct ChunkingBudgetConfig {
     pub unit: ChunkBudgetMode,
     /// Tokenizer that measures the token budget.
     pub tokenizer: TokenizerKind,
+    /// Pinned local Hugging Face artifact hash. Present selects that tokenizer.
+    pub tokenizer_sha256: Option<String>,
+    /// Local directory of verified tokenizer artifacts.
+    pub tokenizer_artifact_dir: PathBuf,
     /// Token budget of one chunk, used while the unit is `tokens`.
     pub max_tokens: usize,
     /// Token overlap between two chunks, used while the unit is `tokens`.
@@ -57,25 +61,38 @@ impl ChunkingBudgetConfig {
                 overlap_chars: self.overlap_chars,
             },
             tokens: Some(TokenBudget {
-                tokenizer: self.tokenizer,
+                tokenizer: match &self.tokenizer_sha256 {
+                    Some(sha256) => TokenizerRef::HfLocal {
+                        sha256: sha256.clone(),
+                    },
+                    None => self.tokenizer.into(),
+                },
                 max_tokens: self.max_tokens,
                 overlap_tokens: self.overlap_tokens,
             }),
+            input_policy: None,
         }
     }
 
     /// The configuration of a chunking budget.
-    pub fn from_chunk_budget(budget: &ChunkBudget) -> Self {
+    pub fn from_chunk_budget(budget: &ChunkBudget, tokenizer_artifact_dir: PathBuf) -> Self {
         let tokens = budget.tokens.clone().unwrap_or(TokenBudget {
-            tokenizer: TokenizerKind::Cl100kBase,
+            tokenizer: TokenizerRef::Cl100kBase,
             max_tokens: default_chunking_max_tokens(),
             overlap_tokens: default_chunking_overlap_tokens(),
         });
+        let (tokenizer, tokenizer_sha256) = match &tokens.tokenizer {
+            TokenizerRef::HfLocal { sha256 } => (TokenizerKind::Cl100kBase, Some(sha256.clone())),
+            TokenizerRef::Cl100kBase => (TokenizerKind::Cl100kBase, None),
+            TokenizerRef::O200kBase => (TokenizerKind::O200kBase, None),
+        };
         Self {
             max_chars: budget.chars.max_chars,
             overlap_chars: budget.chars.overlap_chars,
             unit: budget.mode,
-            tokenizer: tokens.tokenizer,
+            tokenizer,
+            tokenizer_sha256,
+            tokenizer_artifact_dir,
             max_tokens: tokens.max_tokens,
             overlap_tokens: tokens.overlap_tokens,
         }
@@ -159,6 +176,9 @@ pub struct EmbeddingConfig {
     /// The manual limits of the embedding request planner.
     #[serde(default)]
     pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
+    /// The explicit input-token envelope and server-added prefixes.
+    #[serde(default)]
+    pub input_policy: context69_contracts::settings::EmbeddingInputPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

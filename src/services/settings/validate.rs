@@ -11,9 +11,9 @@ use crate::{
     db::StoredSearchSettings,
 };
 
-use context69_contracts::settings::ChunkingUnit;
 use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
 use context69_contracts::settings::EmbeddingBatchingSettings;
+use context69_contracts::settings::{ChunkingTokenizer, ChunkingUnit};
 
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
     if request.qdrant.url.trim().is_empty() {
@@ -48,6 +48,15 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         .into());
     }
     embedding_batching_request(&request.embedding.batching)?;
+    request
+        .embedding
+        .input_policy
+        .validate()
+        .map_err(|reason| {
+            DomainError::invalid_argument(format!(
+                "runtime.embedding.input_policy is invalid: {reason}"
+            ))
+        })?;
     if request.scheduler.interval_secs == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.scheduler.interval_secs must be greater than 0",
@@ -95,6 +104,33 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
             i64::MAX
         ))
         .into());
+    }
+    match request.chunking.tokenizer {
+        ChunkingTokenizer::HfLocal => {
+            let sha256 = request
+                .chunking
+                .tokenizer_sha256
+                .as_deref()
+                .ok_or_else(|| {
+                    DomainError::invalid_argument(
+                        "runtime.chunking.tokenizer_sha256 is required for hf_local",
+                    )
+                })?;
+            if !crate::chunking::chunking_token_artifact::is_lower_sha256(sha256) {
+                return Err(DomainError::invalid_argument(
+                    "runtime.chunking.tokenizer_sha256 must be a lowercase 64-hex artifact hash",
+                )
+                .into());
+            }
+        }
+        _ => {
+            if request.chunking.tokenizer_sha256.is_some() {
+                return Err(DomainError::invalid_argument(
+                    "runtime.chunking.tokenizer_sha256 must be absent for a built-in tokenizer",
+                )
+                .into());
+            }
+        }
     }
     if request.chunking.unit == ChunkingUnit::Tokens {
         if request.chunking.max_tokens == 0 {

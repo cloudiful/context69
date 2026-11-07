@@ -1,0 +1,64 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Latest attempt of one task item, sealed or open.\n-- $1 is the task item id. The pause projection asserts the attempt outcome\n-- without reading the lease token or the captured library fence.\nSELECT attempt.status AS \"status!\",\n       attempt.failure_stage,\n       attempt.error_message,\n       attempt.finished_at\nFROM context69.task_attempts attempt\nWHERE attempt.item_id = $1\nORDER BY attempt.started_at DESC\nLIMIT 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "status!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "failure_stage",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "failure_stage"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "error_message",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "error_message"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "finished_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.task_attempts",
+            "name": "finished_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "1f7c9d28caa2960d6f6abef13a84fb8a53c97130341d2db70d0525b91974a166"
+}

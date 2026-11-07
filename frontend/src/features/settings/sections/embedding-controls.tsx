@@ -1,10 +1,12 @@
 import { useTranslation } from "react-i18next";
 
+import { FormField } from "@/components/common/form-field";
 import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
+import { ToggleField } from "@/components/common/toggle-field";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useSettings } from "@/features/settings/settings-context";
-import type { EmbeddingCapabilitiesResponse } from "@/services/api";
 
 import { TestConnectionButton } from "./test-connection-button";
 
@@ -13,14 +15,16 @@ import { TestConnectionButton } from "./test-connection-button";
  *
  * The document model is the identity every stored vector was built with; the
  * optional query model inherits it when blank. The manual request limits are
- * editable, and the provider's own advertised facts are shown read-only beside
- * them: they never overwrite a draft and never activate anything.
+ * editable.
  */
 export function EmbeddingBlock() {
   const { t } = useTranslation();
   const { page } = useSettings();
-  const { runtimeDraft, updateRuntimeDraft, embeddingCapabilities } = page;
+  const { runtimeDraft, updateRuntimeDraft } = page;
   const batching = runtimeDraft.embedding.batching;
+  const inputPolicy = runtimeDraft.embedding.input_policy;
+  const tokenizerArtifacts = page.runtimeQuery.data?.tokenizer_artifacts ?? [];
+  const maxInputEnabled = inputPolicy.max_input_tokens != null;
 
   return (
     <SettingsBlock
@@ -96,130 +100,181 @@ export function EmbeddingBlock() {
         />
 
         <div className="grid gap-3 rounded-md border border-border/60 p-3">
+          <p className="text-sm font-medium">{t("settings.runtime.embeddingInputPolicyTitle")}</p>
+          <FormField
+            label={t("settings.runtime.embeddingInputTokenizer")}
+            htmlFor="runtime-embedding-input-tokenizer"
+            helper={t("settings.runtime.embeddingInputTokenizerHelper")}
+          >
+            <Select
+              value={inputPolicy.tokenizer}
+              onValueChange={(value) => updateRuntimeDraft((draft) => {
+                draft.embedding.input_policy.tokenizer =
+                  value as typeof draft.embedding.input_policy.tokenizer;
+                if (value !== "hf_local") {
+                  draft.embedding.input_policy.tokenizer_sha256 = null;
+                  draft.embedding.input_policy.add_special_tokens = false;
+                }
+              })}
+            >
+              <SelectTrigger
+                id="runtime-embedding-input-tokenizer"
+                aria-label={t("settings.runtime.embeddingInputTokenizer")}
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="cl100k_base">cl100k_base</SelectItem>
+                <SelectItem value="o200k_base">o200k_base</SelectItem>
+                <SelectItem value="hf_local">
+                  {t("settings.runtime.chunkingTokenizerHfLocal")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </FormField>
+          {inputPolicy.tokenizer === "hf_local" ? (
+            tokenizerArtifacts.length > 0 ? (
+              <FormField
+                label={t("settings.runtime.embeddingInputArtifact")}
+                htmlFor="runtime-embedding-input-artifact"
+                helper={t("settings.runtime.embeddingInputArtifactHelper")}
+              >
+                <Select
+                  value={inputPolicy.tokenizer_sha256 ?? undefined}
+                  onValueChange={(value) => updateRuntimeDraft((draft) => {
+                    draft.embedding.input_policy.tokenizer_sha256 = value;
+                  })}
+                >
+                  <SelectTrigger
+                    id="runtime-embedding-input-artifact"
+                    aria-label={t("settings.runtime.embeddingInputArtifact")}
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {tokenizerArtifacts.map((artifact) => (
+                      <SelectItem key={artifact.sha256} value={artifact.sha256}>
+                        {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </FormField>
+            ) : (
+              <p
+                data-testid="runtime-embedding-input-artifact-empty"
+                className="text-xs text-muted-foreground"
+              >
+                {t("settings.runtime.chunkingTokenizerArtifactEmpty")}
+              </p>
+            )
+          ) : null}
+          <ToggleField
+            id="runtime-embedding-input-limit"
+            testId="runtime-embedding-input-limit"
+            label={t("settings.runtime.embeddingInputLimit")}
+            helper={t("settings.runtime.embeddingInputLimitHelper")}
+            checked={maxInputEnabled}
+            onCheckedChange={(checked) => updateRuntimeDraft((draft) => {
+              draft.embedding.input_policy.max_input_tokens = checked ? 8192 : null;
+            })}
+          />
+          {maxInputEnabled ? (
+            <NumberField
+              id="runtime-embedding-input-max-tokens"
+              label={t("settings.runtime.embeddingInputMaxTokens")}
+              min={1}
+              value={inputPolicy.max_input_tokens ?? 8192}
+              onChange={(value) => updateRuntimeDraft((draft) => {
+                draft.embedding.input_policy.max_input_tokens = value;
+              })}
+            />
+          ) : null}
+          <TextField
+            id="runtime-embedding-document-prefix"
+            label={t("settings.runtime.embeddingDocumentPrefix")}
+            helper={t("settings.runtime.embeddingServerPrefixHelper")}
+            value={inputPolicy.document_server_prefix}
+            onChange={(value) => updateRuntimeDraft((draft) => {
+              draft.embedding.input_policy.document_server_prefix = value;
+            })}
+          />
+          <TextField
+            id="runtime-embedding-query-prefix"
+            label={t("settings.runtime.embeddingQueryPrefix")}
+            helper={t("settings.runtime.embeddingServerPrefixHelper")}
+            value={inputPolicy.query_server_prefix}
+            onChange={(value) => updateRuntimeDraft((draft) => {
+              draft.embedding.input_policy.query_server_prefix = value;
+            })}
+          />
+          {inputPolicy.tokenizer === "hf_local" ? (
+            <ToggleField
+              id="runtime-embedding-input-special"
+              testId="runtime-embedding-input-special"
+              label={t("settings.runtime.embeddingInputSpecial")}
+              helper={t("settings.runtime.embeddingInputSpecialHelper")}
+              checked={inputPolicy.add_special_tokens}
+              onCheckedChange={(checked) => updateRuntimeDraft((draft) => {
+                draft.embedding.input_policy.add_special_tokens = checked;
+              })}
+            />
+          ) : null}
+          <p className="text-xs text-muted-foreground">
+            {t("settings.runtime.embeddingInputPolicyHelper")}
+          </p>
+        </div>
+
+        <div className="grid gap-3 rounded-md border border-border/60 p-3">
           <p className="text-sm font-medium">{t("settings.runtime.embeddingBatchingTitle")}</p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <NumberField
-              id="runtime-embedding-batch-items"
-              label={t("settings.runtime.embeddingBatchItems")}
-              min={1}
-              value={batching.max_items_per_request}
-              onChange={(value) => updateRuntimeDraft((draft) => {
-                draft.embedding.batching.max_items_per_request = value;
-              })}
-            />
-            <NumberField
-              id="runtime-embedding-batch-item-chars"
-              label={t("settings.runtime.embeddingBatchItemChars")}
-              min={1}
-              value={batching.max_item_chars}
-              onChange={(value) => updateRuntimeDraft((draft) => {
-                draft.embedding.batching.max_item_chars = value;
-              })}
-            />
-            <NumberField
-              id="runtime-embedding-batch-request-chars"
-              label={t("settings.runtime.embeddingBatchRequestChars")}
-              min={1}
-              value={batching.max_request_chars}
-              onChange={(value) => updateRuntimeDraft((draft) => {
-                draft.embedding.batching.max_request_chars = value;
-              })}
-            />
-            <NumberField
-              id="runtime-embedding-batch-request-bytes"
-              label={t("settings.runtime.embeddingBatchRequestBytes")}
-              min={1}
-              value={batching.max_request_bytes}
-              onChange={(value) => updateRuntimeDraft((draft) => {
-                draft.embedding.batching.max_request_bytes = value;
-              })}
-            />
-          </div>
+          <NumberField
+            id="runtime-embedding-batch-items"
+            label={t("settings.runtime.embeddingBatchItems")}
+            min={1}
+            value={batching.max_items_per_request}
+            onChange={(value) => updateRuntimeDraft((draft) => {
+              draft.embedding.batching.max_items_per_request = value;
+            })}
+          />
+          <details className="rounded-md border border-border/60 p-2">
+            <summary className="cursor-pointer text-sm">
+              {t("settings.runtime.embeddingBatchingAdvanced")}
+            </summary>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <NumberField
+                id="runtime-embedding-batch-item-chars"
+                label={t("settings.runtime.embeddingBatchItemChars")}
+                min={1}
+                value={batching.max_item_chars}
+                onChange={(value) => updateRuntimeDraft((draft) => {
+                  draft.embedding.batching.max_item_chars = value;
+                })}
+              />
+              <NumberField
+                id="runtime-embedding-batch-request-chars"
+                label={t("settings.runtime.embeddingBatchRequestChars")}
+                min={1}
+                value={batching.max_request_chars}
+                onChange={(value) => updateRuntimeDraft((draft) => {
+                  draft.embedding.batching.max_request_chars = value;
+                })}
+              />
+              <NumberField
+                id="runtime-embedding-batch-request-bytes"
+                label={t("settings.runtime.embeddingBatchRequestBytes")}
+                min={1}
+                value={batching.max_request_bytes}
+                onChange={(value) => updateRuntimeDraft((draft) => {
+                  draft.embedding.batching.max_request_bytes = value;
+                })}
+              />
+            </div>
+          </details>
           <p className="text-xs text-muted-foreground">
             {t("settings.runtime.embeddingBatchingHelper")}
           </p>
         </div>
-
-        {embeddingCapabilities ? (
-          <EmbeddingCapabilitiesSummary capabilities={embeddingCapabilities} />
-        ) : null}
       </div>
     </SettingsBlock>
-  );
-}
-
-/**
- * The provider's own advertised facts, read-only.
- *
- * Every value is what the provider published, never a locally computed guess:
- * the per-input token limit is enforced by the provider, and its execution
- * batch size is server-side metadata rather than a client request limit.
- */
-function EmbeddingCapabilitiesSummary({
-  capabilities,
-}: {
-  capabilities: EmbeddingCapabilitiesResponse;
-}) {
-  const { t } = useTranslation();
-  const aliases = capabilities.role_aliases
-    ? Object.entries(capabilities.role_aliases).map(([alias, role]) => `${alias} (${role})`).join(", ")
-    : "";
-  const dimensions = capabilities.supported_dimensions?.length
-    ? capabilities.supported_dimensions.join(", ")
-    : "";
-  const effectiveItems = capabilities.effective_limits.max_items_per_request;
-  const manualItems = capabilities.manual_limits.max_items_per_request;
-
-  return (
-    <div
-      data-testid="runtime-embedding-capabilities"
-      className="grid gap-1 rounded-md border border-border/60 bg-muted/30 p-3 text-xs text-muted-foreground"
-    >
-      <p className="text-sm font-medium text-foreground">
-        {t("settings.runtime.embeddingCapabilitiesTitle")}
-      </p>
-      <p>{t("settings.runtime.embeddingCapabilitiesSource", { source: capabilities.source })}</p>
-      {capabilities.source === "unknown" ? (
-        <p>{t("settings.runtime.embeddingCapabilitiesUnknown")}</p>
-      ) : null}
-      {capabilities.reason ? (
-        <p>{t("settings.runtime.embeddingCapabilitiesReason", { reason: capabilities.reason })}</p>
-      ) : null}
-      {capabilities.advertised_model ? (
-        <p>{t("settings.runtime.embeddingCapabilitiesModel", { model: capabilities.advertised_model })}</p>
-      ) : null}
-      {dimensions ? (
-        <p>{t("settings.runtime.embeddingCapabilitiesDimensions", { dimensions })}</p>
-      ) : null}
-      {aliases ? (
-        <p>{t("settings.runtime.embeddingCapabilitiesAliases", { aliases })}</p>
-      ) : null}
-      <p>
-        {t("settings.runtime.embeddingCapabilitiesEffectiveItems", {
-          effective: effectiveItems,
-          manual: manualItems,
-        })}
-      </p>
-      {capabilities.advertised_tokens_per_input_limit ? (
-        <p>
-          {t("settings.runtime.embeddingCapabilitiesTokenLimit", {
-            limit: capabilities.advertised_tokens_per_input_limit,
-          })}
-        </p>
-      ) : (
-        <p>{t("settings.runtime.embeddingCapabilitiesNoTokenLimit")}</p>
-      )}
-      {capabilities.advertised_tokens_per_input_limit
-        && (capabilities.tokens_include_role_prefix || capabilities.tokens_include_special_tokens) ? (
-        <p>{t("settings.runtime.embeddingCapabilitiesTokenLimitIncludes")}</p>
-      ) : null}
-      {capabilities.internal_batch_size ? (
-        <p>
-          {t("settings.runtime.embeddingCapabilitiesInternalBatch", {
-            size: capabilities.internal_batch_size,
-          })}
-        </p>
-      ) : null}
-    </div>
   );
 }

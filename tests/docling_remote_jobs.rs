@@ -9,6 +9,9 @@
 //! never by global counts, so leftover rows in the shared scratch DB cannot
 //! flake the suite.
 
+#[cfg(feature = "integration-test-helpers")]
+#[path = "docling_remote_jobs/http_mock.rs"]
+mod http_mock;
 #[path = "docling_remote_jobs/support.rs"]
 mod support;
 

@@ -10,7 +10,7 @@ use super::{
 };
 use crate::{
     chunking::ChunkBudgetMode,
-    chunking::chunking_token::TokenizerKind,
+    chunking::chunking_token::TokenizerRef,
     contracts::SecretPatch,
     db::{
         StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
@@ -35,6 +35,7 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             dimensions: 3072,
             timeout_secs: 30,
             batching: Default::default(),
+            input_policy: Default::default(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: 300,
@@ -47,7 +48,7 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             max_chars: 1200,
             overlap_chars: 200,
             unit: ChunkBudgetMode::Chars,
-            tokenizer: TokenizerKind::Cl100kBase,
+            tokenizer: TokenizerRef::Cl100kBase,
             max_tokens: 1024,
             overlap_tokens: 128,
         },

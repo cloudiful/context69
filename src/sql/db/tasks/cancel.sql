@@ -26,6 +26,8 @@ SET status = 'cancelled',
     lease_token = NULL,
     lease_until = NULL,
     next_attempt_at = NULL,
+    pause_state = 'unpaused',
+    paused_at = NULL,
     finished_at = now(),
     updated_at = now()
 WHERE task.id IN (SELECT id FROM allowed)

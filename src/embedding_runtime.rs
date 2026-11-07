@@ -289,6 +289,7 @@ pub fn build_probe_provider(
         dimensions,
         timeout: std::time::Duration::from_secs(timeout_secs),
         batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
+        input_policy: Default::default(),
     })
 }
 

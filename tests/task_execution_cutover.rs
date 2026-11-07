@@ -591,6 +591,64 @@ async fn adopt_links_a_fresh_segment_and_repeats_idempotently() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
+async fn adopt_never_mints_a_segment_for_a_paused_parent_until_the_resume() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let fixture = seed_task(&db, false).await;
+    detach_segment(&db, fixture.item_id).await;
+    set_item(&db, fixture.item_id, "queued", None).await;
+
+    assert!(
+        db.request_task_pause(fixture.task_id, fixture.user_id, false)
+            .await
+            .expect("pause the queued parent"),
+        "the owner pauses the queued parent"
+    );
+
+    // The automatic selection skips the paused parent instead of refusing the
+    // whole handover, and it mints nothing.
+    db.cutover_adopt_all()
+        .await
+        .expect("the automatic adoption skips the paused parent");
+    assert_eq!(
+        segment_count(&db, fixture.item_id).await,
+        0,
+        "an automatic adoption never mints a paused parent segment"
+    );
+
+    let refused = db.cutover_adopt(&[fixture.item_id]).await;
+    assert!(
+        refused.is_err(),
+        "an explicit adoption of a paused parent is refused"
+    );
+    assert_eq!(
+        segment_count(&db, fixture.item_id).await,
+        0,
+        "a refused explicit adoption leaves no segment behind"
+    );
+
+    assert!(
+        db.request_task_resume(fixture.task_id, fixture.user_id, false)
+            .await
+            .expect("resume the paused parent"),
+        "the owner resumes the paused parent"
+    );
+    let adopted = db
+        .cutover_adopt(&[fixture.item_id])
+        .await
+        .expect("adopt after the resume");
+    assert_eq!(adopted.adopted, 1, "the resumed parent adopts exactly once");
+    assert_eq!(
+        segment_count(&db, fixture.item_id).await,
+        1,
+        "the resumed parent takes exactly one segment"
+    );
+
+    cleanup(&db, &fixture).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn adopt_all_selects_one_bounded_eligible_batch_and_reports_remaining() {
     let db = connect().await;
     let _guard = TEST_LOCK.lock().await;

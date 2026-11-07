@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Clears the domain pause projection after the native resume committed.\n--\n-- Written last, after the item lock and the native segment resume. It never\n-- changes the attempt counters, the failure fields, the item status or any\n-- schedule time: a queued task keeps its backoff/dependency time.\nUPDATE context69.tasks\nSET pause_state = 'unpaused',\n    paused_at = NULL,\n    updated_at = now()\nWHERE id = $1\n  AND status IN ('queued', 'running', 'waiting')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "710ad168e391224931d9fbb437531e4bb89271f3e307ef774d192c63951d59f3"
+}

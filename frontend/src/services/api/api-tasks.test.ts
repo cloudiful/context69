@@ -57,9 +57,9 @@ function diagnoseResponse(): TaskDiagnoseResponse {
   };
 }
 
-function createApi(get: ReturnType<typeof vi.fn>) {
+function createApi(get: ReturnType<typeof vi.fn>, post: ReturnType<typeof vi.fn> = vi.fn()) {
   return createTasksApi({
-    openapiClient: { GET: get, POST: vi.fn(), DELETE: vi.fn() } as never,
+    openapiClient: { GET: get, POST: post, DELETE: vi.fn() } as never,
     unwrapResponse,
   });
 }
@@ -105,5 +105,33 @@ describe("tasks api diagnose", () => {
       status: 404,
     });
     await expect(api.getTaskDiagnose("missing")).rejects.toBeInstanceOf(ApiError);
+  });
+});
+
+describe("tasks api pause", () => {
+  it("requests a pause with the task path param and returns the refreshed task", async () => {
+    const data = { ...diagnoseResponse().task, pause_state: "paused", paused_at: "2026-07-20T00:03:00Z" };
+    const post = vi.fn().mockResolvedValue({ data, response: { ok: true, status: 200 } });
+    const api = createApi(vi.fn(), post);
+
+    const result = await api.pauseTask("task-1");
+
+    expect(post).toHaveBeenCalledWith("/v1/tasks/{task_id}/pause", {
+      params: { path: { task_id: "task-1" } },
+      signal: undefined,
+    });
+    expect(result).toBe(data);
+  });
+
+  it("requests a resume with the task path param", async () => {
+    const post = vi.fn().mockResolvedValue({ data: {}, response: { ok: true, status: 200 } });
+    const api = createApi(vi.fn(), post);
+
+    await api.resumeTask("task-1", { signal: undefined });
+
+    expect(post).toHaveBeenCalledWith("/v1/tasks/{task_id}/resume", {
+      params: { path: { task_id: "task-1" } },
+      signal: undefined,
+    });
   });
 });

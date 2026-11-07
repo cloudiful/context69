@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Projects one committed native park into the domain.\n--\n-- The item and its open domain attempt are sealed under the captured segment\n-- identity. A park that raced a cancellation follows the native cancelled\n-- outcome and never projects a pause. The attempt counters stay untouched and\n-- only a genuine park adds one parked attempt, so the effective failure usage\n-- is `attempt_count - paused_attempts`.\nWITH target AS (\n    SELECT item.id, item.task_id\n    FROM context69.task_items item\n    WHERE item.id = $1\n      AND item.task_id = $2\n      AND item.execution_task_id = $3\n      AND item.execution_generation = $4\n      AND item.status = 'running'\n),\nsealed AS (\n    UPDATE context69.task_attempts attempt\n    SET status = CASE WHEN $5 = 'cancelled' THEN 'cancelled' ELSE 'paused' END,\n        failure_stage = NULL,\n        error_message = NULL,\n        finished_at = now()\n    FROM target\n    WHERE attempt.item_id = target.id\n      AND attempt.finished_at IS NULL\n    RETURNING attempt.item_id\n),\nupdated_item AS (\n    UPDATE context69.task_items item\n    SET status = CASE WHEN $5 = 'cancelled' THEN 'cancelled' ELSE 'queued' END,\n        paused_attempts = item.paused_attempts\n            + CASE WHEN $5 = 'cancelled' THEN 0 ELSE 1 END,\n        waiting_reason = NULL,\n        dependency_key = NULL,\n        waiting_since = NULL,\n        next_attempt_at = NULL,\n        lease_token = NULL,\n        lease_until = NULL,\n        finished_at = CASE WHEN $5 = 'cancelled' THEN now() ELSE NULL END,\n        updated_at = now()\n    FROM target\n    WHERE item.id = target.id\n    RETURNING item.task_id, item.id\n)\nUPDATE context69.tasks task\nSET pause_state = CASE WHEN $5 = 'cancelled' THEN 'unpaused' ELSE $6 END,\n    paused_at = CASE\n        WHEN $5 = 'cancelled' THEN NULL\n        WHEN $6 = 'paused' THEN COALESCE(task.paused_at, now())\n        ELSE task.paused_at\n    END,\n    lease_token = CASE\n        WHEN NOT EXISTS (\n            SELECT 1\n            FROM context69.task_items other\n            WHERE other.task_id = task.id\n              AND other.id <> $1\n              AND other.status = 'running'\n              AND other.lease_until > clock_timestamp()\n        ) THEN NULL\n        ELSE task.lease_token\n    END,\n    lease_until = CASE\n        WHEN NOT EXISTS (\n            SELECT 1\n            FROM context69.task_items other\n            WHERE other.task_id = task.id\n              AND other.id <> $1\n              AND other.status = 'running'\n              AND other.lease_until > clock_timestamp()\n        ) THEN NULL\n        ELSE task.lease_until\n    END,\n    updated_at = now()\nFROM updated_item\nWHERE task.id = updated_item.task_id\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "bb81a7eab4a177cd611a0d2d3e2e3788f975dd99757775840e84daec12ab27df"
+}

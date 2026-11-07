@@ -11,6 +11,7 @@ mod docling_cleanup;
 mod docling_remote_finalize;
 mod docling_remote_jobs;
 mod item_lifecycle;
+mod pause_control;
 mod queries;
 mod queue_control;
 mod rebuild_control;
