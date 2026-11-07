@@ -369,6 +369,48 @@ describe("runtime settings", () => {
     });
   });
 
+  it("selects a mounted artifact when the custom tokenizer option is chosen", async () => {
+    const { RUNTIME_SETTINGS } = await import("./test-support");
+    const backend = installFakeBackend();
+    await openSettings("/settings/runtime");
+
+    await userEvent.click(await screen.findByLabelText("Tokenizer"));
+    await userEvent.click(await screen.findByRole("option", { name: "Mounted tokenizer file" }));
+
+    await userEvent.click(screen.getByTestId("settings-save"));
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
+      chunking: { tokenizer: string; tokenizer_sha256: string | null };
+      embedding: { input_policy: { tokenizer: string; tokenizer_sha256: string | null } };
+    };
+    // Entering the custom path from a built-in tokenizer names a mounted
+    // artifact, so the save never emits hf_local without a hash.
+    const artifactSha256 = RUNTIME_SETTINGS.tokenizer_artifacts?.[0]?.sha256;
+    expect(artifactSha256).toBeDefined();
+    expect(body.chunking.tokenizer).toBe("hf_local");
+    expect(body.chunking.tokenizer_sha256).toBe(artifactSha256);
+    expect(body.embedding.input_policy.tokenizer).toBe("hf_local");
+    expect(body.embedding.input_policy.tokenizer_sha256).toBe(artifactSha256);
+  });
+
+  it("offers the custom tokenizer only when a mounted artifact exists", async () => {
+    const { RUNTIME_SETTINGS } = await import("./test-support");
+    installFakeBackend({
+      runtime: { ...RUNTIME_SETTINGS, tokenizer_artifacts: [] },
+    });
+    await openSettings("/settings/runtime");
+
+    await userEvent.click(await screen.findByLabelText("Tokenizer"));
+    expect(
+      await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("option", { name: "Mounted tokenizer file" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("warns once when the stored input check differs from the lower selection", async () => {
     const { RUNTIME_SETTINGS } = await import("./test-support");
     const backend = installFakeBackend({

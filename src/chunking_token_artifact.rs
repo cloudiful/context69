@@ -1,13 +1,11 @@
 //! Verified, operator-provisioned local Hugging Face tokenizer artifacts.
 //!
-//! An artifact is one standard `tokenizer.json` file named by the lowercase
-//! SHA256 of its own bytes: `<artifact-dir>/<64-hex>.json`. The catalog verifies
-//! the name, the bytes, and the readable tokenizer at startup, then serves the
-//! parsed engines by hash. Nothing is downloaded, no weights or model names are
-//! consulted, and no arbitrary path is resolved.
-//!
-//! The catalog is immutable for one process: adding an artifact requires a
-//! restart, and an old artifact must be kept while a task pinned its hash.
+//! The mounted catalog is one immutable map of standard `tokenizer.json` files
+//! named by the lowercase SHA256 of their own bytes:
+//! `<artifact-dir>/<64-hex>.json`. A mounted file is verified when the catalog
+//! is built, so adding one requires a restart. A known preset fills its own
+//! once-cell instead: immediately after an explicit provisioning, or from a
+//! verified cache file at startup. A filled cell is never replaced.
 
 use std::{
     collections::BTreeMap,
@@ -23,7 +21,10 @@ pub use context69_contracts::settings::TokenizerArtifactDescriptor;
 
 use crate::tokenizer_presets::{PRESETS, TokenizerPreset};
 
-/// The largest artifact the catalog accepts.
+/// The largest tokenizer file this deployment accepts, mounted or retrieved.
+///
+/// The catalog refuses a mounted artifact above it, and a retrieval refuses a
+/// preset above it before any request is built.
 pub const TOKENIZER_ARTIFACT_MAX_BYTES: u64 = 32 * 1024 * 1024;
 
 /// The process-wide catalog installed once at startup.
@@ -302,14 +303,10 @@ impl TokenizerCatalog {
             if actual != stem {
                 bail!("the tokenizer artifact {name} does not match its name hash {actual}");
             }
-            let mut tokenizer = tokenizers::Tokenizer::from_bytes(&bytes).map_err(|_| {
-                anyhow::anyhow!("the tokenizer artifact {name} is not a readable tokenizer.json")
+            let tokenizer = parse_verified_tokenizer(&bytes).with_context(|| {
+                format!("the tokenizer artifact {name} is not a readable tokenizer.json")
             })?;
-            tokenizer.with_truncation(None).map_err(|_| {
-                anyhow::anyhow!("the tokenizer artifact {name} disables truncation")
-            })?;
-            tokenizer.with_padding(None);
-            entries.insert(stem.to_string(), Arc::new(tokenizer));
+            entries.insert(stem.to_string(), tokenizer);
             descriptors.push(TokenizerArtifactDescriptor {
                 sha256: stem.to_string(),
                 size_bytes: bytes.len() as u64,
@@ -342,7 +339,7 @@ impl TokenizerCatalog {
     pub fn require(&self, sha256: &str) -> Result<Arc<tokenizers::Tokenizer>> {
         self.get(sha256).ok_or_else(|| {
             anyhow::anyhow!(
-                "the local tokenizer artifact {sha256} is not available in the verified catalog; provision {sha256}.json and restart"
+                "the local tokenizer artifact {sha256} is not available in the verified catalog; prepare the preset or provision {sha256}.json"
             )
         })
     }
@@ -371,10 +368,8 @@ pub fn require_installed(sha256: &str) -> Result<Arc<tokenizers::Tokenizer>> {
 /// Fills the known preset cells from the verified files in the cache directory.
 ///
 /// Only the known presets are considered, and only a file named by the pinned
-/// hash of one of them is read. The file must be a regular file of the exact
-/// expected size, its bytes must hash to the pinned value, and it must parse
-/// as a tokenizer with padding and truncation disabled. A file that fails any
-/// of these checks leaves its preset unprepared instead of failing the boot.
+/// hash of one of them is read. A file that does not verify leaves its preset
+/// unprepared instead of failing the boot.
 pub fn activate_cached_presets(slots: &PresetSlots, cache_dir: &Path) -> Result<()> {
     for preset in PRESETS {
         let Some(slot) = slots.slot(preset.id) else {
@@ -387,17 +382,12 @@ pub fn activate_cached_presets(slots: &PresetSlots, cache_dir: &Path) -> Result<
         if !path.exists() {
             continue;
         }
-        match verified_preset_engine(&path, preset) {
-            Ok(engine) => {
-                slot.activate(engine);
-            }
-            Err(error) => {
-                tracing::warn!(
-                    preset = preset.id,
-                    error = %error,
-                    "the cached tokenizer preset could not be verified; it stays unprepared"
-                );
-            }
+        if let Err(error) = activate_cached_preset(slot, &path, preset) {
+            tracing::warn!(
+                preset = preset.id,
+                error = %format!("{error:#}"),
+                "the cached tokenizer preset could not be verified; it stays unprepared"
+            );
         }
     }
     Ok(())
@@ -560,17 +550,15 @@ pub fn hash_bytes(bytes: &[u8]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::{
-        path::{Path, PathBuf},
-        time::{SystemTime, UNIX_EPOCH},
-    };
+    use std::path::Path;
 
     use crate::chunking::chunking_token::TokenizerRef;
     use crate::chunking::{ChunkBudget, ChunkingRuntime};
+    use crate::tokenizer_artifact_download::test_support::test_directory;
 
     #[test]
     fn review_missing_operator_directory_retains_preset_cache_configuration() {
-        let directory = temp_directory();
+        let directory = test_directory("chunking-missing-operator");
         let missing = directory.join("missing");
         let cache = directory.join("cache");
         let catalog = TokenizerCatalog::load_with_presets(
@@ -584,21 +572,6 @@ mod tests {
         assert_eq!(actual, Some(cache));
     }
 
-    /// A standard tiny byte-level BPE `tokenizer.json` with one token per byte.
-    fn tiny_byte_level_json(truncate: bool) -> Vec<u8> {
-        test_tokenizer_json(truncate)
-    }
-
-    fn temp_directory() -> PathBuf {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time")
-            .as_nanos();
-        let directory = std::env::temp_dir().join(format!("context69-tokenizers-{unique}"));
-        std::fs::create_dir_all(&directory).expect("create the artifact directory");
-        directory
-    }
-
     fn write_artifact(directory: &Path, name: &str, bytes: &[u8]) -> String {
         std::fs::write(directory.join(format!("{name}.json")), bytes).expect("write the artifact");
         name.to_string()
@@ -606,8 +579,8 @@ mod tests {
 
     #[test]
     fn a_verified_artifact_loads_and_its_hash_resolves() {
-        let directory = temp_directory();
-        let bytes = tiny_byte_level_json(false);
+        let directory = test_directory("chunking-verified-artifact");
+        let bytes = test_tokenizer_json(false);
         let sha256 = hash_bytes(&bytes);
         write_artifact(&directory, &sha256, &bytes);
 
@@ -630,8 +603,8 @@ mod tests {
 
     #[test]
     fn truncation_and_padding_are_disabled_before_counting() {
-        let directory = temp_directory();
-        let bytes = tiny_byte_level_json(true);
+        let directory = test_directory("chunking-truncation");
+        let bytes = test_tokenizer_json(true);
         let sha256 = hash_bytes(&bytes);
         write_artifact(&directory, &sha256, &bytes);
 
@@ -652,8 +625,8 @@ mod tests {
 
     #[test]
     fn a_name_that_does_not_match_the_bytes_is_refused() {
-        let directory = temp_directory();
-        let bytes = tiny_byte_level_json(false);
+        let directory = test_directory("chunking-name-mismatch");
+        let bytes = test_tokenizer_json(false);
         let wrong = "0".repeat(64);
         write_artifact(&directory, &wrong, &bytes);
 
@@ -674,7 +647,7 @@ mod tests {
                 .is_empty()
         );
 
-        let directory = temp_directory();
+        let directory = test_directory("chunking-non-json");
         std::fs::write(directory.join("notes.txt"), b"ignored").expect("write a non-json file");
         assert!(
             TokenizerCatalog::load(&directory)
@@ -687,8 +660,8 @@ mod tests {
 
     #[test]
     fn a_pinned_hash_cuts_with_the_loaded_artifact_and_keeps_old_identity() {
-        let directory = temp_directory();
-        let bytes = tiny_byte_level_json(false);
+        let directory = test_directory("chunking-pinned-cut");
+        let bytes = test_tokenizer_json(false);
         let sha256 = hash_bytes(&bytes);
         write_artifact(&directory, &sha256, &bytes);
         let catalog = TokenizerCatalog::load(&directory).expect("load the catalog");
@@ -773,7 +746,7 @@ mod tests {
 
     #[test]
     fn a_cached_preset_that_does_not_verify_stays_unprepared() {
-        let directory = temp_directory();
+        let directory = test_directory("chunking-cached-preset");
         let bytes = test_tokenizer_json(false);
         let preset = crate::tokenizer_artifact_download::test_support::pinned_test_preset(&bytes);
         let mut other = bytes.clone();

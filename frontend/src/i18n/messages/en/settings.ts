@@ -241,7 +241,7 @@ export const settings = {
     chunkingUnitTokens: "Tokens",
     chunkingTokenizer: "Tokenizer",
     chunkingTokenizerHelper:
-      "Token counts match the selected tokenizer only, not the embedding model. The input check below follows this selection.",
+      "Token counts use the selected tokenizer, not the embedding model.",
     chunkingTokenizerCustom: "Mounted tokenizer file",
     chunkingTokenizerAdvanced: "Advanced: mounted tokenizer file",
     chunkingTokenizerPresetLicense:

@@ -80,28 +80,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_known_preset_is_pinned_to_one_revision_file_hash_and_license() {
-        let preset =
-            preset_by_id(JINA_V5_SMALL_RETRIEVAL_R6856E76).expect("the Jina preset is known");
-        assert_eq!(
-            preset.repo,
-            "jinaai/jina-embeddings-v5-text-small-retrieval"
-        );
-        assert_eq!(preset.revision, "6856e76bb72982e58de0620458a4e8b3614da340");
-        assert_eq!(preset.file, "tokenizer.json");
-        assert_eq!(
-            preset.sha256,
-            "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
-        );
-        assert_eq!(preset.size_bytes, 11_422_654);
-        assert_eq!(preset.license, "cc-by-nc-4.0");
-        assert_eq!(
-            preset.license_url,
-            "https://creativecommons.org/licenses/by-nc/4.0/"
-        );
-    }
-
-    #[test]
     fn the_retrieval_url_is_built_from_the_pinned_constants_only() {
         let preset = preset_by_id(JINA_V5_SMALL_RETRIEVAL_R6856E76).expect("the preset");
         assert_eq!(

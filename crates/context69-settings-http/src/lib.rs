@@ -231,7 +231,7 @@ async fn test_qdrant_connection(
     axum::Json(request): axum::Json<TestRuntimeQdrantRequest>,
 ) -> impl IntoResponse {
     if !user.is_admin {
-        return qdrant_admin_required();
+        return admin_required();
     }
     match state.settings.test_qdrant_connection(&request).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -239,7 +239,7 @@ async fn test_qdrant_connection(
     }
 }
 
-fn qdrant_admin_required() -> axum::response::Response {
+fn admin_required() -> axum::response::Response {
     (
         StatusCode::FORBIDDEN,
         axum::Json(ApiErrorResponse::new(
@@ -302,7 +302,7 @@ async fn test_llm_provider_connection(
     axum::Json(request): axum::Json<TestLlmProviderRequest>,
 ) -> impl IntoResponse {
     if !user.is_admin {
-        return qdrant_admin_required();
+        return admin_required();
     }
     match state.settings.test_llm_provider_connection(&request).await {
         Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
@@ -338,14 +338,14 @@ async fn update_search_settings(
 /// Admin-only like the runtime probes: the settings scope admits any
 /// authenticated identity, so the handler rejects non-admins before any
 /// outbound request is built.
-#[utoipa::path(post, path = "/v1/settings/runtime/tokenizer-artifacts/provision", request_body = TokenizerProvisionRequest, responses((status = 200, body = TokenizerProvisionResponse), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/runtime/tokenizer-artifacts/provision", request_body = TokenizerProvisionRequest, responses((status = 200, body = TokenizerProvisionResponse), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
 async fn provision_tokenizer_preset(
     State(state): State<SettingsHttpState>,
     CurrentUser(user): CurrentUser,
     axum::Json(request): axum::Json<TokenizerProvisionRequest>,
 ) -> impl IntoResponse {
     if !user.is_admin {
-        return qdrant_admin_required();
+        return admin_required();
     }
     match state.settings.provision_tokenizer_preset(&request).await {
         Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),

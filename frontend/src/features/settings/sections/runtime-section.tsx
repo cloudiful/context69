@@ -7,6 +7,7 @@ import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
 import { ToggleField } from "@/components/common/toggle-field";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsGate } from "@/features/settings/settings-gate";
@@ -25,12 +26,12 @@ export function RuntimeSection() {
   const tokenizerPresets = page.runtimeQuery.data?.tokenizer_presets ?? [];
 
   const chunking = runtimeDraft.chunking;
-  // A known preset is selected by its pinned hash; every other local hash is
-  // an operator-mounted artifact of its own.
-  const selectedPreset = chunking.tokenizer === "hf_local"
-    ? tokenizerPresets.find((preset) => preset.sha256 === chunking.tokenizer_sha256)
-    : undefined;
-  const customSelection = chunking.tokenizer === "hf_local" && !selectedPreset;
+  // The owner derives the selected preset; this section never repeats the
+  // lookup, so the control, the status and the Save guard agree.
+  const selectedPreset = page.selectedTokenizerPreset;
+  const customSelection = chunking.tokenizer === "hf_local"
+    && !selectedPreset
+    && tokenizerArtifacts.length > 0;
   const tokenizerValue = selectedPreset
     ? `preset:${selectedPreset.id}`
     : customSelection
@@ -47,6 +48,14 @@ export function RuntimeSection() {
       }
       if (value === "custom") {
         draft.chunking.tokenizer = "hf_local";
+        // A custom selection always names one mounted artifact: an existing
+        // mounted hash is kept, and a built-in selection moves to the first
+        // one. Without a mounted artifact the option is not offered at all.
+        const current = draft.chunking.tokenizer_sha256;
+        const mounted = tokenizerArtifacts.some((artifact) => artifact.sha256 === current);
+        if (!mounted) {
+          draft.chunking.tokenizer_sha256 = tokenizerArtifacts[0]?.sha256 ?? null;
+        }
         return;
       }
       draft.chunking.tokenizer = value as DraftChunkingTokenizer;
@@ -96,21 +105,20 @@ export function RuntimeSection() {
               })}
             />
             {page.requiresRebuild ? (
-              <div
+              <Alert
                 role="status"
                 data-testid="runtime-requires-rebuild"
-                className="grid gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3"
+                className="border-amber-500/40 bg-amber-500/5"
               >
-                <div className="flex items-start gap-2 text-sm">
-                  <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
-                  <div className="grid gap-1">
-                    <p>{t("settings.runtime.requiresRebuild")}</p>
-                    <p className="text-muted-foreground">
-                      {t("settings.runtime.requiresRebuildDimensions")}
-                    </p>
-                  </div>
-                </div>
-                <div>
+                <AlertTriangle
+                  aria-hidden="true"
+                  className="text-amber-600 dark:text-amber-400"
+                />
+                <AlertTitle>{t("settings.runtime.requiresRebuild")}</AlertTitle>
+                <AlertDescription>
+                  {t("settings.runtime.requiresRebuildDimensions")}
+                </AlertDescription>
+                <div className="col-span-full">
                   <Button
                     type="button"
                     variant="outline"
@@ -122,7 +130,7 @@ export function RuntimeSection() {
                     {t("settings.runtime.vectorRebuild")}
                   </Button>
                 </div>
-              </div>
+              </Alert>
             ) : null}
             <VectorRebuildControl />
           </div>
@@ -241,7 +249,7 @@ export function RuntimeSection() {
                       {preset.label}
                     </SelectItem>
                   ))}
-                  {customSelection ? (
+                  {tokenizerArtifacts.length > 0 ? (
                     <SelectItem value="custom">
                       {t("settings.runtime.chunkingTokenizerCustom")}
                     </SelectItem>
@@ -255,19 +263,20 @@ export function RuntimeSection() {
               once that the next save aligns it with the lower selection.
             */}
             {!page.inputPolicyAligned ? (
-              <p
+              <Alert
                 role="status"
                 data-testid="runtime-chunking-input-policy-warning"
-                className="rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-xs"
+                className="border-amber-500/40 bg-amber-500/5 text-xs"
               >
-                {t("settings.runtime.chunkingTokenizerInputPolicyWarning")}
-              </p>
+                <AlertDescription>
+                  {t("settings.runtime.chunkingTokenizerInputPolicyWarning")}
+                </AlertDescription>
+              </Alert>
             ) : null}
 
             {tokenizerPresets.map((preset) => {
               const selected = selectedPreset?.id === preset.id;
-              const state = page.tokenizerPreparationFor(preset.id);
-              const status = state?.status ?? (preset.ready ? "ready" : "idle");
+              const status = selected ? page.selectedTokenizerStatus : undefined;
               return (
                 <div
                   key={preset.id}
@@ -307,7 +316,9 @@ export function RuntimeSection() {
                         ? t("settings.runtime.chunkingTokenizerPresetPending")
                         : status === "error"
                           ? `${t("settings.runtime.chunkingTokenizerPresetFailed")}${
-                            state?.message ? ` ${state.message}` : ""
+                            page.tokenizerPreparationFor(preset.id)?.message
+                              ? ` ${page.tokenizerPreparationFor(preset.id)?.message}`
+                              : ""
                           }`
                           : status === "ready"
                             ? t("settings.runtime.chunkingTokenizerPresetReady")

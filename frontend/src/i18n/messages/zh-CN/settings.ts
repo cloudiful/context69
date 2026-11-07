@@ -230,7 +230,7 @@ export const settings = {
     chunkingUnitChars: "字符",
     chunkingUnitTokens: "令牌",
     chunkingTokenizer: "分词器",
-    chunkingTokenizerHelper: "令牌数只与所选分词器一致，与嵌入模型无关；输入检查也跟随此选择。",
+    chunkingTokenizerHelper: "令牌数仅由所选分词器决定，与嵌入模型无关。",
     chunkingTokenizerCustom: "已挂载的分词器文件",
     chunkingTokenizerAdvanced: "高级：已挂载的分词器文件",
     chunkingTokenizerPresetLicense: "许可证 {license}。这是上游项目的许可证，不代表允许商业使用。",

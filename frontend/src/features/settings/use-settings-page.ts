@@ -476,6 +476,33 @@ export function useSettingsPage() {
   }, [runtimeData, runtimeDraft.chunking]);
 
   /**
+   * The preparation state of the selected preset.
+   *
+   * Undefined when the lower selection is not a known preset. A descriptor the
+   * serving process reports as ready is ready even before this page prepared
+   * it, so a persisted selection renders correctly after a restart.
+   */
+  const selectedTokenizerStatus = useMemo(() => {
+    if (!selectedTokenizerPreset) {
+      return undefined;
+    }
+    const preparation = tokenizerPreparations[selectedTokenizerPreset.id];
+    if (preparation) {
+      return preparation.status;
+    }
+    return selectedTokenizerPreset.ready ? "ready" : "idle";
+  }, [selectedTokenizerPreset, tokenizerPreparations]);
+
+  /**
+   * Whether the lower selection names a preset this process cannot use yet.
+   *
+   * The section and the shared Save consume this one predicate: a save would
+   * otherwise chunk with a tokenizer the serving process does not hold.
+   */
+  const tokenizerSaveBlocked = selectedTokenizerPreset !== undefined
+    && selectedTokenizerStatus !== "ready";
+
+  /**
    * Whether the persisted input envelope already matches the lower selection.
    *
    * The server keeps the input policy it was given. A deployment that stored
@@ -726,17 +753,11 @@ export function useSettingsPage() {
     }
     // A selected preset that is not ready must not be saved: the deployment
     // would chunk with a tokenizer this process cannot use yet.
-    const preparation = selectedTokenizerPreset
-      ? tokenizerPreparations[selectedTokenizerPreset.id]
-      : undefined;
-    const presetReady = !selectedTokenizerPreset
-      || selectedTokenizerPreset.ready
-      || preparation?.status === "ready";
-    if (!presetReady) {
+    if (tokenizerSaveBlocked) {
       toast.error(t("common.error"), {
-        description: preparation?.status === "pending"
+        description: selectedTokenizerStatus === "pending"
           ? t("settings.runtime.chunkingTokenizerPresetBlocksSavePending")
-          : preparation?.status === "error"
+          : selectedTokenizerStatus === "error"
             ? t("settings.runtime.chunkingTokenizerPresetBlocksSaveFailed")
             : t("settings.runtime.chunkingTokenizerPresetBlocksSaveNotPrepared"),
         duration: 5000,
@@ -787,9 +808,9 @@ export function useSettingsPage() {
     runtimeData,
     runtimeDraft,
     runtimeHasChanges,
-    selectedTokenizerPreset,
+    selectedTokenizerStatus,
     t,
-    tokenizerPreparations,
+    tokenizerSaveBlocked,
   ]);
 
   const confirmCompatibility = useCallback(() => {
@@ -959,6 +980,7 @@ export function useSettingsPage() {
     searchDraft,
     searchQuery,
     selectedTokenizerPreset,
+    selectedTokenizerStatus,
     setRerankApiKeyDraft,
     testDoclingConnection,
     testEmbeddingConnection,
@@ -966,6 +988,7 @@ export function useSettingsPage() {
     testS3Connection,
     testValkeyConnection,
     tokenizerPreparationFor,
+    tokenizerSaveBlocked,
     translationHasChanges,
     translationProviders,
     translationQuery,
