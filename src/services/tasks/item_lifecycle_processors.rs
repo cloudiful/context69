@@ -216,15 +216,11 @@ pub(super) async fn process_vector_rebuild(
         Ok(crate::services::sync::RebuildRunOutcome::Completed) => {
             Ok(ProcessResult::Progressed { next: "finalize" })
         }
-        // A pause is committed at a batch boundary: the item parks on the exact
-        // dependency the dispatcher never claims and only the explicit resume
-        // reopens. Waiting here must not spend an attempt or retry time.
-        Ok(crate::services::sync::RebuildRunOutcome::Paused) => Ok(ProcessResult::Waiting {
-            reason: "dependency".to_string(),
-            dependency_key: Some(super::rebuild_control::PAUSED_REBUILD_DEPENDENCY.to_string()),
-            next_attempt_at: Utc::now() + ChronoDuration::days(1),
-            message: Some("the vector rebuild is paused".to_string()),
-        }),
+        // A pause is committed at a batch boundary: the exact attempt parks
+        // through the common fenced primitive, so the domain and the native
+        // segment agree on the pause. The cursor and the barrier owner stay
+        // untouched, and only the explicit resume reopens the item.
+        Ok(crate::services::sync::RebuildRunOutcome::Paused) => Ok(ProcessResult::Paused),
         // A cancelled or superseded owner must not publish success and must not
         // latch a failure: returning the error stops this worker without a
         // terminal write, and the durable barrier is already owned elsewhere or

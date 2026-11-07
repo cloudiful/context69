@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (148 operations, sorted by `operation_id` for deterministic diffs).
+//! (149 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -436,17 +436,6 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "GitProviderConnection",
-        success_status: 200,
-        idempotent: false,
-    },
-    Operation {
-        id: "embedding_capabilities",
-        method: "POST",
-        path_template: "/v1/settings/runtime/embedding/capabilities",
-        requires_auth: true,
-        body_kind: BodyKind::Json,
-        request_schema: "TestRuntimeEmbeddingRequest",
-        response_schema: "EmbeddingCapabilitiesResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -1067,6 +1056,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "pause_task",
+        method: "POST",
+        path_template: "/v1/tasks/{task_id}/pause",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "TaskResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "pause_vector_index_rebuild",
         method: "POST",
         path_template: "/v1/settings/runtime/vector-index/rebuild/pause",
@@ -1180,6 +1180,17 @@ pub const OPERATIONS: &[Operation] = &[
         id: "restore_task",
         method: "POST",
         path_template: "/v1/tasks/{task_id}/restore",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "TaskResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "resume_task",
+        method: "POST",
+        path_template: "/v1/tasks/{task_id}/resume",
         requires_auth: true,
         body_kind: BodyKind::Empty,
         request_schema: "-",

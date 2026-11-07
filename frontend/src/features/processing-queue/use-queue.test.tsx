@@ -8,6 +8,7 @@ import { apiClient } from "@/services/api";
 import type { TaskBatchRetryResponse, TaskPageResponse, TaskResponse, TaskStatus } from "@/services/api";
 import { FakeEventSource, installFakeEventSource } from "@/test-utils/event-source";
 
+import { isPauseRequested } from "./queue-helpers";
 import { QUEUE_LIST_TIMEOUT_MS, useQueue } from "./use-queue";
 
 const toast = vi.hoisted(() => ({
@@ -28,6 +29,8 @@ function task(overrides: Partial<TaskResponse> = {}): TaskResponse {
     stage: "processing",
     waiting_reason: null,
     dependency_key: null,
+    pause_state: "unpaused",
+    paused_at: null,
     failure_stage: null,
     error_summary: null,
     eta_seconds: null,
@@ -431,10 +434,10 @@ describe("useQueue", () => {
     expect(apiClient.rerunTask).toHaveBeenCalledWith("cancelled-1");
   });
 
-  it("does not offer recovery for an active task and cancels it instead", async () => {
-    vi.spyOn(apiClient, "cancelTask").mockResolvedValue(undefined);
-    vi.spyOn(apiClient, "retryTask").mockResolvedValue({ retried_items: 1, task: { task_id: "task-1" } });
-    vi.spyOn(apiClient, "rerunTask").mockResolvedValue({ task: { task_id: "task-1" } });
+  it("pauses an active task instead of retrying or rerunning it", async () => {
+    const pause = vi.spyOn(apiClient, "pauseTask").mockResolvedValue(task({ pause_state: "paused", paused_at: "2026-01-01T00:05:00Z" }));
+    const retry = vi.spyOn(apiClient, "retryTask").mockResolvedValue({ retried_items: 1, task: { task_id: "task-1" } });
+    const rerun = vi.spyOn(apiClient, "rerunTask").mockResolvedValue({ task: { task_id: "task-1" } });
     const { result } = renderQueue();
     await waitFor(() => expect(result.current.items).toHaveLength(1));
 
@@ -442,10 +445,23 @@ describe("useQueue", () => {
       result.current.recoverTask(result.current.items[0]!);
     });
 
+    await waitFor(() => expect(pause).toHaveBeenCalledWith("task-1"));
+    expect(retry).not.toHaveBeenCalled();
+    expect(rerun).not.toHaveBeenCalled();
+  });
+
+  it("resumes a paused task through the per-task control", async () => {
+    const paused = task({ task_id: "paused-1", status: "waiting", pause_state: "paused", paused_at: "2026-01-01T00:05:00Z" });
+    vi.mocked(apiClient.listTasks).mockResolvedValue(page([paused]));
+    const resume = vi.spyOn(apiClient, "resumeTask").mockResolvedValue(task({ task_id: "paused-1", status: "queued" }));
+    const { result } = renderQueue();
+    await waitFor(() => expect(result.current.items).toHaveLength(1));
+
     await act(async () => {
-      result.current.cancelTask(result.current.items[0]!);
+      result.current.resumeTask(result.current.items[0]!);
     });
-    await waitFor(() => expect(apiClient.cancelTask).toHaveBeenCalledWith("task-1"));
+
+    await waitFor(() => expect(resume).toHaveBeenCalledWith("paused-1"));
   });
 
   it("requires confirmation before trashing a terminal task", async () => {
@@ -1488,6 +1504,17 @@ describe("useQueue list deadline", () => {
     await publish();
     expect(result.current.items.map((item) => item.task_id)).toEqual(["task-fresh"]);
     expect(result.current.error).toBeNull();
+  });
+});
+
+describe("isPauseRequested", () => {
+  it("only reports an actionable pause for an active task", () => {
+    expect(isPauseRequested(task({ status: "running", pause_state: "pausing" }))).toBe(true);
+    expect(isPauseRequested(task({ status: "waiting", pause_state: "paused" }))).toBe(true);
+    expect(isPauseRequested(task({ status: "running", pause_state: "unpaused" }))).toBe(false);
+    expect(isPauseRequested(task({ status: "succeeded", pause_state: "paused" }))).toBe(false);
+    expect(isPauseRequested(task({ status: "failed", pause_state: "pausing" }))).toBe(false);
+    expect(isPauseRequested(task({ status: "cancelled", pause_state: "paused" }))).toBe(false);
   });
 });
 

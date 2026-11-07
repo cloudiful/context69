@@ -23,10 +23,10 @@ use std::time::{Duration, Instant};
 use context69::domain_errors::DomainError;
 use context69::services::settings::qdrant_probe::{QDRANT_PROBE_TIMEOUT, probe_qdrant_endpoint};
 use context69_contracts::settings::{
-    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, EmbeddingCapabilitiesResponse,
-    RuntimeSettingsResponse, SearchSettingsResponse, TestRuntimeEmbeddingRequest,
-    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings,
-    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
+    SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
+    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
 use context69_settings_http::{SettingsApi, SettingsHttpState};
 use support::{ListBehaviour, QdrantMock, SilentListener};
@@ -325,13 +325,6 @@ impl SettingsApi for FakeSettingsApi {
         _request: &TestRuntimeEmbeddingRequest,
     ) -> anyhow::Result<()> {
         unreachable!("the Qdrant route must not reach test_embedding_connection")
-    }
-
-    async fn embedding_capabilities(
-        &self,
-        _request: &TestRuntimeEmbeddingRequest,
-    ) -> anyhow::Result<EmbeddingCapabilitiesResponse> {
-        unreachable!("the Qdrant route must not reach embedding_capabilities")
     }
 
     async fn get_docling_settings(&self) -> anyhow::Result<DoclingSettingsResponse> {

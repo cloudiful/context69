@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The active, non-retired parent of one adopted item (issue 1020 P4A).\n--\n-- A handover never touches the item of a parent that the operator deleted or\n-- that is already finished: the link would resurrect work nobody owns. The row\n-- is locked so the parent status cannot change under the handover.\nSELECT task.id, task.pause_state\nFROM context69.tasks task\nWHERE task.id = $1\n  AND task.deleted_at IS NULL\n  AND task.status IN ('queued', 'running', 'waiting')\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "pause_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "pause_state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "3ce5ab5378d5164109fa963ea7bc4e043c5e68158e449daa253b4f13ed560a44"
+}

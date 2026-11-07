@@ -5,7 +5,7 @@ use super::support::{
     assert_stored_bytes_exclude, identity_fingerprint, keyed, reset, run, runtime_request,
     seed_vector_identity, service, store_metadata, unkeyed,
 };
-use context69::contracts::settings::EmbeddingBatchingSettings;
+use context69::contracts::settings::{EmbeddingBatchingSettings, EmbeddingInputPolicy};
 use context69::services::secret_store::key_names;
 
 const SYNTHETIC_KEY: &str = "synthetic-embedding-key";
@@ -133,6 +133,12 @@ fn the_query_model_and_the_request_limits_round_trip() {
             max_request_chars: 32_000,
             max_request_bytes: 524_288,
         };
+        request.embedding.input_policy = EmbeddingInputPolicy {
+            max_input_tokens: Some(4_096),
+            document_server_prefix: "document:".to_string(),
+            query_server_prefix: "query:".to_string(),
+            ..Default::default()
+        };
         let saved = settings
             .update_runtime_settings(&request)
             .await
@@ -145,6 +151,11 @@ fn the_query_model_and_the_request_limits_round_trip() {
         assert_eq!(saved.embedding.batching.max_item_chars, 4_000);
         assert_eq!(saved.embedding.batching.max_request_chars, 32_000);
         assert_eq!(saved.embedding.batching.max_request_bytes, 524_288);
+        assert_eq!(saved.embedding.input_policy.max_input_tokens, Some(4_096));
+        assert_eq!(
+            saved.embedding.input_policy.document_server_prefix,
+            "document:"
+        );
 
         let read = settings
             .get_runtime_settings()
@@ -155,6 +166,7 @@ fn the_query_model_and_the_request_limits_round_trip() {
             Some("context69-query-alias")
         );
         assert_eq!(read.embedding.batching, saved.embedding.batching);
+        assert_eq!(read.embedding.input_policy, saved.embedding.input_policy);
 
         // A blank query model is the document model, so it is stored as none.
         let mut blank = runtime_request(None, None);

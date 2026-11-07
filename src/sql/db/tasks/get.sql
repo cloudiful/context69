@@ -26,6 +26,8 @@ SELECT
     task.waiting_reason,
     task.dependency_key,
     task.next_attempt_at,
+    task.pause_state,
+    task.paused_at,
     task.deleted_at,
     task.created_at,
     task.started_at,

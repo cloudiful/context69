@@ -53,6 +53,14 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
         max_request_chars: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
         max_request_bytes: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
       },
+      input_policy: {
+        tokenizer: "cl100k_base",
+        tokenizer_sha256: null,
+        max_input_tokens: null,
+        document_server_prefix: "",
+        query_server_prefix: "",
+        add_special_tokens: false,
+      },
     },
     scheduler: {
       interval_secs: 300,
@@ -64,6 +72,7 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
     chunking: {
       unit: "chars",
       tokenizer: "cl100k_base",
+      tokenizer_sha256: null,
       max_chars: 1200,
       overlap_chars: 200,
       max_tokens: DEFAULT_CHUNKING_MAX_TOKENS,
@@ -156,6 +165,15 @@ export function runtimeResponseToDraft(
           response.embedding.batching?.max_request_bytes
           ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
       },
+      input_policy: {
+        tokenizer: response.embedding.input_policy?.tokenizer ?? "cl100k_base",
+        tokenizer_sha256: response.embedding.input_policy?.tokenizer_sha256 ?? null,
+        max_input_tokens: response.embedding.input_policy?.max_input_tokens ?? null,
+        document_server_prefix:
+          response.embedding.input_policy?.document_server_prefix ?? "",
+        query_server_prefix: response.embedding.input_policy?.query_server_prefix ?? "",
+        add_special_tokens: response.embedding.input_policy?.add_special_tokens ?? false,
+      },
     },
     scheduler: {
       interval_secs: response.scheduler.interval_secs,
@@ -170,6 +188,7 @@ export function runtimeResponseToDraft(
       // instead of being reinterpreted as characters.
       unit: response.chunking.unit ?? "chars",
       tokenizer: response.chunking.tokenizer ?? "cl100k_base",
+      tokenizer_sha256: response.chunking.tokenizer_sha256 ?? null,
       max_chars: response.chunking.max_chars,
       overlap_chars: response.chunking.overlap_chars,
       max_tokens: response.chunking.max_tokens ?? DEFAULT_CHUNKING_MAX_TOKENS,

@@ -140,6 +140,17 @@ impl Database {
         tx: &mut Transaction<'_, Postgres>,
         candidate: &ClaimCandidate,
     ) -> Result<Option<ClaimedItem>> {
+        // Re-read the parent pause gate after the candidate item lock and
+        // before any segment is claimed or produced. The selection statement's
+        // snapshot may predate a pause that committed after it started, and
+        // this plain read holds no task row lock, so the item -> segment ->
+        // task order is preserved.
+        let Some(gate) = super::pause_control::current_item(tx, candidate.task_id).await? else {
+            return Ok(None);
+        };
+        if gate.task_pause_state != "unpaused" {
+            return Ok(None);
+        }
         let Some(current_segment) = candidate.execution_task_id else {
             // An item without a library segment was never adopted. The cutover
             // hands those over explicitly, so the dispatcher leaves them alone.

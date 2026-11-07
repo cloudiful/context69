@@ -6,6 +6,7 @@ import type {
 } from "../../services/api";
 
 type RuntimeChunkingSettings = components["schemas"]["RuntimeChunkingSettings"];
+type EmbeddingInputPolicySchema = components["schemas"]["EmbeddingInputPolicy"];
 
 /**
  * The manual limits of the embedding request planner.
@@ -14,6 +15,18 @@ type RuntimeChunkingSettings = components["schemas"]["RuntimeChunkingSettings"];
  * operator sees instead of dropping them.
  */
 export type DraftEmbeddingBatching = Required<EmbeddingBatchingSettings>;
+
+/** The explicit embedding input envelope of the runtime draft. */
+export type DraftEmbeddingInputPolicy = {
+  tokenizer: NonNullable<EmbeddingInputPolicySchema["tokenizer"]>;
+  /** Present exactly for the hf_local tokenizer. */
+  tokenizer_sha256: string | null;
+  /** A null cap disables the guard. */
+  max_input_tokens: number | null;
+  document_server_prefix: string;
+  query_server_prefix: string;
+  add_special_tokens: boolean;
+};
 
 /**
  * Chunking budget of the runtime draft.
@@ -45,6 +58,7 @@ export type DraftRuntimeSettings = {
     dimensions: number;
     timeout_secs: number;
     batching: DraftEmbeddingBatching;
+    input_policy: DraftEmbeddingInputPolicy;
   };
   scheduler: {
     interval_secs: number;

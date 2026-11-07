@@ -70,6 +70,9 @@ pub(super) async fn drive_with_inline_waits(
     task: &crate::db::StoredTask,
     item: &crate::db::ClaimedItem,
 ) -> Result<ProcessResult> {
+    if service.pause_requested(item).await? {
+        return Ok(ProcessResult::Paused);
+    }
     // The working snapshot carries persisted `file_id`/payload progress
     // across inline re-drives, so a retry resumes where the previous drive
     // left off instead of redoing stages (and recreating files). Lease and
@@ -87,10 +90,15 @@ pub(super) async fn drive_with_inline_waits(
             until = %until,
             "task item retryable wait stays inline keeping the admitted lease"
         );
-        if !sleep_keep_lease(service.db(), item, until).await? {
-            break;
+        match sleep_keep_lease(service.db(), item, until).await? {
+            SleepOutcome::Completed => {}
+            SleepOutcome::LeaseLost => break,
+            SleepOutcome::PauseRequested => return Ok(ProcessResult::Paused),
         }
         rounds_used += 1;
+        if service.pause_requested(item).await? {
+            return Ok(ProcessResult::Paused);
+        }
         result = process_item_blocking(service, kind, group, task, &mut current).await?;
     }
     Ok(result)
@@ -101,15 +109,21 @@ pub(super) async fn drive_with_inline_waits(
 /// reaped, or lease reclaimed): the caller must commit its outcome through
 /// the fenced path, which then observes the loss instead of overwriting the
 /// new owner's state.
+pub(super) enum SleepOutcome {
+    Completed,
+    LeaseLost,
+    PauseRequested,
+}
+
 pub(super) async fn sleep_keep_lease(
     db: &Database,
     item: &crate::db::ClaimedItem,
     until: DateTime<Utc>,
-) -> Result<bool> {
+) -> Result<SleepOutcome> {
     // The renewal goes through the library, so the wait keeps the very lease
     // the item was claimed with.
     let Some(execution) = item.execution_context() else {
-        return Ok(false);
+        return Ok(SleepOutcome::LeaseLost);
     };
     while Utc::now() < until {
         let chunk = (until - Utc::now())
@@ -121,10 +135,13 @@ pub(super) async fn sleep_keep_lease(
         }
         tokio::time::sleep(chunk).await;
         if !db.heartbeat_task_item(&execution).await? {
-            return Ok(false);
+            return Ok(SleepOutcome::LeaseLost);
+        }
+        if db.execution_pause_requested(&execution).await? {
+            return Ok(SleepOutcome::PauseRequested);
         }
     }
-    Ok(true)
+    Ok(SleepOutcome::Completed)
 }
 
 pub(super) fn backoff_until(attempt_count: i32) -> DateTime<Utc> {
@@ -227,7 +244,10 @@ mod tests {
         let done = super::sleep_keep_lease(&db, &item, Utc::now() + ChronoDuration::seconds(2))
             .await
             .expect("sleep");
-        assert!(done, "a live lease survives the inline wait");
+        assert!(
+            matches!(done, super::SleepOutcome::Completed),
+            "a live lease survives the inline wait"
+        );
         let after: chrono::DateTime<Utc> = lease_until(&db, item_id).await;
         assert!(after > before, "the inline wait must renew the item lease");
         let status = item_status(&db, item_id).await;
@@ -245,7 +265,7 @@ mod tests {
         let done = super::sleep_keep_lease(&db, &item, Utc::now() - ChronoDuration::seconds(1))
             .await
             .expect("sleep");
-        assert!(done);
+        assert!(matches!(done, super::SleepOutcome::Completed));
         cleanup(&db, task_id, user_id).await;
     }
 
@@ -270,7 +290,10 @@ mod tests {
         let done = super::sleep_keep_lease(&db, &item, Utc::now() + ChronoDuration::seconds(25))
             .await
             .expect("sleep");
-        assert!(!done, "a lost lease must abort the inline wait");
+        assert!(
+            matches!(done, super::SleepOutcome::LeaseLost),
+            "a lost lease must abort the inline wait"
+        );
         assert!(
             started.elapsed() < std::time::Duration::from_secs(25),
             "the wait must abort at the first chunk, not sleep through"

@@ -402,11 +402,21 @@ impl Database {
             )
             .fetch_optional(&mut *tx)
             .await?;
-            if parent.is_none() {
+            let Some(parent) = parent else {
                 if skip_ineligible {
                     continue;
                 }
                 anyhow::bail!("parent {} of item {item_id} is not active", current.task_id);
+            };
+            if parent.pause_state != "unpaused" {
+                // A paused parent is legitimate work the operator is holding:
+                // the automatic batch skips it, and the explicit selection
+                // refuses the whole batch without minting anything. The shared
+                // segment gate repeats this check after the item lock.
+                if skip_ineligible {
+                    continue;
+                }
+                anyhow::bail!("parent {} of item {item_id} is paused", current.task_id);
             }
             // The link is the only durable effect of the adoption, and it is
             // checked: without it the whole batch is rolled back rather than
@@ -576,6 +586,7 @@ struct AdoptCandidate {
 struct AdoptParent {
     #[allow(dead_code)]
     id: Uuid,
+    pause_state: String,
 }
 
 /// The parent of one finalized item.

@@ -87,7 +87,7 @@ fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
         "the orphan gauge must require the same reclaim shape P1 applies"
     );
     assert!(
-        code.contains("candidate.attempt_count < 5"),
+        code.contains("(candidate.attempt_count - candidate.paused_attempts) < 5"),
         "claimability must match the `claim_candidates.sql` attempt cap, or an \
          exhausted parent would be reported as holding a legitimate slot"
     );
@@ -104,15 +104,20 @@ fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
     // change to one cannot silently drift from the other. The two statements
     // alias the same tables differently, so the arms are compared per shape.
     let maintain = sql_code(include_str!("../../sql/db/tasks/maintain_claim_state.sql"));
-    for shape in [
-        "status IN ('queued', 'running', 'waiting')",
-        "attempt_count < 5",
-    ] {
+    for source in [&maintain, &code] {
         assert!(
-            maintain.contains(shape) && code.contains(shape),
-            "both statements must keep the reclaim predicate `{shape}`"
+            source.contains("status IN ('queued', 'running', 'waiting')"),
+            "both statements must keep the reclaim status predicate"
         );
     }
+    assert!(
+        maintain.contains("(item.attempt_count - item.paused_attempts) < 5"),
+        "maintenance must use the effective attempt budget"
+    );
+    assert!(
+        code.contains("(candidate.attempt_count - candidate.paused_attempts) < 5"),
+        "the consistency gauge must use the effective attempt budget"
+    );
     assert!(
         maintain.contains("item.lease_until > now()"),
         "the live-worker predicate must stay pinned to maintenance"

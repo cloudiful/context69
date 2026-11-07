@@ -24,7 +24,7 @@ use anyhow::{Context, Result, bail, ensure};
 use uuid::Uuid;
 
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
-use crate::chunking::{ChunkBudget, chunk_document_iter_with_budget};
+use crate::chunking::{ChunkBudget, ChunkingRuntime, chunk_document_iter_resolved};
 use crate::db::{Database, IngestRunMode, IngestRunSource, NewIngestRun, RegistryQuotaOverride};
 use crate::domain::{DocumentChunk, LibraryFileDocumentRecord, LibraryFileRecord};
 use crate::embedding::EmbeddingProvider;
@@ -459,11 +459,13 @@ async fn prepare_plan(
             metadata_json,
         });
 
-        let chunks: Vec<DocumentChunk> = chunk_document_iter_with_budget(
+        let resolved_chunking =
+            ChunkingRuntime::new(vector.chunking.clone()).resolve(vector.chunking)?;
+        let chunks: Vec<DocumentChunk> = chunk_document_iter_resolved(
             document_id,
             &source_key,
             &normalized,
-            vector.chunking,
+            &resolved_chunking,
             Some(run.generation),
         )
         .map_err(anyhow::Error::from)?
@@ -773,9 +775,22 @@ async fn ensure_admission(
 /// No connection is held across the embedding or the Qdrant call. A failure
 /// leaves the committed staging admission in place for the retry.
 async fn write_staged_points(vector: &ReplacementVector<'_>, plan: &ReplacementPlan) -> Result<()> {
+    let input_policy = match &vector.chunking.input_policy {
+        Some(policy) if !policy.is_default() => Some(
+            crate::chunking::chunking_token_artifact::TokenizerCatalog::installed_or_empty()
+                .resolve_input_policy(policy)?,
+        ),
+        _ => None,
+    };
     for batch in staged_batches(plan) {
         let texts: Vec<String> = batch.iter().map(|chunk| chunk.text.clone()).collect();
-        let embeddings = vector.embedding.embed_texts(&texts).await?;
+        let embeddings = vector
+            .embedding
+            .embed_texts_with_policy(
+                &texts,
+                crate::embedding::InputPolicySelection::Pinned(input_policy.as_ref()),
+            )
+            .await?;
         ensure!(
             embeddings.len() == batch.len(),
             "the embedding provider returned the wrong vector count"

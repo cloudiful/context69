@@ -143,6 +143,18 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         signal: options?.signal,
       })) as Promise<RerunTaskResponse>;
     },
+    pauseTask(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/pause", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<TaskResponse>;
+    },
+    resumeTask(taskId: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/resume", {
+        params: { path: { task_id: taskId } },
+        signal: options?.signal,
+      })) as Promise<TaskResponse>;
+    },
     cancelTask(taskId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/cancel", {
         params: { path: { task_id: taskId } },

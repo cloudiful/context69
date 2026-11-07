@@ -89,6 +89,8 @@ fn task_stream_event_frames_carry_snapshot_update_done_error_shapes() {
         stage: None,
         waiting_reason: None,
         dependency_key: None,
+        pause_state: None,
+        paused_at: None,
         progress: context69_contracts::TaskProgress {
             total: 1,
             queued: 0,
@@ -203,6 +205,8 @@ fn coalescer_test_task(
         stage: stage.map(ToOwned::to_owned),
         waiting_reason: None,
         dependency_key: None,
+        pause_state: None,
+        paused_at: None,
         progress: context69_contracts::TaskProgress {
             total: 1,
             queued: 0,

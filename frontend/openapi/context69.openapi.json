@@ -5604,56 +5604,6 @@
         }
       }
     },
-    "/v1/settings/runtime/embedding/capabilities": {
-      "post": {
-        "tags": [],
-        "summary": "A non-persisting capability request against the submitted embedding\nprovider.",
-        "description": "It reports what the provider advertises about itself - its model, its\naliases, its dimensions, and the request limits it accepts - and which\nlimits are in effect. A provider that publishes no capability document is\nreported as `unknown` with the manual limits, so the caller always learns\nthe limits that apply. The response never carries a credential, a remote\nprompt, or a raw provider body.",
-        "operationId": "embedding_capabilities",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/TestRuntimeEmbeddingRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/EmbeddingCapabilitiesResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApiErrorResponse"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/settings/runtime/embedding/test": {
       "post": {
         "tags": [],
@@ -7385,6 +7335,65 @@
         }
       }
     },
+    "/v1/tasks/{task_id}/pause": {
+      "post": {
+        "tags": [],
+        "operationId": "pause_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/{task_id}/rerun": {
       "post": {
         "tags": [],
@@ -7481,6 +7490,65 @@
             }
           },
           "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/{task_id}/resume": {
+      "post": {
+        "tags": [],
+        "operationId": "resume_task",
+        "parameters": [
+          {
+            "name": "task_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
             "description": "",
             "content": {
               "application/json": {
@@ -8234,7 +8302,8 @@
         "description": "Tokenizer that measures the token budget.\n\nThe count only matches the tokenizer that produced it, so a token count is\nnever a count of another model's tokens.",
         "enum": [
           "cl100k_base",
-          "o200k_base"
+          "o200k_base",
+          "hf_local"
         ]
       },
       "ChunkingUnit": {
@@ -9420,141 +9489,60 @@
           }
         }
       },
-      "EmbeddingCapabilitiesResponse": {
+      "EmbeddingInputPolicy": {
         "type": "object",
-        "description": "The provider facts one same-origin capability request reported.\n\nEverything but the source is optional: a provider that does not advertise a\nfield simply leaves it unknown, and an unknown field never constrains the\nmanual limits. No remote prompt text, credential, or raw response body is\never part of this projection.",
-        "required": [
-          "source",
-          "base_url",
-          "document_model",
-          "query_model",
-          "manual_limits",
-          "effective_limits"
-        ],
+        "description": "The exact input-token envelope and server-added prefixes of one provider.\n\n`max_input_tokens = None` disables the guard while keeping the policy\nserialized and versioned. The prefixes are counted only; they are never\nsent to the provider, trimmed, normalized or separated from the input.",
         "properties": {
-          "advertised_max_inputs_per_request": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "description": "The maximum number of inputs the provider accepts in one request.",
-            "minimum": 0
-          },
-          "advertised_model": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The model the provider advertises."
-          },
-          "advertised_tokens_per_input_limit": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "The per-input token limit the provider advertises. The provider enforces\nit, so it is never a locally computed token count.",
-            "minimum": 0
-          },
-          "base_url": {
-            "type": "string",
-            "description": "The origin the capability request was derived from. It never carries a\ncredential."
-          },
-          "document_model": {
-            "type": "string",
-            "description": "The model documents are embedded with."
-          },
-          "effective_limits": {
-            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
-            "description": "The limits in effect: the manual ones, tightened by what the provider\nadvertises."
-          },
-          "internal_batch_size": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "The provider's own execution batch size. It is server-side execution\nmetadata, never a client-side request limit.",
-            "minimum": 0
-          },
-          "manual_limits": {
-            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
-            "description": "The limits this deployment configures."
-          },
-          "max_concurrent_encodes": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "The concurrency the provider advertises.",
-            "minimum": 0
-          },
-          "query_model": {
-            "type": "string",
-            "description": "The model queries are embedded with: the configured alias, or the\ndocument model."
-          },
-          "reason": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Why the advertised facts are unavailable, in operator-facing words."
-          },
-          "role_aliases": {
-            "type": [
-              "object",
-              "null"
-            ],
-            "description": "The aliases the provider advertises, as alias name to role.",
-            "additionalProperties": {
-              "type": "string"
-            },
-            "propertyNames": {
-              "type": "string"
-            }
-          },
-          "source": {
-            "$ref": "#/components/schemas/EmbeddingCapabilitiesSource",
-            "description": "Where the advertised facts come from."
-          },
-          "supported_dimensions": {
-            "type": [
-              "array",
-              "null"
-            ],
-            "items": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "description": "The dimensions the provider advertises."
-          },
-          "token_limit_enforced_by_server": {
+          "add_special_tokens": {
             "type": "boolean",
-            "description": "Whether the advertised token limit is enforced by the provider itself.\nIt always is: no local tokenizer reproduces it."
+            "description": "Whether the tokenizer adds its special tokens when it counts.",
+            "default": false
           },
-          "tokens_include_role_prefix": {
+          "document_server_prefix": {
+            "type": "string",
+            "description": "Text the provider prepends to every document input before tokenizing.",
+            "default": ""
+          },
+          "max_input_tokens": {
             "type": [
-              "boolean",
+              "integer",
               "null"
             ],
-            "description": "Whether the advertised token limit counts the role prefix."
+            "description": "The full input-token cap. `None` disables the guard.",
+            "default": null,
+            "minimum": 0
           },
-          "tokens_include_special_tokens": {
+          "query_server_prefix": {
+            "type": "string",
+            "description": "Text the provider prepends to every query input before tokenizing.",
+            "default": ""
+          },
+          "tokenizer": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/EmbeddingTokenizer",
+                "description": "Tokenizer that measures the envelope."
+              }
+            ],
+            "default": "cl100k_base"
+          },
+          "tokenizer_sha256": {
             "type": [
-              "boolean",
+              "string",
               "null"
             ],
-            "description": "Whether the advertised token limit counts special tokens."
+            "description": "The pinned local artifact hash. Present exactly for `hf_local`.",
+            "default": null
           }
         }
       },
-      "EmbeddingCapabilitiesSource": {
+      "EmbeddingTokenizer": {
         "type": "string",
-        "description": "Where the advertised embedding facts come from.\n\n`discovered` means the provider answered a same-origin capability request;\n`unknown` means it did not, so only the manual limits apply.",
+        "description": "Tokenizer that measures the embedding input envelope.\n\nIt is separate from the chunking tokenizer: an operator may chunk with one\nvocabulary and count the provider input with another.",
         "enum": [
-          "discovered",
-          "unknown"
+          "cl100k_base",
+          "o200k_base",
+          "hf_local"
         ]
       },
       "EnsureScopeResponse": {
@@ -12663,6 +12651,13 @@
             "$ref": "#/components/schemas/ChunkingTokenizer",
             "description": "Tokenizer that measures the token budget."
           },
+          "tokenizer_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The pinned local artifact hash. Required for `hf_local`, absent otherwise."
+          },
           "unit": {
             "$ref": "#/components/schemas/ChunkingUnit",
             "description": "Unit the budget is measured in."
@@ -12692,6 +12687,10 @@
           },
           "has_api_key": {
             "type": "boolean"
+          },
+          "input_policy": {
+            "$ref": "#/components/schemas/EmbeddingInputPolicy",
+            "description": "The explicit input-token envelope and server-added prefixes."
           },
           "model": {
             "type": "string",
@@ -12895,6 +12894,13 @@
           },
           "scheduler": {
             "$ref": "#/components/schemas/RuntimeSchedulerSettings"
+          },
+          "tokenizer_artifacts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenizerArtifactDescriptor"
+            },
+            "description": "The verified local tokenizer artifacts this process can select."
           }
         }
       },
@@ -14617,6 +14623,15 @@
           }
         }
       },
+      "TaskPauseState": {
+        "type": "string",
+        "description": "Cooperative pause state of one parent task.\n\nIt is independent of [`TaskStatus`]: a queued task stays queued while\npaused, and a running task enters `pausing` until its current attempt parks\nat a safe checkpoint.",
+        "enum": [
+          "unpaused",
+          "pausing",
+          "paused"
+        ]
+      },
       "TaskProgress": {
         "type": "object",
         "required": [
@@ -14857,6 +14872,25 @@
           },
           "origin": {
             "$ref": "#/components/schemas/TaskOrigin"
+          },
+          "pause_state": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskPauseState",
+                "description": "The cooperative pause state of this parent task. Missing means the\nlegacy `unpaused` default."
+              }
+            ]
+          },
+          "paused_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the pause last became effective; `None` while unpaused."
           },
           "progress": {
             "$ref": "#/components/schemas/TaskProgress"
@@ -15540,6 +15574,26 @@
           }
         }
       },
+      "TokenizerArtifactDescriptor": {
+        "type": "object",
+        "description": "One verified local tokenizer artifact.",
+        "required": [
+          "sha256",
+          "size_bytes"
+        ],
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "description": "The lowercase SHA256 of the artifact bytes, which is also its file name."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The artifact size in bytes.",
+            "minimum": 0
+          }
+        }
+      },
       "TranslationDirective": {
         "type": "object",
         "properties": {
@@ -16098,6 +16152,10 @@
           "dimensions": {
             "type": "integer",
             "minimum": 0
+          },
+          "input_policy": {
+            "$ref": "#/components/schemas/EmbeddingInputPolicy",
+            "description": "The explicit input-token envelope and server-added prefixes."
           },
           "model": {
             "type": "string",

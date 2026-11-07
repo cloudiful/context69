@@ -1,13 +1,14 @@
-import { X } from "lucide-react";
+import { Pause, Play, X } from "lucide-react";
 import { useEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { TaskResponse, TaskStatus } from "@/services/api";
 
 import { QueueExpandedRow } from "./queue-expanded-row";
-import { isActiveTask, queueStageLabel, taskSubject } from "./queue-helpers";
+import { canPauseTask, canResumeTask, isActiveTask, isPauseRequested, queueStageLabel, taskSubject } from "./queue-helpers";
 import { isValidTaskFocusId } from "./use-queue";
 
 function statusTone(status: TaskStatus): StatusTone {
@@ -86,16 +87,53 @@ export function QueueFocusedTask({
                     >
                       {t(`processingQueue.statuses.${task.status}`)}
                     </StatusBadge>
+                    {isPauseRequested(task)
+                      ? (
+                          <Badge variant="secondary" data-testid="queue-focused-task-pause-state">
+                            {t(`processingQueue.pauseStates.${task.pause_state ?? "paused"}`)}
+                          </Badge>
+                        )
+                      : null}
                     <span>{queueStageLabel(t, task.stage)}</span>
                   </div>
                 </>
               )
             : null}
         </div>
-        <Button type="button" variant="ghost" size="sm" onClick={onDismiss}>
-          <X aria-hidden="true" />
-          {t("processingQueue.focus.dismiss")}
-        </Button>
+        <div className="flex items-center gap-1">
+          {task && canPauseTask(task)
+            ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isActing(task)}
+                  onClick={() => onRetry(task)}
+                >
+                  <Pause aria-hidden="true" />
+                  {t("processingQueue.pauseTask")}
+                </Button>
+              )
+            : null}
+          {task && canResumeTask(task)
+            ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isActing(task)}
+                  onClick={() => onRetry(task)}
+                >
+                  <Play aria-hidden="true" />
+                  {t("processingQueue.resumePaused")}
+                </Button>
+              )
+            : null}
+          <Button type="button" variant="ghost" size="sm" onClick={onDismiss}>
+            <X aria-hidden="true" />
+            {t("processingQueue.focus.dismiss")}
+          </Button>
+        </div>
       </div>
 
       {!valid

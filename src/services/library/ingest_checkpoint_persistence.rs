@@ -25,7 +25,7 @@ use super::task_ingest::{
     normalize_indexing_runtime_failure, normalize_task_failure, task_failure,
 };
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
-use crate::chunking::{ChunkBudget, chunk_document_iter_with_budget};
+use crate::chunking::{ChunkBudget, chunk_document_iter_resolved};
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
@@ -234,7 +234,11 @@ impl LibraryService {
         // One counting pass feeds both the batch checkpoint and the chunk
         // counters the progress record publishes, so a total can never
         // disagree with the batches it is measured against.
-        let totals = count_prepared_ingest_totals(&prepared, budget)
+        let resolved_budget = self
+            .chunking_runtime
+            .resolve(budget)
+            .map_err(|error| task_failure("indexing", error, false))?;
+        let totals = count_prepared_ingest_totals(&prepared, &resolved_budget)
             .map_err(|error| task_failure("indexing", error, false))?;
         let total_batches = totals.total_batches;
         let total_chunks = totals.total_chunks;
@@ -327,11 +331,11 @@ impl LibraryService {
                     &mut mappings,
                 )
                 .await?;
-            let chunks = chunk_document_iter_with_budget(
+            let chunks = chunk_document_iter_resolved(
                 document_id,
                 super::FILE_LIBRARY_SOURCE_KEY,
                 &prepared_section.normalized,
-                budget,
+                &resolved_budget,
                 None,
             )
             .map_err(|error| task_failure("indexing", error, false))?;

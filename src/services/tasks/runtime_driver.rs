@@ -348,6 +348,16 @@ async fn drive_claimed_item(
                 }
             }
         }
+        Ok(ProcessResult::Paused) => {
+            if !service
+                .db()
+                .park_paused_item(&execution, item.task_id)
+                .await?
+            {
+                return Ok(());
+            }
+            log_attempt("paused");
+        }
         // Defensive only: the blocking driver consumes every stage advance
         // inside one claim, so an escaped `Progressed` means the item still has
         // work and is requeued (the stage itself is never persisted).

@@ -46,6 +46,10 @@ pub struct StoredTask {
     pub waiting_reason: Option<String>,
     pub dependency_key: Option<String>,
     pub next_attempt_at: Option<DateTime<Utc>>,
+    /// The cooperative pause state of the parent task.
+    pub pause_state: String,
+    /// When the pause last became effective; cleared on resume.
+    pub paused_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub started_at: Option<DateTime<Utc>>,
     pub finished_at: Option<DateTime<Utc>>,

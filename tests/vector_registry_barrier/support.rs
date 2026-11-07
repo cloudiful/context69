@@ -1,5 +1,7 @@
 //! Shared fixtures of the rebuild barrier tests.
 
+#[cfg(feature = "integration-test-helpers")]
+use anyhow::{Context, Result};
 use context69::db::{Database, RebuildBarrierState, RegistryVectorIdentity};
 use context69_search::SearchRegistryEntry;
 use uuid::Uuid;
@@ -328,6 +330,438 @@ pub async fn activate_index(
     .execute(db.pool())
     .await
     .expect("activate the seeded vector index");
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Seed one document with `chunks` stored chunks for the actual reindex loop.
+///
+/// The rebuild page query joins `documents` and `groups`, so the fixture owns
+/// one group-scoped document instead of a synthetic chunk-only row.
+pub async fn seed_reindex_document(db: &Database, group_id: i64, chunks: usize) -> Result<i64> {
+    let external_id = format!("reindex-{}", Uuid::new_v4());
+    let document_id: i64 = sqlx::query_scalar(
+        "INSERT INTO context69.documents \
+         (group_id, visibility, source_key, external_id, title, source_uri, \
+          updated_at_source, metadata_json, record_hash) \
+         VALUES ($1, 'public', 'reindex-fixture', $2, 'rebuild fixture', \
+                 'https://example.com/rebuild', now(), '{}'::jsonb, $2) \
+         RETURNING id",
+    )
+    .bind(group_id)
+    .bind(&external_id)
+    .fetch_one(db.pool())
+    .await
+    .context("seed the reindex document")?;
+    for chunk_index in 0..chunks {
+        sqlx::query_file!(
+            "tests/sql/task_execution/insert_document_chunk.sql",
+            Uuid::new_v4(),
+            document_id,
+            i32::try_from(chunk_index).context("chunk index within i32")?,
+            format!("rebuild chunk {chunk_index}"),
+            format!("{external_id}-{chunk_index}")
+        )
+        .execute(db.pool())
+        .await
+        .context("seed one reindex chunk")?;
+    }
+    Ok(document_id)
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// The read-only state the actual rebuild case requires before it writes.
+#[derive(Debug)]
+pub struct RebuildFixturePreflight {
+    pub runtime_singleton_rows: i64,
+    pub vector_index_rows: i64,
+    pub registry_entry_rows: i64,
+    pub live_item_leases: i64,
+    pub live_parent_leases: i64,
+    pub active_barrier_tasks: i64,
+    pub barrier_is_idle: bool,
+    pub barrier_is_clean: bool,
+}
+
+#[cfg(feature = "integration-test-helpers")]
+impl RebuildFixturePreflight {
+    /// The actionable reason a non-empty fixture cannot start this case.
+    pub fn emptiness_problem(&self) -> Option<String> {
+        let mut problems = Vec::new();
+        if self.runtime_singleton_rows != 0 {
+            problems.push(format!(
+                "{} runtime settings singleton row(s) exist",
+                self.runtime_singleton_rows
+            ));
+        }
+        if self.vector_index_rows != 0 {
+            problems.push(format!(
+                "{} recorded vector index row(s) exist",
+                self.vector_index_rows
+            ));
+        }
+        if self.registry_entry_rows != 0 {
+            problems.push(format!(
+                "{} registry entry row(s) exist",
+                self.registry_entry_rows
+            ));
+        }
+        if self.live_item_leases != 0 {
+            problems.push(format!(
+                "{} live item lease(s) exist",
+                self.live_item_leases
+            ));
+        }
+        if self.live_parent_leases != 0 {
+            problems.push(format!(
+                "{} live parent slot(s) exist",
+                self.live_parent_leases
+            ));
+        }
+        if self.active_barrier_tasks != 0 {
+            problems.push(format!(
+                "{} active earlier rebuild-fixture task(s) exist",
+                self.active_barrier_tasks
+            ));
+        }
+        if !self.barrier_is_idle || !self.barrier_is_clean {
+            problems.push("the rebuild barrier is not idle and unowned".to_string());
+        }
+        if problems.is_empty() {
+            None
+        } else {
+            Some(problems.join("; "))
+        }
+    }
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Read the empty-fixture precondition without writing anything.
+///
+/// The actual rebuild owns the shared runtime singletons and the one durable
+/// barrier, so it refuses to start unless the reusable test database is idle.
+/// Nothing is cleared or restored to make it fit.
+pub async fn read_rebuild_fixture_preflight(db: &Database) -> Result<RebuildFixturePreflight> {
+    let (
+        runtime_singleton_rows,
+        vector_index_rows,
+        registry_entry_rows,
+        live_item_leases,
+        live_parent_leases,
+        active_barrier_tasks,
+    ): (i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+        "SELECT \
+             (SELECT count(*) FROM context69.runtime_qdrant_settings) \
+           + (SELECT count(*) FROM context69.runtime_embedding_settings) \
+           + (SELECT count(*) FROM context69.runtime_scheduler_settings) \
+           + (SELECT count(*) FROM context69.runtime_chunking_settings) \
+           + (SELECT count(*) FROM context69.runtime_file_library_settings), \
+             (SELECT count(*) FROM context69.vector_index_state), \
+             (SELECT count(*) FROM context69.search_registry_entries), \
+             (SELECT count(*) FROM context69.task_items \
+              WHERE lease_token IS NOT NULL AND lease_until > now()), \
+             (SELECT count(*) FROM context69.tasks \
+              WHERE lease_token IS NOT NULL AND lease_until > now()), \
+             (SELECT count(*) FROM context69.tasks task \
+              JOIN context69.users owner ON owner.id = task.user_id \
+              WHERE owner.login_name LIKE 'barrier-%' \
+                AND task.status IN ('queued', 'running', 'waiting'))",
+    )
+    .fetch_one(db.pool())
+    .await
+    .context("read the rebuild fixture preflight")?;
+    let barrier = db.read_rebuild_barrier().await?;
+    Ok(RebuildFixturePreflight {
+        runtime_singleton_rows,
+        vector_index_rows,
+        registry_entry_rows,
+        live_item_leases,
+        live_parent_leases,
+        active_barrier_tasks,
+        barrier_is_idle: barrier.state == RebuildBarrierState::Idle,
+        barrier_is_clean: barrier.owner_item_id.is_none()
+            && barrier.owner_token.is_none()
+            && barrier.collection.is_none()
+            && !barrier.pause_requested
+            && !barrier.rebuild_target_created
+            && barrier.error.is_none(),
+    })
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Seed the desired runtime identity and the runtimes the service graph needs.
+pub async fn try_seed_runtime_settings(
+    db: &Database,
+    qdrant_url: &str,
+    collection: &str,
+    base_url: &str,
+    model: &str,
+    dimensions: i64,
+) -> Result<RegistryVectorIdentity> {
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+        qdrant_url,
+        collection,
+        base_url,
+        model,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .context("seed the desired vector identity")?;
+    sqlx::query(
+        "INSERT INTO context69.runtime_scheduler_settings \
+         (singleton, interval_secs, run_on_start, max_concurrency, job_id) \
+         VALUES (TRUE, 3600, TRUE, 2, 'barrier-job')",
+    )
+    .execute(db.pool())
+    .await
+    .context("seed the scheduler settings")?;
+    sqlx::query(
+        "INSERT INTO context69.runtime_chunking_settings \
+         (singleton, max_chars, overlap_chars) \
+         VALUES (TRUE, 1000, 100)",
+    )
+    .execute(db.pool())
+    .await
+    .context("seed the chunking settings")?;
+    sqlx::query(
+        "INSERT INTO context69.runtime_file_library_settings \
+         (singleton, storage_root, max_upload_size_mb, max_upload_request_size_mb, \
+          ingest_concurrency) \
+         VALUES (TRUE, '/tmp/barrier-storage', 10, 10, 1)",
+    )
+    .execute(db.pool())
+    .await
+    .context("seed the file library settings")?;
+    let computed = fingerprint(
+        qdrant_url,
+        collection,
+        base_url,
+        model,
+        usize::try_from(dimensions).context("non-negative dimensions")?,
+    );
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_active_index.sql",
+        collection,
+        computed,
+        base_url,
+        model,
+        dimensions
+    )
+    .execute(db.pool())
+    .await
+    .context("activate the seeded vector index")?;
+    Ok(RegistryVectorIdentity {
+        embedding_fingerprint: computed,
+        collection_name: collection.to_string(),
+    })
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Seed one owned rebuild user, task, item, and lease step by step so a
+/// partially created fixture is still cleanable.
+pub async fn try_seed_user(db: &Database) -> Result<i64> {
+    sqlx::query_scalar(
+        "INSERT INTO context69.users (login_name, display_name, password_hash) \
+         VALUES ($1, $2, 'not-a-real-hash') RETURNING id",
+    )
+    .bind(format!("barrier-{}", Uuid::new_v4()))
+    .bind("barrier owner")
+    .fetch_one(db.pool())
+    .await
+    .context("seed the rebuild user")
+}
+
+#[cfg(feature = "integration-test-helpers")]
+pub async fn try_seed_task(db: &Database, user_id: i64, status: &str, kind: &str) -> Result<Uuid> {
+    let task_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO context69.tasks (id, user_id, kind, status, total_count) \
+         VALUES ($1, $2, $3, $4, 1)",
+    )
+    .bind(task_id)
+    .bind(user_id)
+    .bind(kind)
+    .bind(status)
+    .execute(db.pool())
+    .await
+    .context("seed the rebuild task")?;
+    Ok(task_id)
+}
+
+#[cfg(feature = "integration-test-helpers")]
+pub async fn try_seed_item(db: &Database, task_id: Uuid) -> Result<(Uuid, Uuid)> {
+    let item_id = Uuid::new_v4();
+    let lease_token = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO context69.task_items (id, task_id, ordinal, payload, status, lease_token, \
+         lease_until) VALUES ($1, $2, 0, '{}'::jsonb, 'queued', $3, now() + interval '1 hour')",
+    )
+    .bind(item_id)
+    .bind(task_id)
+    .bind(lease_token)
+    .execute(db.pool())
+    .await
+    .context("seed the rebuild item")?;
+    Ok((item_id, lease_token))
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// The derived rebuild collections this issue left in the logical test Qdrant.
+pub async fn pause_collections(qdrant_url: &str) -> Result<Vec<String>> {
+    let client = qdrant_client::Qdrant::from_url(qdrant_url)
+        .build()
+        .context("build the test qdrant client")?;
+    let listing = client
+        .list_collections()
+        .await
+        .context("list the test qdrant collections")?;
+    Ok(listing
+        .collections
+        .into_iter()
+        .map(|collection| collection.name)
+        .filter(|name| name.starts_with("context69_issue_21_pause_"))
+        .collect())
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Delete the exact derived rebuild collection the test observed.
+pub async fn delete_qdrant_collection(qdrant_url: &str, collection: &str) -> Result<()> {
+    let client = qdrant_client::Qdrant::from_url(qdrant_url)
+        .build()
+        .context("build the test qdrant client")?;
+    match client.delete_collection(collection).await {
+        Ok(_) => Ok(()),
+        Err(error) => {
+            let error = anyhow::Error::new(error);
+            if context69::qdrant_index::is_qdrant_idempotent_not_found(&error) {
+                Ok(())
+            } else {
+                Err(error.context(format!("delete the owned rebuild collection {collection}")))
+            }
+        }
+    }
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Remove the seeded group and the rows that cascade from it.
+pub async fn try_delete_group(db: &Database, group_id: i64) -> Result<()> {
+    sqlx::query_file!("tests/sql/task_execution/delete_group_files.sql", group_id)
+        .execute(db.pool())
+        .await
+        .context("delete the group files")?;
+    sqlx::query("DELETE FROM context69.documents WHERE group_id = $1")
+        .bind(group_id)
+        .execute(db.pool())
+        .await
+        .context("delete the group documents")?;
+    sqlx::query_file!("tests/sql/task_execution/delete_group.sql", group_id)
+        .execute(db.pool())
+        .await
+        .context("delete the group")?;
+    Ok(())
+}
+
+#[cfg(feature = "integration-test-helpers")]
+pub async fn try_delete_tasks(db: &Database, task_ids: &[Uuid]) -> Result<()> {
+    for task_id in task_ids {
+        sqlx::query("DELETE FROM context69.task_items WHERE task_id = $1")
+            .bind(task_id)
+            .execute(db.pool())
+            .await
+            .context("delete the task items")?;
+        sqlx::query("DELETE FROM context69.tasks WHERE id = $1")
+            .bind(task_id)
+            .execute(db.pool())
+            .await
+            .context("delete the task")?;
+    }
+    Ok(())
+}
+
+#[cfg(feature = "integration-test-helpers")]
+pub async fn try_delete_user(db: &Database, user_id: i64) -> Result<()> {
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_user_idempotency_keys.sql",
+        user_id
+    )
+    .execute(db.pool())
+    .await
+    .context("delete the user idempotency keys")?;
+    sqlx::query_file!("tests/sql/task_execution/delete_user.sql", user_id)
+        .execute(db.pool())
+        .await
+        .context("delete the user")?;
+    Ok(())
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Remove the native rows of one target item after the case.
+pub async fn try_delete_item_library_rows(db: &Database, item_id: Uuid) -> Result<()> {
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_item_library_attempts.sql",
+        item_id.to_string()
+    )
+    .execute(db.pool())
+    .await
+    .context("delete the item library attempts")?;
+    sqlx::query_file!(
+        "tests/sql/task_execution/delete_library_tasks_for_item.sql",
+        item_id.to_string()
+    )
+    .execute(db.pool())
+    .await
+    .context("delete the item library task")?;
+    Ok(())
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Return the durable barrier to the idle row this case found at preflight.
+pub async fn try_reset_rebuild_barrier(db: &Database) -> Result<()> {
+    sqlx::query(
+        "UPDATE context69.search_registry_epoch \
+         SET rebuild_state = 'idle', rebuild_owner_item = NULL, rebuild_owner_token = NULL, \
+             rebuild_fingerprint = NULL, rebuild_collection = NULL, \
+             rebuild_started_at = NULL, rebuild_error = NULL, \
+             rebuild_pause_requested = FALSE, rebuild_cursor_document_id = NULL, \
+             rebuild_cursor_chunk_index = NULL, rebuild_processed_chunks = 0, \
+             rebuild_total_chunks = 0, rebuild_target_created = FALSE \
+         WHERE id = 1",
+    )
+    .execute(db.pool())
+    .await
+    .context("reset the rebuild barrier")?;
+    Ok(())
+}
+
+#[cfg(feature = "integration-test-helpers")]
+/// Remove only the runtime settings and active index this case created.
+pub async fn try_clear_runtime_settings(db: &Database) -> Result<()> {
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .context("clear the active vector index")?;
+    sqlx::query("DELETE FROM context69.runtime_embedding_settings WHERE singleton = TRUE")
+        .execute(db.pool())
+        .await
+        .context("clear the embedding settings")?;
+    sqlx::query("DELETE FROM context69.runtime_qdrant_settings WHERE singleton = TRUE")
+        .execute(db.pool())
+        .await
+        .context("clear the qdrant settings")?;
+    sqlx::query("DELETE FROM context69.runtime_scheduler_settings WHERE singleton = TRUE")
+        .execute(db.pool())
+        .await
+        .context("clear the scheduler settings")?;
+    sqlx::query("DELETE FROM context69.runtime_chunking_settings WHERE singleton = TRUE")
+        .execute(db.pool())
+        .await
+        .context("clear the chunking settings")?;
+    sqlx::query("DELETE FROM context69.runtime_file_library_settings WHERE singleton = TRUE")
+        .execute(db.pool())
+        .await
+        .context("clear the file library settings")?;
+    Ok(())
 }
 
 /// Remove the seeded runtime settings again.

@@ -204,6 +204,12 @@ pub(super) struct RuntimeEmbeddingSettingsRow {
     pub(super) max_item_chars: Option<i64>,
     pub(super) max_request_chars: Option<i64>,
     pub(super) max_request_bytes: Option<i64>,
+    pub(super) max_input_tokens: Option<i64>,
+    pub(super) document_server_prefix: String,
+    pub(super) query_server_prefix: String,
+    pub(super) add_special_tokens: bool,
+    pub(super) input_tokenizer: String,
+    pub(super) input_tokenizer_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -221,6 +227,7 @@ pub(super) struct RuntimeChunkingSettingsRow {
     pub(super) overlap_chars: i64,
     pub(super) unit: String,
     pub(super) tokenizer: String,
+    pub(super) tokenizer_sha256: Option<String>,
     pub(super) max_tokens: i64,
     pub(super) overlap_tokens: i64,
 }

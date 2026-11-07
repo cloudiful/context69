@@ -270,16 +270,16 @@ fn near_exhaustion_fires_before_the_attempt_cap_the_claim_enforces() {
     // business, not a warning an operator can act on).
     let consistency = include_str!("../src/sql/db/tasks/task_consistency.sql");
     assert!(
-        consistency.contains("item.attempt_count >= 4"),
+        consistency.contains("(item.attempt_count - item.paused_attempts) >= 4"),
         "near exhaustion must start one attempt before the cap"
     );
     assert!(
-        !consistency.contains("item.attempt_count >= 5"),
+        !consistency.contains("(item.attempt_count - item.paused_attempts) >= 5"),
         "the near-exhaustion band must not start at the cap itself"
     );
     // Both predicates then use the same threshold, so the band and the
     // claimability test cannot drift apart.
-    assert!(consistency.contains("candidate.attempt_count < 5"));
+    assert!(consistency.contains("(candidate.attempt_count - candidate.paused_attempts) < 5"));
     assert!(consistency.contains("near_exhaustion_count"));
 }
 

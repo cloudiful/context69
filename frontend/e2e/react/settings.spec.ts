@@ -249,7 +249,7 @@ test.describe("react settings", () => {
     ))).toEqual([]);
   });
 
-  test("pauses the observed rebuild and shows the provider capabilities", async ({ page }) => {
+  test("pauses the observed rebuild", async ({ page }) => {
     const transport = await installAppTransport(page, {
       user: ADMIN_USER,
       settings: true,
@@ -284,12 +284,6 @@ test.describe("react settings", () => {
     expect(transport.calls.some((call) => (
       call.method === "POST" && call.path === "/v1/settings/runtime/vector-index/rebuild"
     ))).toBe(false);
-
-    await page.getByTestId("runtime-embedding-test").click();
-    const capabilities = page.getByTestId("runtime-embedding-capabilities");
-    await expect(capabilities).toContainText("Provider capabilities");
-    await expect(capabilities).toContainText("Source: unknown");
-    await expect(capabilities).toContainText("Effective inputs per request: 32");
     expect(transport.unmocked).toEqual([]);
   });
 
@@ -344,6 +338,7 @@ test.describe("react settings", () => {
     expect((put?.body as { chunking: Record<string, unknown> }).chunking).toEqual({
       unit: "tokens",
       tokenizer: "o200k_base",
+      tokenizer_sha256: null,
       max_chars: 1200,
       overlap_chars: 200,
       max_tokens: 512,

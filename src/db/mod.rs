@@ -8,7 +8,7 @@ use tokio::sync::OnceCell;
 use uuid::Uuid;
 
 use crate::chunking::ChunkBudgetMode;
-use crate::chunking::chunking_token::TokenizerKind;
+use crate::chunking::chunking_token::TokenizerRef;
 use crate::contracts::{SearchMode, SyncOutcome};
 use crate::domain::SyncCheckpoint;
 
@@ -190,6 +190,8 @@ pub struct StoredRuntimeEmbeddingSettings {
     pub timeout_secs: u64,
     /// The manual limits of the embedding request planner.
     pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
+    /// The explicit input-token envelope and server-added prefixes.
+    pub input_policy: context69_contracts::settings::EmbeddingInputPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -208,7 +210,7 @@ pub struct StoredRuntimeChunkingSettings {
     /// Unit the persisted budget is measured in.
     pub unit: ChunkBudgetMode,
     /// Tokenizer that measures the persisted token budget.
-    pub tokenizer: TokenizerKind,
+    pub tokenizer: TokenizerRef,
     pub max_tokens: usize,
     pub overlap_tokens: usize,
 }

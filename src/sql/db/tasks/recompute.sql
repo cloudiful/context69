@@ -58,6 +58,27 @@ SET queued_count = counts.queued_count,
         THEN now()
         ELSE NULL
     END,
+    -- A terminal parent cannot carry an actionable pause: the projection is
+    -- cleared atomically with the terminal status, while an active parent keeps
+    -- its request and its timestamp.
+    pause_state = CASE
+        WHEN t.status = 'cancelled'
+             AND counts.queued_count + counts.running_count + counts.waiting_count = 0
+            THEN 'unpaused'
+        WHEN counts.cancelled_count = t.total_count THEN 'unpaused'
+        WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count
+            THEN 'unpaused'
+        ELSE t.pause_state
+    END,
+    paused_at = CASE
+        WHEN t.status = 'cancelled'
+             AND counts.queued_count + counts.running_count + counts.waiting_count = 0
+            THEN NULL
+        WHEN counts.cancelled_count = t.total_count THEN NULL
+        WHEN counts.succeeded_count + counts.failed_count + counts.cancelled_count = t.total_count
+            THEN NULL
+        ELSE t.paused_at
+    END,
     updated_at = now()
 FROM (
     SELECT

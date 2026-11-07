@@ -157,21 +157,27 @@ export const settings = {
     embeddingBatchRequestBytes: "Bytes per request",
     embeddingBatchingHelper:
       "A provider limit can only tighten these values; the provider refuses a request above them.",
-    embeddingCapabilitiesTitle: "Provider capabilities",
-    embeddingCapabilitiesSource: "Source: {source}",
-    embeddingCapabilitiesUnknown: "The provider publishes no capability document; the manual limits apply.",
-    embeddingCapabilitiesReason: "Advertised facts unavailable: {reason}",
-    embeddingCapabilitiesModel: "Advertised model: {model}",
-    embeddingCapabilitiesDimensions: "Supported dimensions: {dimensions}",
-    embeddingCapabilitiesAliases: "Aliases: {aliases}",
-    embeddingCapabilitiesEffectiveItems:
-      "Effective inputs per request: {effective} (manual limit {manual})",
-    embeddingCapabilitiesTokenLimit: "Per-input token limit enforced by the provider: {limit}",
-    embeddingCapabilitiesNoTokenLimit: "The provider publishes no per-input token limit.",
-    embeddingCapabilitiesTokenLimitIncludes:
-      "The provider counts the role prefix and special tokens; the tokenizer is the provider's, not a local one.",
-    embeddingCapabilitiesInternalBatch:
-      "Provider execution batch: {size} (server-side execution size, not a client request limit)",
+    embeddingBatchingAdvanced: "Advanced request limits",
+    embeddingInputPolicyTitle: "Input token envelope",
+    embeddingInputTokenizer: "Input tokenizer",
+    embeddingInputTokenizerHelper:
+      "Counts the provider input only; independent of the chunking tokenizer.",
+    embeddingInputArtifact: "Verified input artifact",
+    embeddingInputArtifactHelper:
+      "Read from the read-only artifact directory. Adding one requires a restart.",
+    embeddingInputLimit: "Enforce input token limit",
+    embeddingInputLimitHelper:
+      "Reject a document or query whose full counted input exceeds the cap.",
+    embeddingInputMaxTokens: "Max input tokens",
+    embeddingDocumentPrefix: "Document server prefix",
+    embeddingQueryPrefix: "Query server prefix",
+    embeddingServerPrefixHelper:
+      "Counted as provider-added text; never sent and never trimmed.",
+    embeddingInputSpecial: "Add special tokens",
+    embeddingInputSpecialHelper:
+      "Uses the artifact's special-token template when counting.",
+    embeddingInputPolicyHelper:
+      "Only counting uses this policy. Sent text stays byte-identical; nothing is truncated or rechunked.",
     vectorRebuildStates: {
       idle: "No rebuild recorded",
       queued: "Queued",
@@ -240,6 +246,12 @@ export const settings = {
     chunkingTokenizer: "Tokenizer",
     chunkingTokenizerHelper:
       "Token counts match the selected tokenizer only, not the embedding model.",
+    chunkingTokenizerHfLocal: "Local HF artifact",
+    chunkingTokenizerArtifact: "Verified tokenizer artifact",
+    chunkingTokenizerArtifactHelper:
+      "Read from the read-only artifact directory. Adding one requires a restart.",
+    chunkingTokenizerArtifactEmpty:
+      "No verified artifact is available. Provision <sha256>.json in the read-only tokenizer directory and restart.",
     chunkingMaxChars: "Max Characters",
     chunkingOverlapChars: "Overlap Characters",
     chunkingMaxTokens: "Max Tokens",

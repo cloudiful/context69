@@ -14,5 +14,9 @@ WHERE item.execution_task_id IS NULL
   AND item.status IN ('queued', 'waiting')
   AND task.deleted_at IS NULL
   AND task.status IN ('queued', 'running', 'waiting')
+  -- A paused parent is not adopted by the automatic batch; the explicit
+  -- adoption is refused instead. The post-item-lock gate in
+  -- `produce_and_link_item_segment` remains the authoritative check.
+  AND task.pause_state = 'unpaused'
 ORDER BY item.created_at, item.id
 LIMIT $1

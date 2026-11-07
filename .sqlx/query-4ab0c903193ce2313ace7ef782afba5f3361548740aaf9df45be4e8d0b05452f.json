@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The post-item-lock pause gate of one execution segment (issue 21 C2).\n--\n-- The caller holds the item lock (the ordinary handover and the cutover\n-- adoption both operate on a locked row), so this read only projects the\n-- parent pause state. It deliberately takes no parent lock: the canonical\n-- order is item -> epoch -> segment -> task, and the parent row is not an\n-- early lock target of the gate.\nSELECT task.pause_state\nFROM context69.task_items item\nJOIN context69.tasks task ON task.id = item.task_id\nWHERE item.id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pause_state",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "pause_state"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4ab0c903193ce2313ace7ef782afba5f3361548740aaf9df45be4e8d0b05452f"
+}

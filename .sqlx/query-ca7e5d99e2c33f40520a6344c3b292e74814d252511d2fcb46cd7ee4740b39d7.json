@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Projects a committed native pause request onto the domain parent.\n--\n-- Written last, after the item lock and the native segment request. It never\n-- touches the item, the attempt counters, the failure fields or the schedule.\nUPDATE context69.tasks\nSET pause_state = $2,\n    paused_at = CASE\n        WHEN $2 = 'paused' THEN COALESCE(paused_at, now())\n        ELSE paused_at\n    END,\n    updated_at = now()\nWHERE id = $1\n  AND status IN ('queued', 'running', 'waiting')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "ca7e5d99e2c33f40520a6344c3b292e74814d252511d2fcb46cd7ee4740b39d7"
+}

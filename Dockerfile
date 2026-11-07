@@ -18,6 +18,7 @@ COPY --chmod=755 docker/start-context69.sh /usr/local/bin/start-context69.sh
 ENV RUST_LOG=context69=info,sqlx=warn
 ENV CONTEXT69_API_BIND_ADDR=127.0.0.1:8096
 ENV CONTEXT69_MCP_BIND_ADDR=0.0.0.0:8097
+ENV CONTEXT69_CHUNKING__TOKENIZER_ARTIFACT_DIR=/var/lib/context69/tokenizers
 
 EXPOSE 80 8097
 

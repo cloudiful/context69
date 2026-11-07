@@ -7,11 +7,10 @@ use std::time::Duration;
 use anyhow::anyhow;
 use axum::{
     Json, Router,
-    body::Body,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::post,
 };
 use bytes::Bytes;
 use reqwest::StatusCode as ReqwestStatusCode;
@@ -19,9 +18,6 @@ use serde_json::{Value, json};
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 
 use super::embedding_batch::{EmbeddingBatchLimits, plan_batches, serialized_request_bytes};
-use super::embedding_capabilities::{
-    EmbeddingCapabilities, InputCapability, TokenCapability, effective_limits,
-};
 use super::{
     EmbeddingProvider, OpenAiCompatibleEmbeddingProvider, extract_error_message,
     format_embedding_attempt_timeout, format_embedding_http_error,
@@ -141,95 +137,6 @@ async fn spawn_echo_mock() -> (String, MockState, JoinHandle<()>) {
     (base_url, state, server)
 }
 
-/// One capability document server.
-///
-/// It answers a capability request with a fixed outcome, so a discovery can be
-/// exercised without a real provider.
-#[derive(Clone)]
-struct CapabilitiesMock {
-    status: StatusCode,
-    body: String,
-    location: Option<String>,
-    calls: Arc<AtomicUsize>,
-}
-
-async fn spawn_capabilities_mock(
-    status: StatusCode,
-    body: &str,
-    location: Option<&str>,
-) -> (String, Arc<AtomicUsize>, JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind capability mock server");
-    let address = listener.local_addr().expect("capability mock address");
-    let state = CapabilitiesMock {
-        status,
-        body: body.to_string(),
-        location: location.map(str::to_string),
-        calls: Arc::new(AtomicUsize::new(0)),
-    };
-    let app = Router::new().route(
-        "/capabilities",
-        get({
-            let state = state.clone();
-            move || {
-                let state = state.clone();
-                async move {
-                    state.calls.fetch_add(1, Ordering::Relaxed);
-                    match &state.location {
-                        Some(location) => (
-                            state.status,
-                            [(axum::http::header::LOCATION, location.clone())],
-                        )
-                            .into_response(),
-                        None => (state.status, state.body.clone()).into_response(),
-                    }
-                }
-            }
-        }),
-    );
-    let calls = state.calls.clone();
-    let handle = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("capability mock server");
-    });
-    (format!("http://{address}"), calls, handle)
-}
-
-/// A capability server whose body is streamed with no declared length.
-///
-/// Each chunk is delivered separately, so the client must bound the
-/// accumulation instead of trusting a `Content-Length` header.
-async fn spawn_chunked_capabilities_mock(
-    total_bytes: usize,
-    chunk_bytes: usize,
-) -> (String, JoinHandle<()>) {
-    let listener = TcpListener::bind("127.0.0.1:0")
-        .await
-        .expect("bind chunked capability mock server");
-    let address = listener
-        .local_addr()
-        .expect("chunked capability mock address");
-    let app = Router::new().route(
-        "/capabilities",
-        get(move || async move {
-            let chunk = Bytes::from(vec![b'a'; chunk_bytes.min(total_bytes)]);
-            let count = total_bytes.div_ceil(chunk_bytes);
-            let chunks = (0..count)
-                .map(|_| Ok::<Bytes, std::io::Error>(chunk.clone()))
-                .collect::<Vec<_>>();
-            Response::new(Body::from_stream(futures::stream::iter(chunks)))
-        }),
-    );
-    let handle = tokio::spawn(async move {
-        axum::serve(listener, app)
-            .await
-            .expect("chunked capability mock server");
-    });
-    (format!("http://{address}"), handle)
-}
-
 fn provider(base_url: String, timeout: Duration) -> OpenAiCompatibleEmbeddingProvider {
     OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
         base_url,
@@ -239,6 +146,7 @@ fn provider(base_url: String, timeout: Duration) -> OpenAiCompatibleEmbeddingPro
         dimensions: 1,
         timeout,
         batching: Default::default(),
+        input_policy: Default::default(),
     })
     .expect("build embedding provider")
 }
@@ -258,6 +166,7 @@ fn provider_with(
         dimensions: 1,
         timeout: Duration::from_secs(10),
         batching,
+        input_policy: Default::default(),
     })
     .expect("build embedding provider")
 }
@@ -773,168 +682,79 @@ fn the_byte_budget_counts_the_complete_serialized_request() {
     );
 }
 
-/// An advertised limit may only tighten the manual one.
-#[test]
-fn the_advertised_input_limit_tightens_the_manual_limit_and_never_widens_it() {
-    let manual = EmbeddingBatchLimits {
-        max_items_per_request: 32,
-        max_item_chars: 8_000,
-        max_request_chars: 64_000,
-        max_request_bytes: 1_048_576,
-    };
-    let wider = EmbeddingCapabilities {
-        input: Some(InputCapability {
-            max_inputs_per_request: Some(64),
-        }),
-        ..Default::default()
-    };
-    assert_eq!(
-        effective_limits(&manual, Some(&wider)).max_items_per_request,
-        32,
-        "an advertised 64 does not override a manual 32"
-    );
-    let narrower = EmbeddingCapabilities {
-        input: Some(InputCapability {
-            max_inputs_per_request: Some(8),
-        }),
-        ..Default::default()
-    };
-    assert_eq!(
-        effective_limits(&manual, Some(&narrower)).max_items_per_request,
-        8
-    );
-    assert_eq!(
-        effective_limits(&manual, None).max_items_per_request,
-        32,
-        "a provider that advertises nothing leaves the manual limits"
-    );
-}
-
-/// The capability document is read from the provider's own origin.
-#[test]
-fn the_capability_document_is_derived_from_the_provider_origin() {
-    assert_eq!(
-        super::embedding_capabilities::capabilities_url("http://192.168.67.36:8000/v1"),
-        Some("http://192.168.67.36:8000/capabilities".to_string())
-    );
-    assert_eq!(
-        super::embedding_capabilities::capabilities_url("http://192.168.67.36:8000"),
-        Some("http://192.168.67.36:8000/capabilities".to_string())
-    );
-    assert_eq!(
-        super::embedding_capabilities::capabilities_url("not a url"),
-        None
-    );
-}
-
-/// A provider that publishes its capabilities is read; one that does not is
-/// reported as unknown instead of failing the caller's configuration.
-#[tokio::test]
-async fn a_capability_document_is_read_and_an_absent_one_is_reported() {
-    let document = json!({
-        "model": "jina-embeddings-v3",
-        "aliases": {"jina-embeddings-v3": "document"},
-        "dimensions": {"default": 1024, "supported": [1024]},
-        "input": {"max_inputs_per_request": 64},
-        "tokens": {"per_input_limit": 1024, "includes": ["role_prefix"]},
-        "batch_size": 8,
-        "max_concurrent_encodes": 1,
-        "an_unknown_field": {"ignored": true}
+fn provider_with_policy(
+    base_url: String,
+    batching: EmbeddingBatchingSettings,
+    input_policy: crate::contracts::settings::EmbeddingInputPolicy,
+) -> OpenAiCompatibleEmbeddingProvider {
+    OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
+        base_url,
+        api_key: None,
+        model: "doc-model".to_string(),
+        query_model: Some("query-model".to_string()),
+        dimensions: 1,
+        timeout: Duration::from_secs(10),
+        batching,
+        input_policy,
     })
-    .to_string();
-    let (base_url, calls, server) = spawn_capabilities_mock(StatusCode::OK, &document, None).await;
-    let capabilities = super::embedding_capabilities::discover(&base_url, None)
-        .await
-        .expect("the capability document is read");
-    server.abort();
-
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
-    assert_eq!(
-        capabilities
-            .input
-            .and_then(|input| input.max_inputs_per_request),
-        Some(64)
-    );
-    assert_eq!(
-        capabilities
-            .tokens
-            .and_then(|tokens| tokens.per_input_limit),
-        Some(1024)
-    );
-    assert_eq!(capabilities.batch_size, Some(8));
-
-    let (missing, calls, server) =
-        spawn_capabilities_mock(StatusCode::NOT_FOUND, "no capabilities", None).await;
-    let error = super::embedding_capabilities::discover(&missing, None)
-        .await
-        .expect_err("an absent capability document is reported");
-    server.abort();
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
-    assert!(error.to_string().contains("status 404"), "{error}");
+    .expect("build embedding provider")
 }
 
-/// A capability document that is streamed past the bound is refused while it is
-/// read, not after the whole body was buffered.
+/// The envelope is counted exactly before HTTP, the query prefix is separate,
+/// and the sent input stays byte-identical.
 #[tokio::test]
-async fn an_oversized_chunked_capability_document_is_refused() {
-    let limit = 64 * 1024;
-    let (base_url, server) = spawn_chunked_capabilities_mock(limit + 4_096, 4_096).await;
+async fn the_input_envelope_rejects_oversize_documents_and_queries_before_http() {
+    let (base_url, state, server) = spawn_echo_mock().await;
+    let mut policy = crate::contracts::settings::EmbeddingInputPolicy::default();
+    policy.document_server_prefix = "document-prefix ".to_string();
+    policy.query_server_prefix = "query-prefix ".to_string();
+    policy.max_input_tokens = Some(1);
+    let provider = provider_with_policy(base_url.clone(), Default::default(), policy);
 
-    let error = super::embedding_capabilities::discover(&base_url, None)
+    let document_error = provider
+        .embed_texts(&["document".to_string()])
         .await
-        .expect_err("a chunked document beyond the bound is refused");
-    server.abort();
-
-    assert!(error.to_string().contains("exceeds 65536 bytes"), "{error}");
-}
-
-/// A capability request follows no redirect, so it can never be steered at
-/// another origin with the configured credential.
-#[tokio::test]
-async fn a_capability_request_follows_no_redirect() {
-    let (target, target_calls, target_server) =
-        spawn_capabilities_mock(StatusCode::OK, "{}", None).await;
-    let (base_url, calls, server) = spawn_capabilities_mock(
-        StatusCode::FOUND,
-        "",
-        Some(&format!("{target}/capabilities")),
-    )
-    .await;
-
-    let error = super::embedding_capabilities::discover(&base_url, Some("provider-secret"))
+        .expect_err("an oversize document is refused");
+    assert!(
+        document_error.to_string().contains("input envelope"),
+        "{document_error}"
+    );
+    let query_error = provider
+        .embed_query("query")
         .await
-        .expect_err("a redirect is not followed");
-    server.abort();
-    target_server.abort();
-
-    assert_eq!(calls.load(Ordering::Relaxed), 1);
+        .expect_err("an oversize query is refused");
+    assert!(
+        query_error.to_string().contains("input envelope"),
+        "{query_error}"
+    );
     assert_eq!(
-        target_calls.load(Ordering::Relaxed),
+        state.calls.load(Ordering::Relaxed),
         0,
-        "the credential is never carried to another origin"
+        "no request reaches the provider"
     );
-    assert!(error.to_string().contains("status 302"), "{error}");
-}
 
-/// The advertised token limit belongs to the provider: it names no tokenizer,
-/// so it is reported as the provider's own limit.
-#[test]
-fn the_advertised_token_limit_is_reported_as_the_providers_own() {
-    let capabilities = EmbeddingCapabilities {
-        tokens: Some(TokenCapability {
-            per_input_limit: Some(1024),
-            includes: vec!["role_prefix".to_string(), "special_tokens".to_string()],
-            overflow: Some("reject".to_string()),
-        }),
-        ..Default::default()
-    };
-    assert_eq!(capabilities.includes_role_prefix(), Some(true));
-    assert_eq!(capabilities.includes_special_tokens(), Some(true));
+    provider
+        .embed_texts_with_policy(
+            &["document".to_string()],
+            crate::embedding::InputPolicySelection::Pinned(None),
+        )
+        .await
+        .expect("a legacy pinned snapshot keeps the no-guard behavior");
+    assert_eq!(state.calls.load(Ordering::Relaxed), 1);
+
+    let mut generous = crate::contracts::settings::EmbeddingInputPolicy::default();
+    generous.document_server_prefix = "server-counted:".to_string();
+    generous.max_input_tokens = Some(100);
+    let provider = provider_with_policy(base_url, Default::default(), generous);
+    provider
+        .embed_texts(&["raw input".to_string()])
+        .await
+        .expect("a fitting document passes");
+    server.abort();
+    let requests = state.requests.lock().await.clone();
     assert_eq!(
-        capabilities
-            .tokens
-            .as_ref()
-            .and_then(|tokens| tokens.per_input_limit),
-        Some(1024)
+        requests.last().expect("the last request")["input"],
+        json!(["raw input"]),
+        "the prefix is counted only and never sent"
     );
 }

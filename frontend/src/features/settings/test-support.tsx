@@ -17,7 +17,6 @@ import type {
   DoclingCleanupTask,
   DoclingRemoteTasksResponse,
   DoclingSettingsResponse,
-  EmbeddingCapabilitiesResponse,
   PersonalAccessTokenPageResponse,
   PersonalAccessTokenResponse,
   RuntimeSettingsResponse,
@@ -48,7 +47,6 @@ export interface FakeBackendOptions {
   runtimeGetFailReads?: number;
   vectorTask?: TaskResponse | null;
   rebuildStatus?: VectorIndexRebuildStatus | null;
-  capabilities?: EmbeddingCapabilitiesResponse | null;
   remote?: DoclingRemoteTasksResponse;
   cleanup?: DoclingCleanupTask[];
   fail?: {
@@ -57,7 +55,6 @@ export interface FakeBackendOptions {
     searchPut?: boolean;
     translationPut?: boolean;
     testEmbedding?: boolean;
-    capabilities?: boolean;
     cleanupList?: boolean;
   };
 }
@@ -96,9 +93,16 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     overlap_chars: 200,
     unit: "chars",
     tokenizer: "cl100k_base",
+    tokenizer_sha256: null,
     max_tokens: 1024,
     overlap_tokens: 128,
   },
+  tokenizer_artifacts: [
+    {
+      sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      size_bytes: 1024,
+    },
+  ],
   requires_rebuild: false,
   file_library: {
     ingest_concurrency: 2,
@@ -243,25 +247,6 @@ export const VECTOR_REBUILD_STATUS: VectorIndexRebuildStatus = {
   queue_paused: false,
 };
 
-export const EMBEDDING_CAPABILITIES: EmbeddingCapabilitiesResponse = {
-  base_url: "https://embeddings.example/v1",
-  source: "unknown",
-  document_model: "bge-small",
-  query_model: "bge-small",
-  manual_limits: {
-    max_items_per_request: 32,
-    max_item_chars: 8000,
-    max_request_chars: 64000,
-    max_request_bytes: 1048576,
-  },
-  effective_limits: {
-    max_items_per_request: 32,
-    max_item_chars: 8000,
-    max_request_chars: 64000,
-    max_request_bytes: 1048576,
-  },
-};
-
 export const REMOTE_TASKS: DoclingRemoteTasksResponse = {
   items: [
     {
@@ -373,9 +358,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
     rebuildStatus: options.rebuildStatus === undefined
       ? structuredClone(VECTOR_REBUILD_STATUS)
       : options.rebuildStatus,
-    capabilities: options.capabilities === undefined
-      ? structuredClone(EMBEDDING_CAPABILITIES)
-      : options.capabilities,
     remote: structuredClone(options.remote ?? REMOTE_TASKS),
     cleanup: structuredClone(options.cleanup ?? CLEANUP_TASKS),
     isAdmin: options.isAdmin ?? true,
@@ -677,13 +659,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
       }
       state.rebuildStatus = next;
       return ok(next);
-    }
-
-    if (path === "/v1/settings/runtime/embedding/capabilities") {
-      if (fail.capabilities) {
-        return failure(502, "capability discovery failed");
-      }
-      return ok(state.capabilities);
     }
 
     if (path.startsWith("/v1/settings/runtime/") || path === "/v1/settings/docling/test") {

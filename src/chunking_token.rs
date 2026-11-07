@@ -1,8 +1,11 @@
+use std::sync::Arc;
+
 use serde::{Deserialize, Serialize};
 use tiktoken_rs::tokenizer::Tokenizer;
 use tiktoken_rs::{CoreBPE, bpe_for_tokenizer};
 
 use super::{ChunkingError, PARAGRAPH_SEPARATOR, chunk_uuid};
+use crate::chunking::chunking_token_artifact::is_lower_sha256;
 use crate::domain::{DocumentChunk, NormalizedDocument};
 
 /// How many times the content of one chunk may be shortened or the overlap of
@@ -59,6 +62,217 @@ impl TokenizerKind {
     }
 }
 
+/// The durable tokenizer selection of one task or settings row.
+///
+/// The two legacy variants keep their exact names and identity strings. The
+/// `hf_local` variant names one operator-provisioned artifact by hash, so a
+/// task pins the exact bytes it counted with instead of a mutable file path or
+/// a model alias.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TokenizerRef {
+    Cl100kBase,
+    O200kBase,
+    HfLocal { sha256: String },
+}
+
+impl TokenizerRef {
+    /// The persisted tokenizer name.
+    pub fn name(&self) -> &'static str {
+        match self {
+            Self::Cl100kBase => "cl100k_base",
+            Self::O200kBase => "o200k_base",
+            Self::HfLocal { .. } => "hf_local",
+        }
+    }
+
+    /// The pinned artifact hash of a local Hugging Face tokenizer.
+    pub fn sha256(&self) -> Option<&str> {
+        match self {
+            Self::HfLocal { sha256 } => Some(sha256),
+            _ => None,
+        }
+    }
+
+    /// The identity component of the budget.
+    pub fn identity_name(&self) -> String {
+        match self {
+            Self::HfLocal { sha256 } => format!("hf_local:{sha256}"),
+            other => other.name().to_string(),
+        }
+    }
+
+    /// The legacy static engine, when this selection is one.
+    pub fn static_kind(&self) -> Option<TokenizerKind> {
+        match self {
+            Self::Cl100kBase => Some(TokenizerKind::Cl100kBase),
+            Self::O200kBase => Some(TokenizerKind::O200kBase),
+            Self::HfLocal { .. } => None,
+        }
+    }
+
+    /// Validates the variant payload.
+    pub fn validate(&self) -> Result<(), ChunkingError> {
+        if let Self::HfLocal { sha256 } = self
+            && !is_lower_sha256(sha256)
+        {
+            return Err(ChunkingError::InvalidTokenBudget {
+                reason: "hf_local requires a lowercase 64-hex artifact sha256".to_string(),
+            });
+        }
+        Ok(())
+    }
+}
+
+impl From<TokenizerKind> for TokenizerRef {
+    fn from(kind: TokenizerKind) -> Self {
+        match kind {
+            TokenizerKind::Cl100kBase => Self::Cl100kBase,
+            TokenizerKind::O200kBase => Self::O200kBase,
+        }
+    }
+}
+
+/// One loaded tokenizer engine.
+#[derive(Clone)]
+pub enum TokenizerEngine {
+    Tiktoken(TokenizerKind),
+    Hf(Arc<tokenizers::Tokenizer>),
+}
+
+impl TokenizerEngine {
+    pub fn static_kind(kind: TokenizerKind) -> Self {
+        Self::Tiktoken(kind)
+    }
+
+    pub fn hf(tokenizer: Arc<tokenizers::Tokenizer>) -> Self {
+        Self::Hf(tokenizer)
+    }
+
+    fn encode_ids(&self, text: &str) -> Vec<u32> {
+        match self {
+            Self::Tiktoken(kind) => kind.encoder().encode_ordinary(text),
+            // No special tokens and no truncation or padding: the count is the
+            // candidate's own tokens, exactly like encode_ordinary.
+            Self::Hf(tokenizer) => tokenizer
+                .encode(text, false)
+                .map(|encoding| encoding.get_ids().to_vec())
+                .unwrap_or_default(),
+        }
+    }
+
+    fn decode_bytes(&self, tokens: &[u32]) -> Option<Vec<u8>> {
+        match self {
+            Self::Tiktoken(kind) => kind.encoder().decode_bytes(tokens).ok(),
+            Self::Hf(tokenizer) => tokenizer
+                .decode(tokens, true)
+                .ok()
+                .map(|text| text.into_bytes()),
+        }
+    }
+
+    /// Number of tokens this engine produces for `text`.
+    pub fn count(&self, text: &str) -> usize {
+        self.encode_ids(text).len()
+    }
+
+    /// Number of tokens this engine produces for `text` with its special
+    /// tokens added when requested.
+    ///
+    /// A built-in tiktoken encoder has no special-token template, so the
+    /// caller must reject that combination before it reaches this method.
+    pub fn count_with_special(&self, text: &str, add_special_tokens: bool) -> usize {
+        match self {
+            Self::Tiktoken(kind) => kind.encoder().encode_ordinary(text).len(),
+            Self::Hf(tokenizer) => tokenizer
+                .encode(text, add_special_tokens)
+                .map(|encoding| encoding.get_ids().len())
+                .unwrap_or_default(),
+        }
+    }
+
+    fn suffix<'a>(&self, text: &'a str, max_tokens: usize) -> &'a str {
+        if text.is_empty() || max_tokens == 0 {
+            return "";
+        }
+        let tokens = self.encode_ids(text);
+        if tokens.len() <= max_tokens {
+            return text;
+        }
+        let mut take = max_tokens.min(tokens.len());
+        for _ in 0..SUFFIX_SEARCH_STEPS {
+            match suffix_candidate(self, text, &tokens, take, max_tokens) {
+                SuffixCandidate::Fits(candidate) => return candidate,
+                SuffixCandidate::InsideCharacter => {
+                    if take == 0 {
+                        break;
+                    }
+                    take -= 1;
+                }
+                SuffixCandidate::OverBudget => take /= 2,
+            }
+        }
+        ""
+    }
+
+    fn prefix_within<'a>(&self, window: &'a str, limit: usize) -> Option<&'a str> {
+        let tokens = self.encode_ids(window);
+        if tokens.len() <= limit {
+            return Some(window);
+        }
+        for take in (1..=tokens.len()).rev() {
+            if let Some(candidate) = prefix_candidate(self, window, &tokens, take, limit) {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+}
+
+/// One resolved tokenizer selection and its loaded engine.
+#[derive(Clone)]
+pub struct ResolvedTokenizer {
+    reference: TokenizerRef,
+    engine: Arc<TokenizerEngine>,
+}
+
+impl ResolvedTokenizer {
+    pub fn from_static(kind: TokenizerKind) -> Self {
+        Self {
+            reference: kind.into(),
+            engine: Arc::new(TokenizerEngine::static_kind(kind)),
+        }
+    }
+
+    pub fn from_hf(sha256: String, tokenizer: Arc<tokenizers::Tokenizer>) -> Self {
+        Self {
+            reference: TokenizerRef::HfLocal { sha256 },
+            engine: Arc::new(TokenizerEngine::hf(tokenizer)),
+        }
+    }
+
+    pub fn reference(&self) -> &TokenizerRef {
+        &self.reference
+    }
+
+    pub fn engine(&self) -> &TokenizerEngine {
+        &self.engine
+    }
+
+    pub fn count(&self, text: &str) -> usize {
+        self.engine.count(text)
+    }
+
+    /// Number of tokens this selection produces with its special-token policy.
+    pub fn count_with_special(&self, text: &str, add_special_tokens: bool) -> usize {
+        self.engine.count_with_special(text, add_special_tokens)
+    }
+
+    pub fn suffix<'a>(&self, text: &'a str, max_tokens: usize) -> &'a str {
+        self.engine.suffix(text, max_tokens)
+    }
+}
+
 /// Number of tokens the selected tokenizer produces for `text`.
 pub fn token_count(text: &str, tokenizer: TokenizerKind) -> usize {
     tokenizer.encoder().encode_ordinary(text).len()
@@ -72,32 +286,7 @@ pub fn token_count(text: &str, tokenizer: TokenizerKind) -> usize {
 /// budget is shortened instead of being returned. The result is bounded, not
 /// necessarily the longest possible suffix.
 pub fn token_suffix(text: &str, tokenizer: TokenizerKind, max_tokens: usize) -> &str {
-    if text.is_empty() || max_tokens == 0 {
-        return "";
-    }
-    let encoder = tokenizer.encoder();
-    let tokens = encoder.encode_ordinary(text);
-    if tokens.len() <= max_tokens {
-        return text;
-    }
-    let mut take = max_tokens.min(tokens.len());
-    for _ in 0..SUFFIX_SEARCH_STEPS {
-        match suffix_candidate(text, &tokens, take, max_tokens, encoder) {
-            SuffixCandidate::Fits(candidate) => return candidate,
-            // The suffix starts inside a character: one token less may reach
-            // the next character.
-            SuffixCandidate::InsideCharacter => {
-                if take == 0 {
-                    break;
-                }
-                take -= 1;
-            }
-            // The suffix decodes but does not fit the budget: halving keeps
-            // the search bounded.
-            SuffixCandidate::OverBudget => take /= 2,
-        }
-    }
-    ""
+    TokenizerEngine::static_kind(tokenizer).suffix(text, max_tokens)
 }
 
 /// The outcome of one suffix candidate.
@@ -112,13 +301,13 @@ enum SuffixCandidate<'a> {
 
 /// The suffix of `text` that the last `take` tokens cover.
 fn suffix_candidate<'a>(
+    engine: &TokenizerEngine,
     text: &'a str,
     tokens: &[u32],
     take: usize,
     max_tokens: usize,
-    encoder: &CoreBPE,
 ) -> SuffixCandidate<'a> {
-    let Ok(bytes) = encoder.decode_bytes(&tokens[tokens.len() - take..]) else {
+    let Some(bytes) = engine.decode_bytes(&tokens[tokens.len() - take..]) else {
         return SuffixCandidate::InsideCharacter;
     };
     let mut start = text.len().saturating_sub(bytes.len());
@@ -126,7 +315,7 @@ fn suffix_candidate<'a>(
         start += 1;
     }
     let candidate = &text[start..];
-    if encoder.encode_ordinary(candidate).len() <= max_tokens {
+    if engine.count(candidate) <= max_tokens {
         SuffixCandidate::Fits(candidate)
     } else {
         SuffixCandidate::OverBudget
@@ -146,9 +335,11 @@ pub struct TokenChunkDocumentIter<'a> {
     source_key: &'a str,
     document: &'a NormalizedDocument,
     generation: Option<i64>,
-    tokenizer: TokenizerKind,
+    tokenizer: ResolvedTokenizer,
     max_tokens: usize,
     overlap_tokens: usize,
+    /// The pinned embedding input envelope, absent for a legacy budget.
+    input_policy: Option<super::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
     /// The paragraphs of the normalized source, in order.
     paragraphs: std::str::Split<'a, &'static str>,
     /// The text of the current paragraph that is not in the window yet.
@@ -181,6 +372,26 @@ impl<'a> TokenChunkDocumentIter<'a> {
         overlap_tokens: usize,
         generation: Option<i64>,
     ) -> Result<Self, ChunkingError> {
+        Self::new_resolved(
+            document_id,
+            source_key,
+            document,
+            ResolvedTokenizer::from_static(tokenizer),
+            max_tokens,
+            overlap_tokens,
+            generation,
+        )
+    }
+
+    pub fn new_resolved(
+        document_id: i64,
+        source_key: &'a str,
+        document: &'a NormalizedDocument,
+        tokenizer: ResolvedTokenizer,
+        max_tokens: usize,
+        overlap_tokens: usize,
+        generation: Option<i64>,
+    ) -> Result<Self, ChunkingError> {
         if max_tokens == 0 {
             return Err(ChunkingError::InvalidTokenBudget {
                 reason: "max_tokens must be greater than zero".to_string(),
@@ -199,6 +410,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
             tokenizer,
             max_tokens,
             overlap_tokens,
+            input_policy: None,
             paragraphs: document.body_text.split(PARAGRAPH_SEPARATOR),
             paragraph: "",
             separator_due: false,
@@ -209,6 +421,15 @@ impl<'a> TokenChunkDocumentIter<'a> {
             finished: false,
             failure: None,
         })
+    }
+
+    /// Attaches the pinned embedding input envelope.
+    pub fn with_input_policy(
+        mut self,
+        policy: Option<super::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
+    ) -> Self {
+        self.input_policy = policy;
+        self
     }
 
     /// Iterator that reports a configuration failure on its first item.
@@ -223,9 +444,10 @@ impl<'a> TokenChunkDocumentIter<'a> {
             source_key,
             document,
             generation: None,
-            tokenizer: TokenizerKind::Cl100kBase,
+            tokenizer: ResolvedTokenizer::from_static(TokenizerKind::Cl100kBase),
             max_tokens: 1,
             overlap_tokens: 0,
+            input_policy: None,
             paragraphs: document.body_text.split(PARAGRAPH_SEPARATOR),
             paragraph: "",
             separator_due: false,
@@ -334,7 +556,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
                 max_tokens: self.max_tokens,
             });
         };
-        let tokens = token_count(&self.window[..character.len_utf8()], self.tokenizer);
+        let tokens = self.tokenizer.count(&self.window[..character.len_utf8()]);
         Ok((character, tokens))
     }
 
@@ -352,7 +574,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
         let mut limit = self.content_limit(*overlap_tokens);
         let mut shortenings = 0usize;
         loop {
-            let Some(prefix) = take_prefix_within(&self.window, limit, self.tokenizer) else {
+            let Some(prefix) = self.tokenizer.engine().prefix_within(&self.window, limit) else {
                 let (character, tokens) = self.first_character()?;
                 if tokens > self.max_tokens {
                     return Err(ChunkingError::CharacterExceedsBudget {
@@ -363,8 +585,8 @@ impl<'a> TokenChunkDocumentIter<'a> {
                 }
                 // The overlap is optional: give the content the room it needs.
                 let allowed = self.max_tokens - tokens;
-                *overlap = token_suffix(overlap, self.tokenizer, allowed).to_string();
-                *overlap_tokens = token_count(overlap, self.tokenizer);
+                *overlap = self.tokenizer.suffix(overlap, allowed).to_string();
+                *overlap_tokens = self.tokenizer.count(overlap);
                 limit = self.content_limit(*overlap_tokens);
                 shortenings += 1;
                 if shortenings > CONTENT_SHORTEN_STEPS {
@@ -379,7 +601,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
             let mut text = String::with_capacity(overlap.len() + content.len());
             text.push_str(overlap);
             text.push_str(content);
-            if token_count(&text, self.tokenizer) <= self.max_tokens {
+            if self.tokenizer.count(&text) <= self.max_tokens {
                 return Ok(cut);
             }
             // The token counts of the overlap and the content do not simply
@@ -395,18 +617,96 @@ impl<'a> TokenChunkDocumentIter<'a> {
         }
     }
 
+    /// Whether the pinned envelope admits one complete input.
+    fn envelope_fits(&self, text: &str) -> bool {
+        match &self.input_policy {
+            Some(policy) => {
+                policy.count_input(policy.document_prefix(), text)
+                    <= policy.max_input_tokens().unwrap_or(usize::MAX)
+            }
+            None => true,
+        }
+    }
+
+    /// The exact envelope token count of one already-built chunk.
+    fn envelope_count(&self, text: &str) -> usize {
+        match &self.input_policy {
+            Some(policy) => policy.count_input(policy.document_prefix(), text),
+            None => 0,
+        }
+    }
+
+    /// The largest positive byte prefix of the window that fits `overlap`.
+    ///
+    /// Token counts are not monotonic in prefix length, so the UTF-8
+    /// boundaries are scanned from largest to smallest instead of being
+    /// binary-searched. Returns `0` when not even one character fits beside
+    /// the overlap.
+    fn largest_content_prefix(&self, overlap: &str, max_len: usize) -> usize {
+        let text = &self.window[..max_len];
+        let mut boundaries = Vec::with_capacity(text.chars().count() + 1);
+        boundaries.push(0);
+        boundaries.extend(
+            text.char_indices()
+                .map(|(index, character)| index + character.len_utf8()),
+        );
+        for characters in (1..boundaries.len()).rev() {
+            let end = boundaries[characters];
+            if self.envelope_fits(&format!("{overlap}{}", &text[..end])) {
+                return end;
+            }
+        }
+        0
+    }
+
     /// Produces the next chunk of the document.
     fn next_chunk(&mut self) -> Result<Option<DocumentChunk>, ChunkingError> {
         let mut overlap = self.next_overlap.take().unwrap_or_default();
-        let mut overlap_tokens = token_count(&overlap, self.tokenizer);
+        let mut overlap_tokens = self.tokenizer.count(&overlap);
         self.fill_window(overlap_tokens);
         if self.window.is_empty() {
             // The normalized source is exhausted.
             return Ok(None);
         }
         let cut = self.cut_content(&mut overlap, &mut overlap_tokens)?;
-        let content = self.window[..cut].to_string();
-        self.window.drain(..cut);
+        let mut content_len = cut;
+        if self.input_policy.is_some() {
+            loop {
+                let candidate = format!("{overlap}{}", &self.window[..content_len]);
+                if self.envelope_fits(&candidate) {
+                    break;
+                }
+                let fit = self.largest_content_prefix(&overlap, content_len);
+                if fit > 0 {
+                    content_len = fit;
+                    break;
+                }
+                // The overlap is optional: give it up until one source
+                // character can make positive progress.
+                if overlap.is_empty() {
+                    let first = self.window.chars().next().unwrap_or('\0');
+                    let count = self.envelope_count(&format!("{first}"));
+                    let (max_input_tokens, prefix_chars) = match &self.input_policy {
+                        Some(policy) => (
+                            policy.max_input_tokens().unwrap_or(usize::MAX),
+                            policy.document_prefix().chars().count(),
+                        ),
+                        None => (usize::MAX, 0),
+                    };
+                    return Err(ChunkingError::InputEnvelopeExceeded {
+                        role: "document",
+                        count,
+                        max_input_tokens,
+                        prefix_chars,
+                    });
+                }
+                let mut chars = overlap.chars();
+                chars.next();
+                overlap = chars.as_str().to_string();
+            }
+        }
+        let content = self.window[..content_len].to_string();
+        self.window.drain(..content_len);
         Ok(Some(self.build_chunk(&overlap, &content)))
     }
 
@@ -420,8 +720,11 @@ impl<'a> TokenChunkDocumentIter<'a> {
         let mut text = String::with_capacity(overlap.len() + content.len());
         text.push_str(overlap);
         text.push_str(content);
-        self.next_overlap =
-            Some(token_suffix(content, self.tokenizer, self.overlap_tokens).to_string());
+        self.next_overlap = Some(
+            self.tokenizer
+                .suffix(content, self.overlap_tokens)
+                .to_string(),
+        );
         DocumentChunk {
             id: chunk_uuid(
                 self.source_key,
@@ -463,61 +766,15 @@ impl Iterator for TokenChunkDocumentIter<'_> {
     }
 }
 
-/// The longest prefix of `window` that encodes to at most `limit` tokens.
-///
-/// `None` means that not even the first character fits into the limit. The
-/// search inspects a bounded number of candidates, so the work follows the
-/// budget instead of the length of the window.
-fn take_prefix_within(window: &str, limit: usize, tokenizer: TokenizerKind) -> Option<&str> {
-    let encoder = tokenizer.encoder();
-    let tokens = encoder.encode_ordinary(window);
-    if tokens.len() <= limit {
-        return Some(window);
-    }
-    // The whole budget usually fits; the search only runs when it does not.
-    if let Some(candidate) = prefix_candidate(window, &tokens, limit, limit, encoder) {
-        return Some(candidate);
-    }
-    // Bounded search for the largest token count whose decoded prefix still
-    // encodes within the budget.
-    let mut low = 1usize;
-    let mut high = limit;
-    let mut best: Option<&str> = None;
-    while low <= high {
-        let middle = low + (high - low) / 2;
-        match prefix_candidate(window, &tokens, middle, limit, encoder) {
-            Some(candidate) => {
-                best = Some(candidate);
-                low = middle + 1;
-            }
-            None => {
-                if middle == 0 {
-                    break;
-                }
-                high = middle - 1;
-            }
-        }
-    }
-    if best.is_some() {
-        return best;
-    }
-    // Not even one character fits into the limit.
-    let first = window.chars().next()?;
-    if encoder.encode_ordinary(&first.to_string()).len() > limit {
-        return None;
-    }
-    Some(&window[..first.len_utf8()])
-}
-
 /// The prefix of `window` that the first `take` tokens cover.
 fn prefix_candidate<'a>(
+    engine: &TokenizerEngine,
     window: &'a str,
     tokens: &[u32],
     take: usize,
     limit: usize,
-    encoder: &CoreBPE,
 ) -> Option<&'a str> {
-    let bytes = encoder.decode_bytes(&tokens[..take]).ok()?;
+    let bytes = engine.decode_bytes(&tokens[..take])?;
     let mut end = bytes.len().min(window.len());
     while end > 0 && !window.is_char_boundary(end) {
         end -= 1;
@@ -526,7 +783,7 @@ fn prefix_candidate<'a>(
         return None;
     }
     let candidate = &window[..end];
-    if encoder.encode_ordinary(candidate).len() <= limit {
+    if engine.count(candidate) <= limit {
         Some(candidate)
     } else {
         None

@@ -23,11 +23,13 @@ pub enum TranslationChunkingMode {
 }
 
 /// Tokenizer that measures a token budget.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum TranslationChunkingTokenizer {
     #[default]
     Cl100kBase,
     O200kBase,
+    /// One operator-provisioned local Hugging Face tokenizer artifact.
+    HfLocal(String),
 }
 
 /// The complete chunking budget a translation publication must use.
@@ -44,6 +46,8 @@ pub struct TranslationChunkingBudget {
     pub tokenizer: TranslationChunkingTokenizer,
     pub max_tokens: usize,
     pub overlap_tokens: usize,
+    /// The explicit embedding input envelope, absent for a legacy budget.
+    pub input_policy: Option<context69_contracts_core::embedding::EmbeddingInputPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]

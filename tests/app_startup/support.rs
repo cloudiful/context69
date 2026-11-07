@@ -264,6 +264,7 @@ pub fn runtime_settings_request(
             api_key: None,
             confirm_vector_space_unchanged: false,
             batching: Default::default(),
+            input_policy: Default::default(),
         },
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,
@@ -277,6 +278,7 @@ pub fn runtime_settings_request(
             overlap_chars: 100,
             unit: ChunkingUnit::Chars,
             tokenizer: ChunkingTokenizer::Cl100kBase,
+            tokenizer_sha256: None,
             max_tokens: 1024,
             overlap_tokens: 128,
         },

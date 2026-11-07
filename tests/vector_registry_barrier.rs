@@ -19,6 +19,9 @@
 //! plain `cargo test --workspace` and are reconciled against
 //! `crates/context69-test-support/tests/database-tests.json`.
 
+#[cfg(feature = "integration-test-helpers")]
+#[path = "vector_registry_barrier/http_mock.rs"]
+mod http_mock;
 #[path = "vector_registry_barrier/support.rs"]
 mod support;
 
@@ -28,6 +31,38 @@ use context69::db::{
 };
 use uuid::Uuid;
 
+#[cfg(feature = "integration-test-helpers")]
+use std::sync::Arc;
+
+#[cfg(feature = "integration-test-helpers")]
+use anyhow::{Context, Result};
+#[cfg(feature = "integration-test-helpers")]
+use async_trait::async_trait;
+#[cfg(feature = "integration-test-helpers")]
+use cloudiful_tasks::{AttemptStatus, TaskId, TaskPauseState};
+#[cfg(feature = "integration-test-helpers")]
+use context69::db::{CreateTaskSubmissionRequest, Database};
+#[cfg(feature = "integration-test-helpers")]
+use context69::{
+    chunking::ChunkingConfig,
+    config::FileLibraryConfig,
+    services::{
+        document_store::DocumentStoreService,
+        library::{LibraryService, LibraryServiceConfig},
+        namespace::NamespaceService,
+        secret_store,
+        settings::SettingsService,
+        source_folders::SourceFoldersService,
+        sync::SyncService,
+        tasks::{TaskService, TaskServiceDependencies},
+        translation::TranslationPublisherAdapter,
+    },
+};
+#[cfg(feature = "integration-test-helpers")]
+use context69_translation::{TranslationDependencies, TranslationReadiness, TranslationService};
+#[cfg(feature = "integration-test-helpers")]
+use serde_json::json;
+
 use support::{
     activate_index, barrier_state, clear_registry_entries, clear_runtime_settings, connect,
     delete_tasks, fingerprint, identity, registry_entry, reset_barrier, seed_runtime_settings,
@@ -36,6 +71,84 @@ use support::{
 
 const FINGERPRINT: &str = "barrier-fingerprint";
 const COLLECTION: &str = "barrier-collection";
+
+/// Readiness only: the vector checkpoint never runs translation.
+#[cfg(feature = "integration-test-helpers")]
+struct NotReady;
+
+#[cfg(feature = "integration-test-helpers")]
+#[async_trait]
+impl TranslationReadiness for NotReady {
+    async fn is_ready(&self) -> Result<bool> {
+        Ok(false)
+    }
+}
+
+/// The production task service graph with no network runtimes, so the real
+/// runtime driver can park a paused item without reaching Qdrant or embeddings.
+#[cfg(feature = "integration-test-helpers")]
+async fn build_task_service(db: &Database) -> anyhow::Result<TaskService> {
+    let chunking = ChunkingConfig {
+        max_chars: 1000,
+        overlap_chars: 100,
+    };
+    let translation = TranslationService::new(TranslationDependencies {
+        pool: db.pool().clone(),
+        http_client: reqwest::Client::new(),
+        publisher: Arc::new(TranslationPublisherAdapter::new(
+            None,
+            None,
+            chunking.clone(),
+        )),
+        concurrency: 1,
+        readiness: Arc::new(NotReady),
+    });
+    let storage_root = std::env::temp_dir().join(format!("context69-vector-{}", Uuid::new_v4()));
+    let library = LibraryService::new(
+        db.clone(),
+        None,
+        None,
+        LibraryServiceConfig {
+            chunking: chunking.clone(),
+            file_library: FileLibraryConfig {
+                storage_root,
+                max_upload_size_mb: 1,
+                max_upload_request_size_mb: 1,
+                ingest_concurrency: 1,
+                url_import_concurrency: 1,
+                url_import_min_interval_ms: 1000,
+                trusted_proxy_enabled: false,
+                s3: None,
+            },
+            valkey_url: None,
+            embedding_vector_configured: false,
+            embedding_vector_configuration_fingerprint: "vector-test".to_string(),
+        },
+        SettingsService::new(db.clone()),
+        translation.clone(),
+    )
+    .await
+    .context("build the library service")?;
+    let sync = SyncService::new(
+        db.clone(),
+        secret_store::build_unkeyed(db),
+        None,
+        None,
+        chunking,
+        1,
+        translation.clone(),
+    );
+    Ok(TaskService::new(TaskServiceDependencies {
+        db: db.clone(),
+        namespace: NamespaceService::new(db.clone()),
+        document_store: DocumentStoreService::new(db.clone(), None, library.clone()),
+        library: library.clone(),
+        sync: sync.clone(),
+        source_folders: SourceFoldersService::new(db.clone(), library, sync),
+        translation,
+        concurrency: 1,
+    }))
+}
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
@@ -2303,4 +2416,1075 @@ async fn the_rebuild_control_projection_prefers_the_barrier_owner_and_reports_th
         .expect("clear the recorded identity");
     clear_runtime_settings(&db).await;
     reset_barrier(&db).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn the_common_pause_sets_the_barrier_flag_and_keeps_the_cursor() {
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+
+    let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
+    let mut tx = db.pool().begin().await.expect("begin rebuild");
+    db.begin_rebuild_in(
+        &mut tx,
+        seeded.item_id,
+        seeded.token,
+        FINGERPRINT,
+        COLLECTION,
+    )
+    .await
+    .expect("start the rebuild");
+    tx.commit().await.expect("commit the rebuild start");
+
+    let mut connection = db.pool().acquire().await.expect("acquire");
+    assert!(
+        db.advance_rebuild_cursor_in(
+            &mut connection,
+            seeded.item_id,
+            seeded.token,
+            FINGERPRINT,
+            COLLECTION,
+            context69::db::RebuildCheckpoint {
+                cursor: RebuildCursor {
+                    document_id: 7,
+                    chunk_index: 3,
+                },
+                processed_chunks: 2,
+                total_chunks: 9,
+            },
+        )
+        .await
+        .expect("advance the cursor")
+    );
+    drop(connection);
+
+    assert!(
+        db.request_task_pause(seeded.task_id, seeded.user_id, true)
+            .await
+            .expect("pause the rebuild task"),
+        "the common primitive pauses the running rebuild"
+    );
+
+    let barrier = db.read_rebuild_barrier().await.expect("read the barrier");
+    assert!(barrier.pause_requested);
+    assert_eq!(
+        barrier.cursor,
+        Some(RebuildCursor {
+            document_id: 7,
+            chunk_index: 3,
+        }),
+        "the common pause keeps the committed cursor"
+    );
+    assert_eq!(barrier.processed_chunks, 2);
+    assert_eq!(barrier.total_chunks, 9);
+    assert_eq!(barrier.owner_item_id, Some(seeded.item_id));
+    assert_eq!(barrier.owner_token, Some(seeded.token));
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        seeded.item_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the paused task projection");
+    assert_eq!(projection.pause_state, "pausing");
+
+    reset_barrier(&db).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn the_common_resume_clears_the_barrier_flag_without_moving_the_cursor() {
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+
+    let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
+    let mut tx = db.pool().begin().await.expect("begin rebuild");
+    db.begin_rebuild_in(
+        &mut tx,
+        seeded.item_id,
+        seeded.token,
+        FINGERPRINT,
+        COLLECTION,
+    )
+    .await
+    .expect("start the rebuild");
+    tx.commit().await.expect("commit the rebuild start");
+
+    let mut connection = db.pool().acquire().await.expect("acquire");
+    assert!(
+        db.advance_rebuild_cursor_in(
+            &mut connection,
+            seeded.item_id,
+            seeded.token,
+            FINGERPRINT,
+            COLLECTION,
+            context69::db::RebuildCheckpoint {
+                cursor: RebuildCursor {
+                    document_id: 7,
+                    chunk_index: 3,
+                },
+                processed_chunks: 2,
+                total_chunks: 9,
+            },
+        )
+        .await
+        .expect("advance the cursor")
+    );
+    drop(connection);
+
+    assert!(
+        db.request_task_pause(seeded.task_id, seeded.user_id, true)
+            .await
+            .expect("pause the rebuild task")
+    );
+    assert!(
+        db.request_task_resume(seeded.task_id, seeded.user_id, true)
+            .await
+            .expect("resume the rebuild task"),
+        "the common primitive resumes the paused rebuild"
+    );
+
+    let barrier = db.read_rebuild_barrier().await.expect("read the barrier");
+    assert!(!barrier.pause_requested);
+    assert_eq!(
+        barrier.cursor,
+        Some(RebuildCursor {
+            document_id: 7,
+            chunk_index: 3,
+        }),
+        "the common resume never moves the committed cursor"
+    );
+    assert_eq!(barrier.processed_chunks, 2);
+    assert_eq!(barrier.total_chunks, 9);
+    assert_eq!(barrier.owner_item_id, Some(seeded.item_id));
+    assert_eq!(barrier.owner_token, Some(seeded.token));
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        seeded.item_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the resumed task projection");
+    assert_eq!(projection.pause_state, "unpaused");
+
+    reset_barrier(&db).await;
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_running_vector_checkpoint_parks_through_the_driver_and_resumes_immediately() {
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+
+    let user_id: i64 = sqlx::query_scalar(
+        "INSERT INTO context69.users (login_name, display_name, password_hash) \
+         VALUES ($1, $2, 'not-a-real-hash') RETURNING id",
+    )
+    .bind(format!("vector-checkpoint-{}", Uuid::new_v4()))
+    .bind("vector checkpoint owner")
+    .fetch_one(db.pool())
+    .await
+    .expect("seed user");
+    let task_id = Uuid::new_v4();
+    let (_, _, item_ids) = db
+        .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id,
+            user_id,
+            group_id: None,
+            kind: "vector_rebuild",
+            group_path: Some("test/vector-checkpoint"),
+            source_key: None,
+            payloads: &[json!({})],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: &format!("vector-checkpoint-{}", Uuid::new_v4()),
+        })
+        .await
+        .expect("create the rebuild task");
+    let item_id = item_ids[0];
+    db.produce_item_segment(item_id)
+        .await
+        .expect("produce the segment");
+    let claimed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim the rebuild")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the rebuild item is claimed");
+    let execution = claimed
+        .execution_context()
+        .expect("the claimed item carries its captured execution");
+
+    let mut tx = db.pool().begin().await.expect("begin rebuild");
+    db.begin_rebuild_in(
+        &mut tx,
+        item_id,
+        claimed.lease_token,
+        FINGERPRINT,
+        COLLECTION,
+    )
+    .await
+    .expect("start the rebuild");
+    tx.commit().await.expect("commit the rebuild start");
+    let mut connection = db.pool().acquire().await.expect("acquire");
+    assert!(
+        db.advance_rebuild_cursor_in(
+            &mut connection,
+            item_id,
+            claimed.lease_token,
+            FINGERPRINT,
+            COLLECTION,
+            context69::db::RebuildCheckpoint {
+                cursor: RebuildCursor {
+                    document_id: 7,
+                    chunk_index: 3,
+                },
+                processed_chunks: 2,
+                total_chunks: 9,
+            },
+        )
+        .await
+        .expect("advance the cursor")
+    );
+    drop(connection);
+
+    assert!(
+        db.request_task_pause(task_id, user_id, true)
+            .await
+            .expect("request the pause"),
+        "the common primitive pauses the running rebuild"
+    );
+    let service = build_task_service(&db)
+        .await
+        .expect("build the task service");
+    service
+        .run_item_for_test(claimed.clone())
+        .await
+        .expect("the runtime driver consumes the paused checkpoint");
+
+    let native_attempt: String =
+        sqlx::query_scalar("SELECT status FROM cloudiful_tasks.attempts WHERE id = $1")
+            .bind(execution.attempt_id())
+            .fetch_one(db.pool())
+            .await
+            .expect("read the native attempt");
+    assert_eq!(native_attempt, "paused");
+    let domain_attempt =
+        sqlx::query_file!("tests/sql/task_execution/read_pause_attempt.sql", item_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("read the domain attempt");
+    assert_eq!(domain_attempt.status, "paused");
+
+    let projection = sqlx::query_file!(
+        "tests/sql/task_execution/read_pause_projection.sql",
+        item_id
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the parked projection");
+    assert_eq!(projection.pause_state, "paused");
+    assert_eq!(projection.item_status, "queued");
+    assert_eq!(
+        projection.execution_task_id,
+        Some(execution.task_id()),
+        "the parked item keeps its exact segment"
+    );
+    assert!(projection.next_attempt_at.is_none());
+    assert_eq!(
+        projection.paused_attempts, 1,
+        "the park adds exactly one parked attempt"
+    );
+
+    let barrier = db.read_rebuild_barrier().await.expect("read the barrier");
+    assert!(barrier.pause_requested);
+    assert_eq!(barrier.owner_item_id, Some(item_id));
+    assert_eq!(barrier.owner_token, Some(claimed.lease_token));
+    assert_eq!(
+        barrier.cursor,
+        Some(RebuildCursor {
+            document_id: 7,
+            chunk_index: 3,
+        }),
+        "the pause keeps the committed cursor"
+    );
+    assert_eq!(barrier.processed_chunks, 2);
+    assert_eq!(barrier.total_chunks, 9);
+
+    assert!(
+        db.request_task_resume(task_id, user_id, true)
+            .await
+            .expect("resume the parked rebuild"),
+        "the explicit resume reopens the parked item"
+    );
+    let barrier = db
+        .read_rebuild_barrier()
+        .await
+        .expect("read the resumed barrier");
+    assert!(!barrier.pause_requested);
+    let resumed = db
+        .claim_items_fast(10)
+        .await
+        .expect("claim after the resume")
+        .into_iter()
+        .find(|item| item.task_id == task_id)
+        .expect("the resumed rebuild is immediately claimable");
+    assert_eq!(
+        resumed.execution_generation, claimed.execution_generation,
+        "the park and resume never mint a new generation"
+    );
+    assert_eq!(
+        resumed.execution_task_id,
+        Some(execution.task_id()),
+        "the resumed claim is the same segment"
+    );
+
+    reset_barrier(&db).await;
+    delete_tasks(&db, &[task_id]).await;
+    sqlx::query("DELETE FROM context69.users WHERE id = $1")
+        .bind(user_id)
+        .execute(db.pool())
+        .await
+        .expect("delete the user");
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RebuildCaseFault {
+    None,
+    ProviderFails,
+    PanicAfterCollection,
+    DropResumedClaim,
+}
+
+#[cfg(feature = "integration-test-helpers")]
+enum CaseFailure {
+    Returned(anyhow::Error),
+    Panicked(String),
+}
+
+#[cfg(feature = "integration-test-helpers")]
+fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
+    if let Some(message) = payload.downcast_ref::<&str>() {
+        (*message).to_string()
+    } else if let Some(message) = payload.downcast_ref::<String>() {
+        message.clone()
+    } else {
+        "non-string panic payload".to_string()
+    }
+}
+
+/// Runs one owned-resource operation, turning an unwind into a reported failure
+/// so the caller can still dispose every resource it created.
+#[cfg(feature = "integration-test-helpers")]
+async fn catch_case_failure<F>(future: F) -> Result<(), CaseFailure>
+where
+    F: std::future::Future<Output = anyhow::Result<()>>,
+{
+    use futures::FutureExt;
+    match std::panic::AssertUnwindSafe(future).catch_unwind().await {
+        Ok(Ok(())) => Ok(()),
+        Ok(Err(error)) => Err(CaseFailure::Returned(error)),
+        Err(payload) => Err(CaseFailure::Panicked(panic_message(payload))),
+    }
+}
+
+#[cfg(feature = "integration-test-helpers")]
+async fn run_actual_rebuild_case(db: &Database, fault: RebuildCaseFault) -> anyhow::Result<()> {
+    let qdrant_url = "http://unraid.cloud1ful.com:6336";
+
+    // Read-only emptiness gate: this case owns the five runtime singletons, the
+    // recorded vector index rows, the registry entries and the one durable
+    // barrier. A previous failed run or a live peer makes the reusable fixture
+    // unsafe, so refuse before any write instead of clearing foreign state.
+    let preflight = support::read_rebuild_fixture_preflight(db)
+        .await
+        .context("read the rebuild fixture preflight")?;
+    if let Some(problem) = preflight.emptiness_problem() {
+        anyhow::bail!(
+            "the reusable rebuild fixture is not empty; refusing before any write: {problem}"
+        );
+    }
+    let existing_collections = support::pause_collections(qdrant_url).await?;
+    if !existing_collections.is_empty() {
+        anyhow::bail!(
+            "the reusable rebuild fixture still owns Qdrant collection(s): {existing_collections:?}"
+        );
+    }
+
+    let base_collection = format!("context69_issue_21_pause_{}", Uuid::new_v4().simple());
+
+    let mut group_id: Option<i64> = None;
+    let mut user_id: Option<i64> = None;
+    let mut task_id: Option<Uuid> = None;
+    let mut item_id: Option<Uuid> = None;
+    let mut mock: Option<http_mock::EmbeddingMock> = None;
+    let mut run_handle: Option<tokio::task::JoinHandle<anyhow::Result<()>>> = None;
+    let mut owned_collection: Option<String> = None;
+    let mut expected_cursor: Option<RebuildCursor> = None;
+    let mut total_chunks = 0i64;
+    let mut segment: Option<Uuid> = None;
+    let mut generation = 0i64;
+    // One absolute budget for the whole actual gate: setup, the first data
+    // batch, the pause checkpoint and the worker return. The happy path is
+    // generous for a remote 4096-dimension page; the failure probe only needs
+    // to prove that the wait is bounded and never becomes a retry loop.
+    let deadline_seconds = if fault == RebuildCaseFault::ProviderFails {
+        5
+    } else {
+        30
+    };
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(deadline_seconds);
+
+    let outcome = catch_case_failure(async {
+        context69_db_schema::bootstrap_library_schema(db.pool()).await?;
+        let gid: i64 = sqlx::query_file_scalar!(
+            "tests/sql/task_execution/seed_group.sql",
+            format!("reindex-{}", Uuid::new_v4()),
+            "Reindex fixture",
+            format!("test/reindex-{}", Uuid::new_v4()),
+        )
+        .fetch_one(db.pool())
+        .await?;
+        group_id = Some(gid);
+        support::seed_reindex_document(&db, gid, 65).await?;
+
+        // The rebuild reindexes the whole stored corpus; the preflight above
+        // proved it is the case-owned corpus, so the global page order is the
+        // expected cursor.
+        let cursor_row: Option<(i64, i32)> = sqlx::query_as(
+            "SELECT document_id, chunk_index FROM context69.document_chunks \
+             ORDER BY document_id, chunk_index LIMIT 1 OFFSET 63",
+        )
+        .fetch_optional(db.pool())
+        .await?;
+        expected_cursor = cursor_row.map(|(document_id, chunk_index)| RebuildCursor {
+            document_id,
+            chunk_index,
+        });
+        total_chunks = sqlx::query_scalar("SELECT count(*) FROM context69.document_chunks")
+            .fetch_one(db.pool())
+            .await?;
+
+        let started_mock = if fault == RebuildCaseFault::ProviderFails {
+            http_mock::EmbeddingMock::start_failing_proof(4096).await?
+        } else {
+            http_mock::EmbeddingMock::start(4096).await?
+        };
+        let mock_base_url = started_mock.base_url().to_string();
+        mock = Some(started_mock);
+
+        support::try_seed_runtime_settings(
+            &db,
+            qdrant_url,
+            &base_collection,
+            &mock_base_url,
+            "rebuild-test-model",
+            4096,
+        )
+        .await?;
+
+        let uid = support::try_seed_user(&db).await?;
+        user_id = Some(uid);
+        let tid = support::try_seed_task(&db, uid, "queued", "vector_rebuild").await?;
+        task_id = Some(tid);
+        let (iid, _token) = support::try_seed_item(&db, tid).await?;
+        item_id = Some(iid);
+        db.produce_item_segment(iid).await?;
+        let claimed = db
+            .claim_items_fast(10)
+            .await?
+            .into_iter()
+            .find(|item| item.id == iid)
+            .context("the rebuild item is claimed")?;
+        let execution = claimed
+            .execution_context()
+            .context("the claimed item carries its captured execution")?;
+        segment = Some(execution.task_id());
+        generation = execution.generation;
+
+        let service = build_task_service(&db).await?;
+        let run_service = service.clone();
+        let run_item = claimed.clone();
+        run_handle = Some(tokio::spawn(async move {
+            run_service.run_item_for_test(run_item).await
+        }));
+
+        // Wait for the actual first data batch while observing the worker and
+        // the single deadline: a worker that exits before any data request
+        // fails this case promptly instead of leaving the mock Notify pending.
+        let mock_ref = mock.as_ref().expect("the embedding mock exists");
+        let mut handle = run_handle.take().expect("the rebuild worker handle exists");
+        let mut worker_exited = false;
+        let gate: anyhow::Result<()> = tokio::select! {
+            _ = mock_ref.wait_data_entered() => Ok(()),
+            result = &mut handle => {
+                worker_exited = true;
+                let joined = result.context("join the rebuild worker before its first data batch")?;
+                match joined {
+                    Ok(()) => Err(anyhow::anyhow!(
+                        "the rebuild worker returned successfully before its first data batch"
+                    )),
+                    Err(error) => Err(anyhow::anyhow!(
+                        "the rebuild worker exited before its first data batch: {error:#}"
+                    )),
+                }
+            }
+            _ = tokio::time::sleep_until(deadline) => Err(anyhow::anyhow!(
+                "the rebuild worker did not reach its first data batch before the {deadline_seconds}s deadline"
+            )),
+        };
+        if !worker_exited {
+            run_handle = Some(handle);
+        }
+        if fault == RebuildCaseFault::ProviderFails {
+            // A failing provider never reaches a data batch. The worker may
+            // report its own failure or the single deadline may end the wait;
+            // either way the gate is bounded and cleanup still runs below.
+            anyhow::ensure!(
+                gate.is_err(),
+                "a failing provider must not reach a data batch"
+            );
+            anyhow::ensure!(
+                mock_ref.proof_requests() >= 1,
+                "the failing provider proof reached the mock"
+            );
+            anyhow::ensure!(
+                mock_ref.data_requests() == 0,
+                "the failing worker requested no data batch"
+            );
+            return Ok(());
+        }
+        gate?;
+
+        let barrier = db.read_rebuild_barrier().await?;
+        owned_collection = barrier.collection.clone();
+        anyhow::ensure!(
+            owned_collection.is_some(),
+            "the barrier records the derived rebuild target before the first page"
+        );
+        anyhow::ensure!(
+            barrier.owner_item_id == Some(iid),
+            "the running barrier still names the item"
+        );
+        anyhow::ensure!(
+            barrier.owner_token == Some(claimed.lease_token),
+            "the running barrier still names the captured token"
+        );
+        if fault == RebuildCaseFault::PanicAfterCollection {
+            panic!("injected post-collection panic after the target was recorded");
+        }
+        anyhow::ensure!(
+            db.request_task_pause(tid, uid, false).await?,
+            "the running owner accepts the pause"
+        );
+        mock_ref.release_data();
+
+        let mut handle = run_handle.take().expect("the rebuild worker handle exists");
+        tokio::select! {
+            result = &mut handle => {
+                result
+                    .context("join the paused rebuild worker")??;
+            }
+            _ = tokio::time::sleep_until(deadline) => {
+                run_handle = Some(handle);
+                anyhow::bail!(
+                    "the paused rebuild worker did not return before the 30s deadline"
+                );
+            }
+        }
+
+        let barrier = db.read_rebuild_barrier().await?;
+        anyhow::ensure!(
+            barrier.pause_requested,
+            "the batch checkpoint observed the pause"
+        );
+        anyhow::ensure!(
+            barrier.owner_item_id == Some(iid) && barrier.owner_token == Some(claimed.lease_token),
+            "the parked rebuild keeps its owner"
+        );
+        anyhow::ensure!(
+            barrier.cursor == expected_cursor,
+            "the completed first batch is the committed cursor: {:?}",
+            barrier.cursor
+        );
+        anyhow::ensure!(
+            barrier.processed_chunks == 64 && barrier.total_chunks == total_chunks,
+            "the committed page and the captured total are the checkpoint"
+        );
+
+        let queue = db.execution_queue().await?;
+        let segment_id = segment.context("the rebuild segment exists")?;
+        let native = queue
+            .get(TaskId::from_uuid(segment_id))
+            .await?
+            .context("the native segment still exists")?;
+        anyhow::ensure!(
+            native.pause_state() == TaskPauseState::Paused,
+            "the native task is paused"
+        );
+        let attempts = queue.attempts(TaskId::from_uuid(segment_id), 10).await?;
+        anyhow::ensure!(
+            attempts.first().map(cloudiful_tasks::Attempt::status) == Some(AttemptStatus::Paused),
+            "the native attempt is sealed paused"
+        );
+
+        let projection =
+            sqlx::query_file!("tests/sql/task_execution/read_pause_projection.sql", iid)
+                .fetch_one(db.pool())
+                .await?;
+        anyhow::ensure!(
+            projection.pause_state == "paused",
+            "the parent pause is projected"
+        );
+        anyhow::ensure!(
+            projection.item_status == "queued",
+            "the parked item is queued"
+        );
+        anyhow::ensure!(
+            projection.execution_task_id == Some(segment_id),
+            "the parked item keeps its exact segment"
+        );
+        anyhow::ensure!(
+            projection.paused_attempts == 1 && projection.next_attempt_at.is_none(),
+            "the park adds one paused attempt and no backoff"
+        );
+        let attempt = sqlx::query_file!("tests/sql/task_execution/read_pause_attempt.sql", iid)
+            .fetch_one(db.pool())
+            .await?;
+        anyhow::ensure!(
+            attempt.status == "paused" && attempt.error_message.is_none(),
+            "the domain attempt is sealed paused without an error"
+        );
+
+        let cursor_before_resume = barrier.cursor;
+        anyhow::ensure!(
+            db.request_task_resume(tid, uid, false).await?,
+            "the explicit resume clears the pause"
+        );
+        let resumed_barrier = db.read_rebuild_barrier().await?;
+        anyhow::ensure!(
+            !resumed_barrier.pause_requested,
+            "the resume clears the barrier pause flag"
+        );
+        anyhow::ensure!(
+            resumed_barrier.cursor == cursor_before_resume,
+            "the resume never moves the committed cursor"
+        );
+        if fault == RebuildCaseFault::DropResumedClaim {
+            // Controlled regression: the resumed item is gone before the
+            // claim, so the claim returns no matching item instead of panicking.
+            sqlx::query("DELETE FROM context69.task_items WHERE id = $1")
+                .bind(iid)
+                .execute(db.pool())
+                .await
+                .context("remove the case item before the resumed claim")?;
+        }
+        let resumed = db
+            .claim_items_fast(10)
+            .await?
+            .into_iter()
+            .find(|item| item.id == iid)
+            .context("the resumed rebuild is immediately claimable")?;
+        anyhow::ensure!(
+            resumed.execution_task_id == segment && resumed.execution_generation == generation,
+            "the resumed claim is the same segment and generation"
+        );
+        anyhow::ensure!(
+            resumed.attempt_count == 2,
+            "the resumed claim opens the next attempt on the same segment"
+        );
+        anyhow::ensure!(
+            mock_ref.proof_requests() >= 1,
+            "the actual provider proof reached the mock"
+        );
+        anyhow::ensure!(
+            mock_ref.data_requests() >= 2,
+            "the first page reached the embedding mock in its data batches"
+        );
+        Ok(())
+    })
+    .await;
+
+    // Cleanup always runs: release the held batch, stop and join the worker,
+    // then dispose only the exact resources this case created.
+    let mut cleanup_failures: Vec<String> = Vec::new();
+    if let Some(mock) = mock.take() {
+        mock.release_data();
+        mock.shutdown().await;
+    }
+    if let Some(handle) = run_handle.take() {
+        handle.abort();
+        if let Err(error) = handle.await {
+            if !error.is_cancelled() {
+                cleanup_failures.push(format!("join the rebuild worker: {error}"));
+            }
+        }
+    }
+
+    let collection = match owned_collection {
+        Some(collection) => Some(collection),
+        None => db
+            .read_rebuild_barrier()
+            .await
+            .ok()
+            .and_then(|barrier| barrier.collection),
+    };
+    if let Some(collection) = collection.as_deref() {
+        if let Err(error) = support::delete_qdrant_collection(qdrant_url, collection).await {
+            cleanup_failures.push(format!("delete the owned Qdrant collection: {error:#}"));
+        }
+    }
+    if let Err(error) = support::try_clear_runtime_settings(&db).await {
+        cleanup_failures.push(format!("clear the case runtime settings: {error:#}"));
+    }
+    if let Some(iid) = item_id {
+        if let Err(error) = support::try_delete_item_library_rows(&db, iid).await {
+            cleanup_failures.push(format!("delete the item library rows: {error:#}"));
+        }
+    }
+    if let Some(tid) = task_id {
+        if let Err(error) = support::try_delete_tasks(&db, &[tid]).await {
+            cleanup_failures.push(format!("delete the case task: {error:#}"));
+        }
+    }
+    if let Some(uid) = user_id {
+        if let Err(error) = support::try_delete_user(&db, uid).await {
+            cleanup_failures.push(format!("delete the case user: {error:#}"));
+        }
+    }
+    if let Some(gid) = group_id {
+        if let Err(error) = support::try_delete_group(&db, gid).await {
+            cleanup_failures.push(format!("delete the case group: {error:#}"));
+        }
+    }
+    if let Err(error) = support::try_reset_rebuild_barrier(&db).await {
+        cleanup_failures.push(format!("reset the case barrier: {error:#}"));
+    }
+
+    let cleanup_suffix = || {
+        if cleanup_failures.is_empty() {
+            String::new()
+        } else {
+            format!("\ncleanup also failed: {}", cleanup_failures.join("; "))
+        }
+    };
+    match outcome {
+        Ok(()) if cleanup_failures.is_empty() => Ok(()),
+        Ok(()) => Err(anyhow::anyhow!(
+            "cleanup failed after a passing case: {}",
+            cleanup_failures.join("; ")
+        )),
+        Err(CaseFailure::Returned(error)) => Err(anyhow::anyhow!("{error:#}{}", cleanup_suffix())),
+        Err(CaseFailure::Panicked(message)) => Err(anyhow::anyhow!(
+            "the case panicked: {message}{}",
+            cleanup_suffix()
+        )),
+    }
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL and the designated test Qdrant"]
+async fn an_actual_rebuild_pauses_at_its_committed_batch_boundary_and_resumes_the_same_segment() {
+    let db = connect().await;
+    run_actual_rebuild_case(&db, RebuildCaseFault::None)
+        .await
+        .unwrap_or_else(|error| panic!("{error:#}"));
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL and the designated test Qdrant"]
+async fn an_actual_rebuild_provider_failure_before_the_first_data_batch_terminates_and_cleans_up() {
+    let db = connect().await;
+    run_actual_rebuild_case(&db, RebuildCaseFault::ProviderFails)
+        .await
+        .unwrap_or_else(|error| panic!("{error:#}"));
+
+    let preflight = support::read_rebuild_fixture_preflight(&db)
+        .await
+        .expect("read the post-failure fixture");
+    assert_eq!(
+        preflight.emptiness_problem(),
+        None,
+        "the failed provider gate left no owned fixture behind"
+    );
+    let collections = support::pause_collections("http://unraid.cloud1ful.com:6336")
+        .await
+        .expect("list the post-failure collections");
+    assert!(
+        collections.is_empty(),
+        "the failed provider gate left no owned collection: {collections:?}"
+    );
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum SentinelObservationFault {
+    None,
+    Error,
+    Panic,
+}
+
+/// One nonempty-fixture refusal variant.
+///
+/// The sentinel insert, the refusal, and the fallible observation all live in
+/// one captured owned operation. The exact owned row is deleted outside that
+/// boundary before any failure, panic, or assertion is reported.
+#[cfg(feature = "integration-test-helpers")]
+async fn run_nonempty_sentinel_variant(
+    db: &Database,
+    fault: SentinelObservationFault,
+) -> anyhow::Result<()> {
+    let sentinel = "rebuild-preflight-sentinel";
+    let preflight = support::read_rebuild_fixture_preflight(db)
+        .await
+        .context("read the sentinel probe precondition")?;
+    if let Some(problem) = preflight.emptiness_problem() {
+        anyhow::bail!(
+            "the sentinel probe requires an empty fixture, never a foreign one: {problem}"
+        );
+    }
+
+    let mut sentinel_inserted = false;
+    let mut refusal: Option<String> = None;
+    let mut observed: Option<(i64, i64)> = None;
+
+    let outcome = catch_case_failure(async {
+        sqlx::query(
+            "INSERT INTO context69.runtime_chunking_settings \
+             (singleton, max_chars, overlap_chars) VALUES (TRUE, 4321, 321)",
+        )
+        .execute(db.pool())
+        .await
+        .context("plant the nonempty fixture sentinel")?;
+        sentinel_inserted = true;
+        refusal = Some(
+            run_actual_rebuild_case(db, RebuildCaseFault::None)
+                .await
+                .err()
+                .map(|error| format!("{error:#}"))
+                .unwrap_or_else(|| "the nonempty fixture was not refused".to_string()),
+        );
+        match fault {
+            SentinelObservationFault::None => {
+                observed = sqlx::query_as(
+                    "SELECT max_chars, overlap_chars FROM context69.runtime_chunking_settings \
+                     WHERE singleton = TRUE AND max_chars = 4321 AND overlap_chars = 321",
+                )
+                .fetch_optional(db.pool())
+                .await
+                .context("observe the sentinel before cleanup")?;
+            }
+            SentinelObservationFault::Error => {
+                return Err(anyhow::anyhow!("injected sentinel observation error"));
+            }
+            SentinelObservationFault::Panic => {
+                panic!("injected sentinel observation panic");
+            }
+        }
+        Ok(())
+    })
+    .await;
+
+    // Remove exactly this case's row before reporting any read error, panic, or
+    // assertion. A foreign prior singleton is never touched.
+    let deletion = if sentinel_inserted {
+        sqlx::query(
+            "DELETE FROM context69.runtime_chunking_settings \
+             WHERE singleton = TRUE AND max_chars = 4321 AND overlap_chars = 321",
+        )
+        .execute(db.pool())
+        .await
+        .map(|result| result.rows_affected())
+        .map_err(|error| {
+            anyhow::Error::new(error).context("remove the sentinel fixture before reporting")
+        })
+    } else {
+        Ok(0)
+    };
+
+    let verification: anyhow::Result<()> = async {
+        match fault {
+            SentinelObservationFault::None => {
+                match &outcome {
+                    Ok(()) => {}
+                    Err(CaseFailure::Returned(error)) => {
+                        anyhow::bail!(
+                            "the nonempty case returned an unexpected failure: {error:#}"
+                        );
+                    }
+                    Err(CaseFailure::Panicked(message)) => {
+                        anyhow::bail!("the nonempty case panicked unexpectedly: {message}");
+                    }
+                }
+                let refusal = refusal
+                    .as_deref()
+                    .context("the nonempty case recorded no refusal")?;
+                anyhow::ensure!(
+                    refusal.contains("not empty"),
+                    "the refusal is actionable: {refusal}"
+                );
+                anyhow::ensure!(
+                    observed == Some((4321, 321)),
+                    "the refusal never mutated the nonempty fixture {sentinel}: {observed:?}"
+                );
+            }
+            SentinelObservationFault::Error => {
+                let message = match &outcome {
+                    Err(CaseFailure::Returned(error)) => format!("{error:#}"),
+                    _ => anyhow::bail!("expected the injected sentinel read error"),
+                };
+                anyhow::ensure!(
+                    message.contains("injected sentinel observation error"),
+                    "the original read error is preserved: {message}"
+                );
+            }
+            SentinelObservationFault::Panic => {
+                let message = match &outcome {
+                    Err(CaseFailure::Panicked(message)) => message.clone(),
+                    _ => anyhow::bail!("expected the injected sentinel observation panic"),
+                };
+                anyhow::ensure!(
+                    message.contains("injected sentinel observation panic"),
+                    "the original panic is preserved: {message}"
+                );
+            }
+        }
+        let removed = deletion
+            .as_ref()
+            .map_err(|error| anyhow::anyhow!("{error:#}"))?;
+        anyhow::ensure!(
+            *removed == 1,
+            "the probe deleted exactly its own sentinel, removed {removed}"
+        );
+        let remaining: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM context69.runtime_chunking_settings \
+             WHERE singleton = TRUE AND max_chars = 4321 AND overlap_chars = 321",
+        )
+        .fetch_one(db.pool())
+        .await?;
+        anyhow::ensure!(
+            remaining == 0,
+            "the sentinel is absent after cleanup: {remaining}"
+        );
+        let runtime_rows: i64 = sqlx::query_scalar(
+            "SELECT \
+                 (SELECT count(*) FROM context69.runtime_qdrant_settings) \
+               + (SELECT count(*) FROM context69.runtime_embedding_settings) \
+               + (SELECT count(*) FROM context69.runtime_scheduler_settings) \
+               + (SELECT count(*) FROM context69.runtime_chunking_settings) \
+               + (SELECT count(*) FROM context69.runtime_file_library_settings)",
+        )
+        .fetch_one(db.pool())
+        .await?;
+        anyhow::ensure!(
+            runtime_rows == 0,
+            "no runtime singleton remains after cleanup: {runtime_rows}"
+        );
+        let barrier = db.read_rebuild_barrier().await?;
+        anyhow::ensure!(
+            barrier.state == RebuildBarrierState::Idle,
+            "the refusal never touched the barrier"
+        );
+        Ok(())
+    }
+    .await;
+
+    match (deletion, verification) {
+        (Ok(_), Ok(())) => Ok(()),
+        (Err(cleanup), Ok(())) => Err(anyhow::anyhow!(
+            "cleanup failed after a passing sentinel variant: {cleanup:#}"
+        )),
+        (Ok(_), Err(error)) => Err(error),
+        (Err(cleanup), Err(error)) => Err(anyhow::anyhow!(
+            "{error:#}\ncleanup also failed: {cleanup:#}"
+        )),
+    }
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL and the designated test Qdrant"]
+async fn an_actual_rebuild_refuses_a_nonempty_runtime_fixture_before_any_write() {
+    let db = connect().await;
+    for fault in [
+        SentinelObservationFault::None,
+        SentinelObservationFault::Error,
+        SentinelObservationFault::Panic,
+    ] {
+        run_nonempty_sentinel_variant(&db, fault)
+            .await
+            .unwrap_or_else(|error| panic!("the sentinel variant {fault:?} failed: {error:#}"));
+    }
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL and the designated test Qdrant"]
+async fn an_actual_rebuild_missing_resumed_claim_reports_and_cleans_up() {
+    let db = connect().await;
+    let error = run_actual_rebuild_case(&db, RebuildCaseFault::DropResumedClaim)
+        .await
+        .expect_err("the missing resumed claim is reported, not swallowed");
+    assert!(
+        format!("{error:#}").contains("the resumed rebuild is immediately claimable"),
+        "the original claim diagnostic is preserved: {error:#}"
+    );
+    let preflight = support::read_rebuild_fixture_preflight(&db)
+        .await
+        .expect("read the post-claim-failure fixture");
+    assert_eq!(
+        preflight.emptiness_problem(),
+        None,
+        "the missing resumed claim left no owned fixture behind"
+    );
+    let collections = support::pause_collections("http://unraid.cloud1ful.com:6336")
+        .await
+        .expect("list the post-claim-failure collections");
+    assert!(
+        collections.is_empty(),
+        "the missing resumed claim left no owned collection: {collections:?}"
+    );
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL and the designated test Qdrant"]
+async fn an_actual_rebuild_panic_after_the_collection_exists_retains_the_panic_and_cleans_up() {
+    let db = connect().await;
+    let error = run_actual_rebuild_case(&db, RebuildCaseFault::PanicAfterCollection)
+        .await
+        .expect_err("the injected panic is reported after cleanup, not swallowed");
+    assert!(
+        format!("{error:#}").contains("injected post-collection panic"),
+        "the original panic diagnostic is preserved: {error:#}"
+    );
+    let preflight = support::read_rebuild_fixture_preflight(&db)
+        .await
+        .expect("read the post-panic fixture");
+    assert_eq!(
+        preflight.emptiness_problem(),
+        None,
+        "the post-collection panic left no owned fixture behind"
+    );
+    let collections = support::pause_collections("http://unraid.cloud1ful.com:6336")
+        .await
+        .expect("list the post-panic collections");
+    assert!(
+        collections.is_empty(),
+        "the post-collection panic left no owned collection: {collections:?}"
+    );
 }

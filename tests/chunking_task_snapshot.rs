@@ -62,10 +62,11 @@ fn tokens_budget() -> ChunkBudget {
             overlap_chars: 100,
         },
         tokens: Some(TokenBudget {
-            tokenizer: TokenizerKind::O200kBase,
+            tokenizer: TokenizerKind::O200kBase.into(),
             max_tokens: 512,
             overlap_tokens: 64,
         }),
+        input_policy: None,
     }
 }
 

@@ -32,6 +32,7 @@ WITH RECURSIVE inherited_groups AS (
         -- stage is resumed and no legacy stage value can survive a retry.
         stage = 'processing',
         attempt_count = 0,
+        paused_attempts = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

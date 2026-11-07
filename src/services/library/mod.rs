@@ -544,7 +544,7 @@ impl LibraryService {
     /// chunking budget differs.
     pub(crate) fn scoped_chunking(&self, budget: &ChunkBudget) -> Self {
         let mut scoped = self.clone();
-        scoped.chunking_runtime = ChunkingRuntime::new(budget.clone());
+        scoped.chunking_runtime = self.chunking_runtime.with_budget(budget.clone());
         scoped.translation = self
             .translation
             .clone()

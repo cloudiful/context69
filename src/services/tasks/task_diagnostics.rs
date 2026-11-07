@@ -170,6 +170,8 @@ mod tests {
             waiting_reason: None,
             dependency_key: None,
             next_attempt_at: None,
+            pause_state: "unpaused".to_string(),
+            paused_at: None,
             created_at: Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap(),
             started_at: None,
             finished_at: None,

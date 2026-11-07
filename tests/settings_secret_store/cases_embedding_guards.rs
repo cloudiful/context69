@@ -4,6 +4,8 @@
 
 use std::sync::Arc;
 
+use sha2::Digest;
+
 use super::support::{
     assert_sealed_under, assert_stored_bytes_exclude, identity_fingerprint, keyed, reset, run,
     runtime_request, s3_request, seed_vector_identity, service, store_metadata,
@@ -691,6 +693,91 @@ fn a_token_chunking_budget_survives_a_save_and_a_read() {
         assert_eq!(read.chunking.max_tokens, 512);
         assert_eq!(read.chunking.overlap_tokens, 64);
 
+        reset(db).await;
+    });
+}
+
+/// A pinned local artifact hash survives a save and a read, and an unavailable
+/// hash is refused before any settings or secret row changes.
+#[test]
+#[ignore = "requires configured reusable PostgreSQL"]
+fn a_local_tokenizer_hash_round_trips_and_an_unavailable_one_changes_nothing() {
+    run(async |db| {
+        reset(db).await;
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system time")
+            .as_nanos();
+        let directory = std::env::temp_dir().join(format!("context69-settings-artifact-{unique}"));
+        std::fs::create_dir_all(&directory).expect("create the artifact directory");
+        let bytes = serde_json::to_vec(&serde_json::json!({
+            "version": "1.0",
+            "truncation": null,
+            "padding": null,
+            "added_tokens": [],
+            "normalizer": null,
+            "pre_tokenizer": {"type": "Whitespace"},
+            "post_processor": null,
+            "decoder": null,
+            "model": {
+                "type": "WordLevel",
+                "vocab": {"hello": 0, "world": 1},
+                "unk_token": "[UNK]"
+            }
+        }))
+        .expect("serialize the tiny tokenizer");
+        let sha256 = sha2::Sha256::digest(&bytes)
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        std::fs::write(directory.join(format!("{sha256}.json")), &bytes)
+            .expect("write the artifact");
+        let catalog =
+            context69::chunking::chunking_token_artifact::TokenizerCatalog::load(&directory)
+                .expect("load the catalog");
+        let _ = context69::chunking::chunking_token_artifact::TokenizerCatalog::install(catalog);
+
+        let settings = service(db, keyed(db));
+        let mut request = runtime_request(None, None);
+        request.chunking.unit = ChunkingUnit::Tokens;
+        request.chunking.tokenizer = ChunkingTokenizer::HfLocal;
+        request.chunking.tokenizer_sha256 = Some(sha256.clone());
+        request.chunking.max_tokens = 256;
+        request.chunking.overlap_tokens = 64;
+        let saved = settings
+            .update_runtime_settings(&request)
+            .await
+            .expect("a verified local artifact should be saved");
+        assert_eq!(saved.chunking.tokenizer, ChunkingTokenizer::HfLocal);
+        assert_eq!(
+            saved.chunking.tokenizer_sha256.as_deref(),
+            Some(sha256.as_str())
+        );
+
+        let mut unavailable = runtime_request(None, None);
+        unavailable.chunking.unit = ChunkingUnit::Tokens;
+        unavailable.chunking.tokenizer = ChunkingTokenizer::HfLocal;
+        unavailable.chunking.tokenizer_sha256 = Some("f".repeat(64));
+        unavailable.chunking.max_tokens = 512;
+        unavailable.chunking.overlap_tokens = 64;
+        let error = settings
+            .update_runtime_settings(&unavailable)
+            .await
+            .expect_err("an unavailable artifact must be refused");
+        assert!(error.to_string().contains("not available"), "{error}");
+
+        let read = settings
+            .get_runtime_settings()
+            .await
+            .expect("read the runtime settings back");
+        assert_eq!(read.chunking.tokenizer, ChunkingTokenizer::HfLocal);
+        assert_eq!(
+            read.chunking.tokenizer_sha256.as_deref(),
+            Some(sha256.as_str())
+        );
+        assert_eq!(read.chunking.max_tokens, 256);
+
+        std::fs::remove_dir_all(&directory).expect("remove the artifact directory");
         reset(db).await;
     });
 }

@@ -1324,10 +1324,11 @@ mod runner_cases {
             mode: context69::chunking::ChunkBudgetMode::Tokens,
             chars: ChunkingConfig::default(),
             tokens: Some(context69::chunking::TokenBudget {
-                tokenizer: context69::chunking::chunking_token::TokenizerKind::Cl100kBase,
+                tokenizer: context69::chunking::chunking_token::TokenizerKind::Cl100kBase.into(),
                 max_tokens: 0,
                 overlap_tokens: 0,
             }),
+            input_policy: None,
         };
         let mock = QdrantPointsMock::start().await;
         let fixture = harness::SwitchFixture::new().await;

@@ -148,7 +148,7 @@ fn the_parent_projection_is_driven_by_the_items_that_exist() {
     }
     let candidates = code(CLAIM_CANDIDATES);
     assert!(
-        candidates.contains("attempt_count < 5"),
+        candidates.contains("(ti.attempt_count - ti.paused_attempts) < 5"),
         "the admission candidate must carry the attempt cap the projection          counts exhaustion by"
     );
     assert!(

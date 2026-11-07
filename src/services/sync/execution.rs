@@ -164,6 +164,7 @@ impl SyncService {
         chunking: &ChunkBudget,
     ) -> Result<SyncOutcome> {
         let runtime = self.runtime()?;
+        let resolved_chunking = self.chunking.resolve(chunking)?;
         // The pinned budget of this source sync governs the translations it
         // induces too: the scoped service carries it as the explicit snapshot,
         // so the shared service's live default is never consulted here.
@@ -232,17 +233,24 @@ impl SyncService {
                         .db
                         .list_chunk_ids_for_document(upserted.document_id)
                         .await?;
-                    let chunks = chunk_document_with_budget(
+                    let chunks = crate::chunking::chunk_document_resolved(
                         upserted.document_id,
                         &source.key,
                         &normalized,
-                        chunking,
+                        &resolved_chunking,
                     )?;
                     let texts = chunks
                         .iter()
                         .map(|chunk| chunk.text.clone())
                         .collect::<Vec<_>>();
-                    let embeddings = embedding.embed_texts(&texts).await?;
+                    let embeddings = embedding
+                        .embed_texts_with_policy(
+                            &texts,
+                            crate::embedding::InputPolicySelection::Pinned(
+                                resolved_chunking.input_policy(),
+                            ),
+                        )
+                        .await?;
                     let payloads = chunks
                         .iter()
                         .map(|chunk| {
@@ -793,6 +801,7 @@ impl SyncService {
             dimensions: stored.embedding.dimensions,
             timeout: Duration::from_secs(stored.embedding.timeout_secs),
             batching: stored.embedding.batching.clone(),
+            input_policy: stored.embedding.input_policy.clone(),
         };
         let provider = build_provider(&embedding)?;
         let identity = EmbeddingIdentity::from_config(&embedding);

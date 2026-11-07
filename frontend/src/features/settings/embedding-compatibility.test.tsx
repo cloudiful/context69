@@ -232,7 +232,6 @@ describe("embedding compatibility confirmation", () => {
 
     await waitFor(() => {
       expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/test")).toHaveLength(1);
-      expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/capabilities")).toHaveLength(1);
     });
     expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     expect(runtimePuts(backend)).toHaveLength(0);
@@ -244,10 +243,6 @@ describe("embedding compatibility confirmation", () => {
     expect(body.model).toBe("alias-model");
     expect(body.query_model).toBe("invalid-query-alias");
     expect(body.confirm_vector_space_unchanged).toBeUndefined();
-    const capabilityBody = backend
-      .callsFor("POST", "/v1/settings/runtime/embedding/capabilities")[0]
-      .body as { query_model?: string };
-    expect(capabilityBody.query_model).toBe("invalid-query-alias");
   });
 
   it("discards a pending probe outcome after the query alias is edited", async () => {

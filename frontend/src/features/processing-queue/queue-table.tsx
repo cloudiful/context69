@@ -1,4 +1,4 @@
-import { Ban, ChevronRight, Play, RefreshCw, RotateCcw, Trash2, Undo2 } from "lucide-react";
+import { Ban, ChevronRight, Pause, Play, RefreshCw, RotateCcw, Trash2, Undo2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
@@ -19,6 +19,9 @@ import {
   QUEUE_STAGE_VALUES,
   QUEUE_WAITING_REASON_VALUES,
   TASK_KIND_VALUES,
+  canPauseTask,
+  canResumeTask,
+  isPauseRequested,
   isRecoverableTask,
   isSourceRerunnableTask,
   libraryDependencyLabel,
@@ -450,7 +453,16 @@ function TaskRow({
           ? null
           : (
               <TableCell>
-                <StatusBadge tone={statusTone(task.status)}>{t(`processingQueue.statuses.${task.status}`)}</StatusBadge>
+                <div className="flex flex-wrap items-center gap-1">
+                  <StatusBadge tone={statusTone(task.status)}>{t(`processingQueue.statuses.${task.status}`)}</StatusBadge>
+                  {isPauseRequested(task)
+                    ? (
+                        <Badge variant="secondary">
+                          {t(`processingQueue.pauseStates.${task.pause_state ?? "paused"}`)}
+                        </Badge>
+                      )
+                    : null}
+                </div>
               </TableCell>
             )}
         {completed
@@ -537,6 +549,22 @@ function TaskRow({
                         <Button type="button" variant="ghost" size="sm" disabled={acting} title={t("processingQueue.resumeHint")} onClick={() => onRecover(task)}>
                           <Play aria-hidden="true" />
                           {t("processingQueue.continue")}
+                        </Button>
+                      )
+                    : null}
+                  {canPauseTask(task)
+                    ? (
+                        <Button type="button" variant="ghost" size="sm" disabled={acting} title={t("processingQueue.pauseTaskHint")} onClick={() => onRecover(task)}>
+                          <Pause aria-hidden="true" />
+                          {t("processingQueue.pauseTask")}
+                        </Button>
+                      )
+                    : null}
+                  {canResumeTask(task)
+                    ? (
+                        <Button type="button" variant="ghost" size="sm" disabled={acting} title={t("processingQueue.resumePausedHint")} onClick={() => onRecover(task)}>
+                          <Play aria-hidden="true" />
+                          {t("processingQueue.resumePaused")}
                         </Button>
                       )
                     : null}

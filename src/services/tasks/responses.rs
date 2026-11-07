@@ -53,6 +53,8 @@ pub(super) fn task_response(task: crate::db::StoredTask) -> TaskResponse {
         stage: task.stage,
         waiting_reason: task.waiting_reason,
         dependency_key: task.dependency_key,
+        pause_state: Some(parse_pause_state(&task.pause_state)),
+        paused_at: task.paused_at,
         failure_stage: task.failure_stage,
         error_summary: task.error_summary,
         eta_seconds,
@@ -67,6 +69,11 @@ pub(super) fn task_response(task: crate::db::StoredTask) -> TaskResponse {
         file_name: task.file_name,
         document_title: task.document_title,
     }
+}
+
+pub(super) fn parse_pause_state(value: &str) -> context69_contracts::tasks::TaskPauseState {
+    context69_contracts::tasks::TaskPauseState::from_wire(value)
+        .unwrap_or(context69_contracts::tasks::TaskPauseState::Unpaused)
 }
 
 pub(super) fn parse_origin(value: &str) -> Result<TaskOrigin> {

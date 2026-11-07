@@ -3,7 +3,7 @@ use std::time::Instant;
 
 use crate::{
     chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk},
-    chunking::{ChunkingError, chunk_document_iter_with_budget},
+    chunking::{ChunkingError, chunk_document_iter_resolved},
     contracts::LibraryIngestFailureStage,
     domain::{DocumentChunk, LibraryFileRecord, NormalizedDocument},
 };
@@ -86,8 +86,11 @@ impl LibraryService {
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
 
-        let budget = self.chunking_runtime.snapshot();
-        let chunks = chunk_document_iter_with_budget(
+        let budget = self
+            .chunking_runtime
+            .resolve_snapshot()
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+        let chunks = chunk_document_iter_resolved(
             document_id,
             FILE_LIBRARY_SOURCE_KEY,
             normalized,
@@ -107,7 +110,10 @@ impl LibraryService {
                 .collect::<Vec<_>>();
             let batch_started = Instant::now();
             let embeddings = embedding
-                .embed_texts(&texts)
+                .embed_texts_with_policy(
+                    &texts,
+                    crate::embedding::InputPolicySelection::Pinned(budget.input_policy()),
+                )
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;
             drop(texts);

@@ -16,7 +16,6 @@ import type {
   DoclingCleanupOutcome,
   DoclingCleanupPageResponse,
   DoclingCleanupStatus,
-  EmbeddingCapabilitiesResponse,
   VectorIndexRebuildStatus,
 } from "./api-types";
 
@@ -114,14 +113,6 @@ export function createSettingsApi({ openapiClient, unwrapResponse }: Deps) {
           signal: options?.signal,
         }),
       ) as Promise<VectorIndexRebuildStatus>;
-    },
-    embeddingCapabilities(payload: TestRuntimeEmbeddingRequest, options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.POST("/v1/settings/runtime/embedding/capabilities", {
-          body: payload,
-          signal: options?.signal,
-        }),
-      ) as Promise<EmbeddingCapabilitiesResponse>;
     },
     getDoclingSettings(options?: RequestOptions) {
       return unwrapResponse(

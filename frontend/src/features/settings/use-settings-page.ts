@@ -7,7 +7,6 @@ import { useAuthSession } from "@/hooks/use-auth";
 import { apiClient } from "@/services/api";
 import type {
   DoclingSettingsResponse,
-  EmbeddingCapabilitiesResponse,
   RuntimeSettingsResponse,
   SearchSettingsResponse,
   TranslationProviderInput,
@@ -216,8 +215,6 @@ export function useSettingsPage() {
   const [s3Testing, setS3Testing] = useState(false);
   const [valkeyTesting, setValkeyTesting] = useState(false);
   const [embeddingTesting, setEmbeddingTesting] = useState(false);
-  const [embeddingCapabilities, setEmbeddingCapabilities] =
-    useState<EmbeddingCapabilitiesResponse | null>(null);
   const [qdrantTesting, setQdrantTesting] = useState(false);
   const [doclingTesting, setDoclingTesting] = useState(false);
   const qdrantUrlRevision = useRef(0);
@@ -726,19 +723,6 @@ export function useSettingsPage() {
     const isStale = () => requestRevision !== runtimeRevision.current
       || embeddingProbeTargetRef.current !== requestSignature;
     setEmbeddingTesting(true);
-    // The capability document is asked for on the explicit detect action and is
-    // independent of the connection probe: a draft model or dimension the
-    // provider refuses still discovers the aliases and dimensions it accepts.
-    try {
-      const capabilities = await apiClient.embeddingCapabilities(request);
-      if (!isStale()) {
-        setEmbeddingCapabilities(capabilities);
-      }
-    } catch {
-      if (!isStale()) {
-        setEmbeddingCapabilities(null);
-      }
-    }
     try {
       await apiClient.testEmbeddingConnection(request);
       if (isStale()) {
@@ -816,7 +800,6 @@ export function useSettingsPage() {
     doclingHasChanges,
     doclingQuery,
     doclingTesting,
-    embeddingCapabilities,
     embeddingTesting,
     hasChanges,
     isAdmin,

@@ -45,7 +45,10 @@ pub async fn initialize(
     // built. Building a handle is just a cipher over the existing pool; the
     // unconfigured state was reported once during config hydration.
     let store = secret_store::build(db, config)?;
-    let chunking = ChunkingRuntime::new(config.chunking.chunk_budget());
+    let catalog = crate::chunking::chunking_token_artifact::TokenizerCatalog::ensure_installed(
+        &config.chunking.tokenizer_artifact_dir,
+    )?;
+    let chunking = ChunkingRuntime::with_catalog(config.chunking.chunk_budget(), catalog);
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
         http_client: reqwest::Client::builder()

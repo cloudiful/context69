@@ -7,12 +7,8 @@
 //! connection settings block itself as its body, the way the S3 test reuses the
 //! S3 block, so a probe always runs against the exact draft a save would store.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
-
-use super::EmbeddingBatchingSettings;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TestRuntimeValkeyRequest {
@@ -46,78 +42,6 @@ pub struct TestRuntimeEmbeddingRequest {
     pub timeout_secs: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-}
-
-/// Where the advertised embedding facts come from.
-///
-/// `discovered` means the provider answered a same-origin capability request;
-/// `unknown` means it did not, so only the manual limits apply.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum EmbeddingCapabilitiesSource {
-    Discovered,
-    Unknown,
-}
-
-/// The provider facts one same-origin capability request reported.
-///
-/// Everything but the source is optional: a provider that does not advertise a
-/// field simply leaves it unknown, and an unknown field never constrains the
-/// manual limits. No remote prompt text, credential, or raw response body is
-/// ever part of this projection.
-#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
-pub struct EmbeddingCapabilitiesResponse {
-    /// Where the advertised facts come from.
-    pub source: EmbeddingCapabilitiesSource,
-    /// The origin the capability request was derived from. It never carries a
-    /// credential.
-    pub base_url: String,
-    /// The model documents are embedded with.
-    pub document_model: String,
-    /// The model queries are embedded with: the configured alias, or the
-    /// document model.
-    pub query_model: String,
-    /// The limits this deployment configures.
-    pub manual_limits: EmbeddingBatchingSettings,
-    /// The limits in effect: the manual ones, tightened by what the provider
-    /// advertises.
-    pub effective_limits: EmbeddingBatchingSettings,
-    /// The model the provider advertises.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub advertised_model: Option<String>,
-    /// The aliases the provider advertises, as alias name to role.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role_aliases: Option<BTreeMap<String, String>>,
-    /// The dimensions the provider advertises.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub supported_dimensions: Option<Vec<usize>>,
-    /// The maximum number of inputs the provider accepts in one request.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub advertised_max_inputs_per_request: Option<usize>,
-    /// The per-input token limit the provider advertises. The provider enforces
-    /// it, so it is never a locally computed token count.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub advertised_tokens_per_input_limit: Option<u64>,
-    /// Whether the advertised token limit is enforced by the provider itself.
-    /// It always is: no local tokenizer reproduces it.
-    #[serde(default)]
-    pub token_limit_enforced_by_server: bool,
-    /// Whether the advertised token limit counts the role prefix.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens_include_role_prefix: Option<bool>,
-    /// Whether the advertised token limit counts special tokens.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tokens_include_special_tokens: Option<bool>,
-    /// The provider's own execution batch size. It is server-side execution
-    /// metadata, never a client-side request limit.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub internal_batch_size: Option<u64>,
-    /// The concurrency the provider advertises.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_concurrent_encodes: Option<u64>,
-    /// Why the advertised facts are unavailable, in operator-facing words.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
 }
 
 /// A non-persisting LLM provider probe.

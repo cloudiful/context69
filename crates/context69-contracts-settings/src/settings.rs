@@ -6,14 +6,17 @@ use uuid::Uuid;
 
 use context69_contracts_search::SearchMode;
 
+pub use context69_contracts_core::embedding::{
+    EmbeddingInputPolicy, EmbeddingTokenizer, is_lower_sha256,
+};
+
 pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTOR_WEIGHT_DEFAULT};
 
 mod connection_tests;
 
 pub use connection_tests::{
-    EmbeddingCapabilitiesResponse, EmbeddingCapabilitiesSource, TestLlmProviderOutcome,
-    TestLlmProviderRequest, TestLlmProviderResponse, TestRuntimeEmbeddingRequest,
-    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
+    TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
+    TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
 };
 
 fn default_search_vector_weight() -> f32 {
@@ -171,6 +174,9 @@ pub struct RuntimeSettingsResponse {
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: RuntimeFileLibrarySettings,
+    /// The verified local tokenizer artifacts this process can select.
+    #[serde(default)]
+    pub tokenizer_artifacts: Vec<TokenizerArtifactDescriptor>,
     /// True when the persisted vector identity does not match the stored
     /// embedding configuration, so existing vectors must be re-embedded through
     /// an explicit rebuild. Never inferred from connectivity alone.
@@ -207,6 +213,9 @@ pub struct RuntimeEmbeddingSettings {
     /// The manual limits of the embedding request planner.
     #[serde(default)]
     pub batching: EmbeddingBatchingSettings,
+    /// The explicit input-token envelope and server-added prefixes.
+    #[serde(default)]
+    pub input_policy: EmbeddingInputPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -231,6 +240,9 @@ pub struct UpdateRuntimeEmbeddingSettings {
     /// The manual limits of the embedding request planner.
     #[serde(default)]
     pub batching: EmbeddingBatchingSettings,
+    /// The explicit input-token envelope and server-added prefixes.
+    #[serde(default)]
+    pub input_policy: EmbeddingInputPolicy,
 }
 
 /// The default number of inputs one embedding provider request may carry.
@@ -403,6 +415,17 @@ pub enum ChunkingTokenizer {
     Cl100kBase,
     /// The `o200k_base` tokenizer.
     O200kBase,
+    /// One operator-provisioned local Hugging Face `tokenizer.json`.
+    HfLocal,
+}
+
+/// One verified local tokenizer artifact.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TokenizerArtifactDescriptor {
+    /// The lowercase SHA256 of the artifact bytes, which is also its file name.
+    pub sha256: String,
+    /// The artifact size in bytes.
+    pub size_bytes: u64,
 }
 
 /// Token budget of one chunk when the unit is `tokens`.
@@ -435,6 +458,9 @@ pub struct RuntimeChunkingSettings {
     /// Tokenizer that measures the token budget.
     #[serde(default)]
     pub tokenizer: ChunkingTokenizer,
+    /// The pinned local artifact hash. Required for `hf_local`, absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokenizer_sha256: Option<String>,
     /// Token budget of one chunk, used while the unit is `tokens`.
     ///
     /// Stored in a PostgreSQL BIGINT, so the value must fit an `i64`.

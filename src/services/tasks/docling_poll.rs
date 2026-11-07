@@ -224,6 +224,11 @@ pub(super) async fn run_docling_stage_blocking(
         });
     };
     loop {
+        if let Some(execution) = item.execution_context()
+            && db.execution_pause_requested(&execution).await?
+        {
+            return Ok(ProcessResult::Paused);
+        }
         match owner_state(db, item.id, item.lease_token).await? {
             OwnerState::Gone => {
                 return Ok(ProcessResult::Failed {
@@ -764,6 +769,7 @@ mod tests {
                     ProcessResult::Succeeded(_) => "succeeded".to_string(),
                     ProcessResult::Progressed { next } => format!("progressed to {next}"),
                     ProcessResult::Waiting { reason, .. } => format!("waiting on {reason}"),
+                    ProcessResult::Paused => "paused".to_string(),
                     ProcessResult::Failed { message, .. } => {
                         panic!("a cancelled remote result fails the item, got: {message}")
                     }
@@ -1051,6 +1057,7 @@ mod tests {
                     ProcessResult::Succeeded(_) => "succeeded".to_string(),
                     ProcessResult::Progressed { next } => format!("progressed to {next}"),
                     ProcessResult::Waiting { reason, .. } => format!("waiting on {reason}"),
+                    ProcessResult::Paused => "paused".to_string(),
                     ProcessResult::Failed { message, .. } => {
                         panic!("a job without an endpoint must not convert, got: {message}")
                     }

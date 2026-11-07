@@ -476,6 +476,52 @@ async fn a_live_execution_lease_refuses_the_automatic_handover() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
+async fn a_paused_legacy_item_is_skipped_and_adopted_after_the_resume() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let legacy = seed_legacy_task(&db, user_id).await;
+    assert!(
+        db.request_task_pause(legacy.task_id, user_id, false)
+            .await
+            .expect("pause the legacy parent"),
+        "the owner pauses the queued legacy parent"
+    );
+
+    let paused = run_legacy_handover(&db, production_limits()).await;
+    assert_eq!(
+        paused.blocker,
+        Some(HandoverBlocker::Unresolved),
+        "a legitimately paused item is reported as remaining, never as a failure"
+    );
+    assert_eq!(
+        segment_count(&db, legacy.item_id).await,
+        0,
+        "the handover mints no segment for a paused parent"
+    );
+
+    assert!(
+        db.request_task_resume(legacy.task_id, user_id, false)
+            .await
+            .expect("resume the legacy parent")
+    );
+    let resumed = run_legacy_handover(&db, production_limits()).await;
+    assert_ne!(
+        resumed.blocker,
+        Some(HandoverBlocker::Failed),
+        "the resumed handover does not fail"
+    );
+    assert_eq!(
+        segment_count(&db, legacy.item_id).await,
+        1,
+        "the resumed parent takes exactly one segment"
+    );
+
+    cleanup(&db, &[legacy]).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
 async fn a_retired_parent_keeps_the_legacy_item_blocked() {
     let db = connect().await;
     let _guard = TEST_LOCK.lock().await;
