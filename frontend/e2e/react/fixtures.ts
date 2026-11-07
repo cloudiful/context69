@@ -1,4 +1,5 @@
 import type { components } from "../../src/generated/openapi";
+import { TOKENIZER_PRESET_FIXTURE } from "../../src/test-utils/tokenizer-preset-fixture";
 
 type Schemas = components["schemas"];
 
@@ -95,6 +96,9 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
       sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
       size_bytes: 1024,
     },
+  ],
+  tokenizer_presets: [
+    { ...TOKENIZER_PRESET_FIXTURE },
   ],
   requires_rebuild: false,
   file_library: {

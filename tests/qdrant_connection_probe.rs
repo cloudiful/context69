@@ -25,8 +25,9 @@ use context69::services::settings::qdrant_probe::{QDRANT_PROBE_TIMEOUT, probe_qd
 use context69_contracts::settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
     SearchSettingsResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
-    TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
-    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    TestRuntimeValkeyRequest, TokenizerProvisionRequest, TokenizerProvisionResponse,
+    UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings,
+    UpdateRuntimeSettingsRequest,
 };
 use context69_settings_http::{SettingsApi, SettingsHttpState};
 use support::{ListBehaviour, QdrantMock, SilentListener};
@@ -361,6 +362,13 @@ impl SettingsApi for FakeSettingsApi {
         _request: &CanonicalUpdateSearchSettingsRequest,
     ) -> anyhow::Result<SearchSettingsResponse> {
         unreachable!("the Qdrant route must not reach update_search_settings")
+    }
+
+    async fn provision_tokenizer_preset(
+        &self,
+        _request: &TokenizerProvisionRequest,
+    ) -> anyhow::Result<TokenizerProvisionResponse> {
+        unreachable!("the Qdrant route must not reach provision_tokenizer_preset")
     }
 }
 

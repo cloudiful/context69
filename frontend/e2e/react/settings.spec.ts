@@ -351,6 +351,45 @@ test.describe("react settings", () => {
     await expect(page.getByLabel("Max Tokens")).toHaveValue("512");
   });
 
+  test("prepares the pinned Jina tokenizer and derives the input check from the lower selection", async ({ page }) => {
+    const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
+
+    await page.goto("/settings/runtime");
+    // One control serves both budget units, and the upper section owns none.
+    await expect(page.locator("#runtime-chunking-tokenizer")).toBeVisible();
+    await expect(page.getByText("Input tokenizer", { exact: true })).toHaveCount(0);
+
+    await page.locator("#runtime-chunking-tokenizer").click();
+    await page.getByRole("option", { name: "Jina embeddings v5 text small retrieval" }).click();
+
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/settings/runtime/tokenizer-artifacts/provision"
+    )).length).toBe(1);
+    await expect(
+      page.getByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
+    ).toContainText("verified and active");
+
+    await page.getByTestId("settings-save").click();
+    await expect.poll(() => transport.calls.filter((call) => (
+      call.method === "PUT" && call.path === "/v1/settings/runtime"
+    )).length).toBe(1);
+    const put = transport.calls.find((call) => call.method === "PUT" && call.path === "/v1/settings/runtime");
+    const body = put?.body as {
+      chunking: { tokenizer: string; tokenizer_sha256: string | null };
+      embedding: { input_policy: Record<string, unknown> };
+    };
+    expect(body.chunking).toMatchObject({
+      tokenizer: "hf_local",
+      tokenizer_sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+    });
+    expect(body.embedding.input_policy).toMatchObject({
+      tokenizer: "hf_local",
+      tokenizer_sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      add_special_tokens: false,
+    });
+    expect(transport.unmocked).toEqual([]);
+  });
+
   test("keeps a rejected docling group dirty, adopts the fulfilled peer and commits no appearance", async ({ page }) => {
     await page.setViewportSize({ width: 600, height: 900 });
     const transport = await installAppTransport(page, {

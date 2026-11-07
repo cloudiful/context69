@@ -20,6 +20,10 @@ export function runtimeResponseToPayload(
 export function normalizeRuntimePayload(
   value: DraftRuntimeSettings,
 ): UpdateRuntimeSettingsRequest {
+  // The lower chunking selector owns the tokenizer, so the request carries the
+  // input check with the very tokenizer the operator selected. A built-in
+  // tokenizer counts without special tokens and pins no artifact.
+  const localTokenizer = value.chunking.tokenizer === "hf_local";
   return {
     qdrant: {
       url: value.qdrant.url.trim(),
@@ -40,15 +44,15 @@ export function normalizeRuntimePayload(
         max_request_bytes: Number(value.embedding.batching.max_request_bytes),
       },
       input_policy: {
-        tokenizer: value.embedding.input_policy.tokenizer,
-        tokenizer_sha256: value.embedding.input_policy.tokenizer_sha256 ?? null,
+        tokenizer: value.chunking.tokenizer,
+        tokenizer_sha256: localTokenizer ? (value.chunking.tokenizer_sha256 ?? null) : null,
         max_input_tokens:
           value.embedding.input_policy.max_input_tokens == null
             ? null
             : Number(value.embedding.input_policy.max_input_tokens),
         document_server_prefix: value.embedding.input_policy.document_server_prefix,
         query_server_prefix: value.embedding.input_policy.query_server_prefix,
-        add_special_tokens: value.embedding.input_policy.add_special_tokens,
+        add_special_tokens: localTokenizer && value.embedding.input_policy.add_special_tokens,
       },
     },
     scheduler: {

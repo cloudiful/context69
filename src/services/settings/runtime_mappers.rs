@@ -271,6 +271,7 @@ pub(super) fn runtime_settings_response(
             crate::chunking::chunking_token_artifact::TokenizerCatalog::installed_or_empty()
                 .descriptors()
                 .to_vec(),
+        tokenizer_presets: crate::services::settings::tokenizer_provisioning::preset_descriptors(),
         requires_rebuild,
     }
 }
@@ -336,6 +337,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             crate::chunking::chunking_token_artifact::TokenizerCatalog::installed_or_empty()
                 .descriptors()
                 .to_vec(),
+        tokenizer_presets: crate::services::settings::tokenizer_provisioning::preset_descriptors(),
         requires_rebuild: false,
     }
 }

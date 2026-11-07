@@ -5739,6 +5739,76 @@
         }
       }
     },
+    "/v1/settings/runtime/tokenizer-artifacts/provision": {
+      "post": {
+        "tags": [],
+        "summary": "Prepares one known tokenizer preset.",
+        "description": "The action is administrator-initiated: it retrieves the one pinned\n`tokenizer.json` of a known preset, verifies it, and activates it in this\nprocess. It writes no setting and no secret.\n\nAdmin-only like the runtime probes: the settings scope admits any\nauthenticated identity, so the handler rejects non-admins before any\noutbound request is built.",
+        "operationId": "provision_tokenizer_preset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenizerProvisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenizerProvisionResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/settings/runtime/valkey/test": {
       "post": {
         "tags": [],
@@ -12901,6 +12971,13 @@
               "$ref": "#/components/schemas/TokenizerArtifactDescriptor"
             },
             "description": "The verified local tokenizer artifacts this process can select."
+          },
+          "tokenizer_presets": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TokenizerPresetDescriptor"
+            },
+            "description": "The known tokenizer presets this deployment can prepare.\n\nA preset is a pinned upstream file, not an installed artifact: `ready`\ntells whether this process already holds a verified engine for it."
           }
         }
       },
@@ -15593,6 +15670,128 @@
             "minimum": 0
           }
         }
+      },
+      "TokenizerPresetDescriptor": {
+        "type": "object",
+        "description": "One known tokenizer preset.\n\nA preset describes one pinned upstream `tokenizer.json`. It is not an\ninstalled artifact: `ready` tells whether this process already holds a\nverified engine for it.",
+        "required": [
+          "id",
+          "label",
+          "sha256",
+          "size_bytes",
+          "license",
+          "license_url",
+          "source_repo",
+          "source_url",
+          "revision",
+          "ready"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The stable preset identifier a provisioning request names."
+          },
+          "label": {
+            "type": "string",
+            "description": "The operator-facing label."
+          },
+          "license": {
+            "type": "string",
+            "description": "The license identifier the upstream project publishes."
+          },
+          "license_url": {
+            "type": "string",
+            "description": "The official license URL."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "True when this process already holds a verified engine for the preset."
+          },
+          "revision": {
+            "type": "string",
+            "description": "The pinned upstream revision."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "The lowercase SHA256 of the pinned file bytes."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The expected size of the pinned file in bytes.",
+            "minimum": 0
+          },
+          "source_repo": {
+            "type": "string",
+            "description": "The upstream repository the preset is pinned to."
+          },
+          "source_url": {
+            "type": "string",
+            "description": "The official source URL of the pinned revision."
+          }
+        }
+      },
+      "TokenizerProvisionRequest": {
+        "type": "object",
+        "description": "The request that prepares one known tokenizer preset.",
+        "required": [
+          "preset_id"
+        ],
+        "properties": {
+          "preset_id": {
+            "type": "string",
+            "description": "The known preset identifier to prepare."
+          }
+        }
+      },
+      "TokenizerProvisionResponse": {
+        "type": "object",
+        "description": "The outcome of preparing one known tokenizer preset.\n\nThe response never discloses a filesystem path or a credential.",
+        "required": [
+          "preset_id",
+          "sha256",
+          "size_bytes",
+          "status",
+          "ready",
+          "license"
+        ],
+        "properties": {
+          "license": {
+            "type": "string",
+            "description": "The license identifier the upstream project publishes."
+          },
+          "preset_id": {
+            "type": "string",
+            "description": "The preset that was prepared."
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "True only when a verified engine is usable right now."
+          },
+          "sha256": {
+            "type": "string",
+            "description": "The lowercase SHA256 of the verified file bytes."
+          },
+          "size_bytes": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The size of the verified file in bytes.",
+            "minimum": 0
+          },
+          "status": {
+            "$ref": "#/components/schemas/TokenizerProvisionStatus",
+            "description": "What the request did."
+          }
+        }
+      },
+      "TokenizerProvisionStatus": {
+        "type": "string",
+        "description": "The outcome of one tokenizer preset provisioning request.",
+        "enum": [
+          "provisioned",
+          "already_present",
+          "already_ready"
+        ]
       },
       "TranslationDirective": {
         "type": "object",

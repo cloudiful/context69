@@ -14,7 +14,8 @@ use context69_contracts_settings::{
     CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, EmbeddingBatchingSettings,
     RuntimeSettingsResponse, SearchSettingsResponse, TestLlmProviderOutcome,
     TestLlmProviderRequest, TestLlmProviderResponse, TestRuntimeEmbeddingRequest,
-    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest, UpdateDoclingConnectionSettings,
+    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest, TokenizerPresetDescriptor,
+    TokenizerProvisionRequest, TokenizerProvisionResponse, UpdateDoclingConnectionSettings,
     UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
 use context69_http_support::{CurrentUser, internal_error_response, map_settings_error};
@@ -52,6 +53,13 @@ pub trait SettingsApi: Send + Sync {
         &self,
         request: &CanonicalUpdateSearchSettingsRequest,
     ) -> Result<SearchSettingsResponse>;
+    /// Prepares one known tokenizer preset.
+    ///
+    /// The action is administrator-initiated and writes no setting.
+    async fn provision_tokenizer_preset(
+        &self,
+        request: &TokenizerProvisionRequest,
+    ) -> Result<TokenizerProvisionResponse>;
 }
 
 #[derive(Clone)]
@@ -101,6 +109,10 @@ where
             "/v1/settings/search",
             get(get_search_settings).put(update_search_settings),
         )
+        .route(
+            "/v1/settings/runtime/tokenizer-artifacts/provision",
+            axum::routing::post(provision_tokenizer_preset),
+        )
 }
 
 #[derive(OpenApi)]
@@ -117,7 +129,8 @@ where
         test_docling_connection,
         test_llm_provider_connection,
         get_search_settings,
-        update_search_settings
+        update_search_settings,
+        provision_tokenizer_preset
     ),
     components(
         schemas(
@@ -136,7 +149,10 @@ where
             TestLlmProviderResponse,
             TestLlmProviderOutcome,
             SearchSettingsResponse,
-            CanonicalUpdateSearchSettingsRequest
+            CanonicalUpdateSearchSettingsRequest,
+            TokenizerPresetDescriptor,
+            TokenizerProvisionRequest,
+            TokenizerProvisionResponse
         )
     ),
     tags((name = "settings", description = "Runtime settings transport"))
@@ -215,7 +231,7 @@ async fn test_qdrant_connection(
     axum::Json(request): axum::Json<TestRuntimeQdrantRequest>,
 ) -> impl IntoResponse {
     if !user.is_admin {
-        return qdrant_admin_required();
+        return admin_required();
     }
     match state.settings.test_qdrant_connection(&request).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
@@ -223,7 +239,7 @@ async fn test_qdrant_connection(
     }
 }
 
-fn qdrant_admin_required() -> axum::response::Response {
+fn admin_required() -> axum::response::Response {
     (
         StatusCode::FORBIDDEN,
         axum::Json(ApiErrorResponse::new(
@@ -286,7 +302,7 @@ async fn test_llm_provider_connection(
     axum::Json(request): axum::Json<TestLlmProviderRequest>,
 ) -> impl IntoResponse {
     if !user.is_admin {
-        return qdrant_admin_required();
+        return admin_required();
     }
     match state.settings.test_llm_provider_connection(&request).await {
         Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
@@ -309,6 +325,30 @@ async fn update_search_settings(
 ) -> impl IntoResponse {
     match state.settings.update_search_settings(&request).await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
+        Err(error) => settings_management_error_response(error),
+    }
+}
+
+/// Prepares one known tokenizer preset.
+///
+/// The action is administrator-initiated: it retrieves the one pinned
+/// `tokenizer.json` of a known preset, verifies it, and activates it in this
+/// process. It writes no setting and no secret.
+///
+/// Admin-only like the runtime probes: the settings scope admits any
+/// authenticated identity, so the handler rejects non-admins before any
+/// outbound request is built.
+#[utoipa::path(post, path = "/v1/settings/runtime/tokenizer-artifacts/provision", request_body = TokenizerProvisionRequest, responses((status = 200, body = TokenizerProvisionResponse), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+async fn provision_tokenizer_preset(
+    State(state): State<SettingsHttpState>,
+    CurrentUser(user): CurrentUser,
+    axum::Json(request): axum::Json<TokenizerProvisionRequest>,
+) -> impl IntoResponse {
+    if !user.is_admin {
+        return admin_required();
+    }
+    match state.settings.provision_tokenizer_preset(&request).await {
+        Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
         Err(error) => settings_management_error_response(error),
     }
 }

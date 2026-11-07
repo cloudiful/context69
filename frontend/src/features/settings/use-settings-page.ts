@@ -9,6 +9,7 @@ import type {
   DoclingSettingsResponse,
   RuntimeSettingsResponse,
   SearchSettingsResponse,
+  TokenizerPresetDescriptor,
   TranslationProviderInput,
   TranslationSettingsResponse,
   UpdateRuntimeSettingsRequest,
@@ -46,6 +47,18 @@ export const SETTINGS_QUERY_KEYS = {
   docling: ["settings", "docling"] as const,
   search: ["settings", "search"] as const,
   translation: ["settings", "translation"] as const,
+};
+
+/**
+ * The state of one tokenizer preset preparation.
+ *
+ * `pending` covers the retrieval of the pinned file, `ready` means this
+ * process holds a verified engine for it, and `error` keeps the actionable
+ * message of the last failure so the operator can retry.
+ */
+export type TokenizerPreparation = {
+  status: "pending" | "ready" | "error";
+  message?: string;
 };
 
 function cloneDraft<T>(value: T): T {
@@ -205,6 +218,14 @@ export function useSettingsPage() {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [saveMessage, setSaveMessage] = useState("");
+
+  // The preparation of the known tokenizer presets, one entry per preset.
+  const [tokenizerPreparations, setTokenizerPreparations] = useState<
+    Record<string, TokenizerPreparation>
+  >({});
+  // The preparations that are running right now, so a repeated click sends
+  // one request instead of two.
+  const tokenizerPreparationsInFlight = useRef(new Map<string, Promise<void>>());
 
   // A gateway/model change keeps existing vectors only after an explicit
   // confirmation bound to the candidate identity shown in the dialog.
@@ -438,6 +459,122 @@ export function useSettingsPage() {
   }, [updateRuntimeDraft]);
 
   /**
+   * The known preset the lower chunking selection names.
+   *
+   * A preset is identified by its pinned hash, so a persisted selection
+   * renders the preset even before this process prepared it.
+   */
+  const selectedTokenizerPreset = useMemo(() => {
+    if (runtimeDraft.chunking.tokenizer !== "hf_local") {
+      return undefined;
+    }
+    const sha256 = runtimeDraft.chunking.tokenizer_sha256;
+    if (!sha256) {
+      return undefined;
+    }
+    return runtimeData?.tokenizer_presets?.find((preset) => preset.sha256 === sha256);
+  }, [runtimeData, runtimeDraft.chunking]);
+
+  /**
+   * The preparation state of the selected preset.
+   *
+   * Undefined when the lower selection is not a known preset. A descriptor the
+   * serving process reports as ready is ready even before this page prepared
+   * it, so a persisted selection renders correctly after a restart.
+   */
+  const selectedTokenizerStatus = useMemo(() => {
+    if (!selectedTokenizerPreset) {
+      return undefined;
+    }
+    const preparation = tokenizerPreparations[selectedTokenizerPreset.id];
+    if (preparation) {
+      return preparation.status;
+    }
+    return selectedTokenizerPreset.ready ? "ready" : "idle";
+  }, [selectedTokenizerPreset, tokenizerPreparations]);
+
+  /**
+   * Whether the lower selection names a preset this process cannot use yet.
+   *
+   * The section and the shared Save consume this one predicate: a save would
+   * otherwise chunk with a tokenizer the serving process does not hold.
+   */
+  const tokenizerSaveBlocked = selectedTokenizerPreset !== undefined
+    && selectedTokenizerStatus !== "ready";
+
+  /**
+   * Whether the persisted input envelope already matches the lower selection.
+   *
+   * The server keeps the input policy it was given. A deployment that stored
+   * a different pair than its chunking selection is reported once, and the
+   * next explicit save aligns the two.
+   */
+  const inputPolicyAligned = useMemo(() => {
+    if (!runtimeData) {
+      return true;
+    }
+    const persisted = runtimeData.embedding.input_policy;
+    const selected = runtimeDraft.chunking;
+    const persistedTokenizer = persisted?.tokenizer ?? "cl100k_base";
+    const persistedSha256 = persisted?.tokenizer_sha256 ?? null;
+    const derivedSha256 = selected.tokenizer === "hf_local"
+      ? (selected.tokenizer_sha256 ?? null)
+      : null;
+    return persistedTokenizer === selected.tokenizer && persistedSha256 === derivedSha256;
+  }, [runtimeData, runtimeDraft.chunking]);
+
+  /**
+   * Prepares one known tokenizer preset.
+   *
+   * The preparation is explicit and bounded: it retrieves the one pinned file
+   * of the preset, verifies it, and activates it in the serving process. A
+   * repeated click joins the running preparation instead of starting a
+   * second one, and an outcome only ever describes the preset it names, so a
+   * completion that arrives after the selection moved cannot describe the
+   * new choice.
+   */
+  const prepareTokenizerPreset = useCallback((preset: TokenizerPresetDescriptor) => {
+    const running = tokenizerPreparationsInFlight.current.get(preset.id);
+    if (running) {
+      return running;
+    }
+    const request = (async () => {
+      setTokenizerPreparations((current) => ({
+        ...current,
+        [preset.id]: { status: "pending" },
+      }));
+      try {
+        await apiClient.provisionTokenizerPreset({ preset_id: preset.id });
+        setTokenizerPreparations((current) => ({
+          ...current,
+          [preset.id]: { status: "ready" },
+        }));
+        // The readiness belongs to the serving process, so the descriptors
+        // are refetched instead of assumed.
+        void queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEYS.runtime });
+      } catch (error) {
+        setTokenizerPreparations((current) => ({
+          ...current,
+          [preset.id]: {
+            status: "error",
+            message: errorMessage(error, t("settings.runtime.chunkingTokenizerPresetFailed")),
+          },
+        }));
+      } finally {
+        tokenizerPreparationsInFlight.current.delete(preset.id);
+      }
+    })();
+    tokenizerPreparationsInFlight.current.set(preset.id, request);
+    return request;
+  }, [queryClient, t]);
+
+  /** The preparation state of one known preset. */
+  const tokenizerPreparationFor = useCallback(
+    (presetId: string): TokenizerPreparation | undefined => tokenizerPreparations[presetId],
+    [tokenizerPreparations],
+  );
+
+  /**
    * Dispatches one save. `confirmVectorSpace` is set only by the dialog accept
    * handler, so a normal save can never acknowledge a changed gateway/alias on
    * the operator's behalf.
@@ -614,6 +751,19 @@ export function useSettingsPage() {
     if (savingRef.current || !hasChanges) {
       return;
     }
+    // A selected preset that is not ready must not be saved: the deployment
+    // would chunk with a tokenizer this process cannot use yet.
+    if (tokenizerSaveBlocked) {
+      toast.error(t("common.error"), {
+        description: selectedTokenizerStatus === "pending"
+          ? t("settings.runtime.chunkingTokenizerPresetBlocksSavePending")
+          : selectedTokenizerStatus === "error"
+            ? t("settings.runtime.chunkingTokenizerPresetBlocksSaveFailed")
+            : t("settings.runtime.chunkingTokenizerPresetBlocksSaveNotPrepared"),
+        duration: 5000,
+      });
+      return;
+    }
     // A rebuild that owns the durable barrier refuses an identity change, so
     // the operator is told to cancel that rebuild instead of meeting a bare
     // conflict. Only the identity is blocked: a chunking or scheduler edit is
@@ -651,7 +801,17 @@ export function useSettingsPage() {
       return;
     }
     await performSave(false);
-  }, [hasChanges, isAdmin, performSave, runtimeData, runtimeDraft, runtimeHasChanges, t]);
+  }, [
+    hasChanges,
+    isAdmin,
+    performSave,
+    runtimeData,
+    runtimeDraft,
+    runtimeHasChanges,
+    selectedTokenizerStatus,
+    t,
+    tokenizerSaveBlocked,
+  ]);
 
   const confirmCompatibility = useCallback(() => {
     const candidate = compatibilityCandidate;
@@ -802,9 +962,11 @@ export function useSettingsPage() {
     doclingTesting,
     embeddingTesting,
     hasChanges,
+    inputPolicyAligned,
     isAdmin,
     loadError,
     loading,
+    prepareTokenizerPreset,
     qdrantTesting,
     reload,
     rerankApiKeyDraft,
@@ -817,12 +979,16 @@ export function useSettingsPage() {
     s3Testing,
     searchDraft,
     searchQuery,
+    selectedTokenizerPreset,
+    selectedTokenizerStatus,
     setRerankApiKeyDraft,
     testDoclingConnection,
     testEmbeddingConnection,
     testQdrantConnection,
     testS3Connection,
     testValkeyConnection,
+    tokenizerPreparationFor,
+    tokenizerSaveBlocked,
     translationHasChanges,
     translationProviders,
     translationQuery,

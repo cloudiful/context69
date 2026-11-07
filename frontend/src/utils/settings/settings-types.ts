@@ -6,7 +6,6 @@ import type {
 } from "../../services/api";
 
 type RuntimeChunkingSettings = components["schemas"]["RuntimeChunkingSettings"];
-type EmbeddingInputPolicySchema = components["schemas"]["EmbeddingInputPolicy"];
 
 /**
  * The manual limits of the embedding request planner.
@@ -18,13 +17,16 @@ export type DraftEmbeddingBatching = Required<EmbeddingBatchingSettings>;
 
 /** The explicit embedding input envelope of the runtime draft. */
 export type DraftEmbeddingInputPolicy = {
-  tokenizer: NonNullable<EmbeddingInputPolicySchema["tokenizer"]>;
-  /** Present exactly for the hf_local tokenizer. */
-  tokenizer_sha256: string | null;
   /** A null cap disables the guard. */
   max_input_tokens: number | null;
   document_server_prefix: string;
   query_server_prefix: string;
+  /**
+   * Whether the counted input includes the tokenizer's special tokens.
+   *
+   * The tokenizer itself is not part of this draft: the lower chunking
+   * selector owns it, and the request derives it from that selection.
+   */
   add_special_tokens: boolean;
 };
 

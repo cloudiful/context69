@@ -1441,6 +1441,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/settings/runtime/tokenizer-artifacts/provision": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepares one known tokenizer preset.
+         * @description The action is administrator-initiated: it retrieves the one pinned
+         *     `tokenizer.json` of a known preset, verifies it, and activates it in this
+         *     process. It writes no setting and no secret.
+         *
+         *     Admin-only like the runtime probes: the settings scope admits any
+         *     authenticated identity, so the handler rejects non-admins before any
+         *     outbound request is built.
+         */
+        post: operations["provision_tokenizer_preset"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/settings/runtime/valkey/test": {
         parameters: {
             query?: never;
@@ -4048,6 +4074,13 @@ export interface components {
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
             /** @description The verified local tokenizer artifacts this process can select. */
             tokenizer_artifacts?: components["schemas"]["TokenizerArtifactDescriptor"][];
+            /**
+             * @description The known tokenizer presets this deployment can prepare.
+             *
+             *     A preset is a pinned upstream file, not an installed artifact: `ready`
+             *     tells whether this process already holds a verified engine for it.
+             */
+            tokenizer_presets?: components["schemas"]["TokenizerPresetDescriptor"][];
         };
         ScopeMetadataIndex: components["schemas"]["CreateMetadataIndexRequest"] & {
             source_key: string;
@@ -5080,6 +5113,70 @@ export interface components {
              */
             size_bytes: number;
         };
+        /**
+         * @description One known tokenizer preset.
+         *
+         *     A preset describes one pinned upstream `tokenizer.json`. It is not an
+         *     installed artifact: `ready` tells whether this process already holds a
+         *     verified engine for it.
+         */
+        TokenizerPresetDescriptor: {
+            /** @description The stable preset identifier a provisioning request names. */
+            id: string;
+            /** @description The operator-facing label. */
+            label: string;
+            /** @description The license identifier the upstream project publishes. */
+            license: string;
+            /** @description The official license URL. */
+            license_url: string;
+            /** @description True when this process already holds a verified engine for the preset. */
+            ready: boolean;
+            /** @description The pinned upstream revision. */
+            revision: string;
+            /** @description The lowercase SHA256 of the pinned file bytes. */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description The expected size of the pinned file in bytes.
+             */
+            size_bytes: number;
+            /** @description The upstream repository the preset is pinned to. */
+            source_repo: string;
+            /** @description The official source URL of the pinned revision. */
+            source_url: string;
+        };
+        /** @description The request that prepares one known tokenizer preset. */
+        TokenizerProvisionRequest: {
+            /** @description The known preset identifier to prepare. */
+            preset_id: string;
+        };
+        /**
+         * @description The outcome of preparing one known tokenizer preset.
+         *
+         *     The response never discloses a filesystem path or a credential.
+         */
+        TokenizerProvisionResponse: {
+            /** @description The license identifier the upstream project publishes. */
+            license: string;
+            /** @description The preset that was prepared. */
+            preset_id: string;
+            /** @description True only when a verified engine is usable right now. */
+            ready: boolean;
+            /** @description The lowercase SHA256 of the verified file bytes. */
+            sha256: string;
+            /**
+             * Format: int64
+             * @description The size of the verified file in bytes.
+             */
+            size_bytes: number;
+            /** @description What the request did. */
+            status: components["schemas"]["TokenizerProvisionStatus"];
+        };
+        /**
+         * @description The outcome of one tokenizer preset provisioning request.
+         * @enum {string}
+         */
+        TokenizerProvisionStatus: "provisioned" | "already_present" | "already_ready";
         TranslationDirective: {
             source_locale?: string | null;
             target_locales?: string[];
@@ -9660,6 +9757,61 @@ export interface operations {
                 content?: never;
             };
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    provision_tokenizer_preset: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TokenizerProvisionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TokenizerProvisionResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

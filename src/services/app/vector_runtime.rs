@@ -109,8 +109,9 @@ pub async fn initialize(
     // The immutable tokenizer catalog must exist before any provider resolves
     // its input policy. P2a's catalog is the single authority, so this only
     // installs it once and reuses it afterwards.
-    crate::chunking::chunking_token_artifact::TokenizerCatalog::ensure_installed(
+    crate::chunking::chunking_token_artifact::TokenizerCatalog::ensure_installed_with_presets(
         &config.chunking.tokenizer_artifact_dir,
+        &config.tokenizer_download_dir,
     )?;
     let fingerprint = super::vector_identity::fingerprint(config);
     // The active pointer is read globally: the collection that holds the

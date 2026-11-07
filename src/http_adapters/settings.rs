@@ -96,4 +96,11 @@ impl SettingsApi for SettingsApiAdapter {
     ) -> anyhow::Result<crate::contracts::SearchSettingsResponse> {
         self.service.update_search_settings(request).await
     }
+
+    async fn provision_tokenizer_preset(
+        &self,
+        request: &crate::contracts::TokenizerProvisionRequest,
+    ) -> anyhow::Result<crate::contracts::TokenizerProvisionResponse> {
+        self.service.provision_tokenizer_preset(request).await
+    }
 }
