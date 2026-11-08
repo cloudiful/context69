@@ -274,7 +274,7 @@ test.describe("react settings", () => {
 
     await page.getByTestId("runtime-vector-rebuild-pause").click();
     await expect(state).toContainText("Pausing");
-    await expect(page.getByText("A committed batch still finishes before the rebuild parks."))
+    await expect(page.getByText("The current batch finishes first."))
       .toBeVisible();
     const pause = transport.calls.find((call) => (
       call.method === "POST" && call.path === "/v1/settings/runtime/vector-index/rebuild/pause"
@@ -362,12 +362,21 @@ test.describe("react settings", () => {
     await page.locator("#runtime-chunking-tokenizer").click();
     await page.getByRole("option", { name: "Jina embeddings v5 text small retrieval" }).click();
 
+    // Selecting alone shows the notice and never downloads.
+    await expect(
+      page.getByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+    ).toContainText("Non-commercial use only");
+    expect(transport.calls.filter((call) => (
+      call.method === "POST" && call.path === "/v1/settings/runtime/tokenizer-artifacts/provision"
+    )).length).toBe(0);
+
+    await page.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76").click();
     await expect.poll(() => transport.calls.filter((call) => (
       call.method === "POST" && call.path === "/v1/settings/runtime/tokenizer-artifacts/provision"
     )).length).toBe(1);
     await expect(
-      page.getByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
-    ).toContainText("verified and active");
+      page.getByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+    ).toHaveCount(0);
 
     await page.getByTestId("settings-save").click();
     await expect.poll(() => transport.calls.filter((call) => (

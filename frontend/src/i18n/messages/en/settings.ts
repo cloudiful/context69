@@ -95,8 +95,6 @@ export const settings = {
   },
   translation: {
     title: "Translation",
-    description: "The LLM configuration here is used by document translation. New jobs use the updated endpoint, model, and API kind.",
-    llmDescription: "This LLM provider is shared by translation jobs.",
     enabled: "Enabled",
     endpoint: "Endpoint",
     apiKey: "API Key",
@@ -117,9 +115,9 @@ export const settings = {
     unlimited: "Unlimited",
     loadFailed: "Failed to load translation settings",
     testLlmProvider: "Test model call",
-    llmProbeWarning: "Sends one small model call to the endpoint above; it may incur cost. Nothing is saved.",
+    llmProbeWarning: "Sends one test call; may incur provider cost. Nothing is saved.",
     llmProbeStoredKey: "Blank key uses the stored key for this test only.",
-    llmProbeEndpointTip: "Use the provider base URL (e.g. https://api.openai.com/v1); the operation path is added automatically.",
+    llmProbeEndpointTip: "Use the provider base URL; the API path is added automatically.",
     llmProbeRouteHint: "Check the API base and version path (e.g. /v1) and that the protocol matches the provider.",
     llmProbeLatency: "Latency: {ms} ms",
     llmProbeStatus: "HTTP status: {status}",
@@ -146,8 +144,7 @@ export const settings = {
     embeddingTestSuccess: "Embedding connection succeeded",
     embeddingTestFailed: "Embedding connection failed",
     embeddingDocumentModel: "Document model",
-    embeddingDocumentModelHelper:
-      "The model documents are embedded with. Every stored vector was built with this identity.",
+    embeddingDocumentModelHelper: "Changing it requires rebuilding the vector index.",
     embeddingQueryModel: "Query model",
     embeddingQueryModelHelper: "Leave blank to embed queries with the document model.",
     embeddingBatchingTitle: "Request limits",
@@ -155,12 +152,9 @@ export const settings = {
     embeddingBatchItemChars: "Characters per input",
     embeddingBatchRequestChars: "Characters per request",
     embeddingBatchRequestBytes: "Bytes per request",
-    embeddingBatchingHelper:
-      "A provider limit can only tighten these values; the provider refuses a request above them.",
+    embeddingBatchingHelper: "The provider can only lower these limits.",
     embeddingBatchingAdvanced: "Advanced request limits",
     embeddingInputPolicyTitle: "Input token envelope",
-    embeddingInputTokenizerHelper:
-      "The input envelope is counted with the tokenizer selected in the chunking section.",
     embeddingInputLimit: "Enforce input token limit",
     embeddingInputLimitHelper:
       "Reject a document or query whose full counted input exceeds the cap.",
@@ -172,10 +166,7 @@ export const settings = {
     embeddingInputSpecial: "Add special tokens",
     embeddingInputSpecialHelper:
       "Uses the artifact's special-token template when counting.",
-    embeddingInputPolicyHelper:
-      "Only counting uses this policy. Sent text stays byte-identical; nothing is truncated or rechunked.",
     vectorRebuildStates: {
-      idle: "No rebuild recorded",
       queued: "Queued",
       running: "Rebuilding",
       pausing: "Pausing",
@@ -196,10 +187,9 @@ export const settings = {
     vectorRebuildCancelledState: "This rebuild attempt was cancelled; the existing collections are kept.",
     vectorRebuildControlFailed: "The rebuild control was refused",
     vectorRebuildProgress: "{processed} / {total} chunks",
-    vectorRebuildPauseHelp: "A committed batch still finishes before the rebuild parks.",
+    vectorRebuildPauseHelp: "The current batch finishes first.",
     vectorRebuildQueuedByQueue: "The rebuild waits for the paused processing queue.",
     vectorRebuildDimensions: "Active dimensions {active} · desired {desired}",
-    vectorRebuildCollections: "Active collection {active} · target {target}",
     vectorRebuildBlocksIdentitySave:
       "A vector rebuild is in progress. Cancel it before changing the embedding identity or dimensions.",
     qdrantTitle: "Qdrant",
@@ -209,12 +199,10 @@ export const settings = {
     qdrantTestSuccess: "Qdrant connection succeeded",
     qdrantTestFailed: "Qdrant connection failed",
     requiresRebuild:
-      "Existing vectors were built with a different embedding identity. Search and ingestion stay unavailable until the vector index is rebuilt.",
-    requiresRebuildDimensions:
-      "A rebuild re-embeds at the current dimensions. A different dimension is a separate migration and cannot reuse these vectors.",
+      "Search and ingestion stay unavailable until the vector index is rebuilt.",
     compatibilityTitle: "Keep existing vectors?",
     compatibilityConfirm:
-      "The embedding gateway URL or model changed. Keep the existing vectors only if the new gateway or alias serves the same underlying model and vector space. Nothing is re-embedded, and vectors cannot be verified automatically.",
+      "The embedding model or gateway changed. Keep existing vectors only if the new configuration produces the same vectors; otherwise rebuild.",
     compatibilityAccept: "Keep vectors and save",
     vectorRebuild: "Rebuild Vector Index",
     vectorRebuildConfirm:
@@ -227,34 +215,24 @@ export const settings = {
     schedulerInterval: "Interval (seconds)",
     schedulerConcurrency: "Max Concurrency",
     schedulerJobId: "Job ID",
-    schedulerValkeyUrl: "Shared Valkey URL",
-    valkeyRestartRequired: "Shared by browser sessions, scheduler coordination, and search cache. Restart after saving.",
+    schedulerValkeyUrl: "Valkey URL",
+    valkeyRestartRequired: "Restart required after saving.",
     valkeyTest: "Test Connection",
     valkeyTestSuccess: "Valkey connection succeeded",
     valkeyTestFailed: "Valkey connection failed",
     runOnStart: "Run sync on startup",
     chunkingTitle: "Chunking",
     chunkingUnit: "Budget Unit",
-    chunkingUnitHelper:
-      "Characters keep the existing behavior. Tokens measure every chunk with the selected tokenizer.",
     chunkingUnitChars: "Characters",
     chunkingUnitTokens: "Tokens",
     chunkingTokenizer: "Tokenizer",
-    chunkingTokenizerHelper:
-      "Token counts use the selected tokenizer, not the embedding model.",
     chunkingTokenizerCustom: "Mounted tokenizer file",
     chunkingTokenizerAdvanced: "Advanced: mounted tokenizer file",
-    chunkingTokenizerPresetLicense:
-      "License {license}. This is the upstream license, not a permission for commercial use.",
-    chunkingTokenizerPresetLicenseLink: "License terms",
-    chunkingTokenizerPresetSourceLink: "Pinned source",
+    chunkingTokenizerPresetLicense: "Non-commercial use only",
     chunkingTokenizerPresetPrepare: "Prepare tokenizer",
     chunkingTokenizerPresetRetry: "Retry preparation",
-    chunkingTokenizerPresetPending: "Preparing the tokenizer file…",
+    chunkingTokenizerPresetPending: "Preparing…",
     chunkingTokenizerPresetFailed: "The tokenizer file could not be prepared.",
-    chunkingTokenizerPresetReady: "The tokenizer file is verified and active.",
-    chunkingTokenizerPresetNotReady:
-      "The tokenizer file is not prepared yet. Preparing it downloads the pinned file into this deployment.",
     chunkingTokenizerPresetBlocksSavePending:
       "The selected tokenizer is still being prepared. Save once it is ready.",
     chunkingTokenizerPresetBlocksSaveFailed:
@@ -262,18 +240,15 @@ export const settings = {
     chunkingTokenizerPresetBlocksSaveNotPrepared:
       "The selected tokenizer is not prepared yet. Prepare it before saving.",
     chunkingTokenizerInputPolicyWarning:
-      "The stored input check still counts with another tokenizer. Saving aligns it with the selection here.",
+      "The saved input limit uses another tokenizer. Save will update it.",
     chunkingTokenizerArtifact: "Verified tokenizer artifact",
-    chunkingTokenizerArtifactHelper:
-      "Read from the read-only artifact directory. Adding one requires a restart.",
-    chunkingTokenizerArtifactEmpty:
-      "No verified artifact is available. Provision <sha256>.json in the read-only tokenizer directory and restart.",
+    chunkingTokenizerArtifactHelper: "Adding one requires a restart.",
+    chunkingTokenizerArtifactMissing:
+      "The selected tokenizer file {hash}… is not mounted.",
     chunkingMaxChars: "Max Characters",
     chunkingOverlapChars: "Overlap Characters",
     chunkingMaxTokens: "Max Tokens",
     chunkingOverlapTokens: "Overlap Tokens",
-    chunkingHelper:
-      "New tasks use the saved budget. A task that already started keeps the budget it pinned.",
     fileLibraryTitle: "File Library",
     fileLibraryRoot: "Storage Root",
     fileLibraryMaxUploadSize: "Max Upload Size (MB)",
@@ -282,7 +257,7 @@ export const settings = {
     fileLibraryUrlImportConcurrency: "URL Import Workers",
     fileLibraryUrlImportMinInterval: "URL Import Host Interval (ms)",
     trustedProxyEnabled: "Trust environment egress proxy",
-    trustedProxyHelper: "URL imports use HTTPS_PROXY/ALL_PROXY and NO_PROXY; the proxy must enforce destination isolation.",
+    trustedProxyHelper: "The proxy must isolate URL-import destinations.",
     s3Enabled: "Use S3 object storage",
     s3Endpoint: "S3 Endpoint",
     s3Region: "S3 Region",
@@ -308,7 +283,7 @@ export const settings = {
       cleanupTitle: "Stopped task cleanup",
       cleanupConfirmTitle: "Clean up stopped tasks",
       cleanupConfirmMessage:
-        "Wakes cleanup for every eligible locally owned stopped job, not only this page. Running work and started conversions are not stopped. Only pending, cancelling, or awaiting-terminal rows within the deadline are affected; not found means disappearance was observed, not confirmed cancellation.",
+        "Requests cleanup for stopped local jobs. Running work and started conversions are not affected.",
       cleanupWoken: "Woken {count}",
       cleanStopped: "Clean up stopped tasks",
       cleanupEmpty: "No cleanup requests",
@@ -359,7 +334,7 @@ export const settings = {
     pollInterval: "Poll Interval (seconds)",
     taskTimeout: "Task Timeout (seconds)",
     maxInflight: "Max In-Flight Submissions",
-    maxInflightHelper: "Single RQ queue on Mac mini defaults to 2, max 32.",
+    maxInflightHelper: "Max 32.",
     openAiBaseUrl: "OpenAI Base URL",
     apiKey: "API Key",
     vlmPipelineModel: "VLM Pipeline Model",
@@ -374,6 +349,6 @@ export const settings = {
     vlmModeInfoLabel: "VLM mode details",
     vlmModeInfoDisabled: "Turn Docling VLM off. No picture-description preset and no OpenAI-compatible models are sent.",
     vlmModeInfoPreset: "Use a Docling Serve picture-description preset only. Server-defined preset handles picture description; no OpenAI key required.",
-    vlmModeInfoCustom: "Configure the OpenAI-compatible base URL, API key, and three VLM models. The legacy bundle replaces any stored preset.",
+    vlmModeInfoCustom: "Configure the OpenAI-compatible base URL, API key, and three VLM models.",
   },
 } as const;

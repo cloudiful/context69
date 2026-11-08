@@ -7,7 +7,7 @@ import { NumberField } from "@/components/common/number-field";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { TextField } from "@/components/common/text-field";
 import { ToggleField } from "@/components/common/toggle-field";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SettingsGate } from "@/features/settings/settings-gate";
@@ -29,14 +29,23 @@ export function RuntimeSection() {
   // The owner derives the selected preset; this section never repeats the
   // lookup, so the control, the status and the Save guard agree.
   const selectedPreset = page.selectedTokenizerPreset;
+  const selectedPresetStatus = page.selectedTokenizerStatus;
   const customSelection = chunking.tokenizer === "hf_local"
     && !selectedPreset
     && tokenizerArtifacts.length > 0;
+  // A stored custom hash that is no longer mounted stays diagnosable instead
+  // of silently rendering an empty control.
+  const missingCustomSelection = chunking.tokenizer === "hf_local"
+    && !selectedPreset
+    && chunking.tokenizer_sha256 != null
+    && !tokenizerArtifacts.some((artifact) => artifact.sha256 === chunking.tokenizer_sha256);
   const tokenizerValue = selectedPreset
     ? `preset:${selectedPreset.id}`
     : customSelection
       ? "custom"
       : chunking.tokenizer;
+  const showAdvancedArtifact = tokenizerArtifacts.length > 0 || missingCustomSelection;
+  const inputLimitEnabled = runtimeDraft.embedding.input_policy.max_input_tokens != null;
 
   function selectTokenizer(value: string) {
     const preset = tokenizerPresets.find((candidate) => `preset:${candidate.id}` === value);
@@ -63,8 +72,11 @@ export function RuntimeSection() {
       draft.chunking.tokenizer_sha256 = null;
       draft.embedding.input_policy.add_special_tokens = false;
     });
-    if (preset) {
-      void page.prepareTokenizerPreset(preset);
+  }
+
+  function retryOrPreparePreset() {
+    if (selectedPreset) {
+      void page.prepareTokenizerPreset(selectedPreset);
     }
   }
 
@@ -72,6 +84,32 @@ export function RuntimeSection() {
     <SettingsSection title={t("settings.runtime.title")}>
       <SettingsGate>
       <div className="grid gap-3">
+        {page.requiresRebuild ? (
+          <Alert
+            role="status"
+            data-testid="runtime-requires-rebuild"
+            className="border-amber-500/40 bg-amber-500/5"
+          >
+            <AlertTriangle
+              aria-hidden="true"
+              className="text-amber-600 dark:text-amber-400"
+            />
+            <AlertDescription>{t("settings.runtime.requiresRebuild")}</AlertDescription>
+            <div className="col-span-full">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="runtime-requires-rebuild-action"
+                disabled={vector.running}
+                onClick={() => vector.setConfirmOpen(true)}
+              >
+                {t("settings.runtime.vectorRebuild")}
+              </Button>
+            </div>
+          </Alert>
+        ) : null}
+
         <EmbeddingBlock />
 
         <SettingsBlock
@@ -104,34 +142,6 @@ export function RuntimeSection() {
                 draft.qdrant.collection_name = value;
               })}
             />
-            {page.requiresRebuild ? (
-              <Alert
-                role="status"
-                data-testid="runtime-requires-rebuild"
-                className="border-amber-500/40 bg-amber-500/5"
-              >
-                <AlertTriangle
-                  aria-hidden="true"
-                  className="text-amber-600 dark:text-amber-400"
-                />
-                <AlertTitle>{t("settings.runtime.requiresRebuild")}</AlertTitle>
-                <AlertDescription>
-                  {t("settings.runtime.requiresRebuildDimensions")}
-                </AlertDescription>
-                <div className="col-span-full">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    data-testid="runtime-requires-rebuild-action"
-                    disabled={vector.running}
-                    onClick={() => vector.setConfirmOpen(true)}
-                  >
-                    {t("settings.runtime.vectorRebuild")}
-                  </Button>
-                </div>
-              </Alert>
-            ) : null}
             <VectorRebuildControl />
           </div>
         </SettingsBlock>
@@ -204,7 +214,6 @@ export function RuntimeSection() {
             <FormField
               label={t("settings.runtime.chunkingUnit")}
               htmlFor="runtime-chunking-unit"
-              helper={t("settings.runtime.chunkingUnitHelper")}
             >
               <Select
                 value={runtimeDraft.chunking.unit}
@@ -232,7 +241,6 @@ export function RuntimeSection() {
             <FormField
               label={t("settings.runtime.chunkingTokenizer")}
               htmlFor="runtime-chunking-tokenizer"
-              helper={t("settings.runtime.chunkingTokenizerHelper")}
             >
               <Select value={tokenizerValue} onValueChange={selectTokenizer}>
                 <SelectTrigger
@@ -262,7 +270,7 @@ export function RuntimeSection() {
               A deployment that stored an input envelope of its own is told
               once that the next save aligns it with the lower selection.
             */}
-            {!page.inputPolicyAligned ? (
+            {!page.inputPolicyAligned && inputLimitEnabled ? (
               <Alert
                 role="status"
                 data-testid="runtime-chunking-input-policy-warning"
@@ -274,123 +282,113 @@ export function RuntimeSection() {
               </Alert>
             ) : null}
 
-            {tokenizerPresets.map((preset) => {
-              const selected = selectedPreset?.id === preset.id;
-              const status = selected ? page.selectedTokenizerStatus : undefined;
-              return (
-                <div
-                  key={preset.id}
-                  data-testid={`runtime-tokenizer-preset-${preset.id}`}
-                  className="grid gap-1 rounded-md border border-border/60 p-3 text-xs"
-                >
-                  <p className="text-sm font-medium">{preset.label}</p>
-                  <p className="text-muted-foreground">
-                    {t("settings.runtime.chunkingTokenizerPresetLicense", {
-                      license: preset.license,
-                    })}
-                  </p>
-                  <p className="flex flex-wrap gap-3">
-                    <a
-                      className="underline"
-                      href={preset.license_url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {t("settings.runtime.chunkingTokenizerPresetLicenseLink")}
-                    </a>
-                    <a
-                      className="underline"
-                      href={preset.source_url}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {t("settings.runtime.chunkingTokenizerPresetSourceLink")}
-                    </a>
-                  </p>
-                  {selected ? (
-                    <p
-                      data-testid={`runtime-tokenizer-preset-status-${preset.id}`}
-                      className="text-muted-foreground"
-                    >
-                      {status === "pending"
-                        ? t("settings.runtime.chunkingTokenizerPresetPending")
-                        : status === "error"
-                          ? `${t("settings.runtime.chunkingTokenizerPresetFailed")}${
-                            page.tokenizerPreparationFor(preset.id)?.message
-                              ? ` ${page.tokenizerPreparationFor(preset.id)?.message}`
-                              : ""
-                          }`
-                          : status === "ready"
-                            ? t("settings.runtime.chunkingTokenizerPresetReady")
-                            : t("settings.runtime.chunkingTokenizerPresetNotReady")}
-                    </p>
-                  ) : null}
-                  {selected && (status === "idle" || status === "error") ? (
-                    <div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        data-testid={`runtime-tokenizer-preset-prepare-${preset.id}`}
-                        onClick={() => void page.prepareTokenizerPreset(preset)}
-                      >
-                        {status === "error"
-                          ? t("settings.runtime.chunkingTokenizerPresetRetry")
-                          : t("settings.runtime.chunkingTokenizerPresetPrepare")}
-                      </Button>
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-
             {/*
-              The manual path stays available: an operator mounts a verified
-              tokenizer file and selects it here.
+              One flat first-preparation row: the non-commercial link and the
+              explicit action sit inline, and a ready preset renders nothing.
             */}
-            <details className="rounded-md border border-border/60 p-2">
-              <summary className="cursor-pointer text-sm">
-                {t("settings.runtime.chunkingTokenizerAdvanced")}
-              </summary>
-              <div className="mt-3 grid gap-3">
-                {tokenizerArtifacts.length > 0 ? (
-                  <FormField
-                    label={t("settings.runtime.chunkingTokenizerArtifact")}
-                    htmlFor="runtime-chunking-artifact"
-                    helper={t("settings.runtime.chunkingTokenizerArtifactHelper")}
+            {selectedPreset && selectedPresetStatus !== "ready" ? (
+              <div
+                data-testid={`runtime-tokenizer-preset-${selectedPreset.id}`}
+                className="flex flex-wrap items-center gap-3 text-xs"
+              >
+                <a
+                  className="underline"
+                  href={selectedPreset.license_url}
+                  title={selectedPreset.license}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("settings.runtime.chunkingTokenizerPresetLicense")}
+                </a>
+                {selectedPresetStatus === "pending" ? (
+                  <span
+                    data-testid={`runtime-tokenizer-preset-status-${selectedPreset.id}`}
+                    className="text-muted-foreground"
                   >
-                    <Select
-                      value={customSelection ? (chunking.tokenizer_sha256 ?? undefined) : undefined}
-                      onValueChange={(value) => updateRuntimeDraft((draft) => {
-                        draft.chunking.tokenizer = "hf_local";
-                        draft.chunking.tokenizer_sha256 = value;
-                      })}
-                    >
-                      <SelectTrigger
-                        id="runtime-chunking-artifact"
-                        aria-label={t("settings.runtime.chunkingTokenizerArtifact")}
-                      >
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {tokenizerArtifacts.map((artifact) => (
-                          <SelectItem key={artifact.sha256} value={artifact.sha256}>
-                            {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </FormField>
+                    {t("settings.runtime.chunkingTokenizerPresetPending")}
+                  </span>
                 ) : (
-                  <p
-                    data-testid="runtime-chunking-artifact-empty"
-                    className="text-xs text-muted-foreground"
-                  >
-                    {t("settings.runtime.chunkingTokenizerArtifactEmpty")}
-                  </p>
+                  <>
+                    {selectedPresetStatus === "error" ? (
+                      <span
+                        data-testid={`runtime-tokenizer-preset-status-${selectedPreset.id}`}
+                        className="text-destructive"
+                      >
+                        {`${t("settings.runtime.chunkingTokenizerPresetFailed")}${
+                          page.tokenizerPreparationFor(selectedPreset.id)?.message
+                            ? ` ${page.tokenizerPreparationFor(selectedPreset.id)?.message}`
+                            : ""
+                        }`}
+                      </span>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      data-testid={`runtime-tokenizer-preset-prepare-${selectedPreset.id}`}
+                      onClick={retryOrPreparePreset}
+                    >
+                      {selectedPresetStatus === "error"
+                        ? t("settings.runtime.chunkingTokenizerPresetRetry")
+                        : t("settings.runtime.chunkingTokenizerPresetPrepare")}
+                    </Button>
+                  </>
                 )}
               </div>
-            </details>
+            ) : null}
+
+            {/*
+              The manual path stays available only when it can show something:
+              a mounted artifact, or a selected hash that is no longer mounted.
+            */}
+            {showAdvancedArtifact ? (
+              <details className="rounded-md border border-border/60 p-2">
+                <summary className="cursor-pointer text-sm">
+                  {t("settings.runtime.chunkingTokenizerAdvanced")}
+                </summary>
+                <div className="mt-3 grid gap-3">
+                  {tokenizerArtifacts.length > 0 ? (
+                    <FormField
+                      label={t("settings.runtime.chunkingTokenizerArtifact")}
+                      htmlFor="runtime-chunking-artifact"
+                      helper={t("settings.runtime.chunkingTokenizerArtifactHelper")}
+                    >
+                      <Select
+                        value={customSelection ? (chunking.tokenizer_sha256 ?? undefined) : undefined}
+                        onValueChange={(value) => updateRuntimeDraft((draft) => {
+                          draft.chunking.tokenizer = "hf_local";
+                          draft.chunking.tokenizer_sha256 = value;
+                        })}
+                      >
+                        <SelectTrigger
+                          id="runtime-chunking-artifact"
+                          aria-label={t("settings.runtime.chunkingTokenizerArtifact")}
+                        >
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {tokenizerArtifacts.map((artifact) => (
+                            <SelectItem key={artifact.sha256} value={artifact.sha256}>
+                              {`${artifact.sha256.slice(0, 12)}… (${artifact.size_bytes} B)`}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </FormField>
+                  ) : null}
+                  {missingCustomSelection ? (
+                    <p
+                      data-testid="runtime-chunking-artifact-missing"
+                      className="text-xs text-muted-foreground"
+                    >
+                      {t("settings.runtime.chunkingTokenizerArtifactMissing", {
+                        hash: chunking.tokenizer_sha256?.slice(0, 12) ?? "",
+                      })}
+                    </p>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
 
             {runtimeDraft.chunking.unit === "chars" ? (
               <>
@@ -435,7 +433,6 @@ export function RuntimeSection() {
                 />
               </>
             )}
-            <p className="text-xs text-muted-foreground">{t("settings.runtime.chunkingHelper")}</p>
           </div>
         </SettingsBlock>
 

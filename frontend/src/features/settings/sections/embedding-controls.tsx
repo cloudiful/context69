@@ -101,9 +101,6 @@ export function EmbeddingBlock() {
 
         <div className="grid gap-3 rounded-md border border-border/60 p-3">
           <p className="text-sm font-medium">{t("settings.runtime.embeddingInputPolicyTitle")}</p>
-          <p className="text-xs text-muted-foreground">
-            {t("settings.runtime.embeddingInputTokenizerHelper")}
-          </p>
           <ToggleField
             id="runtime-embedding-input-limit"
             testId="runtime-embedding-input-limit"
@@ -155,9 +152,6 @@ export function EmbeddingBlock() {
               })}
             />
           ) : null}
-          <p className="text-xs text-muted-foreground">
-            {t("settings.runtime.embeddingInputPolicyHelper")}
-          </p>
         </div>
 
         <div className="grid gap-3 rounded-md border border-border/60 p-3">
