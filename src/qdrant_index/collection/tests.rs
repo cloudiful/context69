@@ -2,8 +2,8 @@ use qdrant_client::qdrant::FieldType;
 
 use super::super::errors::RebuildTargetCollisionReason;
 use super::{
-    PAYLOAD_FIELD_INDEXES, TargetPreparation, is_qdrant_field_index_already_exists,
-    metadata_payload_key, target_preparation,
+    CODE_PAYLOAD_FIELD_INDEXES, PAYLOAD_FIELD_INDEXES, TargetPreparation,
+    is_qdrant_field_index_already_exists, metadata_payload_key, target_preparation,
 };
 
 /// Build a `QdrantError` whose `Display` output mirrors the shape the
@@ -442,4 +442,36 @@ async fn a_cancelled_authority_during_existence_discovery_starts_no_create() {
         "a cancelled authority starts no create RPC"
     );
     mock.shutdown().await;
+}
+
+#[test]
+fn the_code_collection_indexes_canonical_value_types() {
+    let types = CODE_PAYLOAD_FIELD_INDEXES
+        .iter()
+        .map(|(field, field_type)| (*field, *field_type))
+        .collect::<Vec<_>>();
+    for keyword in [
+        "repository_key",
+        "generation_key",
+        "file_key",
+        "path",
+        "language",
+    ] {
+        assert!(
+            types.contains(&(keyword, FieldType::Keyword)),
+            "{keyword} must be a keyword index"
+        );
+    }
+    for integer in ["group_id", "chunk_index", "start_line", "end_line"] {
+        assert!(
+            types.contains(&(integer, FieldType::Integer)),
+            "{integer} must be an integer index"
+        );
+    }
+    assert!(
+        !CODE_PAYLOAD_FIELD_INDEXES
+            .iter()
+            .any(|(field, _)| *field == "chunk_key"),
+        "the point id carries the chunk key; no redundant filter index is guessed"
+    );
 }

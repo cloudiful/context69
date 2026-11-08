@@ -137,15 +137,16 @@ use crate::contracts::{
 };
 
 use crate::contracts::sources::{
-    GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse, GitCommitCheckpoint,
-    GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse, GitFileChangeKind,
-    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
-    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryFile, GitRepositoryFileContentQuery, GitRepositoryFileContentResponse,
-    GitRepositoryFileDetailResponse, GitRepositoryFileDiff, GitRepositoryFileDiffFile,
-    GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse, GitRepositoryFileListResponse,
-    GitRepositoryFileQuery, GitRepositoryRegistrationRequest, GitRepositorySource,
-    GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRequest,
+    GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse, GitCodeVectorUnavailableReason,
+    GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
+    GitFileChangeKind, GitIndexProfile, GitIndexStatus, GitProviderConnection,
+    GitProviderConnectionRequest, GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy,
+    GitRepositoryConnectionRequest, GitRepositoryFile, GitRepositoryFileContentQuery,
+    GitRepositoryFileContentResponse, GitRepositoryFileDetailResponse, GitRepositoryFileDiff,
+    GitRepositoryFileDiffFile, GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse,
+    GitRepositoryFileListResponse, GitRepositoryFileQuery, GitRepositoryRegistrationRequest,
+    GitRepositorySource, GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
+    GitWebhookRegistrationRequest,
 };
 
 use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelectionResponse};
@@ -323,6 +324,7 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         GitCodeSearchQuery,
         GitCodeSearchHit,
         GitCodeSearchResponse,
+        GitCodeVectorUnavailableReason,
         GitFileChangeKind,
         GitRepositoryFileDiff,
         GitRepositoryFileDiffFile,

@@ -49,9 +49,10 @@ pub use git_repositories::{
     GitGroupOwnership, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,
     MAX_GIT_FILE_BYTES, MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE,
     MAX_GIT_MANIFEST_FILES, MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk,
-    NewGitGenerationFile, NewGitProviderConnection, NewGitRepositoryGeneration,
-    NewGitRepositorySource, NewGitWebhookDelivery, NewGitWebhookRegistration,
-    StoredGitActiveGeneration, StoredGitFileDiff, StoredGitGenerationChunk,
+    NewGitGenerationCodeVectors, NewGitGenerationFile, NewGitProviderConnection,
+    NewGitRepositoryGeneration, NewGitRepositorySource, NewGitWebhookDelivery,
+    NewGitWebhookRegistration, StoredGitActiveGeneration, StoredGitCodeChunkHydration,
+    StoredGitFileDiff, StoredGitGenerationChunk, StoredGitGenerationCodeVectors,
     StoredGitGenerationFile, StoredGitProviderConnection, StoredGitRepositoryGeneration,
     StoredGitRepositorySource, StoredGitWebhookDelivery, StoredGitWebhookRegistration,
 };
@@ -192,6 +193,22 @@ pub struct StoredRuntimeEmbeddingSettings {
     pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
     /// The explicit input-token envelope and server-added prefixes.
     pub input_policy: context69_contracts::settings::EmbeddingInputPolicy,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredRuntimeCodeEmbeddingSettings {
+    /// Whether the code embedding channel is enabled.
+    pub enabled: bool,
+    pub base_url: String,
+    pub model: String,
+    /// The model code queries are embedded with. `None` means the code model.
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    /// The provider API key resolved from the shared store for the process that
+    /// loaded these settings. It is an in-memory value, never persisted here.
+    pub api_key: Option<String>,
+    pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
 }
 
 #[derive(Debug, Clone)]

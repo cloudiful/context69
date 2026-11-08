@@ -4,9 +4,9 @@ use crate::domain_errors::DomainError;
 
 use crate::{
     contracts::{
-        CanonicalUpdateSearchSettingsRequest, UpdateDoclingSettingsRequest,
-        UpdateRuntimeFileLibrarySettings, UpdateRuntimeSettingsRequest,
-        UpdateSearchSettingsRequest,
+        CanonicalUpdateSearchSettingsRequest, UpdateCodeEmbeddingSettings,
+        UpdateDoclingSettingsRequest, UpdateRuntimeFileLibrarySettings,
+        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::StoredSearchSettings,
 };
@@ -48,6 +48,9 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         .into());
     }
     embedding_batching_request(&request.embedding.batching)?;
+    if let Some(code) = &request.code_embedding {
+        code_embedding_request(code)?;
+    }
     request
         .embedding
         .input_policy
@@ -213,6 +216,60 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
 /// a limit that is not positive or not representable is refused here, before any
 /// secret or settings write.
 fn embedding_batching_request(batching: &EmbeddingBatchingSettings) -> Result<()> {
+    batching_request(batching, "runtime.embedding.batching")
+}
+
+/// The code block is optional and independent of the document block.
+///
+/// A disabled block does not require provider fields, so an operator can keep a
+/// stored configuration while turned off. An enabled block requires a complete
+/// usable provider configuration; no value is inherited from the document
+/// block. Every present number must also be representable in PostgreSQL.
+fn code_embedding_request(request: &UpdateCodeEmbeddingSettings) -> Result<()> {
+    if request.enabled {
+        if request.base_url.trim().is_empty() {
+            return Err(DomainError::invalid_argument(
+                "runtime.code_embedding.base_url must not be empty",
+            )
+            .into());
+        }
+        if request.model.trim().is_empty() {
+            return Err(DomainError::invalid_argument(
+                "runtime.code_embedding.model must not be empty",
+            )
+            .into());
+        }
+        if request.dimensions == 0 {
+            return Err(DomainError::invalid_argument(
+                "runtime.code_embedding.dimensions must be greater than 0",
+            )
+            .into());
+        }
+        if request.timeout_secs == 0 {
+            return Err(DomainError::invalid_argument(
+                "runtime.code_embedding.timeout_secs must be greater than 0",
+            )
+            .into());
+        }
+    }
+    if i64::try_from(request.dimensions).is_err() {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.code_embedding.dimensions must be at most {}",
+            i64::MAX
+        ))
+        .into());
+    }
+    if i64::try_from(request.timeout_secs).is_err() {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.code_embedding.timeout_secs must be at most {}",
+            i64::MAX
+        ))
+        .into());
+    }
+    batching_request(&request.batching, "runtime.code_embedding.batching")
+}
+
+fn batching_request(batching: &EmbeddingBatchingSettings, prefix: &str) -> Result<()> {
     for (name, value) in [
         ("max_items_per_request", batching.max_items_per_request),
         ("max_item_chars", batching.max_item_chars),
@@ -221,13 +278,13 @@ fn embedding_batching_request(batching: &EmbeddingBatchingSettings) -> Result<()
     ] {
         if value == 0 {
             return Err(DomainError::invalid_argument(format!(
-                "runtime.embedding.batching.{name} must be greater than 0"
+                "{prefix}.{name} must be greater than 0"
             ))
             .into());
         }
         if i64::try_from(value).is_err() {
             return Err(DomainError::invalid_argument(format!(
-                "runtime.embedding.batching.{name} must be at most {}",
+                "{prefix}.{name} must be at most {}",
                 i64::MAX
             ))
             .into());
@@ -435,4 +492,61 @@ fn validate_fusion_weights(vector_weight: f32, keyword_weight: f32) -> Result<()
         .into());
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod code_embedding_validation_tests {
+    use super::code_embedding_request;
+    use context69_contracts::settings::UpdateCodeEmbeddingSettings;
+    use context69_contracts::settings::{EmbeddingBatchingSettings, SecretPatch};
+
+    fn code(enabled: bool) -> UpdateCodeEmbeddingSettings {
+        UpdateCodeEmbeddingSettings {
+            enabled,
+            base_url: if enabled {
+                "https://embedding.invalid/v1".to_string()
+            } else {
+                String::new()
+            },
+            model: if enabled {
+                "code-model".to_string()
+            } else {
+                String::new()
+            },
+            query_model: None,
+            dimensions: if enabled { 1024 } else { 0 },
+            timeout_secs: if enabled { 30 } else { 0 },
+            api_key: SecretPatch::Keep,
+            batching: EmbeddingBatchingSettings::default(),
+        }
+    }
+
+    #[test]
+    fn a_disabled_block_needs_no_provider_fields() {
+        code_embedding_request(&code(false)).expect("a disabled block may keep blank fields");
+    }
+
+    #[test]
+    fn an_enabled_block_requires_complete_provider_fields() {
+        let mut request = code(true);
+        request.base_url.clear();
+        assert!(code_embedding_request(&request).is_err());
+        let mut request = code(true);
+        request.model.clear();
+        assert!(code_embedding_request(&request).is_err());
+        let mut request = code(true);
+        request.dimensions = 0;
+        assert!(code_embedding_request(&request).is_err());
+        let mut request = code(true);
+        request.timeout_secs = 0;
+        assert!(code_embedding_request(&request).is_err());
+        code_embedding_request(&code(true)).expect("a complete block is valid");
+    }
+
+    #[test]
+    fn a_zero_batching_limit_is_refused() {
+        let mut request = code(true);
+        request.batching.max_items_per_request = 0;
+        assert!(code_embedding_request(&request).is_err());
+    }
 }

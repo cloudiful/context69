@@ -64,6 +64,18 @@ impl SettingsSecrets {
         )
     }
 
+    /// The Git code embedding provider API key.
+    ///
+    /// It is a separate purpose and key name, so a code probe or save can never
+    /// open the document credential.
+    pub fn code_embedding(store: SecretStore) -> Self {
+        Self::new(
+            store,
+            SecretPurpose::CodeEmbeddingApiKey,
+            key_names::CODE_EMBEDDING_API_KEY,
+        )
+    }
+
     /// The search / rerank provider API key.
     pub fn search(store: SecretStore) -> Self {
         Self::new(
@@ -279,6 +291,18 @@ mod tests {
 
     fn patch(kind: SecretPatch) -> Option<String> {
         merged_api_key(&kind, Some("old".to_string()))
+    }
+
+    #[tokio::test]
+    async fn the_code_binding_owns_only_the_code_secret() {
+        let secrets = SettingsSecrets::code_embedding(unkeyed_store());
+        assert_eq!(secrets.purpose, SecretPurpose::CodeEmbeddingApiKey);
+        assert_eq!(secrets.key_name, key_names::CODE_EMBEDDING_API_KEY);
+        assert!(SecretPurpose::CodeEmbeddingApiKey.is_singleton());
+        assert_ne!(
+            SecretPurpose::CodeEmbeddingApiKey,
+            SecretPurpose::EmbeddingApiKey
+        );
     }
 
     #[tokio::test]

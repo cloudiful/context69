@@ -23,15 +23,19 @@ use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::contracts::sources::GitIndexStatus;
+use crate::contracts::sources::{GitIndexProfile, GitIndexStatus};
 use crate::db::{
     Database, GitCheckpointUpdate, GitGenerationCoverage, NewGitGenerationChunk,
-    NewGitGenerationFile, NewGitRepositoryGeneration,
+    NewGitGenerationCodeVectors, NewGitGenerationFile, NewGitRepositoryGeneration,
 };
 use crate::domain_errors::DomainError;
 
 use super::classify::language_for_path;
 use super::code_text::{CodeText, chunk_code_text};
+use super::code_vectors::{
+    CodeVectorRequest, CodeVectorSink, QdrantCodeVectorSink, code_vector_target,
+    embed_and_write_generation,
+};
 use super::github_client::{GitHubAcquirer, RepositoryAcquirer};
 use super::github_transport::GitHttpTransport;
 use super::limits::{GitIndexLimits, plan_snapshot_files};
@@ -109,6 +113,7 @@ pub(crate) async fn index_git_repository_snapshot(
     limits: GitIndexLimits,
     group_id: i64,
     repository_key: Uuid,
+    code: Option<&CodeVectorRequest>,
 ) -> Result<GitSnapshotIndexOutcome> {
     let mut progress = SnapshotProgress::default();
     match attempt_snapshot(
@@ -117,6 +122,7 @@ pub(crate) async fn index_git_repository_snapshot(
         &limits,
         group_id,
         repository_key,
+        code,
         &mut progress,
     )
     .await
@@ -148,6 +154,7 @@ async fn attempt_snapshot(
     limits: &GitIndexLimits,
     group_id: i64,
     repository_key: Uuid,
+    code: Option<&CodeVectorRequest>,
     progress: &mut SnapshotProgress,
 ) -> Result<GitSnapshotIndexOutcome> {
     let source = db
@@ -269,6 +276,57 @@ async fn attempt_snapshot(
     {
         progress.stale = true;
         return Err(anyhow!(DomainError::conflict("git_index_stale_target")));
+    }
+
+    // A non-lexical source with a configured code runtime embeds the stored
+    // canonical chunks and acknowledges every point before metadata and
+    // activation. A lexical source never enters this path, and a non-lexical
+    // source without a code runtime stays lexical without metadata.
+    if source.index_profile != GitIndexProfile::Lexical
+        && let Some(request) = code
+    {
+        let target = code_vector_target(request)?;
+        let sink: Arc<dyn CodeVectorSink> = match request.test_sink() {
+            Some(sink) => sink,
+            None => Arc::new(QdrantCodeVectorSink::open(&target).await?),
+        };
+        let point_count = embed_and_write_generation(
+            db,
+            group_id,
+            repository_key,
+            generation.generation_key,
+            &target,
+            sink.as_ref(),
+        )
+        .await?;
+
+        // The embedding pass can be long; the target must still be the one this
+        // attempt pinned before any metadata or activation is written.
+        let current = db
+            .get_git_repository_source(group_id, repository_key)
+            .await?
+            .ok_or_else(|| anyhow!(DomainError::not_found("git_index_source_missing")))?;
+        if current.version.ref_name != ref_name
+            || current.version.commit_sha.as_deref() != Some(pinned.as_str())
+        {
+            progress.stale = true;
+            return Err(anyhow!(DomainError::conflict("git_index_stale_target")));
+        }
+
+        let dimensions = i64::try_from(target.dimensions())
+            .map_err(|_| anyhow!(DomainError::internal("git_code_dimensions_out_of_range")))?;
+        db.record_git_generation_code_vectors(
+            group_id,
+            repository_key,
+            generation.generation_key,
+            &NewGitGenerationCodeVectors {
+                fingerprint: target.destination_fingerprint().to_string(),
+                dimensions,
+                collection_name: target.collection_name().to_string(),
+                point_count,
+            },
+        )
+        .await?;
     }
 
     let activated = db

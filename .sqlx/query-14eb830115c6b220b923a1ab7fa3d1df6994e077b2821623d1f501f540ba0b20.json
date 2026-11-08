@@ -1,0 +1,94 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Records the exact code destination and acknowledged point count of one\n-- generation. The statement is scoped to a building generation of a repository\n-- owned by $1 and returns the stored metadata, so a foreign, failed, ready, or\n-- already completed generation can never gain code metadata through it.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key, $4 fingerprint,\n-- $5 dimensions, $6 collection_name, $7 point_count.\nINSERT INTO context69.git_generation_code_vectors (\n    generation_key,\n    fingerprint,\n    dimensions,\n    collection_name,\n    point_count\n)\nSELECT\n    g.generation_key,\n    $4,\n    $5,\n    $6,\n    $7\nFROM context69.git_repository_generations g\nJOIN context69.git_repository_sources s\n    ON s.repository_key = g.repository_key\nWHERE s.group_id = $1\n  AND g.repository_key = $2\n  AND g.generation_key = $3\n  AND g.status = 'building'\nON CONFLICT (generation_key) DO UPDATE\nSET fingerprint = EXCLUDED.fingerprint,\n    dimensions = EXCLUDED.dimensions,\n    collection_name = EXCLUDED.collection_name,\n    point_count = EXCLUDED.point_count\nRETURNING\n    generation_key,\n    fingerprint,\n    dimensions,\n    collection_name,\n    point_count,\n    created_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "point_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "point_count"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Int8",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "14eb830115c6b220b923a1ab7fa3d1df6994e077b2821623d1f501f540ba0b20"
+}

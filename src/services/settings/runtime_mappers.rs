@@ -1,13 +1,14 @@
 use crate::{
     contracts::{
-        RuntimeChunkingSettings, RuntimeEmbeddingSettings, RuntimeFileLibrarySettings,
-        RuntimeQdrantSettings, RuntimeSchedulerSettings, RuntimeSettingsResponse, SecretPatch,
-        UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+        RuntimeChunkingSettings, RuntimeCodeEmbeddingSettings, RuntimeEmbeddingSettings,
+        RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
+        RuntimeSettingsResponse, SecretPatch, UpdateCodeEmbeddingSettings, UpdateRuntimeS3Settings,
+        UpdateRuntimeSettingsRequest,
     },
     db::{
-        StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
-        StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings,
-        StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
+        StoredRuntimeChunkingSettings, StoredRuntimeCodeEmbeddingSettings,
+        StoredRuntimeEmbeddingSettings, StoredRuntimeFileLibrarySettings,
+        StoredRuntimeQdrantSettings, StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
     },
     support::normalize::normalize_optional_string,
 };
@@ -207,14 +208,50 @@ pub(super) fn runtime_settings_from_request(
     }
 }
 
+pub(super) fn stored_code_embedding_from_request(
+    request: &UpdateCodeEmbeddingSettings,
+) -> StoredRuntimeCodeEmbeddingSettings {
+    StoredRuntimeCodeEmbeddingSettings {
+        enabled: request.enabled,
+        base_url: request.base_url.trim().to_string(),
+        model: request.model.trim().to_string(),
+        query_model: normalize_optional_string(request.query_model.clone()),
+        dimensions: request.dimensions,
+        timeout_secs: request.timeout_secs,
+        // The provider API key is not a runtime setting: the shared store owns
+        // it under its own purpose.
+        api_key: None,
+        batching: request.batching,
+    }
+}
+
 /// `has_api_key` and `has_secret_key` are passed in rather than derived from the
 /// stored values: a credential is answered from the shared store's metadata, so
 /// presence has to be answerable without opening it.
+#[cfg(test)]
 pub(super) fn runtime_settings_response(
     settings: StoredRuntimeSettings,
     has_embedding_api_key: bool,
     has_s3_secret_key: bool,
     requires_rebuild: bool,
+) -> RuntimeSettingsResponse {
+    runtime_settings_response_with_code(
+        settings,
+        has_embedding_api_key,
+        has_s3_secret_key,
+        requires_rebuild,
+        None,
+        false,
+    )
+}
+
+pub(super) fn runtime_settings_response_with_code(
+    settings: StoredRuntimeSettings,
+    has_embedding_api_key: bool,
+    has_s3_secret_key: bool,
+    requires_rebuild: bool,
+    code: Option<StoredRuntimeCodeEmbeddingSettings>,
+    has_code_api_key: bool,
 ) -> RuntimeSettingsResponse {
     let quota = settings.file_library.registry_quota();
     RuntimeSettingsResponse {
@@ -233,6 +270,16 @@ pub(super) fn runtime_settings_response(
             batching: settings.embedding.batching,
             input_policy: settings.embedding.input_policy.clone(),
         },
+        code_embedding: code.map(|code| RuntimeCodeEmbeddingSettings {
+            enabled: code.enabled,
+            base_url: code.base_url,
+            model: code.model,
+            query_model: code.query_model,
+            dimensions: code.dimensions,
+            timeout_secs: code.timeout_secs,
+            has_api_key: has_code_api_key,
+            batching: code.batching,
+        }),
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
             run_on_start: settings.scheduler.run_on_start,
@@ -298,6 +345,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             batching: defaults.embedding.batching,
             input_policy: defaults.embedding.input_policy.clone(),
         },
+        code_embedding: None,
         scheduler: RuntimeSchedulerSettings {
             interval_secs: defaults.scheduler.interval.as_secs(),
             run_on_start: defaults.scheduler.run_on_start,

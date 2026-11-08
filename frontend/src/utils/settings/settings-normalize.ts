@@ -55,6 +55,25 @@ export function normalizeRuntimePayload(
         add_special_tokens: localTokenizer && value.embedding.input_policy.add_special_tokens,
       },
     },
+    // An untouched code block is omitted entirely, so an ordinary document save
+    // preserves the stored code row and credential.
+    code_embedding: value.code_embedding.touched
+      ? {
+          enabled: value.code_embedding.enabled,
+          base_url: value.code_embedding.base_url.trim(),
+          model: value.code_embedding.model.trim(),
+          query_model: cleanOptional(value.code_embedding.query_model),
+          dimensions: Number(value.code_embedding.dimensions),
+          timeout_secs: Number(value.code_embedding.timeout_secs),
+          api_key: codeSecretPatch(value.code_embedding),
+          batching: {
+            max_items_per_request: Number(value.code_embedding.batching.max_items_per_request),
+            max_item_chars: Number(value.code_embedding.batching.max_item_chars),
+            max_request_chars: Number(value.code_embedding.batching.max_request_chars),
+            max_request_bytes: Number(value.code_embedding.batching.max_request_bytes),
+          },
+        }
+      : undefined,
     scheduler: {
       interval_secs: Number(value.scheduler.interval_secs),
       run_on_start: value.scheduler.run_on_start,
@@ -129,4 +148,12 @@ export function normalizeDoclingPayload(
 function cleanOptional(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+function codeSecretPatch(code: DraftRuntimeSettings["code_embedding"]) {
+  if (code.clear_api_key) {
+    return { op: "clear" as const };
+  }
+  const value = code.api_key.trim();
+  return value ? { op: "set" as const, value } : { op: "keep" as const };
 }

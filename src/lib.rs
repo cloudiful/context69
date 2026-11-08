@@ -1,6 +1,7 @@
 pub mod api;
 pub(crate) mod chunk_payload;
 pub mod chunking;
+pub(crate) mod code_embedding_runtime;
 pub mod config;
 pub mod db;
 pub mod docling;

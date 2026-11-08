@@ -96,6 +96,22 @@ pub(super) fn format_embedding_transport_error(
     } else {
         "transport"
     };
+    // Preserve the classification and retry decision before consuming the error
+    // to strip its URL. A transport error's display can include the request URL,
+    // including userinfo and query credentials, so the URL is removed before any
+    // source-chain extraction, redaction, bounding, formatting, or tracing.
+    let retryable = !error.is_builder()
+        && error
+            .status()
+            .map(|status| status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error())
+            .unwrap_or_else(|| {
+                error.is_timeout()
+                    || error.is_connect()
+                    || error.is_request()
+                    || error.is_body()
+                    || error.is_decode()
+            });
+    let error = error.without_url();
     let source_chain = format_error_chain(&error);
     // Redact before bounding, as with every other error text: the chain can
     // echo request details, and bounding keeps transport errors bounded too.
@@ -120,17 +136,6 @@ pub(super) fn format_embedding_transport_error(
     // `retry::is_retryable` would have accepted via the `reqwest::Error`
     // type are marked retryable here since the raw type is no longer in
     // the chain.
-    let retryable = !error.is_builder()
-        && error
-            .status()
-            .map(|status| status == StatusCode::TOO_MANY_REQUESTS || status.is_server_error())
-            .unwrap_or_else(|| {
-                error.is_timeout()
-                    || error.is_connect()
-                    || error.is_request()
-                    || error.is_body()
-                    || error.is_decode()
-            });
     let typed_error = Error::new(typed);
     if retryable {
         retry::mark_retryable(typed_error)
@@ -302,12 +307,27 @@ fn hex_value(value: u8) -> Option<u8> {
     }
 }
 
-fn sanitize_endpoint(endpoint: &str) -> String {
+/// A bounded, fixed diagnostic used whenever an endpoint cannot be rendered
+/// safely. It never contains any part of the untrusted input or a parser error.
+pub(super) const INVALID_ENDPOINT_DIAGNOSTIC: &str = "[invalid-endpoint]";
+
+/// The safe diagnostic form of one endpoint.
+///
+/// A valid hierarchical HTTP/HTTPS URL with a host loses its username, password,
+/// query, and fragment. Every other input - a parse failure, an opaque or
+/// non-HTTP scheme, a missing host, or a failed credential-clearing operation -
+/// becomes the fixed placeholder. No failure path ever returns the raw input,
+/// because an endpoint can carry credentials in any of those components.
+pub(super) fn sanitize_endpoint(endpoint: &str) -> String {
     let Ok(mut url) = Url::parse(endpoint) else {
-        return endpoint.to_string();
+        return INVALID_ENDPOINT_DIAGNOSTIC.to_string();
     };
-    let _ = url.set_username("");
-    let _ = url.set_password(None);
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return INVALID_ENDPOINT_DIAGNOSTIC.to_string();
+    }
+    if url.set_username("").is_err() || url.set_password(None).is_err() {
+        return INVALID_ENDPOINT_DIAGNOSTIC.to_string();
+    }
     url.set_query(None);
     url.set_fragment(None);
     url.to_string()

@@ -429,6 +429,15 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             confirm_vector_space_unchanged?: boolean;
             input_policy?: RuntimeSettingsResponse["embedding"]["input_policy"];
           };
+          code_embedding?: {
+            enabled: boolean;
+            base_url: string;
+            model: string;
+            query_model?: string | null;
+            dimensions: number;
+            timeout_secs: number;
+            api_key?: { op: "keep" | "clear" | "set"; value?: string };
+          };
           scheduler: RuntimeSettingsResponse["scheduler"];
           chunking: RuntimeSettingsResponse["chunking"];
           file_library: {
@@ -463,6 +472,24 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             input_policy: payload.embedding.input_policy
               ?? state.runtime.embedding.input_policy,
           },
+          // An omitted code block preserves the stored one, exactly like an
+          // older client that never sends it.
+          code_embedding: payload.code_embedding
+            ? {
+                enabled: payload.code_embedding.enabled,
+                base_url: payload.code_embedding.base_url,
+                model: payload.code_embedding.model,
+                query_model: payload.code_embedding.query_model ?? null,
+                dimensions: payload.code_embedding.dimensions,
+                timeout_secs: payload.code_embedding.timeout_secs,
+                batching: state.runtime.code_embedding?.batching,
+                has_api_key: payload.code_embedding.api_key?.op === "set"
+                  ? true
+                  : payload.code_embedding.api_key?.op === "clear"
+                    ? false
+                    : (state.runtime.code_embedding?.has_api_key ?? false),
+              }
+            : state.runtime.code_embedding,
           scheduler: {
             interval_secs: payload.scheduler.interval_secs,
             job_id: payload.scheduler.job_id,

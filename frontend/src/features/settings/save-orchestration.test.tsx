@@ -19,7 +19,16 @@ import {
 } from "./test-support";
 import { shouldRetryStatusPoll } from "./use-vector-rebuild";
 import { useVectorRebuild } from "./use-vector-rebuild";
-import { VECTOR_REBUILD_STATUS } from "./test-support";
+import { RUNTIME_SETTINGS, VECTOR_REBUILD_STATUS } from "./test-support";
+
+const CODE_EMBEDDING = {
+  enabled: true,
+  base_url: "http://code-embedding:8080/v1",
+  model: "code-embed-1",
+  dimensions: 512,
+  timeout_secs: 20,
+  has_api_key: true,
+};
 
 function settingsNav() {
   return screen.getByRole("navigation", { name: "Settings" });
@@ -314,5 +323,72 @@ describe("settings save orchestration", () => {
     expect(body.base_url).toBe("http://embedding-2:8080/v1");
     expect(body.api_key).toBeUndefined();
     expect(await screen.findByText("embedding refused")).toBeInTheDocument();
+  });
+
+  it("omits an untouched code block so an ordinary save preserves it", async () => {
+    const backend = installFakeBackend({
+      runtime: { ...RUNTIME_SETTINGS, code_embedding: CODE_EMBEDDING },
+    });
+    await openSettings("/settings/runtime");
+
+    await userEvent.type(screen.getByLabelText("Embedding API Key"), "document-key");
+    await userEvent.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
+      code_embedding?: unknown;
+    };
+    expect(body.code_embedding).toBeUndefined();
+    expect(backend.state.runtime.code_embedding?.model).toBe("code-embed-1");
+    expect(backend.state.runtime.code_embedding?.has_api_key).toBe(true);
+  });
+
+  it("probes the code model with its own purpose and endpoint", async () => {
+    const backend = installFakeBackend({
+      runtime: { ...RUNTIME_SETTINGS, code_embedding: CODE_EMBEDDING },
+    });
+    await openSettings("/settings/runtime");
+
+    await userEvent.click(screen.getByTestId("runtime-code-embedding-test"));
+
+    await waitFor(() => {
+      expect(backend.callsFor("POST", "/v1/settings/runtime/embedding/test")).toHaveLength(1);
+    });
+    const body = backend.callsFor("POST", "/v1/settings/runtime/embedding/test")[0].body as {
+      purpose?: string;
+      base_url: string;
+      api_key?: string;
+    };
+    expect(body.purpose).toBe("code");
+    expect(body.base_url).toBe("http://code-embedding:8080/v1");
+    expect(body.api_key).toBeUndefined();
+  });
+
+  it("sends an edited code block without touching document identity", async () => {
+    const backend = installFakeBackend({
+      runtime: { ...RUNTIME_SETTINGS, code_embedding: CODE_EMBEDDING },
+    });
+    await openSettings("/settings/runtime");
+
+    await userEvent.clear(screen.getByLabelText("Code model"));
+    await userEvent.type(screen.getByLabelText("Code model"), "code-embed-2");
+    await userEvent.click(screen.getByTestId("settings-save"));
+
+    await waitFor(() => {
+      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
+    });
+    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
+      embedding: { model: string; confirm_vector_space_unchanged?: boolean };
+      code_embedding?: { enabled: boolean; model: string; api_key?: { op: string } };
+    };
+    expect(body.code_embedding?.enabled).toBe(true);
+    expect(body.code_embedding?.model).toBe("code-embed-2");
+    expect(body.code_embedding?.api_key?.op).toBe("keep");
+    expect(body.embedding.model).toBe("embed-1");
+    expect(body.embedding.confirm_vector_space_unchanged).toBeUndefined();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    expect(backend.state.runtime.code_embedding?.model).toBe("code-embed-2");
   });
 });

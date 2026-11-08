@@ -15,6 +15,7 @@ import { useSettings } from "@/features/settings/settings-context";
 import type { DraftChunkingTokenizer, DraftChunkingUnit } from "@/utils/settings";
 
 import { EmbeddingBlock } from "./embedding-controls";
+import { CodeEmbeddingBlock } from "./code-embedding-controls";
 import { FileLibraryBlock } from "./file-library-block";
 import { TestConnectionButton, VectorRebuildControl } from "./test-connection-button";
 
@@ -111,6 +112,8 @@ export function RuntimeSection() {
         ) : null}
 
         <EmbeddingBlock />
+
+        <CodeEmbeddingBlock />
 
         <SettingsBlock
           id="settings-qdrant"

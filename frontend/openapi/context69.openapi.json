@@ -9704,7 +9704,8 @@
           "path_exact",
           "path_phrase",
           "chunk_phrase",
-          "chunk_terms"
+          "chunk_terms",
+          "semantic"
         ]
       },
       "GitCodeSearchHit": {
@@ -9841,6 +9842,8 @@
           "commit_sha",
           "index_status",
           "checkpoint",
+          "requested_profile",
+          "effective_profile",
           "file_count",
           "excluded_file_count",
           "total_bytes",
@@ -9855,6 +9858,10 @@
           "commit_sha": {
             "type": "string",
             "description": "Pinned snapshot commit the serving generation covers."
+          },
+          "effective_profile": {
+            "$ref": "#/components/schemas/GitIndexProfile",
+            "description": "The profile the response actually answered with. It is `lexical` when a\nrequested semantic channel fell back."
           },
           "excluded_file_count": {
             "type": "integer",
@@ -9893,6 +9900,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "requested_profile": {
+            "$ref": "#/components/schemas/GitIndexProfile",
+            "description": "The repository's configured index profile, the channel the caller asked\nfor through registration."
+          },
           "total_bytes": {
             "type": "integer",
             "format": "int64"
@@ -9900,8 +9911,29 @@
           "truncated": {
             "type": "boolean",
             "description": "Whether more matching hits existed than this response returns."
+          },
+          "vector_unavailable": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitCodeVectorUnavailableReason",
+                "description": "Present only when a semantic channel was requested and could not run."
+              }
+            ]
           }
         }
+      },
+      "GitCodeVectorUnavailableReason": {
+        "type": "string",
+        "description": "Why a requested semantic code channel answered with lexical results only.\n\n`None` means the semantic channel ran (or was not requested). Every value is\nan explicit, non-secret reason: no identity, no record for the serving\ngeneration, a destination/identity mismatch, or an unavailable runtime.",
+        "enum": [
+          "not_configured",
+          "generation_not_vectorized",
+          "identity_mismatch",
+          "runtime_unavailable"
+        ]
       },
       "GitCommitCheckpoint": {
         "type": "object",
@@ -12734,6 +12766,52 @@
           }
         }
       },
+      "RuntimeCodeEmbeddingSettings": {
+        "type": "object",
+        "description": "The stored optional Git code embedding settings.\n\nThis block is independent of the document embedding block: it never borrows\nthe document model, credential, or object. `has_api_key` is presence\nmetadata only; the credential is never returned.",
+        "required": [
+          "enabled",
+          "base_url",
+          "model",
+          "dimensions",
+          "timeout_secs",
+          "has_api_key"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "batching": {
+            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
+            "description": "The manual limits of the code embedding request planner."
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "has_api_key": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model code queries are embedded with. Absent means the code model."
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "RuntimeEmbeddingSettings": {
         "type": "object",
         "required": [
@@ -12948,6 +13026,17 @@
         "properties": {
           "chunking": {
             "$ref": "#/components/schemas/RuntimeChunkingSettings"
+          },
+          "code_embedding": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/RuntimeCodeEmbeddingSettings",
+                "description": "The optional, independent Git code embedding configuration.\n\nAbsent when the deployment never stored a code row. A present value with\n`enabled = false` is an explicitly disabled configuration that retains\nits non-secret fields."
+              }
+            ]
           },
           "embedding": {
             "$ref": "#/components/schemas/RuntimeEmbeddingSettings"
@@ -15574,9 +15663,17 @@
           }
         }
       },
+      "TestRuntimeEmbeddingPurpose": {
+        "type": "string",
+        "description": "The independent embedding configuration a probe targets.",
+        "enum": [
+          "document",
+          "code"
+        ]
+      },
       "TestRuntimeEmbeddingRequest": {
         "type": "object",
-        "description": "A non-persisting embedding provider probe.\n\nAn absent `api_key` falls back to the stored key, so a saved deployment can\nbe tested without re-entering the credential; a submitted key is used as\ngiven and never written.",
+        "description": "The non-persisting embedding provider probe.\n\nAn absent `api_key` falls back to the stored key for the selected purpose, so\na saved deployment can be tested without re-entering the credential; a\nsubmitted key is used as given and never written.",
         "required": [
           "base_url",
           "model",
@@ -15599,6 +15696,10 @@
           },
           "model": {
             "type": "string"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/TestRuntimeEmbeddingPurpose",
+            "description": "Which independent embedding configuration the probe exercises."
           },
           "query_model": {
             "type": [
@@ -16162,6 +16263,49 @@
           }
         }
       },
+      "UpdateCodeEmbeddingSettings": {
+        "type": "object",
+        "description": "The optional code embedding update.\n\nThe tri-state secret patch follows the settings contract: `keep` retains the\nstored code credential, `set` replaces it, and `clear` removes it. Disabling\nthe block keeps every non-secret field and the credential unless the caller\nexplicitly clears the key.",
+        "required": [
+          "enabled",
+          "base_url",
+          "model",
+          "dimensions",
+          "timeout_secs"
+        ],
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/SecretPatch"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "batching": {
+            "$ref": "#/components/schemas/EmbeddingBatchingSettings"
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "UpdateDoclingConnectionSettings": {
         "type": "object",
         "required": [
@@ -16495,6 +16639,17 @@
         "properties": {
           "chunking": {
             "$ref": "#/components/schemas/RuntimeChunkingSettings"
+          },
+          "code_embedding": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/UpdateCodeEmbeddingSettings",
+                "description": "The optional code embedding block.\n\nAn absent or `null` field skips every code write, preserving the stored\nrow and credential, so an older client cannot disable code embedding."
+              }
+            ]
           },
           "embedding": {
             "$ref": "#/components/schemas/UpdateRuntimeEmbeddingSettings"

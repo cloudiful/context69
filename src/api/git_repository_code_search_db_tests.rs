@@ -18,6 +18,9 @@ use crate::db::StoredGitRepositorySource;
 use super::super::git_repository_code_search::{SearchFilters, search_response};
 use super::super::git_repository_files::serving_generation;
 use super::fixture::{index_with_code, language_of, lexical, query};
+use crate::contracts::sources::GitIndexProfile;
+use crate::qdrant_index::code_vectors::CodeVectorQueryHit;
+use crate::services::git_repository::code_search::{lexical_outcome, semantic_hydration_keys};
 
 /// The term every stored file of the fixture carries.
 const TERM: &str = "alpha marker";
@@ -42,11 +45,18 @@ async fn a_ready_generation_searches_and_reports_its_provenance() {
         &filters.query,
         filters.path_prefix.as_deref(),
         filters.language.as_deref(),
-        filters.fetch_limit(),
+        filters.limit + 1,
     )
     .await;
     assert_eq!(hits.len(), 3, "all three stored files carry the term");
-    let response = search_response(&source, &generation, hits, filters.limit);
+    let response = search_response(&lexical_outcome(
+        &source,
+        &generation,
+        hits,
+        filters.limit,
+        GitIndexProfile::Lexical,
+        None,
+    ));
     assert_eq!(response.generation_key, generation_key);
     assert_eq!(response.generation_number, generation.generation_number);
     assert_eq!(response.commit_sha, generation.commit_sha);
@@ -211,7 +221,14 @@ async fn the_extra_row_reports_truncation_without_returning_it() {
     // reports truncation and still returns a single hit.
     let hits = lexical(&fixture, fixture.group_id, own.clone(), TERM, None, None, 2).await;
     assert_eq!(hits.len(), 2, "the read asks for limit + 1 rows");
-    let response = search_response(&source, &generation, hits, 1);
+    let response = search_response(&lexical_outcome(
+        &source,
+        &generation,
+        hits,
+        1,
+        GitIndexProfile::Lexical,
+        None,
+    ));
     assert!(response.truncated, "a dropped hit is reported");
     assert_eq!(response.hits.len(), 1, "the probe row is not returned");
 
@@ -219,9 +236,139 @@ async fn the_extra_row_reports_truncation_without_returning_it() {
     // read asked for one more row than the limit and got fewer back.
     let all = lexical(&fixture, fixture.group_id, own, TERM, None, None, 4).await;
     assert_eq!(all.len(), 3, "three stored files match");
-    assert!(!search_response(&source, &generation, all, 3).truncated);
+    let complete = search_response(&lexical_outcome(
+        &source,
+        &generation,
+        all,
+        3,
+        GitIndexProfile::Lexical,
+        None,
+    ));
+    assert!(!complete.truncated);
 
     fixture.cleanup(&[fixture.group_id]).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn hydration_is_scoped_by_generation_visibility_path_and_language() {
+    let fixture = Fixture::setup().await;
+    let generation_key = index_with_code(&fixture).await;
+    let own = vec![fixture.group_id];
+
+    // The lexical channel supplies the canonical candidate keys; hydration must
+    // then read only rows stored under the captured generation and admit the
+    // caller's current visibility and filters.
+    let candidates = lexical(
+        &fixture,
+        fixture.group_id,
+        own.clone(),
+        TERM,
+        None,
+        None,
+        10,
+    )
+    .await;
+    assert_eq!(candidates.len(), 3);
+    let keys: Vec<uuid::Uuid> = candidates.iter().map(|hit| hit.chunk_key).collect();
+
+    let all = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            fixture.group_id,
+            fixture.repository_key,
+            generation_key,
+            &keys,
+            None,
+            None,
+            &own,
+        )
+        .await
+        .expect("hydrate the active generation");
+    assert_eq!(all.len(), 3, "every candidate is stored in this generation");
+
+    let scoped = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            fixture.group_id,
+            fixture.repository_key,
+            generation_key,
+            &keys,
+            Some("src/"),
+            None,
+            &own,
+        )
+        .await
+        .expect("hydrate with a path prefix");
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0].path, "src/alpha.rs");
+
+    let markdown = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            fixture.group_id,
+            fixture.repository_key,
+            generation_key,
+            &keys,
+            None,
+            Some(language_of("README.md")),
+            &own,
+        )
+        .await
+        .expect("hydrate with a language");
+    assert_eq!(markdown.len(), 2);
+    assert!(markdown.iter().all(|row| row.language == "markdown"));
+
+    // A scope without the private owner sees no row, and a foreign group id
+    // cannot reach the rows at all.
+    let anonymous = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            fixture.group_id,
+            fixture.repository_key,
+            generation_key,
+            &keys,
+            None,
+            None,
+            &[],
+        )
+        .await
+        .expect("hydrate without the owner in scope");
+    assert!(anonymous.is_empty(), "a private group stays out of scope");
+
+    let foreign_group_id = fixture.foreign_group().await;
+    let foreign = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            foreign_group_id,
+            fixture.repository_key,
+            generation_key,
+            &keys,
+            None,
+            None,
+            &[foreign_group_id],
+        )
+        .await
+        .expect("hydrate as a foreign group");
+    assert!(foreign.is_empty(), "a foreign group reads no row");
+
+    // A superseded or forged generation key matches no stored chunk.
+    let absent = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            fixture.group_id,
+            fixture.repository_key,
+            uuid::Uuid::new_v4(),
+            &keys,
+            None,
+            None,
+            &own,
+        )
+        .await
+        .expect("hydrate an unknown generation");
+    assert!(absent.is_empty(), "an unknown generation never answers");
+
+    fixture.cleanup(&[fixture.group_id, foreign_group_id]).await;
 }
 
 #[tokio::test]
@@ -313,4 +460,72 @@ async fn a_foreign_group_reads_no_hits() {
     );
 
     fixture.cleanup(&[fixture.group_id, foreign_group_id]).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn production_semantic_key_selection_hydrates_overlap_and_rejects_unauthorized_candidates() {
+    let fixture = Fixture::setup().await;
+    let generation_key = index_with_code(&fixture).await;
+    let own = vec![fixture.group_id];
+    let candidates = lexical(
+        &fixture,
+        fixture.group_id,
+        own.clone(),
+        TERM,
+        None,
+        None,
+        10,
+    )
+    .await;
+    assert_eq!(candidates.len(), 3);
+
+    // Every lexical candidate is also a vector candidate here, and one forged
+    // key is added: the production selector must try all of them, while the
+    // scoped hydration statement decides which rows may answer.
+    let mut vector_hits = candidates
+        .iter()
+        .enumerate()
+        .map(|(index, hit)| CodeVectorQueryHit {
+            chunk_key: hit.chunk_key,
+            score: 1.0 - index as f32 * 0.1,
+        })
+        .collect::<Vec<_>>();
+    let forged = uuid::Uuid::new_v4();
+    vector_hits.push(CodeVectorQueryHit {
+        chunk_key: forged,
+        score: 0.5,
+    });
+    let keys = semantic_hydration_keys(&vector_hits);
+    assert_eq!(
+        keys.len(),
+        4,
+        "all vector keys are selected, overlap included"
+    );
+
+    let rows = fixture
+        .db
+        .hydrate_git_generation_chunks_by_keys(
+            fixture.group_id,
+            fixture.repository_key,
+            generation_key,
+            &keys,
+            None,
+            None,
+            &own,
+        )
+        .await
+        .expect("hydrate the selected vector candidates");
+    assert_eq!(rows.len(), 3, "the forged key matches no scoped row");
+    assert!(rows.iter().all(|row| row.chunk_key != forged));
+    assert_eq!(
+        rows.iter()
+            .map(|row| row.chunk_key)
+            .collect::<std::collections::HashSet<_>>()
+            .len(),
+        3,
+        "overlapping keys hydrate their canonical row once"
+    );
+
+    fixture.cleanup(&[fixture.group_id]).await;
 }

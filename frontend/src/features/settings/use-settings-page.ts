@@ -236,6 +236,7 @@ export function useSettingsPage() {
   const [s3Testing, setS3Testing] = useState(false);
   const [valkeyTesting, setValkeyTesting] = useState(false);
   const [embeddingTesting, setEmbeddingTesting] = useState(false);
+  const [codeEmbeddingTesting, setCodeEmbeddingTesting] = useState(false);
   const [qdrantTesting, setQdrantTesting] = useState(false);
   const [doclingTesting, setDoclingTesting] = useState(false);
   const qdrantUrlRevision = useRef(0);
@@ -251,6 +252,12 @@ export function useSettingsPage() {
   useEffect(() => {
     embeddingProbeTargetRef.current = embeddingProbeTarget;
   }, [embeddingProbeTarget]);
+
+  const codeEmbeddingProbeTarget = embeddingProbeSignature(runtimeDraft.code_embedding);
+  const codeEmbeddingProbeTargetRef = useRef(codeEmbeddingProbeTarget);
+  useEffect(() => {
+    codeEmbeddingProbeTargetRef.current = codeEmbeddingProbeTarget;
+  }, [codeEmbeddingProbeTarget]);
 
   const showErrorToast = useCallback((error: unknown, fallback: string) => {
     toast.error(t("common.error"), {
@@ -344,6 +351,21 @@ export function useSettingsPage() {
     setRuntimeDraft((current) => {
       const next = cloneDraft(current);
       mutate(next);
+      return next;
+    });
+  }, []);
+
+  /** Applies a code edit and marks the block pending for the next save. */
+  const updateCodeEmbeddingDraft = useCallback((
+    mutate: (draft: DraftRuntimeSettings["code_embedding"]) => void,
+  ) => {
+    runtimeRevision.current += 1;
+    setCompatibilityOpen(false);
+    setCompatibilityCandidate(null);
+    setRuntimeDraft((current) => {
+      const next = cloneDraft(current);
+      mutate(next.code_embedding);
+      next.code_embedding.touched = true;
       return next;
     });
   }, []);
@@ -899,6 +921,38 @@ export function useSettingsPage() {
     }
   }, [runtimeDraft.embedding, showErrorToast, t]);
 
+  const testCodeEmbeddingConnection = useCallback(async () => {
+    const draft = runtimeDraft.code_embedding;
+    const request = {
+      purpose: "code" as const,
+      base_url: draft.base_url.trim(),
+      model: draft.model.trim(),
+      query_model: draft.query_model.trim() || undefined,
+      dimensions: draft.dimensions,
+      timeout_secs: draft.timeout_secs,
+      api_key: draft.api_key.trim() || undefined,
+    };
+    const requestRevision = runtimeRevision.current;
+    const requestSignature = embeddingProbeSignature(request);
+    const isStale = () => requestRevision !== runtimeRevision.current
+      || codeEmbeddingProbeTargetRef.current !== requestSignature;
+    setCodeEmbeddingTesting(true);
+    try {
+      await apiClient.testEmbeddingConnection(request);
+      if (isStale()) {
+        return;
+      }
+      toast.success(t("settings.runtime.codeEmbeddingTestSuccess"), { duration: 2500 });
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      showErrorToast(error, t("settings.runtime.codeEmbeddingTestFailed"));
+    } finally {
+      setCodeEmbeddingTesting(false);
+    }
+  }, [runtimeDraft.code_embedding, showErrorToast, t]);
+
   /**
    * Probe the unsaved Qdrant URL. The revision captured at request start must
    * still match when the outcome arrives, so editing the URL away — even back
@@ -953,6 +1007,7 @@ export function useSettingsPage() {
   return {
     appearance,
     cancelCompatibility,
+    codeEmbeddingTesting,
     compatibilityCandidate,
     compatibilityOpen,
     confirmCompatibility,
@@ -982,6 +1037,7 @@ export function useSettingsPage() {
     selectedTokenizerPreset,
     selectedTokenizerStatus,
     setRerankApiKeyDraft,
+    testCodeEmbeddingConnection,
     testDoclingConnection,
     testEmbeddingConnection,
     testQdrantConnection,
@@ -993,6 +1049,7 @@ export function useSettingsPage() {
     translationProviders,
     translationQuery,
     updateDoclingDraft,
+    updateCodeEmbeddingDraft,
     updateQdrantUrl,
     updateRuntimeDraft,
     updateSearchDraft,
