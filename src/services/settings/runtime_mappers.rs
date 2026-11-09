@@ -1,4 +1,5 @@
 use crate::{
+    config::EmbeddingConfig,
     contracts::{
         RuntimeChunkingSettings, RuntimeCodeEmbeddingSettings, RuntimeEmbeddingSettings,
         RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
@@ -205,6 +206,24 @@ pub(super) fn runtime_settings_from_request(
                     secret_key: None,
                 }),
         },
+    }
+}
+
+/// The pure code stored-settings projection shared by settings apply, update,
+/// and app hydration. The caller supplies the credential it resolved.
+pub(crate) fn code_embedding_config(
+    code: &StoredRuntimeCodeEmbeddingSettings,
+    api_key: Option<String>,
+) -> EmbeddingConfig {
+    EmbeddingConfig {
+        base_url: code.base_url.trim().to_string(),
+        api_key,
+        model: code.model.trim().to_string(),
+        query_model: code.query_model.clone(),
+        dimensions: code.dimensions,
+        timeout: std::time::Duration::from_secs(code.timeout_secs),
+        batching: code.batching,
+        input_policy: Default::default(),
     }
 }
 

@@ -34,7 +34,7 @@ pub(crate) mod secrets;
 pub mod tokenizer_provisioning;
 mod validate;
 
-pub(crate) use runtime_mappers::stored_chunk_budget;
+pub(crate) use runtime_mappers::{code_embedding_config, stored_chunk_budget};
 
 use self::{
     mappers::{
@@ -312,16 +312,10 @@ impl SettingsService {
             self.code_embedding.disable();
             return Ok(());
         };
-        self.install_code_embedding_config(&crate::config::EmbeddingConfig {
-            base_url: code.base_url.trim().to_string(),
-            api_key: code.api_key.clone(),
-            model: code.model.trim().to_string(),
-            query_model: code.query_model.clone(),
-            dimensions: code.dimensions,
-            timeout: Duration::from_secs(code.timeout_secs),
-            batching: code.batching,
-            input_policy: Default::default(),
-        })
+        self.install_code_embedding_config(&runtime_mappers::code_embedding_config(
+            code,
+            code.api_key.clone(),
+        ))
     }
 
     /// Builds and atomically installs one code provider configuration.
@@ -647,16 +641,7 @@ impl SettingsService {
         };
         let code_candidate = match &stored_code {
             Some(code) if code.enabled => {
-                let config = crate::config::EmbeddingConfig {
-                    base_url: code.base_url.trim().to_string(),
-                    api_key: code_api_key.clone(),
-                    model: code.model.trim().to_string(),
-                    query_model: code.query_model.clone(),
-                    dimensions: code.dimensions,
-                    timeout: Duration::from_secs(code.timeout_secs),
-                    batching: code.batching,
-                    input_policy: Default::default(),
-                };
+                let config = runtime_mappers::code_embedding_config(code, code_api_key.clone());
                 Some((build_code_provider(&config)?, config))
             }
             _ => None,

@@ -16,6 +16,7 @@ use crate::db::{
     GitGroupOwnership, StoredGitGenerationCodeVectors, StoredGitRepositoryGeneration,
     StoredGitRepositorySource,
 };
+use crate::qdrant_index::SearchPointHit;
 use crate::services::git_repository::code_vectors::{CodeVectorRequest, code_vector_target};
 use crate::services::git_repository::support::{FakeCodeProvider, code_snapshot};
 
@@ -127,9 +128,9 @@ fn hydration(path: &str, index: i32) -> StoredGitCodeChunkHydration {
     }
 }
 
-fn vector_hit(index: i32, score: f32) -> CodeVectorQueryHit {
-    CodeVectorQueryHit {
-        chunk_key: chunk_key(index as u128),
+fn vector_hit(index: i32, score: f32) -> SearchPointHit {
+    SearchPointHit {
+        chunk_id: chunk_key(index as u128),
         score,
     }
 }

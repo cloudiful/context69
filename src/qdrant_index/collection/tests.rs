@@ -1,4 +1,9 @@
-use qdrant_client::qdrant::FieldType;
+use std::collections::HashMap;
+
+use qdrant_client::qdrant::{
+    CollectionConfig, CollectionInfo, CollectionParams, Distance, FieldType, VectorParams,
+    VectorParamsMap, VectorsConfig, vectors_config,
+};
 
 use super::super::errors::RebuildTargetCollisionReason;
 use super::{
@@ -13,6 +18,135 @@ use super::{
 /// enum variant that takes a free-form `String` we control end-to-end.
 fn error_mirroring_response_error(text: &str) -> qdrant_client::QdrantError {
     qdrant_client::QdrantError::ConversionError(format!("Error in the response: {text}"))
+}
+
+#[test]
+fn code_collection_rejects_a_non_cosine_distance() {
+    let dot_collection = collection_info_with_vectors(single_dense_vector(8, Distance::Dot));
+    assert_eq!(super::code_vector_size_single(&dot_collection), None);
+}
+
+#[test]
+fn code_collection_admits_only_a_single_dense_cosine_vector() {
+    let cases = [
+        (
+            "cosine at 8",
+            single_dense_vector(8, Distance::Cosine),
+            Some(8),
+        ),
+        (
+            "cosine at 1024",
+            single_dense_vector(1024, Distance::Cosine),
+            Some(1024),
+        ),
+        ("dot", single_dense_vector(8, Distance::Dot), None),
+        ("euclid", single_dense_vector(8, Distance::Euclid), None),
+        (
+            "manhattan",
+            single_dense_vector(8, Distance::Manhattan),
+            None,
+        ),
+        (
+            "unknown distance",
+            single_dense_vector(8, Distance::UnknownDistance),
+            None,
+        ),
+        (
+            "multi-vector cosine",
+            vectors_config::Config::Params(VectorParams {
+                size: 8,
+                distance: Distance::Cosine as i32,
+                multivector_config: Some(qdrant_client::qdrant::MultiVectorConfig::default()),
+                ..Default::default()
+            }),
+            None,
+        ),
+    ];
+    for (case, vectors, expected) in cases {
+        assert_eq!(
+            super::code_vector_size_single(&collection_info_with_vectors(vectors)),
+            expected,
+            "{case} must be handled as {expected:?}"
+        );
+    }
+}
+
+#[test]
+fn code_collection_rejects_named_vector_maps() {
+    let named_collection = collection_info_with_vectors(named_dense_vector(8, Distance::Cosine));
+    assert_eq!(
+        super::code_vector_size_single(&named_collection),
+        None,
+        "a named-vector map is a different collection type"
+    );
+}
+
+#[test]
+fn document_vector_reader_keeps_its_params_and_params_map_tolerance() {
+    assert_eq!(
+        super::collection_vector_size(&collection_info_with_vectors(single_dense_vector(
+            8,
+            Distance::Dot
+        ))),
+        Some(8),
+        "the document path keeps its existing distance tolerance"
+    );
+    assert_eq!(
+        super::collection_vector_size(&collection_info_with_vectors(named_dense_vector(
+            8,
+            Distance::Euclid
+        ))),
+        Some(8),
+        "the document path keeps its ParamsMap tolerance"
+    );
+    assert_eq!(
+        super::collection_vector_size(&collection_info_with_vectors(
+            vectors_config::Config::Params(VectorParams {
+                size: 8,
+                distance: Distance::Cosine as i32,
+                multivector_config: Some(qdrant_client::qdrant::MultiVectorConfig::default()),
+                ..Default::default()
+            })
+        )),
+        Some(8),
+        "the document path keeps its existing multi-vector tolerance"
+    );
+}
+
+fn collection_info_with_vectors(vectors: vectors_config::Config) -> CollectionInfo {
+    CollectionInfo {
+        config: Some(CollectionConfig {
+            params: Some(CollectionParams {
+                vectors_config: Some(VectorsConfig {
+                    config: Some(vectors),
+                }),
+                ..Default::default()
+            }),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+fn single_dense_vector(size: u64, distance: Distance) -> vectors_config::Config {
+    vectors_config::Config::Params(VectorParams {
+        size,
+        distance: distance as i32,
+        ..Default::default()
+    })
+}
+
+fn named_dense_vector(size: u64, distance: Distance) -> vectors_config::Config {
+    vectors_config::Config::ParamsMap(VectorParamsMap {
+        map: HashMap::from([(
+            "named".to_string(),
+            VectorParams {
+                size,
+                distance: distance as i32,
+                ..Default::default()
+            },
+        )]),
+    })
 }
 
 #[test]
@@ -442,6 +576,20 @@ async fn a_cancelled_authority_during_existence_discovery_starts_no_create() {
         "a cancelled authority starts no create RPC"
     );
     mock.shutdown().await;
+}
+
+#[test]
+fn the_collection_shape_selects_its_own_payload_indexes() {
+    assert_eq!(
+        super::CollectionShape::Document.payload_field_indexes(),
+        PAYLOAD_FIELD_INDEXES,
+        "the document shape keeps the baseline payload indexes"
+    );
+    assert_eq!(
+        super::CollectionShape::Code.payload_field_indexes(),
+        CODE_PAYLOAD_FIELD_INDEXES,
+        "the code shape keeps the isolated code payload indexes"
+    );
 }
 
 #[test]

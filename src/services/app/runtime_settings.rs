@@ -13,6 +13,7 @@ use crate::{
     },
     services::{
         secret_store::SecretStore,
+        settings::code_embedding_config,
         settings::secrets::{SettingsSecrets, optional_key_patch},
         settings::stored_chunk_budget,
     },
@@ -225,16 +226,9 @@ pub fn apply_code_embedding_settings(
     config: &mut Config,
     code: &StoredRuntimeCodeEmbeddingSettings,
 ) {
-    config.code_embedding = code.enabled.then(|| EmbeddingConfig {
-        base_url: code.base_url.clone(),
-        api_key: code.api_key.clone(),
-        model: code.model.clone(),
-        query_model: code.query_model.clone(),
-        dimensions: code.dimensions,
-        timeout: Duration::from_secs(code.timeout_secs),
-        batching: code.batching,
-        input_policy: Default::default(),
-    });
+    config.code_embedding = code
+        .enabled
+        .then(|| code_embedding_config(code, code.api_key.clone()));
 }
 
 /// The same read for paths that must not write while they initialize.

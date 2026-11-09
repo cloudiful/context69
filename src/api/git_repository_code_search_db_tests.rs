@@ -19,7 +19,7 @@ use super::super::git_repository_code_search::{SearchFilters, search_response};
 use super::super::git_repository_files::serving_generation;
 use super::fixture::{index_with_code, language_of, lexical, query};
 use crate::contracts::sources::GitIndexProfile;
-use crate::qdrant_index::code_vectors::CodeVectorQueryHit;
+use crate::qdrant_index::SearchPointHit;
 use crate::services::git_repository::code_search::{lexical_outcome, semantic_hydration_keys};
 
 /// The term every stored file of the fixture carries.
@@ -486,14 +486,14 @@ async fn production_semantic_key_selection_hydrates_overlap_and_rejects_unauthor
     let mut vector_hits = candidates
         .iter()
         .enumerate()
-        .map(|(index, hit)| CodeVectorQueryHit {
-            chunk_key: hit.chunk_key,
+        .map(|(index, hit)| SearchPointHit {
+            chunk_id: hit.chunk_key,
             score: 1.0 - index as f32 * 0.1,
         })
         .collect::<Vec<_>>();
     let forged = uuid::Uuid::new_v4();
-    vector_hits.push(CodeVectorQueryHit {
-        chunk_key: forged,
+    vector_hits.push(SearchPointHit {
+        chunk_id: forged,
         score: 0.5,
     });
     let keys = semantic_hydration_keys(&vector_hits);

@@ -16,7 +16,7 @@ use anyhow::Result;
 
 use crate::{
     config::EmbeddingConfig,
-    embedding::{EmbeddingProvider, OpenAiCompatibleEmbeddingProvider},
+    embedding::{EmbeddingProvider, build_provider},
 };
 
 /// The versioned code-specific input policy identity.
@@ -88,14 +88,9 @@ impl CodeEmbeddingRuntime {
     }
 }
 
-/// Builds the provider for a code configuration.
-///
-/// Construction performs no network I/O, so a failed build leaves the current
-/// snapshot untouched.
+/// Thin alias of the shared provider builder.
 pub fn build_code_provider(config: &EmbeddingConfig) -> Result<Arc<dyn EmbeddingProvider>> {
-    Ok(Arc::new(OpenAiCompatibleEmbeddingProvider::new(
-        config.clone(),
-    )?))
+    build_provider(config)
 }
 
 /// The deterministic identity of one code vector space.

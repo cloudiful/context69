@@ -30,7 +30,7 @@ use crate::db::{
 use crate::domain::{AccessScope, GroupRecord};
 use crate::domain_errors::DomainError;
 use crate::qdrant_index::QdrantIndex;
-use crate::qdrant_index::code_vectors::CodeVectorQueryHit;
+use crate::qdrant_index::SearchPointHit;
 use crate::services::settings::SettingsService;
 
 use super::code_vectors::{CodeVectorRequest, CodeVectorTarget, code_vector_target};
@@ -202,7 +202,7 @@ async fn search_captured(
 /// channel could not run. Database failures stay errors and never become a
 /// lexical success.
 struct VectorChannel {
-    hits: Vec<CodeVectorQueryHit>,
+    hits: Vec<SearchPointHit>,
     unavailable: Option<GitCodeVectorUnavailableReason>,
 }
 
@@ -282,9 +282,12 @@ async fn vector_channel(
         collection_name: metadata.collection_name.clone(),
         recreate_on_dimension_mismatch: false,
     };
-    let Ok(index) =
-        QdrantIndex::attach_read_only_collection(&config, &metadata.collection_name, dimensions)
-            .await
+    let Ok(index) = QdrantIndex::attach_code_read_only_collection(
+        &config,
+        &metadata.collection_name,
+        dimensions,
+    )
+    .await
     else {
         tracing::warn!(
             repository_key = %source.repository_key,
@@ -320,7 +323,7 @@ async fn vector_channel(
         right
             .score
             .total_cmp(&left.score)
-            .then_with(|| left.chunk_key.cmp(&right.chunk_key))
+            .then_with(|| left.chunk_id.cmp(&right.chunk_id))
     });
     Ok(VectorChannel {
         hits,
@@ -424,8 +427,8 @@ pub(crate) fn lexical_outcome(
 /// rows, so excluding an overlapping key would silently drop a valid candidate.
 /// The scoped hydration statement still revalidates generation, group,
 /// visibility, path, and language for every key.
-pub(crate) fn semantic_hydration_keys(vector_hits: &[CodeVectorQueryHit]) -> Vec<Uuid> {
-    vector_hits.iter().map(|hit| hit.chunk_key).collect()
+pub(crate) fn semantic_hydration_keys(vector_hits: &[SearchPointHit]) -> Vec<Uuid> {
+    vector_hits.iter().map(|hit| hit.chunk_id).collect()
 }
 
 /// Assemble the channel result for the requested profile.
@@ -437,7 +440,7 @@ pub(crate) fn semantic_hydration_keys(vector_hits: &[CodeVectorQueryHit]) -> Vec
 fn assemble_semantic_result(
     requested: GitIndexProfile,
     lexical: &[GitCodeLexicalHit],
-    vector_hits: &[CodeVectorQueryHit],
+    vector_hits: &[SearchPointHit],
     hydrated: &HashMap<Uuid, StoredGitCodeChunkHydration>,
     limit: i64,
 ) -> (Vec<GitCodeSearchHit>, bool) {
@@ -449,7 +452,7 @@ fn assemble_semantic_result(
 }
 
 fn full_semantic_result(
-    vector: &[CodeVectorQueryHit],
+    vector: &[SearchPointHit],
     hydrated: &HashMap<Uuid, StoredGitCodeChunkHydration>,
     limit: i64,
 ) -> (Vec<GitCodeSearchHit>, bool) {
@@ -457,13 +460,13 @@ fn full_semantic_result(
         .iter()
         .filter_map(|hit| {
             hydrated
-                .get(&hit.chunk_key)
+                .get(&hit.chunk_id)
                 .map(|row| search_hit_from_hydration(row, hit.score, GitCodeMatchKind::Semantic))
         })
         .collect::<Vec<_>>();
     let dropped = vector
         .iter()
-        .filter(|hit| !hydrated.contains_key(&hit.chunk_key))
+        .filter(|hit| !hydrated.contains_key(&hit.chunk_id))
         .count();
     let mut ordered = kept;
     sort_hits(&mut ordered);
@@ -473,7 +476,7 @@ fn full_semantic_result(
 
 fn hybrid_result(
     lexical: &[GitCodeLexicalHit],
-    vector: &[CodeVectorQueryHit],
+    vector: &[SearchPointHit],
     hydrated: &HashMap<Uuid, StoredGitCodeChunkHydration>,
     limit: i64,
 ) -> (Vec<GitCodeSearchHit>, bool) {
@@ -485,7 +488,7 @@ fn hybrid_result(
     }
     let mut vector_rank: HashMap<Uuid, usize> = HashMap::new();
     for (index, hit) in vector.iter().enumerate() {
-        vector_rank.entry(hit.chunk_key).or_insert(index + 1);
+        vector_rank.entry(hit.chunk_id).or_insert(index + 1);
     }
 
     let mut keys: Vec<Uuid> = Vec::new();
@@ -493,7 +496,7 @@ fn hybrid_result(
     for hit in lexical.iter().map(|hit| hit.chunk_key).chain(
         vector
             .iter()
-            .map(|hit| hit.chunk_key)
+            .map(|hit| hit.chunk_id)
             .filter(|key| !lexical_by_key.contains_key(key)),
     ) {
         if seen.insert(hit) {
@@ -504,7 +507,7 @@ fn hybrid_result(
     let dropped = vector
         .iter()
         .filter(|hit| {
-            !lexical_by_key.contains_key(&hit.chunk_key) && !hydrated.contains_key(&hit.chunk_key)
+            !lexical_by_key.contains_key(&hit.chunk_id) && !hydrated.contains_key(&hit.chunk_id)
         })
         .count();
     let mut hits = keys
