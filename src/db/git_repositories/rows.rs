@@ -83,6 +83,16 @@ pub(crate) struct GitActiveGenerationRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
+pub(crate) struct GitGenerationCodeVectorsRow {
+    pub generation_key: Uuid,
+    pub fingerprint: String,
+    pub dimensions: i64,
+    pub collection_name: String,
+    pub point_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, FromRow)]
 pub(crate) struct GitWebhookRegistrationRow {
     pub repository_key: Uuid,
     pub provider_kind: String,
@@ -103,4 +113,24 @@ pub(crate) struct GitWebhookDeliveryRow {
     pub target_commit_sha: Option<String>,
     pub received_at: DateTime<Utc>,
     pub processed_at: Option<DateTime<Utc>>,
+}
+
+/// One canonically hydrated chunk selected by chunk key from the active ready
+/// generation. No score or match kind: fusion assigns those after hydration.
+#[derive(Debug, Clone, FromRow)]
+pub(crate) struct GitCodeChunkHydrationRow {
+    pub repository_key: Uuid,
+    pub generation_key: Uuid,
+    pub generation_number: i64,
+    pub ref_name: String,
+    pub commit_sha: String,
+    pub group_visibility: String,
+    pub file_key: Uuid,
+    pub path: String,
+    pub language: String,
+    pub chunk_key: Uuid,
+    pub chunk_index: i32,
+    pub start_line: i32,
+    pub end_line: i32,
+    pub chunk_text: String,
 }

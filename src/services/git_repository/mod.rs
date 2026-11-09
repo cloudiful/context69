@@ -21,7 +21,9 @@
 
 mod bounds;
 mod classify;
+pub(crate) mod code_search;
 mod code_text;
+pub(crate) mod code_vectors;
 pub(crate) mod connection_readiness;
 mod github_client;
 mod github_schemas;
@@ -58,16 +60,20 @@ pub(crate) mod support {
     use sqlx::Row;
     use uuid::Uuid;
 
+    use crate::code_embedding_runtime::CodeEmbeddingSnapshot;
     use crate::contracts::sources::{
         GitIndexProfile, GitIndexStatus, GitProviderKind, GitRefreshPolicy,
     };
     use crate::db::{
         Database, GitCheckpointUpdate, GitGenerationCoverage, NewGitRepositoryGeneration,
-        NewGitRepositorySource, StoredGitGenerationChunk, StoredGitGenerationFile,
-        StoredGitRepositoryGeneration, StoredGitRepositorySource,
+        NewGitRepositorySource, StoredGitGenerationChunk, StoredGitGenerationCodeVectors,
+        StoredGitGenerationFile, StoredGitRepositoryGeneration, StoredGitRepositorySource,
     };
     use crate::domain_errors::DomainError;
+    use crate::embedding::EmbeddingProvider;
+    use crate::qdrant_index::code_vectors::CodeVectorPoint;
 
+    use super::code_vectors::CodeVectorSink;
     use super::github_client::RepositoryAcquirer;
     use super::github_transport::{GitHttpTransport, TransportResponse};
     use super::index_generation::GitSnapshotProvider;
@@ -86,6 +92,96 @@ pub(crate) mod support {
     impl GitHttpTransport for NeverTransport {
         async fn get(&self, _url: &str, _max_body_bytes: usize) -> Result<TransportResponse> {
             Err(anyhow!("the test transport never calls the network"))
+        }
+    }
+
+    /// Deterministic code provider used by the code-vector orchestration tests.
+    pub(crate) struct FakeCodeProvider {
+        pub(crate) dimensions: usize,
+        pub(crate) calls: Arc<AtomicUsize>,
+        pub(crate) fail: bool,
+    }
+
+    impl FakeCodeProvider {
+        pub(crate) fn new(dimensions: usize, fail: bool) -> Arc<Self> {
+            Arc::new(Self {
+                dimensions,
+                calls: Arc::new(AtomicUsize::new(0)),
+                fail,
+            })
+        }
+    }
+
+    #[async_trait]
+    impl EmbeddingProvider for FakeCodeProvider {
+        async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.fail {
+                return Err(anyhow!("git_code_embedding_failed"));
+            }
+            Ok(texts
+                .iter()
+                .map(|_| vec![0.25_f32; self.dimensions])
+                .collect())
+        }
+    }
+
+    /// Builds an immutable code snapshot around a test provider.
+    pub(crate) fn code_snapshot(
+        provider: Arc<dyn EmbeddingProvider>,
+        dimensions: usize,
+        fingerprint: &str,
+    ) -> Arc<CodeEmbeddingSnapshot> {
+        Arc::new(CodeEmbeddingSnapshot {
+            provider,
+            config: crate::config::EmbeddingConfig {
+                base_url: "http://code.invalid/v1".to_string(),
+                api_key: None,
+                model: "code-model".to_string(),
+                query_model: None,
+                dimensions,
+                timeout: std::time::Duration::from_secs(30),
+                batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
+                input_policy: Default::default(),
+            },
+            fingerprint: fingerprint.to_string(),
+        })
+    }
+
+    /// Records every acknowledged page, optionally failing instead.
+    pub(crate) struct RecordingCodeSink {
+        pub(crate) writes: Mutex<Vec<usize>>,
+        pub(crate) points: Mutex<Vec<CodeVectorPoint>>,
+        pub(crate) fail: bool,
+    }
+
+    impl RecordingCodeSink {
+        pub(crate) fn new(fail: bool) -> Arc<Self> {
+            Arc::new(Self {
+                writes: Mutex::new(Vec::new()),
+                points: Mutex::new(Vec::new()),
+                fail,
+            })
+        }
+
+        pub(crate) fn write_count(&self) -> usize {
+            self.writes.lock().unwrap().len()
+        }
+
+        pub(crate) fn point_count(&self) -> usize {
+            self.points.lock().unwrap().len()
+        }
+    }
+
+    #[async_trait]
+    impl CodeVectorSink for RecordingCodeSink {
+        async fn write(&self, dimensions: usize, points: &[CodeVectorPoint]) -> Result<()> {
+            if self.fail {
+                return Err(anyhow!("git_code_sink_failed"));
+            }
+            self.writes.lock().unwrap().push(dimensions);
+            self.points.lock().unwrap().extend(points.iter().cloned());
+            Ok(())
         }
     }
 
@@ -205,6 +301,7 @@ pub(crate) mod support {
         pub(crate) generations: Vec<StoredGitRepositoryGeneration>,
         pub(crate) files: Vec<StoredGitGenerationFile>,
         pub(crate) chunks: Vec<StoredGitGenerationChunk>,
+        pub(crate) code_vectors: Option<StoredGitGenerationCodeVectors>,
     }
 
     pub(crate) struct Fixture {
@@ -219,14 +316,20 @@ pub(crate) mod support {
         /// The target comes from the shared resolver, so no bespoke URL handling
         /// is left here, and a missing target fails instead of skipping.
         pub(crate) async fn setup() -> Self {
+            Self::setup_with_profile(GitIndexProfile::Lexical).await
+        }
+
+        /// The same fixture registered with an explicit index profile, so code
+        /// vector cases exercise the non-lexical path without a second setup.
+        pub(crate) async fn setup_with_profile(profile: GitIndexProfile) -> Self {
             let url = context69_test_support::accessor::database_url();
             let db = Database::connect(&url)
                 .await
                 .expect("connect test database");
-            Self::seeded(db).await
+            Self::seeded(db, profile).await
         }
 
-        async fn seeded(db: Database) -> Self {
+        async fn seeded(db: Database, profile: GitIndexProfile) -> Self {
             let key = format!("git-index-{}", Uuid::new_v4());
             let group_id = sqlx::query(
                 "INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) \
@@ -252,7 +355,7 @@ pub(crate) mod support {
                         default_branch: "main".to_string(),
                         target_ref: "refs/heads/main".to_string(),
                         target_commit_sha: None,
-                        index_profile: GitIndexProfile::Lexical,
+                        index_profile: profile,
                         refresh_policy: GitRefreshPolicy::Manual,
                     },
                 )
@@ -345,12 +448,22 @@ pub(crate) mod support {
                     .unwrap_or_default(),
                 _ => Vec::new(),
             };
+            let code_vectors = match generation_key {
+                Some(key) => self
+                    .db
+                    .get_git_generation_code_vectors(self.group_id, self.repository_key, key)
+                    .await
+                    .ok()
+                    .flatten(),
+                None => None,
+            };
             Reads {
                 active,
                 source,
                 generations,
                 files,
                 chunks,
+                code_vectors,
             }
         }
 

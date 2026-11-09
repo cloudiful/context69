@@ -25,13 +25,16 @@ pub struct TestRuntimeQdrantRequest {
     pub url: String,
 }
 
-/// A non-persisting embedding provider probe.
+/// The non-persisting embedding provider probe.
 ///
-/// An absent `api_key` falls back to the stored key, so a saved deployment can
-/// be tested without re-entering the credential; a submitted key is used as
-/// given and never written.
+/// An absent `api_key` falls back to the stored key for the selected purpose, so
+/// a saved deployment can be tested without re-entering the credential; a
+/// submitted key is used as given and never written.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TestRuntimeEmbeddingRequest {
+    /// Which independent embedding configuration the probe exercises.
+    #[serde(default)]
+    pub purpose: TestRuntimeEmbeddingPurpose,
     pub base_url: String,
     pub model: String,
     /// The model queries are embedded with. An absent or blank value means the
@@ -42,6 +45,15 @@ pub struct TestRuntimeEmbeddingRequest {
     pub timeout_secs: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+}
+
+/// The independent embedding configuration a probe targets.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TestRuntimeEmbeddingPurpose {
+    #[default]
+    Document,
+    Code,
 }
 
 /// A non-persisting LLM provider probe.

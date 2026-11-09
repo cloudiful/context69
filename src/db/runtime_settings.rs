@@ -8,10 +8,28 @@ use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 use super::{
     Database, RegistryQuotaPolicy, RuntimeChunkingSettingsRow, RuntimeEmbeddingSettingsRow,
     RuntimeFileLibrarySettingsRow, RuntimeQdrantSettingsRow, RuntimeSchedulerSettingsRow,
-    StoredRuntimeChunkingSettings, StoredRuntimeEmbeddingSettings,
-    StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeS3Settings,
-    StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
+    StoredRuntimeChunkingSettings, StoredRuntimeCodeEmbeddingSettings,
+    StoredRuntimeEmbeddingSettings, StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings,
+    StoredRuntimeS3Settings, StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
 };
+
+/// The persisted code embedding settings row.
+///
+/// The row lives here rather than in the shared row module because every field
+/// except `enabled` is nullable for an explicitly disabled configuration.
+#[derive(Debug, Clone, sqlx::FromRow)]
+struct RuntimeCodeEmbeddingSettingsRow {
+    enabled: bool,
+    base_url: Option<String>,
+    model: Option<String>,
+    query_model: Option<String>,
+    dimensions: Option<i64>,
+    timeout_secs: Option<i64>,
+    max_items_per_request: Option<i64>,
+    max_item_chars: Option<i64>,
+    max_request_chars: Option<i64>,
+    max_request_bytes: Option<i64>,
+}
 
 /// The persisted name of a chunking unit.
 fn chunking_unit_value(unit: &ChunkBudgetMode) -> &'static str {
@@ -96,6 +114,75 @@ fn stored_batching_limit(value: Option<i64>, fallback: usize) -> Result<usize> {
             usize::try_from(value).context("runtime embedding batching limit must be non-negative")
         }
     }
+}
+
+fn optional_positive_usize(value: Option<i64>, label: &str) -> Result<usize> {
+    match value {
+        None => Ok(0),
+        Some(value) => {
+            usize::try_from(value).with_context(|| format!("{label} must be non-negative"))
+        }
+    }
+}
+
+fn optional_positive_u64(value: Option<i64>, label: &str) -> Result<u64> {
+    match value {
+        None => Ok(0),
+        Some(value) => {
+            u64::try_from(value).with_context(|| format!("{label} must be non-negative"))
+        }
+    }
+}
+
+fn optional_text(value: &str) -> Option<&str> {
+    let trimmed = value.trim();
+    (!trimmed.is_empty()).then_some(trimmed)
+}
+
+fn optional_i64(value: usize, label: &str) -> Result<Option<i64>> {
+    if value == 0 {
+        return Ok(None);
+    }
+    Ok(Some(
+        i64::try_from(value).with_context(|| format!("{label} too large"))?,
+    ))
+}
+
+fn optional_i64_u64(value: u64, label: &str) -> Result<Option<i64>> {
+    if value == 0 {
+        return Ok(None);
+    }
+    Ok(Some(
+        i64::try_from(value).with_context(|| format!("{label} too large"))?,
+    ))
+}
+
+async fn write_runtime_code_embedding_settings_in(
+    connection: &mut sqlx::PgConnection,
+    code: &StoredRuntimeCodeEmbeddingSettings,
+) -> Result<()> {
+    let dimensions = optional_i64(code.dimensions, "code embedding dimensions")?;
+    let timeout_secs = optional_i64_u64(code.timeout_secs, "code embedding timeout_secs")?;
+    sqlx::query_file!(
+        "src/sql/db/runtime_settings/save_runtime_code_embedding_settings.sql",
+        code.enabled,
+        optional_text(&code.base_url),
+        optional_text(&code.model),
+        code.query_model.as_deref(),
+        dimensions,
+        timeout_secs,
+        i64::try_from(code.batching.max_items_per_request)
+            .context("code embedding max_items_per_request too large")?,
+        i64::try_from(code.batching.max_item_chars)
+            .context("code embedding max_item_chars too large")?,
+        i64::try_from(code.batching.max_request_chars)
+            .context("code embedding max_request_chars too large")?,
+        i64::try_from(code.batching.max_request_bytes)
+            .context("code embedding max_request_bytes too large")?
+    )
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
 }
 
 impl Database {
@@ -267,6 +354,67 @@ impl Database {
         }))
     }
 
+    /// The stored optional code embedding settings, or `None` when the
+    /// deployment never wrote a code row.
+    pub async fn get_runtime_code_embedding_settings(
+        &self,
+    ) -> Result<Option<StoredRuntimeCodeEmbeddingSettings>> {
+        let Some(row) = sqlx::query_file_as!(
+            RuntimeCodeEmbeddingSettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_code_embedding_settings.sql"
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        else {
+            return Ok(None);
+        };
+        let defaults = EmbeddingBatchingSettings::default();
+        Ok(Some(StoredRuntimeCodeEmbeddingSettings {
+            enabled: row.enabled,
+            base_url: row.base_url.unwrap_or_default(),
+            model: row.model.unwrap_or_default(),
+            query_model: row
+                .query_model
+                .map(|model| model.trim().to_string())
+                .filter(|model| !model.is_empty()),
+            dimensions: optional_positive_usize(row.dimensions, "code embedding dimensions")?,
+            timeout_secs: optional_positive_u64(row.timeout_secs, "code embedding timeout_secs")?,
+            api_key: None,
+            batching: EmbeddingBatchingSettings {
+                max_items_per_request: stored_batching_limit(
+                    row.max_items_per_request,
+                    defaults.max_items_per_request,
+                )?,
+                max_item_chars: stored_batching_limit(row.max_item_chars, defaults.max_item_chars)?,
+                max_request_chars: stored_batching_limit(
+                    row.max_request_chars,
+                    defaults.max_request_chars,
+                )?,
+                max_request_bytes: stored_batching_limit(
+                    row.max_request_bytes,
+                    defaults.max_request_bytes,
+                )?,
+            },
+        }))
+    }
+
+    /// Saves only the code embedding row.
+    ///
+    /// The settings service uses the combined save so document and code updates
+    /// commit together; this entry point exists for the independent read/save
+    /// shape and for focused round-trip verification.
+    pub async fn save_runtime_code_embedding_settings(
+        &self,
+        code: &StoredRuntimeCodeEmbeddingSettings,
+    ) -> Result<StoredRuntimeCodeEmbeddingSettings> {
+        let mut tx = self.pool.begin().await?;
+        write_runtime_code_embedding_settings_in(&mut tx, code).await?;
+        tx.commit().await?;
+        self.get_runtime_code_embedding_settings()
+            .await?
+            .context("runtime code embedding settings missing after save")
+    }
+
     pub async fn save_runtime_settings(
         &self,
         settings: &StoredRuntimeSettings,
@@ -287,6 +435,23 @@ impl Database {
     pub async fn save_runtime_settings_with_identity_ack(
         &self,
         settings: &StoredRuntimeSettings,
+        acknowledgment: Option<VectorIdentityAck<'_>>,
+    ) -> Result<StoredRuntimeSettings> {
+        self.save_runtime_settings_with_code(settings, None, acknowledgment)
+            .await
+    }
+
+    /// Saves the runtime settings family and, when present, the independent code
+    /// embedding row in the same transaction.
+    ///
+    /// A `None` code row skips the code SQL entirely, so an update that omitted
+    /// the block preserves the stored row and credential. A present row commits
+    /// atomically with the document settings: neither side can be stored while
+    /// the other fails.
+    pub async fn save_runtime_settings_with_code(
+        &self,
+        settings: &StoredRuntimeSettings,
+        code: Option<&StoredRuntimeCodeEmbeddingSettings>,
         acknowledgment: Option<VectorIdentityAck<'_>>,
     ) -> Result<StoredRuntimeSettings> {
         let mut tx = self.pool.begin().await?;
@@ -454,6 +619,10 @@ impl Database {
         .execute(&mut *tx)
         .await?;
 
+        if let Some(code) = code {
+            write_runtime_code_embedding_settings_in(&mut tx, code).await?;
+        }
+
         if let Some(acknowledgment) = acknowledgment {
             let acknowledged_dimensions = i64::try_from(acknowledgment.expected_dimensions)
                 .context("embedding dimensions too large")?;
@@ -564,5 +733,64 @@ impl Database {
             .into());
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod code_embedding_tests {
+    use super::*;
+
+    fn code_settings(enabled: bool) -> StoredRuntimeCodeEmbeddingSettings {
+        StoredRuntimeCodeEmbeddingSettings {
+            enabled,
+            base_url: "https://embedding.invalid/v1".to_string(),
+            model: "code-model".to_string(),
+            query_model: Some("code-query".to_string()),
+            dimensions: 1024,
+            timeout_secs: 30,
+            api_key: Some("in-memory-only".to_string()),
+            batching: EmbeddingBatchingSettings::default(),
+        }
+    }
+
+    /// The table and both read and save paths against a migrated database.
+    ///
+    /// The singleton row is removed before and after, so the test leaves the
+    /// reusable issue database as it found it.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn code_embedding_settings_round_trip_and_disabled_retention() {
+        let db = Database::connect(&context69_test_support::accessor::database_url())
+            .await
+            .expect("connect test database");
+        sqlx::query("DELETE FROM context69.runtime_code_embedding_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the singleton row");
+
+        let saved = db
+            .save_runtime_code_embedding_settings(&code_settings(true))
+            .await
+            .expect("save the enabled row");
+        assert!(saved.enabled);
+        assert_eq!(saved.base_url, "https://embedding.invalid/v1");
+        assert_eq!(saved.query_model.as_deref(), Some("code-query"));
+        assert_eq!(saved.dimensions, 1024);
+        assert!(saved.api_key.is_none(), "a stored row never carries a key");
+
+        let disabled = db
+            .save_runtime_code_embedding_settings(&code_settings(false))
+            .await
+            .expect("disable the row");
+        assert!(!disabled.enabled);
+        assert_eq!(
+            disabled.base_url, "https://embedding.invalid/v1",
+            "disabling retains the non-secret configuration"
+        );
+
+        sqlx::query("DELETE FROM context69.runtime_code_embedding_settings")
+            .execute(db.pool())
+            .await
+            .expect("remove the test row");
     }
 }

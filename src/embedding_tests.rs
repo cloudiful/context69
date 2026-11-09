@@ -18,6 +18,7 @@ use serde_json::{Value, json};
 use tokio::{net::TcpListener, sync::Mutex, task::JoinHandle};
 
 use super::embedding_batch::{EmbeddingBatchLimits, plan_batches, serialized_request_bytes};
+use super::errors::{INVALID_ENDPOINT_DIAGNOSTIC, sanitize_endpoint};
 use super::{
     EmbeddingProvider, OpenAiCompatibleEmbeddingProvider, extract_error_message,
     format_embedding_attempt_timeout, format_embedding_http_error,
@@ -137,6 +138,30 @@ async fn spawn_echo_mock() -> (String, MockState, JoinHandle<()>) {
     (base_url, state, server)
 }
 
+/// A mock that answers any path with a 200 whose body is not a usable
+/// embedding payload, so the parse-error path is driven end to end.
+async fn spawn_malformed_success_mock(body: String) -> (String, JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the malformed embedding mock");
+    let address = listener
+        .local_addr()
+        .expect("the malformed embedding mock address");
+    let app = Router::new().route(
+        "/{*path}",
+        post(move || {
+            let body = body.clone();
+            async move { (StatusCode::OK, body).into_response() }
+        }),
+    );
+    let handle = tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("the malformed embedding mock server");
+    });
+    (format!("http://{address}"), handle)
+}
+
 fn provider(base_url: String, timeout: Duration) -> OpenAiCompatibleEmbeddingProvider {
     OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
         base_url,
@@ -187,6 +212,264 @@ fn parse_error_includes_response_context() {
     assert!(message.contains("endpoint=http://127.0.0.1:11434/v1/embeddings"));
     assert!(message.contains("content_type=text/html"));
     assert!(message.contains("body_preview"));
+}
+
+/// A provider that answers a malformed payload under HTTP 200 must not disclose
+/// the endpoint userinfo, its query, or the API key through the parse error.
+#[tokio::test]
+async fn a_malformed_success_response_redacts_endpoint_credentials_and_the_api_key() {
+    let key = "synthetic-api-key-marker";
+    let user = "synthetic-endpoint-user";
+    let password = "synthetic-endpoint-password";
+    let query = "synthetic-query-credential";
+    let (address, server) = spawn_malformed_success_mock(format!("not-json <{key}>")).await;
+    let authority = address
+        .strip_prefix("http://")
+        .expect("the mock reports an HTTP URL");
+    let base_url = format!("http://{user}:{password}@{authority}/v1?token={query}");
+    let provider = OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
+        base_url,
+        api_key: Some(key.to_string()),
+        model: "test-model".to_string(),
+        query_model: None,
+        dimensions: 1,
+        timeout: Duration::from_secs(5),
+        batching: Default::default(),
+        input_policy: Default::default(),
+    })
+    .expect("build embedding provider");
+
+    let error = provider
+        .embed_texts(&["hello".to_string()])
+        .await
+        .expect_err("a malformed success body must fail");
+    let message = format!("{error:#}");
+
+    for marker in [key, user, password, query] {
+        assert!(
+            !message.contains(marker),
+            "the parse error leaked {marker}: {message}"
+        );
+    }
+    assert!(
+        message.contains("failed to parse embedding response"),
+        "the failure must still be identifiable: {message}"
+    );
+    assert!(
+        message.contains("endpoint=http://127.0.0.1:"),
+        "the sanitized endpoint must remain useful: {message}"
+    );
+    assert!(
+        message.contains("model=test-model"),
+        "the model must remain useful: {message}"
+    );
+    assert!(
+        message.contains("body_preview"),
+        "the bounded body detail must remain useful: {message}"
+    );
+    assert!(
+        message.contains("[redacted]"),
+        "the echoed API key must be marked redacted: {message}"
+    );
+
+    server.abort();
+}
+
+#[tokio::test]
+async fn a_transport_failure_never_exposes_endpoint_or_key_credentials_in_error_or_log() {
+    struct LogWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for LogWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("log lock").write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let key = "synthetic-transport-api-key";
+    let user = "synthetic-transport-user";
+    let password = "synthetic-transport-password";
+    let query = "synthetic-transport-query";
+    let logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let output = std::sync::Arc::clone(&logs);
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(move || LogWriter(std::sync::Arc::clone(&output)))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let provider = OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
+        base_url: format!("http://{user}:{password}@127.0.0.1:1/v1?token={query}"),
+        api_key: Some(key.to_string()),
+        model: "test-model".to_string(),
+        query_model: None,
+        dimensions: 1,
+        timeout: Duration::from_secs(2),
+        batching: Default::default(),
+        input_policy: Default::default(),
+    })
+    .expect("build embedding provider");
+    let result = provider.embed_texts(&["hello".to_string()]).await;
+    drop(guard);
+
+    let error = result.expect_err("the refused loopback endpoint must fail");
+    let message = format!("{error:#}");
+    let log = String::from_utf8(logs.lock().expect("log lock").clone()).expect("utf8 log");
+    for marker in [key, user, password, query] {
+        assert!(
+            !message.contains(marker),
+            "the transport failure error leaked {marker}: {message}"
+        );
+        assert!(
+            !log.contains(marker),
+            "the transport failure log leaked {marker}: {log}"
+        );
+    }
+    assert!(
+        message.contains("embedding upstream transport error"),
+        "{message}"
+    );
+    assert!(message.contains("operation=send request"), "{message}");
+    assert!(
+        message.contains("endpoint=http://127.0.0.1:1/v1"),
+        "the sanitized endpoint must stay useful: {message}"
+    );
+    assert!(message.contains("model=test-model"), "{message}");
+    assert!(message.contains("source_chain"), "{message}");
+    assert!(
+        log.contains("embedding upstream transport error"),
+        "the sanitized failure must still be emitted: {log}"
+    );
+}
+
+/// Every endpoint rendering branch fails closed: only a valid hierarchical
+/// HTTP/HTTPS URL with a host is rendered, and it loses userinfo, query, and
+/// fragment. Every invalid or unsupported input becomes one fixed placeholder.
+#[test]
+fn endpoint_diagnostics_never_render_invalid_or_credential_bearing_input() {
+    let markers = [
+        "synthetic-endpoint-user",
+        "synthetic-endpoint-password",
+        "synthetic-endpoint-query",
+        "synthetic-endpoint-fragment",
+    ];
+    let cases: [(&str, &str, Option<&str>); 7] = [
+        (
+            "invalid port",
+            "http://synthetic-endpoint-user:synthetic-endpoint-password@127.0.0.1:bad/v1",
+            None,
+        ),
+        (
+            "opaque scheme",
+            "mailto:synthetic-endpoint-user:synthetic-endpoint-password@example.invalid",
+            None,
+        ),
+        (
+            "non-http scheme",
+            "ftp://synthetic-endpoint-user:synthetic-endpoint-password@example.invalid/v1",
+            None,
+        ),
+        (
+            "missing host",
+            "http://?synthetic-endpoint-query=synthetic-endpoint-password",
+            None,
+        ),
+        (
+            "unparseable",
+            "not a url synthetic-endpoint-user synthetic-endpoint-password",
+            None,
+        ),
+        (
+            "valid hierarchy",
+            "https://synthetic-endpoint-user:synthetic-endpoint-password@example.invalid:8443/v1/path?synthetic-endpoint-query=synthetic-endpoint-password#synthetic-endpoint-fragment",
+            Some("https://example.invalid:8443/v1/path"),
+        ),
+        (
+            "valid query only",
+            "https://example.invalid/v1/embeddings?key=synthetic-endpoint-query",
+            Some("https://example.invalid/v1/embeddings"),
+        ),
+    ];
+
+    for (label, input, expected) in cases {
+        let sanitized = sanitize_endpoint(input);
+        for marker in markers {
+            assert!(
+                !sanitized.contains(marker),
+                "case {label} rendered a credential-bearing component"
+            );
+        }
+        assert_eq!(
+            sanitized,
+            expected.unwrap_or(INVALID_ENDPOINT_DIAGNOSTIC),
+            "case {label}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn an_invalid_transport_endpoint_never_exposes_credentials_in_error_or_log() {
+    struct LogWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+    impl std::io::Write for LogWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().expect("log lock").write(buf)
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    let key = "synthetic-invalid-api-key";
+    let user = "synthetic-invalid-user";
+    let password = "synthetic-invalid-password";
+    let query = "synthetic-invalid-query";
+    let logs = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let output = std::sync::Arc::clone(&logs);
+    let subscriber = tracing_subscriber::fmt()
+        .without_time()
+        .with_ansi(false)
+        .with_writer(move || LogWriter(std::sync::Arc::clone(&output)))
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let provider = OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
+        base_url: format!("http://{user}:{password}@127.0.0.1:bad/v1?token={query}"),
+        api_key: Some(key.to_string()),
+        model: "test-model".to_string(),
+        query_model: None,
+        dimensions: 1,
+        timeout: Duration::from_secs(2),
+        batching: Default::default(),
+        input_policy: Default::default(),
+    })
+    .expect("build embedding provider");
+    let result = provider.embed_texts(&["hello".to_string()]).await;
+    drop(guard);
+
+    let error = result.expect_err("the invalid endpoint must fail");
+    let message = format!("{error:#}");
+    let log = String::from_utf8(logs.lock().expect("log lock").clone()).expect("utf8 log");
+    for marker in [key, user, password, query] {
+        assert!(
+            !message.contains(marker),
+            "the invalid-endpoint error leaked {marker}: {message}"
+        );
+        assert!(
+            !log.contains(marker),
+            "the invalid-endpoint log leaked {marker}: {log}"
+        );
+    }
+    assert!(
+        message.contains("endpoint=[invalid-endpoint]"),
+        "the fixed safety placeholder must be visible: {message}"
+    );
+    assert!(message.contains("operation=send request"), "{message}");
+    assert!(message.contains("model=test-model"), "{message}");
+    assert!(message.contains("source_chain"), "{message}");
+    assert!(
+        log.contains("embedding upstream transport error"),
+        "the sanitized failure must still be emitted: {log}"
+    );
 }
 
 #[test]

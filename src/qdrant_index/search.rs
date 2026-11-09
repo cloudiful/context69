@@ -28,23 +28,43 @@ impl QdrantIndex {
             return Ok(Vec::new());
         }
 
-        let builder = SearchPointsBuilder::new(&self.collection_name, vector, request.limit as u64);
-        let builder = if conditions.is_empty() {
-            builder
-        } else {
-            builder.filter(conditions.into_filter())
-        };
-
         let started = Instant::now();
-        let operation = "search_points";
+        let hits = self
+            .search_point_ids(
+                "search_points",
+                vector,
+                request.limit as u64,
+                conditions.into_filter(),
+            )
+            .await?;
+        info!(
+            candidate_count = hits.len(),
+            metadata_filter_count = request.metadata_filters.len(),
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "qdrant search completed"
+        );
+        Ok(hits)
+    }
+
+    /// One raw search shared by document and code; the caller owns the filter
+    /// and operation label.
+    pub(super) async fn search_point_ids(
+        &self,
+        operation: &str,
+        vector: Vec<f32>,
+        limit: u64,
+        filter: Filter,
+    ) -> Result<Vec<SearchPointHit>> {
         let collection = self.collection_name.clone();
-        let extra = format!("limit={}", request.limit);
+        let extra = format!("limit={limit}");
         let result = self
             .client
-            .search_points(builder)
+            .search_points(
+                SearchPointsBuilder::new(&self.collection_name, vector, limit).filter(filter),
+            )
             .await
             .map_err(|err| format_qdrant_error(operation, &collection, &extra, err.into()))?;
-        let hits = result
+        result
             .result
             .into_iter()
             .map(|point| {
@@ -55,14 +75,7 @@ impl QdrantIndex {
                     score: point.score,
                 })
             })
-            .collect::<Result<Vec<_>>>()?;
-        info!(
-            candidate_count = hits.len(),
-            metadata_filter_count = request.metadata_filters.len(),
-            elapsed_ms = started.elapsed().as_millis() as u64,
-            "qdrant search completed"
-        );
-        Ok(hits)
+            .collect::<Result<Vec<_>>>()
     }
 
     /// Build the access/locale/source/date/metadata conditions shared by the
@@ -183,10 +196,6 @@ pub(super) struct BuiltSearchConditions {
 }
 
 impl BuiltSearchConditions {
-    pub(super) fn is_empty(&self) -> bool {
-        self.filter.is_empty() && self.must_not.is_empty()
-    }
-
     pub(super) fn into_filter(self) -> Filter {
         Filter {
             must: self.filter,

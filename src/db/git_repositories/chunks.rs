@@ -14,8 +14,10 @@
 use anyhow::Result;
 use uuid::Uuid;
 
+use crate::contracts::Visibility;
 use crate::contracts::sources::GitCodeLexicalHit;
 
+use super::enums;
 use super::file_rows::{GitChunkReplaceRow, GitGenerationChunkRow, GitLexicalChunkHitRow};
 use super::file_types::{
     GitChunkLineWindow, GitChunkReplacement, GitGenerationChunkList, GitLexicalCodeSearch,
@@ -23,6 +25,7 @@ use super::file_types::{
     NewGitGenerationChunk, StoredGitGenerationChunk, StoredGitGenerationFile, lexical_hit_from_row,
 };
 use super::files::bounded_page;
+use super::rows::GitCodeChunkHydrationRow;
 use crate::db::Database;
 use crate::domain_errors::DomainError;
 
@@ -86,6 +89,49 @@ impl Database {
             .into_iter()
             .map(StoredGitGenerationChunk::from_row)
             .collect())
+    }
+
+    /// Hydrates canonical chunk text and provenance by chunk key from the
+    /// captured active ready generation.
+    ///
+    /// A key answers only when it is stored under the captured generation, that
+    /// generation is still the repository's active ready one, the repository
+    /// belongs to `group_id`, the group's current visibility admits the caller,
+    /// and the optional path/language filters match. Remote payload text is never
+    /// trusted: the stored row is the only content authority.
+    pub async fn hydrate_git_generation_chunks_by_keys(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        generation_key: Uuid,
+        chunk_keys: &[Uuid],
+        path_prefix: Option<&str>,
+        language: Option<&str>,
+        visible_group_ids: &[i64],
+    ) -> Result<Vec<StoredGitCodeChunkHydration>> {
+        if chunk_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+        if chunk_keys.len() > MAX_GIT_LEXICAL_LIMIT as usize {
+            return Err(DomainError::invalid_argument("git_code_hydration_keys_too_many").into());
+        }
+        let path_prefix_pattern = path_prefix.map(|prefix| format!("{}%", escape_like(prefix)));
+        let rows = sqlx::query_file_as!(
+            GitCodeChunkHydrationRow,
+            "src/sql/db/git_repository_files/get_git_active_generation_chunks_by_keys.sql",
+            group_id,
+            repository_key,
+            generation_key,
+            chunk_keys,
+            path_prefix_pattern.as_deref(),
+            language,
+            visible_group_ids
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        rows.into_iter()
+            .map(StoredGitCodeChunkHydration::from_row)
+            .collect()
     }
 
     /// Lists one bounded page of the stored chunk text covering a line window.
@@ -235,4 +281,47 @@ fn validate_chunks(chunks: &[NewGitGenerationChunk]) -> Result<()> {
         return Err(DomainError::payload_too_large("git_chunk_list_too_large").into());
     }
     Ok(())
+}
+
+/// One canonically hydrated chunk of the captured active generation.
+///
+/// Text and provenance come only from stored rows; fusion assigns score and
+/// match kind afterwards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredGitCodeChunkHydration {
+    pub repository_key: Uuid,
+    pub generation_key: Uuid,
+    pub generation_number: i64,
+    pub ref_name: String,
+    pub commit_sha: String,
+    pub visibility: Visibility,
+    pub file_key: Uuid,
+    pub path: String,
+    pub language: String,
+    pub chunk_key: Uuid,
+    pub chunk_index: i32,
+    pub start_line: i32,
+    pub end_line: i32,
+    pub text: String,
+}
+
+impl StoredGitCodeChunkHydration {
+    fn from_row(row: GitCodeChunkHydrationRow) -> Result<Self> {
+        Ok(Self {
+            repository_key: row.repository_key,
+            generation_key: row.generation_key,
+            generation_number: row.generation_number,
+            ref_name: row.ref_name,
+            commit_sha: row.commit_sha,
+            visibility: enums::visibility(&row.group_visibility)?,
+            file_key: row.file_key,
+            path: row.path,
+            language: row.language,
+            chunk_key: row.chunk_key,
+            chunk_index: row.chunk_index,
+            start_line: row.start_line,
+            end_line: row.end_line,
+            text: row.chunk_text,
+        })
+    }
 }

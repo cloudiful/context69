@@ -5,9 +5,10 @@
 //! builder and its own assertions; only what more than one category needs lives
 //! here.
 //!
-//! The reset deletes the four singleton settings rows these cases write and the
-//! four store rows they own. It never touches another table, another store key, or
-//! a row outside this suite.
+//! The reset deletes the singleton settings rows these cases write and the
+//! store rows they own, including the independent code-embedding row and key.
+//! It never touches another table, another store key, or a row outside this
+//! suite.
 
 use std::sync::{Mutex, PoisonError};
 
@@ -31,12 +32,17 @@ pub const MASTER_KEY_B64: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
 
 /// The store rows this suite owns. Every one is a documented singleton, so
 /// resetting them cannot reach a record-scoped credential.
-pub const OWNED_STORE_KEYS: [&str; 4] = [
+pub const OWNED_STORE_KEYS: [&str; 5] = [
     key_names::EMBEDDING_API_KEY,
+    key_names::CODE_EMBEDDING_API_KEY,
     key_names::SEARCH_API_KEY,
     key_names::DOCLING_VLM_API_KEY,
     key_names::RUNTIME_S3_SECRET_KEY,
 ];
+
+/// The only database whose newly authorized code-embedding fixture cleanup this
+/// suite may run. It is the issue-created fixture database, not a shared one.
+pub const ISSUE25_DATABASE: &str = "context69_issue_25";
 
 /// The columns that used to hold these four credentials in the clear, as
 /// `table.column`. The store is the only representation, so none of them may come
@@ -131,12 +137,32 @@ pub async fn reset(db: &Database) {
         "DELETE FROM context69.runtime_scheduler_settings WHERE singleton",
         "DELETE FROM context69.runtime_chunking_settings WHERE singleton",
         "DELETE FROM context69.runtime_file_library_settings WHERE singleton",
+        // The optional code embedding row is independent of the document family
+        // and is owned by the same fixture.
+        "DELETE FROM context69.runtime_code_embedding_settings WHERE singleton",
     ] {
         sqlx::query(sql)
             .execute(db.pool())
             .await
             .expect("clear the singleton settings row");
     }
+}
+
+/// The guarded cleanup used only by the new code-embedding cases.
+///
+/// Parent authorization covers fixture DML on the issue-specific database
+/// alone, so the database name is checked before any of the newly authorized
+/// code rows are touched. The check is metadata-only and prints no URL.
+pub async fn reset_issue25(db: &Database) {
+    let name: String = sqlx::query_scalar("SELECT current_database()")
+        .fetch_one(db.pool())
+        .await
+        .expect("read the current database name");
+    assert_eq!(
+        name, ISSUE25_DATABASE,
+        "the authorized code-embedding fixture reset runs only on {ISSUE25_DATABASE}"
+    );
+    reset(db).await;
 }
 
 /// Asserts that none of the retired plaintext credential columns is in the
@@ -235,6 +261,7 @@ pub fn runtime_request(
             batching: Default::default(),
             input_policy: Default::default(),
         },
+        code_embedding: None,
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,
             run_on_start: false,

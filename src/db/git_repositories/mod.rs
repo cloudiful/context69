@@ -46,6 +46,7 @@ mod schema_tests;
 #[cfg(test)]
 mod secret_schema_tests;
 
+pub use chunks::StoredGitCodeChunkHydration;
 pub use file_diff::{GitFileDiffSide, StoredGitFileDiff};
 pub use file_types::{
     GitChunkReplacement, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,
@@ -54,8 +55,8 @@ pub use file_types::{
     NewGitGenerationFile, StoredGitGenerationChunk, StoredGitGenerationFile,
 };
 pub use generation_types::{
-    GitGenerationCoverage, NewGitRepositoryGeneration, StoredGitActiveGeneration,
-    StoredGitRepositoryGeneration,
+    GitGenerationCoverage, NewGitGenerationCodeVectors, NewGitRepositoryGeneration,
+    StoredGitActiveGeneration, StoredGitGenerationCodeVectors, StoredGitRepositoryGeneration,
 };
 pub use types::{
     GitCheckpointUpdate, GitGroupOwnership, NewGitProviderConnection, NewGitRepositorySource,

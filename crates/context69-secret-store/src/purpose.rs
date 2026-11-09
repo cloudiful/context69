@@ -36,6 +36,8 @@ pub mod key_names {
     pub const BROWSER_SESSION_SIGNING_KEY: &str = "browser_session_signing_key_v2";
     /// Embedding provider API key (singleton).
     pub const EMBEDDING_API_KEY: &str = "embedding_api_key";
+    /// Git code embedding provider API key (singleton).
+    pub const CODE_EMBEDDING_API_KEY: &str = "code_embedding_api_key";
     /// Search / rerank provider API key (singleton).
     pub const SEARCH_API_KEY: &str = "search_api_key";
     /// Docling VLM provider API key (singleton).
@@ -67,6 +69,8 @@ pub enum SecretPurpose {
     BrowserSessionSigningKey,
     /// Embedding provider API key.
     EmbeddingApiKey,
+    /// Git code embedding provider API key.
+    CodeEmbeddingApiKey,
     /// Search and rerank provider API key.
     SearchApiKey,
     /// Docling VLM provider API key.
@@ -87,9 +91,10 @@ pub enum SecretPurpose {
 
 impl SecretPurpose {
     /// Every purpose this build knows, in a stable order.
-    pub const ALL: [SecretPurpose; 10] = [
+    pub const ALL: [SecretPurpose; 11] = [
         Self::BrowserSessionSigningKey,
         Self::EmbeddingApiKey,
+        Self::CodeEmbeddingApiKey,
         Self::SearchApiKey,
         Self::DoclingVlmApiKey,
         Self::TranslationProviderApiKey,
@@ -108,6 +113,7 @@ impl SecretPurpose {
         match self {
             Self::BrowserSessionSigningKey => "browser_session.signing_key",
             Self::EmbeddingApiKey => "embedding.api_key",
+            Self::CodeEmbeddingApiKey => "code_embedding.api_key",
             Self::SearchApiKey => "search.api_key",
             Self::DoclingVlmApiKey => "docling.vlm_api_key",
             Self::TranslationProviderApiKey => "translation.api_key",
@@ -127,6 +133,7 @@ impl SecretPurpose {
         match self {
             Self::BrowserSessionSigningKey => Some(key_names::BROWSER_SESSION_SIGNING_KEY),
             Self::EmbeddingApiKey => Some(key_names::EMBEDDING_API_KEY),
+            Self::CodeEmbeddingApiKey => Some(key_names::CODE_EMBEDDING_API_KEY),
             Self::SearchApiKey => Some(key_names::SEARCH_API_KEY),
             Self::DoclingVlmApiKey => Some(key_names::DOCLING_VLM_API_KEY),
             Self::TranslationProviderApiKey => Some(key_names::TRANSLATION_PROVIDER_API_KEY),

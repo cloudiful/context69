@@ -12,10 +12,12 @@ use anyhow::{Context, Result};
 use uuid::Uuid;
 
 use super::generation_types::{
-    GitGenerationCoverage, NewGitRepositoryGeneration, StoredGitActiveGeneration,
-    StoredGitRepositoryGeneration,
+    GitGenerationCoverage, NewGitGenerationCodeVectors, NewGitRepositoryGeneration,
+    StoredGitActiveGeneration, StoredGitGenerationCodeVectors, StoredGitRepositoryGeneration,
 };
-use super::rows::{GitActiveGenerationRow, GitRepositoryGenerationRow};
+use super::rows::{
+    GitActiveGenerationRow, GitGenerationCodeVectorsRow, GitRepositoryGenerationRow,
+};
 use crate::db::Database;
 
 impl Database {
@@ -157,5 +159,62 @@ impl Database {
         .fetch_optional(&self.pool)
         .await?;
         row.map(StoredGitActiveGeneration::from_row).transpose()
+    }
+
+    /// Records the exact code destination and acknowledged point count of one
+    /// building generation of a repository owned by `group_id`.
+    ///
+    /// Returns an error, writing nothing, when the generation is unknown,
+    /// foreign, or no longer building. The statement joins the canonical source
+    /// row, so one group can never write metadata onto another group's
+    /// generation.
+    pub(crate) async fn record_git_generation_code_vectors(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        generation_key: Uuid,
+        code: &NewGitGenerationCodeVectors,
+    ) -> Result<StoredGitGenerationCodeVectors> {
+        let row = sqlx::query_file_as!(
+            GitGenerationCodeVectorsRow,
+            "src/sql/db/git_repository_generations/record_git_generation_code_vectors.sql",
+            group_id,
+            repository_key,
+            generation_key,
+            code.fingerprint,
+            code.dimensions,
+            code.collection_name,
+            code.point_count
+        )
+        .fetch_optional(&self.pool)
+        .await?
+        .context(
+            "no building git index generation of this group and repository to record code vectors",
+        )?;
+        let recorded = StoredGitGenerationCodeVectors::from_row(row);
+        self.get_git_generation_code_vectors(group_id, repository_key, generation_key)
+            .await?
+            .filter(|stored| stored.fingerprint == recorded.fingerprint)
+            .context("recorded git generation code vectors are not readable back")
+    }
+
+    /// Reads the code vector metadata of one generation of a repository owned by
+    /// `group_id`, or `None` when that generation has no recorded code vectors.
+    pub(crate) async fn get_git_generation_code_vectors(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        generation_key: Uuid,
+    ) -> Result<Option<StoredGitGenerationCodeVectors>> {
+        let row = sqlx::query_file_as!(
+            GitGenerationCodeVectorsRow,
+            "src/sql/db/git_repository_generations/get_git_generation_code_vectors.sql",
+            group_id,
+            repository_key,
+            generation_key
+        )
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(StoredGitGenerationCodeVectors::from_row))
     }
 }

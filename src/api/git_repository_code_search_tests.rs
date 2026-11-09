@@ -12,20 +12,18 @@ use axum::http::StatusCode;
 use crate::contracts::{
     MembershipRole, Visibility,
     sources::{
-        GIT_CODE_SEARCH_LIMIT_DEFAULT, GitCodeMatchKind, GitCodeSearchQuery, GitIndexStatus,
+        GIT_CODE_SEARCH_LIMIT_DEFAULT, GitCodeMatchKind, GitCodeSearchQuery,
+        GitCodeVectorUnavailableReason, GitIndexProfile, GitIndexStatus,
     },
 };
 
 use super::super::errors::library_management_error_response;
-use super::super::git_repository_files::{
-    generation_not_ready, repository_not_found, require_manifest_read,
-};
+use super::super::git_repository_files::require_manifest_read;
 use super::fixture::{
     generation, generation_key, group, query, repository_key, response_body, source, stored_hit,
 };
-use super::{
-    SearchFilters, found_generation, found_repository, is_language_token, search_response,
-};
+use super::{SearchFilters, is_language_token, search_response};
+use crate::services::git_repository::code_search::{CodeSearchOutcome, search_hit_from_lexical};
 
 /// The commit both the repository and its serving generation are pinned to.
 const COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -67,7 +65,6 @@ fn a_term_is_bounded_and_never_rewritten() {
         let filters = SearchFilters::validated(&query(sent, 20))
             .unwrap_or_else(|error| panic!("{sent:?} is a bounded term: {error}"));
         assert_eq!(filters.query, expected, "{sent:?} is unmodified");
-        assert_eq!(filters.fetch_limit(), 21, "one extra row is the probe");
     }
     for rejected in ["", "   ", "\t"] {
         let error = refusal(&query(rejected, 20));
@@ -87,7 +84,6 @@ fn the_limit_is_bounded_and_defaults_documented() {
     for limit in [1, 20, 50] {
         let filters = SearchFilters::validated(&query("term", limit)).expect("a bounded limit");
         assert_eq!(filters.limit, i64::from(limit));
-        assert_eq!(filters.fetch_limit(), i64::from(limit) + 1);
     }
     // The wire type defaults to the documented number, so a caller that names no
     // limit still gets a bounded page.
@@ -173,46 +169,93 @@ fn a_language_token_is_the_classified_shape() {
     assert!(refusal(&invalid).contains("git_code_search_language_invalid"));
 }
 
-#[test]
-fn the_extra_row_is_the_only_truncation_evidence() {
-    // One row per `count`, in the storage layer's score/path/chunk order, so the
-    // only variable across the cases is how many rows came back and how many the
-    // caller asked for.
-    let hits = |count: usize| -> Vec<_> {
-        (0..count)
-            .map(|index| stored_hit(&format!("s{index}.rs"), 1.0, GitCodeMatchKind::ChunkPhrase))
-            .collect()
-    };
-    for (count, limit, truncated) in [(1, 20, false), (2, 2, false), (3, 2, true), (0, 20, false)] {
-        let response = search_response(&source(), &generation(), hits(count), limit);
-        assert_eq!(
-            response.truncated, truncated,
-            "{count} rows for a limit of {limit}"
-        );
-        assert_eq!(
-            response.hits.len(),
-            count.min(limit as usize),
-            "the probe row is evidence, never a returned hit"
-        );
+/// One shared outcome with a fixed generation and the given profile metadata.
+fn outcome(
+    hits: Vec<GitCodeLexicalHitProjection>,
+    requested: GitIndexProfile,
+    effective: GitIndexProfile,
+    reason: Option<GitCodeVectorUnavailableReason>,
+) -> CodeSearchOutcome {
+    CodeSearchOutcome {
+        source: source(),
+        generation: generation(),
+        hits: hits
+            .iter()
+            .map(|hit| search_hit_from_lexical(&hit.stored))
+            .collect(),
+        truncated: false,
+        requested_profile: requested,
+        effective_profile: effective,
+        vector_unavailable: reason,
     }
+}
 
-    // A full but complete page keeps the storage layer's order, and an empty
-    // result still carries the generation and its coverage, never an error.
-    let more = search_response(&source(), &generation(), hits(3), 2);
+struct GitCodeLexicalHitProjection {
+    stored: crate::contracts::sources::GitCodeLexicalHit,
+}
+
+fn lexical(
+    count: usize,
+    requested: GitIndexProfile,
+    effective: GitIndexProfile,
+    reason: Option<GitCodeVectorUnavailableReason>,
+) -> CodeSearchOutcome {
+    let hits = (0..count)
+        .map(|index| GitCodeLexicalHitProjection {
+            stored: stored_hit(&format!("s{index}.rs"), 1.0, GitCodeMatchKind::ChunkPhrase),
+        })
+        .collect();
+    outcome(hits, requested, effective, reason)
+}
+
+#[test]
+fn the_service_outcome_is_projected_without_rewriting_hits() {
+    let response = search_response(&lexical(
+        3,
+        GitIndexProfile::Hybrid,
+        GitIndexProfile::Lexical,
+        Some(GitCodeVectorUnavailableReason::GenerationNotVectorized),
+    ));
     assert_eq!(
-        more.hits.last().map(|hit| hit.path.as_str()),
-        Some("s1.rs"),
-        "the storage layer's order is preserved"
+        response.hits.len(),
+        3,
+        "the service already applied the limit"
     );
-    let empty = search_response(&source(), &generation(), hits(0), 20);
+    assert_eq!(response.requested_profile, GitIndexProfile::Hybrid);
+    assert_eq!(response.effective_profile, GitIndexProfile::Lexical);
+    assert_eq!(
+        response.vector_unavailable,
+        Some(GitCodeVectorUnavailableReason::GenerationNotVectorized)
+    );
+    assert!(!response.truncated);
+    assert_eq!(
+        response.hits.last().map(|hit| hit.path.as_str()),
+        Some("s2.rs"),
+        "the service order is preserved"
+    );
+
+    let empty = search_response(&lexical(
+        0,
+        GitIndexProfile::Lexical,
+        GitIndexProfile::Lexical,
+        None,
+    ));
     assert_eq!(empty.generation_key, generation_key());
     assert_eq!(empty.file_count, 120);
+    assert_eq!(empty.vector_unavailable, None);
 }
 
 #[test]
 fn the_response_carries_provenance_coverage_and_verbatim_text() {
     let hit = stored_hit("src/api/mod.rs", 1.5, GitCodeMatchKind::ChunkTerms);
-    let response = search_response(&source(), &generation(), vec![hit.clone()], 20);
+    let response = search_response(&outcome(
+        vec![GitCodeLexicalHitProjection {
+            stored: hit.clone(),
+        }],
+        GitIndexProfile::Lexical,
+        GitIndexProfile::Lexical,
+        None,
+    ));
     assert_eq!(response.repository_key, repository_key());
     assert_eq!(response.generation_key, generation_key());
     assert_eq!(response.generation_number, 7);
@@ -254,10 +297,10 @@ fn the_response_carries_provenance_coverage_and_verbatim_text() {
     keys.sort_unstable();
     assert_eq!(
         keys.join(" "),
-        "checkpoint commit_sha excluded_file_count file_count generation_key \
-         generation_number hits index_status ref_name repository_key total_bytes truncated",
-        "the search response exposes the generation, its coverage, the bounded hits, \
-         and the truncation flag — nothing else"
+        "checkpoint commit_sha effective_profile excluded_file_count file_count generation_key \
+         generation_number hits index_status ref_name repository_key requested_profile \
+         total_bytes truncated",
+        "a lexical response exposes profile metadata and no fallback reason — nothing else"
     );
     let stored = serde_json::to_value(hit).expect("the stored hit serializes");
     let mut projected_keys: Vec<&str> = encoded["hits"][0]
@@ -286,6 +329,20 @@ fn the_response_carries_provenance_coverage_and_verbatim_text() {
             "the search must not expose {forbidden}: {serialized}"
         );
     }
+}
+
+#[test]
+fn a_semantic_fallback_is_explicit_and_never_a_lexical_only_claim() {
+    let response = search_response(&lexical(
+        0,
+        GitIndexProfile::FullSemantic,
+        GitIndexProfile::Lexical,
+        Some(GitCodeVectorUnavailableReason::NotConfigured),
+    ));
+    let encoded = serde_json::to_value(&response).expect("search serializes");
+    assert_eq!(encoded["requested_profile"], "full_semantic");
+    assert_eq!(encoded["effective_profile"], "lexical");
+    assert_eq!(encoded["vector_unavailable"], "not_configured");
 }
 
 /// The bounded refusal one invalid request would return: its status and body.
@@ -323,11 +380,13 @@ async fn a_refused_search_is_a_bounded_400_that_echoes_the_rule_only() {
 }
 
 #[tokio::test]
-async fn an_unresolvable_repository_answers_exactly_as_an_unknown_repository() {
-    // The handler maps the group-scoped lookup through `found_repository`, so
-    // this exercises the arm the route actually takes. A drift back to a
-    // distinguishable "no such repository for this group" shape fails here.
-    let unknown = repository_not_found();
+async fn an_unresolvable_repository_answers_as_a_bounded_not_found() {
+    // The handler maps the shared service's typed not-found through
+    // `library_management_error_response`, so an unknown or foreign repository
+    // key cannot become distinguishable from any other missing Git read.
+    let unknown = library_management_error_response(
+        crate::domain_errors::DomainError::not_found("unknown git repository").into(),
+    );
     let unknown_status = unknown.status();
     let unknown_body = response_body(unknown).await;
     assert_eq!(unknown_status, StatusCode::NOT_FOUND);
@@ -335,55 +394,28 @@ async fn an_unresolvable_repository_answers_exactly_as_an_unknown_repository() {
         unknown_body.contains("unknown git repository"),
         "the shared shape carries the bounded message: {unknown_body}"
     );
-
-    // A foreign repository and a key that names nothing are the same `None`.
-    let absent = *found_repository(Ok(None)).expect_err("no source is not a source");
-    assert_eq!(
-        absent.status(),
-        unknown_status,
-        "the status must be shared too"
-    );
-    assert_eq!(
-        response_body(absent).await,
-        unknown_body,
-        "an unresolvable repository must not be distinguishable by body either"
-    );
     // The bounded message is the whole body: no repository key, provider, or
     // owner detail rides along with it.
     assert!(!unknown_body.contains(&repository_key().to_string()));
     for detail in ["github", "cloudiful", "team-platform"] {
         assert!(!unknown_body.contains(detail), "echoes {detail}");
     }
-
-    // The stored source passes through untouched, so the mapping can neither
-    // swallow nor rewrite what the generation lookup and the response use.
-    let stored = found_repository(Ok(Some(source()))).expect("a stored source is a source");
-    assert_eq!(stored.repository_key, repository_key());
 }
 
 #[tokio::test]
 async fn a_repository_without_a_serving_generation_is_a_bounded_conflict() {
-    // The handler maps the serving-generation lookup through `found_generation`,
-    // so an empty hit list can never stand in for "nothing is indexed yet".
-    let not_ready = generation_not_ready();
+    // The service reports a missing or non-ready generation as a typed conflict,
+    // and the handler maps it through the shared error response: an empty hit
+    // list can never stand in for "nothing is indexed yet".
+    let not_ready = library_management_error_response(
+        crate::domain_errors::DomainError::conflict("no active ready index generation").into(),
+    );
     let not_ready_status = not_ready.status();
     let not_ready_body = response_body(not_ready).await;
     assert_eq!(not_ready_status, StatusCode::CONFLICT);
     assert!(
-        not_ready_body.contains("no active index generation"),
+        not_ready_body.contains("no active ready index generation"),
         "the shared shape carries the bounded message: {not_ready_body}"
-    );
-
-    let absent = *found_generation(Ok(None)).expect_err("no generation is not one");
-    assert_eq!(
-        absent.status(),
-        not_ready_status,
-        "a repository with no serving generation is a conflict, not a client error"
-    );
-    assert_eq!(
-        response_body(absent).await,
-        not_ready_body,
-        "the 409 must be the shared one, byte for byte"
     );
     let echoed_generation_key = generation_key().to_string();
     assert!(
@@ -391,9 +423,4 @@ async fn a_repository_without_a_serving_generation_is_a_bounded_conflict() {
             && !not_ready_body.contains("index_status"),
         "the 409 must not echo generation or index detail: {not_ready_body}"
     );
-
-    // The stored generation passes through untouched, so the response is built
-    // from the generation the repository actually advertises.
-    let stored = found_generation(Ok(Some(generation()))).expect("a stored generation is one");
-    assert_eq!(stored.generation_key, generation_key());
 }

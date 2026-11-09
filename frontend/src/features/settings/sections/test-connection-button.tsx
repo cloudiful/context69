@@ -109,9 +109,11 @@ export function VectorRebuildControl() {
 
       {vector.isAdmin ? (
         <>
-          <p className="text-sm text-muted-foreground" data-testid="runtime-vector-rebuild-state">
-            {t(`settings.runtime.vectorRebuildStates.${state}`)}
-          </p>
+          {state !== "idle" ? (
+            <p className="text-sm text-muted-foreground" data-testid="runtime-vector-rebuild-state">
+              {t(`settings.runtime.vectorRebuildStates.${state}`)}
+            </p>
+          ) : null}
           {active && status && status.total_chunks > 0 ? (
             <p className="text-xs text-muted-foreground">
               {t("settings.runtime.vectorRebuildProgress", {
@@ -145,19 +147,11 @@ export function VectorRebuildControl() {
               {t("settings.runtime.vectorRebuildCancelledState")}
             </p>
           ) : null}
-          {status && (status.active_dimensions != null || status.desired_dimensions != null) ? (
+          {status && active && (status.active_dimensions != null || status.desired_dimensions != null) ? (
             <p className="text-xs text-muted-foreground" data-testid="runtime-vector-rebuild-dimensions">
               {t("settings.runtime.vectorRebuildDimensions", {
                 active: status.active_dimensions ?? "—",
                 desired: status.desired_dimensions ?? "—",
-              })}
-            </p>
-          ) : null}
-          {status && (status.physical_collection || status.target_collection) ? (
-            <p className="text-xs text-muted-foreground" data-testid="runtime-vector-rebuild-collections">
-              {t("settings.runtime.vectorRebuildCollections", {
-                active: status.physical_collection ?? "—",
-                target: status.target_collection ?? "—",
               })}
             </p>
           ) : null}

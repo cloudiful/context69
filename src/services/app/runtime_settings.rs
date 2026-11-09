@@ -8,9 +8,12 @@ use crate::{
         ChunkingBudgetConfig, Config, EmbeddingConfig, FileLibraryConfig, QdrantConfig,
         RegistryQuotaConfig, SchedulerConfig,
     },
-    db::{Database, StoredDoclingSettings, StoredRuntimeSettings},
+    db::{
+        Database, StoredDoclingSettings, StoredRuntimeCodeEmbeddingSettings, StoredRuntimeSettings,
+    },
     services::{
         secret_store::SecretStore,
+        settings::code_embedding_config,
         settings::secrets::{SettingsSecrets, optional_key_patch},
         settings::stored_chunk_budget,
     },
@@ -187,6 +190,45 @@ pub async fn load_runtime_settings(
     store: &SecretStore,
 ) -> Result<Option<StoredRuntimeSettings>> {
     load_runtime_settings_with_mode(db, store, RuntimeSettingsMode::Persist).await
+}
+
+/// Loads the persisted optional code embedding settings with the code key
+/// resolved from its own purpose.
+///
+/// A code row that does not exist means code embedding is unconfigured. An
+/// explicitly disabled row needs no provider, so its retained credential is not
+/// opened: a deployment that cannot read that row still starts with code
+/// embedding disabled instead of aborting on a secret the feature does not use.
+/// When the row is enabled, a sealed key this deployment cannot open fails
+/// closed rather than silently configuring the code runtime without a
+/// credential.
+pub async fn load_code_embedding_settings(
+    db: &Database,
+    store: &SecretStore,
+) -> Result<Option<StoredRuntimeCodeEmbeddingSettings>> {
+    let Some(mut code) = db.get_runtime_code_embedding_settings().await? else {
+        return Ok(None);
+    };
+    if !code.enabled {
+        return Ok(Some(code));
+    }
+    code.api_key = SettingsSecrets::code_embedding(store.clone())
+        .resolve()
+        .await?;
+    Ok(Some(code))
+}
+
+/// Applies the persisted code block to the effective configuration.
+///
+/// A disabled row keeps no `code_embedding` block: the non-secret fields stay in
+/// the database, but the live configuration does not create a provider.
+pub fn apply_code_embedding_settings(
+    config: &mut Config,
+    code: &StoredRuntimeCodeEmbeddingSettings,
+) {
+    config.code_embedding = code
+        .enabled
+        .then(|| code_embedding_config(code, code.api_key.clone()));
 }
 
 /// The same read for paths that must not write while they initialize.

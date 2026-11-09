@@ -204,11 +204,18 @@ describe("runtime settings", () => {
       await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
     );
 
-    // The license is visible before the preparation starts.
+    // The license is visible before the preparation starts, and selecting
+    // alone never downloads anything.
     expect(
-      screen.getByText(/License cc-by-nc-4\.0/),
+      screen.getByText("Non-commercial use only"),
     ).toBeInTheDocument();
+    expect(
+      backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
+    ).toHaveLength(0);
 
+    await userEvent.click(
+      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+    );
     await waitFor(() => {
       expect(
         backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
@@ -218,10 +225,11 @@ describe("runtime settings", () => {
       backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision")[0].body,
     ).toEqual({ preset_id: "jina_v5_small_retrieval_r6856e76" });
 
+    // A ready preset renders no success prose.
     await waitFor(() => {
       expect(
-        screen.getByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
-      ).toHaveTextContent("verified and active");
+        screen.queryByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+      ).not.toBeInTheDocument();
     });
 
     await userEvent.click(screen.getByTestId("settings-save"));
@@ -254,6 +262,9 @@ describe("runtime settings", () => {
     await userEvent.click(
       await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
     );
+    await userEvent.click(
+      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+    );
     await waitFor(() => {
       expect(
         backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
@@ -285,6 +296,9 @@ describe("runtime settings", () => {
     await userEvent.click(
       await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
     );
+    await userEvent.click(
+      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+    );
 
     await waitFor(() => {
       expect(
@@ -306,10 +320,11 @@ describe("runtime settings", () => {
         backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
       ).toHaveLength(2);
     });
+    // The retry succeeds and the compact row disappears.
     await waitFor(() => {
       expect(
-        screen.getByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
-      ).toHaveTextContent("verified and active");
+        screen.queryByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+      ).not.toBeInTheDocument();
     });
 
     await userEvent.click(screen.getByTestId("settings-save"));
@@ -333,11 +348,14 @@ describe("runtime settings", () => {
     });
     await openSettings("/settings/runtime");
 
-    // A persisted hash renders the preset even though this process has not
-    // prepared it, and nothing is downloaded on render.
+    // A persisted hash renders the compact notice even though this process
+    // has not prepared it, and nothing is downloaded on render.
     expect(
-      await screen.findByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
-    ).toHaveTextContent("not prepared yet");
+      await screen.findByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+    ).toHaveTextContent("Prepare tokenizer");
     expect(
       backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
     ).toHaveLength(0);
@@ -357,8 +375,8 @@ describe("runtime settings", () => {
     );
     await waitFor(() => {
       expect(
-        screen.getByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
-      ).toHaveTextContent("verified and active");
+        screen.queryByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+      ).not.toBeInTheDocument();
     });
     await waitFor(() => {
       expect(screen.getByTestId("settings-save")).toBeEnabled();
@@ -427,11 +445,18 @@ describe("runtime settings", () => {
     });
     await openSettings("/settings/runtime");
 
+    // With the input cap disabled the tokenizer cannot affect input, so no
+    // alignment warning is shown.
+    expect(
+      screen.queryByTestId("runtime-chunking-input-policy-warning"),
+    ).not.toBeInTheDocument();
+    // A stored difference is not an unsaved change.
+    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByTestId("runtime-embedding-input-limit"));
     expect(
       await screen.findByTestId("runtime-chunking-input-policy-warning"),
     ).toBeInTheDocument();
-    // A stored difference is not an unsaved change.
-    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
 
     await userEvent.clear(screen.getByLabelText("Max Characters"));
     await userEvent.type(screen.getByLabelText("Max Characters"), "1300");
@@ -616,8 +641,8 @@ describe("docling settings", () => {
 
     await userEvent.click(screen.getByRole("button", { name: "Clean up stopped tasks" }));
     const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText(/not only this page/)).toBeInTheDocument();
-    expect(within(dialog).getByText(/Running work and started conversions are not stopped/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/stopped local jobs/)).toBeInTheDocument();
+    expect(within(dialog).getByText(/Running work and started conversions are not affected/)).toBeInTheDocument();
     await userEvent.click(within(dialog).getByRole("button", { name: "Clean up stopped tasks" }));
     await waitFor(() => {
       expect(backend.callsFor("POST", "/v1/admin/docling/cleanup")).toHaveLength(1);

@@ -286,7 +286,7 @@ impl Context69McpServer {
 
     #[tool(
         name = "search_code",
-        description = "Search one Git repository's active index generation. Accepts group_path, repository_key, a bounded query, optional path_prefix/language filters, and limit; returns lexical hits with commit/ref/path/line provenance and generation coverage, plus a truthful truncated flag."
+        description = "Search one Git repository's active index generation with the repository's configured profile (lexical, hybrid, or full_semantic). Accepts group_path, repository_key, a bounded query, optional path_prefix/language filters, and limit; returns code hits with commit/ref/path/line provenance, requested/effective profile and explicit vector_unavailable fallback reason, generation coverage, and a truthful truncated flag."
     )]
     async fn search_code(
         &self,
@@ -307,7 +307,8 @@ impl Context69McpServer {
         let scope = self
             .scope_from_context(&context, Some(request.group_path.clone()))
             .await?;
-        let response = code_tools::search(&self.app.db, group.id, &scope, &request).await?;
+        let response =
+            code_tools::search(&self.app.db, &self.app.settings, &group, &scope, &request).await?;
         Ok(Json(response))
     }
 

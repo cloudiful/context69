@@ -60,6 +60,24 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
         add_special_tokens: false,
       },
     },
+    code_embedding: {
+      enabled: false,
+      base_url: "",
+      api_key: "",
+      model: "",
+      query_model: "",
+      dimensions: 768,
+      timeout_secs: 30,
+      batching: {
+        max_items_per_request: DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
+        max_item_chars: DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
+        max_request_chars: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
+        max_request_bytes: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
+      },
+      has_api_key: false,
+      clear_api_key: false,
+      touched: false,
+    },
     scheduler: {
       interval_secs: 300,
       run_on_start: true,
@@ -170,6 +188,33 @@ export function runtimeResponseToDraft(
         query_server_prefix: response.embedding.input_policy?.query_server_prefix ?? "",
         add_special_tokens: response.embedding.input_policy?.add_special_tokens ?? false,
       },
+    },
+    code_embedding: {
+      enabled: response.code_embedding?.enabled ?? false,
+      base_url: response.code_embedding?.base_url ?? "",
+      api_key: "",
+      model: response.code_embedding?.model ?? "",
+      query_model: response.code_embedding?.query_model ?? "",
+      dimensions: response.code_embedding?.dimensions || 768,
+      timeout_secs: response.code_embedding?.timeout_secs || 30,
+      batching: {
+        max_items_per_request:
+          response.code_embedding?.batching?.max_items_per_request
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
+        max_item_chars:
+          response.code_embedding?.batching?.max_item_chars
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
+        max_request_chars:
+          response.code_embedding?.batching?.max_request_chars
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
+        max_request_bytes:
+          response.code_embedding?.batching?.max_request_bytes
+          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
+      },
+      has_api_key: response.code_embedding?.has_api_key ?? false,
+      clear_api_key: false,
+      // A response never marks the block pending: only an edit does.
+      touched: false,
     },
     scheduler: {
       interval_secs: response.scheduler.interval_secs,

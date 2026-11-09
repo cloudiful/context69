@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -135,10 +134,7 @@ export function TranslationSection() {
   }
 
   return (
-    <SettingsSection
-      title={t("settings.translation.title")}
-      description={t("settings.translation.description")}
-    >
+    <SettingsSection title={t("settings.translation.title")}>
       <SettingsGate>
       <SettingsBlock compact>
         <Table>
@@ -305,9 +301,6 @@ function ProviderDialog({
       <DialogContent className="w-[38rem] max-w-[96vw]">
         <DialogHeader>
           <DialogTitle>{draft ? PROVIDER_LABELS[draft.provider] ?? draft.provider : ""}</DialogTitle>
-          {draft?.provider === "llm" ? (
-            <DialogDescription>{t("settings.translation.llmDescription")}</DialogDescription>
-          ) : null}
         </DialogHeader>
 
         {draft ? (

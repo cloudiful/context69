@@ -27,21 +27,22 @@ use uuid::Uuid;
 use crate::{
     contracts::sources::{
         GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS, GIT_CODE_SEARCH_LIMIT_MAX, GIT_CODE_SEARCH_LIMIT_MIN,
-        GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS, GIT_CODE_SEARCH_QUERY_MAX_CHARS, GitCodeLexicalHit,
-        GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse,
+        GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS, GIT_CODE_SEARCH_QUERY_MAX_CHARS, GitCodeSearchQuery,
+        GitCodeSearchResponse,
     },
-    db::{GitLexicalCodeSearch, StoredGitRepositoryGeneration, StoredGitRepositorySource},
+    db::StoredGitRepositorySource,
     domain_errors::DomainError,
-    services::git_repository::SafeTreePath,
+    services::git_repository::{
+        SafeTreePath,
+        code_search::{CodeSearchOutcome, CodeSearchParams, search_code},
+    },
 };
 
 use super::{
     ApiState,
     auth::CurrentUser,
     errors::library_management_error_response,
-    git_repository_files::{
-        generation_not_ready, repository_not_found, require_manifest_read, serving_generation,
-    },
+    git_repository_files::require_manifest_read,
     group_access::{group_access_error_response, group_for_user},
 };
 
@@ -80,20 +81,6 @@ pub(crate) async fn search_git_repository_code(
         Ok(filters) => filters,
         Err(error) => return library_management_error_response(error),
     };
-    let source = match found_repository(
-        state
-            .app
-            .db
-            .get_git_repository_source(group.id, repository_key)
-            .await,
-    ) {
-        Ok(source) => source,
-        Err(response) => return *response,
-    };
-    let generation = match found_generation(serving_generation(&state.app.db, &source).await) {
-        Ok(generation) => generation,
-        Err(response) => return *response,
-    };
     // The visible groups come from the caller's resolved access scope, never
     // from the request, so a private repository is searched only for a caller who
     // can already read it.
@@ -106,65 +93,19 @@ pub(crate) async fn search_git_repository_code(
         Ok(scope) => scope,
         Err(error) => return group_access_error_response(error),
     };
-    let hits = match state
-        .app
-        .db
-        .lexical_search_git_generation_chunks(
-            group.id,
-            &GitLexicalCodeSearch {
-                repository_key: source.repository_key,
-                query: filters.query.clone(),
-                path_prefix: filters.path_prefix.clone(),
-                language: filters.language.clone(),
-                visible_group_ids: scope.private_group_ids,
-                limit: filters.fetch_limit(),
-            },
-        )
-        .await
-    {
-        Ok(hits) => hits,
-        Err(error) => return library_management_error_response(error),
+    let params = CodeSearchParams {
+        repository_key,
+        query: &filters.query,
+        path_prefix: filters.path_prefix.as_deref(),
+        language: filters.language.as_deref(),
+        limit: filters.limit,
     };
-    (
-        StatusCode::OK,
-        Json(search_response(&source, &generation, hits, filters.limit)),
-    )
-        .into_response()
-}
-
-/// The route's single decision about the group-scoped repository lookup.
-///
-/// A repository the caller's group does not own, and a repository key that names
-/// nothing, both read as `None` and answer with the very same bounded `404` the
-/// other Git reads return: same status, same body, no repository or provider
-/// detail. Keeping that mapping in one named place is what makes it testable
-/// without a database and impossible to drift into a distinguishable shape that
-/// would let this read enumerate repository keys. The response travels boxed so
-/// this stays a plain `Result`.
-fn found_repository(
-    found: anyhow::Result<Option<StoredGitRepositorySource>>,
-) -> Result<StoredGitRepositorySource, Box<Response>> {
-    match found {
-        Ok(Some(source)) => Ok(source),
-        Ok(None) => Err(Box::new(repository_not_found())),
-        Err(error) => Err(Box::new(library_management_error_response(error))),
-    }
-}
-
-/// The route's single decision about the serving generation.
-///
-/// A repository with no active ready generation is a bounded `409`, never an
-/// empty hit list: an empty result would read as "this repository has no such
-/// code" instead of "nothing is indexed yet", and a search must not become a
-/// second, weaker way to probe index state.
-fn found_generation(
-    found: anyhow::Result<Option<StoredGitRepositoryGeneration>>,
-) -> Result<StoredGitRepositoryGeneration, Box<Response>> {
-    match found {
-        Ok(Some(generation)) => Ok(generation),
-        Ok(None) => Err(Box::new(generation_not_ready())),
-        Err(error) => Err(Box::new(library_management_error_response(error))),
-    }
+    let outcome =
+        match search_code(&state.app.db, &state.app.settings, &group, &scope, &params).await {
+            Ok(outcome) => outcome,
+            Err(error) => return library_management_error_response(error),
+        };
+    (StatusCode::OK, Json(search_response(&outcome))).into_response()
 }
 
 /// The validated bounds of one search.
@@ -231,12 +172,6 @@ impl SearchFilters {
             limit: i64::from(query.limit),
         })
     }
-
-    /// Rows to read: one more than the caller asked for, so the extra row is the
-    /// only evidence of truncation.
-    fn fetch_limit(&self) -> i64 {
-        self.limit + 1
-    }
 }
 
 /// The classified language token shape the manifest stores:
@@ -255,21 +190,14 @@ fn is_language_token(value: &str) -> bool {
         })
 }
 
-/// Assemble the response from the resolved generation and the hits read with one
-/// extra row.
+/// Assemble the bounded HTTP response from the shared search outcome.
 ///
-/// The extra hit is kept only as the truncation probe: the response never returns
-/// more than the requested limit, and `truncated` says whether the storage layer
-/// had more. A search with no matches is a truthful empty result with the same
-/// provenance and coverage, never an error.
-fn search_response(
-    source: &StoredGitRepositorySource,
-    generation: &StoredGitRepositoryGeneration,
-    hits: Vec<GitCodeLexicalHit>,
-    limit: i64,
-) -> GitCodeSearchResponse {
-    let truncated = hits.len() as i64 > limit;
-    let kept: Vec<GitCodeSearchHit> = hits.iter().take(limit as usize).map(search_hit).collect();
+/// The service already applied the request limit, so the response only projects
+/// its provenance, coverage, profile metadata, and hits. A search with no
+/// matches is a truthful empty result, never an error.
+fn search_response(outcome: &CodeSearchOutcome) -> GitCodeSearchResponse {
+    let source: &StoredGitRepositorySource = &outcome.source;
+    let generation = &outcome.generation;
     GitCodeSearchResponse {
         repository_key: source.repository_key,
         generation_key: generation.generation_key,
@@ -278,33 +206,14 @@ fn search_response(
         commit_sha: generation.commit_sha.clone(),
         index_status: source.index_status,
         checkpoint: source.checkpoint.clone(),
+        requested_profile: outcome.requested_profile,
+        effective_profile: outcome.effective_profile,
+        vector_unavailable: outcome.vector_unavailable,
         file_count: generation.file_count,
         excluded_file_count: generation.excluded_file_count,
         total_bytes: generation.total_bytes,
-        hits: kept,
-        truncated,
-    }
-}
-
-/// Project one stored hit onto the HTTP contract, verbatim.
-fn search_hit(hit: &GitCodeLexicalHit) -> GitCodeSearchHit {
-    GitCodeSearchHit {
-        repository_key: hit.repository_key,
-        generation_key: hit.generation_key,
-        generation_number: hit.generation_number,
-        ref_name: hit.ref_name.clone(),
-        commit_sha: hit.commit_sha.clone(),
-        visibility: hit.visibility,
-        file_key: hit.file_key,
-        path: hit.path.clone(),
-        language: hit.language.clone(),
-        chunk_key: hit.chunk_key,
-        chunk_index: hit.chunk_index,
-        start_line: hit.start_line,
-        end_line: hit.end_line,
-        text: hit.text.clone(),
-        score: hit.score,
-        matched: hit.matched,
+        hits: outcome.hits.clone(),
+        truncated: outcome.truncated,
     }
 }
 

@@ -266,6 +266,7 @@ pub fn runtime_settings_request(
             batching: Default::default(),
             input_policy: Default::default(),
         },
+        code_embedding: None,
         scheduler: RuntimeSchedulerSettings {
             interval_secs: 3600,
             run_on_start: false,

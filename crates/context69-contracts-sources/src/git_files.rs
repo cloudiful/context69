@@ -7,7 +7,7 @@ use uuid::Uuid;
 use context69_contracts_core::Visibility;
 use context69_contracts_core::pagination::CursorPagination;
 
-use super::git_repositories::{GitCommitCheckpoint, GitIndexStatus};
+use super::git_repositories::{GitCommitCheckpoint, GitIndexProfile, GitIndexStatus};
 
 /// Why one chunk was returned by a lexical code query.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
@@ -21,6 +21,8 @@ pub enum GitCodeMatchKind {
     ChunkPhrase,
     /// The chunk text contains every token of the query.
     ChunkTerms,
+    /// The chunk's code vector matched the query vector.
+    Semantic,
 }
 
 impl GitCodeMatchKind {
@@ -30,8 +32,27 @@ impl GitCodeMatchKind {
             Self::PathPhrase => "path_phrase",
             Self::ChunkPhrase => "chunk_phrase",
             Self::ChunkTerms => "chunk_terms",
+            Self::Semantic => "semantic",
         }
     }
+}
+
+/// Why a requested semantic code channel answered with lexical results only.
+///
+/// `None` means the semantic channel ran (or was not requested). Every value is
+/// an explicit, non-secret reason: no identity, no record for the serving
+/// generation, a destination/identity mismatch, or an unavailable runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum GitCodeVectorUnavailableReason {
+    /// No code model is configured for this deployment.
+    NotConfigured,
+    /// The serving generation has no recorded code vector metadata.
+    GenerationNotVectorized,
+    /// The recorded destination no longer matches the current code identity.
+    IdentityMismatch,
+    /// The query provider or Qdrant collection was unavailable.
+    RuntimeUnavailable,
 }
 
 /// One manifest entry: a safe repository path mapped to a stored blob.
@@ -405,6 +426,15 @@ pub struct GitCodeSearchResponse {
     pub index_status: GitIndexStatus,
     /// Target/indexed commit checkpoint of the source.
     pub checkpoint: GitCommitCheckpoint,
+    /// The repository's configured index profile, the channel the caller asked
+    /// for through registration.
+    pub requested_profile: GitIndexProfile,
+    /// The profile the response actually answered with. It is `lexical` when a
+    /// requested semantic channel fell back.
+    pub effective_profile: GitIndexProfile,
+    /// Present only when a semantic channel was requested and could not run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector_unavailable: Option<GitCodeVectorUnavailableReason>,
     /// Manifest entries the serving generation covers.
     pub file_count: i64,
     /// File entries acquisition excluded, so coverage gaps stay visible.
