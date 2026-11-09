@@ -34,6 +34,7 @@ use errors::{
     PREVIEW_CHARS, bound_provider_error, extract_error_message, format_embedding_attempt_timeout,
     format_embedding_http_error, format_embedding_retry_budget_error,
     format_embedding_transport_error, oversized_response_error, redact_then_truncate,
+    sanitize_endpoint,
 };
 use retry_support::{finalize_error, retry_deadline};
 
@@ -508,7 +509,8 @@ fn parse_embedding_response(
             .map(|message| format!(" provider_error={}", bound_provider_error(&message, api_key)))
             .unwrap_or_default();
         anyhow::Error::from(DomainError::internal(format!(
-            "failed to parse embedding response: endpoint={endpoint} model={model} content_type={content_type} body_preview={preview:?}{embedded_error}: {error}"
+            "failed to parse embedding response: endpoint={} model={model} content_type={content_type} body_preview={preview:?}{embedded_error}: {error}",
+            sanitize_endpoint(endpoint)
         )))
     })
 }

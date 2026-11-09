@@ -53,6 +53,59 @@ impl RecordingEndpoint {
     }
 }
 
+/// A loopback endpoint that answers any path with HTTP 200 and a body that is
+/// not a usable embedding payload, echoing `provider_error` in the error message.
+/// It lets a case drive the parse-error path with both endpoint userinfo/query
+/// and a known API key present.
+pub async fn recording_malformed_success_endpoint(
+    provider_error: String,
+) -> (String, RecordingEndpoint) {
+    use axum::{Router, http::HeaderMap, response::IntoResponse, routing::post};
+    use tokio::net::TcpListener;
+
+    let recorded = RecordingEndpoint::default();
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind the malformed recording endpoint");
+    let address = listener.local_addr().expect("the endpoint address");
+    let app = Router::new().route(
+        "/{*path}",
+        post({
+            let recorded = recorded.clone();
+            move |headers: HeaderMap| {
+                let recorded = recorded.clone();
+                let provider_error = provider_error.clone();
+                async move {
+                    let header = headers
+                        .get(axum::http::header::AUTHORIZATION)
+                        .and_then(|value| value.to_str().ok())
+                        .map(str::to_string);
+                    recorded
+                        .headers
+                        .lock()
+                        .expect("the recording endpoint lock")
+                        .push(header);
+                    let payload = serde_json::json!({
+                        "error": {"message": format!("rejected token {provider_error}")}
+                    });
+                    recorded
+                        .bodies
+                        .lock()
+                        .expect("the recording endpoint lock")
+                        .push(payload.to_string());
+                    (axum::http::StatusCode::OK, axum::Json(payload)).into_response()
+                }
+            }
+        }),
+    );
+    tokio::spawn(async move {
+        axum::serve(listener, app)
+            .await
+            .expect("serve the malformed recording endpoint");
+    });
+    (format!("http://{address}"), recorded)
+}
+
 /// Starts the recording endpoint and returns its base URL. The status decides
 /// whether the provider is answered or refused, so one helper covers the success
 /// and the failure path. `echo` makes the endpoint reflect the received bearer
@@ -217,6 +270,7 @@ pub fn live_probe_request(
     api_key: Option<&str>,
 ) -> context69::contracts::settings::TestRuntimeEmbeddingRequest {
     context69::contracts::settings::TestRuntimeEmbeddingRequest {
+        purpose: context69::contracts::settings::TestRuntimeEmbeddingPurpose::Document,
         base_url: base_url.to_string(),
         model: "context69-secret-store-test".to_string(),
         query_model: None,

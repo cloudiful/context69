@@ -15,8 +15,8 @@ use uuid::Uuid;
 
 use context69_contracts_core::Visibility;
 use context69_contracts_sources::sources::{
-    GIT_REPOSITORY_FILE_PATH_MAX_CHARS, GitCodeLexicalHit, GitCodeMatchKind,
-    MAX_GIT_CONTENT_WINDOW_LINES,
+    GIT_REPOSITORY_FILE_PATH_MAX_CHARS, GitCodeLexicalHit, GitCodeMatchKind, GitCodeSearchHit,
+    GitCodeVectorUnavailableReason, GitIndexProfile, MAX_GIT_CONTENT_WINDOW_LINES,
 };
 
 use crate::projections::{
@@ -163,6 +163,28 @@ impl McpCodeHit {
             text: truncate_chars(&hit.text, MCP_CODE_TEXT_MAX_CHARS),
         }
     }
+
+    /// Build a hit from one shared-search result, enforcing the same caps.
+    pub fn from_search_hit(hit: &GitCodeSearchHit) -> Self {
+        Self {
+            repository_key: hit.repository_key,
+            generation_key: hit.generation_key,
+            generation_number: hit.generation_number,
+            ref_name: truncate_chars(&hit.ref_name, MCP_CODE_REF_MAX_CHARS),
+            commit_sha: truncate_chars(&hit.commit_sha, MCP_CODE_COMMIT_MAX_CHARS),
+            visibility: hit.visibility,
+            file_key: hit.file_key,
+            path: truncate_chars(&hit.path, MCP_CODE_PATH_MAX_CHARS),
+            language: truncate_chars(&hit.language, MCP_CODE_LANGUAGE_MAX_CHARS),
+            chunk_key: hit.chunk_key,
+            chunk_index: hit.chunk_index,
+            start_line: hit.start_line,
+            end_line: hit.end_line,
+            score: hit.score,
+            matched: hit.matched,
+            text: truncate_chars(&hit.text, MCP_CODE_TEXT_MAX_CHARS),
+        }
+    }
 }
 
 /// Coverage counters of the active generation a code search answered from.
@@ -217,6 +239,10 @@ impl McpCodeGeneration {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct McpCodeSearchResponse {
     pub generation: McpCodeGeneration,
+    pub requested_profile: GitIndexProfile,
+    pub effective_profile: GitIndexProfile,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vector_unavailable: Option<GitCodeVectorUnavailableReason>,
     #[schemars(length(max = 50))]
     pub hits: Vec<McpCodeHit>,
     pub truncated: bool,
@@ -230,6 +256,9 @@ impl McpCodeSearchResponse {
         hits.truncate(limit);
         Self {
             generation,
+            requested_profile: GitIndexProfile::Lexical,
+            effective_profile: GitIndexProfile::Lexical,
+            vector_unavailable: None,
             hits,
             truncated,
         }

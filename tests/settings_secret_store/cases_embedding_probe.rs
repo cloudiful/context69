@@ -17,6 +17,7 @@ fn probe_request(
     api_key: Option<&str>,
 ) -> context69::contracts::settings::TestRuntimeEmbeddingRequest {
     context69::contracts::settings::TestRuntimeEmbeddingRequest {
+        purpose: context69::contracts::settings::TestRuntimeEmbeddingPurpose::Document,
         base_url: "http://127.0.0.1:1/v1".to_string(),
         model: "context69-secret-store-test".to_string(),
         query_model: None,

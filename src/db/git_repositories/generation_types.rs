@@ -13,7 +13,9 @@ use crate::contracts::sources::{
 };
 
 use super::enums;
-use super::rows::{GitActiveGenerationRow, GitRepositoryGenerationRow};
+use super::rows::{
+    GitActiveGenerationRow, GitGenerationCodeVectorsRow, GitRepositoryGenerationRow,
+};
 
 /// A new index generation of a repository, pinned to one commit.
 #[derive(Debug, Clone)]
@@ -92,6 +94,43 @@ pub struct GitGenerationCoverage {
     pub file_count: i64,
     pub excluded_file_count: i64,
     pub total_bytes: i64,
+}
+
+/// The exact code destination and acknowledged point count of one generation.
+///
+/// `fingerprint` is the destination identity: the code vector-space fingerprint
+/// composed with the normalized Qdrant endpoint and dimensions. It never carries
+/// the endpoint, a credential, or the document collection name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewGitGenerationCodeVectors {
+    pub fingerprint: String,
+    pub dimensions: i64,
+    pub collection_name: String,
+    pub point_count: i64,
+}
+
+/// Code vector metadata as stored for one generation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredGitGenerationCodeVectors {
+    pub generation_key: Uuid,
+    pub fingerprint: String,
+    pub dimensions: i64,
+    pub collection_name: String,
+    pub point_count: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+impl StoredGitGenerationCodeVectors {
+    pub(crate) fn from_row(row: GitGenerationCodeVectorsRow) -> Self {
+        Self {
+            generation_key: row.generation_key,
+            fingerprint: row.fingerprint,
+            dimensions: row.dimensions,
+            collection_name: row.collection_name,
+            point_count: row.point_count,
+            created_at: row.created_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

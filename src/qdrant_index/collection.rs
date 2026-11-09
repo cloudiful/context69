@@ -46,6 +46,43 @@ const PAYLOAD_FIELD_INDEXES: &[(&str, FieldType)] = &[
 /// seen in production.
 const LIBRARY_FILE_ID_FIELD: &str = "library_file_id";
 
+/// Payload fields the separate Git code collection indexes, with their exact
+/// Qdrant `FieldType`.
+///
+/// Canonical value types, not guessed numbers: the two UUID provenance fields
+/// are stored as strings (Keyword), the counters and line numbers are integers,
+/// and the path/language filters are strings.
+pub(crate) const CODE_PAYLOAD_FIELD_INDEXES: &[(&str, FieldType)] = &[
+    ("group_id", FieldType::Integer),
+    ("repository_key", FieldType::Keyword),
+    ("generation_key", FieldType::Keyword),
+    ("file_key", FieldType::Keyword),
+    ("path", FieldType::Keyword),
+    ("language", FieldType::Keyword),
+    ("chunk_index", FieldType::Integer),
+    ("start_line", FieldType::Integer),
+    ("end_line", FieldType::Integer),
+];
+
+/// The two collection shapes the shared ensure path serves.
+///
+/// The document shape tolerates Params or ParamsMap; the code shape requires
+/// exactly one unnamed dense vector.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CollectionShape {
+    Document,
+    Code,
+}
+
+impl CollectionShape {
+    fn payload_field_indexes(self) -> &'static [(&'static str, FieldType)] {
+        match self {
+            Self::Document => PAYLOAD_FIELD_INDEXES,
+            Self::Code => CODE_PAYLOAD_FIELD_INDEXES,
+        }
+    }
+}
+
 /// Operation label used when surfacing a non-idempotent `create_field_index`
 /// failure through `format_qdrant_error`. Falls through the default prefix
 /// branch in `legacy_qdrant_prefix` ("qdrant request failed"); the qdrant
@@ -146,7 +183,7 @@ impl QdrantIndex {
             dimensions,
         };
         let recreated = index
-            .ensure_collection(dimensions)
+            .ensure_collection(dimensions, CollectionShape::Document)
             .await
             .with_context(|| {
                 format!(
@@ -185,14 +222,35 @@ impl QdrantIndex {
         collection_name: &str,
         dimensions: usize,
     ) -> Result<Self> {
-        let client = Qdrant::from_url(&config.url).build()?;
-        let index = Self {
-            client,
-            collection_name: collection_name.to_string(),
-            dimensions,
-        };
+        let index = Self::connect_to(config, collection_name, dimensions)?;
         index.probe_collection().await?;
         Ok(index)
+    }
+
+    /// Attaches to one named existing code collection with the strict code
+    /// vector-shape validation and read-only probe.
+    ///
+    /// A named-vector map, a wrong distance, or a wrong dimension is refused
+    /// before any read; this never creates, mutates, or recreates the
+    /// collection. The caller maps the refusal to its existing lexical
+    /// fallback.
+    pub(crate) async fn attach_code_read_only_collection(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+    ) -> Result<Self> {
+        let index = Self::connect_to(config, collection_name, dimensions)?;
+        index.probe_code_collection().await?;
+        Ok(index)
+    }
+
+    /// Binds a client to one named collection at the expected dimension.
+    fn connect_to(config: &QdrantConfig, collection_name: &str, dimensions: usize) -> Result<Self> {
+        Ok(Self {
+            client: Qdrant::from_url(&config.url).build()?,
+            collection_name: collection_name.to_string(),
+            dimensions,
+        })
     }
 
     /// Read-only inspection of the configured collection.
@@ -308,15 +366,9 @@ impl QdrantIndex {
         if !self.collection_exists_checked().await? {
             return Ok(None);
         }
-        let collection = self
-            .client
-            .collection_info(&self.collection_name)
-            .await?
-            .result
-            .context("missing qdrant collection info")?;
-        Ok(Some(collection_vector_size(&collection).context(
-            "missing qdrant vector size in collection config",
-        )?))
+        Ok(Some(
+            self.existing_dimension(CollectionShape::Document).await?,
+        ))
     }
 
     /// Attaches to an existing collection, or creates it only when `allow_create`
@@ -348,7 +400,10 @@ impl QdrantIndex {
                 index.collection_name
             ));
         }
-        match index.create_collection(dimensions).await {
+        match index
+            .create_collection(dimensions, CollectionShape::Document)
+            .await
+        {
             Ok(()) => {
                 index.probe_collection().await?;
                 Ok((index, true))
@@ -361,6 +416,21 @@ impl QdrantIndex {
             }
             Err(error) => Err(error),
         }
+    }
+
+    /// Ensures one named code collection exists at `dimensions` with its strict
+    /// single-dense shape and code filter indexes, then probes it once.
+    pub(crate) async fn ensure_code_collection(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+    ) -> Result<Self> {
+        let index = Self::connect_to(config, collection_name, dimensions)?;
+        index
+            .ensure_collection(dimensions, CollectionShape::Code)
+            .await?;
+        index.probe_code_collection().await?;
+        Ok(index)
     }
 
     /// One read-only liveness/identity probe: collection exists, declared
@@ -392,6 +462,21 @@ impl QdrantIndex {
         Ok(())
     }
 
+    /// Strict code-only probe: one unnamed dense Cosine vector at the expected
+    /// dimension, then a count round trip. It never mutates the collection.
+    async fn probe_code_collection(&self) -> Result<()> {
+        if !self.collection_exists_checked().await? {
+            return Err(anyhow!(
+                "qdrant collection {} does not exist",
+                self.collection_name
+            ));
+        }
+        self.validate_dimension(CollectionShape::Code, self.dimensions)
+            .await?;
+        self.count_points().await?;
+        Ok(())
+    }
+
     async fn collection_exists_checked(&self) -> Result<bool> {
         self.client
             .collection_exists(&self.collection_name)
@@ -399,37 +484,69 @@ impl QdrantIndex {
             .map_err(|error| anyhow::Error::new(error).context("qdrant collection_exists failed"))
     }
 
-    /// Ensures the configured collection exists at `dimensions`, never deleting
-    /// or recreating one. A dimension mismatch is a configuration error: the
-    /// legacy `recreate_on_dimension_mismatch` flag is accepted on the wire and
-    /// in configuration but cannot authorize destruction.
-    async fn ensure_collection(&self, dimensions: usize) -> Result<bool> {
-        if self.client.collection_exists(&self.collection_name).await? {
-            let collection = self
-                .client
-                .collection_info(&self.collection_name)
-                .await?
-                .result
-                .context("missing qdrant collection info")?;
-            let actual_dimensions = collection_vector_size(&collection)
-                .context("missing qdrant vector size in collection config")?;
-            if actual_dimensions != dimensions {
-                return Err(anyhow!(
-                    "qdrant collection {} dimension mismatch: expected {}, found {}; a different \
-                     vector space requires an explicit migration",
-                    self.collection_name,
-                    dimensions,
-                    actual_dimensions
-                ));
+    /// Ensures one collection exists at `dimensions` with the shape's payload
+    /// indexes, never deleting or recreating one. The document path only
+    /// validates its tolerant vector shape; the code path additionally
+    /// reconciles indexes and accepts a concurrent creator only after
+    /// revalidation. Callers that need a liveness probe add it themselves.
+    async fn ensure_collection(&self, dimensions: usize, shape: CollectionShape) -> Result<bool> {
+        if self.collection_exists_checked().await? {
+            self.validate_dimension(shape, dimensions).await?;
+            if shape == CollectionShape::Code {
+                self.ensure_field_indexes(shape.payload_field_indexes())
+                    .await?;
             }
             return Ok(false);
         }
 
-        self.create_collection(dimensions).await?;
-        Ok(true)
+        match self.create_collection(dimensions, shape).await {
+            Ok(()) => Ok(true),
+            Err(error)
+                if shape == CollectionShape::Code && is_collection_already_exists(&error) =>
+            {
+                // A concurrent creator owns the name now: revalidate instead of
+                // adopting it as this attempt's create.
+                self.validate_dimension(shape, dimensions).await?;
+                self.ensure_field_indexes(shape.payload_field_indexes())
+                    .await?;
+                Ok(false)
+            }
+            Err(error) => Err(error),
+        }
     }
 
-    async fn create_collection(&self, dimensions: usize) -> Result<()> {
+    /// Rejects a collection whose declared dimension differs from the shape's
+    /// expected one, using that shape's existing message.
+    async fn validate_dimension(&self, shape: CollectionShape, expected: usize) -> Result<()> {
+        let actual = self.existing_dimension(shape).await?;
+        if actual != expected {
+            return Err(collection_dimension_mismatch(
+                shape,
+                &self.collection_name,
+                expected,
+                actual,
+            ));
+        }
+        Ok(())
+    }
+
+    /// The declared dimension of the collection under the shape's vector rule.
+    async fn existing_dimension(&self, shape: CollectionShape) -> Result<usize> {
+        let collection = self
+            .client
+            .collection_info(&self.collection_name)
+            .await?
+            .result
+            .context("missing qdrant collection info")?;
+        match shape {
+            CollectionShape::Document => collection_vector_size(&collection)
+                .context("missing qdrant vector size in collection config"),
+            CollectionShape::Code => code_vector_size_single(&collection)
+                .context("code qdrant collection is not a single Cosine dense vector collection"),
+        }
+    }
+
+    async fn create_collection(&self, dimensions: usize, shape: CollectionShape) -> Result<()> {
         self.client
             .create_collection(
                 CreateCollectionBuilder::new(&self.collection_name).vectors_config(
@@ -437,8 +554,12 @@ impl QdrantIndex {
                 ),
             )
             .await?;
+        self.ensure_field_indexes(shape.payload_field_indexes())
+            .await
+    }
 
-        for &(field, field_type) in PAYLOAD_FIELD_INDEXES {
+    async fn ensure_field_indexes(&self, indexes: &[(&str, FieldType)]) -> Result<()> {
+        for &(field, field_type) in indexes {
             self.ensure_field_index_idempotent(field, field_type)
                 .await?;
         }
@@ -571,6 +692,29 @@ fn is_collection_already_exists(error: &anyhow::Error) -> bool {
     text.contains("already exists") && text.contains("collection")
 }
 
+fn collection_dimension_mismatch(
+    shape: CollectionShape,
+    collection_name: &str,
+    expected: usize,
+    actual: usize,
+) -> anyhow::Error {
+    match shape {
+        CollectionShape::Document => anyhow!(
+            "qdrant collection {} dimension mismatch: expected {}, found {}; a different \
+             vector space requires an explicit migration",
+            collection_name,
+            expected,
+            actual
+        ),
+        CollectionShape::Code => anyhow!(
+            "qdrant code collection {} dimension mismatch: expected {}, found {}",
+            collection_name,
+            expected,
+            actual
+        ),
+    }
+}
+
 fn collection_vector_size(collection: &qdrant_client::qdrant::CollectionInfo) -> Option<usize> {
     let config = collection.config.as_ref()?;
     let vectors_config = config.params.as_ref()?.vectors_config.as_ref()?;
@@ -583,6 +727,28 @@ fn collection_vector_size(collection: &qdrant_client::qdrant::CollectionInfo) ->
             .next()
             .map(|params| params.size as usize),
         None => None,
+    }
+}
+
+/// The size of the single unnamed dense Cosine vector a code collection must
+/// declare.
+///
+/// A named-vector map, a non-Cosine distance, a multi-vector configuration,
+/// or a missing configuration is a different collection type and is refused
+/// instead of silently reading one of its vectors.
+fn code_vector_size_single(collection: &qdrant_client::qdrant::CollectionInfo) -> Option<usize> {
+    let config = collection.config.as_ref()?;
+    let vectors_config = config.params.as_ref()?.vectors_config.as_ref()?;
+    match &vectors_config.config {
+        Some(vectors_config::Config::Params(params))
+            if params.distance == Distance::Cosine as i32
+                && params.multivector_config.is_none() =>
+        {
+            Some(params.size as usize)
+        }
+        Some(vectors_config::Config::Params(_))
+        | Some(vectors_config::Config::ParamsMap(_))
+        | None => None,
     }
 }
 

@@ -16,7 +16,8 @@ mod connection_tests;
 
 pub use connection_tests::{
     TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
-    TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
+    TestRuntimeEmbeddingPurpose, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
+    TestRuntimeValkeyRequest,
 };
 
 fn default_search_vector_weight() -> f32 {
@@ -171,6 +172,13 @@ impl From<UpdateSearchSettingsRequest> for CanonicalUpdateSearchSettingsRequest 
 pub struct RuntimeSettingsResponse {
     pub qdrant: RuntimeQdrantSettings,
     pub embedding: RuntimeEmbeddingSettings,
+    /// The optional, independent Git code embedding configuration.
+    ///
+    /// Absent when the deployment never stored a code row. A present value with
+    /// `enabled = false` is an explicitly disabled configuration that retains
+    /// its non-secret fields.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_embedding: Option<RuntimeCodeEmbeddingSettings>,
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: RuntimeFileLibrarySettings,
@@ -193,6 +201,12 @@ pub struct RuntimeSettingsResponse {
 pub struct UpdateRuntimeSettingsRequest {
     pub qdrant: RuntimeQdrantSettings,
     pub embedding: UpdateRuntimeEmbeddingSettings,
+    /// The optional code embedding block.
+    ///
+    /// An absent or `null` field skips every code write, preserving the stored
+    /// row and credential, so an older client cannot disable code embedding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code_embedding: Option<UpdateCodeEmbeddingSettings>,
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: UpdateRuntimeFileLibrarySettings,
@@ -249,6 +263,48 @@ pub struct UpdateRuntimeEmbeddingSettings {
     /// The explicit input-token envelope and server-added prefixes.
     #[serde(default)]
     pub input_policy: EmbeddingInputPolicy,
+}
+
+/// The stored optional Git code embedding settings.
+///
+/// This block is independent of the document embedding block: it never borrows
+/// the document model, credential, or object. `has_api_key` is presence
+/// metadata only; the credential is never returned.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RuntimeCodeEmbeddingSettings {
+    pub enabled: bool,
+    pub base_url: String,
+    pub model: String,
+    /// The model code queries are embedded with. Absent means the code model.
+    #[serde(default)]
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    pub has_api_key: bool,
+    /// The manual limits of the code embedding request planner.
+    #[serde(default)]
+    pub batching: EmbeddingBatchingSettings,
+}
+
+/// The optional code embedding update.
+///
+/// The tri-state secret patch follows the settings contract: `keep` retains the
+/// stored code credential, `set` replaces it, and `clear` removes it. Disabling
+/// the block keeps every non-secret field and the credential unless the caller
+/// explicitly clears the key.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateCodeEmbeddingSettings {
+    pub enabled: bool,
+    pub base_url: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    #[serde(default)]
+    pub api_key: SecretPatch,
+    #[serde(default)]
+    pub batching: EmbeddingBatchingSettings,
 }
 
 /// The default number of inputs one embedding provider request may carry.

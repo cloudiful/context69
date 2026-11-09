@@ -62,6 +62,28 @@ export type DraftRuntimeSettings = {
     batching: DraftEmbeddingBatching;
     input_policy: DraftEmbeddingInputPolicy;
   };
+  /**
+   * The independent optional Git code embedding draft.
+   *
+   * `touched` is frontend-only: an ordinary document save omits the block so it
+   * can never disable code embedding, while any code edit carries it.
+   */
+  code_embedding: {
+    enabled: boolean;
+    base_url: string;
+    api_key: string;
+    model: string;
+    /** The model code queries are embedded with; blank inherits the code model. */
+    query_model: string;
+    dimensions: number;
+    timeout_secs: number;
+    batching: DraftEmbeddingBatching;
+    /** Whether the response reported a stored code credential. */
+    has_api_key: boolean;
+    /** An explicit request to remove the stored code credential. */
+    clear_api_key: boolean;
+    touched: boolean;
+  };
   scheduler: {
     interval_secs: number;
     run_on_start: boolean;

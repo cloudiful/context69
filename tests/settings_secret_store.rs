@@ -21,14 +21,19 @@
 //! These tests run only when `CONTEXT69_TEST_DATABASE_URL` points at a disposable
 //! migrated database; they are skipped otherwise. Every value is synthetic, no
 //! case prints a stored value, and no `.env`, machine configuration, or
-//! remote/shared database is used. Cleanup removes exactly the four singleton
-//! settings rows and the four store rows these cases write.
+//! remote/shared database is used. Cleanup removes exactly the owned singleton
+//! settings rows and store rows these cases write. The code-embedding cases
+//! additionally require the issue-specific `context69_issue_25` database before
+//! running the newly authorized fixture reset.
 
 #[path = "settings_secret_store/support.rs"]
 mod support;
 
 #[path = "settings_secret_store/cases_docling.rs"]
 mod cases_docling;
+
+#[path = "settings_secret_store/cases_code_embedding.rs"]
+mod cases_code_embedding;
 
 #[path = "settings_secret_store/cases_docling_probe.rs"]
 mod cases_docling_probe;

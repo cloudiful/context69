@@ -19,20 +19,61 @@ use super::types::{
 /// The batching limits are stored in a PostgreSQL BIGINT, so a value the column
 /// cannot hold is refused here rather than at the first settings save.
 pub(super) fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> {
+    validate_provider_config("embedding", config)
+}
+
+/// Validates the optional code embedding block when a deployment declares one.
+///
+/// An absent block is the disabled default. When present it uses the same
+/// provider rules as the document block, without inheriting any document value.
+pub(super) fn validate_code_embedding_config(config: Option<&EmbeddingConfig>) -> Result<()> {
+    match config {
+        Some(config) => {
+            validate_provider_config("code_embedding", config)?;
+            reject_non_default_code_input_policy(config)
+        }
+        None => Ok(()),
+    }
+}
+
+/// Keeps the P1 fixed code input policy truthful.
+///
+/// Code chunks are embedded exactly as chunked; a custom token cap, server
+/// prefix, or special-token switch would silently change the vector space while
+/// the published fingerprint kept claiming the fixed policy.
+fn reject_non_default_code_input_policy(config: &EmbeddingConfig) -> Result<()> {
+    if config.input_policy.is_default() {
+        return Ok(());
+    }
+    Err(anyhow!(
+        "code_embedding.input_policy must remain the fixed default code input policy"
+    ))
+}
+
+fn validate_provider_config(section: &str, config: &EmbeddingConfig) -> Result<()> {
+    if config.base_url.trim().is_empty() {
+        return Err(anyhow!("{section}.base_url must not be empty"));
+    }
+    if config.model.trim().is_empty() {
+        return Err(anyhow!("{section}.model must not be empty"));
+    }
     if config.dimensions == 0 {
-        return Err(anyhow!("embedding.dimensions must be greater than 0"));
+        return Err(anyhow!("{section}.dimensions must be greater than 0"));
+    }
+    if config.timeout.as_secs() == 0 {
+        return Err(anyhow!("{section}.timeout_secs must be greater than 0"));
     }
     let limits =
         crate::embedding::embedding_batch::EmbeddingBatchLimits::from_settings(&config.batching);
     if !limits.is_positive() {
         return Err(anyhow!(
-            "embedding.batching limits must all be greater than 0"
+            "{section}.batching limits must all be greater than 0"
         ));
     }
     config
         .input_policy
         .validate()
-        .map_err(|reason| anyhow!("embedding.input_policy is invalid: {reason}"))?;
+        .map_err(|reason| anyhow!("{section}.input_policy is invalid: {reason}"))?;
     for (name, value) in [
         (
             "max_items_per_request",
@@ -44,7 +85,7 @@ pub(super) fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> 
     ] {
         if i64::try_from(value).is_err() {
             return Err(anyhow!(
-                "embedding.batching.{name} must be at most {}",
+                "{section}.batching.{name} must be at most {}",
                 i64::MAX
             ));
         }
@@ -281,4 +322,40 @@ pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result
         return Err(anyhow!("secret_store.key_version must be greater than 0"));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use context69_contracts::settings::EmbeddingBatchingSettings;
+
+    use super::validate_code_embedding_config;
+
+    fn code_config() -> super::EmbeddingConfig {
+        super::EmbeddingConfig {
+            base_url: "http://code.invalid/v1".to_string(),
+            api_key: None,
+            model: "code-model".to_string(),
+            query_model: None,
+            dimensions: 1024,
+            timeout: Duration::from_secs(30),
+            batching: EmbeddingBatchingSettings::default(),
+            input_policy: Default::default(),
+        }
+    }
+
+    #[test]
+    fn a_custom_code_embedding_input_policy_is_rejected_before_installation() {
+        let mut config = code_config();
+        assert!(
+            validate_code_embedding_config(Some(&config)).is_ok(),
+            "the fixed default policy is the only accepted code policy"
+        );
+
+        config.input_policy.max_input_tokens = Some(256);
+        let error = validate_code_embedding_config(Some(&config))
+            .expect_err("a custom token cap must not reach the provider");
+        assert!(error.to_string().contains("input_policy"), "{error}");
+    }
 }

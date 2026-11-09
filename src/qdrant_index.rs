@@ -5,6 +5,7 @@ use std::time::Duration;
 use uuid::Uuid;
 
 mod cleanup;
+pub(crate) mod code_vectors;
 mod collection;
 mod date_window;
 mod errors;

@@ -1,0 +1,190 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Hydrates canonical stored chunks by chunk key from one repository's active\n-- ready generation.\n--\n-- $1 group_id (owning group), $2 repository_key, $3 captured generation_key,\n-- $4 chunk_keys uuid[], $5 path prefix LIKE pattern or NULL, $6 language or\n-- NULL, $7 visible_group_ids bigint[].\n--\n-- The statement is the only authority for text and provenance: a candidate key\n-- answers only when it is stored under the captured generation, that generation\n-- is still the active ready one, the repository belongs to $1, and the owning\n-- group's current visibility admits the caller. A forged, stale, superseded, or\n-- cross-scope remote key therefore matches no row instead of leaking content.\nWITH repository_scope AS (\n    SELECT s.repository_key, s.group_id, g.visibility AS group_visibility\n    FROM context69.git_repository_sources s\n    JOIN context69.groups g ON g.id = s.group_id\n    WHERE s.group_id = $1\n      AND s.repository_key = $2\n),\nactive_generation AS (\n    SELECT gen.generation_key, gen.generation_number, gen.ref_name, gen.commit_sha\n    FROM context69.git_repository_active_generations ag\n    JOIN context69.git_repository_generations gen ON gen.generation_key = ag.generation_key\n    JOIN repository_scope r ON r.repository_key = ag.repository_key\n    WHERE ag.repository_key = r.repository_key\n      AND gen.generation_key = $3\n      AND gen.status = 'ready'\n)\nSELECT\n    r.repository_key AS \"repository_key!\",\n    gen.generation_key AS \"generation_key!\",\n    gen.generation_number AS \"generation_number!\",\n    gen.ref_name AS \"ref_name!\",\n    gen.commit_sha AS \"commit_sha!\",\n    r.group_visibility AS \"group_visibility!\",\n    f.file_key AS \"file_key!\",\n    f.path AS \"path!\",\n    f.language AS \"language!\",\n    c.chunk_key AS \"chunk_key!\",\n    c.chunk_index AS \"chunk_index!\",\n    c.start_line AS \"start_line!\",\n    c.end_line AS \"end_line!\",\n    c.chunk_text AS \"chunk_text!\"\nFROM context69.git_generation_chunks c\nJOIN context69.git_generation_files f\n    ON f.generation_key = c.generation_key\n   AND f.file_key = c.file_key\nJOIN active_generation gen ON gen.generation_key = c.generation_key\nJOIN repository_scope r ON TRUE\nWHERE c.chunk_key = ANY($4::uuid[])\n  AND ($5::text IS NULL OR f.path LIKE $5 ESCAPE '\\')\n  AND ($6::text IS NULL OR f.language = $6)\n  AND (r.group_visibility = 'public' OR r.group_id = ANY($7::bigint[]))\nORDER BY f.path ASC, c.chunk_index ASC, c.chunk_key ASC\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "generation_number!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_number"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "ref_name!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "ref_name"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "commit_sha!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "commit_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "group_visibility!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "file_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "path!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "language!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "language"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "chunk_key!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_key"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "chunk_index!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "start_line!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "start_line"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "end_line!",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "end_line"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "chunk_text!",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "UuidArray",
+        "Text",
+        "Text",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "0ffb1265308ef39dd5943d645c999e307f2f730b8a736b4873525f8436f50a4d"
+}

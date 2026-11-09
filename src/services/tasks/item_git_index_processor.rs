@@ -24,6 +24,7 @@ use crate::domain::GroupRecord;
 use crate::domain_errors::{DomainError, find_domain_error};
 use crate::services::git_repository::{
     GitHubApiTransport,
+    code_vectors::CodeVectorRequest,
     index_generation::{
         GitHubSnapshotProvider, GitSnapshotProvider, index_git_repository_snapshot,
     },
@@ -117,12 +118,23 @@ pub(super) async fn process_git_index(
         Ok(provider) => provider,
         Err(result) => return Ok(result),
     };
-    Ok(run_git_index_snapshot(
+    let code = match service.settings().code_embedding_snapshot() {
+        Some(snapshot) => {
+            let qdrant_url = match service.settings().runtime_qdrant_url().await {
+                Ok(url) => url,
+                Err(error) => return Ok(index_failure(GIT_INDEX_STAGE, &error)),
+            };
+            Some(CodeVectorRequest::production(snapshot, qdrant_url))
+        }
+        None => None,
+    };
+    Ok(run_git_index_snapshot_with_code(
         service.db(),
         group_id,
         repository_key,
         provider.as_ref(),
         GitIndexLimits::default(),
+        code.as_ref(),
     )
     .await)
 }
@@ -144,14 +156,16 @@ async fn build_provider(
     Ok(Box::new(GitHubSnapshotProvider::new(Arc::new(transport))))
 }
 
-async fn run_git_index_snapshot(
+async fn run_git_index_snapshot_with_code(
     db: &Database,
     group_id: i64,
     repository_key: Uuid,
     provider: &dyn GitSnapshotProvider,
     limits: GitIndexLimits,
+    code: Option<&CodeVectorRequest>,
 ) -> ProcessResult {
-    match index_git_repository_snapshot(db, provider, limits, group_id, repository_key).await {
+    match index_git_repository_snapshot(db, provider, limits, group_id, repository_key, code).await
+    {
         Ok(outcome) => {
             tracing::info!(
                 repository_key = %outcome.repository_key,
@@ -168,6 +182,19 @@ async fn run_git_index_snapshot(
         }
         Err(error) => index_failure(GIT_INDEX_STAGE, &error),
     }
+}
+
+/// Test-only lexical entry point retained so the existing processor tests keep
+/// exercising the same five-argument call without a code request.
+#[cfg(test)]
+async fn run_git_index_snapshot(
+    db: &Database,
+    group_id: i64,
+    repository_key: Uuid,
+    provider: &dyn GitSnapshotProvider,
+    limits: GitIndexLimits,
+) -> ProcessResult {
+    run_git_index_snapshot_with_code(db, group_id, repository_key, provider, limits, None).await
 }
 
 fn finalize_result(payload: &Value) -> ProcessResult {

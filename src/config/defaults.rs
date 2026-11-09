@@ -134,6 +134,7 @@ impl Default for FileConfig {
                 batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
                 input_policy: Default::default(),
             },
+            code_embedding: None,
             docling: None,
             auth: AuthConfig {
                 session_valkey_url: None,

@@ -43,6 +43,17 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
     if let Some(runtime) = &runtime {
         super::runtime_settings::apply_runtime_settings(config, runtime);
     }
+    match super::runtime_settings::load_code_embedding_settings(db, &secrets).await? {
+        Some(code) => {
+            super::runtime_settings::apply_code_embedding_settings(config, &code);
+            settings.apply_code_embedding_settings(Some(&code))?;
+        }
+        None => {
+            if let Some(code) = &config.code_embedding {
+                settings.install_code_embedding_config(code)?;
+            }
+        }
+    }
     let browser_sessions = browser_sessions::resolve(&secrets, config).await?;
     // A connection's database URL lives only in the shared store, so the effective
     // configuration is built from the value this deployment can actually open. A

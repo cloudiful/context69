@@ -19,7 +19,7 @@ use super::{
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
-    validate::validate_embedding_config,
+    validate::{validate_code_embedding_config, validate_embedding_config},
 };
 
 /// The chunking section of the file configuration.
@@ -133,6 +133,10 @@ pub struct Config {
     pub app_db: AppDbConfig,
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
+    /// The optional, independent Git code embedding configuration.
+    ///
+    /// Disabled when absent. It never borrows the document embedding block.
+    pub code_embedding: Option<EmbeddingConfig>,
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
     pub file_library: FileLibraryConfig,
@@ -439,6 +443,8 @@ pub(super) struct FileConfig {
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
     #[serde(default)]
+    pub code_embedding: Option<EmbeddingConfig>,
+    #[serde(default)]
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
     pub file_library: FileLibraryConfig,
@@ -473,11 +479,13 @@ impl TryFrom<FileConfig> for Config {
     fn try_from(file_config: FileConfig) -> Result<Self> {
         validate_loaded_config(&file_config)?;
         validate_embedding_config(&file_config.embedding)?;
+        validate_code_embedding_config(file_config.code_embedding.as_ref())?;
         Ok(Self {
             app: file_config.app,
             app_db: file_config.app_db,
             qdrant: file_config.qdrant,
             embedding: file_config.embedding,
+            code_embedding: file_config.code_embedding,
             docling: file_config.docling.map(normalize_docling_config),
             auth: file_config.auth,
             file_library: file_config.file_library,

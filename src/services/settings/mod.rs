@@ -12,7 +12,10 @@ use anyhow::Result;
 use tokio::sync::Mutex;
 
 use crate::{
-    db::StoredRuntimeSettings,
+    code_embedding_runtime::{
+        CodeEmbeddingRuntime, build_code_provider, code_embedding_fingerprint,
+    },
+    db::{StoredRuntimeCodeEmbeddingSettings, StoredRuntimeSettings},
     domain_errors::DomainError,
     embedding::{
         EmbeddingIdentity, EmbeddingProvider, build_provider,
@@ -31,7 +34,7 @@ pub(crate) mod secrets;
 pub mod tokenizer_provisioning;
 mod validate;
 
-pub(crate) use runtime_mappers::stored_chunk_budget;
+pub(crate) use runtime_mappers::{code_embedding_config, stored_chunk_budget};
 
 use self::{
     mappers::{
@@ -41,7 +44,7 @@ use self::{
     },
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request,
-        runtime_settings_response, s3_secret_patch,
+        runtime_settings_response_with_code, s3_secret_patch, stored_code_embedding_from_request,
     },
     secrets::{SettingsSecrets, docling_vlm_patch, optional_key_patch},
     validate as settings_validate,
@@ -50,7 +53,7 @@ use self::{
 use crate::{
     contracts::{
         CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, DoclingSettingsSource,
-        RuntimeSettingsResponse, SearchSettingsResponse, TokenizerProvisionRequest,
+        RuntimeSettingsResponse, SearchSettingsResponse, SecretPatch, TokenizerProvisionRequest,
         TokenizerProvisionResponse, UpdateDoclingSettingsRequest, UpdateRuntimeEmbeddingSettings,
         UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
@@ -175,9 +178,13 @@ pub struct SettingsService {
     db: Database,
     search_secrets: SettingsSecrets,
     embedding_secrets: SettingsSecrets,
+    code_embedding_secrets: SettingsSecrets,
     docling_secrets: SettingsSecrets,
     s3_secrets: SettingsSecrets,
     llm_provider_secrets: SettingsSecrets,
+    /// The optional Git code embedding runtime. It is independent of the
+    /// document embedding runtime and is read only by code consumers.
+    code_embedding: CodeEmbeddingRuntime,
     docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     runtime_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Rejects an embedding update that cannot be applied to the live runtime
@@ -234,6 +241,7 @@ impl SettingsService {
             db,
             search_secrets: SettingsSecrets::search(store.clone()),
             embedding_secrets: SettingsSecrets::embedding(store.clone()),
+            code_embedding_secrets: SettingsSecrets::code_embedding(store.clone()),
             docling_secrets: SettingsSecrets::docling(store.clone()),
             s3_secrets: SettingsSecrets::runtime_s3(store.clone()),
             llm_provider_secrets: SettingsSecrets::new(
@@ -241,6 +249,7 @@ impl SettingsService {
                 crate::services::secret_store::SecretPurpose::TranslationProviderApiKey,
                 crate::services::secret_store::key_names::TRANSLATION_PROVIDER_API_KEY,
             ),
+            code_embedding: CodeEmbeddingRuntime::new(),
             docling_settings_observer: None,
             runtime_settings_observer: None,
             runtime_embedding_guard: None,
@@ -267,6 +276,62 @@ impl SettingsService {
     /// row is already committed when it fires.
     pub fn set_runtime_settings_observer(&mut self, observer: Option<Arc<dyn Fn() + Send + Sync>>) {
         self.runtime_settings_observer = observer;
+    }
+
+    /// The code embedding snapshot currently installed, if any.
+    ///
+    /// P2 reads this once per generation so a later settings save cannot
+    /// relabel the vectors that generation produces.
+    pub fn code_embedding_snapshot(
+        &self,
+    ) -> Option<Arc<crate::code_embedding_runtime::CodeEmbeddingSnapshot>> {
+        self.code_embedding.snapshot()
+    }
+
+    /// The Qdrant endpoint the runtime settings currently name, if any.
+    ///
+    /// A Git code generation captures this once with the code snapshot; the
+    /// document collection name is never part of the code destination.
+    pub async fn runtime_qdrant_url(&self) -> Result<Option<String>> {
+        Ok(self
+            .db
+            .get_runtime_settings()
+            .await?
+            .map(|runtime| runtime.qdrant.url))
+    }
+
+    /// Installs one complete code provider snapshot, or disables the channel.
+    ///
+    /// A disabled or absent configuration removes the current snapshot without
+    /// changing the stored settings or credential.
+    pub(crate) fn apply_code_embedding_settings(
+        &self,
+        code: Option<&StoredRuntimeCodeEmbeddingSettings>,
+    ) -> Result<()> {
+        let Some(code) = code.filter(|code| code.enabled) else {
+            self.code_embedding.disable();
+            return Ok(());
+        };
+        self.install_code_embedding_config(&runtime_mappers::code_embedding_config(
+            code,
+            code.api_key.clone(),
+        ))
+    }
+
+    /// Builds and atomically installs one code provider configuration.
+    pub(crate) fn install_code_embedding_config(
+        &self,
+        config: &crate::config::EmbeddingConfig,
+    ) -> Result<()> {
+        if !config.input_policy.is_default() {
+            return Err(anyhow::anyhow!(
+                "code_embedding.input_policy must remain the fixed default code input policy"
+            ));
+        }
+        let provider = build_code_provider(config)?;
+        self.code_embedding
+            .install(provider, config.clone(), code_embedding_fingerprint(config));
+        Ok(())
     }
 
     /// Register a guard that rejects an embedding update the live runtime cannot
@@ -381,16 +446,23 @@ impl SettingsService {
         // Presence only: a settings projection never opens a stored key, so it
         // stays truthful on a deployment that cannot decrypt.
         let has = self.embedding_secrets.is_present().await?;
+        let code = self.db.get_runtime_code_embedding_settings().await?;
+        let has_code_api_key = match code {
+            Some(_) => self.code_embedding_secrets.is_present().await?,
+            None => false,
+        };
         let has_s3_secret_key = match stored.file_library.s3.as_ref() {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
         let requires_rebuild = self.requires_rebuild(&stored).await?;
-        Ok(runtime_settings_response(
+        Ok(runtime_settings_response_with_code(
             stored,
             has,
             has_s3_secret_key,
             requires_rebuild,
+            code,
+            has_code_api_key,
         ))
     }
 
@@ -545,6 +617,36 @@ impl SettingsService {
         let s3_patch = s3_secret_patch(request.file_library.s3.as_ref());
         let s3_secret_key = self.s3_secrets.resolve_and_merge(&s3_patch).await?;
 
+        // The code block is optional. When it is present, its own credential is
+        // resolved and its own provider is built before anything is committed;
+        // when it is absent, no code secret is opened and no code row is
+        // written, so an ordinary document save cannot disable code embedding.
+        let stored_code = request
+            .code_embedding
+            .as_ref()
+            .map(stored_code_embedding_from_request);
+        let code_patch = request
+            .code_embedding
+            .as_ref()
+            .map(|code| code.api_key.clone());
+        // A request that disables the code block needs no provider. When it keeps
+        // the retained credential, it must not open that row: an unreadable old
+        // code secret may block neither the disable nor startup, while the
+        // encrypted row stays in place for a later explicit Clear or repair.
+        let code_disabled = stored_code.as_ref().is_some_and(|code| !code.enabled);
+        let code_api_key = match &code_patch {
+            Some(patch) if code_disabled && keeps_code_secret(patch) => None,
+            Some(patch) => self.code_embedding_secrets.resolve_and_merge(patch).await?,
+            None => None,
+        };
+        let code_candidate = match &stored_code {
+            Some(code) if code.enabled => {
+                let config = runtime_mappers::code_embedding_config(code, code_api_key.clone());
+                Some((build_code_provider(&config)?, config))
+            }
+            _ => None,
+        };
+
         let stored = runtime_settings_from_request(request);
         if stored.file_library.s3.is_some() && s3_secret_key.is_none() {
             return Err(DomainError::invalid_argument(
@@ -580,14 +682,39 @@ impl SettingsService {
         // request leaves the stored keys as they were.
         self.embedding_secrets.commit(&patch).await?;
         self.s3_secrets.commit(&s3_patch).await?;
+        if let Some(patch) = &code_patch {
+            self.code_embedding_secrets.commit(patch).await?;
+        }
         let saved = match &planned_ack {
             Some(ack) => {
                 self.db
-                    .save_runtime_settings_with_identity_ack(&stored, Some(ack.as_ack()))
+                    .save_runtime_settings_with_code(
+                        &stored,
+                        stored_code.as_ref(),
+                        Some(ack.as_ack()),
+                    )
                     .await?
             }
-            None => self.db.save_runtime_settings(&stored).await?,
+            None => {
+                self.db
+                    .save_runtime_settings_with_code(&stored, stored_code.as_ref(), None)
+                    .await?
+            }
         };
+
+        // A committed code update becomes the live snapshot before the save
+        // reports success. An omitted block leaves the current snapshot alone; a
+        // present disabled row removes it without touching the stored fields.
+        if request.code_embedding.is_some() {
+            match code_candidate {
+                Some((provider, config)) => self.code_embedding.install(
+                    provider,
+                    config.clone(),
+                    code_embedding_fingerprint(&config),
+                ),
+                None => self.code_embedding.disable(),
+            }
+        }
 
         // The budget becomes active synchronously, before this save reports
         // success and before any later submission can read it. Existing tasks
@@ -625,16 +752,23 @@ impl SettingsService {
             observer();
         }
         let has = self.embedding_secrets.is_present().await?;
+        let code = self.db.get_runtime_code_embedding_settings().await?;
+        let has_code_api_key = match code {
+            Some(_) => self.code_embedding_secrets.is_present().await?,
+            None => false,
+        };
         let has_s3_secret_key = match saved.file_library.s3.as_ref() {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
         let requires_rebuild = self.requires_rebuild(&saved).await?;
-        Ok(runtime_settings_response(
+        Ok(runtime_settings_response_with_code(
             saved,
             has,
             has_s3_secret_key,
             requires_rebuild,
+            code,
+            has_code_api_key,
         ))
     }
 
@@ -1040,6 +1174,19 @@ async fn reconcile_runtime_refreshes(
     }
 }
 
+/// Whether a code credential patch leaves the stored value untouched.
+///
+/// `Keep` is the default, and a blank `Set` normalizes to `Keep` under the wire
+/// contract. Neither needs the retained value, so a disabled configuration can
+/// apply it without opening an unreadable row.
+fn keeps_code_secret(patch: &SecretPatch) -> bool {
+    match patch {
+        SecretPatch::Keep => true,
+        SecretPatch::Set(value) => value.trim().is_empty(),
+        SecretPatch::Clear => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1137,6 +1284,7 @@ mod tests {
                 batching: Default::default(),
                 input_policy: Default::default(),
             },
+            code_embedding: None,
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,
                 run_on_start: true,

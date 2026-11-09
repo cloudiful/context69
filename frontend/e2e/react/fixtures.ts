@@ -75,6 +75,15 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
     timeout_secs: 30,
     has_api_key: true,
   },
+  code_embedding: {
+    enabled: true,
+    base_url: "http://code-embedding:8080/v1",
+    model: "code-embed-1",
+    query_model: null,
+    dimensions: 768,
+    timeout_secs: 30,
+    has_api_key: true,
+  },
   scheduler: {
     interval_secs: 300,
     run_on_start: true,

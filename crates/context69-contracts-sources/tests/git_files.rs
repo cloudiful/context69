@@ -26,7 +26,9 @@ use context69_contracts_sources::git_files::{
     GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse, MAX_GIT_CONTENT_CURSOR_MAX_CHARS,
     MAX_GIT_CONTENT_WINDOW_BYTES, MAX_GIT_CONTENT_WINDOW_LINES,
 };
-use context69_contracts_sources::git_repositories::{GitCommitCheckpoint, GitIndexStatus};
+use context69_contracts_sources::git_repositories::{
+    GitCommitCheckpoint, GitIndexProfile, GitIndexStatus,
+};
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
 use uuid::Uuid;
@@ -551,6 +553,7 @@ fn the_search_response_names_the_serving_generation_and_its_coverage() {
         vec![
             "checkpoint",
             "commit_sha",
+            "effective_profile",
             "excluded_file_count",
             "file_count",
             "generation_key",
@@ -559,11 +562,12 @@ fn the_search_response_names_the_serving_generation_and_its_coverage() {
             "index_status",
             "ref_name",
             "repository_key",
+            "requested_profile",
             "total_bytes",
             "truncated",
         ],
-        "the response carries the generation, its coverage, the bounded hits, and the \
-         truncation flag — and no continuation token"
+        "the response carries the generation, its coverage, the bounded hits, the \
+         requested/effective profile, and the truncation flag — and no continuation token"
     );
     assert_eq!(response.generation_key, response.hits[0].generation_key);
     assert_eq!(response.commit_sha, response.hits[0].commit_sha);
@@ -663,6 +667,9 @@ fn sample_search_response() -> GitCodeSearchResponse {
         commit_sha: content.commit_sha,
         index_status: content.index_status,
         checkpoint: content.checkpoint,
+        requested_profile: GitIndexProfile::Hybrid,
+        effective_profile: GitIndexProfile::Hybrid,
+        vector_unavailable: None,
         file_count: content.file_count,
         excluded_file_count: content.excluded_file_count,
         total_bytes: content.total_bytes,

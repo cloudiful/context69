@@ -147,6 +147,63 @@ test.describe("react settings", () => {
     await expect(page.getByTestId("settings-save")).toBeDisabled();
   });
 
+  test("saves the independent code model and keeps it after a reload", async ({ page }) => {
+    const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
+
+    await page.goto("/settings/runtime");
+    await expect(page.getByRole("heading", { name: "Code embedding (optional)" })).toBeVisible();
+    await expect(page.getByLabel("Code model", { exact: true })).toHaveValue("code-embed-1");
+
+    await page.getByTestId("runtime-code-embedding-test").click();
+    await expect(page.getByText("Code embedding connection succeeded").first()).toBeVisible();
+    const probe = transport.calls.find(
+      (call) => call.method === "POST" && call.path === "/v1/settings/runtime/embedding/test",
+    );
+    expect(probe?.body).toMatchObject({
+      purpose: "code",
+      base_url: "http://code-embedding:8080/v1",
+      model: "code-embed-1",
+    });
+
+    // A document-model change still asks for the same-space confirmation, while
+    // the code model moves independently and never borrows the document model.
+    await page.getByLabel("Document model").fill("embed-2");
+    await page.getByLabel("Code model", { exact: true }).fill("code-embed-2");
+    await page.getByTestId("settings-save").click();
+    const compatibility = page.getByRole("alertdialog");
+    await expect(compatibility).toContainText("Keep existing vectors?");
+    await compatibility.getByRole("button", { name: "Keep vectors and save" }).click();
+    await expect(page.getByText("Settings saved").first()).toBeVisible();
+
+    const runtimePut = transport.calls.find((call) => call.method === "PUT" && call.path === "/v1/settings/runtime");
+    expect(runtimePut?.body).toMatchObject({
+      embedding: { model: "embed-2" },
+      code_embedding: { enabled: true, model: "code-embed-2" },
+    });
+
+    await page.reload();
+    await expect(page.getByLabel("Document model")).toHaveValue("embed-2");
+    await expect(page.getByLabel("Code model", { exact: true })).toHaveValue("code-embed-2");
+
+    // Saving the runtime section again without touching the code block omits
+    // `code_embedding`, so the stored code configuration is preserved rather
+    // than rewritten from an untouched draft.
+    await page.getByLabel("Document model").fill("embed-3");
+    await page.getByTestId("settings-save").click();
+    const confirming = page.getByRole("alertdialog");
+    await expect(confirming).toContainText("Keep existing vectors?");
+    await confirming.getByRole("button", { name: "Keep vectors and save" }).click();
+    await expect(page.getByText("Settings saved").first()).toBeVisible();
+    const followingPut = transport.calls.filter(
+      (call) => call.method === "PUT" && call.path === "/v1/settings/runtime",
+    ).at(-1);
+    expect(followingPut?.body).not.toHaveProperty("code_embedding");
+
+    await page.reload();
+    await expect(page.getByLabel("Code model", { exact: true })).toHaveValue("code-embed-2");
+    expect(transport.unmocked).toEqual([]);
+  });
+
   test("reveals a created access token once and revokes it after confirmation", async ({ page }) => {
     await installAppTransport(page, { settings: true, user: ADMIN_USER });
 

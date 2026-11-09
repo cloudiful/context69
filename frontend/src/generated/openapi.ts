@@ -2663,7 +2663,7 @@ export interface components {
          * @description Why one chunk was returned by a lexical code query.
          * @enum {string}
          */
-        GitCodeMatchKind: "path_exact" | "path_phrase" | "chunk_phrase" | "chunk_terms";
+        GitCodeMatchKind: "path_exact" | "path_phrase" | "chunk_phrase" | "chunk_terms" | "semantic";
         /**
          * @description One bounded code hit with the provenance a caller needs to check it.
          *
@@ -2753,6 +2753,11 @@ export interface components {
             /** @description Pinned snapshot commit the serving generation covers. */
             commit_sha: string;
             /**
+             * @description The profile the response actually answered with. It is `lexical` when a
+             *     requested semantic channel fell back.
+             */
+            effective_profile: components["schemas"]["GitIndexProfile"];
+            /**
              * Format: int64
              * @description File entries acquisition excluded, so coverage gaps stay visible.
              */
@@ -2776,11 +2781,26 @@ export interface components {
             ref_name: string;
             /** Format: uuid */
             repository_key: string;
+            /**
+             * @description The repository's configured index profile, the channel the caller asked
+             *     for through registration.
+             */
+            requested_profile: components["schemas"]["GitIndexProfile"];
             /** Format: int64 */
             total_bytes: number;
             /** @description Whether more matching hits existed than this response returns. */
             truncated: boolean;
+            vector_unavailable?: null | components["schemas"]["GitCodeVectorUnavailableReason"];
         };
+        /**
+         * @description Why a requested semantic code channel answered with lexical results only.
+         *
+         *     `None` means the semantic channel ran (or was not requested). Every value is
+         *     an explicit, non-secret reason: no identity, no record for the serving
+         *     generation, a destination/identity mismatch, or an unavailable runtime.
+         * @enum {string}
+         */
+        GitCodeVectorUnavailableReason: "not_configured" | "generation_not_vectorized" | "identity_mismatch" | "runtime_unavailable";
         /**
          * @description Incremental-sync checkpoint between the target and indexed commits.
          *
@@ -3997,6 +4017,26 @@ export interface components {
             /** @description Unit the budget is measured in. */
             unit?: components["schemas"]["ChunkingUnit"];
         };
+        /**
+         * @description The stored optional Git code embedding settings.
+         *
+         *     This block is independent of the document embedding block: it never borrows
+         *     the document model, credential, or object. `has_api_key` is presence
+         *     metadata only; the credential is never returned.
+         */
+        RuntimeCodeEmbeddingSettings: {
+            base_url: string;
+            /** @description The manual limits of the code embedding request planner. */
+            batching?: components["schemas"]["EmbeddingBatchingSettings"];
+            dimensions: number;
+            enabled: boolean;
+            has_api_key: boolean;
+            model: string;
+            /** @description The model code queries are embedded with. Absent means the code model. */
+            query_model?: string | null;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         RuntimeEmbeddingSettings: {
             base_url: string;
             /** @description The manual limits of the embedding request planner. */
@@ -4062,6 +4102,7 @@ export interface components {
         };
         RuntimeSettingsResponse: {
             chunking: components["schemas"]["RuntimeChunkingSettings"];
+            code_embedding?: null | components["schemas"]["RuntimeCodeEmbeddingSettings"];
             embedding: components["schemas"]["RuntimeEmbeddingSettings"];
             file_library: components["schemas"]["RuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
@@ -5068,17 +5109,24 @@ export interface components {
             safe_endpoint?: string | null;
         };
         /**
-         * @description A non-persisting embedding provider probe.
+         * @description The independent embedding configuration a probe targets.
+         * @enum {string}
+         */
+        TestRuntimeEmbeddingPurpose: "document" | "code";
+        /**
+         * @description The non-persisting embedding provider probe.
          *
-         *     An absent `api_key` falls back to the stored key, so a saved deployment can
-         *     be tested without re-entering the credential; a submitted key is used as
-         *     given and never written.
+         *     An absent `api_key` falls back to the stored key for the selected purpose, so
+         *     a saved deployment can be tested without re-entering the credential; a
+         *     submitted key is used as given and never written.
          */
         TestRuntimeEmbeddingRequest: {
             api_key?: string | null;
             base_url: string;
             dimensions: number;
             model: string;
+            /** @description Which independent embedding configuration the probe exercises. */
+            purpose?: components["schemas"]["TestRuntimeEmbeddingPurpose"];
             /**
              * @description The model queries are embedded with. An absent or blank value means the
              *     document model.
@@ -5267,6 +5315,25 @@ export interface components {
             display_name?: string | null;
             is_admin?: boolean | null;
         };
+        /**
+         * @description The optional code embedding update.
+         *
+         *     The tri-state secret patch follows the settings contract: `keep` retains the
+         *     stored code credential, `set` replaces it, and `clear` removes it. Disabling
+         *     the block keeps every non-secret field and the credential unless the caller
+         *     explicitly clears the key.
+         */
+        UpdateCodeEmbeddingSettings: {
+            api_key?: components["schemas"]["SecretPatch"];
+            base_url: string;
+            batching?: components["schemas"]["EmbeddingBatchingSettings"];
+            dimensions: number;
+            enabled: boolean;
+            model: string;
+            query_model?: string | null;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         UpdateDoclingConnectionSettings: {
             base_url: string;
             max_inflight?: number;
@@ -5382,6 +5449,7 @@ export interface components {
         };
         UpdateRuntimeSettingsRequest: {
             chunking: components["schemas"]["RuntimeChunkingSettings"];
+            code_embedding?: null | components["schemas"]["UpdateCodeEmbeddingSettings"];
             embedding: components["schemas"]["UpdateRuntimeEmbeddingSettings"];
             file_library: components["schemas"]["UpdateRuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
