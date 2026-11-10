@@ -25,15 +25,7 @@ struct Owner {
 impl Owner {
     async fn setup() -> Self {
         let fixture = Fixture::setup().await;
-        let user_id: i64 = sqlx::query(
-            "INSERT INTO context69.users (login_name, display_name, password_hash) \
-             VALUES ($1, 'Group Delete Test', 'x') RETURNING id",
-        )
-        .bind(format!("group-delete-{}", Uuid::new_v4()))
-        .fetch_one(fixture.db().pool())
-        .await
-        .expect("seed the deleting user")
-        .get("id");
+        let user_id = fixture.seed_user().await;
         sqlx::query(
             "INSERT INTO context69.group_memberships (group_id, user_id, role) \
              VALUES ($1, $2, 'owner')",

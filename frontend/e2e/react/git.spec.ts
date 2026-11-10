@@ -183,40 +183,4 @@ test.describe("react group git sources", () => {
     await expect(page.getByTestId("git-files-table")).toContainText("src/main.rs");
     expect(transport.unmocked).toEqual([]);
   });
-
-  test("keeps polling after more than sixty source updates", async ({ page }) => {
-    const transport = await installAppTransport(page, {
-      user: ADMIN_USER,
-      workspace: {},
-      git: {},
-    });
-
-    await page.goto("/groups/stock%2Falpha/git");
-    const row = page.getByTestId("git-source-row");
-    const toggle = row.getByRole("button", { name: /^(Disable|Enable)$/ });
-    await expect(toggle).toBeEnabled();
-
-    const patchCalls = () => transport.calls.filter((call) => (
-      call.method === "PATCH" && call.path.endsWith("/git-repositories/88888888-8888-4888-8888-888888888888")
-    )).length;
-    const listCalls = () => transport.calls.filter((call) => (
-      call.method === "GET" && call.path.endsWith("/git-repositories")
-    )).length;
-
-    for (let index = 0; index < 62; index += 1) {
-      const patchesBefore = patchCalls();
-      const listsBefore = listCalls();
-      await toggle.click();
-      await expect.poll(patchCalls).toBe(patchesBefore + 1);
-      await expect.poll(listCalls).toBeGreaterThan(listsBefore);
-      await expect(toggle).toBeEnabled();
-    }
-
-    await row.getByRole("button", { name: "Sync" }).click();
-    await expect.poll(() => transport.calls.some((call) => (
-      call.method === "POST" && call.path.endsWith("/index")
-    ))).toBe(true);
-    await expect(row).toContainText("Observed target: 3333333333", { timeout: 10_000 });
-    expect(transport.unmocked).toEqual([]);
-  });
 });

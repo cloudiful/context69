@@ -2,8 +2,10 @@
 //! enforcement, the streamed body cap, and header construction are verified
 //! through pure functions and a header-capturing fake reqwest service.
 
+use super::super::http::{BodyChunks, read_capped_body};
 use super::*;
 use crate::services::git_repository::provider_credentials::GitAccessCredential;
+use bytes::Bytes;
 use context69_secret_crypto::SecretValue;
 
 #[test]

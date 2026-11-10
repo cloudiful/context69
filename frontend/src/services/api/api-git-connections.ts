@@ -1,5 +1,4 @@
 import type {
-  GitConnectionReadinessResponse,
   GitProviderConnection,
   GitProviderConnectionRequest,
   GitWebhookRegistration,
@@ -21,14 +20,6 @@ export function createGitConnectionsApi({ openapiClient, unwrapResponse }: Deps)
           signal: options?.signal,
         }),
       ) as Promise<GitProviderConnection[]>;
-    },
-    getGitConnectionReadiness(groupPath: string, connectionKey: string, options?: RequestOptions) {
-      return unwrapResponse(
-        openapiClient.GET("/v1/groups/by-path/{group_path}/git-connections/{connection_key}", {
-          params: { path: { group_path: groupPath, connection_key: connectionKey } },
-          signal: options?.signal,
-        }),
-      ) as Promise<GitConnectionReadinessResponse>;
     },
     createGitConnection(
       groupPath: string,

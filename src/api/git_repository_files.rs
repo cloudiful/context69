@@ -38,8 +38,9 @@ use super::{
     ApiState,
     auth::CurrentUser,
     errors::library_management_error_response,
+    git_read_access::{readable_group, serving_source},
     git_repository_file_paging::{ManifestPage, requested_page},
-    group_access::{group_access_error_response, group_for_user, require_group_role},
+    group_access::require_group_role,
 };
 
 #[utoipa::path(
@@ -64,31 +65,17 @@ pub(crate) async fn list_git_repository_files(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Query(query): Query<CursorPageQuery>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match readable_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
+        Err(response) => return response,
     };
-    if let Err(error) = require_manifest_read(&group) {
-        return group_access_error_response(error);
-    }
     let page = match requested_page(&query) {
         Ok(page) => page,
         Err(error) => return library_management_error_response(error),
     };
-    let source = match state
-        .app
-        .db
-        .get_git_repository_source(group.id, repository_key)
-        .await
-    {
-        Ok(Some(source)) => source,
-        Ok(None) => return repository_not_found(),
-        Err(error) => return library_management_error_response(error),
-    };
-    let generation = match serving_generation(&state.app.db, &source).await {
-        Ok(Some(generation)) => generation,
-        Ok(None) => return generation_not_ready(),
-        Err(error) => return library_management_error_response(error),
+    let (source, generation) = match serving_source(&state.app.db, group.id, repository_key).await {
+        Ok(serving) => serving,
+        Err(response) => return response,
     };
     // One extra row answers `has_more` without a second count query, and the
     // manifest is read in the same path order the storage layer pages in.

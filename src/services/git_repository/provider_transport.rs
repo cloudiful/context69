@@ -8,14 +8,15 @@
 
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
-use bytes::Bytes;
 use reqwest::header::{AUTHORIZATION, USER_AGENT};
 
 use crate::domain_errors::DomainError;
 use crate::services::library::remote_download::validate_url;
 use crate::services::library::remote_proxy::RemoteTransport;
 
-use super::github_transport::{BodyChunks, GitHttpTransport, TransportResponse, read_capped_body};
+use super::http::{
+    GitHttpTransport, ResponseChunks, TransportResponse, read_capped_body, transport_request_error,
+};
 use super::provider_credentials::GitAccessCredential;
 
 const PROVIDER_USER_AGENT: &str = concat!("context69/", env!("CARGO_PKG_VERSION"));
@@ -120,37 +121,13 @@ impl GitHttpTransport for ProviderApiTransport {
                 Some((key.as_str().to_owned(), value.to_owned()))
             })
             .collect();
-        let mut chunks = ResponseChunks { response };
+        let mut chunks = ResponseChunks::new(response);
         let body = read_capped_body(&mut chunks, max_body_bytes).await?;
         Ok(TransportResponse {
             status,
             headers,
             body,
         })
-    }
-}
-
-struct ResponseChunks {
-    response: reqwest::Response,
-}
-
-#[async_trait]
-impl BodyChunks for ResponseChunks {
-    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
-        self.response
-            .chunk()
-            .await
-            .map_err(|_| anyhow!(DomainError::upstream_error("git_response_body_failed")))
-    }
-}
-
-fn transport_request_error(error: &reqwest::Error) -> anyhow::Error {
-    if error.is_timeout() {
-        anyhow!(DomainError::upstream_timeout("git_request_timeout"))
-    } else if error.is_connect() {
-        anyhow!(DomainError::upstream_error("git_request_connect_failed"))
-    } else {
-        anyhow!(DomainError::upstream_error("git_request_failed"))
     }
 }
 

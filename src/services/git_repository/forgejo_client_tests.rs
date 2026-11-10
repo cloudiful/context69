@@ -3,10 +3,11 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 
 use super::super::github_client::RepositoryAcquirer;
-use super::super::github_transport::{GitHttpTransport, TransportResponse};
+use super::super::http::{GitHttpTransport, TransportResponse};
 use super::super::model::GitAcquisitionLimits;
 use super::super::provider_url::ForgejoOrigin;
 use super::super::ref_path_safety::{SafeRef, SafeSha};
+use super::super::support::{encoded, ok_json};
 use super::ForgejoAcquirer;
 use crate::domain_errors::DomainError;
 
@@ -69,14 +70,6 @@ fn acquirer(
     .unwrap()
 }
 
-fn ok_json(body: String) -> anyhow::Result<TransportResponse> {
-    Ok(TransportResponse {
-        status: 200,
-        headers: vec![("content-type".into(), "application/json".into())],
-        body: body.into_bytes().into(),
-    })
-}
-
 fn ref_list(sha: &str, kind: &str) -> String {
     format!(r#"[{{"ref":"refs/heads/main","object":{{"type":"{kind}","sha":"{sha}"}}}}]"#)
 }
@@ -103,11 +96,6 @@ fn tree_page_with_sha(
 
 fn blob_entry(path: &str, sha: &str, size: u64) -> String {
     format!(r#"{{"type":"blob","path":"{path}","sha":"{sha}","size":{size}}}"#)
-}
-
-fn encoded(content: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(content)
 }
 
 #[tokio::test]

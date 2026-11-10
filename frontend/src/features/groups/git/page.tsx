@@ -14,14 +14,14 @@ import type {
   GitWebhookOwnership,
 } from "@/services/api";
 
-import { useGroupWorkspaceContext } from "./group-workspace";
-import { GitSourceDetail } from "./group-git-source-detail";
-import {
-  GitConnectionDialog,
-  GitSourceDialog,
-  GitWebhookDialog,
-} from "./group-git-source-dialogs";
-import { GitConnectionsTable, GitSourcesTable } from "./group-git-sources-table";
+import { useGroupWorkspaceContext } from "../group-workspace";
+import { SourceDetail } from "./detail";
+import { ConnectionDialog } from "./dialogs/connection";
+import { RepositoryDialog } from "./dialogs/repository";
+import { WebhookDialog } from "./dialogs/webhook";
+import { gitSourcesRefetchInterval } from "./polling";
+import { ConnectionsTable } from "./tables/connections";
+import { SourcesTable } from "./tables/sources";
 
 function settingsFrom(
   source: GitRepositorySource,
@@ -38,7 +38,7 @@ function settingsFrom(
   };
 }
 
-export function GroupGitSourcesPage() {
+export function GitPage() {
   const { t } = useTranslation();
   const state = useGroupWorkspaceContext();
   const queryClient = useQueryClient();
@@ -68,16 +68,7 @@ export function GroupGitSourcesPage() {
     queryKey: ["git-sources", groupPath],
     queryFn: ({ signal }) => apiClient.listGitRepositories(groupPath, { signal }),
     retry: false,
-    refetchInterval: (query) => {
-      const sources = query.state.data;
-      const active = sources?.some((source) => (
-        source.index_status === "indexing"
-        || source.index_status === "pending"
-        || source.refresh_pending
-        || source.deletion_pending
-      ));
-      return active ? 3000 : false;
-    },
+    refetchInterval: gitSourcesRefetchInterval,
   });
 
   const connectionsQuery = useQuery({
@@ -289,7 +280,7 @@ export function GroupGitSourcesPage() {
 
       <section className="grid gap-2 rounded-lg border p-3">
         <h3 className="text-sm font-medium">{t("groups.gitSources.sourcesTitle")}</h3>
-        <GitSourcesTable
+        <SourcesTable
           sources={sources}
           canManage={state.canManage}
           busyKey={busySourceKey}
@@ -313,7 +304,7 @@ export function GroupGitSourcesPage() {
             {connectionsQuery.error instanceof Error ? connectionsQuery.error.message : t("groups.gitSources.connectionsLoadFailed")}
           </div>
         ) : null}
-        <GitConnectionsTable
+        <ConnectionsTable
           connections={connections}
           canManage={state.canManage}
           busyKey={busyConnectionKey}
@@ -328,7 +319,7 @@ export function GroupGitSourcesPage() {
       </section>
 
       {selectedSource ? (
-        <GitSourceDetail
+        <SourceDetail
           key={selectedSource.repository_key}
           groupPath={groupPath}
           source={selectedSource}
@@ -342,7 +333,7 @@ export function GroupGitSourcesPage() {
       ) : null}
 
       {sourceDialog.open ? (
-        <GitSourceDialog
+        <RepositoryDialog
           key={sourceDialog.source?.repository_key ?? "new"}
           open={sourceDialog.open}
           source={sourceDialog.source}
@@ -359,7 +350,7 @@ export function GroupGitSourcesPage() {
       ) : null}
 
       {connectionDialogOpen ? (
-        <GitConnectionDialog
+        <ConnectionDialog
           open={connectionDialogOpen}
           connections={connections}
           busy={createConnectionMutation.isPending}
@@ -369,7 +360,7 @@ export function GroupGitSourcesPage() {
       ) : null}
 
       {webhookSource ? (
-        <GitWebhookDialog
+        <WebhookDialog
           key={webhookSource.repository_key}
           open={!!webhookSource}
           groupPath={groupPath}

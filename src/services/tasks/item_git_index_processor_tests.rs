@@ -230,157 +230,119 @@ async fn missing_or_foreign_repository_fails_terminally() {
 
 #[tokio::test]
 #[ignore = "requires configured reusable PostgreSQL"]
-async fn a_forgejo_token_connection_loads_its_record_scoped_credential() {
-    let fixture = Fixture::setup().await;
-    let store = secret_store::build_unkeyed(fixture.db());
-    let connection_key = "forgejo-main";
-    let target = GitSecretTarget::Connection {
-        group_id: fixture.group_id,
-        connection_key: connection_key.to_string(),
-    };
-    let GitSecretWrite::Stored(secret_key) = GitSecretWriter::new(fixture.db().clone(), store)
-        .seal(&target, GitSecretSlot::Credential, Some(b"pat-value"))
-        .await
-        .expect("seal credential reference")
-    else {
-        panic!("a supplied credential must be stored");
-    };
-    fixture
-        .db()
-        .insert_git_provider_connection(
-            fixture.group_id,
-            &NewGitProviderConnection {
-                connection_key: connection_key.to_string(),
-                provider: GitProviderKind::Forgejo,
-                mode: GitConnectionMode::Token,
-                display_name: "Forgejo".to_string(),
-                base_url: "https://forgejo.example/api/v1".to_string(),
-                credential_secret_key: Some(secret_key.as_str().to_string()),
-                webhook_secret_key: None,
-            },
+async fn token_connections_load_only_their_record_scoped_credential() {
+    for (provider, connection_key, base_url, canonical_prefix) in [
+        (
+            GitProviderKind::Forgejo,
+            "forgejo-main",
+            "https://forgejo.example/api/v1",
+            "https://forgejo.example/octo",
+        ),
+        (
+            GitProviderKind::GitHub,
+            "github-main",
+            "https://api.github.com",
+            "https://github.com/octo",
+        ),
+    ] {
+        let fixture = Fixture::setup().await;
+        let store = secret_store::build_unkeyed(fixture.db());
+        let target = GitSecretTarget::Connection {
+            group_id: fixture.group_id,
+            connection_key: connection_key.to_string(),
+        };
+        let GitSecretWrite::Stored(secret_key) = GitSecretWriter::new(fixture.db().clone(), store)
+            .seal(&target, GitSecretSlot::Credential, Some(b"pat-value"))
+            .await
+            .expect("seal credential reference")
+        else {
+            panic!("a supplied credential must be stored");
+        };
+        fixture
+            .db()
+            .insert_git_provider_connection(
+                fixture.group_id,
+                &NewGitProviderConnection {
+                    connection_key: connection_key.to_string(),
+                    provider,
+                    mode: GitConnectionMode::Token,
+                    display_name: format!("{provider:?}"),
+                    base_url: base_url.to_string(),
+                    credential_secret_key: Some(secret_key.as_str().to_string()),
+                    webhook_secret_key: None,
+                },
+            )
+            .await
+            .expect("insert connection");
+        let name = Uuid::new_v4().to_string();
+        let bound = fixture
+            .db()
+            .upsert_git_repository_source(
+                fixture.group_id,
+                &NewGitRepositorySource {
+                    connection_key: Some(connection_key.to_string()),
+                    provider,
+                    canonical_url: format!("{canonical_prefix}/{name}"),
+                    owner: "octo".to_string(),
+                    name,
+                    default_branch: "main".to_string(),
+                    target_ref: "refs/heads/main".to_string(),
+                    pinned_commit_sha: None,
+                    index_profile: GitIndexProfile::Lexical,
+                    include_patterns: Vec::new(),
+                    exclude_patterns: Vec::new(),
+                    interval_seconds: None,
+                    webhook_enabled: false,
+                    enabled: true,
+                    retention_count: 2,
+                    created_by_user_id: None,
+                },
+            )
+            .await
+            .expect("bind source to connection");
+        let (service, storage_root) =
+            crate::services::tasks::item_pipeline_tests::support::build_service(fixture.db()).await;
+
+        let loaded = build_provider(&service, &bound).await;
+        sqlx::query_file!(
+            "tests/sql/runtime_readiness/delete_internal_secret.sql",
+            secret_key.as_str()
         )
+        .execute(fixture.db().pool())
         .await
-        .expect("insert connection");
-    let nonce = Uuid::new_v4();
-    let name = nonce.to_string();
-    fixture
-        .db()
-        .upsert_git_repository_source(
-            fixture.group_id,
-            &NewGitRepositorySource {
-                connection_key: Some(connection_key.to_string()),
-                provider: GitProviderKind::Forgejo,
-                canonical_url: format!("https://forgejo.example/octo/{name}"),
-                owner: "octo".to_string(),
-                name,
-                default_branch: "main".to_string(),
-                target_ref: "refs/heads/main".to_string(),
-                pinned_commit_sha: None,
-                index_profile: GitIndexProfile::Lexical,
-                include_patterns: Vec::new(),
-                exclude_patterns: Vec::new(),
-                interval_seconds: None,
-                webhook_enabled: false,
-                enabled: true,
-                retention_count: 2,
-                created_by_user_id: None,
-            },
-        )
-        .await
-        .expect("bind source to connection");
-    let (service, storage_root) =
-        crate::services::tasks::item_pipeline_tests::support::build_service(fixture.db()).await;
+        .expect("remove the sealed credential");
+        let uncredentialed = fixture
+            .db()
+            .get_git_repository_source(fixture.group_id, bound.repository_key)
+            .await
+            .expect("read the uncredentialed source")
+            .expect("the fixture owns the source");
+        let refused = build_provider(&service, &uncredentialed).await;
+        fixture.cleanup().await;
+        let _ = std::fs::remove_dir_all(storage_root);
 
-    let source = fixture
-        .db()
-        .get_git_repository_source(fixture.group_id, fixture.repository_key)
-        .await
-        .expect("read the bound source")
-        .expect("the fixture owns the source");
-    let provider = build_provider(&service, &source).await;
-    fixture.cleanup().await;
-    let _ = std::fs::remove_dir_all(storage_root);
-
-    assert!(provider.is_ok(), "a sealed token connection must be usable");
-}
-
-#[tokio::test]
-#[ignore = "requires configured reusable PostgreSQL"]
-async fn a_github_token_connection_loads_its_record_scoped_credential() {
-    let fixture = Fixture::setup().await;
-    let store = secret_store::build_unkeyed(fixture.db());
-    let connection_key = "github-main";
-    let target = GitSecretTarget::Connection {
-        group_id: fixture.group_id,
-        connection_key: connection_key.to_string(),
-    };
-    let GitSecretWrite::Stored(secret_key) = GitSecretWriter::new(fixture.db().clone(), store)
-        .seal(&target, GitSecretSlot::Credential, Some(b"ghp_pat_value"))
-        .await
-        .expect("seal credential reference")
-    else {
-        panic!("a supplied credential must be stored");
-    };
-    fixture
-        .db()
-        .insert_git_provider_connection(
-            fixture.group_id,
-            &NewGitProviderConnection {
-                connection_key: connection_key.to_string(),
-                provider: GitProviderKind::GitHub,
-                mode: GitConnectionMode::Token,
-                display_name: "GitHub".to_string(),
-                base_url: "https://api.github.com".to_string(),
-                credential_secret_key: Some(secret_key.as_str().to_string()),
-                webhook_secret_key: None,
-            },
-        )
-        .await
-        .expect("insert connection");
-    let nonce = Uuid::new_v4();
-    let name = nonce.to_string();
-    fixture
-        .db()
-        .upsert_git_repository_source(
-            fixture.group_id,
-            &NewGitRepositorySource {
-                connection_key: Some(connection_key.to_string()),
-                provider: GitProviderKind::GitHub,
-                canonical_url: format!("https://github.com/octo/{name}"),
-                owner: "octo".to_string(),
-                name,
-                default_branch: "main".to_string(),
-                target_ref: "refs/heads/main".to_string(),
-                pinned_commit_sha: None,
-                index_profile: GitIndexProfile::Lexical,
-                include_patterns: Vec::new(),
-                exclude_patterns: Vec::new(),
-                interval_seconds: None,
-                webhook_enabled: false,
-                enabled: true,
-                retention_count: 2,
-                created_by_user_id: None,
-            },
-        )
-        .await
-        .expect("bind source to connection");
-    let (service, storage_root) =
-        crate::services::tasks::item_pipeline_tests::support::build_service(fixture.db()).await;
-
-    let source = fixture
-        .db()
-        .get_git_repository_source(fixture.group_id, fixture.repository_key)
-        .await
-        .expect("read the bound source")
-        .expect("the fixture owns the source");
-    let provider = build_provider(&service, &source).await;
-    fixture.cleanup().await;
-    let _ = std::fs::remove_dir_all(storage_root);
-
-    assert!(
-        provider.is_ok(),
-        "a sealed GitHub PAT connection must be usable"
-    );
+        assert!(
+            loaded.is_ok(),
+            "{provider:?} token connection must load its sealed credential"
+        );
+        match refused {
+            Err(ProcessResult::Failed {
+                retryable: false,
+                message,
+                ..
+            }) => {
+                assert!(
+                    message.contains("git_connection_credential_missing"),
+                    "a missing credential is terminal and names no secret: {message}"
+                );
+                assert!(
+                    !message.contains("pat-value"),
+                    "the refusal must not reflect the credential: {message}"
+                );
+            }
+            _ => panic!("a token connection without its credential must be refused"),
+        }
+    }
 }
 
 #[tokio::test]

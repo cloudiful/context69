@@ -24,6 +24,7 @@ mod git_connection_lifecycle;
 mod git_connection_mutations;
 mod git_connection_readiness;
 mod git_connections;
+mod git_read_access;
 mod git_repositories;
 mod git_repository_code_search;
 mod git_repository_connections;

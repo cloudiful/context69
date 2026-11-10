@@ -17,12 +17,12 @@ use bytes::Bytes;
 
 use crate::domain_errors::DomainError;
 
-use super::bounds::{BoundedBase64, ByteBudget, TREE_ENTRY_BLOB_TYPE, check_declared_length};
+use super::bounds::{TREE_ENTRY_BLOB_TYPE, check_declared_length};
 use super::forgejo_schemas::{
     AnnotatedTag, GitBlobResponse, GitTreeResponse, Reference, RepositoryResponse,
 };
 use super::github_client::RepositoryAcquirer;
-use super::github_transport::{GitHttpTransport, TransportResponse};
+use super::http::{GitHttpTransport, decode_blob_content, get_bounded, parse_json};
 use super::model::{BlobContent, GitAcquisitionLimits, TreeFileEntry, TreeListing};
 use super::provider_url::{
     ForgejoOrigin, ForgejoRepoCoordinates, forgejo_blob_endpoint, forgejo_refs_endpoint,
@@ -63,14 +63,24 @@ impl<T: GitHttpTransport + ?Sized> ForgejoAcquirer<T> {
     async fn resolve_ref_inner(&self, safe_ref: &SafeRef) -> Result<SafeSha> {
         if safe_ref.as_str() == "HEAD" {
             let url = forgejo_repo_endpoint(&self.origin, &self.coordinates);
-            let response = self.get_bounded(&url).await?;
-            let metadata: RepositoryResponse = self.parse_json(&response)?;
+            let response = get_bounded(
+                self.transport.as_ref(),
+                &url,
+                self.limits.max_response_bytes,
+            )
+            .await?;
+            let metadata: RepositoryResponse = parse_json(&response)?;
             let default_ref = validated_default_branch(&metadata.default_branch)?;
             return Box::pin(self.resolve_ref_inner(&default_ref)).await;
         }
         let url = forgejo_refs_endpoint(&self.origin, &self.coordinates, safe_ref);
-        let response = self.get_bounded(&url).await?;
-        let parsed: Vec<Reference> = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            &url,
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: Vec<Reference> = parse_json(&response)?;
         let reference = select_reference(parsed, safe_ref)?;
         match reference.object.kind.as_str() {
             "commit" => SafeSha::parse(&reference.object.sha),
@@ -84,8 +94,13 @@ impl<T: GitHttpTransport + ?Sized> ForgejoAcquirer<T> {
 
     async fn tag_target(&self, sha: &SafeSha) -> Result<(SafeSha, String)> {
         let url = forgejo_tag_endpoint(&self.origin, &self.coordinates, sha.as_str());
-        let response = self.get_bounded(&url).await?;
-        let parsed: AnnotatedTag = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            &url,
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: AnnotatedTag = parse_json(&response)?;
         if SafeSha::parse(&parsed.sha)?.as_str() != sha.as_str() {
             return Err(anyhow!(DomainError::upstream_error("git_tag_sha_mismatch")));
         }
@@ -107,48 +122,6 @@ impl<T: GitHttpTransport + ?Sized> ForgejoAcquirer<T> {
         Err(anyhow!(DomainError::upstream_error(
             "git_tag_chain_too_deep"
         )))
-    }
-
-    fn decode_blob_content(&self, encoded: &str) -> Result<Vec<u8>> {
-        let decoder_budget = ByteBudget {
-            max_bytes: self
-                .limits
-                .max_blob_bytes
-                .saturating_mul(7)
-                .saturating_div(3)
-                .saturating_add(8),
-        };
-        let mut decoder = BoundedBase64::new(decoder_budget);
-        let mut decoded = decoder.push_chunk(encoded.as_bytes())?;
-        decoded.extend(decoder.finish()?);
-        Ok(decoded)
-    }
-
-    async fn get_bounded(&self, url: &str) -> Result<TransportResponse> {
-        let response = self
-            .transport
-            .get(url, self.limits.max_response_bytes)
-            .await?;
-        if !(200..300).contains(&response.status) {
-            return Err(upstream_status(response.status));
-        }
-        if !response
-            .header("content-type")
-            .is_some_and(media_type_is_json)
-        {
-            return Err(anyhow!(DomainError::upstream_error(
-                "git_response_not_json"
-            )));
-        }
-        Ok(response)
-    }
-
-    fn parse_json<U: serde::de::DeserializeOwned>(
-        &self,
-        response: &TransportResponse,
-    ) -> Result<U> {
-        serde_json::from_slice(&response.body)
-            .map_err(|_| anyhow!(DomainError::upstream_error("git_response_malformed")))
     }
 
     fn accept_entry(
@@ -227,8 +200,13 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
                 page,
                 TREE_PAGE_SIZE,
             );
-            let response = self.get_bounded(&url).await?;
-            let parsed: GitTreeResponse = self.parse_json(&response)?;
+            let response = get_bounded(
+                self.transport.as_ref(),
+                &url,
+                self.limits.max_response_bytes,
+            )
+            .await?;
+            let parsed: GitTreeResponse = parse_json(&response)?;
             // Forgejo reports the tree object's SHA here, not the requested
             // commit SHA. Every page must describe the same tree object; the
             // pinned commit remains the identity the listing is recorded under.
@@ -326,8 +304,13 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
 
     async fn fetch_blob(&self, blob_sha: &SafeSha) -> Result<BlobContent> {
         let url = forgejo_blob_endpoint(&self.origin, &self.coordinates, blob_sha.as_str());
-        let response = self.get_bounded(&url).await?;
-        let parsed: GitBlobResponse = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            &url,
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: GitBlobResponse = parse_json(&response)?;
         if parsed.encoding != "base64" {
             return Err(anyhow!(DomainError::invalid_argument("git_blob_encoding")));
         }
@@ -340,7 +323,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
                 "git_blob_sha_mismatch"
             )));
         }
-        let decoded = self.decode_blob_content(&parsed.content)?;
+        let decoded = decode_blob_content(&parsed.content, self.limits.max_blob_bytes)?;
         if decoded.len() as u64 != declared_size {
             return Err(anyhow!(DomainError::upstream_error(
                 "git_blob_size_mismatch"
@@ -369,19 +352,6 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
             bytes: Bytes::from(decoded),
         })
     }
-}
-
-fn upstream_status(status: u16) -> anyhow::Error {
-    anyhow!(DomainError::upstream_error(format!(
-        "git_http_status_{status}"
-    )))
-}
-
-fn media_type_is_json(content_type: &str) -> bool {
-    content_type
-        .split(';')
-        .next()
-        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"))
 }
 
 #[cfg(test)]

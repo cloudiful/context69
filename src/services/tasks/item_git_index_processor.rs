@@ -27,7 +27,7 @@ use crate::services::{
     git_repository::{
         ForgejoOrigin, GitHubApiTransport,
         code_vectors::CodeVectorRequest,
-        index_generation::{
+        indexing::{
             ForgejoSnapshotProvider, GitHubSnapshotProvider, GitSnapshotIndexOutcome,
             GitSnapshotProvider, index_git_repository_snapshot_at_revision,
         },
@@ -483,7 +483,7 @@ async fn run_git_index_snapshot(
     provider: &dyn GitSnapshotProvider,
     limits: GitIndexLimits,
 ) -> ProcessResult {
-    match super::super::git_repository::index_generation::index_git_repository_snapshot(
+    match super::super::git_repository::indexing::index_git_repository_snapshot(
         db,
         provider,
         limits,

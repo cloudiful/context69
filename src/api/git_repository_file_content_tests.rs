@@ -26,10 +26,9 @@ use crate::{
     domain::GroupRecord,
 };
 
+use super::super::git_read_access::{found_manifest_file, invalid_repository_path};
 use super::super::git_repository_files::{repository_not_found, require_manifest_read};
-use super::{
-    content_page, decode_cursor, file_content, found_content_entry, invalid_repository_path,
-};
+use super::{content_page, decode_cursor, file_content};
 
 pub(super) fn generation_key() -> Uuid {
     Uuid::parse_str("018f9f40-2222-7000-8000-0000000000c2").expect("uuid")
@@ -284,7 +283,7 @@ async fn the_lookup_result_mapping_answers_absent_paths_exactly_as_an_unknown_re
         "the shared shape carries the bounded message: {unknown_body}"
     );
 
-    let absent = *found_content_entry(None).expect_err("an absent path is not an entry");
+    let absent = *found_manifest_file(None).expect_err("an absent path is not an entry");
     assert_eq!(
         absent.status(),
         unknown_status,
@@ -298,7 +297,7 @@ async fn the_lookup_result_mapping_answers_absent_paths_exactly_as_an_unknown_re
 
     // A stored row passes through untouched, so the mapping can neither swallow
     // nor rewrite the entry the window and the response are built from.
-    let found = found_content_entry(Some(file())).expect("a stored row is the entry itself");
+    let found = found_manifest_file(Some(file())).expect("a stored row is the entry itself");
     assert_eq!(found, file(), "the resolved entry is returned unchanged");
 }
 

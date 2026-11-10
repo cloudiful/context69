@@ -1,87 +1,23 @@
-//! Independent Git refresh admission, convergence, and retention (issue #28
-//! phase P4).
-//!
-//! Manual sync, the periodic scheduler, and authenticated webhook deliveries
-//! all converge through the same path: a durable demand marker is recorded on
-//! the source, and admission is single-flight per repository. A request that
-//! arrives while a task is already past its target resolution therefore leaves
-//! a marker the next run observes instead of being dropped.
-//!
-//! Retention and deletion remove remote code vectors before their metadata: a
-//! generation whose vector cleanup fails stays with `cleanup_pending`, and a
-//! source deletion marks itself disabled and retryable instead of losing the
-//! only record of the points still to remove.
+//! Retention cleanup, source deletion, and remote vector ownership.
 
 use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
 
 use anyhow::{Result, anyhow, bail};
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use crate::config::QdrantConfig;
-use crate::contracts::{TaskKind, TaskRef};
+use crate::db::task_git_dedup::{active_git_index_task, lock_git_index_admission};
 use crate::db::{Database, GitIndexLifetimeGuard, StoredGitGenerationCodeVectors};
 use crate::domain_errors::DomainError;
 use crate::qdrant_index::QdrantIndex;
 use crate::services::app::Context69App;
 use crate::services::git_repository::code_vectors::code_endpoint_identity;
-use crate::services::tasks::TaskSubmission;
 
-use crate::db::task_git_dedup::{active_git_index_task, lock_git_index_admission};
-
-/// How often the independent Git refresh scheduler looks for due work.
-pub(crate) const GIT_REFRESH_TICK: Duration = Duration::from_secs(30);
-
-/// How many sources one scheduler pass admits.
-const GIT_REFRESH_BATCH: i64 = 16;
+use super::GIT_REFRESH_BATCH;
 
 /// Largest cleanup error code retained on a generation.
 const MAX_CLEANUP_ERROR_CHARS: usize = 256;
-
-/// Starts the always-on Git refresh scheduler.
-///
-/// It is independent of the document/vector runtime gate: a source's interval
-/// and webhook demand are Git-specific, and each task re-evaluates its target
-/// when it runs.
-pub(crate) async fn run_git_refresh_scheduler(app: Arc<Context69App>) {
-    let mut ticker = tokio::time::interval(GIT_REFRESH_TICK);
-    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    loop {
-        ticker.tick().await;
-        if let Err(error) = refresh_due_sources(app.as_ref()).await {
-            tracing::warn!(%error, "git refresh scheduler pass failed");
-        }
-        if let Err(error) = retry_pending_deletions(app.as_ref()).await {
-            tracing::warn!(%error, "git repository deletion retry pass failed");
-        }
-        if let Err(error) = retry_pending_generation_cleanup(app.as_ref()).await {
-            tracing::warn!(%error, "git generation cleanup retry pass failed");
-        }
-    }
-}
-
-/// Admits every due source once, bounded per pass.
-pub(crate) async fn refresh_due_sources(app: &Context69App) -> Result<()> {
-    let due = app
-        .db
-        .list_due_git_refresh_sources(GIT_REFRESH_BATCH)
-        .await?;
-    for (group_id, repository_key) in due {
-        match enqueue_refresh(app, group_id, repository_key).await {
-            Ok(_) => {}
-            Err(error) => {
-                tracing::warn!(
-                    %repository_key,
-                    %error,
-                    "due git source could not be admitted"
-                );
-            }
-        }
-    }
-    Ok(())
-}
 
 /// Retries deletions whose earlier vector cleanup failed.
 ///
@@ -186,55 +122,6 @@ where
     Ok(())
 }
 
-/// Records a demand and admits one repository refresh.
-///
-/// The demand is written before admission so even an already running task
-/// leaves a follow-up. A failed admission keeps the demand for the scheduler.
-pub(crate) async fn request_and_enqueue_refresh(
-    app: &Context69App,
-    group_id: i64,
-    repository_key: Uuid,
-) -> Result<TaskRef> {
-    app.db.request_git_refresh(group_id, repository_key).await?;
-    enqueue_refresh(app, group_id, repository_key).await
-}
-
-/// Admits one Git index task for a source, reusing an active task.
-pub(crate) async fn enqueue_refresh(
-    app: &Context69App,
-    group_id: i64,
-    repository_key: Uuid,
-) -> Result<TaskRef> {
-    let source = app
-        .db
-        .get_git_repository_source(group_id, repository_key)
-        .await?
-        .ok_or_else(|| anyhow!(DomainError::not_found("git_index_source_missing")))?;
-    if !source.enabled || source.deletion_requested_at.is_some() {
-        bail!(DomainError::conflict("git_repository_not_admitting_work"));
-    }
-    let user_id = app
-        .db
-        .resolve_git_refresh_actor(group_id, source.created_by_user_id)
-        .await?
-        .ok_or_else(|| anyhow!(DomainError::conflict("git_refresh_actor_unavailable")))?;
-    app.db
-        .mark_git_refresh_attempt(group_id, repository_key)
-        .await?;
-    app.tasks
-        .submit(TaskSubmission {
-            user_id,
-            group_id: Some(group_id),
-            group_path: Some(source.group.group_path.clone()),
-            source_key: None,
-            kind: TaskKind::GitIndex,
-            payloads: vec![serde_json::json!({ "repository_key": repository_key })],
-            input_storage_object_ids: Vec::new(),
-            idempotency_key: None,
-        })
-        .await
-}
-
 /// Completes one successful run: consumes only the observed demand and prunes
 /// retired generations.
 pub(crate) async fn complete_refresh(
@@ -270,36 +157,16 @@ pub(crate) async fn prune_generations(
     retention_count: i64,
     qdrant_url: Option<&str>,
 ) -> Result<usize> {
-    prune_generations_with(
-        db,
-        group_id,
-        repository_key,
-        retention_count,
-        |generation_key, metadata| async move {
-            remove_generation_vectors(
-                group_id,
-                repository_key,
-                generation_key,
-                metadata.as_ref(),
-                qdrant_url,
-            )
-            .await
-        },
-    )
-    .await
-}
-
-pub(crate) async fn prune_generations_with<F, Fut>(
-    db: &Database,
-    group_id: i64,
-    repository_key: Uuid,
-    retention_count: i64,
-    mut remove: F,
-) -> Result<usize>
-where
-    F: FnMut(Uuid, Option<StoredGitGenerationCodeVectors>) -> Fut,
-    Fut: Future<Output = Result<()>>,
-{
+    let mut remove = |generation_key, metadata: Option<StoredGitGenerationCodeVectors>| async move {
+        remove_generation_vectors(
+            group_id,
+            repository_key,
+            generation_key,
+            metadata.as_ref(),
+            qdrant_url,
+        )
+        .await
+    };
     prune_generations_with_deferral(
         db,
         group_id,
@@ -311,8 +178,8 @@ where
     .await
 }
 
-/// Like [`prune_generations_with`], optionally deferring the source's
-/// scheduling when an index still holds the lifetime guard.
+/// Optionally deferring the source's scheduling when an index still holds the
+/// lifetime guard.
 ///
 /// Only the independent maintenance pass sets `defer_when_held`; an index
 /// completion that runs under its own guard must never record a scheduler

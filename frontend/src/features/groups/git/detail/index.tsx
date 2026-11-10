@@ -4,49 +4,23 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { FormField } from "@/components/common/form-field";
-import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import type {
   GitCodeSearchHit,
-  GitIndexStatus,
   GitRepositoryFile,
   GitRepositorySource,
 } from "@/services/api";
 import { apiClient } from "@/services/api";
 
-import { GitFilesTable } from "./group-git-sources-table";
+import { required } from "../dialogs/fields";
+import { GitIndexStatusBadge, gitSkipTotal, shortSha } from "../presentation";
+import { gitFilesRefetchInterval } from "../polling";
+import { FilesTable } from "../tables/files";
 
 const FILE_PAGE_SIZE = 50;
 const MAX_CONTENT_WINDOW_LINES = 400;
-
-function tone(status: GitIndexStatus): StatusTone {
-  switch (status) {
-    case "indexing":
-    case "pending":
-      return "active";
-    case "ready":
-      return "success";
-    case "stale":
-      return "warning";
-    case "failed":
-      return "failure";
-    default:
-      return "neutral";
-  }
-}
-
-function shortSha(sha: string | null | undefined): string {
-  return sha ? sha.slice(0, 12) : "--";
-}
-
-function skipTotal(source: GitRepositorySource): number {
-  const s = source.last_skip_summary ?? {};
-  return (s.excluded_directory ?? 0) + (s.binary ?? 0) + (s.minified ?? 0) + (s.source_map ?? 0)
-    + (s.lockfile ?? 0) + (s.secret ?? 0) + (s.too_large ?? 0) + (s.excluded_by_user ?? 0)
-    + (s.not_included ?? 0);
-}
 
 type SearchFormValues = {
   query: string;
@@ -62,7 +36,7 @@ type SearchState = {
   limit?: number;
 };
 
-export function GitSourceDetail({
+export function SourceDetail({
   groupPath,
   source,
   canManage,
@@ -98,9 +72,7 @@ export function GitSourceDetail({
       { signal },
     ),
     retry: false,
-    refetchInterval: () => (
-      source.index_status === "indexing" || source.index_status === "pending" ? 3000 : false
-    ),
+    refetchInterval: () => gitFilesRefetchInterval(source.index_status),
   });
 
   const fileDetailQuery = useQuery({
@@ -200,28 +172,28 @@ export function GitSourceDetail({
         <div className="grid min-w-0 gap-1">
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="truncate text-base font-semibold">{source.owner}/{source.name}</h3>
-            <BadgeTone status={source.index_status} />
+            <GitIndexStatusBadge status={source.index_status} />
             <span className="text-xs capitalize text-muted-foreground">{source.provider}</span>
           </div>
           <p className="truncate font-mono text-xs text-muted-foreground">{source.canonical_url}</p>
           <dl className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
             <div className="flex gap-1">
               <dt className="text-muted-foreground">{t("groups.gitSources.targetSha")}:</dt>
-              <dd className="font-mono">{shortSha(source.checkpoint.target_commit_sha)}</dd>
+              <dd className="font-mono">{shortSha(source.checkpoint.target_commit_sha, 12)}</dd>
             </div>
             {source.version.commit_sha ? (
               <div className="flex gap-1">
                 <dt className="text-muted-foreground">{t("groups.gitSources.configuredPin")}:</dt>
-                <dd className="font-mono">{shortSha(source.version.commit_sha)}</dd>
+                <dd className="font-mono">{shortSha(source.version.commit_sha, 12)}</dd>
               </div>
             ) : null}
             <div className="flex gap-1">
               <dt className="text-muted-foreground">{t("groups.gitSources.indexedSha")}:</dt>
-              <dd className="font-mono">{shortSha(source.checkpoint.indexed_commit_sha)}</dd>
+              <dd className="font-mono">{shortSha(source.checkpoint.indexed_commit_sha, 12)}</dd>
             </div>
             <div className="flex gap-1">
               <dt className="text-muted-foreground">{t("groups.gitSources.skipped")}:</dt>
-              <dd>{skipTotal(source)}</dd>
+              <dd>{gitSkipTotal(source)}</dd>
             </div>
             <div className="flex gap-1">
               <dt className="text-muted-foreground">{t("groups.gitSources.retention")}:</dt>
@@ -264,7 +236,7 @@ export function GitSourceDetail({
         </div>
       ) : null}
 
-      {source.last_skip_summary && skipTotal(source) > 0 ? (
+      {source.last_skip_summary && gitSkipTotal(source) > 0 ? (
         <div className="flex flex-wrap gap-2 text-xs" data-testid="git-skip-summary">
           {Object.entries(source.last_skip_summary)
             .filter(([, count]) => count > 0)
@@ -324,7 +296,7 @@ export function GitSourceDetail({
               </Button>
             </div>
           ) : null}
-          <GitFilesTable
+          <FilesTable
             files={filesQuery.data?.files ?? []}
             selectedPath={selectedPath}
             onSelect={selectFile}
@@ -333,7 +305,7 @@ export function GitSourceDetail({
             <p className="font-mono text-xs text-muted-foreground" data-testid="git-files-provenance">
               {t("groups.gitSources.generationProvenance", {
                 generation: filesQuery.data.generation_number,
-                commit: shortSha(filesQuery.data.commit_sha),
+                commit: shortSha(filesQuery.data.commit_sha, 12),
                 ref: filesQuery.data.ref_name,
               })}
             </p>
@@ -435,7 +407,7 @@ export function GitSourceDetail({
                 <p className="font-mono text-xs text-muted-foreground" data-testid="git-content-provenance">
                   {t("groups.gitSources.generationProvenance", {
                     generation: contentQuery.data.pages[0].generation_number,
-                    commit: shortSha(contentQuery.data.pages[0].commit_sha),
+                    commit: shortSha(contentQuery.data.pages[0].commit_sha, 12),
                     ref: contentQuery.data.pages[0].ref_name,
                   })}
                 </p>
@@ -516,7 +488,7 @@ export function GitSourceDetail({
             <p className="text-xs text-muted-foreground" data-testid="git-search-provenance">
               {t("groups.gitSources.searchProvenance", {
                 generation: searchQuery.data.generation_number,
-                commit: shortSha(searchQuery.data.commit_sha),
+                commit: shortSha(searchQuery.data.commit_sha, 12),
                 ref: searchQuery.data.ref_name,
                 requested: searchQuery.data.requested_profile,
                 effective: searchQuery.data.effective_profile,
@@ -557,18 +529,5 @@ export function GitSourceDetail({
         ) : null}
       </section>
     </section>
-  );
-}
-
-function required(value: string, message: string): string | undefined {
-  return value.trim().length > 0 ? undefined : message;
-}
-
-function BadgeTone({ status }: { status: GitIndexStatus }) {
-  const { t } = useTranslation();
-  return (
-    <StatusBadge tone={tone(status)} title={t(`groups.gitSources.indexStatus.${status}`)}>
-      {t(`groups.gitSources.indexStatus.${status}`)}
-    </StatusBadge>
   );
 }

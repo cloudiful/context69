@@ -543,25 +543,25 @@
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_bounded_snapshot_persists_exact_content_and_activates",
+      "test": "services::git_repository::indexing::tests::snapshots::a_bounded_snapshot_persists_exact_content_and_activates",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_changed_target_is_rejected_as_stale",
+      "test": "services::git_repository::indexing::tests::fencing::a_changed_target_is_rejected_as_stale",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_failed_fetch_leaves_the_previous_active_generation_serving",
+      "test": "services::git_repository::indexing::tests::snapshots::a_failed_fetch_leaves_the_previous_active_generation_serving",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::an_empty_eligible_snapshot_completes_safely",
+      "test": "services::git_repository::indexing::tests::snapshots::an_empty_eligible_snapshot_completes_safely",
       "class": "db"
     },
     {
@@ -4785,205 +4785,199 @@
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_code_model_change_reembeds_instead_of_reusing_vectors",
+      "test": "services::git_repository::indexing::tests::incremental::a_code_model_change_reembeds_instead_of_reusing_vectors",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_config_change_rebuilds_instead_of_reusing_the_baseline",
+      "test": "services::git_repository::indexing::tests::incremental::a_config_change_rebuilds_instead_of_reusing_the_baseline",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_failing_code_sink_keeps_the_previous_active_generation",
+      "test": "services::git_repository::indexing::tests::vectors::a_failing_code_sink_keeps_the_previous_active_generation",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_force_demand_during_a_run_survives_and_forces_the_follow_up",
+      "test": "services::git_repository::indexing::tests::fencing::a_force_demand_during_a_run_survives_and_forces_the_follow_up",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_force_rebuild_recreates_an_unchanged_target_while_sync_noops",
+      "test": "services::git_repository::indexing::tests::incremental::a_force_rebuild_recreates_an_unchanged_target_while_sync_noops",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_hybrid_source_acknowledges_every_chunk_and_records_its_destination",
+      "test": "services::git_repository::indexing::tests::vectors::a_hybrid_source_acknowledges_every_chunk_and_records_its_destination",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_hybrid_source_with_a_configured_code_model_and_no_qdrant_url_fails",
+      "test": "services::git_repository::indexing::tests::vectors::a_hybrid_source_with_a_configured_code_model_and_no_qdrant_url_fails",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_hybrid_source_without_a_code_runtime_stays_lexical_without_metadata",
+      "test": "services::git_repository::indexing::tests::vectors::a_hybrid_source_without_a_code_runtime_stays_lexical_without_metadata",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_lexical_source_never_invokes_the_code_sink",
+      "test": "services::git_repository::indexing::tests::vectors::a_lexical_source_never_invokes_the_code_sink",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_partial_vector_write_keeps_ownership_until_cleanup_deletes_it",
+      "test": "services::git_repository::indexing::tests::vectors::a_partial_vector_write_keeps_ownership_until_cleanup_deletes_it",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_runtime_change_during_embedding_keeps_the_captured_destination",
+      "test": "services::git_repository::indexing::tests::vectors::a_runtime_change_during_embedding_keeps_the_captured_destination",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_same_target_reuses_the_active_generation_without_writing_one",
+      "test": "services::git_repository::indexing::tests::snapshots::a_same_target_reuses_the_active_generation_without_writing_one",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_source_edit_during_acquisition_never_publishes_over_the_newer_state",
+      "test": "services::git_repository::indexing::tests::fencing::a_source_edit_during_acquisition_never_publishes_over_the_newer_state",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_target_change_during_the_vector_pass_never_activates",
+      "test": "services::git_repository::indexing::tests::vectors::a_target_change_during_the_vector_pass_never_activates",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::an_explicit_pin_never_drifts_when_the_branch_advances",
+      "test": "services::git_repository::indexing::tests::snapshots::an_explicit_pin_never_drifts_when_the_branch_advances",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::an_incremental_generation_embeds_chunks_whose_baseline_point_is_missing",
+      "test": "services::git_repository::indexing::tests::incremental::an_incremental_generation_embeds_chunks_whose_baseline_point_is_missing",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::an_incremental_hybrid_generation_reuses_unchanged_vectors",
+      "test": "services::git_repository::indexing::tests::incremental::an_incremental_hybrid_generation_reuses_unchanged_vectors",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::an_incremental_target_fetches_only_changed_and_added_blobs",
+      "test": "services::git_repository::indexing::tests::incremental::an_incremental_target_fetches_only_changed_and_added_blobs",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::source_transitions_reject_an_outdated_configuration_revision",
+      "test": "services::git_repository::indexing::tests::fencing::source_transitions_reject_an_outdated_configuration_revision",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::two_successive_branch_heads_advance_the_observed_target",
+      "test": "services::git_repository::indexing::tests::fencing::two_successive_branch_heads_advance_the_observed_target",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::a_demand_recorded_during_a_run_survives_its_completion",
+      "test": "services::git_repository::refresh::tests::scheduling::a_demand_recorded_during_a_run_survives_its_completion",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::a_failed_vector_cleanup_keeps_the_generation_for_retry",
+      "test": "services::git_repository::refresh::tests::ownership::a_failed_vector_cleanup_keeps_the_generation_for_retry",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::an_abandoned_building_generation_is_scheduled_and_defers_while_guarded",
+      "test": "services::git_repository::refresh::tests::retention::an_abandoned_building_generation_is_scheduled_and_defers_while_guarded",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::an_old_building_generation_is_deferred_while_the_lifetime_guard_is_held",
+      "test": "services::git_repository::refresh::tests::retention::an_old_building_generation_is_deferred_while_the_lifetime_guard_is_held",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::cleanup_fails_closed_when_the_recorded_endpoint_does_not_match",
+      "test": "services::git_repository::refresh::tests::ownership::cleanup_fails_closed_when_the_recorded_endpoint_does_not_match",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::deletion_fences_new_work_and_outlives_a_concurrent_edit",
+      "test": "services::git_repository::refresh::tests::deletion::deletion_fences_new_work_and_outlives_a_concurrent_edit",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::due_selection_honors_demand_interval_backoff_and_disablement",
+      "test": "services::git_repository::refresh::tests::scheduling::due_selection_honors_demand_interval_backoff_and_disablement",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::independent_cleanup_retry_finishes_for_a_disabled_manual_source",
+      "test": "services::git_repository::refresh::tests::retention::independent_cleanup_retry_finishes_for_a_disabled_manual_source",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::more_than_one_batch_of_failing_deletions_does_not_starve_a_recoverable_one",
+      "test": "services::git_repository::refresh::tests::deletion::more_than_one_batch_of_failing_deletions_does_not_starve_a_recoverable_one",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::more_than_one_batch_of_failing_sources_does_not_starve_a_recoverable_one",
+      "test": "services::git_repository::refresh::tests::retention::more_than_one_batch_of_failing_sources_does_not_starve_a_recoverable_one",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::retention_count_is_the_total_including_the_active_snapshot",
+      "test": "services::git_repository::refresh::tests::retention::retention_count_is_the_total_including_the_active_snapshot",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::refresh_tests::settings_edits_invalidate_the_snapshot_and_clear_the_failure_code",
+      "test": "services::git_repository::refresh::tests::scheduling::settings_edits_invalidate_the_snapshot_and_clear_the_failure_code",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::tasks::item_git_index_processor::tests::a_forgejo_token_connection_loads_its_record_scoped_credential",
-      "class": "db"
-    },
-    {
-      "package": "context69",
-      "target": "context69",
-      "test": "services::tasks::item_git_index_processor::tests::a_github_token_connection_loads_its_record_scoped_credential",
+      "test": "services::tasks::item_git_index_processor::tests::token_connections_load_only_their_record_scoped_credential",
       "class": "db"
     },
     {
@@ -4995,37 +4989,37 @@
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_source_before_its_first_generation_lists_a_null_active_pointer",
+      "test": "services::git_repository::indexing::tests::snapshots::a_source_before_its_first_generation_lists_a_null_active_pointer",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_lexical_generation_enumerates_without_a_destination_and_deletes_with_its_source",
+      "test": "services::git_repository::indexing::tests::snapshots::a_lexical_generation_enumerates_without_a_destination_and_deletes_with_its_source",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_snapshot_refuses_a_source_revision_captured_before_provider_construction",
+      "test": "services::git_repository::indexing::tests::fencing::a_snapshot_refuses_a_source_revision_captured_before_provider_construction",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_connection_disable_invalidates_the_source_acquisition_revision",
+      "test": "services::git_repository::indexing::tests::fencing::a_connection_disable_invalidates_the_source_acquisition_revision",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::acquisition_too_large_files_reach_the_source_skip_summary",
+      "test": "services::git_repository::indexing::tests::snapshots::acquisition_too_large_files_reach_the_source_skip_summary",
       "class": "db"
     },
     {
       "package": "context69",
       "target": "context69",
-      "test": "services::git_repository::index_generation::tests::a_connection_disabled_during_acquisition_never_publishes_the_old_credential",
+      "test": "services::git_repository::indexing::tests::fencing::a_connection_disabled_during_acquisition_never_publishes_the_old_credential",
       "class": "db"
     }
   ]

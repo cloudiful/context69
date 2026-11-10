@@ -14,15 +14,15 @@ use bytes::Bytes;
 
 use crate::domain_errors::DomainError;
 
-use super::bounds::{BoundedBase64, ByteBudget, TREE_ENTRY_BLOB_TYPE, check_declared_length};
+use super::bounds::{TREE_ENTRY_BLOB_TYPE, check_declared_length};
 use super::github_schemas::{
     BlobResponse, RefResponse, RepoMetadataResponse, TagResponse, TreeResponse,
 };
-use super::github_transport::{GitHttpTransport, TransportResponse};
 use super::github_url::{
     GitHubRepoCoordinates, blob_endpoint, parse_canonical_github_url, ref_endpoint,
     repo_metadata_endpoint, tag_endpoint, tree_endpoint,
 };
+use super::http::{GitHttpTransport, decode_blob_content, get_bounded, parse_json};
 use super::model::{BlobContent, GitAcquisitionLimits, TreeFileEntry, TreeListing};
 use super::ref_path_safety::{SafeRef, SafeSha, SafeTreePath};
 use super::resolve::{MAX_TAG_DEREF_DEPTH, validated_default_branch};
@@ -87,14 +87,24 @@ impl<T: GitHttpTransport + ?Sized> GitHubAcquirer<T> {
     async fn resolve_ref_inner(&self, safe_ref: &SafeRef) -> Result<SafeSha> {
         if safe_ref.as_str() == "HEAD" {
             let url = repo_metadata_endpoint(&self.coordinates);
-            let response = self.get_bounded(url.as_str()).await?;
-            let metadata: RepoMetadataResponse = self.parse_json(&response)?;
+            let response = get_bounded(
+                self.transport.as_ref(),
+                url.as_str(),
+                self.limits.max_response_bytes,
+            )
+            .await?;
+            let metadata: RepoMetadataResponse = parse_json(&response)?;
             let default_ref = validated_default_branch(&metadata.default_branch)?;
             return Box::pin(self.resolve_ref_inner(&default_ref)).await;
         }
         let url = ref_endpoint(&self.coordinates, safe_ref);
-        let response = self.get_bounded(url.as_str()).await?;
-        let parsed: RefResponse = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            url.as_str(),
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: RefResponse = parse_json(&response)?;
         match parsed.object.kind.as_str() {
             "commit" => SafeSha::parse(&parsed.object.sha),
             // Annotated tags: the ref points at a tag object, not a commit.
@@ -109,8 +119,13 @@ impl<T: GitHttpTransport + ?Sized> GitHubAcquirer<T> {
     /// Follow one annotated tag (`git/tags/{sha}`) to its target.
     async fn tag_target(&self, sha: &SafeSha) -> Result<(SafeSha, String)> {
         let url = tag_endpoint(&self.coordinates, sha.as_str());
-        let response = self.get_bounded(url.as_str()).await?;
-        let parsed: TagResponse = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            url.as_str(),
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: TagResponse = parse_json(&response)?;
         if SafeSha::parse(&parsed.sha)?.as_str() != sha.as_str() {
             return Err(anyhow!(DomainError::upstream_error("git_tag_sha_mismatch")));
         }
@@ -138,58 +153,6 @@ impl<T: GitHttpTransport + ?Sized> GitHubAcquirer<T> {
             "git_tag_chain_too_deep"
         )))
     }
-
-    /// Decode one blob payload against the per-blob budget.
-    ///
-    /// The decoder's own aggregate cap charges encoded input once and
-    /// decoded output once, so it is derived from the per-blob decoded
-    /// limit at the 7/3 encoding ratio (`4/3` for the encoded bytes plus
-    /// `1` for the decoded bytes), with slack for the final padded group.
-    fn decode_blob_content(&self, encoded: &str) -> Result<Vec<u8>> {
-        let decoder_budget = ByteBudget {
-            max_bytes: self
-                .limits
-                .max_blob_bytes
-                .saturating_mul(7)
-                .saturating_div(3)
-                .saturating_add(8),
-        };
-        let mut decoder = BoundedBase64::new(decoder_budget);
-        let mut decoded = decoder.push_chunk(encoded.as_bytes())?;
-        decoded.extend(decoder.finish()?);
-        Ok(decoded)
-    }
-
-    /// Response gate shared by every endpoint: the streamed body cap, the
-    /// status, and the content type are all enforced before parsing.
-    async fn get_bounded(&self, url: &str) -> Result<TransportResponse> {
-        // The transport applies the byte cap while streaming, so an
-        // oversized body never becomes resident.
-        let response = self
-            .transport
-            .get(url, self.limits.max_response_bytes)
-            .await?;
-        if !(200..300).contains(&response.status) {
-            return Err(upstream_status(response.status));
-        }
-        if !response
-            .header("content-type")
-            .is_some_and(media_type_is_json)
-        {
-            return Err(anyhow!(DomainError::upstream_error(
-                "git_response_not_json"
-            )));
-        }
-        Ok(response)
-    }
-
-    fn parse_json<U: serde::de::DeserializeOwned>(
-        &self,
-        response: &TransportResponse,
-    ) -> Result<U> {
-        serde_json::from_slice(&response.body)
-            .map_err(|_| anyhow!(DomainError::upstream_error("git_response_malformed")))
-    }
 }
 
 #[async_trait]
@@ -205,8 +168,13 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
     /// check the tag and blob legs perform — before any entry is trusted.
     async fn list_tree(&self, commit_sha: &SafeSha) -> Result<TreeListing> {
         let url = tree_endpoint(&self.coordinates, commit_sha.as_str());
-        let response = self.get_bounded(url.as_str()).await?;
-        let parsed: TreeResponse = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            url.as_str(),
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: TreeResponse = parse_json(&response)?;
         if parsed.sha != commit_sha.as_str() {
             return Err(anyhow!(DomainError::upstream_error(
                 "git_tree_commit_mismatch"
@@ -265,8 +233,13 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
 
     async fn fetch_blob(&self, blob_sha: &SafeSha) -> Result<BlobContent> {
         let url = blob_endpoint(&self.coordinates, blob_sha.as_str());
-        let response = self.get_bounded(url.as_str()).await?;
-        let parsed: BlobResponse = self.parse_json(&response)?;
+        let response = get_bounded(
+            self.transport.as_ref(),
+            url.as_str(),
+            self.limits.max_response_bytes,
+        )
+        .await?;
+        let parsed: BlobResponse = parse_json(&response)?;
         if parsed.encoding != "base64" {
             return Err(anyhow!(DomainError::invalid_argument("git_blob_encoding")));
         }
@@ -279,7 +252,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
                 "git_blob_sha_mismatch"
             )));
         }
-        let decoded = self.decode_blob_content(&parsed.content)?;
+        let decoded = decode_blob_content(&parsed.content, self.limits.max_blob_bytes)?;
         if decoded.len() as u64 != declared_size {
             return Err(anyhow!(DomainError::upstream_error(
                 "git_blob_size_mismatch"
@@ -311,21 +284,6 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             bytes: Bytes::from(decoded),
         })
     }
-}
-
-/// Map a non-2xx status to a bounded upstream error. The status code is
-/// provider-declared and safe to surface; nothing else about the response is.
-fn upstream_status(status: u16) -> anyhow::Error {
-    anyhow!(DomainError::upstream_error(format!(
-        "git_http_status_{status}"
-    )))
-}
-
-fn media_type_is_json(content_type: &str) -> bool {
-    content_type
-        .split(';')
-        .next()
-        .is_some_and(|media| media.trim().eq_ignore_ascii_case("application/json"))
 }
 
 #[cfg(test)]

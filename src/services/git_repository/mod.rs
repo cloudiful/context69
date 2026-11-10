@@ -20,7 +20,7 @@
 //! The bounded initial snapshot indexer (issue #681 work unit 3B3) composes all
 //! of it: it walks one pinned tree under explicit eligible-file and Blob-fetch
 //! counts and persists a complete, classified generation. Its limits live in
-//! [`limits`], its orchestration in [`index_generation`].
+//! [`limits`], its orchestration in [`indexing`].
 
 mod bounds;
 mod classify;
@@ -34,8 +34,9 @@ mod github_client;
 mod github_schemas;
 mod github_transport;
 mod github_url;
+mod http;
 pub(crate) mod incremental;
-pub(crate) mod index_generation;
+pub(crate) mod indexing;
 pub(crate) mod limits;
 mod model;
 pub(crate) mod provider_credentials;
@@ -60,11 +61,8 @@ pub(crate) use ref_path_safety::{SafeRef, SafeSha, SafeTreePath};
 #[cfg(test)]
 mod module_tests;
 
-#[cfg(test)]
-mod refresh_tests;
-
 /// In-memory provider doubles and the database fixture shared by the snapshot
-/// indexing tests in `index_generation`. They live beside the module tests so
+/// indexing tests in `indexing`. They live beside the module tests so
 /// the indexer and its limit file stay inside their size budgets.
 #[cfg(test)]
 pub(crate) mod support {
@@ -94,13 +92,29 @@ pub(crate) mod support {
 
     use super::code_vectors::CodeVectorSink;
     use super::github_client::RepositoryAcquirer;
-    use super::github_transport::{GitHttpTransport, TransportResponse};
-    use super::index_generation::GitSnapshotProvider;
+    use super::http::{GitHttpTransport, TransportResponse};
+    use super::indexing::GitSnapshotProvider;
     use super::model::{BlobContent, GitAcquisitionLimits, TreeFileEntry, TreeListing};
     use super::ref_path_safety::{SafeRef, SafeSha, SafeTreePath};
 
     pub(crate) fn sha(seed: u8) -> String {
         format!("{seed:02x}").repeat(20)
+    }
+
+    /// A successful JSON response, as every scripted provider transport returns
+    /// one.
+    pub(crate) fn ok_json(body: String) -> Result<TransportResponse> {
+        Ok(TransportResponse {
+            status: 200,
+            headers: vec![("content-type".into(), "application/json".into())],
+            body: body.into_bytes().into(),
+        })
+    }
+
+    /// Standard base64, matching the provider blob encoding.
+    pub(crate) fn encoded(content: &[u8]) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(content)
     }
 
     /// Transport that fails every call, so a test can build an acquirer and
@@ -291,14 +305,12 @@ pub(crate) mod support {
                             },
                         )
                         .await?;
-                    sqlx::query(
-                        "UPDATE context69.git_repository_sources SET connection_key = $1 \
-                         WHERE group_id = $2 AND repository_key = $3",
+                    attach_connection(
+                        &self.db,
+                        self.group_id,
+                        self.repository_key,
+                        &connection_key,
                     )
-                    .bind(connection_key)
-                    .bind(self.group_id)
-                    .bind(self.repository_key)
-                    .execute(self.db.pool())
                     .await?;
                 }
                 SourceMutationAction::ConnectionDisable(connection_key) => {
@@ -460,6 +472,44 @@ pub(crate) mod support {
         pub(crate) code_vectors: Option<StoredGitGenerationCodeVectors>,
     }
 
+    /// Attach a connection reference through the production upsert, copying
+    /// identity, pin, profile, and both policies from the stored source so only
+    /// the reference changes.
+    pub(crate) async fn attach_connection(
+        db: &Database,
+        group_id: i64,
+        repository_key: Uuid,
+        connection_key: &str,
+    ) -> Result<()> {
+        let source = db
+            .get_git_repository_source(group_id, repository_key)
+            .await?
+            .ok_or_else(|| anyhow!("the connection target source is missing"))?;
+        db.upsert_git_repository_source(
+            group_id,
+            &NewGitRepositorySource {
+                connection_key: Some(connection_key.to_owned()),
+                provider: source.provider,
+                canonical_url: source.canonical_url.clone(),
+                owner: source.owner.clone(),
+                name: source.name.clone(),
+                default_branch: source.default_branch.clone(),
+                target_ref: source.version.ref_name.clone(),
+                pinned_commit_sha: source.version.commit_sha.clone(),
+                index_profile: source.index_profile,
+                include_patterns: source.include_patterns.clone(),
+                exclude_patterns: source.exclude_patterns.clone(),
+                interval_seconds: source.interval_seconds,
+                webhook_enabled: source.webhook_enabled,
+                enabled: source.enabled,
+                retention_count: source.retention_count,
+                created_by_user_id: source.created_by_user_id,
+            },
+        )
+        .await?;
+        Ok(())
+    }
+
     pub(crate) struct Fixture {
         db: Database,
         pub(crate) group_id: i64,
@@ -533,6 +583,24 @@ pub(crate) mod support {
 
         pub(crate) fn db(&self) -> &Database {
             &self.db
+        }
+
+        /// A disposable task user, created through the checked task-execution
+        /// seed statement.
+        pub(crate) async fn seed_user(&self) -> i64 {
+            sqlx::query_file_scalar!(
+                "tests/sql/task_execution/seed_user.sql",
+                format!("git-fixture-{}", Uuid::new_v4()),
+                "Git Fixture Test",
+                "x"
+            )
+            .fetch_one(self.db.pool())
+            .await
+            .expect("seed the fixture user")
+        }
+
+        pub(crate) async fn attach_connection(&self, connection_key: &str) -> Result<()> {
+            attach_connection(&self.db, self.group_id, self.repository_key, connection_key).await
         }
 
         pub(crate) async fn start_prior_generation(&self) -> Uuid {
