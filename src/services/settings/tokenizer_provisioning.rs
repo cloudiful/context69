@@ -40,6 +40,7 @@ pub const TOKENIZER_PROVISION_WAIT: Duration = Duration::from_secs(30);
 pub struct TokenizerProvisioning {
     cache_dir: PathBuf,
     slots: Arc<PresetSlots>,
+    catalog: Arc<TokenizerCatalog>,
     downloader: TokenizerArtifactDownloader,
     wait: Duration,
 }
@@ -72,6 +73,7 @@ impl TokenizerProvisioning {
         Ok(Self {
             cache_dir,
             slots: Arc::clone(catalog.preset_slots()),
+            catalog,
             downloader: TokenizerArtifactDownloader::new()?,
             wait: TOKENIZER_PROVISION_WAIT,
         })
@@ -84,6 +86,7 @@ impl TokenizerProvisioning {
         Ok(Self {
             cache_dir,
             slots,
+            catalog: TokenizerCatalog::installed_or_empty(),
             downloader: TokenizerArtifactDownloader::new()?,
             wait: TOKENIZER_PROVISION_WAIT,
         })
@@ -102,9 +105,17 @@ impl TokenizerProvisioning {
         Self {
             cache_dir,
             slots,
+            catalog: TokenizerCatalog::installed_or_empty(),
             downloader,
             wait: TOKENIZER_PROVISION_WAIT,
         }
+    }
+
+    /// The same preparation against a test-authored verified catalog.
+    #[cfg(test)]
+    pub(crate) fn with_catalog(mut self, catalog: Arc<TokenizerCatalog>) -> Self {
+        self.catalog = catalog;
+        self
     }
 
     /// The same preparation with a shorter wait for a test.
@@ -130,7 +141,7 @@ impl TokenizerProvisioning {
             .slot(preset.id)
             .ok_or_else(|| unknown_preset(preset.id))?;
 
-        if slot.engine().is_some() {
+        if self.preset_ready(preset, slot) {
             return Ok(response(
                 preset,
                 TokenizerProvisionStatus::AlreadyReady,
@@ -140,6 +151,16 @@ impl TokenizerProvisioning {
 
         let status = self.prepare(preset, slot).await?;
         Ok(response(preset, status, true))
+    }
+
+    /// Whether this preset already resolves from a verified source.
+    ///
+    /// A bundled image artifact is ready before any preparation: the installed
+    /// catalog already holds the pinned hash, so neither the settings status
+    /// nor a preparation request may start a retrieval for it. A bare
+    /// installation without that artifact keeps the existing download path.
+    fn preset_ready(&self, preset: &TokenizerPreset, slot: &PresetSlot) -> bool {
+        slot.engine().is_some() || self.catalog.get(preset.sha256).is_some()
     }
 
     /// Prepares one preset into its cell.
@@ -160,7 +181,7 @@ impl TokenizerProvisioning {
         })?;
 
         // Another request may have prepared the preset while this one waited.
-        if slot.engine().is_some() {
+        if self.preset_ready(preset, slot) {
             return Ok(TokenizerProvisionStatus::AlreadyReady);
         }
 
@@ -270,6 +291,7 @@ fn response(
 /// promises readiness another replica holds.
 pub fn preset_descriptors() -> Vec<TokenizerPresetDescriptor> {
     let slots = crate::chunking::chunking_token_artifact::global_preset_slots();
+    let catalog = TokenizerCatalog::installed_or_empty();
     PRESETS
         .iter()
         .map(|preset| TokenizerPresetDescriptor {
@@ -282,7 +304,8 @@ pub fn preset_descriptors() -> Vec<TokenizerPresetDescriptor> {
             source_repo: preset.repo.to_string(),
             source_url: preset.source_url(),
             revision: preset.revision.to_string(),
-            ready: slots.slot(preset.id).and_then(PresetSlot::engine).is_some(),
+            ready: slots.slot(preset.id).and_then(PresetSlot::engine).is_some()
+                || catalog.get(preset.sha256).is_some(),
         })
         .collect()
 }

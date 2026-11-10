@@ -323,11 +323,6 @@ impl SettingsService {
         &self,
         config: &crate::config::EmbeddingConfig,
     ) -> Result<()> {
-        if !config.input_policy.is_default() {
-            return Err(anyhow::anyhow!(
-                "code_embedding.input_policy must remain the fixed default code input policy"
-            ));
-        }
         let provider = build_code_provider(config)?;
         self.code_embedding
             .install(provider, config.clone(), code_embedding_fingerprint(config));
@@ -494,18 +489,6 @@ impl SettingsService {
         request: &UpdateRuntimeSettingsRequest,
     ) -> Result<RuntimeSettingsResponse> {
         settings_validate::runtime_settings_request(request)?;
-        if request.embedding.input_policy.tokenizer
-            == context69_contracts::settings::EmbeddingTokenizer::HfLocal
-        {
-            let sha256 = request
-                .embedding
-                .input_policy
-                .tokenizer_sha256
-                .as_deref()
-                .unwrap_or_default();
-            crate::chunking::chunking_token_artifact::require_installed(sha256)
-                .map_err(|error| DomainError::invalid_argument(error.to_string()))?;
-        }
         if request.chunking.tokenizer == context69_contracts::settings::ChunkingTokenizer::HfLocal {
             let sha256 = request
                 .chunking
@@ -605,8 +588,6 @@ impl SettingsService {
                     .map(str::to_string),
                 dimensions: request.embedding.dimensions,
                 timeout: std::time::Duration::from_secs(request.embedding.timeout_secs),
-                batching: request.embedding.batching,
-                input_policy: request.embedding.input_policy.clone(),
             })?),
             None => None,
         };
@@ -720,10 +701,7 @@ impl SettingsService {
         // success and before any later submission can read it. Existing tasks
         // keep the snapshot they pinned; only new submissions see this value.
         if let Some(applier) = &self.runtime_chunking_applier {
-            let mut chunk_budget = runtime_mappers::chunk_budget(&request.chunking);
-            if !request.embedding.input_policy.is_default() {
-                chunk_budget.input_policy = Some(request.embedding.input_policy.clone());
-            }
+            let chunk_budget = runtime_mappers::chunk_budget(&request.chunking);
             applier(chunk_budget);
         }
 
@@ -1281,8 +1259,6 @@ mod tests {
                 timeout_secs: 30,
                 api_key: None,
                 confirm_vector_space_unchanged: false,
-                batching: Default::default(),
-                input_policy: Default::default(),
             },
             code_embedding: None,
             scheduler: RuntimeSchedulerSettings {
@@ -1304,10 +1280,6 @@ mod tests {
             file_library: crate::contracts::UpdateRuntimeFileLibrarySettings {
                 storage_root: "/tmp/library".to_string(),
                 max_upload_size_mb: 128,
-                max_upload_request_size_mb: 128,
-                ingest_concurrency: 1,
-                url_import_concurrency: 1,
-                url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
                 registry_max_ids_total: None,
                 registry_max_ids_per_file: None,
@@ -1478,22 +1450,6 @@ mod tests {
         )
         .expect_err("an unknown tokenizer must be refused");
         assert!(error.to_string().contains("qwen"), "{error}");
-    }
-
-    #[test]
-    fn runtime_request_rejects_invalid_url_import_limits() {
-        let mut request = sample_runtime_request();
-        request.file_library.url_import_concurrency = 0;
-
-        let error = validate_runtime_settings_request(&request)
-            .expect_err("zero URL import workers should be rejected");
-        assert!(error.to_string().contains("url_import_concurrency"));
-
-        request.file_library.url_import_concurrency = 1;
-        request.file_library.url_import_min_interval_ms = 0;
-        let error = validate_runtime_settings_request(&request)
-            .expect_err("zero URL import interval should be rejected");
-        assert!(error.to_string().contains("url_import_min_interval_ms"));
     }
 
     #[test]

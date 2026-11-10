@@ -1,0 +1,51 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Fail-closed verification of the staged snapshot before activation.\nSELECT\n    (SELECT count(*)\n     FROM context69.document_rebuild_staging_documents s\n     LEFT JOIN context69.documents d ON d.id = s.document_id\n     WHERE s.target_collection = $1\n       AND (d.id IS NULL OR d.record_hash <> s.record_hash))::bigint\n        AS \"document_hash_mismatch!\",\n    (SELECT count(*)\n     FROM context69.document_rebuild_staging_documents s\n     WHERE s.target_collection = $1\n       AND s.chunk_count <> (\n           SELECT count(*)\n           FROM context69.document_chunk_rebuild_staging c\n           WHERE c.target_collection = s.target_collection\n             AND c.document_id = s.document_id\n       ))::bigint AS \"chunk_count_mismatch!\",\n    (SELECT count(*)\n     FROM context69.document_chunk_rebuild_staging c\n     INNER JOIN context69.document_rebuild_staging_documents s\n        ON s.target_collection = c.target_collection\n       AND s.document_id = c.document_id\n     WHERE c.target_collection = $1\n       AND c.record_hash <> s.record_hash)\n    + (SELECT count(*)\n       FROM context69.document_translation_rebuild_staging t\n       INNER JOIN context69.documents d ON d.id = t.document_id\n       WHERE t.target_collection = $1\n         AND t.record_hash <> d.record_hash)::bigint AS \"chunk_hash_mismatch!\",\n    (SELECT count(*)\n     FROM context69.document_rebuild_staging_documents\n     WHERE target_collection = $1)::bigint AS \"staged_documents!\",\n    (SELECT count(*)\n     FROM context69.documents d\n     WHERE NOT EXISTS (\n         SELECT 1\n         FROM context69.document_rebuild_staging_documents s\n         WHERE s.target_collection = $1\n           AND s.document_id = d.id))::bigint AS \"document_membership_mismatch!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_hash_mismatch!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "chunk_count_mismatch!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "chunk_hash_mismatch!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "staged_documents!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "document_membership_mismatch!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "4e61d915921f5d558042e3689783484578e0eecf1e588c1d5d6981b669eb7615"
+}

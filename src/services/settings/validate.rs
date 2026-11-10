@@ -12,7 +12,6 @@ use crate::{
 };
 
 use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
-use context69_contracts::settings::EmbeddingBatchingSettings;
 use context69_contracts::settings::{ChunkingTokenizer, ChunkingUnit};
 
 pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -> Result<()> {
@@ -47,19 +46,9 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         )
         .into());
     }
-    embedding_batching_request(&request.embedding.batching)?;
     if let Some(code) = &request.code_embedding {
         code_embedding_request(code)?;
     }
-    request
-        .embedding
-        .input_policy
-        .validate()
-        .map_err(|reason| {
-            DomainError::invalid_argument(format!(
-                "runtime.embedding.input_policy is invalid: {reason}"
-            ))
-        })?;
     if request.scheduler.interval_secs == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.scheduler.interval_secs must be greater than 0",
@@ -161,36 +150,6 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         )
         .into());
     }
-    if request.file_library.max_upload_request_size_mb == 0 {
-        return Err(DomainError::invalid_argument(
-            "runtime.file_library.max_upload_request_size_mb must be greater than 0",
-        )
-        .into());
-    }
-    if request.file_library.max_upload_request_size_mb < request.file_library.max_upload_size_mb {
-        return Err(DomainError::invalid_argument(
-            "runtime.file_library.max_upload_request_size_mb must be greater than or equal to runtime.file_library.max_upload_size_mb",
-        )
-        .into());
-    }
-    if request.file_library.ingest_concurrency == 0 {
-        return Err(DomainError::invalid_argument(
-            "runtime.file_library.ingest_concurrency must be greater than 0",
-        )
-        .into());
-    }
-    if request.file_library.url_import_concurrency == 0 {
-        return Err(DomainError::invalid_argument(
-            "runtime.file_library.url_import_concurrency must be greater than 0",
-        )
-        .into());
-    }
-    if request.file_library.url_import_min_interval_ms == 0 {
-        return Err(DomainError::invalid_argument(
-            "runtime.file_library.url_import_min_interval_ms must be greater than 0",
-        )
-        .into());
-    }
     if let Some(s3) = &request.file_library.s3 {
         for (name, value) in [
             ("endpoint", s3.endpoint.as_str()),
@@ -208,15 +167,6 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
     }
     registry_capacity_request(&request.file_library)?;
     Ok(())
-}
-
-/// The batching limits a request carries.
-///
-/// They are persisted as PostgreSQL BIGINT and bound every provider request, so
-/// a limit that is not positive or not representable is refused here, before any
-/// secret or settings write.
-fn embedding_batching_request(batching: &EmbeddingBatchingSettings) -> Result<()> {
-    batching_request(batching, "runtime.embedding.batching")
 }
 
 /// The code block is optional and independent of the document block.
@@ -265,30 +215,6 @@ fn code_embedding_request(request: &UpdateCodeEmbeddingSettings) -> Result<()> {
             i64::MAX
         ))
         .into());
-    }
-    batching_request(&request.batching, "runtime.code_embedding.batching")
-}
-
-fn batching_request(batching: &EmbeddingBatchingSettings, prefix: &str) -> Result<()> {
-    for (name, value) in [
-        ("max_items_per_request", batching.max_items_per_request),
-        ("max_item_chars", batching.max_item_chars),
-        ("max_request_chars", batching.max_request_chars),
-        ("max_request_bytes", batching.max_request_bytes),
-    ] {
-        if value == 0 {
-            return Err(DomainError::invalid_argument(format!(
-                "{prefix}.{name} must be greater than 0"
-            ))
-            .into());
-        }
-        if i64::try_from(value).is_err() {
-            return Err(DomainError::invalid_argument(format!(
-                "{prefix}.{name} must be at most {}",
-                i64::MAX
-            ))
-            .into());
-        }
     }
     Ok(())
 }
@@ -497,8 +423,8 @@ fn validate_fusion_weights(vector_weight: f32, keyword_weight: f32) -> Result<()
 #[cfg(test)]
 mod code_embedding_validation_tests {
     use super::code_embedding_request;
+    use context69_contracts::settings::SecretPatch;
     use context69_contracts::settings::UpdateCodeEmbeddingSettings;
-    use context69_contracts::settings::{EmbeddingBatchingSettings, SecretPatch};
 
     fn code(enabled: bool) -> UpdateCodeEmbeddingSettings {
         UpdateCodeEmbeddingSettings {
@@ -517,7 +443,6 @@ mod code_embedding_validation_tests {
             dimensions: if enabled { 1024 } else { 0 },
             timeout_secs: if enabled { 30 } else { 0 },
             api_key: SecretPatch::Keep,
-            batching: EmbeddingBatchingSettings::default(),
         }
     }
 
@@ -541,12 +466,5 @@ mod code_embedding_validation_tests {
         request.timeout_secs = 0;
         assert!(code_embedding_request(&request).is_err());
         code_embedding_request(&code(true)).expect("a complete block is valid");
-    }
-
-    #[test]
-    fn a_zero_batching_limit_is_refused() {
-        let mut request = code(true);
-        request.batching.max_items_per_request = 0;
-        assert!(code_embedding_request(&request).is_err());
     }
 }

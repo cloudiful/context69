@@ -89,7 +89,7 @@ describe("runtime settings", () => {
 
   it("probes the unsaved Qdrant URL and disables the probe when it is blank", async () => {
     const backend = installFakeBackend();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/vector-index");
 
     const probe = await screen.findByTestId("runtime-qdrant-test");
     expect(probe).toBeEnabled();
@@ -108,9 +108,9 @@ describe("runtime settings", () => {
     });
   });
 
-  it("probes valkey, S3 and embedding with the draft values", async () => {
+  it("probes valkey with the draft values", async () => {
     const backend = installFakeBackend();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/scheduler");
 
     await userEvent.click(screen.getByTestId("runtime-valkey-test"));
     await waitFor(() => {
@@ -119,6 +119,11 @@ describe("runtime settings", () => {
     expect(backend.callsFor("POST", "/v1/settings/runtime/valkey/test")[0].body).toEqual({
       valkey_url: "redis://valkey:6379/0",
     });
+  });
+
+  it("probes S3 with the draft values", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/file-library");
 
     await userEvent.click(screen.getByRole("switch", { name: "Use S3 object storage" }));
     await userEvent.type(await screen.findByLabelText("S3 Endpoint"), "https://s3.example.test");
@@ -132,6 +137,11 @@ describe("runtime settings", () => {
       endpoint: "https://s3.example.test",
       bucket: "context69",
     });
+  });
+
+  it("probes embedding with the draft values", async () => {
+    const backend = installFakeBackend();
+    await openSettings("/settings/embedding");
 
     await userEvent.click(screen.getByTestId("runtime-embedding-test"));
     await waitFor(() => {
@@ -146,7 +156,7 @@ describe("runtime settings", () => {
 
   it("switches the chunking budget to tokens and keeps the character budget", async () => {
     const backend = installFakeBackend();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     // A stored response that carries no token budget must not read as an
     // unsaved change.
@@ -192,7 +202,7 @@ describe("runtime settings", () => {
 
   it("keeps one tokenizer control and prepares the selected preset on demand", async () => {
     const backend = installFakeBackend();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     // The upper section owns no tokenizer of its own any more.
     expect(screen.queryByLabelText("Input tokenizer")).not.toBeInTheDocument();
@@ -201,20 +211,19 @@ describe("runtime settings", () => {
 
     await userEvent.click(tokenizer);
     await userEvent.click(
-      await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
+      await screen.findByRole("option", { name: "EmbeddingGemma 2" }),
     );
 
-    // The license is visible before the preparation starts, and selecting
-    // alone never downloads anything.
+    // Selecting alone shows no license prose and never downloads anything.
     expect(
-      screen.getByText("Non-commercial use only"),
-    ).toBeInTheDocument();
+      screen.queryByText("Non-commercial use only"),
+    ).not.toBeInTheDocument();
     expect(
       backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
     ).toHaveLength(0);
 
     await userEvent.click(
-      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+      screen.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac"),
     );
     await waitFor(() => {
       expect(
@@ -223,12 +232,12 @@ describe("runtime settings", () => {
     });
     expect(
       backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision")[0].body,
-    ).toEqual({ preset_id: "jina_v5_small_retrieval_r6856e76" });
+    ).toEqual({ preset_id: "embeddinggemma2_r_f9972ac" });
 
     // A ready preset renders no success prose.
     await waitFor(() => {
       expect(
-        screen.queryByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+        screen.queryByTestId("runtime-tokenizer-preset-embeddinggemma2_r_f9972ac"),
       ).not.toBeInTheDocument();
     });
 
@@ -238,32 +247,23 @@ describe("runtime settings", () => {
     });
     const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
       chunking: { tokenizer: string; tokenizer_sha256: string | null };
-      embedding: {
-        input_policy: { tokenizer: string; tokenizer_sha256: string | null; add_special_tokens: boolean };
-      };
     };
-    // The request derives the input check from the lower selection.
     expect(body.chunking.tokenizer).toBe("hf_local");
     expect(body.chunking.tokenizer_sha256).toBe(
-      "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+      "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
     );
-    expect(body.embedding.input_policy.tokenizer).toBe("hf_local");
-    expect(body.embedding.input_policy.tokenizer_sha256).toBe(
-      "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
-    );
-    expect(body.embedding.input_policy.add_special_tokens).toBe(false);
   });
 
-  it("keeps a built-in tokenizer free of a pinned artifact and of special tokens", async () => {
+  it("keeps a built-in tokenizer free of a pinned artifact", async () => {
     const backend = installFakeBackend();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     await userEvent.click(await screen.findByLabelText("Tokenizer"));
     await userEvent.click(
-      await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
+      await screen.findByRole("option", { name: "EmbeddingGemma 2" }),
     );
     await userEvent.click(
-      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+      screen.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac"),
     );
     await waitFor(() => {
       expect(
@@ -280,29 +280,26 @@ describe("runtime settings", () => {
     });
     const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
       chunking: { tokenizer: string; tokenizer_sha256: string | null };
-      embedding: { input_policy: { tokenizer: string; tokenizer_sha256: string | null } };
     };
     expect(body.chunking.tokenizer).toBe("o200k_base");
     expect(body.chunking.tokenizer_sha256).toBeNull();
-    expect(body.embedding.input_policy.tokenizer).toBe("o200k_base");
-    expect(body.embedding.input_policy.tokenizer_sha256).toBeNull();
   });
 
   it("refuses the save while a selected preset fails to prepare and retries it", async () => {
     const backend = installFakeBackend({ fail: { tokenizerProvisionFails: 1 } });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     await userEvent.click(await screen.findByLabelText("Tokenizer"));
     await userEvent.click(
-      await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
+      await screen.findByRole("option", { name: "EmbeddingGemma 2" }),
     );
     await userEvent.click(
-      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+      screen.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac"),
     );
 
     await waitFor(() => {
       expect(
-        screen.getByTestId("runtime-tokenizer-preset-status-jina_v5_small_retrieval_r6856e76"),
+        screen.getByTestId("runtime-tokenizer-preset-status-embeddinggemma2_r_f9972ac"),
       ).toHaveTextContent("could not be prepared");
     });
 
@@ -313,7 +310,7 @@ describe("runtime settings", () => {
     });
 
     await userEvent.click(
-      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+      screen.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac"),
     );
     await waitFor(() => {
       expect(
@@ -323,7 +320,7 @@ describe("runtime settings", () => {
     // The retry succeeds and the compact row disappears.
     await waitFor(() => {
       expect(
-        screen.queryByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+        screen.queryByTestId("runtime-tokenizer-preset-embeddinggemma2_r_f9972ac"),
       ).not.toBeInTheDocument();
     });
 
@@ -342,19 +339,19 @@ describe("runtime settings", () => {
           ...RUNTIME_SETTINGS.chunking,
           tokenizer: "hf_local",
           tokenizer_sha256:
-            "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
+            "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
         },
       },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     // A persisted hash renders the compact notice even though this process
     // has not prepared it, and nothing is downloaded on render.
     expect(
-      await screen.findByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+      await screen.findByTestId("runtime-tokenizer-preset-embeddinggemma2_r_f9972ac"),
     ).toBeInTheDocument();
     expect(
-      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+      screen.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac"),
     ).toHaveTextContent("Prepare tokenizer");
     expect(
       backend.callsFor("POST", "/v1/settings/runtime/tokenizer-artifacts/provision"),
@@ -371,11 +368,11 @@ describe("runtime settings", () => {
 
     // Preparing the preset releases the save without a restart.
     await userEvent.click(
-      screen.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76"),
+      screen.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac"),
     );
     await waitFor(() => {
       expect(
-        screen.queryByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+        screen.queryByTestId("runtime-tokenizer-preset-embeddinggemma2_r_f9972ac"),
       ).not.toBeInTheDocument();
     });
     await waitFor(() => {
@@ -390,7 +387,7 @@ describe("runtime settings", () => {
   it("selects a mounted artifact when the custom tokenizer option is chosen", async () => {
     const { RUNTIME_SETTINGS } = await import("./test-support");
     const backend = installFakeBackend();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     await userEvent.click(await screen.findByLabelText("Tokenizer"));
     await userEvent.click(await screen.findByRole("option", { name: "Mounted tokenizer file" }));
@@ -401,7 +398,6 @@ describe("runtime settings", () => {
     });
     const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
       chunking: { tokenizer: string; tokenizer_sha256: string | null };
-      embedding: { input_policy: { tokenizer: string; tokenizer_sha256: string | null } };
     };
     // Entering the custom path from a built-in tokenizer names a mounted
     // artifact, so the save never emits hf_local without a hash.
@@ -409,8 +405,6 @@ describe("runtime settings", () => {
     expect(artifactSha256).toBeDefined();
     expect(body.chunking.tokenizer).toBe("hf_local");
     expect(body.chunking.tokenizer_sha256).toBe(artifactSha256);
-    expect(body.embedding.input_policy.tokenizer).toBe("hf_local");
-    expect(body.embedding.input_policy.tokenizer_sha256).toBe(artifactSha256);
   });
 
   it("offers the custom tokenizer only when a mounted artifact exists", async () => {
@@ -418,70 +412,22 @@ describe("runtime settings", () => {
     installFakeBackend({
       runtime: { ...RUNTIME_SETTINGS, tokenizer_artifacts: [] },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/chunking");
 
     await userEvent.click(await screen.findByLabelText("Tokenizer"));
     expect(
-      await screen.findByRole("option", { name: "Jina embeddings v5 text small retrieval" }),
+      await screen.findByRole("option", { name: "EmbeddingGemma 2" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("option", { name: "Mounted tokenizer file" }),
     ).not.toBeInTheDocument();
   });
 
-  it("warns once when the stored input check differs from the lower selection", async () => {
-    const { RUNTIME_SETTINGS } = await import("./test-support");
-    const backend = installFakeBackend({
-      runtime: {
-        ...RUNTIME_SETTINGS,
-        embedding: {
-          ...RUNTIME_SETTINGS.embedding,
-          input_policy: {
-            ...RUNTIME_SETTINGS.embedding.input_policy!,
-            tokenizer: "o200k_base",
-          },
-        },
-      },
-    });
-    await openSettings("/settings/runtime");
-
-    // With the input cap disabled the tokenizer cannot affect input, so no
-    // alignment warning is shown.
-    expect(
-      screen.queryByTestId("runtime-chunking-input-policy-warning"),
-    ).not.toBeInTheDocument();
-    // A stored difference is not an unsaved change.
-    expect(screen.queryByText("Unsaved changes")).not.toBeInTheDocument();
-
-    await userEvent.click(screen.getByTestId("runtime-embedding-input-limit"));
-    expect(
-      await screen.findByTestId("runtime-chunking-input-policy-warning"),
-    ).toBeInTheDocument();
-
-    await userEvent.clear(screen.getByLabelText("Max Characters"));
-    await userEvent.type(screen.getByLabelText("Max Characters"), "1300");
-    await userEvent.click(screen.getByTestId("settings-save"));
-    await waitFor(() => {
-      expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(1);
-    });
-    const body = backend.callsFor("PUT", "/v1/settings/runtime")[0].body as {
-      embedding: { input_policy: { tokenizer: string } };
-    };
-    expect(body.embedding.input_policy.tokenizer).toBe("cl100k_base");
-
-    // The saved envelope now matches the selection, so the warning is gone.
-    await waitFor(() => {
-      expect(
-        screen.queryByTestId("runtime-chunking-input-policy-warning"),
-      ).not.toBeInTheDocument();
-    });
-  });
-
   it("requires a confirmation before submitting a vector index rebuild", async () => {
     const backend = installFakeBackend({
       vectorTask: { ...(await import("./test-support")).VECTOR_TASK, status: "succeeded" },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/vector-index");
 
     expect(await screen.findByText("Rebuilt 10 chunks")).toBeInTheDocument();
 
@@ -532,7 +478,7 @@ describe("vector index rebuild control", () => {
         can_cancel: true,
       },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/vector-index");
 
     const pause = await screen.findByTestId("runtime-vector-rebuild-pause");
     await userEvent.click(pause);

@@ -39,7 +39,6 @@ pub(crate) fn chunk_budget(settings: &RuntimeChunkingSettings) -> ChunkBudget {
             max_tokens: settings.max_tokens,
             overlap_tokens: settings.overlap_tokens,
         }),
-        input_policy: None,
     }
 }
 
@@ -64,19 +63,7 @@ pub(crate) fn chunking_settings(budget: &ChunkBudget) -> RuntimeChunkingSettings
 
 /// The chunking budget of the stored settings.
 pub(crate) fn stored_chunk_budget(settings: &StoredRuntimeChunkingSettings) -> ChunkBudget {
-    ChunkBudget {
-        mode: settings.unit,
-        chars: ChunkingConfig {
-            max_chars: settings.max_chars,
-            overlap_chars: settings.overlap_chars,
-        },
-        tokens: Some(TokenBudget {
-            tokenizer: settings.tokenizer.clone(),
-            max_tokens: settings.max_tokens,
-            overlap_tokens: settings.overlap_tokens,
-        }),
-        input_policy: None,
-    }
+    settings.chunk_budget()
 }
 
 /// The stored chunking settings of a chunking budget.
@@ -165,8 +152,6 @@ pub(super) fn runtime_settings_from_request(
             query_model: normalize_optional_string(request.embedding.query_model.clone()),
             dimensions: request.embedding.dimensions,
             timeout_secs: request.embedding.timeout_secs,
-            batching: request.embedding.batching,
-            input_policy: request.embedding.input_policy.clone(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: request.scheduler.interval_secs,
@@ -179,10 +164,6 @@ pub(super) fn runtime_settings_from_request(
         file_library: StoredRuntimeFileLibrarySettings {
             storage_root: request.file_library.storage_root.trim().to_string(),
             max_upload_size_mb: request.file_library.max_upload_size_mb,
-            max_upload_request_size_mb: request.file_library.max_upload_request_size_mb,
-            ingest_concurrency: request.file_library.ingest_concurrency,
-            url_import_concurrency: request.file_library.url_import_concurrency,
-            url_import_min_interval_ms: request.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: request.file_library.trusted_proxy_enabled,
             // An absent cap keeps the stored one: an older client that does
             // not know the setting never resets the policy.
@@ -222,8 +203,6 @@ pub(crate) fn code_embedding_config(
         query_model: code.query_model.clone(),
         dimensions: code.dimensions,
         timeout: std::time::Duration::from_secs(code.timeout_secs),
-        batching: code.batching,
-        input_policy: Default::default(),
     }
 }
 
@@ -240,7 +219,6 @@ pub(super) fn stored_code_embedding_from_request(
         // The provider API key is not a runtime setting: the shared store owns
         // it under its own purpose.
         api_key: None,
-        batching: request.batching,
     }
 }
 
@@ -286,8 +264,6 @@ pub(super) fn runtime_settings_response_with_code(
             dimensions: settings.embedding.dimensions,
             timeout_secs: settings.embedding.timeout_secs,
             has_api_key: has_embedding_api_key,
-            batching: settings.embedding.batching,
-            input_policy: settings.embedding.input_policy.clone(),
         },
         code_embedding: code.map(|code| RuntimeCodeEmbeddingSettings {
             enabled: code.enabled,
@@ -297,7 +273,6 @@ pub(super) fn runtime_settings_response_with_code(
             dimensions: code.dimensions,
             timeout_secs: code.timeout_secs,
             has_api_key: has_code_api_key,
-            batching: code.batching,
         }),
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
@@ -310,10 +285,6 @@ pub(super) fn runtime_settings_response_with_code(
         file_library: RuntimeFileLibrarySettings {
             storage_root: settings.file_library.storage_root,
             max_upload_size_mb: settings.file_library.max_upload_size_mb,
-            max_upload_request_size_mb: settings.file_library.max_upload_request_size_mb,
-            ingest_concurrency: settings.file_library.ingest_concurrency,
-            url_import_concurrency: settings.file_library.url_import_concurrency,
-            url_import_min_interval_ms: settings.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: settings.file_library.trusted_proxy_enabled,
             // The response reports the policy that is in effect, not the one
             // the request asked for.
@@ -361,8 +332,6 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                 .api_key
                 .as_deref()
                 .is_some_and(|value| !value.trim().is_empty()),
-            batching: defaults.embedding.batching,
-            input_policy: defaults.embedding.input_policy.clone(),
         },
         code_embedding: None,
         scheduler: RuntimeSchedulerSettings {
@@ -376,10 +345,6 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
         file_library: RuntimeFileLibrarySettings {
             storage_root: defaults.file_library.storage_root.display().to_string(),
             max_upload_size_mb: defaults.file_library.max_upload_size_mb,
-            max_upload_request_size_mb: defaults.file_library.max_upload_request_size_mb,
-            ingest_concurrency: defaults.file_library.ingest_concurrency,
-            url_import_concurrency: defaults.file_library.url_import_concurrency,
-            url_import_min_interval_ms: defaults.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: defaults.file_library.trusted_proxy_enabled,
             registry_max_ids_total: defaults.registry_quota.registry_max_ids_total,
             registry_max_ids_per_file: defaults.registry_quota.registry_max_ids_per_file,

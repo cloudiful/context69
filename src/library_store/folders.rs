@@ -159,6 +159,81 @@ impl LibraryStore {
         row.map(folder_from_row).transpose()
     }
 
+    /// The folder move on a caller transaction.
+    pub async fn move_folder_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        folder_id: Uuid,
+        target_folder_id: Option<Uuid>,
+    ) -> Result<Option<LibraryFolderRecord>> {
+        let row = sqlx::query_file_as!(
+            FolderRow,
+            "src/sql/library_store/folders/move_folder.sql",
+            folder_id,
+            target_folder_id
+        )
+        .fetch_optional(connection)
+        .await?;
+
+        row.map(folder_from_row).transpose()
+    }
+
+    /// The project-scoped folder move on a caller transaction.
+    pub async fn move_folder_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        folder_id: Uuid,
+        target_folder_id: Option<Uuid>,
+    ) -> Result<Option<LibraryFolderRecord>> {
+        let row = sqlx::query_file_as!(
+            FolderRow,
+            "src/sql/library_store/folders/move_folder_in_project.sql",
+            project_id,
+            folder_id,
+            target_folder_id
+        )
+        .fetch_optional(connection)
+        .await?;
+
+        row.map(folder_from_row).transpose()
+    }
+
+    /// Every file under a folder subtree, selected on the caller connection.
+    ///
+    /// The recursive query runs in the same transaction as the folder move,
+    /// so a later refusal cannot leave the folder moved with only part of its
+    /// descendant metadata refreshed.
+    pub async fn descendant_file_ids_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        folder_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/folders/descendant_file_ids.sql",
+            folder_id
+        )
+        .fetch_all(connection)
+        .await?)
+    }
+
+    /// Every file under a project-scoped folder subtree on the caller
+    /// connection.
+    pub async fn descendant_file_ids_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        folder_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/folders/descendant_file_ids_in_project.sql",
+            group_id,
+            folder_id
+        )
+        .fetch_all(connection)
+        .await?)
+    }
+
     /// Delete one folder row under the captured grant of a running task item.
     ///
     /// The folder row is removed in the guarded transaction, so a worker that
@@ -298,5 +373,24 @@ impl LibraryStore {
         .fetch_all(self.db.pool())
         .await?;
         Ok(rows)
+    }
+
+    /// Every ancestor of one folder, including the folder itself, on the
+    /// caller's transaction.
+    ///
+    /// The recursive step uses distinct-set semantics, so a pre-existing
+    /// malformed cycle still terminates. A move refuses when the candidate
+    /// parent is already an ancestor of the folder being moved.
+    pub async fn folder_ancestor_ids_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        folder_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/folders/folder_ancestor_ids.sql",
+            folder_id
+        )
+        .fetch_all(connection)
+        .await?)
     }
 }

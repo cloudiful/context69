@@ -15,10 +15,9 @@ VALUES (TRUE, 1000, 100, 'chars', 'cl100k_base', 1024, 128)
 ON CONFLICT (singleton) DO NOTHING;
 
 INSERT INTO context69.runtime_file_library_settings
-    (singleton, storage_root, max_upload_size_mb, max_upload_request_size_mb,
-     ingest_concurrency, url_import_concurrency, url_import_min_interval_ms,
+    (singleton, storage_root, max_upload_size_mb,
      trusted_proxy_enabled, s3_path_style,
      registry_max_ids_total, registry_max_ids_per_file, registry_max_ids_per_run)
-VALUES (TRUE, '/tmp/context69-source-rerun', 10, 10, 1, 1, 1000, FALSE, FALSE,
+VALUES (TRUE, '/tmp/context69-source-rerun', 10, FALSE, FALSE,
         32768, 16384, 8192)
 ON CONFLICT (singleton) DO NOTHING;

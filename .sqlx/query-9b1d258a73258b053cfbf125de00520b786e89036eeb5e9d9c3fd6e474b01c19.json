@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Every ancestor of one folder, including the folder itself.\n--\n-- The move guard locks the source and the candidate parent first, then asks\n-- whether the parent is already an ancestor of the source. A cycle would make\n-- that condition true, and the distinct-set recursion also terminates on a\n-- pre-existing malformed tree instead of walking forever.\nWITH RECURSIVE ancestors AS (\n    SELECT id, parent_id\n    FROM context69.library_folders\n    WHERE id = $1\n    UNION\n    SELECT parent.id, parent.parent_id\n    FROM context69.library_folders parent\n    INNER JOIN ancestors child ON child.parent_id = parent.id\n)\nSELECT id AS \"id!\" FROM ancestors\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "9b1d258a73258b053cfbf125de00520b786e89036eeb5e9d9c3fd6e474b01c19"
+}

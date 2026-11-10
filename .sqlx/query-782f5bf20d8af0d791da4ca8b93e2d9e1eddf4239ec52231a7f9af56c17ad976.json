@@ -1,0 +1,19 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Insert the fresh original chunks of one document into staging.\nINSERT INTO context69.document_chunk_rebuild_staging (\n    target_collection,\n    document_id,\n    chunk_index,\n    chunk_id,\n    chunk_text,\n    record_hash\n)\nSELECT $1, $2, chunk_index, chunk_id, chunk_text, $3\nFROM unnest($4::uuid[], $5::integer[], $6::text[])\n    AS input(chunk_id, chunk_index, chunk_text)\nON CONFLICT (target_collection, document_id, chunk_index) DO UPDATE\nSET chunk_id = EXCLUDED.chunk_id,\n    chunk_text = EXCLUDED.chunk_text,\n    record_hash = EXCLUDED.record_hash\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "UuidArray",
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "782f5bf20d8af0d791da4ca8b93e2d9e1eddf4239ec52231a7f9af56c17ad976"
+}

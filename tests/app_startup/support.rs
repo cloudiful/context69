@@ -101,10 +101,6 @@ pub fn assert_runtime_settings_applied(config: &Config, stored: &StoredRuntimeSe
     let (fl, sl) = (&c.file_library, &s.file_library);
     assert_eq!(fl.storage_root, PathBuf::from(&sl.storage_root));
     assert_eq!(fl.max_upload_size_mb, sl.max_upload_size_mb);
-    assert_eq!(fl.max_upload_request_size_mb, sl.max_upload_request_size_mb);
-    assert_eq!(fl.ingest_concurrency, sl.ingest_concurrency);
-    assert_eq!(fl.url_import_concurrency, sl.url_import_concurrency);
-    assert_eq!(fl.url_import_min_interval_ms, sl.url_import_min_interval_ms);
     assert_eq!(fl.trusted_proxy_enabled, sl.trusted_proxy_enabled);
     assert!(fl.s3.is_none() && sl.s3.is_none());
 }
@@ -263,8 +259,6 @@ pub fn runtime_settings_request(
             timeout_secs: 5,
             api_key: None,
             confirm_vector_space_unchanged: false,
-            batching: Default::default(),
-            input_policy: Default::default(),
         },
         code_embedding: None,
         scheduler: RuntimeSchedulerSettings {
@@ -286,10 +280,6 @@ pub fn runtime_settings_request(
         file_library: UpdateRuntimeFileLibrarySettings {
             storage_root: storage_root.display().to_string(),
             max_upload_size_mb: 16,
-            max_upload_request_size_mb: 32,
-            ingest_concurrency: 1,
-            url_import_concurrency: 1,
-            url_import_min_interval_ms: 1000,
             trusted_proxy_enabled: false,
             registry_max_ids_total: None,
             registry_max_ids_per_file: None,

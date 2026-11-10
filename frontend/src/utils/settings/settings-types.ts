@@ -1,34 +1,10 @@
 import type { components } from "../../generated/openapi";
 import type {
-  EmbeddingBatchingSettings,
   SearchMode,
   UpdateDoclingSettingsRequest,
 } from "../../services/api";
 
 type RuntimeChunkingSettings = components["schemas"]["RuntimeChunkingSettings"];
-
-/**
- * The manual limits of the embedding request planner.
- *
- * Every generated field is present, so a save always carries the limits the
- * operator sees instead of dropping them.
- */
-export type DraftEmbeddingBatching = Required<EmbeddingBatchingSettings>;
-
-/** The explicit embedding input envelope of the runtime draft. */
-export type DraftEmbeddingInputPolicy = {
-  /** A null cap disables the guard. */
-  max_input_tokens: number | null;
-  document_server_prefix: string;
-  query_server_prefix: string;
-  /**
-   * Whether the counted input includes the tokenizer's special tokens.
-   *
-   * The tokenizer itself is not part of this draft: the lower chunking
-   * selector owns it, and the request derives it from that selection.
-   */
-  add_special_tokens: boolean;
-};
 
 /**
  * Chunking budget of the runtime draft.
@@ -59,8 +35,6 @@ export type DraftRuntimeSettings = {
     query_model: string;
     dimensions: number;
     timeout_secs: number;
-    batching: DraftEmbeddingBatching;
-    input_policy: DraftEmbeddingInputPolicy;
   };
   /**
    * The independent optional Git code embedding draft.
@@ -77,7 +51,6 @@ export type DraftRuntimeSettings = {
     query_model: string;
     dimensions: number;
     timeout_secs: number;
-    batching: DraftEmbeddingBatching;
     /** Whether the response reported a stored code credential. */
     has_api_key: boolean;
     /** An explicit request to remove the stored code credential. */
@@ -95,10 +68,6 @@ export type DraftRuntimeSettings = {
   file_library: {
     storage_root: string;
     max_upload_size_mb: number;
-    max_upload_request_size_mb: number;
-    ingest_concurrency: number;
-    url_import_concurrency: number;
-    url_import_min_interval_ms: number;
     trusted_proxy_enabled: boolean;
     s3_enabled: boolean;
     s3: {

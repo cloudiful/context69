@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Record that the points of one tombstone were physically observed as gone.\n--\n-- The statement only stamps the observation. The row stays in the table and\n-- the entity stays excluded from the search snapshot, because a tombstone is\n-- a permanent record of the deletion and never a lease on the point ids. The\n-- recorded target is part of the compare-and-set so a different origin can\n-- never stamp this observation.\nUPDATE context69.library_deleted_entities\nSET purged_at = now()\nWHERE id = $1\n  AND purged_at IS NULL\n  AND target_endpoint IS NOT DISTINCT FROM $2\n  AND target_collection IS NOT DISTINCT FROM $3\nRETURNING id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "27ff0f8f2d6d812f806714677e12e5427ce64eaf168eb25eaff7d36f0022ba73"
+}

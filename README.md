@@ -16,6 +16,7 @@ Context69 is a retrieval-focused knowledge base service for ingesting documents,
 - Support PDF, DOCX, and XLSX conversion through Docling
 - Provide multilingual translation and locale-aware retrieval
 - Retain task history until users clear it (per-task trash/restore/permanent delete); the processing queue offers cross-page task selection with contextual bulk retry/resume/cancel/trash, and confirmed bulk restore or permanent delete in the trash view; admin cancel-active and Docling recovery stay server-side
+- Delete library files, folders, sources, and documents logically: their search tombstones commit before any vector purge, so they disappear from search immediately, and a failed or interrupted purge is retried without blocking the delete. Each tombstone records the Qdrant endpoint and collection that its delete committed against, and a retry removes points only from that recorded origin, so activating a different collection cannot redirect it. Tombstones written before an origin was recorded keep no origin and stay pending for manual verification instead of being guessed from the current settings.
 - Expose an HTTP API, MCP over HTTP or stdio, and an optional web UI
 
 ### Runtime chunking
@@ -23,24 +24,30 @@ Context69 is a retrieval-focused knowledge base service for ingesting documents,
 The chunking budget is measured in characters or in tokens. Token mode uses an
 explicit tokenizer (`cl100k_base`, `o200k_base`, a pinned preset, or a verified
 local Hugging Face `tokenizer.json` artifact), and the overlap stays inside the
-budget of a single chunk. One tokenizer control in the chunking section serves
-both budget units, and the embedding input envelope is derived from it on save,
-so the chunk budget and the input check never disagree. A saved budget governs
+budget of a single chunk. One tokenizer control in the chunking section measures
+the token budget, so the chunk budget and its token counting never disagree. A
+saved budget governs
 new tasks immediately, without a restart; a task that already started keeps the
 budget it was created with, and stored documents are never rechunked
 automatically.
 
 A pinned preset is a fixed upstream `tokenizer.json`: its repository, revision,
-size, SHA256, and license are constants. Preparing the selected preset retrieves
-only that file into the writable cache directory, verifies the exact size and
-hash before anything becomes usable, and activates it in the running process
-without a restart. The license and source links are shown before the
-preparation starts. The product neither bundles nor redistributes the file, and
-the upstream license is not a permission for commercial use. The cache directory
-is `./data/tokenizers.cache`, and `CONTEXT69_CHUNKING__TOKENIZER_DOWNLOAD_DIR`
+size, SHA256, and license are constants. The runtime images bundle the
+EmbeddingGemma 2 tokenizer (Apache-2.0) at
+`<artifact-dir>/<lowercase-sha256>.json`, so it is verified and ready offline at
+startup without any preparation, download, or network access. Attribution, the
+pinned revision, and the exact hash are listed in `THIRD_PARTY_NOTICES.md`,
+which ships in the image beside the Apache-2.0 license text.
+
+A bare installation without that bundled artifact keeps the prepare path:
+preparing the selected preset retrieves only that file into the writable cache
+directory, verifies the exact size and hash before anything becomes usable, and
+activates it in the running process without a restart. The license and source
+links are shown before the preparation starts. The cache directory is
+`./data/tokenizers.cache`, and `CONTEXT69_CHUNKING__TOKENIZER_DOWNLOAD_DIR`
 overrides it; a prepared preset loads from that verified cache on restart
 without network access. Readiness is per process, so every replica needs the
-verified cache file to use the preset.
+bundled artifact or the verified cache file to use the preset.
 
 Mounted artifacts remain the advanced path for operator-provisioned files:
 place each standard `tokenizer.json` at
@@ -52,24 +59,21 @@ artifacts in Settings, and fails closed when a selected hash is missing. Adding
 or removing a mounted artifact requires a restart, and a hash that an existing
 task pinned must stay available while that task can retry.
 
-### Embedding input envelope
+### Embedding settings
 
-The embedding input policy is a separate counting contract: the tokenizer and
-hash of the chunking selection, an optional full input-token cap, an optional
-document and query server prefix, and the Hugging Face special-token switch.
-The HTTP API keeps independent tokenizer and hash fields, so a non-UI client can
-still choose a different counting tokenizer. The prefixes describe text the
-provider itself prepends before tokenizing; they are counted with the input in
-one exact encoding and are never sent, trimmed, or separated. `max_item_chars`
-remains an independent advanced request guard and never disables the token
-envelope.
+Document and code embedding are separate settings domains. The document model
+holds its endpoint, credential, model, optional query model, dimensions, and
+timeout. The optional code embedding block has its own endpoint, credential,
+model, optional query model, dimensions, and timeout, and never reuses the
+document model, document credential, or document vectors. A blank query model
+inherits the corresponding document or code model.
 
-A document or query whose complete counted input exceeds the cap is rejected
-before any HTTP request; it is never truncated or silently rechunked. Document
-chunks are shortened on UTF-8 boundaries when the envelope requires it, and
-unemitted source bytes stay in the stream. A task pins the policy with its chunk
-budget, so a later settings save cannot change a running task, and a snapshot
-without a policy keeps the legacy no-guard behavior.
+Changing an endpoint, model, or dimensions changes that vector space. The
+existing collection keeps serving until an explicit rebuild activates its
+target; while the configured and active identities disagree, search and
+ingestion stay unavailable, so the operator can still cancel the rebuild and
+keep the current collection. A fresh installation has no collection to keep, so
+its first index build is always explicit.
 
 ## Deployment
 
@@ -104,15 +108,19 @@ docker run -d \
 
 Open `http://localhost` after the first start. Configure Qdrant, the embedding provider, and any optional services in the Settings page, then restart the container. Port `80` serves the web UI and HTTP API; port `8097` serves MCP over HTTP.
 
+For a destructive upgrade, stop every writer running the old version, then back up PostgreSQL and the Qdrant collections before starting the new version. Do not leave old and new writers running against the same database, because schema and vector-registry changes made by the new version are not safe for the old code to write through.
+
 The Runtime settings section has a Qdrant Test Connection button for the unsaved URL. It checks reachability over the same gRPC transport indexing uses (usually port `6334`, not the REST `6333` endpoint) with a 5s timeout, answers success or a redacted failure, and never saves settings, notifies observers, or requires the collection to exist.
 
-The Embedding section calls the existing model the document model and accepts an optional query model that inherits the document model when left blank. It also holds the four manual request limits — inputs per request, characters per input, characters per request, and bytes per request.
+The Embedding section calls the existing model the document model and accepts an optional query model that inherits the document model when left blank. Document and code embedding keep independent models and dimensions.
 
-The optional Code embedding block configures a separate Git-oriented model for code chunks and code search. It is disabled by default, has its own endpoint, credential, model, optional query model, dimensions, and request limits, and never reuses the document model or document API key. Disabling it retains the saved non-secret fields and the code credential unless the operator explicitly clears that key; enabling or changing it requires an explicit Git repository reindex.
+The optional Code embedding block configures a separate Git-oriented model for code chunks and code search. It is disabled by default and has its own endpoint, credential, model, optional query model, and dimensions, and never reuses the document model or document API key. Disabling it retains the saved non-secret fields and the code credential unless the operator explicitly clears that key; enabling or changing it requires an explicit Git repository reindex.
 
 Each Git repository selects its own index profile. `Lexical` is the default and searches the stored code text only. `Hybrid` and `FullSemantic` require the code model and write an isolated code vector set for each indexed generation: Hybrid fuses lexical and vector ranks, while FullSemantic ranks by code-vector similarity. When the code model is not configured, the serving generation was indexed without code vectors, the recorded code destination no longer matches the current code identity, or the vector runtime is unavailable, a semantic request returns lexical results and reports the reason through `vector_unavailable` instead of claiming a semantic result. Code vectors use their own collection and never reuse document vectors, the document collection, or the document credential. Changing the code model requires an explicit reindex; existing repositories keep their configured profile until it is changed.
 
 Changing the embedding model, gateway, or dimensions changes the vector space. The existing collection keeps serving until an explicit Rebuild Vector Index completes and activates its target; while the configured and active identities disagree, search and ingestion stay unavailable, so the operator can still cancel the rebuild and keep the current collection. A fresh installation has no collection to keep, so its first index build is always explicit. Rebuild status, pause, resume, and cancel are durable and admin-only: a pause lets the committed batch finish before the rebuild parks, a resume continues after the last written page, and a cancel stops the attempt without touching the existing collections. The processing queue can separately pause new work; running tasks continue.
+
+Registry capacity counts retained point ids rather than vector storage. A replacement discounts only the original ids that its producer recorded before deleting them, and only once the entry belongs to an inactive collection. Legacy entries without that recorded provenance remain fully reserved, so a tight capacity limit can require operator review or a fresh rebuild instead of a guessed discount.
 
 ### Stored secrets
 

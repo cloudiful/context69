@@ -42,6 +42,43 @@ SET rebuild_state = 'running',
         WHEN rebuild_state = 'idle' THEN FALSE
         ELSE rebuild_target_created
     END,
+    -- The pinned chunk budget and the chunk-id seed of a fresh build. A
+    -- same-identity takeover keeps both, so a resume never re-chunks under
+    -- settings published after the build started.
+    rebuild_chunk_budget = CASE
+        WHEN rebuild_state = 'idle' THEN $5::jsonb
+        ELSE rebuild_chunk_budget
+    END,
+    rebuild_generation = CASE
+        WHEN rebuild_state = 'idle' THEN $6::bigint
+        ELSE rebuild_generation
+    END,
+    -- Staging progress is preserved on a takeover and starts empty on a fresh
+    -- idle admission.
+    rebuild_staging_complete = CASE
+        WHEN rebuild_state = 'idle' THEN FALSE
+        ELSE rebuild_staging_complete
+    END,
+    rebuild_staged_document_id = CASE
+        WHEN rebuild_state = 'idle' THEN NULL
+        ELSE rebuild_staged_document_id
+    END,
+    rebuild_translation_cursor_document_id = CASE
+        WHEN rebuild_state = 'idle' THEN NULL
+        ELSE rebuild_translation_cursor_document_id
+    END,
+    rebuild_translation_cursor_translation_id = CASE
+        WHEN rebuild_state = 'idle' THEN NULL
+        ELSE rebuild_translation_cursor_translation_id
+    END,
+    rebuild_translation_cursor_chunk_index = CASE
+        WHEN rebuild_state = 'idle' THEN NULL
+        ELSE rebuild_translation_cursor_chunk_index
+    END,
+    rebuild_translation_processed_chunks = CASE
+        WHEN rebuild_state = 'idle' THEN 0
+        ELSE rebuild_translation_processed_chunks
+    END,
     updated_at = now()
 WHERE id = 1
 RETURNING epoch

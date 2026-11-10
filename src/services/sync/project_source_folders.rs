@@ -149,17 +149,24 @@ impl SyncService {
         identity: &str,
         legacy_source_key: Option<&str>,
     ) -> Result<()> {
-        self.db
-            .delete_sync_state_in_project(project_id, identity)
-            .await?;
-        if let Some(legacy_source_key) = legacy_source_key
-            && self
+        let legacy_exists = match legacy_source_key {
+            Some(legacy_source_key) => self
                 .source_store
                 .get_source_in_group(project_id, legacy_source_key)
                 .await?
-                .is_some()
-        {
-            self.delete_source_in_group(project_id, legacy_source_key)
+                .is_some(),
+            None => false,
+        };
+        let target = if legacy_exists {
+            Some(self.capture_source_index()?)
+        } else {
+            None
+        };
+        self.db
+            .delete_sync_state_in_project(project_id, identity)
+            .await?;
+        if let (Some(legacy_source_key), Some(target)) = (legacy_source_key, target.as_ref()) {
+            self.delete_source_in_group_with_target(project_id, legacy_source_key, target)
                 .await?;
         }
         Ok(())
@@ -169,7 +176,9 @@ impl SyncService {
     /// a running item.
     ///
     /// The sync state and the legacy source are removed under the grant, and
-    /// the pooled operator helper above is never reached from a task.
+    /// the pooled operator helper above is never reached from a task. The
+    /// deletion target is captured before the sync state is touched, so the
+    /// legacy source is removed only from the index captured for this attempt.
     pub(crate) async fn delete_project_source_folder_state_fenced(
         &self,
         fence: crate::library_store::TaskWriteFence,
@@ -177,17 +186,29 @@ impl SyncService {
         identity: &str,
         legacy_source_key: Option<&str>,
     ) -> Result<()> {
-        self.delete_sync_state_fenced(fence, project_id, identity)
-            .await?;
-        if let Some(legacy_source_key) = legacy_source_key
-            && self
+        let legacy_exists = match legacy_source_key {
+            Some(legacy_source_key) => self
                 .source_store
                 .get_source_in_group(project_id, legacy_source_key)
                 .await?
-                .is_some()
-        {
-            self.delete_source_in_group_fenced(fence, project_id, legacy_source_key)
-                .await?;
+                .is_some(),
+            None => false,
+        };
+        let target = if legacy_exists {
+            Some(self.capture_source_index()?)
+        } else {
+            None
+        };
+        self.delete_sync_state_fenced(fence, project_id, identity)
+            .await?;
+        if let (Some(legacy_source_key), Some(target)) = (legacy_source_key, target.as_ref()) {
+            self.delete_source_in_group_fenced_with_target(
+                fence,
+                project_id,
+                legacy_source_key,
+                target,
+            )
+            .await?;
         }
         Ok(())
     }
@@ -217,6 +238,7 @@ impl SyncService {
             library,
             fence,
         } = context;
+        let source_target = self.capture_source_index()?;
         let persisted_checkpoint = if source.sync_strategy == SyncStrategy::Cursor {
             self.db.get_checkpoint(identity).await?
         } else {
@@ -342,7 +364,13 @@ impl SyncService {
                 .get_source_in_group(project.id, &source.key)
                 .await?;
             if legacy.is_some() {
-                self.delete_source_in_group(project.id, &source.key).await?;
+                self.delete_source_in_group_fenced_with_target(
+                    fence,
+                    project.id,
+                    &source.key,
+                    &source_target,
+                )
+                .await?;
             }
         }
 

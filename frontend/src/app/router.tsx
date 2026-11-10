@@ -6,10 +6,14 @@ import { NotFoundPage } from "@/features/shell/not-found-page";
 import { AccessTokensSection } from "@/features/settings/sections/access-tokens-section";
 import { AdminUsersSection } from "@/features/settings/sections/admin-users-section";
 import { AppearanceSection } from "@/features/settings/sections/appearance-section";
+import { ChunkingSection } from "@/features/settings/sections/chunking-section";
 import { DoclingSection } from "@/features/settings/sections/docling-section";
-import { RuntimeSection } from "@/features/settings/sections/runtime-section";
+import { EmbeddingSection } from "@/features/settings/sections/embedding-section";
+import { FileLibrarySection } from "@/features/settings/sections/file-library-section";
+import { SchedulerSection } from "@/features/settings/sections/scheduler-section";
 import { SearchSection } from "@/features/settings/sections/search-section";
 import { TranslationSection } from "@/features/settings/sections/translation-section";
+import { VectorIndexSection } from "@/features/settings/sections/vector-index-section";
 import { SettingsLayout } from "@/features/settings/settings-layout";
 import { SearchPage } from "@/features/search/search-page";
 import { GroupLayout } from "@/features/groups/group-layout";
@@ -63,7 +67,12 @@ export const appRoutes: RouteObject[] = [
           { path: "appearance", element: <AppearanceSection /> },
           { path: "access-tokens", element: <AccessTokensSection /> },
           { path: "search", element: <SearchSection /> },
-          { path: "runtime", element: <RuntimeSection /> },
+          { path: "embedding", element: <EmbeddingSection /> },
+          { path: "chunking", element: <ChunkingSection /> },
+          { path: "file-library", element: <FileLibrarySection /> },
+          { path: "scheduler", element: <SchedulerSection /> },
+          { path: "vector-index", element: <VectorIndexSection /> },
+          { path: "runtime", element: <Navigate to="/settings/embedding" replace /> },
           { path: "docling", element: <DoclingSection /> },
           {
             path: "translation",

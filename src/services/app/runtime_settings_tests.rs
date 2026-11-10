@@ -36,8 +36,6 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             query_model: None,
             dimensions: 3072,
             timeout_secs: 30,
-            batching: Default::default(),
-            input_policy: Default::default(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: 300,
@@ -57,10 +55,6 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
         file_library: StoredRuntimeFileLibrarySettings {
             storage_root: "/tmp/library".to_string(),
             max_upload_size_mb: 128,
-            max_upload_request_size_mb: 128,
-            ingest_concurrency: 1,
-            url_import_concurrency: 1,
-            url_import_min_interval_ms: 1000,
             trusted_proxy_enabled: false,
             registry_max_ids_total: Some(32768),
             registry_max_ids_per_file: Some(16384),
@@ -335,7 +329,6 @@ fn stored_code(enabled: bool) -> StoredRuntimeCodeEmbeddingSettings {
         dimensions: 8,
         timeout_secs: 30,
         api_key: None,
-        batching: Default::default(),
     }
 }
 

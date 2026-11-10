@@ -11,12 +11,12 @@ use axum::{
 };
 use context69_contracts_core::common::ApiErrorResponse;
 use context69_contracts_settings::{
-    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, EmbeddingBatchingSettings,
-    RuntimeSettingsResponse, SearchSettingsResponse, TestLlmProviderOutcome,
-    TestLlmProviderRequest, TestLlmProviderResponse, TestRuntimeEmbeddingRequest,
-    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest, TokenizerPresetDescriptor,
-    TokenizerProvisionRequest, TokenizerProvisionResponse, UpdateDoclingConnectionSettings,
-    UpdateDoclingSettingsRequest, UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
+    CanonicalUpdateSearchSettingsRequest, DoclingSettingsResponse, RuntimeSettingsResponse,
+    SearchSettingsResponse, TestLlmProviderOutcome, TestLlmProviderRequest,
+    TestLlmProviderResponse, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
+    TestRuntimeValkeyRequest, TokenizerPresetDescriptor, TokenizerProvisionRequest,
+    TokenizerProvisionResponse, UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest,
+    UpdateRuntimeS3Settings, UpdateRuntimeSettingsRequest,
 };
 use context69_http_support::{CurrentUser, internal_error_response, map_settings_error};
 use utoipa::OpenApi;
@@ -140,7 +140,6 @@ where
             UpdateRuntimeS3Settings,
             TestRuntimeValkeyRequest,
             TestRuntimeEmbeddingRequest,
-            EmbeddingBatchingSettings,
             TestRuntimeQdrantRequest,
             DoclingSettingsResponse,
             UpdateDoclingSettingsRequest,

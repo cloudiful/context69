@@ -141,8 +141,6 @@ pub(crate) mod support {
                 query_model: None,
                 dimensions,
                 timeout: std::time::Duration::from_secs(30),
-                batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
-                input_policy: Default::default(),
             },
             fingerprint: fingerprint.to_string(),
         })

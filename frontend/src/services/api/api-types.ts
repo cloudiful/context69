@@ -179,7 +179,6 @@ export type ListDocumentResultsResponse = Schemas["ListDocumentResultsResponse"]
 export type VectorIndexRebuildState = Schemas["VectorIndexRebuildState"];
 export type VectorIndexRebuildStatus = Schemas["VectorIndexRebuildStatus"];
 export type RebuildControlRequest = Schemas["RebuildControlRequest"];
-export type EmbeddingBatchingSettings = Schemas["EmbeddingBatchingSettings"];
 export type TestRuntimeEmbeddingRequest = Schemas["TestRuntimeEmbeddingRequest"];
 export type TaskQueueStateResponse = Schemas["TaskQueueStateResponse"];
 export type UpdateTaskQueueStateRequest = Schemas["UpdateTaskQueueStateRequest"];

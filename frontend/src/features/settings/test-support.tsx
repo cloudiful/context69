@@ -83,14 +83,6 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
     has_api_key: true,
     model: "embed-1",
     timeout_secs: 30,
-    input_policy: {
-      tokenizer: "cl100k_base",
-      tokenizer_sha256: null,
-      max_input_tokens: null,
-      document_server_prefix: "",
-      query_server_prefix: "",
-      add_special_tokens: false,
-    },
   },
   scheduler: {
     interval_secs: 300,
@@ -119,13 +111,9 @@ export const RUNTIME_SETTINGS: RuntimeSettingsResponse = {
   ],
   requires_rebuild: false,
   file_library: {
-    ingest_concurrency: 2,
-    max_upload_request_size_mb: 128,
     max_upload_size_mb: 128,
     storage_root: "/data/library",
     trusted_proxy_enabled: false,
-    url_import_concurrency: 2,
-    url_import_min_interval_ms: 1000,
     registry_max_ids_total: 32768,
     registry_max_ids_per_file: 16384,
     registry_max_ids_per_run: 8192,
@@ -427,7 +415,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             timeout_secs: number;
             api_key?: string;
             confirm_vector_space_unchanged?: boolean;
-            input_policy?: RuntimeSettingsResponse["embedding"]["input_policy"];
           };
           code_embedding?: {
             enabled: boolean;
@@ -443,10 +430,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
           file_library: {
             storage_root: string;
             max_upload_size_mb: number;
-            max_upload_request_size_mb: number;
-            ingest_concurrency: number;
-            url_import_concurrency: number;
-            url_import_min_interval_ms: number;
             trusted_proxy_enabled: boolean;
             s3?: {
               endpoint: string;
@@ -467,10 +450,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
             dimensions: payload.embedding.dimensions,
             timeout_secs: payload.embedding.timeout_secs,
             has_api_key: !!payload.embedding.api_key || state.runtime.embedding.has_api_key,
-            // The saved request aligns the input envelope with the selected
-            // tokenizer.
-            input_policy: payload.embedding.input_policy
-              ?? state.runtime.embedding.input_policy,
           },
           // An omitted code block preserves the stored one, exactly like an
           // older client that never sends it.
@@ -482,7 +461,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
                 query_model: payload.code_embedding.query_model ?? null,
                 dimensions: payload.code_embedding.dimensions,
                 timeout_secs: payload.code_embedding.timeout_secs,
-                batching: state.runtime.code_embedding?.batching,
                 has_api_key: payload.code_embedding.api_key?.op === "set"
                   ? true
                   : payload.code_embedding.api_key?.op === "clear"
@@ -510,10 +488,6 @@ export function installFakeBackend(options: FakeBackendOptions = {}) {
           file_library: {
             storage_root: payload.file_library.storage_root,
             max_upload_size_mb: payload.file_library.max_upload_size_mb,
-            max_upload_request_size_mb: payload.file_library.max_upload_request_size_mb,
-            ingest_concurrency: payload.file_library.ingest_concurrency,
-            url_import_concurrency: payload.file_library.url_import_concurrency,
-            url_import_min_interval_ms: payload.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: payload.file_library.trusted_proxy_enabled,
             // The capacity policy is not part of the settings form: the
             // request omits it, so the stored policy stays in effect.

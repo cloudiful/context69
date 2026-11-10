@@ -154,13 +154,13 @@ impl LibraryService {
         }
 
         let caps = self.registry_caps();
+        let capture = self.capture_metadata_vector();
         let mut tx = self.db.pool().begin().await?;
-        // The registry epoch comes before the file row the move locks, so a
-        // move that admits a registry entry never holds a file lock while it
-        // waits for the epoch.
-        if caps.is_some() {
-            self.db.lock_search_registry_epoch_in(&mut tx).await?;
-        }
+        // The move, the canonical descendant metadata/hash refresh and one
+        // generation bump commit or roll back together. The guard locks the
+        // epoch and refuses a running rebuild even when there are no
+        // invalidated translations to retire.
+        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
         let moved = self
             .store
             .move_file_on(&mut tx, file_id, request.target_folder_id)
@@ -170,14 +170,14 @@ impl LibraryService {
         if let Some(caps) = caps {
             self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
                 .await?;
-            self.db.bump_search_generation_in(&mut tx).await?;
+        }
+        self.db.bump_search_generation_in(&mut tx).await?;
+        if mirror {
+            self.db
+                .enqueue_library_metadata_mirror_in(&mut tx, file_id)
+                .await?;
         }
         tx.commit().await?;
-        self.send_metadata_payload_updates(&publication.payloads)
-            .await;
-        if caps.is_none() {
-            self.bump_search_generation("library file move").await?;
-        }
         self.get_file(file_id).await
     }
 
@@ -197,10 +197,9 @@ impl LibraryService {
         }
 
         let caps = self.registry_caps();
+        let capture = self.capture_metadata_vector();
         let mut tx = self.db.pool().begin().await?;
-        if caps.is_some() {
-            self.db.lock_search_registry_epoch_in(&mut tx).await?;
-        }
+        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
         let moved = self
             .store
             .move_file_in_project_on(&mut tx, project.id, file_id, request.target_folder_id)
@@ -210,14 +209,14 @@ impl LibraryService {
         if let Some(caps) = caps {
             self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
                 .await?;
-            self.db.bump_search_generation_in(&mut tx).await?;
+        }
+        self.db.bump_search_generation_in(&mut tx).await?;
+        if mirror {
+            self.db
+                .enqueue_library_metadata_mirror_in(&mut tx, file_id)
+                .await?;
         }
         tx.commit().await?;
-        self.send_metadata_payload_updates(&publication.payloads)
-            .await;
-        if caps.is_none() {
-            self.bump_search_generation("library file move").await?;
-        }
         self.get_file_in_project(project, file_id).await
     }
 
@@ -278,8 +277,11 @@ impl LibraryService {
             .await?;
         // A rebuild owns the whole collection while it runs, so a logical
         // delete that overlapped it would remove points the rebuild still
-        // holds and would publish a tombstone the rebuild never applied.
-        self.db.require_rebuild_idle_in(write.connection()).await?;
+        // holds and would publish a tombstone the rebuild never applied. The
+        // captured target is proved against the active pointer in the same
+        // epoch-locked transaction.
+        let (purge_target, captured_index) =
+            self.require_delete_purge_target(write.connection()).await?;
         let Some(file) = self
             .store
             .lock_file_for_delete_on(write.connection(), file_id, project_id)
@@ -303,7 +305,12 @@ impl LibraryService {
             source_released_at: file.source_released_at,
         }];
         self.db
-            .insert_deleted_file_entity_in(write.connection(), file.id, Some(file.group_id))
+            .insert_deleted_file_entity_in_with_target(
+                write.connection(),
+                file.id,
+                Some(file.group_id),
+                purge_target.as_ref(),
+            )
             .await?;
         self.store
             .delete_documents_for_files_in(write.connection(), &[file.id])
@@ -341,8 +348,11 @@ impl LibraryService {
         }
         // The points are removed after the commit. A failed purge leaves the
         // tombstone pending and the search exclusion valid.
-        self.purge_deleted_entities_best_effort(&[DeletedEntityTarget::File(file.id)])
-            .await;
+        self.purge_deleted_entities_best_effort_with_index(
+            &[DeletedEntityTarget::File(file.id)],
+            captured_index.as_deref(),
+        )
+        .await;
         self.delete_unreferenced_objects_with_lease(paths, fence.map(|fence| fence.token()))
             .await?;
         Ok(())

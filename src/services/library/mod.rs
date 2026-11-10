@@ -37,6 +37,10 @@ use crate::{
     vector_runtime::VectorRuntime,
 };
 
+/// Fixed multipart envelope allowance added to the per-file upload limit to
+/// derive the HTTP request body protection.
+const MULTIPART_ALLOWANCE_BYTES: usize = 1024 * 1024;
+
 pub mod artifact_backfill;
 mod content_objects;
 mod deleted_entity_cleanup;
@@ -59,8 +63,8 @@ mod ingest_batches;
 mod ingest_checkpoint;
 mod processing_health;
 pub use ingest_checkpoint::{
-    IndexingCheckpoint, indexing_checkpoint_to_value, parse_indexing_checkpoint,
-    payload_with_checkpoint, payload_with_checkpoint_reset,
+    IndexingCheckpoint, checkpoint_target_identity, indexing_checkpoint_to_value,
+    parse_indexing_checkpoint, payload_with_checkpoint, payload_with_checkpoint_reset,
 };
 mod ingest_checkpoint_batch;
 mod ingest_checkpoint_persistence;
@@ -304,20 +308,17 @@ impl LibraryService {
             .s3
             .as_ref()
             .map(dependency_runtime::s3_configuration_fingerprint);
-        let url_import_runtime = Arc::new(
-            url_import_runtime::UrlImportRuntime::new(
-                file_library.url_import_concurrency,
-                file_library.url_import_min_interval_ms,
-                valkey_url.as_deref(),
-            )
-            .await?,
-        );
+        let url_import_runtime =
+            Arc::new(url_import_runtime::UrlImportRuntime::new(valkey_url.as_deref()).await?);
         // Size the in-process Docling semaphore from the persisted ceiling
         // (issue #209) so a saved `max_inflight` survives restarts; runtime
         // updates are picked up by `sync_docling_capacity` on the conversion
         // path. Falls back to the contract default when Docling is
         // unconfigured or the row cannot be read yet.
         let docling_limit = docling_max_inflight_or_default(&db).await;
+        let max_upload_size_bytes = file_library.max_upload_size_mb.saturating_mul(1024 * 1024);
+        let max_upload_request_size_bytes =
+            max_upload_size_bytes.saturating_add(MULTIPART_ALLOWANCE_BYTES);
 
         Ok(Self {
             db: db.clone(),
@@ -327,8 +328,8 @@ impl LibraryService {
             settings,
             storage_root: file_library.storage_root,
             storage,
-            max_upload_size_bytes: file_library.max_upload_size_mb * 1024 * 1024,
-            max_upload_request_size_bytes: file_library.max_upload_request_size_mb * 1024 * 1024,
+            max_upload_size_bytes,
+            max_upload_request_size_bytes,
             s3_configuration_fingerprint,
             embedding_vector_configured,
             embedding_vector_configuration_fingerprint,
@@ -342,6 +343,42 @@ impl LibraryService {
             registry_caps: None,
             remote_transport: None,
         })
+    }
+
+    /// Capture and prove the physical purge target of one logical delete.
+    ///
+    /// The caller already holds the registry epoch lock. The captured pair and
+    /// its fingerprint are admitted by the same strict writer check used for
+    /// point writes: when a desired identity or an active index exists, the
+    /// captured identity must match both fingerprint and collection, so a
+    /// partially configured or drifting deployment refuses the delete instead
+    /// of recording an unprovable target. A captured `None` is admitted only
+    /// when the deployment has neither a desired identity nor an active index;
+    /// that delete records NULL and its tombstone stays pending forever, never
+    /// inferred from current settings.
+    ///
+    /// A proven admission returns the immutable physical target of the captured
+    /// index and that exact index for the immediate best-effort purge.
+    pub(super) async fn require_delete_purge_target(
+        &self,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<(
+        Option<crate::qdrant_index::PurgeTarget>,
+        Option<std::sync::Arc<crate::qdrant_index::QdrantIndex>>,
+    )> {
+        let capture = self.capture_metadata_vector();
+        self.db
+            .require_idle_admissible_vector_identity_in(connection, capture.identity.as_ref())
+            .await?;
+        match (capture.identity, capture.runtime) {
+            (Some(_), Some(runtime)) => {
+                let index = std::sync::Arc::new(runtime.index);
+                Ok((Some(index.purge_target()), Some(index)))
+            }
+            // Admitted without an identity only when the deployment has
+            // neither a desired identity nor an active index.
+            _ => Ok((None, None)),
+        }
     }
 
     /// Delete one document that no library file owns.
@@ -364,8 +401,11 @@ impl LibraryService {
             .await?;
         // A rebuild owns the whole collection while it runs, so a logical
         // delete that overlapped it would remove points the rebuild still
-        // holds and would publish a tombstone the rebuild never applied.
-        self.db.require_rebuild_idle_in(write.connection()).await?;
+        // holds and would publish a tombstone the rebuild never applied. The
+        // captured target is proved against the active pointer in the same
+        // epoch-locked transaction.
+        let (purge_target, captured_index) =
+            self.require_delete_purge_target(write.connection()).await?;
         let Some(document) = self
             .store
             .lock_document_for_delete_on(write.connection(), group_id, document_id)
@@ -375,10 +415,11 @@ impl LibraryService {
             return Err(DomainError::not_found("document not found").into());
         };
         self.db
-            .insert_deleted_document_entity_in(
+            .insert_deleted_document_entity_in_with_target(
                 write.connection(),
                 document.id,
                 Some(document.group_id),
+                purge_target.as_ref(),
             )
             .await?;
         self.store
@@ -392,8 +433,11 @@ impl LibraryService {
         }
         // The points are removed after the commit. A failed purge leaves the
         // tombstone pending and the search exclusion valid.
-        self.purge_deleted_entities_best_effort(&[DeletedEntityTarget::Document(document.id)])
-            .await;
+        self.purge_deleted_entities_best_effort_with_index(
+            &[DeletedEntityTarget::Document(document.id)],
+            captured_index.as_deref(),
+        )
+        .await;
         Ok(())
     }
 
@@ -444,14 +488,6 @@ impl LibraryService {
             },
             identity,
         ))
-    }
-
-    /// The published pair of this runtime.
-    ///
-    /// The callers that do not publish vectors keep the plain pair; a writer
-    /// that records an identity captures both with [`Self::captured_runtime`].
-    fn runtime(&self) -> Result<LibraryRuntime> {
-        self.captured_runtime().map(|(runtime, _identity)| runtime)
     }
 
     /// Whether vector work is configured for this deployment. Read from the

@@ -7,19 +7,21 @@ use std::sync::Arc;
 use tokio::sync::OnceCell;
 use uuid::Uuid;
 
-use crate::chunking::ChunkBudgetMode;
 use crate::chunking::chunking_token::TokenizerRef;
+use crate::chunking::{ChunkBudget, ChunkBudgetMode, ChunkingConfig, TokenBudget};
 use crate::contracts::{SearchMode, SyncOutcome};
 use crate::domain::SyncCheckpoint;
 
 mod auth;
 mod deleted_entities;
 mod docling_settings;
+mod document_rebuild;
 mod document_results;
 mod document_versions;
 mod documents;
 mod git_repositories;
 mod library_ingest_runs;
+mod library_metadata_mirror;
 mod metadata_indexes;
 mod metadata_payload_sync;
 mod namespaces;
@@ -40,6 +42,11 @@ mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
 pub use deleted_entities::DeletedEntity;
+pub use document_rebuild::{
+    RebuildDocumentRow, RebuildOriginalCountRow, RebuildProjectedUsage, RebuildStagingCounts,
+    RebuildStagingVerification, StagedRebuildChunkRow, StagedRebuildTranslationRow,
+    staged_original_payload, staged_translation_payload,
+};
 pub use document_versions::{
     AuditChunk, AuditSamples, AuditSummary, AuditVerdict, MissingVersionDocument,
     audit_missing_versions, classify_audit_document, list_missing_version_page,
@@ -57,6 +64,7 @@ pub use git_repositories::{
     StoredGitRepositorySource, StoredGitWebhookDelivery, StoredGitWebhookRegistration,
 };
 pub use library_ingest_runs::{IngestRunMode, IngestRunSource, LibraryIngestRun, NewIngestRun};
+pub use library_metadata_mirror::{LibraryMetadataMirrorLock, LibraryMetadataMirrorMarker};
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use metadata_payload_sync::{ClaimedMetadataPayloadSyncJob, MetadataPayloadSyncPoints};
@@ -64,7 +72,8 @@ pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenReco
 use rows::*;
 pub use search_registry::{
     AdmissionOutcome, RebuildBarrier, RebuildBarrierState, RebuildCheckpoint, RebuildCursor,
-    RebuildRefusalReason, RebuildStartOutcome, RegistryVectorIdentity,
+    RebuildRefusalReason, RebuildStagingState, RebuildStartOutcome, RebuildTranslationCursor,
+    RegistryVectorIdentity,
 };
 pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
@@ -189,10 +198,6 @@ pub struct StoredRuntimeEmbeddingSettings {
     pub query_model: Option<String>,
     pub dimensions: usize,
     pub timeout_secs: u64,
-    /// The manual limits of the embedding request planner.
-    pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
-    /// The explicit input-token envelope and server-added prefixes.
-    pub input_policy: context69_contracts::settings::EmbeddingInputPolicy,
 }
 
 #[derive(Debug, Clone)]
@@ -208,7 +213,6 @@ pub struct StoredRuntimeCodeEmbeddingSettings {
     /// The provider API key resolved from the shared store for the process that
     /// loaded these settings. It is an in-memory value, never persisted here.
     pub api_key: Option<String>,
-    pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
 }
 
 #[derive(Debug, Clone)]
@@ -232,14 +236,29 @@ pub struct StoredRuntimeChunkingSettings {
     pub overlap_tokens: usize,
 }
 
+impl StoredRuntimeChunkingSettings {
+    /// The chunk budget these stored settings describe.
+    #[must_use]
+    pub fn chunk_budget(&self) -> ChunkBudget {
+        ChunkBudget {
+            mode: self.unit,
+            chars: ChunkingConfig {
+                max_chars: self.max_chars,
+                overlap_chars: self.overlap_chars,
+            },
+            tokens: Some(TokenBudget {
+                tokenizer: self.tokenizer.clone(),
+                max_tokens: self.max_tokens,
+                overlap_tokens: self.overlap_tokens,
+            }),
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StoredRuntimeFileLibrarySettings {
     pub storage_root: String,
     pub max_upload_size_mb: usize,
-    pub max_upload_request_size_mb: usize,
-    pub ingest_concurrency: usize,
-    pub url_import_concurrency: usize,
-    pub url_import_min_interval_ms: u64,
     pub trusted_proxy_enabled: bool,
     /// The registry capacity cap of the whole deployment.
     ///

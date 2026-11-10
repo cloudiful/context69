@@ -85,11 +85,11 @@ describe("library upload protocol", () => {
     expect(response.tasks.map((task) => task.task_id)).toEqual(["task-reused"]);
   });
 
-  it("sends one multipart request containing only the pending files", async () => {
-    spyPrepare((filename) => filename === "fresh.txt"
-      ? { upload_required: true, file: null, task: null }
-      : { upload_required: false, file: reusedFile, task: { task_id: "task-reused" } });
-    const fetchSpy = vi.fn(async () => new Response(JSON.stringify(uploadedTask), {
+  it("sends one multipart request per pending file", async () => {
+    spyPrepare((filename) => filename === "existing.txt"
+      ? { upload_required: false, file: reusedFile, task: { task_id: "task-reused" } }
+      : { upload_required: true, file: null, task: null });
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => new Response(JSON.stringify(uploadedTask), {
       status: 200,
       headers: { "Content-Type": "application/json" },
     }));
@@ -100,22 +100,68 @@ describe("library upload protocol", () => {
       "22222222-2222-4222-8222-222222222222",
       [
         new File(["fresh"], "fresh.txt", { type: "text/plain" }),
+        new File(["second"], "second.txt", { type: "text/plain" }),
         new File(["old"], "existing.txt", { type: "text/plain" }),
       ],
     );
 
-    expect(fetchSpy).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchSpy.mock.calls[0] as unknown as [string, RequestInit];
-    expect(url).toContain("/v1/groups/by-path/stock%2Falpha/library/files/upload");
-    const form = init.body as FormData;
-    expect(form.get("folder_id")).toBe("22222222-2222-4222-8222-222222222222");
-    expect(form.getAll("sha256")).toEqual([await digestOf("fresh")]);
-    expect((form.getAll("files") as File[]).map((file) => file.name)).toEqual(["fresh.txt"]);
-    expect(JSON.parse(String(form.get("metadata")))).toEqual({
-      metadata: { metadata_json: {} },
-      source_policy: "retain",
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const sent = fetchSpy.mock.calls.map(([url, init]) => {
+      expect(url).toContain("/v1/groups/by-path/stock%2Falpha/library/files/upload");
+      const form = (init as RequestInit).body as FormData;
+      expect(form.get("folder_id")).toBe("22222222-2222-4222-8222-222222222222");
+      expect(JSON.parse(String(form.get("metadata")))).toEqual({
+        metadata: { metadata_json: {} },
+        source_policy: "retain",
+      });
+      expect(form.getAll("files")).toHaveLength(1);
+      return {
+        name: (form.getAll("files") as File[])[0].name,
+        sha256: form.get("sha256"),
+      };
     });
-    expect(response.tasks.map((task) => task.task_id)).toEqual(["task-reused", "task-upload"]);
+    expect(sent).toEqual([
+      { name: "fresh.txt", sha256: await digestOf("fresh") },
+      { name: "second.txt", sha256: await digestOf("second") },
+    ]);
+    expect(response.tasks.map((task) => task.task_id)).toEqual([
+      "task-reused",
+      "task-upload",
+      "task-upload",
+    ]);
+  });
+
+  it("keeps accepted references when a later file fails to upload", async () => {
+    spyPrepare(() => ({ upload_required: true, file: null, task: null }));
+    let calls = 0;
+    const fetchSpy = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => {
+      calls += 1;
+      if (calls === 1) {
+        return new Response(JSON.stringify(uploadedTask), { status: 200 });
+      }
+      return new Response(JSON.stringify({ code: "storage", message: "storage refused" }), {
+        status: 502,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const error = await apiClient.uploadGroupLibraryFiles(
+      "stock/alpha",
+      null,
+      [
+        new File(["a"], "a.txt", { type: "text/plain" }),
+        new File(["b"], "b.txt", { type: "text/plain" }),
+      ],
+    ).then(
+      () => null,
+      (failure: unknown) => failure as { name: string; tasks: TaskRef[]; files: unknown[] },
+    );
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(error?.name).toBe("PartialUploadFailure");
+    expect(error?.tasks.map((task) => task.task_id)).toEqual(["task-upload"]);
+    expect(error?.files).toEqual([]);
   });
 
   it("propagates the release-after-processing policy into prepare and upload", async () => {
@@ -133,6 +179,43 @@ describe("library upload protocol", () => {
     expect(calls[0].body.options?.source_policy).toBe("release_after_processing");
     const form = (fetchSpy.mock.calls[0] as unknown as [string, RequestInit])[1].body as FormData;
     expect(JSON.parse(String(form.get("metadata"))).source_policy).toBe("release_after_processing");
+  });
+
+  it("keeps every settled reuse file and task when a prepare call fails before multipart", async () => {
+    let index = 0;
+    vi.spyOn(openapiClient, "POST").mockImplementation((() => {
+      index += 1;
+      if (index === 1) {
+        return Promise.resolve({
+          data: { upload_required: false, file: reusedFile, task: { task_id: "task-reused" } },
+          response: { ok: true, status: 200 },
+        });
+      }
+      if (index === 2) {
+        return Promise.resolve({ error: { message: "prepare rejected" }, response: { ok: false, status: 422 } });
+      }
+      return Promise.resolve({ data: { upload_required: true, file: null, task: null }, response: { ok: true, status: 200 } });
+    }) as never);
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const error = await apiClient.uploadGroupLibraryFiles(
+      "stock/alpha",
+      null,
+      [
+        new File(["old"], "existing.txt", { type: "text/plain" }),
+        new File(["broken"], "broken.txt", { type: "text/plain" }),
+        new File(["fresh"], "fresh.txt", { type: "text/plain" }),
+      ],
+    ).then(
+      () => null,
+      (failure: unknown) => failure as { name: string; tasks: TaskRef[]; files: { file_id: string }[] },
+    );
+
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(error?.name).toBe("PartialUploadFailure");
+    expect(error?.files.map((file) => file.file_id)).toEqual([reusedFile.file_id]);
+    expect(error?.tasks.map((task) => task.task_id)).toEqual(["task-reused"]);
   });
 
   it("fails the whole batch before upload when one prepare call fails", async () => {

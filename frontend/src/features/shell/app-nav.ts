@@ -9,7 +9,11 @@ export type NavLabelKey =
   | "settings.sections.appearance"
   | "settings.sections.accessTokens"
   | "settings.sections.search"
-  | "settings.sections.runtime"
+  | "settings.sections.embedding"
+  | "settings.sections.chunking"
+  | "settings.sections.fileLibrary"
+  | "settings.sections.scheduler"
+  | "settings.sections.vectorIndex"
   | "settings.sections.docling"
   | "settings.sections.translation"
   | "settings.sections.adminUsers";
@@ -40,7 +44,11 @@ export const SEGMENT_LABEL_KEYS: Record<string, NavLabelKey> = {
   documents: "document.title",
   appearance: "settings.sections.appearance",
   "access-tokens": "settings.sections.accessTokens",
-  runtime: "settings.sections.runtime",
+  embedding: "settings.sections.embedding",
+  chunking: "settings.sections.chunking",
+  "file-library": "settings.sections.fileLibrary",
+  scheduler: "settings.sections.scheduler",
+  "vector-index": "settings.sections.vectorIndex",
   docling: "settings.sections.docling",
   translation: "settings.sections.translation",
   "admin-users": "settings.sections.adminUsers",

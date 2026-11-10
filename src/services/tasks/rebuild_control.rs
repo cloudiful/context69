@@ -93,11 +93,13 @@ impl TaskService {
         }
     }
 
-    /// Frees the failed barrier of a terminal rebuild task.
+    /// Frees the barrier of a terminal rebuild task.
     ///
     /// A failed barrier keeps blocking target editing after its task is
-    /// terminal, so this explicit discard clears only that owned failed barrier
-    /// and its cursor. The old task stays failed and is not reopened.
+    /// terminal, and a legacy barrier may still be running for a task that
+    /// already failed. This explicit discard clears only the barrier owned by
+    /// the observed task and its cursor. The old task stays failed and is not
+    /// reopened.
     pub async fn admin_discard_failed_vector_rebuild(
         &self,
         actor: &UserRecord,
@@ -106,9 +108,13 @@ impl TaskService {
         require_admin(actor)?;
         let owner = self.owned_rebuild_item(task_id).await?;
         let barrier = self.db().read_rebuild_barrier().await?;
-        if barrier.state != RebuildBarrierState::Failed || barrier.owner_item_id != Some(owner) {
+        if !matches!(
+            barrier.state,
+            RebuildBarrierState::Failed | RebuildBarrierState::Running
+        ) || barrier.owner_item_id != Some(owner)
+        {
             return Err(DomainError::conflict(
-                "the observed task does not own a failed vector rebuild",
+                "the observed task does not own a terminal vector rebuild",
             )
             .into());
         }
@@ -385,7 +391,11 @@ fn project_rebuild_status(inputs: &RebuildStatusInputs) -> VectorIndexRebuildSta
     let can_cancel = match observed {
         Some(task) if matches!(task.status.as_str(), "queued" | "running" | "waiting") => true,
         Some(task) if task.status == "failed" => {
-            owned && inputs.barrier.state == RebuildBarrierState::Failed
+            owned
+                && matches!(
+                    inputs.barrier.state,
+                    RebuildBarrierState::Failed | RebuildBarrierState::Running
+                )
         }
         _ => false,
     };
@@ -565,6 +575,21 @@ mod tests {
         assert_eq!(status.state, VectorIndexRebuildState::Failed);
         assert!(status.can_cancel, "the failed barrier can be discarded");
         assert!(!status.can_pause);
+        assert!(!status.can_resume);
+    }
+
+    #[test]
+    fn a_failed_task_may_still_own_a_running_legacy_barrier() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let status = project_rebuild_status(&inputs(
+            barrier(RebuildBarrierState::Running, Some(owner_item), false),
+            vec![task(owner_task, "failed", owner_item)],
+        ));
+        assert!(
+            status.can_cancel,
+            "a legacy running barrier of a terminal task can be discarded"
+        );
         assert!(!status.can_resume);
     }
 

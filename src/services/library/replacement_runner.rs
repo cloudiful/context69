@@ -775,22 +775,9 @@ async fn ensure_admission(
 /// No connection is held across the embedding or the Qdrant call. A failure
 /// leaves the committed staging admission in place for the retry.
 async fn write_staged_points(vector: &ReplacementVector<'_>, plan: &ReplacementPlan) -> Result<()> {
-    let input_policy = match &vector.chunking.input_policy {
-        Some(policy) if !policy.is_default() => Some(
-            crate::chunking::chunking_token_artifact::TokenizerCatalog::installed_or_empty()
-                .resolve_input_policy(policy)?,
-        ),
-        _ => None,
-    };
     for batch in staged_batches(plan) {
         let texts: Vec<String> = batch.iter().map(|chunk| chunk.text.clone()).collect();
-        let embeddings = vector
-            .embedding
-            .embed_texts_with_policy(
-                &texts,
-                crate::embedding::InputPolicySelection::Pinned(input_policy.as_ref()),
-            )
-            .await?;
+        let embeddings = vector.embedding.embed_texts(&texts).await?;
         ensure!(
             embeddings.len() == batch.len(),
             "the embedding provider returned the wrong vector count"

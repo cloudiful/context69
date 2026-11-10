@@ -27,14 +27,35 @@ use super::Database;
 /// constraint refuses any other shape. `group_id` is the audit value of the
 /// group the entity belonged to, never a reference: a tombstone outlives its
 /// group.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct DeletedEntity {
     pub id: i64,
     pub file_id: Option<Uuid>,
     pub document_id: Option<i64>,
     pub group_id: Option<i64>,
+    pub target_endpoint: Option<String>,
+    pub target_collection: Option<String>,
     pub deleted_at: DateTime<Utc>,
     pub purged_at: Option<DateTime<Utc>>,
+}
+
+impl std::fmt::Debug for DeletedEntity {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("DeletedEntity")
+            .field("id", &self.id)
+            .field("file_id", &self.file_id)
+            .field("document_id", &self.document_id)
+            .field("group_id", &self.group_id)
+            .field(
+                "target_endpoint",
+                &self.target_endpoint.as_ref().map(|_| "<redacted>"),
+            )
+            .field("target_collection", &self.target_collection)
+            .field("deleted_at", &self.deleted_at)
+            .field("purged_at", &self.purged_at)
+            .finish()
+    }
 }
 
 #[derive(sqlx::FromRow)]
@@ -43,6 +64,8 @@ struct DeletedEntityRow {
     file_id: Option<Uuid>,
     document_id: Option<i64>,
     group_id: Option<i64>,
+    target_endpoint: Option<String>,
+    target_collection: Option<String>,
     deleted_at: DateTime<Utc>,
     purged_at: Option<DateTime<Utc>>,
 }
@@ -54,6 +77,8 @@ impl From<DeletedEntityRow> for DeletedEntity {
             file_id: row.file_id,
             document_id: row.document_id,
             group_id: row.group_id,
+            target_endpoint: row.target_endpoint,
+            target_collection: row.target_collection,
             deleted_at: row.deleted_at,
             purged_at: row.purged_at,
         }
@@ -72,10 +97,24 @@ impl Database {
         file_id: Uuid,
         group_id: Option<i64>,
     ) -> Result<bool> {
+        self.insert_deleted_file_entity_in_with_target(connection, file_id, group_id, None)
+            .await
+    }
+
+    /// Tombstone one deleted library file with its captured physical target.
+    pub async fn insert_deleted_file_entity_in_with_target(
+        &self,
+        connection: &mut PgConnection,
+        file_id: Uuid,
+        group_id: Option<i64>,
+        target: Option<&crate::qdrant_index::PurgeTarget>,
+    ) -> Result<bool> {
         let inserted = sqlx::query_file_scalar!(
             "src/sql/db/deleted_entities/insert_file_entity.sql",
             file_id,
-            group_id
+            group_id,
+            target.as_ref().map(|target| target.endpoint.as_str()),
+            target.as_ref().map(|target| target.collection.as_str())
         )
         .fetch_optional(&mut *connection)
         .await
@@ -97,10 +136,24 @@ impl Database {
         document_id: i64,
         group_id: Option<i64>,
     ) -> Result<bool> {
+        self.insert_deleted_document_entity_in_with_target(connection, document_id, group_id, None)
+            .await
+    }
+
+    /// Tombstone one deleted document with its captured physical target.
+    pub async fn insert_deleted_document_entity_in_with_target(
+        &self,
+        connection: &mut PgConnection,
+        document_id: i64,
+        group_id: Option<i64>,
+        target: Option<&crate::qdrant_index::PurgeTarget>,
+    ) -> Result<bool> {
         let inserted = sqlx::query_file_scalar!(
             "src/sql/db/deleted_entities/insert_document_entity.sql",
             document_id,
-            group_id
+            group_id,
+            target.as_ref().map(|target| target.endpoint.as_str()),
+            target.as_ref().map(|target| target.collection.as_str())
         )
         .fetch_optional(&mut *connection)
         .await
@@ -110,6 +163,49 @@ impl Database {
         }
         self.advance_search_generations_in(connection).await?;
         Ok(true)
+    }
+
+    /// Tombstone every still-existing document among `document_ids` on the
+    /// caller's transaction.
+    ///
+    /// The group is read from the document row, so the caller never supplies an
+    /// unverified group. The whole set is inserted in one statement and both
+    /// search generations advance once, and only when at least one tombstone is
+    /// new: repeating the same ids or passing an empty slice is idempotent and
+    /// bumps nothing.
+    pub async fn insert_deleted_document_entities_in(
+        &self,
+        connection: &mut PgConnection,
+        document_ids: &[i64],
+    ) -> Result<u64> {
+        self.insert_deleted_document_entities_in_with_target(connection, document_ids, None)
+            .await
+    }
+
+    /// Tombstone a set of documents with their captured physical target.
+    pub async fn insert_deleted_document_entities_in_with_target(
+        &self,
+        connection: &mut PgConnection,
+        document_ids: &[i64],
+        target: Option<&crate::qdrant_index::PurgeTarget>,
+    ) -> Result<u64> {
+        if document_ids.is_empty() {
+            return Ok(0);
+        }
+        let inserted = sqlx::query_file_scalar!(
+            "src/sql/db/deleted_entities/insert_document_entities.sql",
+            document_ids,
+            target.as_ref().map(|target| target.endpoint.as_str()),
+            target.as_ref().map(|target| target.collection.as_str())
+        )
+        .fetch_all(&mut *connection)
+        .await
+        .context("insert deleted document entities")?;
+        let count = inserted.len() as u64;
+        if count > 0 {
+            self.advance_search_generations_in(connection).await?;
+        }
+        Ok(count)
     }
 
     /// The tombstone row of one deleted entity.
@@ -152,20 +248,65 @@ impl Database {
         Ok(rows.into_iter().map(DeletedEntity::from).collect())
     }
 
+    /// Claim the next bounded set of actionable tombstones and stamp the
+    /// attempt before any network call.
+    ///
+    /// Only a row with a recorded endpoint and collection is actionable. The
+    /// claim commits on its own, so a slow or unreachable origin never holds a
+    /// connection or a row lock during the purge itself. Unknown origins are
+    /// excluded here and stay visible through
+    /// [`Self::list_pending_deleted_entities`].
+    pub async fn claim_pending_deleted_entities(&self, limit: i64) -> Result<Vec<DeletedEntity>> {
+        anyhow::ensure!(limit > 0, "the purge claim needs a positive bound");
+        let mut tx = self.pool.begin().await?;
+        let rows = sqlx::query_file_as!(
+            DeletedEntityRow,
+            "src/sql/db/deleted_entities/claim_pending_purges.sql",
+            limit
+        )
+        .fetch_all(&mut *tx)
+        .await
+        .context("claim pending deleted entities")?;
+        tx.commit().await?;
+        Ok(rows.into_iter().map(DeletedEntity::from).collect())
+    }
+
+    /// Read one tombstone including its recorded purge target.
+    pub async fn read_deleted_entity(&self, id: i64) -> Result<Option<DeletedEntity>> {
+        let row = sqlx::query_file_as!(
+            DeletedEntityRow,
+            "src/sql/db/deleted_entities/read_entity.sql",
+            id
+        )
+        .fetch_optional(&self.pool)
+        .await
+        .context("read deleted entity")?;
+        Ok(row.map(DeletedEntity::from))
+    }
+
     /// Record that the points of one tombstone were physically observed as
     /// gone.
     ///
     /// The stamp is the observation only: the row stays in the table and the
-    /// entity stays excluded from the search snapshot.
+    /// entity stays excluded from the search snapshot. The recorded target is
+    /// part of the compare-and-set, so a tombstone whose origin changed under
+    /// the purge is never stamped by a different target.
     pub async fn mark_deleted_entity_purged_in(
         &self,
         connection: &mut PgConnection,
         id: i64,
+        target_endpoint: Option<&str>,
+        target_collection: Option<&str>,
     ) -> Result<bool> {
-        let purged = sqlx::query_file_scalar!("src/sql/db/deleted_entities/mark_purged.sql", id)
-            .fetch_optional(&mut *connection)
-            .await
-            .context("mark deleted entity purged")?;
+        let purged = sqlx::query_file_scalar!(
+            "src/sql/db/deleted_entities/mark_purged.sql",
+            id,
+            target_endpoint,
+            target_collection
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("mark deleted entity purged")?;
         Ok(purged.is_some())
     }
 

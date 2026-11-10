@@ -14,8 +14,7 @@ use super::{
         default_registry_max_ids_per_file, default_registry_max_ids_per_run,
         default_registry_max_ids_total, default_scheduler_execution_guard_renew_interval,
         default_scheduler_execution_guard_ttl, default_secret_store_key_version,
-        default_session_idle_ttl, default_tokenizer_download_dir, default_url_import_concurrency,
-        default_url_import_min_interval_ms,
+        default_session_idle_ttl, default_tokenizer_download_dir,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
@@ -98,7 +97,6 @@ impl ChunkingBudgetConfig {
                 max_tokens: self.max_tokens,
                 overlap_tokens: self.overlap_tokens,
             }),
-            input_policy: None,
         }
     }
 
@@ -210,24 +208,12 @@ pub struct EmbeddingConfig {
     pub dimensions: usize,
     #[serde(rename = "timeout_secs", with = "serde_helpers::seconds")]
     pub timeout: Duration,
-    /// The manual limits of the embedding request planner.
-    #[serde(default)]
-    pub batching: context69_contracts::settings::EmbeddingBatchingSettings,
-    /// The explicit input-token envelope and server-added prefixes.
-    #[serde(default)]
-    pub input_policy: context69_contracts::settings::EmbeddingInputPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FileLibraryConfig {
     pub storage_root: PathBuf,
     pub max_upload_size_mb: usize,
-    pub max_upload_request_size_mb: usize,
-    pub ingest_concurrency: usize,
-    #[serde(default = "default_url_import_concurrency")]
-    pub url_import_concurrency: usize,
-    #[serde(default = "default_url_import_min_interval_ms")]
-    pub url_import_min_interval_ms: u64,
     #[serde(default)]
     pub trusted_proxy_enabled: bool,
     #[serde(default)]

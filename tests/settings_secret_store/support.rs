@@ -10,6 +10,7 @@
 //! It never touches another table, another store key, or a row outside this
 //! suite.
 
+use std::str::FromStr;
 use std::sync::{Mutex, PoisonError};
 
 use anyhow::Result;
@@ -23,6 +24,7 @@ use context69::{
     services::{secret_store::SecretStore, settings::SettingsService},
 };
 use context69_secret_store::{SecretDatabase, SecretStore as LeafSecretStore, key_names};
+use sqlx::postgres::PgConnectOptions;
 use sqlx::{PgPool, Row};
 
 /// Fixed test master key (bytes `00..20`), scoped to the disposable database. It
@@ -39,10 +41,6 @@ pub const OWNED_STORE_KEYS: [&str; 5] = [
     key_names::DOCLING_VLM_API_KEY,
     key_names::RUNTIME_S3_SECRET_KEY,
 ];
-
-/// The only database whose newly authorized code-embedding fixture cleanup this
-/// suite may run. It is the issue-created fixture database, not a shared one.
-pub const ISSUE25_DATABASE: &str = "context69_issue_25";
 
 /// The columns that used to hold these four credentials in the clear, as
 /// `table.column`. The store is the only representation, so none of them may come
@@ -148,20 +146,38 @@ pub async fn reset(db: &Database) {
     }
 }
 
-/// The guarded cleanup used only by the new code-embedding cases.
+/// The database named by the explicitly selected test URL, or `None` when the
+/// selection names no database at all.
+fn selected_database_name(url: &str) -> Option<String> {
+    PgConnectOptions::from_str(url)
+        .ok()?
+        .get_database()
+        .filter(|name| !name.is_empty())
+        .map(str::to_owned)
+}
+
+fn require_selected_database(current: &str, selected: Option<&str>) {
+    assert_eq!(
+        Some(current),
+        selected,
+        "guarded fixture cleanup is refused outside the explicitly selected test database"
+    );
+}
+
+/// The guarded cleanup used by the code-embedding cases.
 ///
-/// Parent authorization covers fixture DML on the issue-specific database
-/// alone, so the database name is checked before any of the newly authorized
-/// code rows are touched. The check is metadata-only and prints no URL.
-pub async fn reset_issue25(db: &Database) {
-    let name: String = sqlx::query_scalar("SELECT current_database()")
+/// The explicit test selection is read from the existing accessor and its
+/// database component must equal `current_database()` before any owned row is
+/// touched. A selection with no database name and a connection that reached a
+/// different database are both refused. The check is metadata-only and prints
+/// neither the URL nor any endpoint or credential.
+pub async fn reset_guarded(db: &Database) {
+    let selected = selected_database_name(&context69_test_support::accessor::database_url());
+    let current: String = sqlx::query_scalar("SELECT current_database()")
         .fetch_one(db.pool())
         .await
         .expect("read the current database name");
-    assert_eq!(
-        name, ISSUE25_DATABASE,
-        "the authorized code-embedding fixture reset runs only on {ISSUE25_DATABASE}"
-    );
+    require_selected_database(&current, selected.as_deref());
     reset(db).await;
 }
 
@@ -258,8 +274,6 @@ pub fn runtime_request(
             timeout_secs: 5,
             api_key: embedding_api_key.map(str::to_string),
             confirm_vector_space_unchanged: false,
-            batching: Default::default(),
-            input_policy: Default::default(),
         },
         code_embedding: None,
         scheduler: RuntimeSchedulerSettings {
@@ -284,10 +298,6 @@ pub fn runtime_request(
                 .display()
                 .to_string(),
             max_upload_size_mb: 16,
-            max_upload_request_size_mb: 32,
-            ingest_concurrency: 1,
-            url_import_concurrency: 1,
-            url_import_min_interval_ms: 1000,
             trusted_proxy_enabled: false,
             registry_max_ids_total: None,
             registry_max_ids_per_file: None,

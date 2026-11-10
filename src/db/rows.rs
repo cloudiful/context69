@@ -200,16 +200,6 @@ pub(super) struct RuntimeEmbeddingSettingsRow {
     pub(super) query_model: Option<String>,
     pub(super) dimensions: i64,
     pub(super) timeout_secs: i64,
-    pub(super) max_items_per_request: Option<i64>,
-    pub(super) max_item_chars: Option<i64>,
-    pub(super) max_request_chars: Option<i64>,
-    pub(super) max_request_bytes: Option<i64>,
-    pub(super) max_input_tokens: Option<i64>,
-    pub(super) document_server_prefix: String,
-    pub(super) query_server_prefix: String,
-    pub(super) add_special_tokens: bool,
-    pub(super) input_tokenizer: String,
-    pub(super) input_tokenizer_sha256: Option<String>,
 }
 
 #[derive(Debug, Clone, FromRow)]
@@ -236,10 +226,6 @@ pub(super) struct RuntimeChunkingSettingsRow {
 pub(super) struct RuntimeFileLibrarySettingsRow {
     pub(super) storage_root: String,
     pub(super) max_upload_size_mb: i64,
-    pub(super) max_upload_request_size_mb: i64,
-    pub(super) ingest_concurrency: i64,
-    pub(super) url_import_concurrency: i64,
-    pub(super) url_import_min_interval_ms: i64,
     pub(super) trusted_proxy_enabled: bool,
     pub(super) s3_endpoint: Option<String>,
     pub(super) s3_region: Option<String>,

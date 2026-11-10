@@ -27,21 +27,38 @@ impl QdrantIndex {
         Ok(Self {
             client,
             collection_name: collection_name.to_string(),
+            endpoint: url.to_string(),
             dimensions,
+            noop: collection_name == "test-noop",
         })
     }
 
-    /// Noop Qdrant for checkpoint tests: all vector operations succeed without
-    /// network. Collection name must be exactly `test-noop` to trigger the
-    /// bypass; production code never uses this name.
-    pub fn for_test_noop(collection_name: &str, dimensions: usize) -> Result<Self> {
-        // Still build a client so the struct is valid, but methods will
-        // short-circuit before using it when the collection is `test-noop`.
+    /// A failing test index that never takes the no-op lane, even when its
+    /// collection is named `test-noop`. The delete-attribution suite needs a
+    /// target that fails the first purge and can be retried later.
+    pub fn for_test_failing(collection_name: &str, dimensions: usize) -> Result<Self> {
         let client = Qdrant::from_url("http://127.0.0.1:1").build()?;
         Ok(Self {
             client,
             collection_name: collection_name.to_string(),
+            endpoint: "http://127.0.0.1:1".to_string(),
             dimensions,
+            noop: false,
+        })
+    }
+
+    /// Noop Qdrant for checkpoint tests: all vector operations succeed without
+    /// network. The explicit flag keeps the bypass in the test lane only.
+    pub fn for_test_noop(collection_name: &str, dimensions: usize) -> Result<Self> {
+        // Still build a client so the struct is valid, but methods will
+        // short-circuit before using it.
+        let client = Qdrant::from_url("http://127.0.0.1:1").build()?;
+        Ok(Self {
+            client,
+            collection_name: collection_name.to_string(),
+            endpoint: "http://127.0.0.1:1".to_string(),
+            dimensions,
+            noop: true,
         })
     }
 }

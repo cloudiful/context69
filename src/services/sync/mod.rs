@@ -72,26 +72,6 @@ struct SourceVectorIndex {
     mode: SourceVectorMode,
 }
 
-impl SourceVectorIndex {
-    async fn delete_points(&self, chunk_ids: &[uuid::Uuid]) -> Result<()> {
-        match self.mode {
-            SourceVectorMode::Managed => {
-                self.runtime
-                    .require_ready()?
-                    .index
-                    .delete_points(chunk_ids)
-                    .await
-            }
-            SourceVectorMode::LegacyOptional => {
-                if let Some(snapshot) = self.runtime.snapshot() {
-                    snapshot.index.delete_points(chunk_ids).await?;
-                }
-                Ok(())
-            }
-        }
-    }
-}
-
 /// Owns the public rebuild status together with the generation of the attempt
 /// that owns it.
 ///

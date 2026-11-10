@@ -9,10 +9,6 @@ INSERT INTO context69.runtime_file_library_settings (
     singleton,
     storage_root,
     max_upload_size_mb,
-    max_upload_request_size_mb,
-    ingest_concurrency,
-    url_import_concurrency,
-    url_import_min_interval_ms,
     trusted_proxy_enabled,
     s3_endpoint,
     s3_region,
@@ -25,14 +21,10 @@ INSERT INTO context69.runtime_file_library_settings (
     registry_max_ids_per_run,
     updated_at
 )
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, now())
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
 ON CONFLICT (singleton) DO UPDATE
 SET storage_root = EXCLUDED.storage_root,
     max_upload_size_mb = EXCLUDED.max_upload_size_mb,
-    max_upload_request_size_mb = EXCLUDED.max_upload_request_size_mb,
-    ingest_concurrency = EXCLUDED.ingest_concurrency,
-    url_import_concurrency = EXCLUDED.url_import_concurrency,
-    url_import_min_interval_ms = EXCLUDED.url_import_min_interval_ms,
     trusted_proxy_enabled = EXCLUDED.trusted_proxy_enabled,
     s3_endpoint = EXCLUDED.s3_endpoint,
     s3_region = EXCLUDED.s3_region,

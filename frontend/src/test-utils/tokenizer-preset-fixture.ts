@@ -6,17 +6,20 @@ import type { components } from "../generated/openapi";
  * It is a fixture of the generated descriptor type, so a contract change that
  * renames or drops a field fails type checking instead of silently drifting
  * away from the API.
+ *
+ * It stays `ready: false` so the tests keep exercising the prepare flow; the
+ * bundled image artifact is proven ready by the backend catalog fixture.
  */
 export const TOKENIZER_PRESET_FIXTURE: components["schemas"]["TokenizerPresetDescriptor"] = {
-  id: "jina_v5_small_retrieval_r6856e76",
-  label: "Jina embeddings v5 text small retrieval",
-  sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
-  size_bytes: 11422654,
-  license: "cc-by-nc-4.0",
-  license_url: "https://creativecommons.org/licenses/by-nc/4.0/",
-  source_repo: "jinaai/jina-embeddings-v5-text-small-retrieval",
+  id: "embeddinggemma2_r_f9972ac",
+  label: "EmbeddingGemma 2",
+  sha256: "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+  size_bytes: 32170510,
+  license: "apache-2.0",
+  license_url: "https://www.apache.org/licenses/LICENSE-2.0",
+  source_repo: "google/embeddinggemma-2",
   source_url:
-    "https://huggingface.co/jinaai/jina-embeddings-v5-text-small-retrieval/blob/6856e76bb72982e58de0620458a4e8b3614da340",
-  revision: "6856e76bb72982e58de0620458a4e8b3614da340",
+    "https://huggingface.co/google/embeddinggemma-2/blob/f9972ac22e696a105c482202646979e33e4b5a1e",
+  revision: "f9972ac22e696a105c482202646979e33e4b5a1e",
   ready: false,
 };

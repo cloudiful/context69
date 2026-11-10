@@ -1,8 +1,8 @@
 use anyhow::{Context, Result};
+use sqlx::PgConnection;
 
 use crate::chunking::ChunkBudgetMode;
 use crate::chunking::chunking_token::TokenizerRef;
-use crate::contracts::settings::EmbeddingBatchingSettings;
 use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
 use super::{
@@ -25,10 +25,6 @@ struct RuntimeCodeEmbeddingSettingsRow {
     query_model: Option<String>,
     dimensions: Option<i64>,
     timeout_secs: Option<i64>,
-    max_items_per_request: Option<i64>,
-    max_item_chars: Option<i64>,
-    max_request_chars: Option<i64>,
-    max_request_bytes: Option<i64>,
 }
 
 /// The persisted name of a chunking unit.
@@ -80,40 +76,21 @@ fn stored_chunking_tokenizer(value: &str, sha256: Option<String>) -> Result<Toke
     }
 }
 
-/// The batching limits a persisted row describes.
-///
-/// A row that predates the limits stores NULL for them, which is the published
-/// default: a deployment that never configured a limit keeps the documented
-/// one instead of losing its planner.
-fn stored_embedding_batching(
-    row: &RuntimeEmbeddingSettingsRow,
-) -> Result<EmbeddingBatchingSettings> {
-    let defaults = EmbeddingBatchingSettings::default();
-    Ok(EmbeddingBatchingSettings {
-        max_items_per_request: stored_batching_limit(
-            row.max_items_per_request,
-            defaults.max_items_per_request,
-        )?,
-        max_item_chars: stored_batching_limit(row.max_item_chars, defaults.max_item_chars)?,
-        max_request_chars: stored_batching_limit(
-            row.max_request_chars,
-            defaults.max_request_chars,
-        )?,
-        max_request_bytes: stored_batching_limit(
-            row.max_request_bytes,
-            defaults.max_request_bytes,
-        )?,
+fn stored_chunking_settings_from_row(
+    chunking: RuntimeChunkingSettingsRow,
+) -> Result<StoredRuntimeChunkingSettings> {
+    Ok(StoredRuntimeChunkingSettings {
+        max_chars: usize::try_from(chunking.max_chars)
+            .context("runtime chunking max_chars must be non-negative")?,
+        overlap_chars: usize::try_from(chunking.overlap_chars)
+            .context("runtime chunking overlap_chars must be non-negative")?,
+        unit: stored_chunking_unit(&chunking.unit)?,
+        tokenizer: stored_chunking_tokenizer(&chunking.tokenizer, chunking.tokenizer_sha256)?,
+        max_tokens: usize::try_from(chunking.max_tokens)
+            .context("runtime chunking max_tokens must be non-negative")?,
+        overlap_tokens: usize::try_from(chunking.overlap_tokens)
+            .context("runtime chunking overlap_tokens must be non-negative")?,
     })
-}
-
-/// One persisted batching limit, or the default when the row carries none.
-fn stored_batching_limit(value: Option<i64>, fallback: usize) -> Result<usize> {
-    match value {
-        None => Ok(fallback),
-        Some(value) => {
-            usize::try_from(value).context("runtime embedding batching limit must be non-negative")
-        }
-    }
 }
 
 fn optional_positive_usize(value: Option<i64>, label: &str) -> Result<usize> {
@@ -170,15 +147,7 @@ async fn write_runtime_code_embedding_settings_in(
         optional_text(&code.model),
         code.query_model.as_deref(),
         dimensions,
-        timeout_secs,
-        i64::try_from(code.batching.max_items_per_request)
-            .context("code embedding max_items_per_request too large")?,
-        i64::try_from(code.batching.max_item_chars)
-            .context("code embedding max_item_chars too large")?,
-        i64::try_from(code.batching.max_request_chars)
-            .context("code embedding max_request_chars too large")?,
-        i64::try_from(code.batching.max_request_bytes)
-            .context("code embedding max_request_bytes too large")?
+        timeout_secs
     )
     .execute(&mut *connection)
     .await?;
@@ -235,32 +204,6 @@ impl Database {
         // the reported policy is the one the admission enforces.
         let quota = self.read_registry_quota().await?;
 
-        let embedding_batching = stored_embedding_batching(&embedding)?;
-        let input_tokenizer = context69_contracts::settings::EmbeddingTokenizer::from_name(
-            &embedding.input_tokenizer,
-        )
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "the persisted embedding input tokenizer {:?} is not supported",
-                embedding.input_tokenizer
-            )
-        })?;
-        let input_policy = context69_contracts::settings::EmbeddingInputPolicy {
-            tokenizer: input_tokenizer,
-            tokenizer_sha256: embedding.input_tokenizer_sha256,
-            max_input_tokens: embedding
-                .max_input_tokens
-                .map(|max| {
-                    usize::try_from(max).context("embedding max_input_tokens must be non-negative")
-                })
-                .transpose()?,
-            document_server_prefix: embedding.document_server_prefix,
-            query_server_prefix: embedding.query_server_prefix,
-            add_special_tokens: embedding.add_special_tokens,
-        };
-        input_policy.validate().map_err(|reason| {
-            anyhow::anyhow!("the persisted embedding input policy is invalid: {reason}")
-        })?;
         Ok(Some(StoredRuntimeSettings {
             qdrant: StoredRuntimeQdrantSettings {
                 url: qdrant.url,
@@ -281,8 +224,6 @@ impl Database {
                     .context("runtime embedding dimensions must be non-negative")?,
                 timeout_secs: u64::try_from(embedding.timeout_secs)
                     .context("runtime embedding timeout_secs must be non-negative")?,
-                batching: embedding_batching,
-                input_policy,
             },
             scheduler: StoredRuntimeSchedulerSettings {
                 interval_secs: u64::try_from(scheduler.interval_secs)
@@ -293,37 +234,11 @@ impl Database {
                 job_id: scheduler.job_id,
                 valkey_url: scheduler.valkey_url,
             },
-            chunking: StoredRuntimeChunkingSettings {
-                max_chars: usize::try_from(chunking.max_chars)
-                    .context("runtime chunking max_chars must be non-negative")?,
-                overlap_chars: usize::try_from(chunking.overlap_chars)
-                    .context("runtime chunking overlap_chars must be non-negative")?,
-                unit: stored_chunking_unit(&chunking.unit)?,
-                tokenizer: stored_chunking_tokenizer(
-                    &chunking.tokenizer,
-                    chunking.tokenizer_sha256,
-                )?,
-                max_tokens: usize::try_from(chunking.max_tokens)
-                    .context("runtime chunking max_tokens must be non-negative")?,
-                overlap_tokens: usize::try_from(chunking.overlap_tokens)
-                    .context("runtime chunking overlap_tokens must be non-negative")?,
-            },
+            chunking: stored_chunking_settings_from_row(chunking)?,
             file_library: StoredRuntimeFileLibrarySettings {
                 storage_root: file_library.storage_root,
                 max_upload_size_mb: usize::try_from(file_library.max_upload_size_mb)
                     .context("runtime file_library max_upload_size_mb must be non-negative")?,
-                max_upload_request_size_mb: usize::try_from(
-                    file_library.max_upload_request_size_mb,
-                )
-                .context("runtime file_library max_upload_request_size_mb must be non-negative")?,
-                ingest_concurrency: usize::try_from(file_library.ingest_concurrency)
-                    .context("runtime file_library ingest_concurrency must be non-negative")?,
-                url_import_concurrency: usize::try_from(file_library.url_import_concurrency)
-                    .context("runtime file_library url_import_concurrency must be non-negative")?,
-                url_import_min_interval_ms: u64::try_from(file_library.url_import_min_interval_ms)
-                    .context(
-                        "runtime file_library url_import_min_interval_ms must be non-negative",
-                    )?,
                 trusted_proxy_enabled: file_library.trusted_proxy_enabled,
                 registry_max_ids_total: Some(quota.max_ids_total),
                 registry_max_ids_per_file: Some(quota.max_ids_per_file),
@@ -354,6 +269,24 @@ impl Database {
         }))
     }
 
+    /// The committed chunking settings read on an existing connection.
+    ///
+    /// A rebuild claim calls this after it holds the registry epoch row, so the
+    /// budget it pins is serialized with every settings save on that same row.
+    pub async fn read_stored_runtime_chunking_settings_in(
+        &self,
+        connection: &mut PgConnection,
+    ) -> Result<StoredRuntimeChunkingSettings> {
+        let row = sqlx::query_file_as!(
+            RuntimeChunkingSettingsRow,
+            "src/sql/db/runtime_settings/get_runtime_chunking_settings.sql"
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .context("read the stored runtime chunking settings")?;
+        stored_chunking_settings_from_row(row)
+    }
+
     /// The stored optional code embedding settings, or `None` when the
     /// deployment never wrote a code row.
     pub async fn get_runtime_code_embedding_settings(
@@ -368,7 +301,6 @@ impl Database {
         else {
             return Ok(None);
         };
-        let defaults = EmbeddingBatchingSettings::default();
         Ok(Some(StoredRuntimeCodeEmbeddingSettings {
             enabled: row.enabled,
             base_url: row.base_url.unwrap_or_default(),
@@ -380,21 +312,6 @@ impl Database {
             dimensions: optional_positive_usize(row.dimensions, "code embedding dimensions")?,
             timeout_secs: optional_positive_u64(row.timeout_secs, "code embedding timeout_secs")?,
             api_key: None,
-            batching: EmbeddingBatchingSettings {
-                max_items_per_request: stored_batching_limit(
-                    row.max_items_per_request,
-                    defaults.max_items_per_request,
-                )?,
-                max_item_chars: stored_batching_limit(row.max_item_chars, defaults.max_item_chars)?,
-                max_request_chars: stored_batching_limit(
-                    row.max_request_chars,
-                    defaults.max_request_chars,
-                )?,
-                max_request_bytes: stored_batching_limit(
-                    row.max_request_bytes,
-                    defaults.max_request_bytes,
-                )?,
-            },
         }))
     }
 
@@ -474,23 +391,6 @@ impl Database {
             .context("embedding dimensions too large")?;
         let embedding_timeout_secs = i64::try_from(settings.embedding.timeout_secs)
             .context("embedding timeout too large")?;
-        let embedding_max_items_per_request =
-            i64::try_from(settings.embedding.batching.max_items_per_request)
-                .context("embedding max_items_per_request too large")?;
-        let embedding_max_item_chars = i64::try_from(settings.embedding.batching.max_item_chars)
-            .context("embedding max_item_chars too large")?;
-        let embedding_max_request_chars =
-            i64::try_from(settings.embedding.batching.max_request_chars)
-                .context("embedding max_request_chars too large")?;
-        let embedding_max_request_bytes =
-            i64::try_from(settings.embedding.batching.max_request_bytes)
-                .context("embedding max_request_bytes too large")?;
-        let embedding_max_input_tokens = settings
-            .embedding
-            .input_policy
-            .max_input_tokens
-            .map(|max| i64::try_from(max).context("embedding max_input_tokens too large"))
-            .transpose()?;
         let scheduler_interval_secs = i64::try_from(settings.scheduler.interval_secs)
             .context("scheduler interval too large")?;
         let scheduler_max_concurrency = i64::try_from(settings.scheduler.max_concurrency)
@@ -506,18 +406,6 @@ impl Database {
         let file_library_max_upload_size_mb =
             i64::try_from(settings.file_library.max_upload_size_mb)
                 .context("file_library max_upload_size_mb too large")?;
-        let file_library_max_upload_request_size_mb =
-            i64::try_from(settings.file_library.max_upload_request_size_mb)
-                .context("file_library max_upload_request_size_mb too large")?;
-        let file_library_ingest_concurrency =
-            i64::try_from(settings.file_library.ingest_concurrency)
-                .context("file_library ingest_concurrency too large")?;
-        let file_library_url_import_concurrency =
-            i64::try_from(settings.file_library.url_import_concurrency)
-                .context("file_library url_import_concurrency too large")?;
-        let file_library_url_import_min_interval_ms =
-            i64::try_from(settings.file_library.url_import_min_interval_ms)
-                .context("file_library url_import_min_interval_ms too large")?;
 
         sqlx::query_file!(
             "src/sql/db/runtime_settings/save_runtime_qdrant_settings.sql",
@@ -534,17 +422,7 @@ impl Database {
             settings.embedding.model,
             settings.embedding.query_model,
             embedding_dimensions,
-            embedding_timeout_secs,
-            embedding_max_items_per_request,
-            embedding_max_item_chars,
-            embedding_max_request_chars,
-            embedding_max_request_bytes,
-            embedding_max_input_tokens,
-            settings.embedding.input_policy.document_server_prefix,
-            settings.embedding.input_policy.query_server_prefix,
-            settings.embedding.input_policy.add_special_tokens,
-            settings.embedding.input_policy.tokenizer.name(),
-            settings.embedding.input_policy.tokenizer_sha256
+            embedding_timeout_secs
         )
         .execute(&mut *tx)
         .await?;
@@ -577,10 +455,6 @@ impl Database {
             "src/sql/db/runtime_settings/save_runtime_file_library_settings.sql",
             settings.file_library.storage_root,
             file_library_max_upload_size_mb,
-            file_library_max_upload_request_size_mb,
-            file_library_ingest_concurrency,
-            file_library_url_import_concurrency,
-            file_library_url_import_min_interval_ms,
             settings.file_library.trusted_proxy_enabled,
             settings
                 .file_library
@@ -749,7 +623,6 @@ mod code_embedding_tests {
             dimensions: 1024,
             timeout_secs: 30,
             api_key: Some("in-memory-only".to_string()),
-            batching: EmbeddingBatchingSettings::default(),
         }
     }
 

@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Mark staging complete and persist the exact staged total.\nUPDATE context69.search_registry_epoch\nSET rebuild_staging_complete = TRUE,\n    rebuild_total_chunks = $5::bigint,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\n  AND $5::bigint >= rebuild_processed_chunks\nRETURNING TRUE AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "273176a63655b12c2b98b4b411359c0840d33e9271f9fcdb57d4f8d16aae1f80"
+}

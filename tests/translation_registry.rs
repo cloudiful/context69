@@ -340,11 +340,13 @@ mod registry_cases {
         assert!(deleted.contains(&previous.to_string()));
     }
 
-    /// A non-library document (no file link) keeps the compatible legacy path
-    /// even when the adapter is registry-configured.
+    /// A non-library document (no file link) is still admitted and fenced by
+    /// the registry once the adapter has its database and capacity policy; the
+    /// admission carries a NULL file association and an unresolved entry of
+    /// that kind still blocks a rebuild start.
     #[tokio::test]
     #[ignore = "requires configured reusable PostgreSQL"]
-    async fn a_document_without_a_file_link_uses_the_legacy_path() {
+    async fn a_document_without_a_file_link_is_still_admitted_by_the_registry() {
         let fixture = harness::SwitchFixture::new().await;
         let external_id = "non-library-document".to_string();
         let record_hash = "plain-hash".to_string();
@@ -374,10 +376,23 @@ mod registry_cases {
             &[],
         )
         .await;
-        result.expect("a non-library document publishes through the legacy path");
+        result.expect("a non-library document publishes through the registry");
+        let entry = registry_entry(&fixture.db, version_id)
+            .await
+            .expect("the no-file publication is admitted");
+        assert_eq!(entry.file_id, None, "the entry records no library file");
+        assert_eq!(entry.phase, "switched");
         assert!(
-            registry_entry(&fixture.db, version_id).await.is_none(),
-            "the legacy path creates no registry entry"
+            entry.staged_ids.is_empty(),
+            "a switched entry hands its staged ids to the live version"
+        );
+        assert!(
+            entry.retired_ids.is_empty(),
+            "no prior target-locale id existed to retire"
+        );
+        assert!(
+            !chunk_ids(&fixture.db, seeded.document_id).await.is_empty(),
+            "the publication writes the live target-locale set"
         );
         assert_eq!(
             version_ids(&fixture.db, seeded.document_id).await,
@@ -386,9 +401,135 @@ mod registry_cases {
         let upserts = mock.upsert_calls();
         assert!(!upserts.is_empty());
         assert!(
-            upserts.iter().all(|call| !call.insert_only),
-            "the legacy replace path is not insert-only"
+            upserts.iter().all(|call| call.insert_only),
+            "the registry path writes translation points insert-only"
         );
+
+        // An unresolved staging entry of a no-file publication still blocks a
+        // rebuild: count-based exclusion must not depend on the file column.
+        let staged_run = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO context69.search_registry_entries \
+             (run_id, file_id, document_ids, staged_ids, retired_ids, generation, phase, \
+              embedding_fingerprint, collection_name) \
+             VALUES ($1, NULL, ARRAY[$2]::BIGINT[], ARRAY[$3]::UUID[], '{}'::UUID[], 1, \
+                     'staging', $4, $5)",
+        )
+        .bind(staged_run)
+        .bind(seeded.document_id)
+        .bind(Uuid::new_v4())
+        .bind(&fixture.identity.embedding_fingerprint)
+        .bind(&fixture.identity.collection_name)
+        .execute(fixture.db.pool())
+        .await
+        .expect("seed an in-flight no-file staging entry");
+        let mut tx = fixture.db.pool().begin().await.unwrap();
+        let outcome = fixture
+            .db
+            .begin_rebuild_in(
+                &mut tx,
+                fixture.item_id,
+                fixture.fence.token(),
+                &fixture.identity.embedding_fingerprint,
+                "no-file-rebuild-target",
+            )
+            .await
+            .expect("read the rebuild start outcome");
+        tx.rollback().await.unwrap();
+        assert_eq!(
+            outcome,
+            context69::db::RebuildStartOutcome::Refused(
+                context69::db::RebuildRefusalReason::StagingEntries
+            ),
+            "a no-file staging entry blocks the rebuild start"
+        );
+        sqlx::query("DELETE FROM context69.search_registry_entries WHERE run_id = $1")
+            .bind(staged_run)
+            .execute(fixture.db.pool())
+            .await
+            .expect("delete the fixture staging entry");
+    }
+
+    /// A translation cannot be admitted while a rebuild owns the barrier: the
+    /// staging entry is what blocks the rebuild start, so an in-flight rebuild
+    /// must refuse the publication before any point is written.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_translation_cannot_publish_while_the_rebuild_barrier_is_held() {
+        let fixture = harness::SwitchFixture::new().await;
+        let seeded = fixture.seed_section("translated", "old-hash").await;
+        let store = TranslationStore::new(fixture.db.pool().clone());
+        let previous = Uuid::new_v4();
+        support::seed_current_translation(&store, &seeded, &[(previous, "old text".into())]).await;
+
+        let mock = QdrantPointsMock::start().await;
+        let embedding = Arc::new(support::FakeEmbedding::new(0));
+        let runtime = support::runtime(embedding, &mock, &fixture.identity).unwrap();
+        let adapter = support::adapter(runtime, Some(fixture.db.clone()), Some(CAPS));
+
+        let mut tx = fixture.db.pool().begin().await.expect("begin the claim");
+        let outcome = fixture
+            .db
+            .begin_rebuild_in(
+                &mut tx,
+                fixture.item_id,
+                fixture.fence.token(),
+                &fixture.identity.embedding_fingerprint,
+                "translation-barrier-target",
+            )
+            .await
+            .expect("claim the rebuild barrier");
+        assert!(matches!(
+            outcome,
+            context69::db::RebuildStartOutcome::Started(_)
+        ));
+        tx.commit().await.expect("commit the claim");
+
+        let (version_id, result) = support::publish(
+            &adapter,
+            &store,
+            &fixture,
+            &seeded,
+            &seeded.record_hash,
+            "fresh translated body",
+            &[previous],
+        )
+        .await;
+        let error = result.expect_err("a held barrier refuses the translation");
+        assert!(
+            error.to_string().contains("rebuild is in progress"),
+            "the refusal names the running rebuild: {error}"
+        );
+        assert!(
+            registry_entry(&fixture.db, version_id).await.is_none(),
+            "the refused translation stages no registry entry"
+        );
+        assert!(
+            !version_ids(&fixture.db, seeded.document_id)
+                .await
+                .contains(&version_id),
+            "the refused translation writes no version"
+        );
+        assert_eq!(
+            chunk_ids(&fixture.db, seeded.document_id).await,
+            vec![previous],
+            "the refused translation keeps the prior target-locale set"
+        );
+        assert!(
+            mock.upsert_calls().is_empty(),
+            "the refused translation writes no points"
+        );
+
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL, rebuild_owner_token = NULL, \
+                 rebuild_fingerprint = NULL, rebuild_collection = NULL, \
+                 rebuild_started_at = NULL, rebuild_error = NULL \
+             WHERE id = 1",
+        )
+        .execute(fixture.db.pool())
+        .await
+        .expect("reset the fixture barrier");
     }
 
     /// A publisher that only implements `publish` keeps the historical

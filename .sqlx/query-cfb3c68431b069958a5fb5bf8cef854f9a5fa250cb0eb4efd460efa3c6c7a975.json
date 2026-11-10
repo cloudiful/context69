@@ -1,0 +1,110 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The document-rechunk staging state of the registry epoch row.\nSELECT\n    rebuild_chunk_budget,\n    rebuild_generation,\n    rebuild_staging_complete,\n    rebuild_staged_document_id,\n    rebuild_translation_cursor_document_id,\n    rebuild_translation_cursor_translation_id,\n    rebuild_translation_cursor_chunk_index,\n    rebuild_translation_processed_chunks\nFROM context69.search_registry_epoch\nWHERE id = 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rebuild_chunk_budget",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_chunk_budget"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "rebuild_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "rebuild_staging_complete",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_staging_complete"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "rebuild_staged_document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_staged_document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "rebuild_translation_cursor_document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_translation_cursor_document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "rebuild_translation_cursor_translation_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_translation_cursor_translation_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "rebuild_translation_cursor_chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_translation_cursor_chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "rebuild_translation_processed_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_translation_processed_chunks"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "cfb3c68431b069958a5fb5bf8cef854f9a5fa250cb0eb4efd460efa3c6c7a975"
+}

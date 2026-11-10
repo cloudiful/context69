@@ -84,8 +84,8 @@ async fn an_upgraded_installation_keeps_the_documented_policy() {
     // the same values a fresh boot seeds.
     sqlx::query(
         "INSERT INTO context69.runtime_file_library_settings \
-         (singleton, storage_root, max_upload_size_mb, max_upload_request_size_mb, \
-          ingest_concurrency) VALUES (TRUE, '/tmp/quota-policy', 16, 32, 1)",
+         (singleton, storage_root, max_upload_size_mb) \
+         VALUES (TRUE, '/tmp/quota-policy', 16)",
     )
     .execute(db.pool())
     .await

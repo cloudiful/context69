@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE descendants AS (\n    SELECT id\n    FROM context69.library_folders\n    WHERE group_id = $1\n      AND id = $2\n    UNION\n    SELECT child.id\n    FROM context69.library_folders child\n    INNER JOIN descendants parent ON child.parent_id = parent.id\n    WHERE child.group_id = $1\n)\nSELECT id AS \"id!\" FROM descendants\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "957244a35a3a02435f8a10ec6dfd3f4a8970a0e0365a4e3bf52ed7230eeadf92"
+}

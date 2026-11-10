@@ -8,12 +8,7 @@ use reqwest::{Client, Response, header::CONTENT_TYPE};
 use serde::Deserialize;
 use tracing::{error, info, warn};
 
-use crate::{
-    chunking::chunking_token_artifact::{ResolvedEmbeddingInputPolicy, TokenizerCatalog},
-    config::EmbeddingConfig,
-    domain_errors::DomainError,
-    retry,
-};
+use crate::{config::EmbeddingConfig, domain_errors::DomainError, retry};
 
 mod errors;
 #[path = "embedding/retry.rs"]
@@ -41,33 +36,9 @@ use retry_support::{finalize_error, retry_deadline};
 const MAX_EMBEDDING_RESPONSE_BYTES: usize = 8 * 1024 * 1024;
 const MAX_EMBEDDING_ERROR_RESPONSE_BYTES: usize = 1024 * 1024;
 
-/// Which input policy one provider call must apply.
-///
-/// `Live` reads the provider's current configured policy. `Pinned(None)` is a
-/// task snapshot that predates the policy and keeps the legacy no-guard
-/// behavior. `Pinned(Some)` applies exactly the policy resolved with that
-/// snapshot, never the live one.
-pub enum InputPolicySelection<'a> {
-    Live,
-    Pinned(Option<&'a ResolvedEmbeddingInputPolicy>),
-}
-
 #[async_trait]
 pub trait EmbeddingProvider: Send + Sync {
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>>;
-
-    /// Embeds documents under an explicit input policy.
-    ///
-    /// The default keeps every provider that only implements `embed_texts`
-    /// working unchanged; the OpenAI-compatible provider overrides it to count
-    /// the exact envelope before any HTTP request.
-    async fn embed_texts_with_policy(
-        &self,
-        texts: &[String],
-        _selection: InputPolicySelection<'_>,
-    ) -> Result<Vec<Vec<f32>>> {
-        self.embed_texts(texts).await
-    }
 
     async fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
         let embeddings = self.embed_texts(&[query.to_string()]).await?;
@@ -94,26 +65,12 @@ pub trait EmbeddingProvider: Send + Sync {
 pub struct OpenAiCompatibleEmbeddingProvider {
     client: Client,
     config: EmbeddingConfig,
-    /// The live policy resolved once at construction against the installed
-    /// immutable catalog.
-    input_policy: Option<ResolvedEmbeddingInputPolicy>,
 }
 
 impl OpenAiCompatibleEmbeddingProvider {
     pub fn new(config: EmbeddingConfig) -> Result<Self> {
         let client = Client::builder().timeout(config.timeout).build()?;
-        let input_policy = if config.input_policy.is_default() {
-            None
-        } else {
-            Some(TokenizerCatalog::resolve_installed_input_policy(
-                &config.input_policy,
-            )?)
-        };
-        Ok(Self {
-            client,
-            config,
-            input_policy,
-        })
+        Ok(Self { client, config })
     }
 
     /// The model queries are embedded with: the configured alias, or the
@@ -127,9 +84,9 @@ impl OpenAiCompatibleEmbeddingProvider {
             .unwrap_or(self.config.model.as_str())
     }
 
-    /// The limits one request is planned against: the configured ones.
+    /// The limits one request is planned against: the fixed transport packing.
     fn effective_limits(&self) -> EmbeddingBatchLimits {
-        EmbeddingBatchLimits::from_settings(&self.config.batching)
+        EmbeddingBatchLimits::fixed()
     }
 
     async fn embed_texts_with_model(&self, texts: &[String], model: &str) -> Result<Vec<Vec<f32>>> {
@@ -222,32 +179,11 @@ impl OpenAiCompatibleEmbeddingProvider {
 #[async_trait]
 impl EmbeddingProvider for OpenAiCompatibleEmbeddingProvider {
     async fn embed_texts(&self, texts: &[String]) -> Result<Vec<Vec<f32>>> {
-        self.embed_texts_with_policy(texts, InputPolicySelection::Live)
-            .await
-    }
-
-    async fn embed_texts_with_policy(
-        &self,
-        texts: &[String],
-        selection: InputPolicySelection<'_>,
-    ) -> Result<Vec<Vec<f32>>> {
-        let policy = match selection {
-            InputPolicySelection::Live => self.input_policy.as_ref(),
-            InputPolicySelection::Pinned(pinned) => pinned,
-        };
-        if let Some(policy) = policy {
-            for text in texts {
-                policy.ensure_input_fits("document", policy.document_prefix(), text)?;
-            }
-        }
         self.embed_texts_with_model(texts, &self.config.model).await
     }
 
     async fn embed_query(&self, query: &str) -> Result<Vec<f32>> {
         let model = self.query_model().to_string();
-        if let Some(policy) = &self.input_policy {
-            policy.ensure_input_fits("query", policy.query_prefix(), query)?;
-        }
         let embeddings = self
             .embed_texts_with_model(&[query.to_string()], &model)
             .await?;

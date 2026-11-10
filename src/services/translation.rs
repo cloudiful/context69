@@ -62,7 +62,6 @@ impl From<&ChunkBudget> for context69_translation::TranslationChunkingBudget {
             },
             max_tokens,
             overlap_tokens,
-            input_policy: budget.input_policy.clone(),
         }
     }
 }
@@ -95,7 +94,6 @@ impl From<&context69_translation::TranslationChunkingBudget> for ChunkBudget {
                 max_tokens: budget.max_tokens,
                 overlap_tokens: budget.overlap_tokens,
             }),
-            input_policy: budget.input_policy.clone(),
         }
     }
 }
@@ -238,12 +236,7 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             .iter()
             .map(|chunk| chunk.text.clone())
             .collect::<Vec<_>>();
-        let embeddings = embedding
-            .embed_texts_with_policy(
-                &texts,
-                crate::embedding::InputPolicySelection::Pinned(chunking.input_policy()),
-            )
-            .await?;
+        let embeddings = embedding.embed_texts(&texts).await?;
         let group = PayloadGroup {
             group_id: translation.group_id,
             group_key: translation.group_key,
@@ -317,24 +310,33 @@ impl TranslationPublisher for TranslationPublisherAdapter {
         translation: TranslationPublication<'_>,
         version: &TranslationVersionInput<'_>,
     ) -> Result<()> {
-        let (Some(db), Some(quota)) = (self.registry_db.as_ref(), self.registry_caps) else {
-            return publish_committed_default(self, store, old_chunk_ids, translation, version)
-                .await;
+        let (db, quota) = match (self.registry_db.as_ref(), self.registry_caps) {
+            (None, None) => {
+                return publish_committed_default(self, store, old_chunk_ids, translation, version)
+                    .await;
+            }
+            (Some(db), Some(quota)) => (db, quota),
+            _ => {
+                return Err(crate::domain_errors::DomainError::internal(
+                    "translation publication is half-configured: the registry database and the \
+                     capacity policy must be provided together",
+                )
+                .into());
+            }
         };
-        let Some(file_id) = db
+        // A document without a unique library file is still published through
+        // the registry: the admission has no file to attribute but stages and
+        // fences the points exactly like an attributed publication.
+        let file_id = db
             .find_unique_library_file_for_document(translation.document_id)
-            .await?
-        else {
-            return publish_committed_default(self, store, old_chunk_ids, translation, version)
-                .await;
-        };
+            .await?;
         let (runtime, fingerprint) = self.runtime()?;
         let identity = fingerprint.map(|embedding_fingerprint| crate::db::RegistryVectorIdentity {
             embedding_fingerprint,
             collection_name: runtime.collection.clone(),
         });
         let chunking = self.chunking.resolve(&self.chunk_budget(&translation))?;
-        match crate::services::translation_registry::publish_translation(
+        crate::services::translation_registry::publish_translation(
             &crate::services::translation_registry::Publication {
                 db,
                 store,
@@ -348,13 +350,7 @@ impl TranslationPublisher for TranslationPublisherAdapter {
             &translation,
             version,
         )
-        .await?
-        {
-            Some(()) => Ok(()),
-            None => {
-                publish_committed_default(self, store, old_chunk_ids, translation, version).await
-            }
-        }
+        .await
     }
 
     async fn delete(&self, chunk_ids: &[uuid::Uuid]) -> Result<()> {
@@ -366,34 +362,5 @@ impl TranslationPublisher for TranslationPublisherAdapter {
 
     fn current_chunking(&self) -> Option<context69_translation::TranslationChunkingBudget> {
         Some((&self.chunking.snapshot()).into())
-    }
-}
-
-#[cfg(test)]
-mod input_policy_round_trip_tests {
-    use super::*;
-    use crate::chunking::chunking_token::TokenizerKind;
-    use context69_contracts::settings::EmbeddingInputPolicy;
-
-    /// Both conversion directions carry the complete policy unchanged, so a
-    /// translation publication counts under the exact budget a task pinned.
-    #[test]
-    fn a_translation_budget_round_trip_carries_the_input_policy() {
-        let mut policy = EmbeddingInputPolicy::default();
-        policy.max_input_tokens = Some(1024);
-        policy.document_server_prefix = "document:".to_string();
-        policy.query_server_prefix = "query:".to_string();
-        let mut budget = ChunkBudget::tokens(TokenizerKind::O200kBase, 512, 64);
-        budget.input_policy = Some(policy.clone());
-
-        let translation: context69_translation::TranslationChunkingBudget = (&budget).into();
-        assert_eq!(translation.input_policy, Some(policy.clone()));
-        let back: ChunkBudget = (&translation).into();
-        assert_eq!(back.input_policy, Some(policy));
-        assert_eq!(back.identity(), budget.identity());
-
-        let legacy: context69_translation::TranslationChunkingBudget =
-            (&ChunkBudget::chars(ChunkingConfig::default())).into();
-        assert_eq!(legacy.input_policy, None);
     }
 }

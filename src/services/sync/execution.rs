@@ -4,7 +4,14 @@ use std::time::Instant;
 use context69_translation::TranslationChunkingBudget;
 
 use crate::chunk_payload::{ChunkRef, PayloadDocument, PayloadGroup, original_chunk, seed};
+use crate::chunking::{
+    ResolvedChunkBudget, chunk_document_iter_resolved, parse_chunk_budget_value,
+};
 use crate::config::QdrantConfig;
+use crate::db::{
+    RebuildDocumentRow, RegistryVectorIdentity, staged_original_payload, staged_translation_payload,
+};
+use crate::domain::NormalizedDocument;
 use crate::domain_errors::DomainError;
 use crate::embedding::embedding_runtime::vector_identity_fingerprint;
 use crate::embedding::{EmbeddingIdentity, EmbeddingProvider, build_provider};
@@ -164,6 +171,17 @@ impl SyncService {
         chunking: &ChunkBudget,
     ) -> Result<SyncOutcome> {
         let runtime = self.runtime()?;
+        // The identity belongs to the very provider/index pair captured above,
+        // so a settings change on another node can never be overtaken by this
+        // run's writes.
+        let identity =
+            runtime
+                .configured_fingerprint
+                .as_ref()
+                .map(|fingerprint| RegistryVectorIdentity {
+                    embedding_fingerprint: fingerprint.clone(),
+                    collection_name: runtime.collection.clone(),
+                });
         let resolved_chunking = self.chunking.resolve(chunking)?;
         // The pinned budget of this source sync governs the translations it
         // induces too: the scoped service carries it as the explicit snapshot,
@@ -226,7 +244,15 @@ impl SyncService {
                     metadata_json: &normalized.metadata_json,
                 };
                 let seed_payload = seed(&group, &document, &normalized.body_text);
-                let upserted = self.db.upsert_document(&seed_payload).await?;
+                // The document, version and metadata rows commit with the
+                // barrier and identity they were captured under. No embedding
+                // work happens while this transaction is open.
+                let mut tx = self.db.pool().begin().await?;
+                self.db
+                    .require_idle_admissible_vector_identity_in(&mut tx, identity.as_ref())
+                    .await?;
+                let upserted = self.db.upsert_document_in(&mut tx, &seed_payload).await?;
+                tx.commit().await?;
 
                 if upserted.changed {
                     let existing_chunk_ids = self
@@ -243,14 +269,7 @@ impl SyncService {
                         .iter()
                         .map(|chunk| chunk.text.clone())
                         .collect::<Vec<_>>();
-                    let embeddings = embedding
-                        .embed_texts_with_policy(
-                            &texts,
-                            crate::embedding::InputPolicySelection::Pinned(
-                                resolved_chunking.input_policy(),
-                            ),
-                        )
-                        .await?;
+                    let embeddings = embedding.embed_texts(&texts).await?;
                     let payloads = chunks
                         .iter()
                         .map(|chunk| {
@@ -266,13 +285,26 @@ impl SyncService {
                             )
                         })
                         .collect::<Vec<_>>();
+                    // The chunk rows commit under the same captured identity,
+                    // in their own short transaction after embedding. A rebuild
+                    // that started meanwhile refuses this write, so the run
+                    // cannot add rows to a collection being re-embedded.
+                    let mut tx = self.db.pool().begin().await?;
                     self.db
-                        .replace_document_chunks(
+                        .require_idle_admissible_vector_identity_in(&mut tx, identity.as_ref())
+                        .await?;
+                    self.db
+                        .delete_document_chunks_in(&mut tx, upserted.document_id)
+                        .await?;
+                    self.db
+                        .insert_document_chunks_in(
+                            &mut tx,
                             upserted.document_id,
                             &normalized.record_hash,
                             &chunks,
                         )
                         .await?;
+                    tx.commit().await?;
                     runtime
                         .index
                         .replace_document_chunks(&existing_chunk_ids, &payloads, &embeddings)
@@ -301,13 +333,14 @@ impl SyncService {
         Ok(outcome)
     }
 
-    /// Re-embeds every stored chunk using exactly the admitted attempt's
-    /// provider/index pair.
+    /// Stages fresh document chunks and re-embeds originals plus current
+    /// translations using exactly the admitted attempt's pinned budget,
+    /// chunk-id seed, provider and target.
     ///
-    /// An admitted rebuild passes the one coherent pair captured when it took
-    /// the fence, so no page can switch to a provider or collection published
-    /// after the work started, and progress is only recorded for the generation
-    /// this attempt owns.
+    /// The staging pass commits one document at a time (including documents
+    /// that produce no chunks), so a resume continues after the last committed
+    /// document. The embedding pass then follows two independent cursors and
+    /// records progress only for the generation this attempt owns.
     async fn rebuild_index_with_snapshot(
         &self,
         attempt: &RebuildAttempt,
@@ -317,24 +350,44 @@ impl SyncService {
         // One provider for the whole rebuild: the snapshot is the coherent
         // provider/index pair this rebuild re-embeds with.
         let embedding = snapshot.embedding.clone();
-        let counted = self.db.count_chunk_payloads_for_reindex().await?;
-        // The committed counters of an earlier attempt are the resume point. A
-        // shrunken source must not violate the processed <= total constraint, so
-        // the total never falls below the already committed chunks.
+        let target = snapshot.collection.as_str();
+
+        if let Some(progress) = self.stage_rebuild_documents(attempt, fence).await? {
+            return Ok(progress);
+        }
+
+        let staging = self.db.read_rebuild_staging_state().await?;
         let barrier = self.db.read_rebuild_barrier().await?;
-        let mut rebuilt = usize::try_from(barrier.processed_chunks)
-            .context("the committed rebuild count must be non-negative")?;
-        let total_chunks = counted.max(rebuilt);
+        if !rebuild_is_owned(attempt, &fence, &barrier) {
+            return Ok(RebuildProgress::Cancelled);
+        }
+        if barrier.pause_requested {
+            return Ok(RebuildProgress::Paused);
+        }
+        let counts = self.db.count_rebuild_staging_chunks(target).await?;
+        let total_originals = usize::try_from(counts.original)
+            .context("the staged original count must be non-negative")?;
+        let total_translations = usize::try_from(counts.translated)
+            .context("the staged translation count must be non-negative")?;
+        let total_chunks = total_originals
+            .checked_add(total_translations)
+            .context("the staged chunk total overflowed")?;
+
+        let mut rebuilt_originals = usize::try_from(barrier.processed_chunks)
+            .context("the committed original count must be non-negative")?;
+        let mut rebuilt_translations = usize::try_from(staging.translation_processed_chunks)
+            .context("the committed translation count must be non-negative")?;
+        self.set_vector_rebuild_progress(
+            attempt.generation,
+            rebuilt_originals + rebuilt_translations,
+            total_chunks,
+        )
+        .await;
+
         let (mut last_document_id, mut last_chunk_index) = barrier
             .cursor
             .map(|cursor| (Some(cursor.document_id), Some(cursor.chunk_index)))
             .unwrap_or((None, None));
-        self.set_vector_rebuild_progress(attempt.generation, rebuilt, total_chunks)
-            .await;
-        if total_chunks == 0 {
-            return Ok(RebuildProgress::Completed(0));
-        }
-
         loop {
             // The durable barrier is the authority before every page: a pause
             // request parks after the page this attempt already committed, and
@@ -346,28 +399,30 @@ impl SyncService {
             if barrier.pause_requested {
                 return Ok(RebuildProgress::Paused);
             }
-            let batch = self
+            let rows = self
                 .db
-                .list_chunk_payloads_for_reindex_page(
+                .list_rebuild_staging_chunks_page(
+                    target,
                     last_document_id,
                     last_chunk_index,
                     Self::REINDEX_BATCH_SIZE as i64,
                 )
                 .await?;
-            if batch.is_empty() {
+            if rows.is_empty() {
                 break;
             }
-            let texts = batch
+            let payloads = rows.iter().map(staged_original_payload).collect::<Vec<_>>();
+            let texts = payloads
                 .iter()
                 .map(|payload| payload.chunk_text.clone())
                 .collect::<Vec<_>>();
             let embeddings = embedding.embed_texts(&texts).await?;
             snapshot
                 .index
-                .replace_document_chunks(&[], &batch, &embeddings)
+                .replace_document_chunks(&[], &payloads, &embeddings)
                 .await?;
-            rebuilt += batch.len();
-            let last = batch.last().expect("non-empty reindex batch");
+            rebuilt_originals += rows.len();
+            let last = rows.last().expect("non-empty staged batch");
             last_document_id = Some(last.document_id);
             last_chunk_index = Some(last.chunk_index);
             // The cursor write is authorized by the same captured grant the
@@ -380,14 +435,14 @@ impl SyncService {
                     fence.item_id(),
                     fence.token(),
                     &attempt.fingerprint,
-                    &snapshot.collection,
+                    target,
                     crate::db::RebuildCheckpoint {
                         cursor: crate::db::RebuildCursor {
                             document_id: last.document_id,
                             chunk_index: last.chunk_index,
                         },
-                        processed_chunks: i64::try_from(rebuilt)
-                            .context("the rebuilt count must fit in BIGINT")?,
+                        processed_chunks: i64::try_from(rebuilt_originals)
+                            .context("the rebuilt original count must fit in BIGINT")?,
                         total_chunks: i64::try_from(total_chunks)
                             .context("the total count must fit in BIGINT")?,
                     },
@@ -396,16 +451,106 @@ impl SyncService {
             if !advanced {
                 return Ok(RebuildProgress::Cancelled);
             }
-            self.set_vector_rebuild_progress(attempt.generation, rebuilt, total_chunks)
-                .await;
+            self.set_vector_rebuild_progress(
+                attempt.generation,
+                rebuilt_originals + rebuilt_translations,
+                total_chunks,
+            )
+            .await;
             info!(
-                batch_size = batch.len(),
-                rebuilt, total_chunks, "vector rebuild batch completed"
+                batch_size = rows.len(),
+                rebuilt = rebuilt_originals,
+                total = total_originals,
+                "vector rebuild original batch completed"
+            );
+        }
+
+        let (mut translation_document_id, mut translation_id, mut translation_chunk_index) =
+            staging
+                .translation_cursor
+                .map(|cursor| {
+                    (
+                        Some(cursor.document_id),
+                        Some(cursor.translation_id),
+                        Some(cursor.chunk_index),
+                    )
+                })
+                .unwrap_or((None, None, None));
+        loop {
+            let barrier = self.db.read_rebuild_barrier().await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                return Ok(RebuildProgress::Cancelled);
+            }
+            if barrier.pause_requested {
+                return Ok(RebuildProgress::Paused);
+            }
+            let rows = self
+                .db
+                .list_translation_rebuild_staging_page(
+                    target,
+                    translation_document_id,
+                    translation_id,
+                    translation_chunk_index,
+                    Self::REINDEX_BATCH_SIZE as i64,
+                )
+                .await?;
+            if rows.is_empty() {
+                break;
+            }
+            let payloads = rows
+                .iter()
+                .map(staged_translation_payload)
+                .collect::<Vec<_>>();
+            let texts = payloads
+                .iter()
+                .map(|payload| payload.chunk_text.clone())
+                .collect::<Vec<_>>();
+            let embeddings = embedding.embed_texts(&texts).await?;
+            snapshot
+                .index
+                .replace_document_chunks(&[], &payloads, &embeddings)
+                .await?;
+            rebuilt_translations += rows.len();
+            let last = rows.last().expect("non-empty staged translation batch");
+            translation_document_id = Some(last.document_id);
+            translation_id = Some(last.translation_id);
+            translation_chunk_index = Some(last.chunk_index);
+            let mut connection = self.db.pool().acquire().await?;
+            let advanced = self
+                .db
+                .advance_rebuild_translation_cursor_in(
+                    &mut connection,
+                    fence.item_id(),
+                    fence.token(),
+                    (attempt.fingerprint.as_str(), target),
+                    crate::db::RebuildTranslationCursor {
+                        document_id: last.document_id,
+                        translation_id: last.translation_id,
+                        chunk_index: last.chunk_index,
+                    },
+                    i64::try_from(rebuilt_translations)
+                        .context("the rebuilt translation count must fit in BIGINT")?,
+                )
+                .await?;
+            if !advanced {
+                return Ok(RebuildProgress::Cancelled);
+            }
+            self.set_vector_rebuild_progress(
+                attempt.generation,
+                rebuilt_originals + rebuilt_translations,
+                total_chunks,
+            )
+            .await;
+            info!(
+                batch_size = rows.len(),
+                rebuilt = rebuilt_translations,
+                total = total_translations,
+                "vector rebuild translation batch completed"
             );
         }
 
         // A pause requested during the last page still parks before completion:
-        // the resumed attempt then completes from the committed cursor.
+        // the resumed attempt then completes from the committed cursors.
         let barrier = self.db.read_rebuild_barrier().await?;
         if !rebuild_is_owned(attempt, &fence, &barrier) {
             return Ok(RebuildProgress::Cancelled);
@@ -414,11 +559,116 @@ impl SyncService {
             return Ok(RebuildProgress::Paused);
         }
 
+        let rebuilt = rebuilt_originals + rebuilt_translations;
         info!(
             chunks_rebuilt = rebuilt,
             "reindexed qdrant collection from app db"
         );
         Ok(RebuildProgress::Completed(rebuilt))
+    }
+
+    /// Stages every current document's fresh chunks from its canonical body.
+    ///
+    /// A missing canonical body fails closed before any point is written.
+    /// Returns a terminal progress only when the attempt must park or stop;
+    /// `None` means the staged snapshot is complete.
+    async fn stage_rebuild_documents(
+        &self,
+        attempt: &RebuildAttempt,
+        fence: TaskWriteFence,
+    ) -> Result<Option<RebuildProgress>> {
+        let target = attempt.snapshot.collection.as_str();
+        let staging = self.db.read_rebuild_staging_state().await?;
+        if staging.staging_complete {
+            return Ok(None);
+        }
+        // A document without its current canonical body cannot be re-chunked;
+        // report the actionable ids instead of skipping it or reusing stale
+        // chunks.
+        let missing = self
+            .db
+            .list_rebuild_missing_documents_page(None, Self::REINDEX_BATCH_SIZE as i64)
+            .await?;
+        if !missing.is_empty() {
+            anyhow::bail!(
+                "documents without a canonical document_versions body cannot be rebuilt: {missing:?}"
+            );
+        }
+
+        let mut after = staging.staged_document_id;
+        loop {
+            let barrier = self.db.read_rebuild_barrier().await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                return Ok(Some(RebuildProgress::Cancelled));
+            }
+            if barrier.pause_requested {
+                return Ok(Some(RebuildProgress::Paused));
+            }
+            let documents = self
+                .db
+                .list_rebuild_documents_page(after, Self::REINDEX_BATCH_SIZE as i64)
+                .await?;
+            if documents.is_empty() {
+                break;
+            }
+            for document in &documents {
+                let normalized = rebuild_normalized_document(document);
+                let chunks = chunk_document_iter_resolved(
+                    document.document_id,
+                    &document.source_key,
+                    &normalized,
+                    &attempt.chunk_budget,
+                    Some(attempt.rebuild_generation),
+                )
+                .map_err(|error| anyhow::anyhow!("chunk rebuild document: {error}"))?
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| anyhow::anyhow!("chunk rebuild document: {error}"))?;
+                let staged = self
+                    .db
+                    .stage_rebuild_document(
+                        target,
+                        document,
+                        &chunks,
+                        fence.item_id(),
+                        fence.token(),
+                        &attempt.fingerprint,
+                    )
+                    .await?;
+                if !staged {
+                    return Ok(Some(RebuildProgress::Cancelled));
+                }
+                after = Some(document.document_id);
+            }
+        }
+
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if !rebuild_is_owned(attempt, &fence, &barrier) {
+            return Ok(Some(RebuildProgress::Cancelled));
+        }
+        if barrier.pause_requested {
+            return Ok(Some(RebuildProgress::Paused));
+        }
+        let counts = self.db.count_rebuild_staging_chunks(target).await?;
+        let total = counts
+            .original
+            .checked_add(counts.translated)
+            .context("the staged chunk total overflowed")?;
+        let mut connection = self.db.pool().acquire().await?;
+        let completed = self
+            .db
+            .complete_rebuild_staging_in(
+                &mut connection,
+                fence.item_id(),
+                fence.token(),
+                &attempt.fingerprint,
+                target,
+                total,
+            )
+            .await?;
+        if !completed {
+            return Ok(Some(RebuildProgress::Cancelled));
+        }
+        Ok(None)
     }
 
     pub async fn vector_index_rebuild_status(&self) -> VectorIndexRebuildStatus {
@@ -594,13 +844,18 @@ impl SyncService {
         // The fresh-versus-resume decision is part of the same locked claim.
         let (outcome, resumed) = self
             .db
-            .begin_rebuild_checked_in(
+            .begin_rebuild_checked_with_budget_in(
                 write.connection(),
                 fence.item_id(),
                 fence.token(),
                 &plan.fingerprint,
                 &fresh_collection,
+                None,
             )
+            .await?;
+        let staging = self
+            .db
+            .read_rebuild_staging_state_in(write.connection())
             .await?;
         if !write.commit().await? {
             return Err(anyhow::anyhow!(
@@ -617,6 +872,21 @@ impl SyncService {
         // attempt made under the claim is never recomputed from a later read.
         let collection = barrier.collection.clone().ok_or_else(|| {
             anyhow::anyhow!("the rebuild barrier claimed a start without a target collection")
+        })?;
+        // A fresh claim persisted the latest saved budget under the epoch lock,
+        // and a resume reuses the snapshot its build pinned. A barrier without
+        // both values predates durable staging and cannot proceed.
+        let pinned_value = staging.chunk_budget.as_ref().ok_or_else(|| {
+            anyhow::anyhow!("the rebuild barrier recorded no pinned chunk budget")
+        })?;
+        let pinned_budget = parse_chunk_budget_value(pinned_value)
+            .map_err(|error| anyhow::anyhow!("parse the pinned chunk budget: {error}"))?;
+        let chunk_budget = self
+            .chunking
+            .resolve(&pinned_budget)
+            .map_err(|error| anyhow::anyhow!("resolve the pinned chunk budget: {error}"))?;
+        let rebuild_generation = staging.generation.ok_or_else(|| {
+            anyhow::anyhow!("the rebuild barrier recorded no pinned rebuild generation")
         })?;
         if !self.vector_rebuild_status.claim_start() {
             self.release_rebuild_barrier(fence).await;
@@ -766,6 +1036,8 @@ impl SyncService {
             fingerprint: admitted.configured_fingerprint,
             qdrant: plan.qdrant,
             dimensions: plan.dimensions,
+            chunk_budget,
+            rebuild_generation,
         })
     }
 
@@ -800,8 +1072,6 @@ impl SyncService {
             query_model: stored.embedding.query_model.clone(),
             dimensions: stored.embedding.dimensions,
             timeout: Duration::from_secs(stored.embedding.timeout_secs),
-            batching: stored.embedding.batching.clone(),
-            input_policy: stored.embedding.input_policy.clone(),
         };
         let provider = build_provider(&embedding)?;
         let identity = EmbeddingIdentity::from_config(&embedding);
@@ -1017,6 +1287,10 @@ pub(crate) struct RebuildAttempt {
     qdrant: QdrantConfig,
     /// The dimension the target must declare.
     dimensions: usize,
+    /// The chunk budget pinned when this build first took the barrier.
+    chunk_budget: ResolvedChunkBudget,
+    /// The persisted chunk-id seed of this build.
+    rebuild_generation: i64,
 }
 
 /// The desired vector identity one rebuild target is built from.
@@ -1083,6 +1357,23 @@ impl RebuildTargetPlan {
             ));
         }
         Ok(())
+    }
+}
+
+/// Builds the chunking input of one stored document without normalizing or
+/// rehashing it: the stored record hash is the authority the staging
+/// verification and activation compare against.
+fn rebuild_normalized_document(row: &RebuildDocumentRow) -> NormalizedDocument {
+    NormalizedDocument {
+        external_id: row.external_id.clone(),
+        title: row.title.clone(),
+        summary: row.summary.clone(),
+        body_text: row.body_text.clone(),
+        source_uri: row.source_uri.clone(),
+        published_at: row.published_at,
+        updated_at: row.updated_at_source,
+        metadata_json: row.metadata_json.clone(),
+        record_hash: row.record_hash.clone(),
     }
 }
 
@@ -1195,6 +1486,11 @@ fn rebuild_refusal_error(reason: crate::db::RebuildRefusalReason) -> anyhow::Err
         crate::db::RebuildRefusalReason::StagingEntries => DomainError::conflict(
             "an unresolved ingestion run still holds staged points; retry the rebuild after it \
              resolved",
+        )
+        .into(),
+        crate::db::RebuildRefusalReason::LegacyStaging => DomainError::conflict(
+            "the rebuild started before document staging existed and cannot be resumed; cancel \
+             it and start a new rebuild",
         )
         .into(),
         crate::db::RebuildRefusalReason::Busy => {
@@ -1480,6 +1776,12 @@ mod tests {
                 recreate_on_dimension_mismatch: false,
             },
             dimensions: 8,
+            chunk_budget: crate::chunking::ChunkingRuntime::new(
+                crate::chunking::ChunkBudget::default(),
+            )
+            .resolve_snapshot()
+            .expect("the default chunk budget resolves"),
+            rebuild_generation: 1,
         }
     }
 
@@ -1977,6 +2279,12 @@ mod tests {
             .expect("the claim captures a write fence");
         let token = execution.fencing_token();
         let fingerprint = "completion-fingerprint";
+        let pinned_budget = crate::chunking::chunk_budget_to_value(
+            &crate::chunking::ChunkBudget::chars(crate::chunking::ChunkingConfig {
+                max_chars: 1000,
+                overlap_chars: 100,
+            }),
+        );
         sqlx::query(
             "UPDATE context69.search_registry_epoch \
              SET rebuild_state = 'running', rebuild_owner_item = $1, \
@@ -1984,13 +2292,17 @@ mod tests {
                  rebuild_collection = $4, rebuild_started_at = now(), \
                  rebuild_pause_requested = FALSE, rebuild_cursor_document_id = NULL, \
                  rebuild_cursor_chunk_index = NULL, rebuild_processed_chunks = 0, \
-                 rebuild_total_chunks = 0, rebuild_target_created = TRUE \
+                 rebuild_total_chunks = 0, rebuild_target_created = TRUE, \
+                 rebuild_chunk_budget = $5, rebuild_generation = $6, \
+                 rebuild_staging_complete = TRUE \
              WHERE id = 1",
         )
         .bind(item_id)
         .bind(token)
         .bind(fingerprint)
         .bind(TARGET)
+        .bind(pinned_budget)
+        .bind(1_i64)
         .execute(db.pool())
         .await
         .expect("own the running barrier");

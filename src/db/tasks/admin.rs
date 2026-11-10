@@ -172,17 +172,18 @@ impl Database {
         Ok(result.rows_affected())
     }
 
-    /// Frees the barrier of an explicitly discarded failed rebuild.
+    /// Frees the barrier of an explicitly discarded terminal rebuild.
     ///
-    /// The task is terminal and is not reopened: only its owned failed barrier
-    /// and the recorded cursor are cleared, so the observed failure stops
-    /// blocking a new build. A running barrier matches nothing here and needs
-    /// the generic task cancellation instead.
+    /// The task is terminal and is not reopened: only the barrier owned by that
+    /// task and its recorded cursor are cleared, so the observed failure stops
+    /// blocking a new build. A legacy barrier may still be recorded as running
+    /// for a task that already failed, so this clears either state for the
+    /// owned task without touching another owner.
     pub async fn discard_failed_rebuild(&self, task_id: Uuid) -> Result<bool> {
         let mut tx = self.pool().begin().await?;
         self.lock_search_registry_epoch_in(&mut tx).await?;
         let epoch = self
-            .cancel_owned_rebuild_in(&mut tx, Some(task_id), true)
+            .cancel_owned_rebuild_in(&mut tx, Some(task_id), false)
             .await?;
         tx.commit().await?;
         Ok(epoch.is_some())

@@ -727,10 +727,6 @@ mod tests {
                     file_library: FileLibraryConfig {
                         storage_root: storage_root.clone(),
                         max_upload_size_mb: 1,
-                        max_upload_request_size_mb: 1,
-                        ingest_concurrency: 1,
-                        url_import_concurrency: 1,
-                        url_import_min_interval_ms: 1000,
                         trusted_proxy_enabled: false,
                         s3: None,
                     },

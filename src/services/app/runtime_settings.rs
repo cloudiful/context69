@@ -62,8 +62,6 @@ pub async fn import_legacy_runtime_if_needed(
             query_model: config.embedding.query_model.clone(),
             dimensions: config.embedding.dimensions,
             timeout_secs: config.embedding.timeout.as_secs(),
-            batching: config.embedding.batching,
-            input_policy: config.embedding.input_policy.clone(),
         },
         scheduler: crate::db::StoredRuntimeSchedulerSettings {
             interval_secs: config.scheduler.interval.as_secs(),
@@ -88,10 +86,6 @@ pub async fn import_legacy_runtime_if_needed(
         file_library: crate::db::StoredRuntimeFileLibrarySettings {
             storage_root: config.file_library.storage_root.display().to_string(),
             max_upload_size_mb: config.file_library.max_upload_size_mb,
-            max_upload_request_size_mb: config.file_library.max_upload_request_size_mb,
-            ingest_concurrency: config.file_library.ingest_concurrency,
-            url_import_concurrency: config.file_library.url_import_concurrency,
-            url_import_min_interval_ms: config.file_library.url_import_min_interval_ms,
             trusted_proxy_enabled: config.file_library.trusted_proxy_enabled,
             // The registry capacity policy is seeded from the configuration, so
             // a fresh boot installs the same caps the deployment declares.
@@ -303,14 +297,12 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
         base_url: runtime.embedding.base_url.clone(),
         api_key: runtime.embedding.api_key.clone(),
         model: runtime.embedding.model.clone(),
-        // The query model and the request limits are part of the provider
-        // configuration but not of the vector space: they never change the
-        // identity the collection was built with.
+        // The query model is part of the provider configuration but not of the
+        // vector space: it never changes the identity the collection was built
+        // with.
         query_model: runtime.embedding.query_model.clone(),
         dimensions: runtime.embedding.dimensions,
         timeout: Duration::from_secs(runtime.embedding.timeout_secs),
-        batching: runtime.embedding.batching,
-        input_policy: runtime.embedding.input_policy.clone(),
     };
     config.scheduler = SchedulerConfig {
         interval: Duration::from_secs(runtime.scheduler.interval_secs),
@@ -328,10 +320,6 @@ pub fn apply_runtime_settings(config: &mut Config, runtime: &StoredRuntimeSettin
     config.file_library = FileLibraryConfig {
         storage_root: PathBuf::from(&runtime.file_library.storage_root),
         max_upload_size_mb: runtime.file_library.max_upload_size_mb,
-        max_upload_request_size_mb: runtime.file_library.max_upload_request_size_mb,
-        ingest_concurrency: runtime.file_library.ingest_concurrency,
-        url_import_concurrency: runtime.file_library.url_import_concurrency,
-        url_import_min_interval_ms: runtime.file_library.url_import_min_interval_ms,
         trusted_proxy_enabled: runtime.file_library.trusted_proxy_enabled,
         s3: runtime
             .file_library

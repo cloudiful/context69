@@ -6,12 +6,11 @@
 //! `super::ingest_checkpoint` (types/helpers) and
 //! `super::ingest_checkpoint_persistence` (the driver method).
 
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use serde_json::Value;
 use uuid::Uuid;
 
 use super::dependency_runtime::{dependency_is_transient, is_configuration_error};
-use super::ingest_checkpoint::parse_indexing_checkpoint;
 use super::*;
 
 impl LibraryService {
@@ -157,10 +156,6 @@ impl LibraryService {
             .prepare_sections(&file, sections)
             .await
             .map_err(normalize_task_failure)?;
-        // The fenced content path projects the status of the file inside its
-        // own guarded write, together with the links it authorizes. The pooled
-        // path keeps the separate projection after the content is written.
-        let fenced = fence.is_some();
         match fence {
             Some(fence) => {
                 self.persist_sections_fenced(fence, &file, &prepared)
@@ -179,15 +174,6 @@ impl LibraryService {
             .await;
         self.note_dependency_success(LibraryDependency::Qdrant, lease_token)
             .await;
-        if !fenced {
-            self.project_file_status(None, file_id, LibraryIngestStatus::Succeeded, None, true)
-                .await
-                .map_err(|error| task_failure("finalize", error, true))?
-                .context(DomainError::not_found(
-                    "file disappeared while finalizing task ingest",
-                ))
-                .map_err(|error| task_failure("finalize", error, false))?;
-        }
         Ok(())
     }
 
@@ -206,25 +192,14 @@ impl LibraryService {
         file_id: Uuid,
         fence: crate::library_store::TaskWriteFence,
         failure: UnifiedIngestError,
-        payload: Option<&Value>,
+        _payload: Option<&Value>,
     ) -> UnifiedIngestError {
         let lease_token = fence.token();
         if failure.retryable {
-            let should_cleanup = match payload {
-                Some(payload) => {
-                    let checkpoint = parse_indexing_checkpoint(payload);
-                    // If we have already checkpointed some batches, those rows
-                    // and points are committed and must not be deleted on a
-                    // later batch failure. Cleanup would delete committed work.
-                    checkpoint.next_batch_index == 0
-                }
-                None => true,
-            };
-            if should_cleanup
-                && let Err(error) = self.cleanup_ingest_artifacts_fenced(fence, file_id).await
-            {
-                return task_failure_with_dependency("indexing", error, "qdrant");
-            }
+            // Cleanup runs inside the persist boundary, where the attempt's
+            // captured target is still available. This handler never recaptures
+            // the current active target: doing so after an activation would
+            // delete the points the rebuild just published.
             if let Some(dependency) = failure.dependency_key.as_deref()
                 && let Ok(dependency) = dependency.parse::<LibraryDependency>()
             {
@@ -264,76 +239,107 @@ impl LibraryService {
         file: &crate::domain::LibraryFileRecord,
         prepared: &[PreparedIngestSection],
     ) -> Result<(), UnifiedIngestError> {
-        let runtime = self
-            .runtime()
-            .map_err(|error| task_failure("indexing", error, false))?
-            .clone();
-        // The cleanup of an earlier partial ingest is a task-owned write too.
-        self.cleanup_ingest_artifacts_fenced(fence, file.id)
-            .await
-            .map_err(|error| task_failure("indexing", error, true))?;
-        let mut mappings = Vec::with_capacity(prepared.len());
-        for (index, prepared_section) in prepared.iter().enumerate() {
-            let document_id = self
-                .upsert_section_document(Some(fence), file, prepared_section, index, &mut mappings)
-                .await?;
-            // The chunks of the document are replaced: the previous chunks are
-            // removed first, then every batch is embedded outside a
-            // transaction and written inside one.
-            let mut write = crate::library_store::begin_task_write(&self.db, fence)
-                .await
-                .map_err(|error| task_failure("indexing", error, true))?;
-            self.db
-                .delete_document_chunks_in(write.connection(), document_id)
-                .await
-                .map_err(|error| task_failure("indexing", error, true))?;
-            if !write
-                .commit()
-                .await
-                .map_err(|error| task_failure("indexing", error, true))?
-            {
-                return Err(task_failure(
-                    "indexing",
-                    anyhow!("task item lease was lost while replacing the chunks"),
-                    true,
-                ));
-            }
-            let budget = self
-                .chunking_runtime
-                .resolve_snapshot()
-                .map_err(|error| task_failure("indexing", error, false))?;
-            let chunks = crate::chunking::chunk_document_iter_resolved(
-                document_id,
-                super::FILE_LIBRARY_SOURCE_KEY,
-                &prepared_section.normalized,
-                &budget,
-                None,
-            )
+        let (runtime, identity) = self
+            .captured_runtime()
             .map_err(|error| task_failure("indexing", error, false))?;
-            for batch in super::ingest_batches::ChunkBatchIter::new(chunks) {
-                let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
-                self.persist_batch_content(
-                    Some(fence),
-                    file,
-                    prepared_section,
+        let mut cleanup_attempted = false;
+        let outcome: Result<(), UnifiedIngestError> = async {
+            // The cleanup of an earlier partial ingest is a task-owned write too,
+            // and it runs against the same captured target as the rest of this
+            // attempt.
+            self.cleanup_ingest_artifacts_fenced(fence, file.id, &runtime, identity.as_ref())
+                .await
+                .map_err(|error| task_failure("indexing", error, true))?;
+            cleanup_attempted = true;
+            let mut mappings = Vec::with_capacity(prepared.len());
+            for (index, prepared_section) in prepared.iter().enumerate() {
+                let document_id = self
+                    .upsert_section_document(
+                        Some(fence),
+                        file,
+                        prepared_section,
+                        index,
+                        &mut mappings,
+                        identity.as_ref(),
+                    )
+                    .await?;
+                // The chunks of the document are replaced: the previous chunks
+                // are removed first, then every batch is embedded outside a
+                // transaction and written inside one.
+                let mut write = crate::library_store::begin_task_write(&self.db, fence)
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                self.db
+                    .require_idle_admissible_vector_identity_in(
+                        write.connection(),
+                        identity.as_ref(),
+                    )
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                self.db
+                    .delete_document_chunks_in(write.connection(), document_id)
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                if !write
+                    .commit()
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?
+                {
+                    return Err(task_failure(
+                        "indexing",
+                        anyhow!("task item lease was lost while replacing the chunks"),
+                        true,
+                    ));
+                }
+                let budget = self
+                    .chunking_runtime
+                    .resolve_snapshot()
+                    .map_err(|error| task_failure("indexing", error, false))?;
+                let chunks = crate::chunking::chunk_document_iter_resolved(
                     document_id,
-                    &batch,
-                    &runtime,
+                    super::FILE_LIBRARY_SOURCE_KEY,
+                    &prepared_section.normalized,
+                    &budget,
+                    None,
                 )
-                .await?;
+                .map_err(|error| task_failure("indexing", error, false))?;
+                for batch in super::ingest_batches::ChunkBatchIter::new(chunks) {
+                    let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
+                    self.persist_batch_content(
+                        Some(fence),
+                        file,
+                        prepared_section,
+                        document_id,
+                        &batch,
+                        &runtime,
+                        identity.as_ref(),
+                    )
+                    .await?;
+                }
             }
+            self.replace_file_links_and_status(
+                Some(fence),
+                file.id,
+                &mappings,
+                crate::contracts::LibraryIngestStatus::Succeeded,
+                identity.as_ref(),
+            )
+            .await?;
+            self.bump_search_generation_fenced(fence, "library ingest")
+                .await
+                .map_err(|error| task_failure("indexing", error, true))?;
+            Ok(())
         }
-        self.replace_file_links_and_status(
-            Some(fence),
-            file.id,
-            &mappings,
-            crate::contracts::LibraryIngestStatus::Succeeded,
-        )
-        .await?;
-        self.bump_search_generation_fenced(fence, "library ingest")
-            .await
-            .map_err(|error| task_failure("indexing", error, true))?;
-        Ok(())
+        .await;
+        if let Err(error) = &outcome
+            && error.retryable
+            && cleanup_attempted
+        {
+            self.cleanup_ingest_artifacts_fenced(fence, file.id, &runtime, identity.as_ref())
+                .await
+                .map_err(|cleanup| task_failure_with_dependency("indexing", cleanup, "qdrant"))?;
+        }
+        outcome
     }
 
     /// The status projection of one file.

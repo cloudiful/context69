@@ -22,10 +22,12 @@ use std::collections::HashSet;
 
 use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Utc};
+use serde_json::Value;
 use sqlx::PgConnection;
 use uuid::Uuid;
 
 use super::{Database, RegistryQuotaOverride, RegistryQuotaPolicy, VectorIndexState};
+use crate::chunking::chunk_budget_to_value;
 use context69_search::{RegistryPhase, SearchRegistryEntry, SearchRegistryState};
 
 /// The persistent state of the rebuild barrier.
@@ -84,6 +86,35 @@ pub struct RebuildBarrier {
     pub rebuild_target_created: bool,
 }
 
+/// The document-rechunk staging state of the registry epoch row.
+///
+/// It lives beside the barrier rather than inside [`RebuildBarrier`], so the
+/// barrier's public shape stays the ownership record that the control paths
+/// already construct.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RebuildStagingState {
+    /// The serialized chunk budget pinned by a fresh build.
+    pub chunk_budget: Option<Value>,
+    /// The chunk-id seed of a fresh build.
+    pub generation: Option<i64>,
+    /// Whether every current document has been staged.
+    pub staging_complete: bool,
+    /// The last document whose staging transaction committed.
+    pub staged_document_id: Option<i64>,
+    /// The last committed translation-embedding page.
+    pub translation_cursor: Option<RebuildTranslationCursor>,
+    /// Translation chunks already embedded into the target.
+    pub translation_processed_chunks: i64,
+}
+
+/// The committed position of the independent translation embedding cursor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RebuildTranslationCursor {
+    pub document_id: i64,
+    pub translation_id: Uuid,
+    pub chunk_index: i32,
+}
+
 /// The committed position of a durable rebuild cursor.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RebuildCursor {
@@ -126,6 +157,9 @@ pub struct RegistryVectorIdentity {
 pub enum RebuildRefusalReason {
     /// An unresolved staging entry blocks the rebuild.
     StagingEntries,
+    /// The barrier predates the durable document staging snapshot and cannot
+    /// be resumed safely.
+    LegacyStaging,
     /// Another rebuild owns the barrier and its owner is still a live writer.
     Busy,
     /// The barrier belongs to another vector identity.
@@ -366,9 +400,10 @@ impl Database {
         quota: RegistryQuotaOverride,
         connection: &mut PgConnection,
     ) -> Result<AdmissionOutcome> {
-        let Some(file_id) = entry.file_id else {
-            bail!("registry admission requires a file");
-        };
+        // A translation of a document without a unique library file has no
+        // file association. It is still admitted; its ids count toward the
+        // global and run caps, while the per-file cap has no file to apply to.
+        let file_id = entry.file_id;
         if entry.phase != "staging" || entry.staged_ids.is_empty() || !entry.retired_ids.is_empty()
         {
             bail!("registry admission requires a nonempty staging set and no retired ids");
@@ -599,6 +634,48 @@ impl Database {
         })
     }
 
+    /// The document-rechunk staging state of the epoch row.
+    pub async fn read_rebuild_staging_state_in(
+        &self,
+        connection: &mut PgConnection,
+    ) -> Result<RebuildStagingState> {
+        let row = sqlx::query_file!("src/sql/db/search_registry/read_rebuild_staging_state.sql")
+            .fetch_one(&mut *connection)
+            .await
+            .context("read the rebuild staging state")?;
+        Ok(RebuildStagingState {
+            chunk_budget: row.rebuild_chunk_budget,
+            generation: row.rebuild_generation,
+            staging_complete: row.rebuild_staging_complete,
+            staged_document_id: row.rebuild_staged_document_id,
+            translation_cursor: match (
+                row.rebuild_translation_cursor_document_id,
+                row.rebuild_translation_cursor_translation_id,
+                row.rebuild_translation_cursor_chunk_index,
+            ) {
+                (Some(document_id), Some(translation_id), Some(chunk_index)) => {
+                    Some(RebuildTranslationCursor {
+                        document_id,
+                        translation_id,
+                        chunk_index,
+                    })
+                }
+                (None, None, None) => None,
+                _ => {
+                    return Err(anyhow::anyhow!(
+                        "the rebuild barrier records an unpaired translation cursor"
+                    ));
+                }
+            },
+            translation_processed_chunks: row.rebuild_translation_processed_chunks,
+        })
+    }
+
+    pub async fn read_rebuild_staging_state(&self) -> Result<RebuildStagingState> {
+        let mut connection = self.pool.acquire().await?;
+        self.read_rebuild_staging_state_in(&mut connection).await
+    }
+
     /// Take the rebuild barrier of one fenced owner.
     ///
     /// This is the barrier primitive: it owns the epoch serialization, the
@@ -632,6 +709,7 @@ impl Database {
                 owner_token,
                 fingerprint,
                 RebuildTargetChoice::Given(collection),
+                None,
             )
             .await?;
         Ok(outcome)
@@ -666,6 +744,31 @@ impl Database {
         fingerprint: &str,
         fresh_collection: &str,
     ) -> Result<(RebuildStartOutcome, bool)> {
+        self.begin_rebuild_checked_with_budget_in(
+            connection,
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            fresh_collection,
+            None,
+        )
+        .await
+    }
+
+    /// Take the checked rebuild barrier together with the pinned budget and
+    /// chunk-id seed of a fresh build.
+    ///
+    /// The budget and generation are only written by an idle claim; a
+    /// same-identity takeover keeps the values the original build pinned.
+    pub async fn begin_rebuild_checked_with_budget_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        fresh_collection: &str,
+        generation_seed: Option<i64>,
+    ) -> Result<(RebuildStartOutcome, bool)> {
         self.lock_search_registry_epoch_in(connection).await?;
         match self.read_persisted_vector_identity_in(connection).await? {
             Some(persisted) if persisted.embedding_fingerprint == fingerprint => {}
@@ -688,6 +791,7 @@ impl Database {
             owner_token,
             fingerprint,
             RebuildTargetChoice::DecideFresh(fresh_collection),
+            generation_seed,
         )
         .await
     }
@@ -705,7 +809,9 @@ impl Database {
         owner_token: Uuid,
         fingerprint: &str,
         target: RebuildTargetChoice<'_>,
+        generation_seed: Option<i64>,
     ) -> Result<(RebuildStartOutcome, bool)> {
+        let checked_fresh = matches!(target, RebuildTargetChoice::DecideFresh(_));
         let barrier = self.read_rebuild_barrier_in(connection).await?;
         let (collection, resumed) = match target {
             RebuildTargetChoice::Given(collection) => (collection.to_string(), false),
@@ -781,12 +887,43 @@ impl Database {
                 }
             }
         }
+        if barrier.state != RebuildBarrierState::Idle {
+            let staging = self.read_rebuild_staging_state_in(connection).await?;
+            if staging.chunk_budget.is_none() || staging.generation.is_none() {
+                return Ok((
+                    RebuildStartOutcome::Refused(RebuildRefusalReason::LegacyStaging),
+                    false,
+                ));
+            }
+        }
+        // A fresh checked claim pins the latest committed saved budget under the
+        // epoch lock. A resume never rewrites the values the original build
+        // pinned, and the unchecked barrier primitive never produces a
+        // production snapshot.
+        let (chunk_budget, generation): (Option<Value>, Option<i64>) =
+            if barrier.state == RebuildBarrierState::Idle && checked_fresh {
+                let stored = self
+                    .read_stored_runtime_chunking_settings_in(connection)
+                    .await?;
+                let generation = match generation_seed {
+                    Some(seed) => seed,
+                    None => self.next_ingest_generation_in(connection).await?,
+                };
+                (
+                    Some(chunk_budget_to_value(&stored.chunk_budget())),
+                    Some(generation),
+                )
+            } else {
+                (None, None)
+            };
         sqlx::query_file_scalar!(
             "src/sql/db/search_registry/begin_rebuild.sql",
             owner_item_id,
             owner_token,
             fingerprint,
-            &collection
+            &collection,
+            chunk_budget,
+            generation,
         )
         .fetch_one(&mut *connection)
         .await
@@ -854,6 +991,14 @@ impl Database {
         if !barrier.is_owned_by(owner_item_id, owner_token) {
             return Ok(None);
         }
+        let staging = self.read_rebuild_staging_state_in(connection).await?;
+        if staging.chunk_budget.is_none() || staging.generation.is_none() {
+            bail!(
+                "the rebuild barrier records no pinned document snapshot; it cannot be activated"
+            );
+        }
+        self.finish_document_rebuild_staging_in(connection, &barrier, &staging, state)
+            .await?;
         self.save_vector_index_state_in(connection, state).await?;
         self.deactivate_active_vector_index_state_in(connection)
             .await?;
@@ -867,6 +1012,99 @@ impl Database {
         }
         self.bump_search_generation_in(connection).await?;
         Ok(epoch)
+    }
+
+    /// Verify and install the staged document-rechunk snapshot of a P2 rebuild.
+    ///
+    /// The caller already holds the epoch lock and verified barrier ownership.
+    /// Every step runs in the activation transaction, so a hash, count or quota
+    /// mismatch rolls the whole activation back and leaves the old collection
+    /// serving.
+    async fn finish_document_rebuild_staging_in(
+        &self,
+        connection: &mut PgConnection,
+        barrier: &RebuildBarrier,
+        staging: &RebuildStagingState,
+        state: &VectorIndexState<'_>,
+    ) -> Result<()> {
+        let target = barrier.collection.as_deref().ok_or_else(|| {
+            anyhow::anyhow!("a document rebuild barrier records no target collection")
+        })?;
+        if !staging.staging_complete {
+            bail!("the document rebuild staging is not complete");
+        }
+        let verification = self
+            .verify_rebuild_staging_in(connection, target)
+            .await
+            .context("verify the staged document rebuild snapshot")?;
+        if verification.document_hash_mismatch != 0
+            || verification.chunk_count_mismatch != 0
+            || verification.chunk_hash_mismatch != 0
+            || verification.document_membership_mismatch != 0
+        {
+            bail!(
+                "the staged document rebuild snapshot does not match the current documents \
+                 (document hash mismatch {}, chunk count mismatch {}, chunk hash mismatch {}, \
+                 document membership mismatch {})",
+                verification.document_hash_mismatch,
+                verification.chunk_count_mismatch,
+                verification.chunk_hash_mismatch,
+                verification.document_membership_mismatch
+            );
+        }
+        // Old resolved original entries are replaced wholesale; delete them
+        // while document_chunks still holds the old ids so translation entries
+        // (whose ids never live in document_chunks) survive.
+        self.delete_replaced_original_registry_entries_in(connection)
+            .await?;
+        self.swap_rebuild_chunks_in(connection, target).await?;
+
+        let generation = staging.generation.unwrap_or(0);
+        let fingerprint = barrier.fingerprint.as_deref().unwrap_or_default();
+        let groups = self
+            .rebuild_original_counts_by_file(connection, target)
+            .await?;
+        for group in groups {
+            sqlx::query_file!(
+                "src/sql/db/search_registry/admit_reserved_entry.sql",
+                Uuid::new_v4(),
+                group.file_id,
+                &Vec::<i64>::new(),
+                &Vec::<Uuid>::new(),
+                &Vec::<Uuid>::new(),
+                Option::<&str>::None,
+                Option::<&str>::None,
+                generation,
+                "switched",
+                group.count,
+                fingerprint,
+                state.collection_name,
+            )
+            .execute(&mut *connection)
+            .await?;
+        }
+        let quota = self.read_usable_registry_quota_in(connection).await?;
+        let projected = self
+            .read_projected_registry_usage_in(connection, target)
+            .await
+            .context("read the projected registry usage")?;
+        if projected.total > quota.max_ids_total
+            || projected.max_file > quota.max_ids_per_file
+            || projected.max_run > quota.max_ids_per_run
+        {
+            bail!(
+                "the rebuild would exceed the registry capacity policy (projected total {}, \
+                 per-file {}, per-run {}; caps total {}, per-file {}, per-run {})",
+                projected.total,
+                projected.max_file,
+                projected.max_run,
+                quota.max_ids_total,
+                quota.max_ids_per_file,
+                quota.max_ids_per_run
+            );
+        }
+        self.delete_rebuild_staging_in(connection, target).await?;
+        Ok(())
     }
 
     /// Records the committed cursor of one owned rebuild page.
@@ -897,6 +1135,82 @@ impl Database {
         .fetch_optional(&mut *connection)
         .await
         .context("advance the rebuild cursor")?;
+        Ok(updated.is_some())
+    }
+
+    /// Records the last document whose staging transaction committed.
+    pub async fn advance_rebuild_staging_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+        staged_document_id: i64,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/advance_rebuild_staging.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+            staged_document_id,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("advance the rebuild staging cursor")?;
+        Ok(updated.is_some())
+    }
+
+    /// Marks the staged snapshot complete with its exact total.
+    pub async fn complete_rebuild_staging_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+        total_chunks: i64,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/complete_rebuild_staging.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+            total_chunks,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("complete the rebuild staging")?;
+        Ok(updated.is_some())
+    }
+
+    /// Records one committed translation-embedding page.
+    pub async fn advance_rebuild_translation_cursor_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        target: (&str, &str),
+        cursor: RebuildTranslationCursor,
+        processed_translations: i64,
+    ) -> Result<bool> {
+        let (fingerprint, collection) = target;
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/advance_rebuild_translation_cursor.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+            cursor.document_id,
+            cursor.translation_id,
+            cursor.chunk_index,
+            processed_translations,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("advance the rebuild translation cursor")?;
         Ok(updated.is_some())
     }
 
@@ -1063,6 +1377,49 @@ impl Database {
             .into());
         }
         Ok(())
+    }
+
+    /// Refuse an ordinary write unless the barrier is idle and the captured
+    /// identity belongs to the active vector index.
+    ///
+    /// A captured `None` is admissible only when the same locked transaction
+    /// proves the deployment has neither a desired vector identity nor an
+    /// active vector index. A writer that lost its identity while the
+    /// deployment publishes vectors fails closed instead of writing points it
+    /// cannot attribute.
+    pub async fn require_idle_admissible_vector_identity_in(
+        &self,
+        connection: &mut PgConnection,
+        identity: Option<&RegistryVectorIdentity>,
+    ) -> Result<()> {
+        self.require_rebuild_idle_in(connection).await?;
+        let Some(identity) = identity else {
+            if self
+                .read_persisted_vector_identity_in(connection)
+                .await?
+                .is_some()
+            {
+                return Err(crate::domain_errors::DomainError::conflict(
+                    "the deployment has a desired vector identity but the writer captured none; \
+                     retry under the current configuration",
+                )
+                .into());
+            }
+            if self
+                .read_active_vector_index_state_in(connection)
+                .await?
+                .is_some()
+            {
+                return Err(crate::domain_errors::DomainError::conflict(
+                    "the deployment has an active vector index but the writer captured no \
+                     identity; retry under the current configuration",
+                )
+                .into());
+            }
+            return Ok(());
+        };
+        self.require_admissible_vector_identity_in(connection, identity)
+            .await
     }
 
     /// The vector identity an entry was admitted under.
@@ -1357,6 +1714,55 @@ impl Database {
         .fetch_optional(&mut *connection)
         .await
         .context("transition search registry entry phase")?;
+        if updated.is_none() {
+            return Ok(None);
+        }
+        let epoch = self.bump_search_registry_epoch_in(connection).await?;
+        Ok(Some(epoch))
+    }
+
+    /// Switch one staging replacement entry and record its original subset.
+    ///
+    /// This is the producer path of a library replacement. The caller proves
+    /// the old original ids before it deletes their canonical rows, so the
+    /// entry can later discount that exact subset from the quota once its
+    /// collection is no longer the active one. The shared metadata,
+    /// translation and retirement transitions keep their stored-array shape
+    /// and never record provenance.
+    ///
+    /// The guarded edge is only `staging -> switched`. The caller supplies the
+    /// complete old-live set and a deduplicated subset of it; the database
+    /// repeats both the subset and the reservation bound, and a stale entry
+    /// matches no row. A successful switch bumps the epoch once in the
+    /// caller's transaction.
+    pub async fn switch_search_registry_entry_with_retired_origin_in(
+        &self,
+        run_id: Uuid,
+        retired_ids: &[Uuid],
+        retired_original_ids: &[Uuid],
+        connection: &mut PgConnection,
+    ) -> Result<Option<i64>> {
+        let retired: HashSet<Uuid> = retired_ids.iter().copied().collect();
+        if retired.len() != retired_ids.len() {
+            bail!("the switched search registry entry has duplicate retired ids");
+        }
+        let origin: HashSet<Uuid> = retired_original_ids.iter().copied().collect();
+        if origin.len() != retired_original_ids.len() {
+            bail!("the switched search registry entry has duplicate original ids");
+        }
+        if !origin.is_subset(&retired) {
+            bail!("the retired original ids are not a subset of the retired ids");
+        }
+        self.lock_search_registry_epoch_in(connection).await?;
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/switch_entry_with_retired_origin.sql",
+            run_id,
+            retired_ids,
+            retired_original_ids
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("switch the search registry entry with its retired origin")?;
         if updated.is_none() {
             return Ok(None);
         }

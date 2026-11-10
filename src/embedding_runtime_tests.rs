@@ -192,8 +192,6 @@ fn identity_from_update_normalizes_and_excludes_credentials() {
         timeout_secs: 5,
         api_key: Some("a-rotated-key".to_string()),
         confirm_vector_space_unchanged: false,
-        batching: Default::default(),
-        input_policy: Default::default(),
     };
     assert_eq!(
         EmbeddingIdentity::from_update(&update),

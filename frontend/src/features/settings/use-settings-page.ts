@@ -525,27 +525,6 @@ export function useSettingsPage() {
     && selectedTokenizerStatus !== "ready";
 
   /**
-   * Whether the persisted input envelope already matches the lower selection.
-   *
-   * The server keeps the input policy it was given. A deployment that stored
-   * a different pair than its chunking selection is reported once, and the
-   * next explicit save aligns the two.
-   */
-  const inputPolicyAligned = useMemo(() => {
-    if (!runtimeData) {
-      return true;
-    }
-    const persisted = runtimeData.embedding.input_policy;
-    const selected = runtimeDraft.chunking;
-    const persistedTokenizer = persisted?.tokenizer ?? "cl100k_base";
-    const persistedSha256 = persisted?.tokenizer_sha256 ?? null;
-    const derivedSha256 = selected.tokenizer === "hf_local"
-      ? (selected.tokenizer_sha256 ?? null)
-      : null;
-    return persistedTokenizer === selected.tokenizer && persistedSha256 === derivedSha256;
-  }, [runtimeData, runtimeDraft.chunking]);
-
-  /**
    * Prepares one known tokenizer preset.
    *
    * The preparation is explicit and bounded: it retrieves the one pinned file
@@ -1017,7 +996,6 @@ export function useSettingsPage() {
     doclingTesting,
     embeddingTesting,
     hasChanges,
-    inputPolicyAligned,
     isAdmin,
     loadError,
     loading,

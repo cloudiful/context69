@@ -71,6 +71,7 @@ impl LibraryService {
         normalized: &NormalizedDocument,
         document_id: i64,
         runtime: &LibraryRuntime,
+        identity: Option<crate::db::RegistryVectorIdentity>,
     ) -> IngestResult<(usize, usize)> {
         // Acquire the provider once for the whole document so a settings save
         // mid-ingest cannot switch the provider between batches, and refuse
@@ -81,8 +82,24 @@ impl LibraryService {
             .require_ready()
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;
 
+        // The captured identity and the barrier are checked under the epoch
+        // lock of the very transaction that writes the rows, so a rebuild that
+        // committed first refuses this write instead of leaving stale points.
+        let mut tx = self
+            .db
+            .pool()
+            .begin()
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
         self.db
-            .delete_document_chunks(document_id)
+            .require_idle_admissible_vector_identity_in(&mut tx, identity.as_ref())
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+        self.db
+            .delete_document_chunks_in(&mut tx, document_id)
+            .await
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+        tx.commit()
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
 
@@ -110,10 +127,7 @@ impl LibraryService {
                 .collect::<Vec<_>>();
             let batch_started = Instant::now();
             let embeddings = embedding
-                .embed_texts_with_policy(
-                    &texts,
-                    crate::embedding::InputPolicySelection::Pinned(budget.input_policy()),
-                )
+                .embed_texts(&texts)
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Embedding, error))?;
             drop(texts);
@@ -151,10 +165,24 @@ impl LibraryService {
                 })
                 .collect::<Vec<_>>();
 
+            let mut tx =
+                self.db.pool().begin().await.map_err(|error| {
+                    IngestFailure::new(LibraryIngestFailureStage::Indexing, error)
+                })?;
             self.db
-                .insert_document_chunks(document_id, &normalized.record_hash, &batch)
+                .require_idle_admissible_vector_identity_in(&mut tx, identity.as_ref())
                 .await
                 .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+            self.db
+                .insert_document_chunks_in(&mut tx, document_id, &normalized.record_hash, &batch)
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+            tx.commit()
+                .await
+                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+            // The points go to the collection the runtime captured, after the
+            // guarded rows committed, so no database lock is held across the
+            // Qdrant write.
             runtime
                 .index
                 .upsert_document_chunks(&payloads, &embeddings)

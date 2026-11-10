@@ -58,18 +58,18 @@ pub(crate) struct Publication<'a> {
 
 /// Publishes one translated version through the search registry.
 ///
-/// Returns `Ok(None)` when the publication is not eligible for the registry
-/// path (an empty translation), so the caller can fall back to the legacy
-/// sequence instead of failing.
+/// An empty plan has no version to publish and returns success; the caller
+/// never falls back to the unguarded legacy sequence, because a document with
+/// no unique library file is still admitted and fenced by the registry.
 pub(crate) async fn publish_translation(
     handles: &Publication<'_>,
-    file_id: Uuid,
+    file_id: Option<Uuid>,
     old_chunk_ids: &[Uuid],
     translation: &TranslationPublication<'_>,
     version: &TranslationVersionInput<'_>,
-) -> Result<Option<()>> {
+) -> Result<()> {
     let Some(plan) = plan(handles, translation, old_chunk_ids).await? else {
-        return Ok(None);
+        return Ok(());
     };
     let staged_ids: Vec<Uuid> = plan
         .payloads
@@ -79,8 +79,7 @@ pub(crate) async fn publish_translation(
 
     admit(handles, file_id, version, plan.generation, &staged_ids).await?;
 
-    if let Err(error) = write_points(handles.snapshot, &plan, handles.chunking.input_policy()).await
-    {
+    if let Err(error) = write_points(handles.snapshot, &plan).await {
         abandon_staging(
             handles.db,
             version.id,
@@ -94,7 +93,7 @@ pub(crate) async fn publish_translation(
     match commit(handles, version, &plan).await {
         Ok(Outcome::Committed(retired)) => {
             delete_retired(handles.snapshot.index.as_ref(), &retired).await;
-            Ok(Some(()))
+            Ok(())
         }
         Ok(Outcome::SourceMoved) => {
             abandon_staging(
@@ -235,7 +234,7 @@ async fn plan(
 /// epoch, so the reservation and the committed registry agree.
 async fn admit(
     handles: &Publication<'_>,
-    file_id: Uuid,
+    file_id: Option<Uuid>,
     version: &TranslationVersionInput<'_>,
     generation: i64,
     staged_ids: &[Uuid],
@@ -259,7 +258,7 @@ async fn admit(
         i64::try_from(stored_ids.len()).context("anticipated retired count overflow")?;
     let entry = SearchRegistryEntry {
         run_id: version.id,
-        file_id: Some(file_id),
+        file_id,
         document_ids: vec![version.document_id],
         staged_ids: staged_ids.to_vec(),
         retired_ids: Vec::new(),
@@ -305,23 +304,13 @@ async fn admit(
 }
 
 /// Embeds and writes every staged point insert-only, then verifies identity.
-async fn write_points(
-    snapshot: &VectorSnapshot,
-    plan: &PlannedTranslation,
-    input_policy: Option<&crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
-) -> Result<()> {
+async fn write_points(snapshot: &VectorSnapshot, plan: &PlannedTranslation) -> Result<()> {
     let texts: Vec<String> = plan
         .payloads
         .iter()
         .map(|payload| payload.chunk_text.clone())
         .collect();
-    let embeddings = snapshot
-        .embedding
-        .embed_texts_with_policy(
-            &texts,
-            crate::embedding::InputPolicySelection::Pinned(input_policy),
-        )
-        .await?;
+    let embeddings = snapshot.embedding.embed_texts(&texts).await?;
     ensure!(
         embeddings.len() == plan.payloads.len(),
         "the embedding provider returned the wrong vector count"

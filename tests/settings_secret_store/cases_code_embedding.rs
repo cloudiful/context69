@@ -10,7 +10,7 @@ use super::embedding_probe_endpoint::{
     recording_embedding_endpoint, recording_malformed_success_endpoint,
 };
 use super::support::{
-    assert_sealed_under, assert_stored_bytes_exclude, keyed, reset_issue25, run, runtime_request,
+    assert_sealed_under, assert_stored_bytes_exclude, keyed, reset_guarded, run, runtime_request,
     service, store_metadata, unkeyed,
 };
 use context69::contracts::SecretPatch;
@@ -32,7 +32,6 @@ fn code_update(enabled: bool, api_key: SecretPatch) -> UpdateCodeEmbeddingSettin
         dimensions: 2,
         timeout_secs: 5,
         api_key,
-        batching: Default::default(),
     }
 }
 
@@ -49,7 +48,7 @@ fn code_request(
 #[ignore = "requires configured reusable PostgreSQL"]
 fn the_code_key_round_trips_sealed_under_the_code_purpose_only() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let settings = service(db, keyed(db));
 
         let saved = settings
@@ -88,7 +87,7 @@ fn the_code_key_round_trips_sealed_under_the_code_purpose_only() {
             .expect("an enabled code row installs a provider");
         assert_eq!(snapshot.config.api_key.as_deref(), Some(CODE_KEY));
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -96,7 +95,7 @@ fn the_code_key_round_trips_sealed_under_the_code_purpose_only() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn keep_and_outer_omission_preserve_the_code_secret() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let settings = service(db, keyed(db));
         settings
             .update_runtime_settings(&code_request(true, SecretPatch::Set(CODE_KEY.to_string())))
@@ -144,7 +143,7 @@ fn keep_and_outer_omission_preserve_the_code_secret() {
             Some(CODE_KEY)
         );
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -152,7 +151,7 @@ fn keep_and_outer_omission_preserve_the_code_secret() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_disabled_row_keeps_an_unreadable_code_key_and_can_be_cleared_without_a_master_key() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         service(db, keyed(db))
             .update_runtime_settings(&code_request(true, SecretPatch::Set(CODE_KEY.to_string())))
             .await
@@ -204,7 +203,7 @@ fn a_disabled_row_keeps_an_unreadable_code_key_and_can_be_cleared_without_a_mast
             "a cleared code row still publishes no provider"
         );
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -212,7 +211,7 @@ fn a_disabled_row_keeps_an_unreadable_code_key_and_can_be_cleared_without_a_mast
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_malformed_success_code_probe_redacts_endpoint_and_provider_credentials() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let key = "synthetic-code-probe-key";
         let user = "synthetic-probe-user";
         let password = "synthetic-probe-password";
@@ -268,7 +267,7 @@ fn a_malformed_success_code_probe_redacts_endpoint_and_provider_credentials() {
             "the echoed provider credential must be redacted: {message}"
         );
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -276,7 +275,7 @@ fn a_malformed_success_code_probe_redacts_endpoint_and_provider_credentials() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn an_invalid_code_probe_url_does_not_expose_endpoint_credentials() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let marker = "synthetic-invalid-url-marker";
         let settings = service(db, keyed(db));
         let error = settings
@@ -292,7 +291,7 @@ fn an_invalid_code_probe_url_does_not_expose_endpoint_credentials() {
             .await
             .expect_err("the invalid endpoint must be rejected");
         let leaked = format!("{error:#}").contains(marker);
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         assert!(
             !leaked,
             "the invalid endpoint error exposes URL credentials"
@@ -304,7 +303,7 @@ fn an_invalid_code_probe_url_does_not_expose_endpoint_credentials() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_failed_code_probe_does_not_expose_endpoint_query() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let marker = "synthetic-endpoint-query-marker";
         let settings = service(db, keyed(db));
         let error = settings
@@ -320,7 +319,7 @@ fn a_failed_code_probe_does_not_expose_endpoint_query() {
             .await
             .expect_err("the endpoint refuses connections");
         let leaked = format!("{error:#}").contains(marker);
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         assert!(!leaked, "the connection error exposes its endpoint query");
     });
 }
@@ -329,7 +328,7 @@ fn a_failed_code_probe_does_not_expose_endpoint_query() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_failed_code_probe_hides_endpoint_userinfo_password_query_and_key() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let user = "synthetic-transport-user";
         let password = "synthetic-transport-password";
         let query = "synthetic-transport-query";
@@ -348,7 +347,7 @@ fn a_failed_code_probe_hides_endpoint_userinfo_password_query_and_key() {
             .await
             .expect_err("the endpoint refuses connections");
         let message = format!("{error:#}");
-        reset_issue25(db).await;
+        reset_guarded(db).await;
 
         for marker in [user, password, query, key] {
             assert!(
@@ -373,7 +372,7 @@ fn a_failed_code_probe_hides_endpoint_userinfo_password_query_and_key() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_code_probe_uses_only_the_code_purpose() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let (base_url, recorded) = recording_embedding_endpoint(axum::http::StatusCode::OK).await;
         let settings = service(db, keyed(db));
 
@@ -413,7 +412,7 @@ fn a_code_probe_uses_only_the_code_purpose() {
             "the code probe must never use the document credential"
         );
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -421,7 +420,7 @@ fn a_code_probe_uses_only_the_code_purpose() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_code_probe_without_a_code_credential_does_not_fall_back_to_the_document_key() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let (base_url, recorded) = recording_embedding_endpoint(axum::http::StatusCode::OK).await;
         let settings = service(db, keyed(db));
 
@@ -453,7 +452,7 @@ fn a_code_probe_without_a_code_credential_does_not_fall_back_to_the_document_key
             headers[0]
         );
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -461,7 +460,7 @@ fn a_code_probe_without_a_code_credential_does_not_fall_back_to_the_document_key
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_code_secret_write_fault_publishes_no_provider_and_recovers() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let settings = service(db, keyed(db));
         settings
             .update_runtime_settings(&runtime_request(Some(DOCUMENT_KEY), None))
@@ -473,12 +472,12 @@ fn a_code_secret_write_fault_publishes_no_provider_and_recovers() {
         // secret step fails after provider construction but before the row and
         // the snapshot are published.
         for sql in [
-            "CREATE OR REPLACE FUNCTION context69.issue25_reject_code_secret() RETURNS trigger \
+            "CREATE OR REPLACE FUNCTION context69.fixture_reject_code_secret() RETURNS trigger \
              LANGUAGE plpgsql AS $$ BEGIN IF NEW.key = 'code_embedding_api_key' THEN RAISE \
-             EXCEPTION 'issue25 injected code secret failure'; END IF; RETURN NEW; END $$",
-            "CREATE TRIGGER issue25_reject_code_secret BEFORE INSERT ON \
+             EXCEPTION 'injected code secret failure'; END IF; RETURN NEW; END $$",
+            "CREATE TRIGGER fixture_reject_code_secret BEFORE INSERT ON \
              context69.internal_secrets FOR EACH ROW EXECUTE FUNCTION \
-             context69.issue25_reject_code_secret()",
+             context69.fixture_reject_code_secret()",
         ] {
             sqlx::query(sql)
                 .execute(db.pool())
@@ -492,8 +491,8 @@ fn a_code_secret_write_fault_publishes_no_provider_and_recovers() {
         let error = failed.expect_err("the injected secret failure must abort the save");
 
         for sql in [
-            "DROP TRIGGER IF EXISTS issue25_reject_code_secret ON context69.internal_secrets",
-            "DROP FUNCTION IF EXISTS context69.issue25_reject_code_secret()",
+            "DROP TRIGGER IF EXISTS fixture_reject_code_secret ON context69.internal_secrets",
+            "DROP FUNCTION IF EXISTS context69.fixture_reject_code_secret()",
         ] {
             sqlx::query(sql)
                 .execute(db.pool())
@@ -502,9 +501,7 @@ fn a_code_secret_write_fault_publishes_no_provider_and_recovers() {
         }
 
         assert!(
-            error
-                .to_string()
-                .contains("issue25 injected code secret failure"),
+            error.to_string().contains("injected code secret failure"),
             "{error}"
         );
         assert!(
@@ -533,7 +530,7 @@ fn a_code_secret_write_fault_publishes_no_provider_and_recovers() {
         assert!(settings.code_embedding_snapshot().is_some());
         assert_sealed_under(db.pool(), key_names::CODE_EMBEDDING_API_KEY, CODE_PURPOSE).await;
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -541,7 +538,7 @@ fn a_code_secret_write_fault_publishes_no_provider_and_recovers() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_code_only_save_changes_no_document_identity_or_rebuild_state() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let settings = service(db, keyed(db));
         settings
             .update_runtime_settings(&runtime_request(Some(DOCUMENT_KEY), None))
@@ -575,7 +572,7 @@ fn a_code_only_save_changes_no_document_identity_or_rebuild_state() {
         );
         assert_sealed_under(db.pool(), key_names::EMBEDDING_API_KEY, "embedding.api_key").await;
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }
 
@@ -583,7 +580,7 @@ fn a_code_only_save_changes_no_document_identity_or_rebuild_state() {
 #[ignore = "requires configured reusable PostgreSQL"]
 fn a_combined_write_fault_rolls_back_both_rows_and_publishes_no_snapshot() {
     run(async |db| {
-        reset_issue25(db).await;
+        reset_guarded(db).await;
         let settings = service(db, keyed(db));
         settings
             .update_runtime_settings(&runtime_request(Some(DOCUMENT_KEY), None))
@@ -598,11 +595,11 @@ fn a_combined_write_fault_rolls_back_both_rows_and_publishes_no_snapshot() {
         // A fixture-owned trigger makes only the code row write fail, so the
         // document rows and the code row must roll back together.
         for sql in [
-            "CREATE OR REPLACE FUNCTION context69.issue25_reject_code_row() RETURNS trigger \
-             LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'issue25 injected code row failure'; END $$",
-            "CREATE TRIGGER issue25_reject_code_row BEFORE INSERT OR UPDATE ON \
+            "CREATE OR REPLACE FUNCTION context69.fixture_reject_code_row() RETURNS trigger \
+             LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected code row failure'; END $$",
+            "CREATE TRIGGER fixture_reject_code_row BEFORE INSERT OR UPDATE ON \
              context69.runtime_code_embedding_settings FOR EACH ROW EXECUTE FUNCTION \
-             context69.issue25_reject_code_row()",
+             context69.fixture_reject_code_row()",
         ] {
             sqlx::query(sql)
                 .execute(db.pool())
@@ -616,9 +613,9 @@ fn a_combined_write_fault_rolls_back_both_rows_and_publishes_no_snapshot() {
         let error = failed.expect_err("the injected code-row failure must abort the save");
 
         for sql in [
-            "DROP TRIGGER IF EXISTS issue25_reject_code_row ON \
+            "DROP TRIGGER IF EXISTS fixture_reject_code_row ON \
              context69.runtime_code_embedding_settings",
-            "DROP FUNCTION IF EXISTS context69.issue25_reject_code_row()",
+            "DROP FUNCTION IF EXISTS context69.fixture_reject_code_row()",
         ] {
             sqlx::query(sql)
                 .execute(db.pool())
@@ -627,9 +624,7 @@ fn a_combined_write_fault_rolls_back_both_rows_and_publishes_no_snapshot() {
         }
 
         assert!(
-            error
-                .to_string()
-                .contains("issue25 injected code row failure"),
+            error.to_string().contains("injected code row failure"),
             "{error}"
         );
         let after = settings
@@ -664,6 +659,6 @@ fn a_combined_write_fault_rolls_back_both_rows_and_publishes_no_snapshot() {
         assert!(settings.code_embedding_snapshot().is_some());
         assert_sealed_under(db.pool(), key_names::CODE_EMBEDDING_API_KEY, CODE_PURPOSE).await;
 
-        reset_issue25(db).await;
+        reset_guarded(db).await;
     });
 }

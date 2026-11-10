@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Verify one checkpointed chunk batch after its idempotent insert.\n--\n-- Every expected id must exist for this document with the exact index, text\n-- and record hash of the batch. A primary-key conflict alone is not proof that\n-- the batch is complete or that it belongs to the same segmentation, so a\n-- mismatch refuses the batch before its checkpoint can advance.\nWITH expected AS (\n    SELECT *\n    FROM unnest($2::uuid[], $3::integer[], $4::text[], $5::text[])\n        AS input(chunk_id, chunk_index, chunk_text, record_hash)\n)\nSELECT COUNT(*)::bigint AS \"count!\"\nFROM expected\nLEFT JOIN context69.document_chunks chunk ON chunk.id = expected.chunk_id\nWHERE chunk.id IS NULL\n   OR chunk.document_id <> $1\n   OR chunk.chunk_index <> expected.chunk_index\n   OR chunk.chunk_text <> expected.chunk_text\n   OR chunk.record_hash <> expected.record_hash\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "UuidArray",
+        "Int4Array",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "647e6d2b7ceff4b6a7366f54a3fe267e7758a78c8716a29196c21b257ad28800"
+}

@@ -5,19 +5,19 @@ use rate_limiter::{LocalRateLimiter, RateLimitPolicy, RateLimiter, ValkeyRateLim
 use tracing::warn;
 
 pub(super) const URL_IMPORT_RATE_LIMIT_PREFIX: &str = "context69:library:url-import:rate:";
+/// Minimum delay between two requests to the same origin.
+const URL_IMPORT_MIN_INTERVAL_MS: u64 = 1000;
+
 #[derive(Clone)]
 pub(super) struct UrlImportRuntime {
     limiter: Option<Arc<dyn RateLimiter>>,
 }
 
 impl UrlImportRuntime {
-    pub(super) async fn new(
-        _worker_count: usize,
-        min_interval_ms: u64,
-        valkey_url: Option<&str>,
-    ) -> Result<Self> {
-        let policy = RateLimitPolicy::min_interval(Duration::from_millis(min_interval_ms))
-            .context("invalid URL import rate limit policy")?;
+    pub(super) async fn new(valkey_url: Option<&str>) -> Result<Self> {
+        let policy =
+            RateLimitPolicy::min_interval(Duration::from_millis(URL_IMPORT_MIN_INTERVAL_MS))
+                .context("invalid URL import rate limit policy")?;
         let limiter = match valkey_url {
             Some(url) => {
                 match ValkeyRateLimiter::new(url, URL_IMPORT_RATE_LIMIT_PREFIX, policy).await {
@@ -51,7 +51,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_shared_limiter_does_not_fallback_to_local() {
-        let runtime = UrlImportRuntime::new(2, 1000, Some("not-a-valkey-url"))
+        let runtime = UrlImportRuntime::new(Some("not-a-valkey-url"))
             .await
             .expect("runtime construction should keep queued work on limiter failure");
 

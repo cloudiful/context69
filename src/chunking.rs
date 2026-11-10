@@ -3,7 +3,6 @@ use std::sync::{Arc, RwLock};
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use self::chunking_token::{ResolvedTokenizer, TokenizerKind, TokenizerRef};
@@ -72,12 +71,6 @@ pub struct ChunkBudget {
     pub mode: ChunkBudgetMode,
     pub chars: ChunkingConfig,
     pub tokens: Option<TokenBudget>,
-    /// The explicit embedding input envelope pinned with this budget.
-    ///
-    /// Absent keeps the legacy snapshot byte-identical. It is present only
-    /// when the policy is nondefault.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub input_policy: Option<context69_contracts::settings::EmbeddingInputPolicy>,
 }
 
 /// Failure raised by the token-aware chunking path.
@@ -103,18 +96,6 @@ pub enum ChunkingError {
     /// The chunk path fails closed instead of substituting another engine.
     TokenizerUnavailable {
         sha256: String,
-        reason: String,
-    },
-    /// One input cannot be emitted without exceeding the explicit provider
-    /// input-token envelope, even after the overlap gave up its room.
-    InputEnvelopeExceeded {
-        role: &'static str,
-        count: usize,
-        max_input_tokens: usize,
-        prefix_chars: usize,
-    },
-    /// The pinned embedding input policy is invalid or unresolvable.
-    InvalidInputPolicy {
         reason: String,
     },
     /// A pinned budget snapshot is present but unreadable. It is never
@@ -150,20 +131,6 @@ impl std::fmt::Display for ChunkingError {
                 formatter,
                 "the pinned tokenizer artifact {sha256} is unavailable: {reason}"
             ),
-            Self::InputEnvelopeExceeded {
-                role,
-                count,
-                max_input_tokens,
-                prefix_chars,
-            } => write!(
-                formatter,
-                "the {role} input needs {count} tokens but the configured input envelope allows \
-                 {max_input_tokens} tokens ({prefix_chars} characters of server-added prefix are \
-                 counted); no text was truncated or rechunked"
-            ),
-            Self::InvalidInputPolicy { reason } => {
-                write!(formatter, "invalid embedding input policy: {reason}")
-            }
             Self::InvalidSnapshot { reason } => {
                 write!(formatter, "invalid chunk budget snapshot: {reason}")
             }
@@ -266,16 +233,9 @@ impl ChunkingRuntime {
                     })
                 }
             };
-        let input_policy = match &budget.input_policy {
-            Some(policy) if !policy.is_default() => {
-                Some(self.catalog.resolve_input_policy(policy)?)
-            }
-            _ => None,
-        };
         Ok(ResolvedChunkBudget {
             budget: budget.clone(),
             tokenizer,
-            input_policy,
         })
     }
 
@@ -324,49 +284,6 @@ impl From<&ChunkBudget> for ChunkingRuntime {
     }
 }
 
-/// The lowercase SHA256 identity of one nondefault embedding input policy.
-///
-/// Every field is written as a version tag and an unambiguous length-prefixed
-/// value, so two different policies can never serialize to the same bytes.
-pub fn embedding_input_policy_identity(
-    policy: &context69_contracts::settings::EmbeddingInputPolicy,
-) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(b"context69.embedding_input_policy.v1");
-    let mut field = |bytes: &[u8]| {
-        hasher.update((bytes.len() as u64).to_be_bytes());
-        hasher.update(bytes);
-    };
-    field(policy.tokenizer.name().as_bytes());
-    match policy.tokenizer_sha256.as_deref() {
-        Some(sha) => {
-            field(b"sha256");
-            field(sha.as_bytes());
-        }
-        None => field(b"no-sha256"),
-    }
-    match policy.max_input_tokens {
-        Some(max) => {
-            field(b"max-input-tokens");
-            field(&max.to_be_bytes());
-        }
-        None => field(b"no-max-input-tokens"),
-    }
-    field(policy.document_server_prefix.as_bytes());
-    field(policy.query_server_prefix.as_bytes());
-    field(if policy.add_special_tokens {
-        b"add-special-tokens"
-    } else {
-        b"no-add-special-tokens"
-    });
-    let digest = hasher.finalize();
-    let mut hex = String::with_capacity(64);
-    for byte in digest {
-        hex.push_str(&format!("{byte:02x}"));
-    }
-    hex
-}
-
 /// The serialized form of a pinned budget.
 pub fn chunk_budget_to_value(budget: &ChunkBudget) -> Value {
     serde_json::to_value(budget).expect("a chunk budget is serializable")
@@ -409,6 +326,14 @@ pub fn parse_chunk_budget(payload: &Value) -> Result<Option<ChunkBudget>, Chunki
             reason: "the pinned budget is null".to_string(),
         });
     }
+    parse_chunk_budget_value(value).map(Some)
+}
+
+/// Reads one persisted budget value that is not wrapped in a payload.
+///
+/// The rebuild barrier stores the budget itself rather than a payload, so the
+/// same deserialization and validation used for a pinned payload applies to it.
+pub fn parse_chunk_budget_value(value: &Value) -> Result<ChunkBudget, ChunkingError> {
     let budget: ChunkBudget =
         serde_json::from_value(value.clone()).map_err(|error| ChunkingError::InvalidSnapshot {
             reason: error.to_string(),
@@ -426,7 +351,7 @@ pub fn parse_chunk_budget(payload: &Value) -> Result<Option<ChunkBudget>, Chunki
         }
     }
     budget.validate()?;
-    Ok(Some(budget))
+    Ok(budget)
 }
 
 /// The budget a task item must chunk under.
@@ -447,7 +372,6 @@ impl ChunkBudget {
             mode: ChunkBudgetMode::Chars,
             chars: config,
             tokens: None,
-            input_policy: None,
         }
     }
 
@@ -466,7 +390,6 @@ impl ChunkBudget {
                 max_tokens,
                 overlap_tokens,
             }),
-            input_policy: None,
         }
     }
 
@@ -500,17 +423,12 @@ impl ChunkBudget {
             });
         }
         tokens.tokenizer.validate()?;
-        if let Some(policy) = &self.input_policy {
-            policy
-                .validate()
-                .map_err(|reason| ChunkingError::InvalidInputPolicy { reason })?;
-        }
         Ok(())
     }
 
     /// Deterministic identity of the budget, used to detect a budget change.
     pub fn identity(&self) -> String {
-        let base = match self.mode {
+        match self.mode {
             ChunkBudgetMode::Chars => format!(
                 "chars:{}:{}",
                 self.chars.max_chars, self.chars.overlap_chars
@@ -524,12 +442,6 @@ impl ChunkBudget {
                 ),
                 None => "tokens:unconfigured".to_string(),
             },
-        };
-        match &self.input_policy {
-            Some(policy) if !policy.is_default() => {
-                format!("{base}:input:{}", embedding_input_policy_identity(policy))
-            }
-            _ => base,
         }
     }
 }
@@ -687,7 +599,6 @@ impl ChunkBudgetSource for ChunkBudget {
 /// Chunk iterator that serves both budget modes.
 pub enum ChunkBudgetDocumentIter<'a> {
     Chars(ChunkDocumentIter<'a>),
-    CharsGuarded(GuardedCharChunkIter<'a>),
     Tokens(chunking_token::TokenChunkDocumentIter<'a>),
 }
 
@@ -697,7 +608,6 @@ impl Iterator for ChunkBudgetDocumentIter<'_> {
     fn next(&mut self) -> Option<Self::Item> {
         match self {
             Self::Chars(iter) => iter.next().map(Ok),
-            Self::CharsGuarded(iter) => iter.next(),
             Self::Tokens(iter) => iter.next(),
         }
     }
@@ -712,7 +622,6 @@ impl Iterator for ChunkBudgetDocumentIter<'_> {
 pub struct ResolvedChunkBudget {
     budget: ChunkBudget,
     tokenizer: Option<ResolvedTokenizer>,
-    input_policy: Option<crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
 }
 
 impl ResolvedChunkBudget {
@@ -722,13 +631,6 @@ impl ResolvedChunkBudget {
 
     pub fn identity(&self) -> String {
         self.budget.identity()
-    }
-
-    /// The resolved embedding input envelope pinned with this budget.
-    pub fn input_policy(
-        &self,
-    ) -> Option<&crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy> {
-        self.input_policy.as_ref()
     }
 
     pub fn chunk_document(
@@ -750,23 +652,13 @@ impl ResolvedChunkBudget {
     ) -> Result<ChunkBudgetDocumentIter<'a>, ChunkingError> {
         self.budget.validate()?;
         Ok(match self.budget.mode {
-            ChunkBudgetMode::Chars => match &self.input_policy {
-                Some(policy) => ChunkBudgetDocumentIter::CharsGuarded(GuardedCharChunkIter::new(
-                    document_id,
-                    source_key,
-                    document,
-                    &self.budget.chars,
-                    generation,
-                    policy.clone(),
-                )),
-                None => ChunkBudgetDocumentIter::Chars(chunk_document_iter(
-                    document_id,
-                    source_key,
-                    document,
-                    &self.budget.chars,
-                    generation,
-                )),
-            },
+            ChunkBudgetMode::Chars => ChunkBudgetDocumentIter::Chars(chunk_document_iter(
+                document_id,
+                source_key,
+                document,
+                &self.budget.chars,
+                generation,
+            )),
             ChunkBudgetMode::Tokens => ChunkBudgetDocumentIter::Tokens(token_chunk_iter(
                 document_id,
                 source_key,
@@ -830,16 +722,9 @@ fn static_resolved_budget(budget: &ChunkBudget) -> Result<ResolvedChunkBudget, C
             }
         }
     };
-    let input_policy = match &budget.input_policy {
-        Some(policy) if !policy.is_default() => {
-            Some(TokenizerCatalog::installed_or_empty().resolve_input_policy(policy)?)
-        }
-        _ => None,
-    };
     Ok(ResolvedChunkBudget {
         budget: budget.clone(),
         tokenizer,
-        input_policy,
     })
 }
 
@@ -941,7 +826,6 @@ fn token_chunk_iter<'a>(
         tokens.overlap_tokens,
         generation,
     )
-    .map(|iter| iter.with_input_policy(budget.input_policy.clone()))
 }
 
 pub struct ChunkDocumentIter<'a> {
@@ -1135,161 +1019,6 @@ impl Iterator for ChunkDocumentIter<'_> {
     }
 }
 
-/// The selected overlap and source cut of one guarded character chunk.
-struct SelectedCharCut {
-    overlap: String,
-    content_len: usize,
-}
-
-/// The largest positive source prefix of `buffer` that fits the character
-/// budget and the exact embedding input envelope beside the chosen overlap.
-///
-/// Token counts are not monotonic in prefix length, so every UTF-8 content
-/// boundary inside the bounded window is tried from largest to smallest; the
-/// first fit is the largest for that overlap. The overlap gives up one leading
-/// character only when no positive content can fit beside it.
-fn guarded_char_cut(
-    policy: &crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy,
-    overlap: &str,
-    buffer: &str,
-    max_chars: usize,
-) -> Result<SelectedCharCut, ChunkingError> {
-    let mut current_overlap = overlap.to_string();
-    loop {
-        let max_content_chars = max_chars.saturating_sub(current_overlap.chars().count());
-        if max_content_chars > 0 {
-            let byte_limit = prefix_len_by_chars(buffer, max_content_chars);
-            let text = &buffer[..byte_limit];
-            let mut boundaries = Vec::with_capacity(text.chars().count() + 1);
-            boundaries.push(0);
-            boundaries.extend(
-                text.char_indices()
-                    .map(|(index, character)| index + character.len_utf8()),
-            );
-            for characters in (1..boundaries.len()).rev() {
-                let end = boundaries[characters];
-                let candidate = format!("{current_overlap}{}", &text[..end]);
-                if policy.count_input(policy.document_prefix(), &candidate)
-                    <= policy.max_input_tokens().unwrap_or(usize::MAX)
-                {
-                    return Ok(SelectedCharCut {
-                        overlap: current_overlap,
-                        content_len: end,
-                    });
-                }
-            }
-        }
-        if current_overlap.is_empty() {
-            let first = buffer.chars().next().unwrap_or('\0');
-            let count = policy.count_input(policy.document_prefix(), &first.to_string());
-            return Err(ChunkingError::InputEnvelopeExceeded {
-                role: "document",
-                count,
-                max_input_tokens: policy.max_input_tokens().unwrap_or(usize::MAX),
-                prefix_chars: policy.document_prefix().chars().count(),
-            });
-        }
-        let mut chars = current_overlap.chars();
-        chars.next();
-        current_overlap = chars.as_str().to_string();
-    }
-}
-
-/// A character-budget iterator that also enforces the embedding input envelope.
-///
-/// It reuses the legacy splitter as the source of raw pieces, then re-flows
-/// those pieces through the exact envelope. The source order and every byte are
-/// preserved, and the returned chunk carries the same repeat suffix the legacy
-/// budget used.
-pub struct GuardedCharChunkIter<'a> {
-    inner: ChunkDocumentIter<'a>,
-    policy: crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy,
-    max_chars: usize,
-    overlap_chars: usize,
-    buffer: String,
-    overlap: String,
-    next_index: i32,
-    done: bool,
-}
-
-impl<'a> GuardedCharChunkIter<'a> {
-    fn new(
-        document_id: i64,
-        source_key: &'a str,
-        document: &'a NormalizedDocument,
-        config: &ChunkingConfig,
-        generation: Option<i64>,
-        policy: crate::chunking::chunking_token_artifact::ResolvedEmbeddingInputPolicy,
-    ) -> Self {
-        let inner = ChunkDocumentIter::new(document_id, source_key, document, config, generation);
-        let max_chars = inner.max_chars;
-        let overlap_chars = inner.overlap_chars;
-        Self {
-            inner,
-            policy,
-            max_chars,
-            overlap_chars,
-            buffer: String::new(),
-            overlap: String::new(),
-            next_index: 0,
-            done: false,
-        }
-    }
-}
-
-impl Iterator for GuardedCharChunkIter<'_> {
-    type Item = Result<DocumentChunk, ChunkingError>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        loop {
-            if !self.done
-                && self.buffer.chars().count() + self.overlap.chars().count() < self.max_chars
-            {
-                match self.inner.next() {
-                    Some(_) => {
-                        self.buffer
-                            .push_str(&std::mem::take(&mut self.inner.last_raw));
-                        continue;
-                    }
-                    None => {
-                        self.done = true;
-                        continue;
-                    }
-                }
-            }
-            if self.buffer.is_empty() {
-                return None;
-            }
-            let cut =
-                match guarded_char_cut(&self.policy, &self.overlap, &self.buffer, self.max_chars) {
-                    Ok(cut) => cut,
-                    Err(error) => return Some(Err(error)),
-                };
-            let content = self.buffer[..cut.content_len].to_string();
-            self.buffer.drain(..cut.content_len);
-            let mut text = String::with_capacity(cut.overlap.len() + content.len());
-            text.push_str(&cut.overlap);
-            text.push_str(&content);
-            self.overlap = build_overlap_from_text(&text, self.overlap_chars);
-            let index = self.next_index;
-            self.next_index += 1;
-            return Some(Ok(DocumentChunk {
-                id: chunk_uuid(
-                    self.inner.source_key,
-                    &self.inner.document.external_id,
-                    &self.inner.document.record_hash,
-                    index,
-                    self.inner.generation,
-                ),
-                document_id: self.inner.document_id,
-                chunk_index: index,
-                text,
-                record_hash: self.inner.document.record_hash.clone(),
-            }));
-        }
-    }
-}
-
 fn build_overlap_from_text(text: &str, overlap_chars: usize) -> String {
     if overlap_chars == 0 {
         return String::new();
@@ -1348,7 +1077,6 @@ mod runtime_tests {
                 max_tokens: 512,
                 overlap_tokens: 64,
             }),
-            input_policy: None,
         }
     }
 

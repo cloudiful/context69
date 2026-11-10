@@ -1,6 +1,72 @@
 use super::*;
 use crate::{domain_errors::DomainError, pagination::PageBounds};
 
+/// The external index and identity captured before a source deletion starts.
+pub(super) struct CapturedSourceIndex {
+    index: Option<std::sync::Arc<crate::qdrant_index::QdrantIndex>>,
+    identity: Option<crate::db::RegistryVectorIdentity>,
+}
+
+impl SyncService {
+    /// Capture the source deletion target once, before any deletion work.
+    pub(super) fn capture_source_index(&self) -> Result<CapturedSourceIndex> {
+        let current = self.source_index.runtime.current();
+        let snapshot = match self.source_index.mode {
+            super::SourceVectorMode::Managed => {
+                if current.rebuilding {
+                    return Err(DomainError::unavailable(
+                        "vector index is rebuilding or unavailable; retry after the rebuild completes",
+                    )
+                    .into());
+                }
+                if !current.ready {
+                    return Err(DomainError::unavailable(
+                        "embedding/vector runtime is unavailable: vector index is unavailable; \
+                         retry after it recovers",
+                    )
+                    .into());
+                }
+                current.snapshot.ok_or_else(|| {
+                    anyhow::Error::from(DomainError::unavailable(
+                        "embedding/vector runtime is unavailable: no published vector pair",
+                    ))
+                })?
+            }
+            super::SourceVectorMode::LegacyOptional => match current.snapshot {
+                Some(snapshot) => snapshot,
+                None => {
+                    return Ok(CapturedSourceIndex {
+                        index: None,
+                        identity: None,
+                    });
+                }
+            },
+        };
+        let identity = snapshot.configured_fingerprint.clone().map(|fingerprint| {
+            crate::db::RegistryVectorIdentity {
+                embedding_fingerprint: fingerprint,
+                collection_name: snapshot.collection.clone(),
+            }
+        });
+        Ok(CapturedSourceIndex {
+            index: Some(snapshot.index.clone()),
+            identity,
+        })
+    }
+
+    async fn delete_captured_source_points(
+        target: &CapturedSourceIndex,
+        chunk_ids: &[uuid::Uuid],
+    ) -> Result<()> {
+        if let Some(index) = target.index.as_ref()
+            && !chunk_ids.is_empty()
+        {
+            index.delete_points(chunk_ids).await?;
+        }
+        Ok(())
+    }
+}
+
 impl SyncService {
     pub async fn list_sources_page(
         &self,
@@ -90,64 +156,154 @@ impl SyncService {
     }
 
     pub async fn delete_source_in_group(&self, group_id: i64, source_key: &str) -> Result<()> {
+        let target = self.capture_source_index()?;
+        self.delete_source_with_target(Some(group_id), source_key, &target)
+            .await
+    }
+
+    /// Removes one source against the target captured before the deletion
+    /// started.
+    ///
+    /// The tombstones and the canonical deletes commit in one short transaction
+    /// under the captured target's identity; only then are the captured exact
+    /// chunk ids removed from the captured index. An activation that happens
+    /// while this deletion is in flight therefore sees either the complete old
+    /// source or an already tombstoned one, never a live source whose points
+    /// were removed from the still-active collection.
+    pub(super) async fn delete_source_in_group_with_target(
+        &self,
+        group_id: i64,
+        source_key: &str,
+        target: &CapturedSourceIndex,
+    ) -> Result<()> {
+        self.delete_source_with_target(Some(group_id), source_key, target)
+            .await
+    }
+
+    async fn delete_source_with_target(
+        &self,
+        group_id: Option<i64>,
+        source_key: &str,
+        target: &CapturedSourceIndex,
+    ) -> Result<()> {
         let _guard = self.acquire_lock(source_key).await?;
-        let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
-        self.source_index.delete_points(&chunk_ids).await?;
+        let mut tx = self.db.pool().begin().await?;
+        self.db
+            .require_idle_admissible_vector_identity_in(&mut tx, target.identity.as_ref())
+            .await?;
+        let document_ids = self
+            .source_store
+            .list_source_document_ids_on(&mut tx, group_id, source_key)
+            .await?;
+        let chunk_ids = self
+            .source_store
+            .list_source_chunk_ids_on(&mut tx, source_key)
+            .await?;
+        let purge_target = target.index.as_ref().map(|index| index.purge_target());
+        self.db
+            .insert_deleted_document_entities_in_with_target(
+                &mut tx,
+                &document_ids,
+                purge_target.as_ref(),
+            )
+            .await?;
         let deleted = self
             .source_store
-            .delete_source_in_group(Some(group_id), source_key)
+            .delete_source_in_group_in(&mut tx, group_id, source_key)
             .await?;
         if !deleted {
+            tx.rollback().await?;
             return Err(DomainError::not_found(format!("unknown source {source_key}")).into());
         }
-        self.reload_sources().await?;
-        Ok(())
+        tx.commit().await?;
+        self.finish_source_delete(source_key, target, &chunk_ids)
+            .await
     }
 
     /// Removes one legacy source under the captured grant of a running item.
     ///
-    /// The vector points are removed before the transaction and cannot be
-    /// rolled back, so the grant is checked again right before them. The four
-    /// deletes of the source then run in one guarded transaction of the grant:
-    /// a worker that lost its segment removes nothing, and the manual path
-    /// keeps the pooled helper above.
-    pub(crate) async fn delete_source_in_group_fenced(
+    /// The grant, the captured identity and the captured index are all fixed
+    /// before any deletion. The tombstones and the four canonical deletes run
+    /// in one guarded transaction of the grant: a worker that lost its segment
+    /// removes nothing, and the exact points are removed only after the commit.
+    pub(super) async fn delete_source_in_group_fenced_with_target(
         &self,
         fence: crate::library_store::TaskWriteFence,
         group_id: i64,
         source_key: &str,
+        target: &CapturedSourceIndex,
     ) -> Result<()> {
         let _guard = self.acquire_lock(source_key).await?;
-        if !crate::library_store::task_write_granted(&self.db, fence).await? {
-            return Err(anyhow::anyhow!(
-                "the captured grant of the task item no longer authorizes the source delete"
-            ));
-        }
-        let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
-        if !chunk_ids.is_empty() {
-            self.source_index.delete_points(&chunk_ids).await?;
-        }
-        let mut guarded = crate::library_store::begin_task_write(&self.db, fence)
+        let mut write = crate::library_store::begin_task_write(&self.db, fence)
             .await
             .map_err(|error| {
                 anyhow::anyhow!(
                     "the captured grant of the task item no longer authorizes the source delete: {error}"
                 )
             })?;
+        self.db
+            .require_idle_admissible_vector_identity_in(
+                write.connection(),
+                target.identity.as_ref(),
+            )
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the captured grant of the task item no longer authorizes the source delete: {error}"
+                )
+            })?;
+        let document_ids = self
+            .source_store
+            .list_source_document_ids_on(write.connection(), Some(group_id), source_key)
+            .await?;
+        let chunk_ids = self
+            .source_store
+            .list_source_chunk_ids_on(write.connection(), source_key)
+            .await?;
+        let purge_target = target.index.as_ref().map(|index| index.purge_target());
+        self.db
+            .insert_deleted_document_entities_in_with_target(
+                write.connection(),
+                &document_ids,
+                purge_target.as_ref(),
+            )
+            .await?;
         let deleted = self
             .source_store
-            .delete_source_in_group_in(guarded.connection(), Some(group_id), source_key)
+            .delete_source_in_group_in(write.connection(), Some(group_id), source_key)
             .await?;
-        if !guarded.commit().await? {
+        if !deleted {
+            write.rollback().await;
+            return Err(DomainError::not_found(format!("unknown source {source_key}")).into());
+        }
+        if !write.commit().await? {
             return Err(anyhow::anyhow!(
                 "the captured grant of the task item no longer authorizes the source delete"
             ));
         }
-        if !deleted {
-            return Err(DomainError::not_found(format!("unknown source {source_key}")).into());
+        self.finish_source_delete(source_key, target, &chunk_ids)
+            .await
+    }
+
+    /// Removes the captured exact points of an already committed source delete.
+    ///
+    /// The logical delete is durable, so a failed physical purge is reported as
+    /// pending instead of failing the delete: the permanent document tombstones
+    /// are the retry record and document ids are never reused.
+    async fn finish_source_delete(
+        &self,
+        source_key: &str,
+        target: &CapturedSourceIndex,
+        chunk_ids: &[uuid::Uuid],
+    ) -> Result<()> {
+        if let Err(error) = Self::delete_captured_source_points(target, chunk_ids).await {
+            warn!(
+                source_key,
+                error = %error,
+                "the source logical delete committed; the vector purge is pending"
+            );
         }
-        self.reload_sources().await?;
-        Ok(())
+        self.reload_sources().await
     }
 
     async fn decorate_sources(&self, sources: Vec<SourceStatus>) -> Result<Vec<SourceStatus>> {
@@ -197,15 +353,9 @@ impl SyncService {
     }
 
     pub async fn delete_source(&self, source_key: &str) -> Result<()> {
-        let _guard = self.acquire_lock(source_key).await?;
-        let chunk_ids = self.source_store.list_source_chunk_ids(source_key).await?;
-        self.source_index.delete_points(&chunk_ids).await?;
-        let deleted = self.source_store.delete_source(source_key).await?;
-        if !deleted {
-            return Err(DomainError::not_found(format!("unknown source {source_key}")).into());
-        }
-        self.reload_sources().await?;
-        Ok(())
+        let target = self.capture_source_index()?;
+        self.delete_source_with_target(None, source_key, &target)
+            .await
     }
 
     pub(crate) async fn upsert_source_connection_for_source(
@@ -536,6 +686,53 @@ mod task_source_delete {
             0,
             "the sync run is removed"
         );
+
+        // A rebuild barrier that is installed after the grant was captured but
+        // before the canonical delete refuses in the actual fenced delete
+        // transaction, so even a still-valid grant removes nothing.
+        let blocked_key = format!("p3d-source-blocked-{}", Uuid::new_v4());
+        sqlx::query_file!(
+            "tests/sql/task_execution/seed_source_config.sql",
+            group_id,
+            &blocked_key
+        )
+        .execute(db.pool())
+        .await
+        .expect("seed the blocked source");
+        service
+            .reload_sources()
+            .await
+            .expect("reload the blocked source");
+        let target = service
+            .capture_source_index()
+            .expect("capture the source deletion target");
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'running', rebuild_owner_item = $1 WHERE id = 1",
+        )
+        .bind(item_id)
+        .execute(db.pool())
+        .await
+        .expect("hold the rebuild barrier");
+        let refused = service
+            .delete_source_in_group_fenced_with_target(live, group_id, &blocked_key, &target)
+            .await;
+        assert!(
+            refused.is_err(),
+            "a live grant cannot delete a source while a rebuild owns the barrier"
+        );
+        assert_eq!(
+            count_source_configs(&db, group_id).await,
+            1,
+            "the blocked source survives the refused delete"
+        );
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL WHERE id = 1",
+        )
+        .execute(db.pool())
+        .await
+        .expect("release the rebuild barrier");
 
         cleanup(&db, group_id, task_id, user_id).await;
     }

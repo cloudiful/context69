@@ -45,7 +45,78 @@ pub struct SearchDatePointHit {
 pub struct QdrantIndex {
     client: Qdrant,
     collection_name: String,
+    endpoint: String,
     dimensions: usize,
+    noop: bool,
+}
+
+/// The exact physical Qdrant target a logical delete committed against.
+///
+/// The endpoint is private application configuration: the `Debug` rendering
+/// deliberately omits it so a log line cannot leak credentials embedded in the
+/// URL.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PurgeTarget {
+    pub(crate) endpoint: String,
+    pub(crate) collection: String,
+}
+
+impl std::fmt::Debug for PurgeTarget {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("PurgeTarget")
+            .field("collection", &self.collection)
+            .finish_non_exhaustive()
+    }
+}
+
+impl std::fmt::Debug for QdrantIndex {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("QdrantIndex")
+            .field("collection_name", &self.collection_name)
+            .field("dimensions", &self.dimensions)
+            .finish_non_exhaustive()
+    }
+}
+
+impl QdrantIndex {
+    pub fn collection_name(&self) -> &str {
+        &self.collection_name
+    }
+
+    pub(crate) fn purge_target(&self) -> PurgeTarget {
+        PurgeTarget {
+            endpoint: self.endpoint.clone(),
+            collection: self.collection_name.clone(),
+        }
+    }
+
+    /// Bind a client to one recorded physical purge target.
+    ///
+    /// This constructor performs no network I/O and no collection
+    /// create/ensure/upsert. It exists so a pending tombstone can retry the
+    /// exact endpoint and collection named at deletion time, never the current
+    /// desired settings.
+    pub(crate) fn for_recorded_target(endpoint: &str, collection: &str) -> Result<Self> {
+        let noop = {
+            #[cfg(any(test, feature = "integration-test-helpers"))]
+            {
+                collection == "test-noop"
+            }
+            #[cfg(not(any(test, feature = "integration-test-helpers")))]
+            {
+                false
+            }
+        };
+        Ok(Self {
+            client: Qdrant::from_url(endpoint).build()?,
+            collection_name: collection.to_string(),
+            endpoint: endpoint.to_string(),
+            dimensions: 0,
+            noop,
+        })
+    }
 }
 
 fn point_id_to_uuid(point_id: PointId) -> Result<Uuid> {

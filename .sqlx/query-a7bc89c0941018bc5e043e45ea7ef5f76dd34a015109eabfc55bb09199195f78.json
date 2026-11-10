@@ -1,0 +1,112 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Claim a bounded set of actionable tombstones for one purge pass.\n--\n-- Only known-origin, unpurged rows enter the attempt queue. The row lock plus\n-- SKIP LOCKED lets another worker claim a different set without waiting, and\n-- the attempt stamp commits with the claim, before any network call. An origin\n-- that fails or is unreachable therefore moves to the back of the ordering\n-- instead of blocking later known rows. Unknown origins are excluded and stay\n-- in the raw pending/reporting list.\nWITH claimed AS (\n    SELECT id\n    FROM context69.library_deleted_entities\n    WHERE purged_at IS NULL\n      AND target_endpoint IS NOT NULL\n      AND target_collection IS NOT NULL\n    ORDER BY COALESCE(last_purge_attempt_at, deleted_at), id\n    LIMIT $1\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE context69.library_deleted_entities entity\nSET last_purge_attempt_at = now()\nFROM claimed\nWHERE entity.id = claimed.id\nRETURNING\n    entity.id,\n    entity.file_id,\n    entity.document_id,\n    entity.group_id,\n    entity.target_endpoint,\n    entity.target_collection,\n    entity.deleted_at,\n    entity.purged_at\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "file_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "target_endpoint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "target_endpoint"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "target_collection",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "target_collection"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "deleted_at"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "purged_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.library_deleted_entities",
+            "name": "purged_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "a7bc89c0941018bc5e043e45ea7ef5f76dd34a015109eabfc55bb09199195f78"
+}

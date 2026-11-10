@@ -113,10 +113,6 @@ export const RUNTIME_SETTINGS: RuntimeSettingsFixture = {
   file_library: {
     storage_root: "/data/library",
     max_upload_size_mb: 128,
-    max_upload_request_size_mb: 128,
-    ingest_concurrency: 2,
-    url_import_concurrency: 2,
-    url_import_min_interval_ms: 1000,
     trusted_proxy_enabled: false,
     registry_max_ids_total: 32768,
     registry_max_ids_per_file: 16384,

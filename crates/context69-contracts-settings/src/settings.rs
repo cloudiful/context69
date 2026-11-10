@@ -6,10 +6,6 @@ use uuid::Uuid;
 
 use context69_contracts_search::SearchMode;
 
-pub use context69_contracts_core::embedding::{
-    EmbeddingInputPolicy, EmbeddingTokenizer, is_lower_sha256,
-};
-
 pub use context69_contracts_search::{SEARCH_KEYWORD_WEIGHT_DEFAULT, SEARCH_VECTOR_WEIGHT_DEFAULT};
 
 mod connection_tests;
@@ -230,12 +226,6 @@ pub struct RuntimeEmbeddingSettings {
     pub dimensions: usize,
     pub timeout_secs: u64,
     pub has_api_key: bool,
-    /// The manual limits of the embedding request planner.
-    #[serde(default)]
-    pub batching: EmbeddingBatchingSettings,
-    /// The explicit input-token envelope and server-added prefixes.
-    #[serde(default)]
-    pub input_policy: EmbeddingInputPolicy,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -257,12 +247,6 @@ pub struct UpdateRuntimeEmbeddingSettings {
     /// never stored as a runtime setting.
     #[serde(default)]
     pub confirm_vector_space_unchanged: bool,
-    /// The manual limits of the embedding request planner.
-    #[serde(default)]
-    pub batching: EmbeddingBatchingSettings,
-    /// The explicit input-token envelope and server-added prefixes.
-    #[serde(default)]
-    pub input_policy: EmbeddingInputPolicy,
 }
 
 /// The stored optional Git code embedding settings.
@@ -281,9 +265,6 @@ pub struct RuntimeCodeEmbeddingSettings {
     pub dimensions: usize,
     pub timeout_secs: u64,
     pub has_api_key: bool,
-    /// The manual limits of the code embedding request planner.
-    #[serde(default)]
-    pub batching: EmbeddingBatchingSettings,
 }
 
 /// The optional code embedding update.
@@ -303,57 +284,6 @@ pub struct UpdateCodeEmbeddingSettings {
     pub timeout_secs: u64,
     #[serde(default)]
     pub api_key: SecretPatch,
-    #[serde(default)]
-    pub batching: EmbeddingBatchingSettings,
-}
-
-/// The default number of inputs one embedding provider request may carry.
-pub const EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST_DEFAULT: usize = 32;
-/// The default number of characters one embedded input may have.
-pub const EMBEDDING_BATCH_MAX_ITEM_CHARS_DEFAULT: usize = 8_000;
-/// The default number of characters one embedding provider request may carry.
-pub const EMBEDDING_BATCH_MAX_REQUEST_CHARS_DEFAULT: usize = 64_000;
-/// The default number of serialized bytes one embedding provider request may
-/// carry.
-pub const EMBEDDING_BATCH_MAX_REQUEST_BYTES_DEFAULT: usize = 1_048_576;
-
-/// The manual limits of the embedding request planner.
-///
-/// They bound one provider request: how many inputs it may carry, how long one
-/// input may be, how long the whole request may be, and how many serialized
-/// bytes it may occupy. An advertised provider limit may only tighten them, so
-/// the effective limit is the smaller of the two.
-///
-/// Every value is positive and representable in a PostgreSQL BIGINT, because
-/// the settings row stores them there. A request that carries none keeps these
-/// defaults, so an older client never changes the planner's behavior.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
-#[serde(default)]
-pub struct EmbeddingBatchingSettings {
-    /// The maximum number of inputs one provider request may carry.
-    #[schema(maximum = 9_223_372_036_854_775_807i64)]
-    pub max_items_per_request: usize,
-    /// The maximum number of characters one input may have. An input that is
-    /// longer is refused, never split or shortened.
-    #[schema(maximum = 9_223_372_036_854_775_807i64)]
-    pub max_item_chars: usize,
-    /// The maximum number of characters one provider request may carry.
-    #[schema(maximum = 9_223_372_036_854_775_807i64)]
-    pub max_request_chars: usize,
-    /// The maximum number of serialized bytes one provider request may carry.
-    #[schema(maximum = 9_223_372_036_854_775_807i64)]
-    pub max_request_bytes: usize,
-}
-
-impl Default for EmbeddingBatchingSettings {
-    fn default() -> Self {
-        Self {
-            max_items_per_request: EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST_DEFAULT,
-            max_item_chars: EMBEDDING_BATCH_MAX_ITEM_CHARS_DEFAULT,
-            max_request_chars: EMBEDDING_BATCH_MAX_REQUEST_CHARS_DEFAULT,
-            max_request_bytes: EMBEDDING_BATCH_MAX_REQUEST_BYTES_DEFAULT,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -608,10 +538,6 @@ pub struct RuntimeChunkingSettings {
 pub struct RuntimeFileLibrarySettings {
     pub storage_root: String,
     pub max_upload_size_mb: usize,
-    pub max_upload_request_size_mb: usize,
-    pub ingest_concurrency: usize,
-    pub url_import_concurrency: usize,
-    pub url_import_min_interval_ms: u64,
     pub trusted_proxy_enabled: bool,
     /// The number of point ids the whole deployment may retain.
     pub registry_max_ids_total: i64,
@@ -627,10 +553,6 @@ pub struct RuntimeFileLibrarySettings {
 pub struct UpdateRuntimeFileLibrarySettings {
     pub storage_root: String,
     pub max_upload_size_mb: usize,
-    pub max_upload_request_size_mb: usize,
-    pub ingest_concurrency: usize,
-    pub url_import_concurrency: usize,
-    pub url_import_min_interval_ms: u64,
     #[serde(default)]
     pub trusted_proxy_enabled: bool,
     /// The number of point ids the whole deployment may retain.

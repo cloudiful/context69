@@ -9525,96 +9525,6 @@
           }
         ]
       },
-      "EmbeddingBatchingSettings": {
-        "type": "object",
-        "description": "The manual limits of the embedding request planner.\n\nThey bound one provider request: how many inputs it may carry, how long one\ninput may be, how long the whole request may be, and how many serialized\nbytes it may occupy. An advertised provider limit may only tighten them, so\nthe effective limit is the smaller of the two.\n\nEvery value is positive and representable in a PostgreSQL BIGINT, because\nthe settings row stores them there. A request that carries none keeps these\ndefaults, so an older client never changes the planner's behavior.",
-        "properties": {
-          "max_item_chars": {
-            "type": "integer",
-            "description": "The maximum number of characters one input may have. An input that is\nlonger is refused, never split or shortened.",
-            "default": 8000,
-            "maximum": 9223372036854775807,
-            "minimum": 0
-          },
-          "max_items_per_request": {
-            "type": "integer",
-            "description": "The maximum number of inputs one provider request may carry.",
-            "default": 32,
-            "maximum": 9223372036854775807,
-            "minimum": 0
-          },
-          "max_request_bytes": {
-            "type": "integer",
-            "description": "The maximum number of serialized bytes one provider request may carry.",
-            "default": 1048576,
-            "maximum": 9223372036854775807,
-            "minimum": 0
-          },
-          "max_request_chars": {
-            "type": "integer",
-            "description": "The maximum number of characters one provider request may carry.",
-            "default": 64000,
-            "maximum": 9223372036854775807,
-            "minimum": 0
-          }
-        }
-      },
-      "EmbeddingInputPolicy": {
-        "type": "object",
-        "description": "The exact input-token envelope and server-added prefixes of one provider.\n\n`max_input_tokens = None` disables the guard while keeping the policy\nserialized and versioned. The prefixes are counted only; they are never\nsent to the provider, trimmed, normalized or separated from the input.",
-        "properties": {
-          "add_special_tokens": {
-            "type": "boolean",
-            "description": "Whether the tokenizer adds its special tokens when it counts.",
-            "default": false
-          },
-          "document_server_prefix": {
-            "type": "string",
-            "description": "Text the provider prepends to every document input before tokenizing.",
-            "default": ""
-          },
-          "max_input_tokens": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "description": "The full input-token cap. `None` disables the guard.",
-            "default": null,
-            "minimum": 0
-          },
-          "query_server_prefix": {
-            "type": "string",
-            "description": "Text the provider prepends to every query input before tokenizing.",
-            "default": ""
-          },
-          "tokenizer": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/EmbeddingTokenizer",
-                "description": "Tokenizer that measures the envelope."
-              }
-            ],
-            "default": "cl100k_base"
-          },
-          "tokenizer_sha256": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "The pinned local artifact hash. Present exactly for `hf_local`.",
-            "default": null
-          }
-        }
-      },
-      "EmbeddingTokenizer": {
-        "type": "string",
-        "description": "Tokenizer that measures the embedding input envelope.\n\nIt is separate from the chunking tokenizer: an operator may chunk with one\nvocabulary and count the provider input with another.",
-        "enum": [
-          "cl100k_base",
-          "o200k_base",
-          "hf_local"
-        ]
-      },
       "EnsureScopeResponse": {
         "type": "object",
         "required": [
@@ -12781,10 +12691,6 @@
           "base_url": {
             "type": "string"
           },
-          "batching": {
-            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
-            "description": "The manual limits of the code embedding request planner."
-          },
           "dimensions": {
             "type": "integer",
             "minimum": 0
@@ -12825,20 +12731,12 @@
           "base_url": {
             "type": "string"
           },
-          "batching": {
-            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
-            "description": "The manual limits of the embedding request planner."
-          },
           "dimensions": {
             "type": "integer",
             "minimum": 0
           },
           "has_api_key": {
             "type": "boolean"
-          },
-          "input_policy": {
-            "$ref": "#/components/schemas/EmbeddingInputPolicy",
-            "description": "The explicit input-token envelope and server-added prefixes."
           },
           "model": {
             "type": "string",
@@ -12863,24 +12761,12 @@
         "required": [
           "storage_root",
           "max_upload_size_mb",
-          "max_upload_request_size_mb",
-          "ingest_concurrency",
-          "url_import_concurrency",
-          "url_import_min_interval_ms",
           "trusted_proxy_enabled",
           "registry_max_ids_total",
           "registry_max_ids_per_file",
           "registry_max_ids_per_run"
         ],
         "properties": {
-          "ingest_concurrency": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "max_upload_request_size_mb": {
-            "type": "integer",
-            "minimum": 0
-          },
           "max_upload_size_mb": {
             "type": "integer",
             "minimum": 0
@@ -12915,15 +12801,6 @@
           },
           "trusted_proxy_enabled": {
             "type": "boolean"
-          },
-          "url_import_concurrency": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "url_import_min_interval_ms": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
           }
         }
       },
@@ -16280,9 +16157,6 @@
           "base_url": {
             "type": "string"
           },
-          "batching": {
-            "$ref": "#/components/schemas/EmbeddingBatchingSettings"
-          },
           "dimensions": {
             "type": "integer",
             "minimum": 0
@@ -16484,10 +16358,6 @@
           "base_url": {
             "type": "string"
           },
-          "batching": {
-            "$ref": "#/components/schemas/EmbeddingBatchingSettings",
-            "description": "The manual limits of the embedding request planner."
-          },
           "confirm_vector_space_unchanged": {
             "type": "boolean",
             "description": "Operator assertion that a changed gateway/model alias still produces the\nsame vector space, so existing vectors may be kept. Transient: it is\nnever stored as a runtime setting."
@@ -16495,10 +16365,6 @@
           "dimensions": {
             "type": "integer",
             "minimum": 0
-          },
-          "input_policy": {
-            "$ref": "#/components/schemas/EmbeddingInputPolicy",
-            "description": "The explicit input-token envelope and server-added prefixes."
           },
           "model": {
             "type": "string",
@@ -16522,21 +16388,9 @@
         "type": "object",
         "required": [
           "storage_root",
-          "max_upload_size_mb",
-          "max_upload_request_size_mb",
-          "ingest_concurrency",
-          "url_import_concurrency",
-          "url_import_min_interval_ms"
+          "max_upload_size_mb"
         ],
         "properties": {
-          "ingest_concurrency": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "max_upload_request_size_mb": {
-            "type": "integer",
-            "minimum": 0
-          },
           "max_upload_size_mb": {
             "type": "integer",
             "minimum": 0
@@ -16580,15 +16434,6 @@
           },
           "trusted_proxy_enabled": {
             "type": "boolean"
-          },
-          "url_import_concurrency": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "url_import_min_interval_ms": {
-            "type": "integer",
-            "format": "int64",
-            "minimum": 0
           }
         }
       },

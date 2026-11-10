@@ -24,13 +24,21 @@
 use context69::chunking::{ChunkingConfig, chunk_document};
 use context69::services::library::{
     IndexingCheckpoint, PIPELINE_PROGRESS_KEY, PipelineProgress, PipelineProgressStage,
-    parse_indexing_checkpoint, parse_pipeline_progress, payload_with_checkpoint,
-    payload_with_progress,
+    checkpoint_target_identity, parse_indexing_checkpoint, parse_pipeline_progress,
+    payload_with_checkpoint, payload_with_progress,
 };
 use serde_json::json;
 use uuid::Uuid;
 
+#[cfg(feature = "integration-test-helpers")]
+#[path = "replacement_runner/qdrant_points_mock.rs"]
+mod qdrant_points_mock;
+
 // ---------- Deterministic chunk ID tests ----------
+
+fn checkpoint_target() -> String {
+    checkpoint_target_identity("test-collection", None)
+}
 
 fn normalized_document(
     external_id: &str,
@@ -159,7 +167,8 @@ fn payload_with_checkpoint_preserves_other_keys() {
         "file_id": "abc",
         "user_supplied_key": {"foo": "bar"}
     });
-    let checkpoint = IndexingCheckpoint::reset("hash".into(), 4, "chars:100:0".into());
+    let checkpoint =
+        IndexingCheckpoint::reset("hash".into(), 4, "chars:100:0".into(), checkpoint_target());
     let next = payload_with_checkpoint(&payload, &checkpoint).expect("advance");
     assert_eq!(
         next.get("section_payload")
@@ -243,6 +252,7 @@ fn progress_and_checkpoint_are_independent_siblings_of_the_payload() {
         total_batches: Some(16),
         record_hash: Some("hash".into()),
         budget_identity: Some("chars:100:0".into()),
+        target_identity: Some(checkpoint_target()),
     };
     let batch_progress = PipelineProgress::new(1, PipelineProgressStage::Indexing)
         .with_batch_counters(32, 512, 1, 16)
@@ -314,6 +324,7 @@ fn payload_with_checkpoint_first_write_of_zero_next_no_regression_check() {
         total_batches: Some(5),
         record_hash: Some("hash".into()),
         budget_identity: Some("chars:100:0".into()),
+        target_identity: Some(checkpoint_target()),
     };
     let next = payload_with_checkpoint(&payload, &checkpoint).expect("first write ok");
     assert_eq!(
@@ -389,13 +400,15 @@ fn old_payload_compatibility_garbage_value_treated_as_default() {
 
 #[cfg(feature = "integration-test-helpers")]
 mod integration {
+    use super::qdrant_points_mock::QdrantPointsMock;
+    use super::{checkpoint_target, checkpoint_target_identity};
     use anyhow::Result;
     use async_trait::async_trait;
     use chrono::Utc;
     use context69::chunking::{ChunkBudget, ChunkingConfig};
     use context69::config::FileLibraryConfig;
     use context69::db::Database;
-    use context69::domain::SourceRecord;
+    use context69::domain::{DocumentChunk, SourceRecord};
     use context69::embedding::EmbeddingProvider;
     use context69::normalize::normalize_record;
     use context69::qdrant_index::QdrantIndex;
@@ -508,10 +521,6 @@ mod integration {
                 file_library: FileLibraryConfig {
                     storage_root: storage_root.clone(),
                     max_upload_size_mb: 1,
-                    max_upload_request_size_mb: 1,
-                    ingest_concurrency: 1,
-                    url_import_concurrency: 1,
-                    url_import_min_interval_ms: 1000,
                     trusted_proxy_enabled: false,
                     s3: None,
                 },
@@ -795,6 +804,7 @@ mod integration {
             total_batches: Some(33),
             record_hash: Some(sample_prepared_record_hash(file_id)),
             budget_identity: Some(chars_budget().identity()),
+            target_identity: Some(checkpoint_target()),
         };
         let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &checkpoint)
             .expect("complete checkpoint");
@@ -867,6 +877,7 @@ mod integration {
             total_batches: Some(33),
             record_hash: Some(sample_prepared_record_hash(file_id)),
             budget_identity: Some("tokens:o200k_base:8:1".to_string()),
+            target_identity: Some(checkpoint_target()),
         };
         let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &foreign)
             .expect("foreign checkpoint");
@@ -890,5 +901,670 @@ mod integration {
 
         cleanup_group(&db, group.id).await;
         let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    /// A checkpoint whose captured physical/embedding target differs from the
+    /// current one restarts from batch 0. The hash and budget still match, so
+    /// only the target comparison proves the batches belong to another
+    /// collection generation.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_checkpoint_from_another_target_restarts_instead_of_skipping() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let qdrant =
+            QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4).unwrap();
+        let embedding = Arc::new(EmbeddingSpy::default());
+        let (service, storage_root) =
+            build_library_service_with_qdrant(&db, embedding, qdrant).await;
+        let group = seed_group_record(&db).await;
+        let file_id = seed_text_file(&db, &storage_root, &group).await;
+
+        let sections = sample_section_payload();
+        let (item_id, lease_token) = seed_claimed_item(&db, group.id).await;
+        let foreign = IndexingCheckpoint {
+            v: 1,
+            next_batch_index: 33,
+            total_batches: Some(33),
+            record_hash: Some(sample_prepared_record_hash(file_id)),
+            budget_identity: Some(chars_budget().identity()),
+            target_identity: Some(checkpoint_target_identity("other-collection", None)),
+        };
+        let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &foreign)
+            .expect("foreign checkpoint");
+
+        let error = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect_err("a target mismatch must restart and reach cleanup");
+        assert!(
+            error.to_string().to_ascii_lowercase().contains("qdrant"),
+            "the mismatched target must restart, not finalize: {error}"
+        );
+
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    /// A legacy v1 checkpoint without a target digest is unproven, so it also
+    /// restarts instead of trusting batches from an unknown generation.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_legacy_checkpoint_without_a_target_restarts_instead_of_skipping() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let qdrant =
+            QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4).unwrap();
+        let embedding = Arc::new(EmbeddingSpy::default());
+        let (service, storage_root) =
+            build_library_service_with_qdrant(&db, embedding, qdrant).await;
+        let group = seed_group_record(&db).await;
+        let file_id = seed_text_file(&db, &storage_root, &group).await;
+
+        let sections = sample_section_payload();
+        let (item_id, lease_token) = seed_claimed_item(&db, group.id).await;
+        let legacy = IndexingCheckpoint {
+            v: 1,
+            next_batch_index: 33,
+            total_batches: Some(33),
+            record_hash: Some(sample_prepared_record_hash(file_id)),
+            budget_identity: Some(chars_budget().identity()),
+            target_identity: None,
+        };
+        let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &legacy)
+            .expect("legacy checkpoint");
+
+        let error = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect_err("a legacy checkpoint must restart and reach cleanup");
+        assert!(
+            error.to_string().to_ascii_lowercase().contains("qdrant"),
+            "the legacy checkpoint must restart, not finalize: {error}"
+        );
+
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(storage_root);
+    }
+
+    /// A primary-key conflict is only idempotent when the stored row is the
+    /// same chunk. An identical replay verifies, while a chunk id whose text
+    /// changed refuses instead of mixing two segmentations.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn an_idempotent_replay_is_verified_and_a_mixed_batch_is_refused() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let group = seed_group_record(&db).await;
+        let document_id: i64 = sqlx::query_scalar(
+            "INSERT INTO context69.documents \
+             (source_key, external_id, title, source_uri, updated_at_source, record_hash, \
+              group_id, visibility) \
+             VALUES ($1, $2, $3, $4, now(), $5, $6, 'public') RETURNING id",
+        )
+        .bind(format!("p6-bulk-{}", Uuid::new_v4()))
+        .bind(format!("p6-bulk-{}", Uuid::new_v4()))
+        .bind("P6 bulk replay")
+        .bind("context69://test")
+        .bind("hash-a")
+        .bind(group.id)
+        .fetch_one(db.pool())
+        .await
+        .expect("seed bulk document");
+
+        let hash = "hash-a";
+        let batch = vec![
+            DocumentChunk {
+                id: Uuid::new_v4(),
+                document_id,
+                chunk_index: 0,
+                text: "alpha".into(),
+                record_hash: hash.into(),
+            },
+            DocumentChunk {
+                id: Uuid::new_v4(),
+                document_id,
+                chunk_index: 1,
+                text: "beta".into(),
+                record_hash: hash.into(),
+            },
+        ];
+
+        let mut tx = db.pool().begin().await.expect("begin");
+        db.insert_document_chunks_in(&mut tx, document_id, hash, &batch)
+            .await
+            .expect("insert the batch");
+        db.verify_document_chunk_batch_in(&mut tx, document_id, &batch)
+            .await
+            .expect("the inserted batch verifies");
+        db.insert_document_chunks_in(&mut tx, document_id, hash, &batch)
+            .await
+            .expect("an identical replay is idempotent");
+        db.verify_document_chunk_batch_in(&mut tx, document_id, &batch)
+            .await
+            .expect("the replayed batch still verifies");
+        tx.commit().await.expect("commit");
+
+        let conflicting = vec![DocumentChunk {
+            id: batch[0].id,
+            document_id,
+            chunk_index: 0,
+            text: "changed".into(),
+            record_hash: hash.into(),
+        }];
+        let mut tx = db.pool().begin().await.expect("begin");
+        db.insert_document_chunks_in(&mut tx, document_id, hash, &conflicting)
+            .await
+            .expect("the conflict leaves the stored row untouched");
+        let error = db
+            .verify_document_chunk_batch_in(&mut tx, document_id, &conflicting)
+            .await
+            .expect_err("a mixed batch must refuse");
+        assert!(
+            error.to_string().contains("does not match"),
+            "the mismatch must be reported: {error}"
+        );
+        tx.rollback().await.expect("rollback");
+
+        sqlx::query("DELETE FROM context69.documents WHERE id = $1")
+            .bind(document_id)
+            .execute(db.pool())
+            .await
+            .expect("remove the bulk document");
+        cleanup_group(&db, group.id).await;
+    }
+
+    /// A complete checkpoint from collection A is unproven after activation
+    /// switches to collection B. The run restarts from batch 0, re-ingests the
+    /// exact segmentation and mappings, and leaves no duplicate chunk ids.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_checkpoint_target_switch_reingests_the_whole_file() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let group = seed_group_record(&db).await;
+        let sections = sample_section_payload();
+        let (item_id, lease_token) = seed_claimed_item(&db, group.id).await;
+        let (service_a, storage_root_a) = build_library_service_with_qdrant(
+            &db,
+            Arc::new(EmbeddingSpy::default()),
+            QdrantIndex::for_test_noop("test-collection-a", 4).expect("index A"),
+        )
+        .await;
+        let file_id = seed_text_file(&db, &storage_root_a, &group).await;
+        let first = service_a
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &json!({"section_payload": sections}),
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect("the first ingest commits into collection A");
+        let target_a = checkpoint_target_identity("test-collection-a", None);
+        assert_eq!(
+            parse_indexing_checkpoint(&first).target_identity.as_deref(),
+            Some(target_a.as_str())
+        );
+        sqlx::query("UPDATE context69.library_files SET ingest_status = 'failed' WHERE id = $1")
+            .bind(file_id)
+            .execute(db.pool())
+            .await
+            .expect("model the failed retry that keeps the checkpoint");
+
+        let (service_b, storage_root_b) = build_library_service_with_qdrant(
+            &db,
+            Arc::new(EmbeddingSpy::default()),
+            QdrantIndex::for_test_noop("test-collection-b", 4).expect("index B"),
+        )
+        .await;
+        let complete_a = IndexingCheckpoint {
+            v: 1,
+            next_batch_index: 33,
+            total_batches: Some(33),
+            record_hash: Some(sample_prepared_record_hash(file_id)),
+            budget_identity: Some(chars_budget().identity()),
+            target_identity: Some(checkpoint_target_identity("test-collection-a", None)),
+        };
+        let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &complete_a)
+            .expect("complete collection-A checkpoint");
+
+        let result = service_b
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect("the target switch restarts and re-ingests");
+        let checkpoint = parse_indexing_checkpoint(&result);
+        assert_eq!(checkpoint.next_batch_index, 33);
+        let target_b = checkpoint_target_identity("test-collection-b", None);
+        assert_eq!(
+            checkpoint.target_identity.as_deref(),
+            Some(target_b.as_str()),
+            "the committed checkpoint names the new collection"
+        );
+
+        let mappings: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM context69.library_file_documents WHERE file_id = $1",
+        )
+        .bind(file_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count mappings");
+        assert_eq!(mappings, 33, "every section is mapped again exactly once");
+        let section_keys: Vec<String> = sqlx::query_scalar(
+            "SELECT section_key FROM context69.library_file_documents \
+             WHERE file_id = $1 ORDER BY sort_order",
+        )
+        .bind(file_id)
+        .fetch_all(db.pool())
+        .await
+        .expect("read section keys");
+        for index in 0..33 {
+            assert_eq!(section_keys[index], format!("section-{index}"));
+        }
+        let (chunks, distinct_chunks): (i64, i64) = sqlx::query_as(
+            "SELECT count(*), count(DISTINCT chunk.id) \
+             FROM context69.document_chunks chunk \
+             JOIN context69.library_file_documents mapping \
+               ON mapping.document_id = chunk.document_id \
+             WHERE mapping.file_id = $1",
+        )
+        .bind(file_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count chunks");
+        assert_eq!(chunks, 33, "the exact one-chunk segmentation is rebuilt");
+        assert_eq!(
+            distinct_chunks, chunks,
+            "a re-ingest never duplicates a chunk id"
+        );
+
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(&storage_root_a);
+        let _ = std::fs::remove_dir_all(&storage_root_b);
+    }
+
+    /// A partial identical bulk replay fills the missing rows and advances the
+    /// actual checkpoint; conflicting content refuses before advancing or
+    /// publishing a vector.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_partial_replay_fills_rows_and_a_conflict_stops_the_checkpoint() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let qdrant =
+            QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4).unwrap();
+        let embedding = Arc::new(EmbeddingSpy::default());
+        let (service, storage_root) =
+            build_library_service_with_qdrant(&db, embedding, qdrant).await;
+        let group = seed_group_record(&db).await;
+        let file_id = seed_text_file(&db, &storage_root, &group).await;
+        let sections = sample_section_payload();
+        let (item_id, lease_token) = seed_claimed_item(&db, group.id).await;
+        // A clean first ingest needs a reachable target. The noop lane only
+        // bypasses the network for the test collection, so use it here.
+        let (noop_service, noop_storage) = build_library_service_with_qdrant(
+            &db,
+            Arc::new(EmbeddingSpy::default()),
+            QdrantIndex::for_test_noop("test-collection", 4).expect("noop index"),
+        )
+        .await;
+        noop_service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &json!({"section_payload": sections}),
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect("the seed ingest commits the full segmentation");
+
+        let section_four: i64 = sqlx::query_scalar(
+            "SELECT document_id FROM context69.library_file_documents \
+             WHERE file_id = $1 AND section_key = 'section-4'",
+        )
+        .bind(file_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the resumed document");
+        sqlx::query("UPDATE context69.library_files SET ingest_status = 'failed' WHERE id = $1")
+            .bind(file_id)
+            .execute(db.pool())
+            .await
+            .expect("model the failed retry that keeps the checkpoint");
+        sqlx::query(
+            "DELETE FROM context69.document_chunks \
+             WHERE document_id = $1 AND chunk_index = 0",
+        )
+        .bind(section_four)
+        .execute(db.pool())
+        .await
+        .expect("remove one row of the resumed batch");
+
+        let checkpoint = IndexingCheckpoint {
+            v: 1,
+            next_batch_index: 4,
+            total_batches: Some(33),
+            record_hash: Some(sample_prepared_record_hash(file_id)),
+            budget_identity: Some(chars_budget().identity()),
+            target_identity: Some(checkpoint_target()),
+        };
+        let payload = payload_with_checkpoint(&json!({"section_payload": sections}), &checkpoint)
+            .expect("partial checkpoint");
+        let result = noop_service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect("the identical replay fills the missing row and advances");
+        assert_eq!(
+            parse_indexing_checkpoint(&result).next_batch_index,
+            33,
+            "the replay advances the actual checkpoint"
+        );
+        let refilled: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM context69.document_chunks \
+             WHERE document_id = $1 AND chunk_index = 0",
+        )
+        .bind(section_four)
+        .fetch_one(db.pool())
+        .await
+        .expect("count the refilled chunk");
+        assert_eq!(refilled, 1, "the missing identical row is filled");
+
+        // Conflicting content in the first resumed batch refuses before the
+        // vector upsert. The stored task payload is reset to the checkpointed
+        // state the retry starts from, so the comparison proves the conflict
+        // writes no checkpoint advance.
+        sqlx::query("UPDATE context69.task_items SET payload = $2 WHERE id = $1")
+            .bind(item_id)
+            .bind(&payload)
+            .execute(db.pool())
+            .await
+            .expect("restore the checkpointed retry payload");
+        let stored_before: Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(item_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the stored task payload before the conflict");
+        sqlx::query(
+            "UPDATE context69.document_chunks SET chunk_text = 'conflicting text' \
+             WHERE document_id = $1 AND chunk_index = 0",
+        )
+        .bind(section_four)
+        .execute(db.pool())
+        .await
+        .expect("conflict with the persisted batch");
+        let error = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect_err("the conflicting replay refuses");
+        assert!(
+            error.to_string().contains("checkpoint cannot advance"),
+            "the conflict must be a chunk mismatch, not a vector publish: {error}"
+        );
+        let stored_payload: Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(item_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the stored task payload");
+        assert_eq!(
+            parse_indexing_checkpoint(&stored_before).next_batch_index,
+            4,
+            "the conflicting retry starts from the checkpointed state"
+        );
+        assert_eq!(
+            parse_indexing_checkpoint(&stored_payload).next_batch_index,
+            4,
+            "the conflicting batch writes no checkpoint advance"
+        );
+
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(&noop_storage);
+        let _ = std::fs::remove_dir_all(&storage_root);
+    }
+
+    /// One bulk batch of two chunks replays with one persisted row and one
+    /// missing row: the missing identical row is inserted, both ids travel in
+    /// one observable upsert and the checkpoint advances exactly once. A
+    /// conflicting row in the same mixed batch refuses before any upsert and
+    /// leaves the checkpoint and the missing row unchanged.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_mixed_single_bulk_replay_is_verified_and_a_conflict_rolls_back() {
+        let (_guard, db) = prepare_isolated_db().await;
+        let mock = QdrantPointsMock::start().await;
+        let qdrant = QdrantIndex::for_test_unreachable(mock.url(), "checkpoint-mixed", 4).unwrap();
+        let embedding = Arc::new(EmbeddingSpy::default());
+        let (service, storage_root) =
+            build_library_service_with_qdrant(&db, embedding, qdrant).await;
+        let group = seed_group_record(&db).await;
+        let file_id = seed_text_file(&db, &storage_root, &group).await;
+        let long_body = "abcdefghij".repeat(30);
+        let sections = json!([
+            {
+                "section_key": "section-0",
+                "section_label": "Section 0",
+                "title": "mixed.txt / Section 0",
+                "summary": null,
+                "body_text": "short first section",
+                "source_uri": null,
+                "external_id": null,
+                "published_at": null,
+                "metadata_json": {}
+            },
+            {
+                "section_key": "section-1",
+                "section_label": "Section 1",
+                "title": "mixed.txt / Section 1",
+                "summary": null,
+                "body_text": long_body,
+                "source_uri": null,
+                "external_id": null,
+                "published_at": null,
+                "metadata_json": {}
+            }
+        ]);
+        let (item_id, lease_token) = seed_claimed_item(&db, group.id).await;
+        let current = json!({"section_payload": sections});
+        let first = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &current,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect("the seed ingest commits both sections");
+        let mut checkpoint = parse_indexing_checkpoint(&first);
+        assert_eq!(checkpoint.next_batch_index, 2, "both batches committed");
+
+        let document_id: i64 = sqlx::query_scalar(
+            "SELECT document_id FROM context69.library_file_documents \
+             WHERE file_id = $1 AND section_key = 'section-1'",
+        )
+        .bind(file_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the long section document");
+        let chunk_ids: Vec<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM context69.document_chunks \
+             WHERE document_id = $1 ORDER BY chunk_index",
+        )
+        .bind(document_id)
+        .fetch_all(db.pool())
+        .await
+        .expect("read the long section chunks");
+        assert_eq!(
+            chunk_ids.len(),
+            2,
+            "the long section is one two-chunk batch"
+        );
+
+        // Resume at the long section's batch. Keep chunk 0 and remove chunk 1,
+        // so the replay sees one identical persisted row and one missing row.
+        checkpoint.next_batch_index = 1;
+        let replay_payload =
+            payload_with_checkpoint(&current, &checkpoint).expect("the mixed replay checkpoint");
+        sqlx::query("DELETE FROM context69.document_chunks WHERE id = $1")
+            .bind(chunk_ids[1])
+            .execute(db.pool())
+            .await
+            .expect("remove one row of the mixed batch");
+        sqlx::query("UPDATE context69.library_files SET ingest_status = 'failed' WHERE id = $1")
+            .bind(file_id)
+            .execute(db.pool())
+            .await
+            .expect("model the failed retry that keeps the checkpoint");
+        let upserts_before = mock.upsert_calls().len();
+        let replayed = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &replay_payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect("the mixed replay inserts the missing row");
+        assert_eq!(
+            parse_indexing_checkpoint(&replayed).next_batch_index,
+            2,
+            "the mixed batch advances the checkpoint once"
+        );
+        let refilled: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM context69.document_chunks WHERE id = $1")
+                .bind(chunk_ids[1])
+                .fetch_one(db.pool())
+                .await
+                .expect("count the refilled row");
+        assert_eq!(refilled, 1, "the missing identical row is inserted");
+        let upserts_after_replay = mock.upsert_calls();
+        assert_eq!(
+            upserts_after_replay.len(),
+            upserts_before + 1,
+            "the verified mixed batch performs exactly one bulk upsert"
+        );
+        let mut sent: Vec<String> = upserts_after_replay
+            .last()
+            .expect("the mixed batch upsert")
+            .point_ids
+            .clone();
+        sent.sort();
+        let mut expected: Vec<String> = chunk_ids.iter().map(ToString::to_string).collect();
+        expected.sort();
+        assert_eq!(sent, expected, "one bulk upsert carries both chunk ids");
+
+        // Conflict variant: the same mixed batch has the persisted row mutated
+        // while the other row is absent. Nothing is upserted and the checkpoint
+        // stays behind.
+        sqlx::query("DELETE FROM context69.document_chunks WHERE id = $1")
+            .bind(chunk_ids[1])
+            .execute(db.pool())
+            .await
+            .expect("remove the missing row again");
+        sqlx::query(
+            "UPDATE context69.document_chunks SET chunk_text = 'conflicting text' WHERE id = $1",
+        )
+        .bind(chunk_ids[0])
+        .execute(db.pool())
+        .await
+        .expect("conflict with the persisted row");
+        let conflict_payload = payload_with_checkpoint(&current, &checkpoint)
+            .expect("the conflicting replay checkpoint");
+        sqlx::query("UPDATE context69.task_items SET payload = $2 WHERE id = $1")
+            .bind(item_id)
+            .bind(&conflict_payload)
+            .execute(db.pool())
+            .await
+            .expect("store the conflicting retry payload");
+        let upserts_before_conflict = mock.upsert_calls().len();
+        let error = service
+            .persist_file_sections_for_task_with_checkpoint(
+                file_id,
+                &sections,
+                item_id,
+                lease_token,
+                &conflict_payload,
+                1,
+                &chars_budget(),
+            )
+            .await
+            .expect_err("the conflicting mixed batch refuses");
+        assert!(
+            error.to_string().contains("checkpoint cannot advance"),
+            "the conflict is a chunk mismatch, not a vector publish: {error}"
+        );
+        assert_eq!(
+            mock.upsert_calls().len(),
+            upserts_before_conflict,
+            "the conflicting batch publishes no vector"
+        );
+        let missing_after: i64 =
+            sqlx::query_scalar("SELECT count(*) FROM context69.document_chunks WHERE id = $1")
+                .bind(chunk_ids[1])
+                .fetch_one(db.pool())
+                .await
+                .expect("count the missing row after the conflict");
+        assert_eq!(missing_after, 0, "the missing row is not filled");
+        let stored_payload: Value =
+            sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")
+                .bind(item_id)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the stored retry payload");
+        assert_eq!(
+            parse_indexing_checkpoint(&stored_payload).next_batch_index,
+            1,
+            "the conflicting batch writes no checkpoint advance"
+        );
+
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(&storage_root);
     }
 }

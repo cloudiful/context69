@@ -306,7 +306,6 @@ pub fn pinned_budget(max_chars: usize, overlap_chars: usize) -> TranslationChunk
         tokenizer: TranslationChunkingTokenizer::Cl100kBase,
         max_tokens: 0,
         overlap_tokens: 0,
-        input_policy: None,
     }
 }
 

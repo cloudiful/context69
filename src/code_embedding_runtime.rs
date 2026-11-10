@@ -21,10 +21,9 @@ use crate::{
 
 /// The versioned code-specific input policy identity.
 ///
-/// P1 has no configurable code token cap, server prefix, or special-token
-/// switch: code inputs are sent exactly as chunked. The explicit marker keeps
-/// that decision inside the vector identity, so introducing a policy later
-/// changes the fingerprint instead of silently reusing same-space vectors.
+/// Code inputs are sent exactly as chunked, with no token cap, server prefix,
+/// or special-token switch. This explicit marker keeps that fixed decision
+/// inside the vector identity so code and document spaces never collide.
 pub const CODE_INPUT_POLICY_IDENTITY: &str =
     "code-input-policy-v1:no-token-cap:no-server-prefix:no-special-tokens";
 
@@ -132,8 +131,6 @@ pub fn code_embedding_fingerprint(config: &EmbeddingConfig) -> String {
 mod tests {
     use std::time::Duration;
 
-    use context69_contracts::settings::EmbeddingBatchingSettings;
-
     use super::{CodeEmbeddingRuntime, code_embedding_fingerprint};
 
     fn config() -> crate::config::EmbeddingConfig {
@@ -144,18 +141,15 @@ mod tests {
             query_model: Some("code-query".to_string()),
             dimensions: 1024,
             timeout: Duration::from_secs(30),
-            batching: EmbeddingBatchingSettings::default(),
-            input_policy: Default::default(),
         }
     }
 
     #[test]
-    fn fingerprint_ignores_credentials_timeouts_and_batching() {
+    fn fingerprint_ignores_credentials_and_timeouts() {
         let base = config();
         let mut changed = config();
         changed.api_key = Some("another-key".to_string());
         changed.timeout = Duration::from_secs(90);
-        changed.batching.max_items_per_request = 4;
         assert_eq!(
             code_embedding_fingerprint(&base),
             code_embedding_fingerprint(&changed)

@@ -10,14 +10,14 @@ impl LibraryService {
         file: &crate::domain::LibraryFileRecord,
         sections: Vec<PreparedIngestSection>,
     ) -> IngestResult<()> {
-        let runtime = self
-            .runtime()
-            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?
-            .clone();
+        let (runtime, identity) = self
+            .captured_runtime()
+            .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Other, error))?;
         // Cleanup must run before any new embedding or document work so a retry
         // after a partial ingest does not leak orphan points and so a Qdrant
-        // failure never triggers the embedding provider.
-        self.cleanup_ingest_artifacts(file.id)
+        // failure never triggers the embedding provider. It works on the same
+        // captured target as the rest of this attempt.
+        self.cleanup_ingest_artifacts(file.id, &runtime, identity.as_ref())
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Storage, error))?;
 
@@ -49,14 +49,37 @@ impl LibraryService {
                 },
                 &normalized.body_text,
             );
-            let upserted = self
-                .db
-                .upsert_document(&seed_payload)
-                .await
-                .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+            let upserted = {
+                let mut tx = self.db.pool().begin().await.map_err(|error| {
+                    IngestFailure::new(LibraryIngestFailureStage::Indexing, error)
+                })?;
+                self.db
+                    .require_idle_admissible_vector_identity_in(&mut tx, identity.as_ref())
+                    .await
+                    .map_err(|error| {
+                        IngestFailure::new(LibraryIngestFailureStage::Indexing, error)
+                    })?;
+                let upserted = self
+                    .db
+                    .upsert_document_in(&mut tx, &seed_payload)
+                    .await
+                    .map_err(|error| {
+                        IngestFailure::new(LibraryIngestFailureStage::Indexing, error)
+                    })?;
+                tx.commit().await.map_err(|error| {
+                    IngestFailure::new(LibraryIngestFailureStage::Indexing, error)
+                })?;
+                upserted
+            };
             drop(seed_payload);
             let (chunk_count, embedding_batch_count) = self
-                .persist_document_chunks(file, &normalized, upserted.document_id, &runtime)
+                .persist_document_chunks(
+                    file,
+                    &normalized,
+                    upserted.document_id,
+                    &runtime,
+                    identity.clone(),
+                )
                 .await?;
             info!(
                 file_id = %file.id,
@@ -83,10 +106,26 @@ impl LibraryService {
             });
         }
 
-        self.store
-            .replace_file_documents(file.id, &mappings)
+        let updated = self
+            .store
+            .replace_file_documents_and_status(
+                file.id,
+                &mappings,
+                crate::contracts::LibraryIngestStatus::Succeeded,
+                None,
+                true,
+                identity.as_ref(),
+            )
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;
+        if !updated {
+            return Err(IngestFailure::new(
+                LibraryIngestFailureStage::Indexing,
+                crate::domain_errors::DomainError::not_found(
+                    "file disappeared while finalizing task ingest",
+                ),
+            ));
+        }
         self.bump_search_generation("library ingest")
             .await
             .map_err(|error| IngestFailure::new(LibraryIngestFailureStage::Indexing, error))?;

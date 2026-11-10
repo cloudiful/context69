@@ -48,42 +48,6 @@ export function FileLibraryBlock() {
             draft.file_library.max_upload_size_mb = value;
           })}
         />
-        <NumberField
-          id="runtime-file-library-max-request"
-          label={t("settings.runtime.fileLibraryMaxRequestSize")}
-          min={1}
-          value={library.max_upload_request_size_mb}
-          onChange={(value) => updateRuntimeDraft((draft) => {
-            draft.file_library.max_upload_request_size_mb = value;
-          })}
-        />
-        <NumberField
-          id="runtime-file-library-concurrency"
-          label={t("settings.runtime.fileLibraryConcurrency")}
-          min={1}
-          value={library.ingest_concurrency}
-          onChange={(value) => updateRuntimeDraft((draft) => {
-            draft.file_library.ingest_concurrency = value;
-          })}
-        />
-        <NumberField
-          id="runtime-file-library-url-import-concurrency"
-          label={t("settings.runtime.fileLibraryUrlImportConcurrency")}
-          min={1}
-          value={library.url_import_concurrency}
-          onChange={(value) => updateRuntimeDraft((draft) => {
-            draft.file_library.url_import_concurrency = value;
-          })}
-        />
-        <NumberField
-          id="runtime-file-library-url-import-min-interval"
-          label={t("settings.runtime.fileLibraryUrlImportMinInterval")}
-          min={1}
-          value={library.url_import_min_interval_ms}
-          onChange={(value) => updateRuntimeDraft((draft) => {
-            draft.file_library.url_import_min_interval_ms = value;
-          })}
-        />
       </div>
 
       <div className="grid max-w-2xl gap-3">

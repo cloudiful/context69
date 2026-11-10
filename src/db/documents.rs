@@ -627,6 +627,9 @@ impl Database {
         chunks: &[DocumentChunk],
     ) -> Result<Vec<Uuid>> {
         let mut tx = self.pool.begin().await?;
+        // A rebuild replaces the live chunk set of every document, so a sync
+        // write must not add chunks to the collection being re-embedded.
+        self.require_rebuild_idle_in(&mut tx).await?;
         sqlx::query_file!(
             "src/sql/db/documents/delete_document_chunks.sql",
             document_id
@@ -679,6 +682,53 @@ impl Database {
         chunks: &[DocumentChunk],
     ) -> Result<()> {
         insert_document_chunks_on(connection, document_id, record_hash, chunks).await
+    }
+
+    /// Verify that every expected chunk id of one batch is present with the
+    /// exact document, index, record hash and text of the batch.
+    ///
+    /// A primary-key conflict is only idempotent when the stored row is the
+    /// same chunk. A row with the same id but a different index, hash or text
+    /// would mix two segmentations, so the batch refuses instead of advancing
+    /// its checkpoint.
+    pub async fn verify_document_chunk_batch_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        document_id: i64,
+        chunks: &[DocumentChunk],
+    ) -> Result<()> {
+        if chunks.is_empty() {
+            return Ok(());
+        }
+        let chunk_ids = chunks.iter().map(|chunk| chunk.id).collect::<Vec<_>>();
+        let chunk_indexes = chunks
+            .iter()
+            .map(|chunk| chunk.chunk_index)
+            .collect::<Vec<_>>();
+        let chunk_texts = chunks
+            .iter()
+            .map(|chunk| chunk.text.clone())
+            .collect::<Vec<_>>();
+        let record_hashes = chunks
+            .iter()
+            .map(|chunk| chunk.record_hash.clone())
+            .collect::<Vec<_>>();
+        let mismatches: i64 = sqlx::query_file_scalar!(
+            "src/sql/db/documents/verify_document_chunk_batch.sql",
+            document_id,
+            &chunk_ids,
+            &chunk_indexes,
+            &chunk_texts,
+            &record_hashes
+        )
+        .fetch_one(connection)
+        .await
+        .context("verify document chunk batch")?;
+        anyhow::ensure!(
+            mismatches == 0,
+            "the persisted chunk batch does not match the expected rows; the checkpoint cannot advance"
+        );
+        Ok(())
     }
 
     /// The chunks of one document, removed on a borrowed connection.
