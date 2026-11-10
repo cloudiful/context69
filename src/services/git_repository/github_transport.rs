@@ -14,6 +14,8 @@ use crate::domain_errors::DomainError;
 use crate::services::library::remote_download::validate_url;
 use crate::services::library::remote_proxy::RemoteTransport;
 
+use super::provider_credentials::GitAccessCredential;
+
 /// The only response origin this transport will ever talk to. Enforced on
 /// every request before any connection work, on top of the endpoint builders.
 pub(crate) const GITHUB_API_ORIGIN: (&str, &str) = ("https", "api.github.com");
@@ -103,17 +105,40 @@ pub(crate) async fn read_capped_body(
 
 /// Production transport: the shared validated remote client restricted to
 /// the approved GitHub API origin, with GitHub's required User-Agent.
+///
+/// A public transport carries no credential. A token transport applies the
+/// sealed read credential only as a `Bearer` header on this exact origin; the
+/// credential is never logged, projected, or attached to a rejected URL.
 pub(crate) struct GitHubApiTransport {
     transport: RemoteTransport,
+    credential: Option<GitAccessCredential>,
 }
 
 impl GitHubApiTransport {
-    /// Build on the shared library remote stack (compression locked off,
-    /// redirects disabled, no/trusted proxy, peer-IP validation).
+    /// Build the public, credential-free transport on the shared library
+    /// remote stack (compression locked off, redirects disabled, no/trusted
+    /// proxy, peer-IP validation).
     pub(crate) async fn new(trusted_proxy_enabled: bool) -> Result<Self> {
+        Self::with_credential(trusted_proxy_enabled, None).await
+    }
+
+    /// Build a transport that may carry one GitHub PAT.
+    pub(crate) async fn with_credential(
+        trusted_proxy_enabled: bool,
+        credential: Option<GitAccessCredential>,
+    ) -> Result<Self> {
         Ok(Self {
             transport: RemoteTransport::new(trusted_proxy_enabled).await?,
+            credential,
         })
+    }
+
+    /// The only authorization header this transport may send.
+    fn authorization_header(&self) -> Result<Option<reqwest::header::HeaderValue>> {
+        self.credential
+            .as_ref()
+            .map(GitAccessCredential::bearer_header)
+            .transpose()
     }
 }
 
@@ -127,12 +152,16 @@ impl GitHttpTransport for GitHubApiTransport {
             .map_err(|_| anyhow!(DomainError::invalid_argument("git_endpoint_invalid")))?;
         enforce_api_origin(&parsed)?;
         let url = validate_url(url).await?;
-        let response = self
+        let mut request = self
             .transport
             .client()
             .get(url.clone())
             .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-            .header(reqwest::header::USER_AGENT, GITHUB_USER_AGENT)
+            .header(reqwest::header::USER_AGENT, GITHUB_USER_AGENT);
+        if let Some(header) = self.authorization_header()? {
+            request = request.header(reqwest::header::AUTHORIZATION, header);
+        }
+        let response = request
             .send()
             .await
             .map_err(|error| transport_request_error(&error))?;

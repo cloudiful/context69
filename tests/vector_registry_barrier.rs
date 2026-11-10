@@ -65,8 +65,9 @@ use serde_json::json;
 
 use support::{
     activate_index, barrier_state, clear_registry_entries, clear_runtime_settings, connect,
-    delete_tasks, fingerprint, identity, registry_entry, reset_barrier, seed_runtime_settings,
-    seed_task_item, seed_task_item_full, set_item_lease,
+    delete_registry_entries, delete_tasks, fingerprint, identity, register_registry_entry,
+    registry_entry, registry_entry_exists, reset_barrier, seed_runtime_settings, seed_task_item,
+    seed_task_item_full, set_item_lease,
 };
 
 const FINGERPRINT: &str = "barrier-fingerprint";
@@ -142,6 +143,7 @@ async fn build_task_service(db: &Database) -> anyhow::Result<TaskService> {
         sync: sync.clone(),
         source_folders: SourceFoldersService::new(db.clone(), library, sync),
         translation,
+        secrets: context69::services::secret_store::build_unkeyed(&db),
         concurrency: 1,
     }))
 }
@@ -151,7 +153,6 @@ async fn build_task_service(db: &Database) -> anyhow::Result<TaskService> {
 async fn an_unresolved_staging_entry_blocks_the_rebuild_start() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -203,10 +204,10 @@ async fn an_unresolved_staging_entry_blocks_the_rebuild_start() {
         RebuildBarrierState::Idle,
         "a refused start never takes the barrier"
     );
-    // The staged entry is this case's own fixture: it is cleared again, so an
-    // unresolved run of this target never blocks another suite that has to
-    // move the vector space.
-    clear_registry_entries(&db).await;
+    // The staged entry is this case's own fixture: it is cleared by its exact
+    // run id, so an unresolved run of this target never blocks another suite
+    // that has to move the vector space.
+    delete_registry_entries(&db, &[entry.run_id]).await;
     clear_runtime_settings(&db).await;
     // The target owns the schema, so the barrier is restored after the
     // case as well: another suite that has to move the vector space
@@ -219,7 +220,6 @@ async fn an_unresolved_staging_entry_blocks_the_rebuild_start() {
 async fn a_running_barrier_refuses_a_new_admission_and_writes_nothing() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let (owner, owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -285,7 +285,6 @@ async fn a_running_barrier_refuses_a_new_admission_and_writes_nothing() {
 async fn a_failed_barrier_refuses_everything_until_the_same_identity_rebuilds() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let (owner, owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -389,7 +388,6 @@ async fn a_failed_barrier_refuses_everything_until_the_same_identity_rebuilds() 
 async fn only_the_owner_may_clear_the_barrier_and_the_epochs_move_with_it() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let (owner, owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -454,7 +452,6 @@ async fn only_the_owner_may_clear_the_barrier_and_the_epochs_move_with_it() {
 async fn a_dead_owner_is_taken_over_by_the_same_identity_only() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     // An owner that is no longer running can never pass its grant check
     // again, so its barrier may be taken over.
@@ -525,7 +522,6 @@ async fn a_dead_owner_is_taken_over_by_the_same_identity_only() {
 async fn the_identity_and_the_barrier_commit_and_roll_back_together() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let (owner, owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -609,7 +605,6 @@ async fn the_identity_and_the_barrier_commit_and_roll_back_together() {
 async fn a_stale_admitted_identity_cannot_switch() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -726,7 +721,9 @@ async fn a_stale_admitted_identity_cannot_switch() {
     );
     tx.rollback().await.expect("roll back the refused switch");
 
+    delete_registry_entries(&db, &[entry.run_id]).await;
     clear_runtime_settings(&db).await;
+    reset_barrier(&db).await;
 }
 
 #[tokio::test]
@@ -734,7 +731,6 @@ async fn a_stale_admitted_identity_cannot_switch() {
 async fn the_readiness_of_the_deployment_observes_the_barrier() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -800,7 +796,6 @@ async fn the_readiness_of_the_deployment_observes_the_barrier() {
 async fn a_superseded_owner_token_releases_the_barrier_but_an_elapsed_lease_does_not() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let (owner, owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -892,7 +887,6 @@ async fn a_superseded_owner_token_releases_the_barrier_but_an_elapsed_lease_does
 async fn the_settings_save_refuses_an_identity_change_a_rebuild_or_a_staged_run_owns() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -1022,6 +1016,7 @@ async fn the_settings_save_refuses_an_identity_change_a_rebuild_or_a_staged_run_
         db.save_runtime_settings(&destination).await.is_err(),
         "a failed rebuild refuses a destination change"
     );
+    delete_registry_entries(&db, &[entry.run_id]).await;
     // The target owns the schema, so the barrier is restored after the
     // case as well: another suite that has to move the vector space
     // must not meet a rebuild this target left behind.
@@ -1039,7 +1034,6 @@ async fn the_settings_save_refuses_an_identity_change_a_rebuild_or_a_staged_run_
 async fn the_completion_waits_for_the_epoch_before_it_writes_the_identity() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let (owner, owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -1135,7 +1129,6 @@ async fn the_completion_waits_for_the_epoch_before_it_writes_the_identity() {
 async fn a_paused_rebuild_keeps_its_cursor_and_only_an_explicit_resume_reopens_it() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -1283,7 +1276,6 @@ async fn a_paused_rebuild_keeps_its_cursor_and_only_an_explicit_resume_reopens_i
 async fn an_idle_claim_never_attaches_a_target_recorded_by_a_finished_rebuild() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -1360,7 +1352,6 @@ async fn an_idle_claim_never_attaches_a_target_recorded_by_a_finished_rebuild() 
 async fn a_reclaimed_paused_owner_stays_parked_and_resumable() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -1432,7 +1423,6 @@ async fn a_reclaimed_paused_owner_stays_parked_and_resumable() {
 async fn a_cancel_that_lost_to_a_committed_activation_reports_too_late() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -1493,7 +1483,6 @@ async fn a_cancel_that_lost_to_a_committed_activation_reports_too_late() {
 async fn bulk_cancel_never_turns_a_committed_activation_into_cancelled() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -1929,7 +1918,6 @@ async fn a_cancelled_or_discarded_rebuild_frees_the_barrier_and_a_stale_completi
 {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     // A running barrier is freed by the generic task cancellation.
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
@@ -2064,7 +2052,6 @@ async fn a_cancelled_or_discarded_rebuild_frees_the_barrier_and_a_stale_completi
 async fn an_active_vector_index_must_exist_and_match_the_desired_configuration() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     let identity = seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -2074,6 +2061,11 @@ async fn an_active_vector_index_must_exist_and_match_the_desired_configuration()
         8,
     )
     .await;
+
+    // A different fixture owns this sentinel entry: teardown must remove only
+    // this case's own run ids, never every registry row in the shared database.
+    let foreign = registry_entry(Uuid::new_v4());
+    register_registry_entry(&db, &foreign).await;
 
     // A deployment without an active pointer fails closed even when its
     // desired configuration is known.
@@ -2109,9 +2101,10 @@ async fn an_active_vector_index_must_exist_and_match_the_desired_configuration()
     )
     .await;
     let mut tx = db.pool().begin().await.expect("begin admission");
+    let admitted_entry = registry_entry(Uuid::new_v4());
     let admitted = db
         .admit_search_registry_entry_checked_in(
-            &registry_entry(Uuid::new_v4()),
+            &admitted_entry,
             Some(&identity),
             0,
             RegistryQuotaOverride::exact([1000, 1000, 1000]),
@@ -2178,6 +2171,12 @@ async fn an_active_vector_index_must_exist_and_match_the_desired_configuration()
         "a second active vector index must be refused"
     );
 
+    delete_registry_entries(&db, &[admitted_entry.run_id]).await;
+    assert!(
+        registry_entry_exists(&db, foreign.run_id).await,
+        "exact teardown preserves another fixture's registry entry"
+    );
+    delete_registry_entries(&db, &[foreign.run_id]).await;
     clear_runtime_settings(&db).await;
     // The target owns the schema, so the barrier is restored after the
     // case as well: another suite that has to move the vector space
@@ -2196,7 +2195,6 @@ async fn a_completed_rebuild_activates_the_exact_target() {
     const TARGET: &str = "barrier-collection__target";
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     let desired = seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -2316,7 +2314,6 @@ async fn the_rebuild_control_projection_prefers_the_barrier_owner_and_reports_th
     const TARGET: &str = "barrier-collection__control-target";
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     let desired = seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -2427,7 +2424,6 @@ async fn the_rebuild_control_projection_prefers_the_barrier_owner_and_reports_th
 async fn the_common_pause_sets_the_barrier_flag_and_keeps_the_cursor() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -2503,7 +2499,6 @@ async fn the_common_pause_sets_the_barrier_flag_and_keeps_the_cursor() {
 async fn the_common_resume_clears_the_barrier_flag_without_moving_the_cursor() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
 
     let seeded = seed_task_item_full(&db, "running", "vector_rebuild").await;
     let mut tx = db.pool().begin().await.expect("begin rebuild");
@@ -2585,7 +2580,6 @@ async fn the_common_resume_clears_the_barrier_flag_without_moving_the_cursor() {
 async fn a_running_vector_checkpoint_parks_through_the_driver_and_resumes_immediately() {
     let db = connect().await;
     reset_barrier(&db).await;
-    clear_registry_entries(&db).await;
     context69_db_schema::bootstrap_library_schema(db.pool())
         .await
         .expect("bootstrap the library schema");

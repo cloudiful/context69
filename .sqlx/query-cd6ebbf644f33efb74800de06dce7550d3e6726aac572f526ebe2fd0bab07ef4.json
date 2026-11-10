@@ -1,0 +1,42 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Copies unchanged manifest entries and their chunks from a completed baseline\n-- generation into a building generation, assigning fresh identities.\n--\n-- $1 group_id, $2 repository_key, $3 target_generation_key,\n-- $4 baseline_generation_key, $5 path text[], $6 provider_blob_sha text[].\n--\n-- Each (path, blob id) pair must exist in the baseline generation with exactly\n-- that content address. Bytes, file rows, and line-anchored chunks are copied\n-- verbatim, so an unchanged file that a later vector pass reuses keeps exact\n-- text and line provenance while the new snapshot owns independent rows.\nWITH scoped AS (\n    SELECT\n        target.generation_key AS target_generation_key,\n        baseline.generation_key AS baseline_generation_key,\n        target.repository_key\n    FROM context69.git_repository_generations target\n    JOIN context69.git_repository_sources s ON s.repository_key = target.repository_key\n    JOIN context69.git_repository_generations baseline\n        ON baseline.repository_key = target.repository_key\n    WHERE s.group_id = $1\n      AND target.repository_key = $2\n      AND target.generation_key = $3\n      AND target.status = 'building'\n      AND baseline.generation_key = $4\n      AND baseline.status IN ('ready', 'superseded')\n),\nincoming AS (\n    SELECT\n        scoped.target_generation_key,\n        scoped.baseline_generation_key,\n        scoped.repository_key,\n        entry.path,\n        entry.provider_blob_sha\n    FROM scoped\n    CROSS JOIN LATERAL unnest($5::text[], $6::text[])\n        AS entry(path, provider_blob_sha)\n),\nmatched AS (\n    SELECT\n        incoming.target_generation_key,\n        incoming.baseline_generation_key,\n        incoming.repository_key,\n        incoming.path,\n        incoming.provider_blob_sha,\n        baseline_file.file_key AS baseline_file_key,\n        baseline_file.language,\n        baseline_file.byte_count,\n        baseline_file.line_count\n    FROM incoming\n    JOIN context69.git_generation_files baseline_file\n        ON baseline_file.generation_key = incoming.baseline_generation_key\n       AND baseline_file.path = incoming.path\n       AND baseline_file.provider_blob_sha = incoming.provider_blob_sha\n),\nstored_blobs AS (\n    INSERT INTO context69.git_generation_blobs (\n        generation_key,\n        provider_blob_sha,\n        byte_count,\n        content\n    )\n    SELECT DISTINCT\n        matched.target_generation_key,\n        matched.provider_blob_sha,\n        baseline_blob.byte_count,\n        baseline_blob.content\n    FROM matched\n    JOIN context69.git_generation_blobs baseline_blob\n        ON baseline_blob.generation_key = matched.baseline_generation_key\n       AND baseline_blob.provider_blob_sha = matched.provider_blob_sha\n    ON CONFLICT (generation_key, provider_blob_sha) DO NOTHING\n    RETURNING 1\n),\nstored_files AS (\n    INSERT INTO context69.git_generation_files (\n        generation_key,\n        repository_key,\n        provider_blob_sha,\n        path,\n        language,\n        byte_count,\n        line_count\n    )\n    SELECT\n        matched.target_generation_key,\n        matched.repository_key,\n        matched.provider_blob_sha,\n        matched.path,\n        matched.language,\n        matched.byte_count,\n        matched.line_count\n    FROM matched\n    RETURNING file_key, path\n),\nstored_chunks AS (\n    INSERT INTO context69.git_generation_chunks (\n        generation_key,\n        file_key,\n        chunk_index,\n        start_line,\n        end_line,\n        chunk_text\n    )\n    SELECT\n        matched.target_generation_key,\n        stored_files.file_key,\n        baseline_chunk.chunk_index,\n        baseline_chunk.start_line,\n        baseline_chunk.end_line,\n        baseline_chunk.chunk_text\n    FROM matched\n    JOIN stored_files ON stored_files.path = matched.path\n    JOIN context69.git_generation_chunks baseline_chunk\n        ON baseline_chunk.generation_key = matched.baseline_generation_key\n       AND baseline_chunk.file_key = matched.baseline_file_key\n    RETURNING 1\n)\nSELECT\n    (SELECT count(*) FROM scoped) AS \"scoped_generation_count!\",\n    (SELECT count(*) FROM stored_files) AS \"stored_file_count!\",\n    (SELECT count(*) FROM stored_chunks) AS \"stored_chunk_count!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scoped_generation_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "stored_file_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "stored_chunk_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "TextArray"
+      ]
+    },
+    "nullable": [
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "cd6ebbf644f33efb74800de06dce7550d3e6726aac572f526ebe2fd0bab07ef4"
+}

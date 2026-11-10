@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Clears a refresh demand only when no newer request arrived after the one a\n-- completed run observed.\n--\n-- $1 group_id, $2 repository_key, $3 observed_requested_at.\n--\n-- A demand recorded while the run was in flight has a later\n-- `refresh_requested_at`, so this update matches no row and the follow-up\n-- remains pending. A run that observed no demand also matches nothing.\nUPDATE context69.git_repository_sources\nSET refresh_dirty = FALSE,\n    updated_at = now()\nWHERE group_id = $1\n  AND repository_key = $2\n  AND refresh_dirty\n  AND refresh_requested_at IS NOT NULL\n  AND refresh_requested_at <= $3\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "1194411333fd7479ef04644f524f7ca1342ea01372c56789d3ad2ec2532731b9"
+}

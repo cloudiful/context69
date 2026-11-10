@@ -6,6 +6,7 @@
 SELECT
     v.generation_key,
     v.fingerprint,
+    v.endpoint_identity,
     v.dimensions,
     v.collection_name,
     v.point_count,

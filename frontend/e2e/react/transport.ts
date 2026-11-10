@@ -7,6 +7,14 @@ import {
   AUTH_ERROR,
   CLEANUP_TASKS,
   DOCLING_SETTINGS,
+  GIT_CODE_SEARCH,
+  GIT_CONNECTION,
+  GIT_FILE_CONTENT,
+  GIT_FILE_DETAIL,
+  GIT_FILE_LIST,
+  GIT_FILES,
+  GIT_SOURCE,
+  GIT_WEBHOOK,
   GROUP,
   PREVIEW_DOCUMENT,
   REMOTE_TASKS,
@@ -36,6 +44,12 @@ import {
   type AuthUserFixture,
   type DocumentFixture,
   type DocumentResultsPageFixture,
+  type GitCodeSearchFixture,
+  type GitProviderConnectionFixture,
+  type GitRepositoryFileContentFixture,
+  type GitRepositoryFileFixture,
+  type GitRepositorySourceFixture,
+  type GitWebhookRegistrationFixture,
   type GroupFixture,
   type GroupMemberFixture,
   type LibraryFileDetailFixture,
@@ -78,6 +92,20 @@ export interface AppTransportOptions {
   documents?: DocumentsMock;
   /** Enables the processing queue list, items, diagnose, actions and SSE. */
   queue?: QueueMock;
+  /** Enables group-scoped Git source, connection, file and code-search endpoints. */
+  git?: GitMock;
+}
+
+export interface GitMock {
+  sources?: GitRepositorySourceFixture[];
+  connections?: GitProviderConnectionFixture[];
+  files?: GitRepositoryFileFixture[];
+  /** Serves the file list as cursor pages (`page-2`, `page-3`, ...), for pager regressions. */
+  filePages?: GitRepositoryFileFixture[][];
+  search?: GitCodeSearchFixture;
+  /** `null` answers the webhook read as an unregistered repository. */
+  webhook?: GitWebhookRegistrationFixture | null;
+  content?: GitRepositoryFileContentFixture;
 }
 
 export interface QueueMock {
@@ -746,6 +774,48 @@ export async function installAppTransport(
   }
 
   const workspace = options.workspace;
+  let gitSources = structuredClone(options.git?.sources ?? [GIT_SOURCE]);
+  let gitConnections = structuredClone(options.git?.connections ?? [GIT_CONNECTION]);
+  let gitGeneration = {
+    key: GIT_FILE_LIST.generation_key,
+    number: GIT_FILE_LIST.generation_number,
+    ref: GIT_FILE_LIST.ref_name,
+    commit: GIT_FILE_LIST.commit_sha,
+  };
+  const nextGitGeneration = {
+    key: "aaaaaaaa-0000-4000-8000-000000000005",
+    number: GIT_FILE_LIST.generation_number + 1,
+    ref: "refs/heads/main",
+    commit: "3333333333333333333333333333333333333333",
+  };
+  let gitPendingPublicationReads: number | null = null;
+
+  function readGitSources(): GitRepositorySourceFixture[] {
+    if (gitPendingPublicationReads === null) {
+      return gitSources;
+    }
+    if (gitPendingPublicationReads > 0) {
+      gitPendingPublicationReads -= 1;
+      return gitSources;
+    }
+    gitPendingPublicationReads = null;
+    gitGeneration = nextGitGeneration;
+    gitSources = gitSources.map((candidate) => ({
+      ...candidate,
+      index_status: "ready",
+      refresh_pending: false,
+      last_error_code: null,
+      active_generation_key: nextGitGeneration.key,
+      checkpoint: {
+        ...candidate.checkpoint,
+        target_commit_sha: nextGitGeneration.commit,
+        indexed_commit_sha: nextGitGeneration.commit,
+        indexed_at: "2026-01-03T09:00:00Z",
+        checkpoint_updated_at: "2026-01-03T09:00:00Z",
+      },
+    }));
+    return gitSources;
+  }
   const workspaceGroup = workspace?.group ?? WORKSPACE_GROUP;
   const workspaceTree: LibraryTreeFixture = structuredClone(workspace?.tree ?? WORKSPACE_TREE);
   if (workspace?.extraRootFolders) {
@@ -1534,6 +1604,265 @@ export async function installAppTransport(
     return false;
   }
 
+  async function handleGit(
+    route: Route,
+    url: URL,
+    method: string,
+    body: unknown,
+  ): Promise<boolean> {
+    const git = options.git;
+    if (!git) {
+      return false;
+    }
+    const path = url.pathname;
+    const files = git.files ?? GIT_FILES;
+    const generation = {
+      generation_key: gitGeneration.key,
+      generation_number: gitGeneration.number,
+      ref_name: gitGeneration.ref,
+      commit_sha: gitGeneration.commit,
+    };
+
+    if (path === "/v1/groups/by-path/stock%2Falpha/git-connections" && method === "GET") {
+      await route.fulfill(json(200, gitConnections));
+      return true;
+    }
+
+    const connectionMatch = /^\/v1\/groups\/by-path\/stock%2Falpha\/git-connections\/([^/]+)(\/enable)?$/.exec(path);
+    if (connectionMatch) {
+      const connectionKey = decodeURIComponent(connectionMatch[1]);
+      const existing = gitConnections.find((connection) => connection.connection_key === connectionKey);
+      if (connectionMatch[2] === "/enable" && method === "POST") {
+        gitConnections = gitConnections.map((connection) => (
+          connection.connection_key === connectionKey ? { ...connection, disabled: false } : connection
+        ));
+        await route.fulfill(json(200, gitConnections.find((connection) => connection.connection_key === connectionKey) ?? GIT_CONNECTION));
+        return true;
+      }
+      if (method === "PUT" && body) {
+        const payload = body as {
+          provider: GitProviderConnectionFixture["provider"];
+          mode: GitProviderConnectionFixture["mode"];
+          display_name: string;
+          base_url: string;
+          read_credential: { op: string; value?: string };
+        };
+        const created = {
+          ...GIT_CONNECTION,
+          connection_key: connectionKey,
+          provider: payload.provider,
+          mode: payload.mode,
+          display_name: payload.display_name,
+          base_url: payload.base_url,
+          has_read_credential: payload.read_credential.op === "set",
+          disabled: false,
+        };
+        gitConnections = [...gitConnections, created];
+        await route.fulfill(json(201, created));
+        return true;
+      }
+      if (method === "DELETE") {
+        gitConnections = gitConnections.map((connection) => (
+          connection.connection_key === connectionKey ? { ...connection, disabled: true } : connection
+        ));
+        await route.fulfill(json(200, gitConnections.find((connection) => connection.connection_key === connectionKey) ?? GIT_CONNECTION));
+        return true;
+      }
+      if (method === "GET") {
+        await route.fulfill(json(200, {
+          connection_key: connectionKey,
+          mode: existing?.mode ?? "token",
+          readiness: existing?.has_read_credential ? "token" : "incomplete",
+          has_read_credential: existing?.has_read_credential ?? false,
+          disabled: existing?.disabled ?? false,
+        }));
+        return true;
+      }
+    }
+
+    const repositoryMatch = /^\/v1\/groups\/by-path\/stock%2Falpha\/git-repositories(?:\/([^/]+))?(\/.*)?$/.exec(path);
+    if (!repositoryMatch) {
+      return false;
+    }
+    const repositoryKey = repositoryMatch[1] ? decodeURIComponent(repositoryMatch[1]) : null;
+    const rest = repositoryMatch[2] ?? "";
+    const source = gitSources.find((candidate) => candidate.repository_key === repositoryKey) ?? GIT_SOURCE;
+
+    if (!repositoryKey) {
+      if (method === "GET") {
+        await route.fulfill(json(200, readGitSources()));
+        return true;
+      }
+      if (method === "POST" && body) {
+        await route.fulfill(json(202, { task_id: "task-git-register" }));
+        return true;
+      }
+    }
+
+    if (repositoryKey && rest === "") {
+      if (method === "GET") {
+        await route.fulfill(json(200, source));
+        return true;
+      }
+      if (method === "DELETE") {
+        gitSources = gitSources.filter((candidate) => candidate.repository_key !== repositoryKey);
+        await route.fulfill({ status: 204 });
+        return true;
+      }
+      if (method === "PATCH" && body) {
+        const patch = body as {
+          target_ref?: string | null;
+          pinned_commit?: { op: "keep" } | { op: "set"; value: string } | { op: "clear" };
+          index_profile?: GitRepositorySourceFixture["index_profile"] | null;
+          include_patterns?: string[];
+          exclude_patterns?: string[];
+          interval_seconds?: number | null;
+          webhook_enabled?: boolean;
+          enabled?: boolean;
+          retention_count?: number;
+        };
+        gitSources = gitSources.map((candidate) => {
+          if (candidate.repository_key !== repositoryKey) {
+            return candidate;
+          }
+          const version = { ...candidate.version };
+          if (patch.target_ref) {
+            version.ref_name = patch.target_ref;
+          }
+          if (patch.pinned_commit?.op === "clear") {
+            version.commit_sha = null;
+          } else if (patch.pinned_commit?.op === "set") {
+            version.commit_sha = patch.pinned_commit.value;
+          }
+          return {
+            ...candidate,
+            ...(patch.index_profile ? { index_profile: patch.index_profile } : {}),
+            ...(patch.include_patterns !== undefined ? { include_patterns: patch.include_patterns } : {}),
+            ...(patch.exclude_patterns !== undefined ? { exclude_patterns: patch.exclude_patterns } : {}),
+            ...(patch.interval_seconds !== undefined ? { interval_seconds: patch.interval_seconds } : {}),
+            ...(patch.webhook_enabled !== undefined ? { webhook_enabled: patch.webhook_enabled } : {}),
+            ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
+            ...(patch.retention_count !== undefined ? { retention_count: patch.retention_count } : {}),
+            version,
+            updated_at: "2026-01-03T08:00:00Z",
+          };
+        });
+        await route.fulfill(json(200, gitSources.find((candidate) => candidate.repository_key === repositoryKey) ?? source));
+        return true;
+      }
+    }
+
+    if (repositoryKey && rest === "/index" && method === "POST") {
+      const payload = body as { force_rebuild?: boolean } | undefined;
+      gitPendingPublicationReads = 1;
+      gitSources = gitSources.map((candidate) => (
+        candidate.repository_key === repositoryKey
+          ? { ...candidate, index_status: "indexing", refresh_pending: false }
+          : candidate
+      ));
+      await route.fulfill(json(202, {
+        task_id: payload?.force_rebuild ? "task-git-rebuild" : "task-git-index",
+      }));
+      return true;
+    }
+
+    if (repositoryKey && rest === "/files" && method === "GET") {
+      const pages = git.filePages;
+      if (pages && pages.length > 0) {
+        const cursorValue = url.searchParams.get("cursor");
+        const pageIndex = cursorValue
+          ? Math.max(0, Number.parseInt(cursorValue.replace(/^page-/, ""), 10) - 1)
+          : 0;
+        const pageFiles = pages[Math.min(pageIndex, pages.length - 1)];
+        const nextCursor = pageIndex + 1 < pages.length ? `page-${pageIndex + 2}` : null;
+        await route.fulfill(json(200, {
+          ...GIT_FILE_LIST,
+          ...generation,
+          files: pageFiles,
+          file_count: pageFiles.length,
+          pagination: { has_more: nextCursor !== null, next_cursor: nextCursor },
+        }));
+        return true;
+      }
+      await route.fulfill(json(200, { ...GIT_FILE_LIST, ...generation, files }));
+      return true;
+    }
+
+    if (repositoryKey && rest === "/file" && method === "GET") {
+      const filePath = url.searchParams.get("path");
+      const file = files.find((candidate) => candidate.path === filePath) ?? files[0];
+      await route.fulfill(json(200, { ...GIT_FILE_DETAIL, ...generation, file }));
+      return true;
+    }
+
+    if (repositoryKey && rest === "/file/content" && method === "GET") {
+      const filePath = url.searchParams.get("path");
+      const file = files.find((candidate) => candidate.path === filePath) ?? files[0];
+      const startLine = Number(url.searchParams.get("start_line") ?? 1);
+      const endLine = Number(url.searchParams.get("end_line") ?? file.line_count);
+      const published = gitGeneration.number === nextGitGeneration.number;
+      const text = file.path.endsWith(".md")
+        ? "Git source usage notes.\n"
+        : published
+          ? "fn main() {\n    println!(\"generation five\");\n}\n"
+          : "fn main() {\n    println!(\"research\");\n}\n";
+      await route.fulfill(json(200, {
+        ...(git.content ?? GIT_FILE_CONTENT),
+        ...generation,
+        file,
+        start_line: startLine,
+        end_line: endLine,
+        text,
+        byte_count: Buffer.byteLength(text),
+      }));
+      return true;
+    }
+
+    if (repositoryKey && rest === "/code-search" && method === "GET") {
+      const published = gitGeneration.number === nextGitGeneration.number;
+      const search = git.search ?? {
+        ...GIT_CODE_SEARCH,
+        ...generation,
+        hits: GIT_CODE_SEARCH.hits.map((hit) => ({
+          ...hit,
+          ...generation,
+          text: published ? "fn main() {\n    println!(\"generation five\");\n}" : hit.text,
+        })),
+      };
+      await route.fulfill(json(200, search));
+      return true;
+    }
+
+    if (repositoryKey && rest === "/webhook" && method === "GET") {
+      if (git.webhook === null) {
+        await route.fulfill(json(404, { code: "not_found", message: "unknown git webhook registration" }));
+      } else {
+        await route.fulfill(json(200, git.webhook ?? GIT_WEBHOOK));
+      }
+      return true;
+    }
+
+    if (repositoryKey && rest === "/webhook" && method === "PUT" && body) {
+      const payload = body as { provider: GitWebhookRegistrationFixture["provider"]; external_hook_id: string; ownership: GitWebhookRegistrationFixture["ownership"]; signing_secret?: string };
+      await route.fulfill(json(201, {
+        ...(git.webhook ?? GIT_WEBHOOK),
+        provider: payload.provider,
+        external_hook_id: payload.external_hook_id,
+        ownership: payload.ownership,
+        active: Boolean(payload.signing_secret),
+        has_signing_secret: Boolean(payload.signing_secret),
+      }));
+      return true;
+    }
+
+    if (repositoryKey && rest === "/connection") {
+      await route.fulfill(json(200, source));
+      return true;
+    }
+
+    return false;
+  }
+
   await page.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -1598,6 +1927,10 @@ export async function installAppTransport(
       }
 
       if (await handleWorkspace(route, url, method, body, rawBody)) {
+        return;
+      }
+
+      if (await handleGit(route, url, method, body)) {
         return;
       }
 

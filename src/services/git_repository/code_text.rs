@@ -134,10 +134,43 @@ pub(crate) struct CodeChunk {
 /// so the pieces reassemble into the line byte for byte and a citation still
 /// names the line they came from.
 pub(crate) fn chunk_code_text(text: &str, bounds: CodeChunkBounds) -> Result<Vec<CodeChunk>> {
+    chunk_code_text_from_line(text, bounds, 1)
+}
+
+/// Chunks one file with the structural chunker when its language has a pinned
+/// grammar, and the exact line chunker otherwise.
+///
+/// Structural output is still verbatim slices of `text` with inclusive 1-based
+/// line ranges. Unsupported languages, parse errors, and over-limit trees return
+/// `None` from the structural pass, so this function falls back to
+/// [`chunk_code_text`] instead of failing the file.
+pub(crate) fn chunk_code_text_for_language(
+    language: &str,
+    text: &str,
+    bounds: CodeChunkBounds,
+) -> Result<Vec<CodeChunk>> {
+    if let Some(chunks) = super::structural_chunking::chunk_structural_text(language, text, bounds)?
+    {
+        return Ok(chunks);
+    }
+    chunk_code_text(text, bounds)
+}
+
+/// Cuts a continuation segment into chunks whose first source line is
+/// `first_line` rather than line 1.
+///
+/// Structural chunking hands whole syntax segments over, so the line anchor has
+/// to start at the segment's real position in the file while every other
+/// guarantee of [`chunk_code_text`] stays unchanged.
+pub(crate) fn chunk_code_text_from_line(
+    text: &str,
+    bounds: CodeChunkBounds,
+    first_line: i32,
+) -> Result<Vec<CodeChunk>> {
     let mut chunks: Vec<CodeChunk> = Vec::new();
     let mut pending = String::new();
-    let mut pending_start_line = 1_i32;
-    let mut next_line = 1_i32;
+    let mut pending_start_line = first_line;
+    let mut next_line = first_line;
 
     for line in text.split_inclusive('\n') {
         let line_number = next_line;

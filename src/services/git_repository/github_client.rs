@@ -220,6 +220,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
         }
         let mut files = Vec::with_capacity(parsed.tree.len());
         let mut excluded_files = 0usize;
+        let mut too_large_files = 0usize;
         for entry in parsed.tree {
             if entry.kind != TREE_ENTRY_BLOB_TYPE {
                 continue;
@@ -238,6 +239,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             // only its own entry: fetching it would fail later anyway.
             if check_declared_length(Some(declared_size), self.limits.blob_budget()).is_err() {
                 excluded_files += 1;
+                too_large_files += 1;
                 continue;
             }
             // A path that fails the safety classification excludes only its
@@ -257,6 +259,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             commit_sha: commit_sha.clone(),
             files,
             excluded_files,
+            too_large_files,
         })
     }
 

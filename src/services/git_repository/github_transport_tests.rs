@@ -3,6 +3,8 @@
 //! through pure functions and a header-capturing fake reqwest service.
 
 use super::*;
+use crate::services::git_repository::provider_credentials::GitAccessCredential;
+use context69_secret_crypto::SecretValue;
 
 #[test]
 fn origin_enforcement_accepts_only_the_approved_origin() {
@@ -63,6 +65,35 @@ async fn capped_body_reader_assembles_chunks_below_the_limit() {
 fn user_agent_is_the_versioned_context69_product() {
     assert!(GITHUB_USER_AGENT.starts_with("context69/"));
     assert!(GITHUB_USER_AGENT.len() > "context69/".len());
+}
+
+#[tokio::test]
+async fn a_github_token_transport_captures_only_a_bearer_header() {
+    let credential = GitAccessCredential::new(SecretValue::from_plaintext(
+        b"ghp_fake_transport_token".to_vec(),
+    ));
+    let token = GitHubApiTransport::with_credential(false, Some(credential))
+        .await
+        .expect("token transport builds");
+    let header = token
+        .authorization_header()
+        .expect("header builds")
+        .expect("token transport has a header");
+    assert_eq!(
+        header.to_str().expect("ascii"),
+        "Bearer ghp_fake_transport_token"
+    );
+
+    let public = GitHubApiTransport::new(false)
+        .await
+        .expect("public transport builds");
+    assert!(
+        public
+            .authorization_header()
+            .expect("public header check")
+            .is_none(),
+        "the public transport must stay anonymous"
+    );
 }
 
 #[test]

@@ -11,6 +11,7 @@
 use std::collections::BTreeMap;
 
 use anyhow::{Context, Result};
+use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::file_rows::{GitGenerationFileRow, GitManifestReplaceRow};
@@ -106,6 +107,178 @@ impl Database {
             .map(StoredGitGenerationFile::from_row)
             .collect())
     }
+
+    /// Inserts changed/new manifest entries into a building generation without
+    /// retiring content an earlier step seeded.
+    pub async fn insert_git_generation_files(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        generation_key: Uuid,
+        files: &[NewGitGenerationFile],
+    ) -> Result<i64> {
+        let manifest = validate_manifest(files)?;
+        let row = sqlx::query_file_as!(
+            GitManifestInsertRow,
+            "src/sql/db/git_repository_files/insert_git_generation_files.sql",
+            group_id,
+            repository_key,
+            generation_key,
+            &manifest.paths,
+            &manifest.languages,
+            &manifest.provider_blob_shas,
+            &manifest.contents,
+            &manifest.line_counts
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if row.scoped_generation_count == 0 {
+            return Err(anyhow::anyhow!(
+                "no building git index generation of this group and repository to write"
+            ));
+        }
+        Ok(row.stored_file_count)
+    }
+
+    /// Copies unchanged manifest entries and their chunks from a completed
+    /// baseline generation into a building generation.
+    pub async fn seed_git_generation_files(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        target_generation_key: Uuid,
+        baseline_generation_key: Uuid,
+        paths: &[String],
+        provider_blob_shas: &[String],
+    ) -> Result<GitSeedOutcome> {
+        if paths.len() != provider_blob_shas.len() {
+            return Err(DomainError::invalid_argument("git_seed_entries_mismatch").into());
+        }
+        if paths.len() > MAX_GIT_MANIFEST_FILES {
+            return Err(DomainError::payload_too_large("git_seed_too_large").into());
+        }
+        let row = sqlx::query_file_as!(
+            GitSeedRow,
+            "src/sql/db/git_repository_files/seed_git_generation_files.sql",
+            group_id,
+            repository_key,
+            target_generation_key,
+            baseline_generation_key,
+            paths,
+            provider_blob_shas
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        if row.scoped_generation_count == 0 {
+            return Err(anyhow::anyhow!(
+                "no building git index generation of this group and repository to seed"
+            ));
+        }
+        Ok(GitSeedOutcome {
+            seeded_file_count: row.stored_file_count,
+            seeded_chunk_count: row.stored_chunk_count,
+        })
+    }
+
+    /// Lists one bounded page of target chunks that can reuse a baseline vector.
+    pub async fn list_git_generation_chunk_reuse_map(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        target_generation_key: Uuid,
+        baseline_generation_key: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<GitChunkReuseRow>> {
+        bounded_page(limit, offset)?;
+        let rows = sqlx::query_file_as!(
+            GitChunkReuseRow,
+            "src/sql/db/git_repository_files/list_git_generation_chunk_reuse_map.sql",
+            group_id,
+            repository_key,
+            target_generation_key,
+            baseline_generation_key,
+            limit,
+            offset
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
+    /// Lists one bounded page of target chunks that need their own embedding.
+    pub async fn list_git_generation_chunks_needing_embedding(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        target_generation_key: Uuid,
+        baseline_generation_key: Uuid,
+        limit: i64,
+        offset: i64,
+    ) -> Result<Vec<GitChunkEmbeddingRow>> {
+        bounded_page(limit, offset)?;
+        let rows = sqlx::query_file_as!(
+            GitChunkEmbeddingRow,
+            "src/sql/db/git_repository_files/list_git_generation_chunks_needing_embedding.sql",
+            group_id,
+            repository_key,
+            target_generation_key,
+            baseline_generation_key,
+            limit,
+            offset
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
+/// The insert-only manifest result.
+#[derive(Debug, Clone, FromRow)]
+struct GitManifestInsertRow {
+    scoped_generation_count: i64,
+    stored_file_count: i64,
+}
+
+/// What one unchanged-content seed copied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GitSeedOutcome {
+    pub seeded_file_count: i64,
+    pub seeded_chunk_count: i64,
+}
+
+#[derive(Debug, Clone, FromRow)]
+struct GitSeedRow {
+    scoped_generation_count: i64,
+    stored_file_count: i64,
+    stored_chunk_count: i64,
+}
+
+/// One target chunk and the baseline chunk whose vector it can copy.
+#[derive(Debug, Clone, FromRow)]
+pub struct GitChunkReuseRow {
+    pub source_chunk_key: Uuid,
+    pub target_chunk_key: Uuid,
+    pub target_file_key: Uuid,
+    pub path: String,
+    pub language: String,
+    pub chunk_index: i32,
+    pub start_line: i32,
+    pub end_line: i32,
+    pub chunk_text: String,
+}
+
+/// One target chunk that must be embedded because no baseline vector exists.
+#[derive(Debug, Clone, FromRow)]
+pub struct GitChunkEmbeddingRow {
+    pub file_key: Uuid,
+    pub path: String,
+    pub language: String,
+    pub chunk_key: Uuid,
+    pub chunk_index: i32,
+    pub start_line: i32,
+    pub end_line: i32,
+    pub chunk_text: String,
 }
 
 /// Reject a manifest the storage layer could not accept anyway, so the caller

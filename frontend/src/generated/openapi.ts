@@ -574,10 +574,10 @@ export interface paths {
         get: operations["get_git_repository"];
         put?: never;
         post?: never;
-        delete?: never;
+        delete: operations["delete_git_repository"];
         options?: never;
         head?: never;
-        patch?: never;
+        patch: operations["update_git_repository_settings"];
         trace?: never;
     };
     "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search": {
@@ -2788,10 +2788,39 @@ export interface components {
          */
         GitIndexProfile: "lexical" | "hybrid" | "full_semantic";
         /**
+         * @description Optional body of the group Git index request.
+         *
+         *     Normal sync keeps the same-target no-op. `force_rebuild` bypasses that
+         *     no-op and incremental reuse so the current target is reconstructed even when
+         *     its commit and pipeline identity are unchanged.
+         */
+        GitIndexRequest: {
+            force_rebuild?: boolean;
+        };
+        /**
          * @description Index lifecycle state of a Git source.
          * @enum {string}
          */
         GitIndexStatus: "pending" | "indexing" | "ready" | "stale" | "failed" | "disabled";
+        /**
+         * @description Explicit pinned-commit edit on a source settings update.
+         *
+         *     The tri-state form is required because an omitted field means "keep the
+         *     current pin" while JSON `null` would be indistinguishable from an absent
+         *     value after deserialization. `Clear` removes the pin so the next run
+         *     resolves the tracked ref again.
+         */
+        GitPinnedCommitPatch: {
+            /** @enum {string} */
+            op: "keep";
+        } | {
+            /** @enum {string} */
+            op: "set";
+            value: string;
+        } | {
+            /** @enum {string} */
+            op: "clear";
+        };
         /**
          * @description Provider connection metadata owned by one group.
          *
@@ -2863,11 +2892,6 @@ export interface components {
             /** @enum {string} */
             op: "clear";
         };
-        /**
-         * @description Refresh policy for a tracked Git source.
-         * @enum {string}
-         */
-        GitRefreshPolicy: "manual" | "webhook" | "reconcile";
         /**
          * @description Request body attaching one already-persisted provider connection to a
          *     repository source.
@@ -3293,26 +3317,117 @@ export interface components {
             path: string;
         };
         /**
-         * @description Registration request for one public GitHub repository ref.
+         * @description Registration request for one repository ref on an explicit provider.
          *
-         *     `canonical_url` must be exactly `https://github.com/{owner}/{name}` (a
-         *     trailing slash and a single `.git` suffix are tolerated by the validator).
-         *     `target_ref` is a full ref (`refs/heads/main`, `refs/tags/v1`) or `HEAD`,
-         *     and when it names a branch it must match `default_branch`.
+         *     A GitHub registration may be public or attach an existing GitHub connection,
+         *     and its `canonical_url` must be exactly `https://github.com/{owner}/{name}`.
+         *     A Forgejo registration must attach a connection whose origin the canonical
+         *     `https://{origin}/{owner}/{name}` URL matches. A trailing slash and a single
+         *     `.git` suffix are tolerated by the validator. `target_ref` is a full ref
+         *     (`refs/heads/main`, `refs/tags/v1`) or `HEAD`, and when it names a branch it
+         *     must match `default_branch`.
          */
-        GitRepositoryRegistrationRequest: {
-            /** @description Canonical public GitHub HTTPS repository URL. */
+        GitRepositoryRegistrationRequest: components["schemas"]["GitRepositorySettingsRequest"] & {
+            /** @description Canonical HTTPS repository URL on the provider origin. */
             canonical_url: string;
+            /** @description Optional existing group-owned connection used for acquisition. */
+            connection_key?: string | null;
             /** @description Default branch name of the repository. */
             default_branch: string;
             /** @description Independent index profile; defaults to cheap lexical indexing. */
             index_profile?: components["schemas"]["GitIndexProfile"];
             /** @description Optional pinned commit SHA the target ref must resolve to. */
             pinned_commit?: string | null;
-            /** @description Refresh policy; defaults to manual one-off snapshots. */
-            refresh_policy?: components["schemas"]["GitRefreshPolicy"];
+            /** @description Provider family this repository is acquired from. */
+            provider: components["schemas"]["GitProviderKind"];
             /** @description Full target ref to index, or `HEAD`. */
             target_ref: string;
+        };
+        /**
+         * @description Independent, user-editable settings of one repository source.
+         *
+         *     The fields are the complete settings surface, so registration and the
+         *     settings update share one shape: the bounded default allowlist stays in
+         *     effect unless an include adds a path, a user exclude always wins, the
+         *     periodic interval is optional and independent of the webhook switch, and
+         *     retention is a bounded count.
+         */
+        GitRepositorySettingsRequest: {
+            /** @description Whether this source accepts index work. */
+            enabled?: boolean;
+            /**
+             * @description Glob patterns excluded even when the default allowlist or an include
+             *     matches. Safety exclusions cannot be re-enabled.
+             */
+            exclude_patterns?: string[];
+            /**
+             * @description Additional repository-relative glob patterns admitted beyond the
+             *     bounded default source/docs/manifest allowlist.
+             */
+            include_patterns?: string[];
+            /**
+             * Format: int64
+             * @description Optional periodic refresh interval, in whole seconds (300..2592000).
+             */
+            interval_seconds?: number | null;
+            /**
+             * Format: int64
+             * @description Total successful snapshots to retain, including the active one (1..50).
+             */
+            retention_count?: number;
+            /** @description Whether authenticated provider push events refresh this source. */
+            webhook_enabled?: boolean;
+        };
+        /**
+         * @description Editable target, profile, and settings of one registered repository.
+         *
+         *     Registration fixes the provider identity and canonical URL. A later patch may
+         *     move the tracked ref, pin or clear an exact commit, and change the index
+         *     profile, so those are explicit fields here rather than being fixed forever at
+         *     registration time. The shared settings fields keep the one bounded validation
+         *     surface used by registration.
+         */
+        GitRepositorySettingsUpdateRequest: {
+            enabled?: boolean;
+            exclude_patterns?: string[];
+            include_patterns?: string[];
+            index_profile?: null | components["schemas"]["GitIndexProfile"];
+            /** Format: int64 */
+            interval_seconds?: number | null;
+            /** @description Pin edit; omission keeps the current pin and `clear` removes it. */
+            pinned_commit?: components["schemas"]["GitPinnedCommitPatch"];
+            /** Format: int64 */
+            retention_count?: number;
+            /** @description New full target ref (`refs/heads/main`, `refs/tags/v1`, or `HEAD`). */
+            target_ref?: string | null;
+            webhook_enabled?: boolean;
+        };
+        /**
+         * @description Skip counts of the last completed index, one bucket per selection reason.
+         *
+         *     The buckets are cumulative coverage accounting, never per-file detail, so a
+         *     reader can see why a snapshot is smaller than the repository without the
+         *     summary carrying paths or content.
+         */
+        GitRepositorySkipSummary: {
+            /** Format: int64 */
+            binary?: number;
+            /** Format: int64 */
+            excluded_by_user?: number;
+            /** Format: int64 */
+            excluded_directory?: number;
+            /** Format: int64 */
+            lockfile?: number;
+            /** Format: int64 */
+            minified?: number;
+            /** Format: int64 */
+            not_included?: number;
+            /** Format: int64 */
+            secret?: number;
+            /** Format: int64 */
+            source_map?: number;
+            /** Format: int64 */
+            too_large?: number;
         };
         /**
          * @description A registered Git repository source with its owning group, identity,
@@ -3334,23 +3449,63 @@ export interface components {
             /** Format: date-time */
             created_at: string;
             default_branch: string;
+            /** @description A delete request is waiting for vector cleanup to finish. */
+            deletion_pending?: boolean;
+            /** @description Whether this source accepts index work. */
+            enabled?: boolean;
+            /**
+             * @description Glob patterns excluded even when the default allowlist or an include
+             *     matches. Safety exclusions cannot be re-enabled either way.
+             */
+            exclude_patterns?: string[];
             /** @description Key of the owning group; sources have no owner-less form. */
             group_key: string;
             /** @description Current full path of the owning group. */
             group_path: string;
+            /**
+             * @description Additional repository-relative glob patterns admitted beyond the
+             *     bounded default source/docs/manifest allowlist.
+             */
+            include_patterns?: string[];
             index_profile: components["schemas"]["GitIndexProfile"];
             index_status: components["schemas"]["GitIndexStatus"];
+            /**
+             * Format: int64
+             * @description Optional independent periodic refresh interval, in seconds.
+             */
+            interval_seconds?: number | null;
+            /**
+             * @description Stable code of the last terminal index failure, when the last attempt
+             *     failed. It is a bounded classification, never a provider or secret-bearing
+             *     message.
+             */
+            last_error_code?: string | null;
+            /**
+             * Format: date-time
+             * @description When the latest refresh attempt was admitted.
+             */
+            last_refresh_attempt_at?: string | null;
+            /** @description Skip counts of the last completed index. */
+            last_skip_summary?: components["schemas"]["GitRepositorySkipSummary"];
             name: string;
             owner: string;
             provider: components["schemas"]["GitProviderKind"];
-            refresh: components["schemas"]["GitRefreshPolicy"];
+            /** @description A refresh request is pending for this source. */
+            refresh_pending?: boolean;
             /** Format: uuid */
             repository_key: string;
+            /**
+             * Format: int64
+             * @description Total successful snapshots to retain, including the active generation.
+             */
+            retention_count?: number;
             /** Format: date-time */
             updated_at: string;
             version: components["schemas"]["GitVersionPolicy"];
             /** @description Current visibility of the owning group. */
             visibility: components["schemas"]["Visibility"];
+            /** @description Whether authenticated provider push events refresh this source. */
+            webhook_enabled?: boolean;
         };
         /** @description Version policy: the ref to read plus an optional pinned commit. */
         GitVersionPolicy: {
@@ -7171,7 +7326,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
-            /** @description Invalid repository registration */
+            /** @description Invalid repository registration, provider, or connection requirement */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7187,14 +7342,14 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Group not found */
+            /** @description Group or referenced connection not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Idempotency key reuse conflict */
+            /** @description Connection provider, origin, or state conflict, or idempotency key reuse */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7226,6 +7381,104 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_git_repository: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Repository source and its indexed content removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group or repository not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Repository still has active work or cleanup is pending */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_git_repository_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Git repository source key */
+                repository_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GitRepositorySettingsUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated Git repository source */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GitRepositorySource"];
+                };
+            };
+            /** @description Invalid source settings */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
             /** @description Insufficient permissions */
@@ -7360,7 +7613,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Connection is disabled or built for another provider */
+            /** @description Connection is disabled, built for another provider, or does not serve the repository origin */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7698,7 +7951,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": null | components["schemas"]["GitIndexRequest"];
+            };
+        };
         responses: {
             /** @description Git index task accepted */
             202: {
@@ -7707,6 +7964,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Invalid force flag */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
             /** @description Insufficient permissions */
@@ -11323,7 +11589,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Delivery recorded */
+            /** @description Delivery accepted */
             202: {
                 headers: {
                     [name: string]: unknown;

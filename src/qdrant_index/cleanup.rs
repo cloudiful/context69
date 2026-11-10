@@ -67,6 +67,59 @@ impl QdrantIndex {
         Ok(())
     }
 
+    /// Delete every point of one Git code generation in its recorded collection.
+    ///
+    /// The caller attaches to the exact recorded collection; this method only
+    /// filters by the generation provenance, so it can never reach another
+    /// repository or generation. A missing match is success.
+    pub(crate) async fn delete_points_for_code_generation(
+        &self,
+        group_id: i64,
+        repository_key: Uuid,
+        generation_key: Uuid,
+    ) -> Result<()> {
+        if cleanup_no_op(self) {
+            return Ok(());
+        }
+        let filter = Filter::must([
+            Condition::matches("group_id", group_id),
+            Condition::matches("repository_key", repository_key.to_string()),
+            Condition::matches("generation_key", generation_key.to_string()),
+        ]);
+        let operation = "delete_points_for_code_generation";
+        let collection = self.collection_name.clone();
+        let extra = format!("generation_key={generation_key}");
+        let result = timeout(
+            QDRANT_OPERATION_TIMEOUT,
+            self.client.delete_points(
+                DeletePointsBuilder::new(&self.collection_name)
+                    .points(filter)
+                    .wait(true),
+            ),
+        )
+        .await
+        .map_err(|_| qdrant_timeout_error(operation, &collection, &extra));
+
+        let result = match result {
+            Err(err) => Err(err),
+            Ok(Ok(value)) => Ok(value),
+            Ok(Err(err)) => {
+                let err_anyhow: anyhow::Error = err.into();
+                if is_qdrant_idempotent_not_found(&err_anyhow) {
+                    return Ok(());
+                }
+                Err(format_qdrant_error(
+                    operation,
+                    &collection,
+                    &extra,
+                    err_anyhow,
+                ))
+            }
+        };
+        result?;
+        Ok(())
+    }
+
     /// Delete every point of one document by its indexed payload filter.
     ///
     /// The filter targets the indexed `document_id` field, so the delete never

@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Locks the group row before its Git-owned state is inspected (issue #28\n-- phase P13).\n--\n-- The lock is taken first and held for the same transaction that counts Git\n-- ownership and deletes the group, so a concurrent group mutation cannot\n-- interleave between the safety check and the delete.\n--\n-- $1 group_id.\nSELECT id\nFROM context69.groups\nWHERE id = $1\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "0287959ea262778328fd342b0a2869d3ee9fcd131798ed456da482001a7cbc86"
+}

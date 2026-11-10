@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Remove exactly the registry entries one fixture created.\n--\n-- The caller supplies the run ids it owns, so teardown never deletes a row\n-- another fixture owns in the reused issue test database.\nDELETE FROM context69.search_registry_entries\nWHERE run_id = ANY($1::uuid[])\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5691c14c753e55a095fed0c78b10b827a4d8c35563c7dd64ecae810a91d04e17"
+}

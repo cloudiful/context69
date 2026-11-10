@@ -10,7 +10,7 @@
 //! These tests run only when CONTEXT69_TEST_DATABASE_URL points to a scratch
 //! database (migrations are applied automatically). They are skipped otherwise.
 
-use context69::contracts::sources::{GitIndexProfile, GitProviderKind, GitRefreshPolicy};
+use context69::contracts::sources::{GitIndexProfile, GitProviderKind};
 use context69::db::{Database, NewGitRepositoryGeneration, NewGitRepositorySource};
 use sqlx::Row;
 use uuid::Uuid;
@@ -47,9 +47,15 @@ async fn seed_repository(db: &Database, group_id: i64) -> Uuid {
             name: nonce.to_string(),
             default_branch: "main".to_string(),
             target_ref: "refs/heads/main".to_string(),
-            target_commit_sha: Some("a".repeat(40)),
+            pinned_commit_sha: Some("a".repeat(40)),
             index_profile: GitIndexProfile::Hybrid,
-            refresh_policy: GitRefreshPolicy::Manual,
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+            interval_seconds: None,
+            webhook_enabled: false,
+            enabled: true,
+            retention_count: 2,
+            created_by_user_id: None,
         },
     )
     .await

@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Records the bounded stable code of a terminal index failure.\n--\n-- The source stays visible with `index_status = 'failed'` so a reader can\n-- explain the failed run without a generation list or a provider message. A\n-- newer configuration edit owns the source now, so an old attempt must not\n-- overwrite its state.\n--\n-- $1 group_id, $2 repository_key, $3 expected_config_revision, $4 error_code.\nUPDATE context69.git_repository_sources\nSET index_status = 'failed',\n    last_error_code = $4,\n    updated_at = now()\nWHERE group_id = $1\n  AND repository_key = $2\n  AND config_revision = $3\n  AND enabled\n  AND deletion_requested_at IS NULL\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "2245452ee5e5c67448971084d53c347d32c60ccd12d51d20d758541742d80ced"
+}

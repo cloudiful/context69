@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Defers one source's generation-cleanup scheduling without recording a\n-- failure (issue #28 phase P13).\n--\n-- A scheduler pass that found the source's index lifetime guard held could not\n-- do any cleanup. Leaving the source eligible would let one long index run fill\n-- every bounded batch; a short scheduler-only deferral lets other due sources be\n-- selected first and retries this one later. The generation's own cleanup retry\n-- state is deliberately untouched: this is not evidence that cleanup failed.\n--\n-- $1 group_id, $2 repository_key.\nUPDATE context69.git_repository_sources\nSET cleanup_deferred_until = now() + interval '60 seconds'\nWHERE group_id = $1\n  AND repository_key = $2\n  AND deletion_requested_at IS NULL\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5caf35f1510ef54e659678fb897cc770e520e20c0aa458776654939308b5b9ac"
+}

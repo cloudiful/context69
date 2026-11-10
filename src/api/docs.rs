@@ -23,8 +23,9 @@ use crate::api::{
     git_connection_readiness::__path_get_git_connection_readiness,
     git_connections::{__path_get_git_repository_webhook, __path_list_git_provider_connections},
     git_repositories::{
-        __path_get_git_repository, __path_index_git_repository, __path_list_git_repositories,
-        __path_register_git_repository,
+        __path_delete_git_repository, __path_get_git_repository, __path_index_git_repository,
+        __path_list_git_repositories, __path_register_git_repository,
+        __path_update_git_repository_settings,
     },
     git_repository_code_search::__path_search_git_repository_code,
     git_repository_connections::{
@@ -139,12 +140,13 @@ use crate::contracts::{
 use crate::contracts::sources::{
     GitCodeSearchHit, GitCodeSearchQuery, GitCodeSearchResponse, GitCodeVectorUnavailableReason,
     GitCommitCheckpoint, GitConnectionMode, GitConnectionReadiness, GitConnectionReadinessResponse,
-    GitFileChangeKind, GitIndexProfile, GitIndexStatus, GitProviderConnection,
-    GitProviderConnectionRequest, GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy,
+    GitFileChangeKind, GitIndexProfile, GitIndexStatus, GitPinnedCommitPatch,
+    GitProviderConnection, GitProviderConnectionRequest, GitProviderKind, GitReadCredentialPatch,
     GitRepositoryConnectionRequest, GitRepositoryFile, GitRepositoryFileContentQuery,
     GitRepositoryFileContentResponse, GitRepositoryFileDetailResponse, GitRepositoryFileDiff,
     GitRepositoryFileDiffFile, GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse,
     GitRepositoryFileListResponse, GitRepositoryFileQuery, GitRepositoryRegistrationRequest,
+    GitRepositorySettingsRequest, GitRepositorySettingsUpdateRequest, GitRepositorySkipSummary,
     GitRepositorySource, GitVersionPolicy, GitWebhookOwnership, GitWebhookRegistration,
     GitWebhookRegistrationRequest,
 };
@@ -206,6 +208,8 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         update_group_source_folder_config,
         sync_group_source_folder,
         register_git_repository,
+        update_git_repository_settings,
+        delete_git_repository,
         list_git_repositories,
         get_git_repository,
         index_git_repository,
@@ -309,12 +313,15 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         SourceFolderResponse,
         GitProviderKind,
         GitVersionPolicy,
-        GitRefreshPolicy,
         GitIndexProfile,
         GitIndexStatus,
         GitCommitCheckpoint,
         GitRepositorySource,
         GitRepositoryRegistrationRequest,
+        GitRepositorySettingsUpdateRequest,
+        GitPinnedCommitPatch,
+        GitRepositorySettingsRequest,
+        GitRepositorySkipSummary,
         GitRepositoryFile,
         GitRepositoryFileListResponse,
         GitRepositoryFileQuery,
@@ -1400,5 +1407,45 @@ mod tests {
                 "the request must not accept {forbidden}"
             );
         }
+    }
+
+    #[test]
+    fn openapi_documents_repository_source_delete_and_editable_settings() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let path = json
+            .pointer(
+                "/paths/~1v1~1groups~1by-path~1{group_path}~1git-repositories~1{repository_key}",
+            )
+            .and_then(Value::as_object)
+            .expect("repository source path to exist");
+        assert_eq!(
+            path.get("delete")
+                .and_then(|op| op.get("operationId"))
+                .and_then(Value::as_str),
+            Some("delete_git_repository"),
+        );
+        assert_eq!(
+            path.get("patch")
+                .and_then(|op| op.get("operationId"))
+                .and_then(Value::as_str),
+            Some("update_git_repository_settings"),
+        );
+        let request_ref = path
+            .get("patch")
+            .and_then(|op| op.pointer("/requestBody/content/application~1json/schema/$ref"))
+            .and_then(Value::as_str);
+        assert_eq!(
+            request_ref,
+            Some("#/components/schemas/GitRepositorySettingsUpdateRequest")
+        );
+        let schemas = json
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas to exist");
+        assert!(schemas.contains_key("GitPinnedCommitPatch"));
+        assert!(
+            !schemas.contains_key("GitRefreshPolicy"),
+            "the obsolete mutually-exclusive refresh policy is gone from the contract"
+        );
     }
 }

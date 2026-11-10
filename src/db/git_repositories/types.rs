@@ -12,8 +12,8 @@ use uuid::Uuid;
 use crate::contracts::Visibility;
 use crate::contracts::sources::{
     GitCommitCheckpoint, GitConnectionMode, GitIndexProfile, GitIndexStatus, GitProviderConnection,
-    GitProviderKind, GitRefreshPolicy, GitRepositorySource, GitVersionPolicy, GitWebhookDelivery,
-    GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
+    GitProviderKind, GitRepositorySkipSummary, GitRepositorySource, GitVersionPolicy,
+    GitWebhookDelivery, GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
 };
 
 use super::enums;
@@ -125,9 +125,16 @@ pub struct NewGitRepositorySource {
     pub name: String,
     pub default_branch: String,
     pub target_ref: String,
-    pub target_commit_sha: Option<String>,
+    pub pinned_commit_sha: Option<String>,
     pub index_profile: GitIndexProfile,
-    pub refresh_policy: GitRefreshPolicy,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub interval_seconds: Option<i64>,
+    pub webhook_enabled: bool,
+    pub enabled: bool,
+    pub retention_count: i64,
+    /// Manager whose registration created this source, when one is known.
+    pub created_by_user_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -141,9 +148,35 @@ pub struct StoredGitRepositorySource {
     pub name: String,
     pub default_branch: String,
     pub version: GitVersionPolicy,
-    pub refresh: GitRefreshPolicy,
+    pub include_patterns: Vec<String>,
+    pub exclude_patterns: Vec<String>,
+    pub interval_seconds: Option<i64>,
+    pub webhook_enabled: bool,
+    pub enabled: bool,
+    pub retention_count: i64,
+    /// Manager whose registration created this source, when one is known.
+    pub created_by_user_id: Option<i64>,
+    /// Monotonic fence for edits that change what a snapshot means.
+    pub config_revision: i64,
+    /// A refresh was requested since the last completed snapshot.
+    pub refresh_dirty: bool,
+    /// When the latest refresh request arrived.
+    pub refresh_requested_at: Option<DateTime<Utc>>,
+    /// When a refresh attempt was last admitted, so retries stay bounded.
+    pub last_refresh_attempt_at: Option<DateTime<Utc>>,
+    /// A force rebuild demand that arrived while another run was active.
+    pub force_rebuild_requested_at: Option<DateTime<Utc>>,
+    /// Set when a delete request could not finish vector cleanup.
+    pub deletion_requested_at: Option<DateTime<Utc>>,
+    pub last_skip_summary: GitRepositorySkipSummary,
+    /// Pipeline version that produced the active generation.
+    pub indexed_pipeline_version: u32,
+    /// Configuration fingerprint that produced the active generation.
+    pub indexed_config_fingerprint: String,
     pub index_profile: GitIndexProfile,
     pub index_status: GitIndexStatus,
+    /// Bounded stable code of the last terminal failure, when one is known.
+    pub last_error_code: Option<String>,
     pub checkpoint: GitCommitCheckpoint,
     /// Generation currently serving this repository, when one is activated.
     pub active_generation_key: Option<Uuid>,
@@ -169,11 +202,28 @@ impl StoredGitRepositorySource {
             default_branch: row.default_branch,
             version: GitVersionPolicy {
                 ref_name: row.target_ref,
-                commit_sha: row.target_commit_sha.clone(),
+                commit_sha: row.pinned_commit_sha,
             },
-            refresh: enums::refresh_policy(&row.refresh_policy)?,
+            include_patterns: row.include_patterns,
+            exclude_patterns: row.exclude_patterns,
+            interval_seconds: row.interval_seconds,
+            webhook_enabled: row.webhook_enabled,
+            enabled: row.enabled,
+            retention_count: row.retention_count,
+            created_by_user_id: row.created_by_user_id,
+            config_revision: row.config_revision,
+            refresh_dirty: row.refresh_dirty,
+            refresh_requested_at: row.refresh_requested_at,
+            last_refresh_attempt_at: row.last_refresh_attempt_at,
+            force_rebuild_requested_at: row.force_rebuild_requested_at,
+            deletion_requested_at: row.deletion_requested_at,
+            last_skip_summary: skip_summary(&row.last_skip_summary),
+            indexed_pipeline_version: u32::try_from(row.indexed_pipeline_version)
+                .unwrap_or_default(),
+            indexed_config_fingerprint: row.indexed_config_fingerprint,
             index_profile: enums::index_profile(&row.index_profile)?,
             index_status: enums::index_status(&row.index_status)?,
+            last_error_code: row.last_error_code,
             checkpoint: GitCommitCheckpoint {
                 target_commit_sha: row.target_commit_sha,
                 indexed_commit_sha: row.indexed_commit_sha,
@@ -199,9 +249,19 @@ impl StoredGitRepositorySource {
             name: self.name.clone(),
             default_branch: self.default_branch.clone(),
             version: self.version.clone(),
-            refresh: self.refresh,
+            include_patterns: self.include_patterns.clone(),
+            exclude_patterns: self.exclude_patterns.clone(),
+            interval_seconds: self.interval_seconds,
+            webhook_enabled: self.webhook_enabled,
+            enabled: self.enabled,
+            retention_count: self.retention_count,
+            refresh_pending: self.refresh_dirty,
+            last_refresh_attempt_at: self.last_refresh_attempt_at,
+            deletion_pending: self.deletion_requested_at.is_some(),
+            last_skip_summary: self.last_skip_summary,
             index_profile: self.index_profile,
             index_status: self.index_status,
+            last_error_code: self.last_error_code.clone(),
             checkpoint: self.checkpoint.clone(),
             active_generation_key: self.active_generation_key,
             created_at: self.created_at,
@@ -210,12 +270,45 @@ impl StoredGitRepositorySource {
     }
 }
 
+/// Decode the stored skip summary, defaulting to empty rather than failing a
+/// read when an older row predates the field.
+fn skip_summary(value: &serde_json::Value) -> GitRepositorySkipSummary {
+    serde_json::from_value(value.clone()).unwrap_or_default()
+}
+
+/// Encode the skip summary for the stored JSONB column.
+pub(crate) fn skip_summary_value(summary: GitRepositorySkipSummary) -> serde_json::Value {
+    serde_json::to_value(summary).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+/// Editable target, profile, and settings passed to the source update.
+#[derive(Debug, Clone)]
+pub struct GitRepositorySettingsUpdate<'a> {
+    pub target_ref: Option<&'a str>,
+    pub pinned_commit_action: &'a str,
+    pub pinned_commit_value: Option<&'a str>,
+    pub index_profile: Option<&'a str>,
+    pub include_patterns: &'a [String],
+    pub exclude_patterns: &'a [String],
+    pub interval_seconds: Option<i64>,
+    pub webhook_enabled: bool,
+    pub enabled: bool,
+    pub retention_count: i64,
+}
+
 /// Commit checkpoint update for incremental sync.
 #[derive(Debug, Clone)]
 pub struct GitCheckpointUpdate {
     pub target_commit_sha: Option<String>,
     pub indexed_commit_sha: Option<String>,
     pub index_status: GitIndexStatus,
+    /// Pipeline version that produced the indexed snapshot, when this update
+    /// records a completed generation.
+    pub pipeline_version: Option<u32>,
+    /// Configuration fingerprint that produced the indexed snapshot.
+    pub config_fingerprint: Option<String>,
+    /// Skip counts of the indexed snapshot.
+    pub skip_summary: Option<GitRepositorySkipSummary>,
 }
 
 /// A webhook registration to insert or update for a repository source.
@@ -274,6 +367,7 @@ impl StoredGitWebhookRegistration {
 #[derive(Debug, Clone)]
 pub struct NewGitWebhookDelivery {
     pub delivery_id: String,
+    pub external_hook_id: String,
     pub provider: GitProviderKind,
     pub repository_key: Option<Uuid>,
     pub status: GitWebhookDeliveryStatus,
@@ -283,6 +377,7 @@ pub struct NewGitWebhookDelivery {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredGitWebhookDelivery {
     pub delivery_id: String,
+    pub external_hook_id: String,
     pub provider: GitProviderKind,
     pub repository_key: Option<Uuid>,
     pub status: GitWebhookDeliveryStatus,
@@ -295,6 +390,7 @@ impl StoredGitWebhookDelivery {
     pub(crate) fn from_row(row: GitWebhookDeliveryRow) -> Result<Self> {
         Ok(Self {
             delivery_id: row.delivery_id,
+            external_hook_id: row.external_hook_id,
             provider: enums::provider_kind(&row.provider_kind)?,
             repository_key: row.repository_key,
             status: enums::delivery_status(&row.status)?,

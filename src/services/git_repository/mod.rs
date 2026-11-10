@@ -2,11 +2,14 @@
 //!
 //! This module exposes the validated inputs, hard bounds, injectable
 //! transport, and the [`RepositoryAcquirer`] surface later source, task, and
-//! index phases build their scheduling and persistence on. The only concrete
-//! provider here is a strictly bounded public GitHub client: it resolves a
-//! ref, lists one recursive tree, and fetches individual blobs. It never
-//! executes repository content, invokes Git, follows redirects, accepts
-//! credentials, or exposes provider response bodies through errors.
+//! index phases build their scheduling and persistence on. Two concrete
+//! providers implement it: a strictly bounded GitHub client and an
+//! origin-bound Forgejo client. The Forgejo client paginates its recursive tree
+//! while the provider reports truncation and fails closed when the listing
+//! cannot be completed. Neither executes repository content, invokes Git,
+//! follows redirects, or exposes provider response bodies through errors. The
+//! Forgejo transport accepts an explicit credential seam, applied only as a
+//! bearer header.
 //!
 //! It also carries the pure content preparation the lexical index is built on
 //! (issue #681 work unit 3B2): path-based language classification, and code text
@@ -25,32 +28,47 @@ pub(crate) mod code_search;
 mod code_text;
 pub(crate) mod code_vectors;
 pub(crate) mod connection_readiness;
+mod forgejo_client;
+mod forgejo_schemas;
 mod github_client;
 mod github_schemas;
 mod github_transport;
 mod github_url;
+pub(crate) mod incremental;
 pub(crate) mod index_generation;
 pub(crate) mod limits;
 mod model;
+pub(crate) mod provider_credentials;
+pub(crate) mod provider_transport;
+pub(crate) mod provider_url;
 mod ref_path_safety;
+pub(crate) mod refresh;
 mod resolve;
+mod selection;
+mod structural_chunking;
+pub(crate) mod vector_reuse;
 
-// Request parsing and validated identifiers are the only Git capabilities
+// Request parsing and validated identities are the only Git capabilities
 // composed outside their owning modules.
 pub(crate) use github_transport::GitHubApiTransport;
 pub(crate) use github_url::parse_canonical_github_url;
 #[cfg(test)]
 pub(crate) use model::GitAcquisitionLimits;
+pub(crate) use provider_url::ForgejoOrigin;
 pub(crate) use ref_path_safety::{SafeRef, SafeSha, SafeTreePath};
 
 #[cfg(test)]
 mod module_tests;
+
+#[cfg(test)]
+mod refresh_tests;
 
 /// In-memory provider doubles and the database fixture shared by the snapshot
 /// indexing tests in `index_generation`. They live beside the module tests so
 /// the indexer and its limit file stay inside their size budgets.
 #[cfg(test)]
 pub(crate) mod support {
+    use std::collections::HashMap;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -62,12 +80,13 @@ pub(crate) mod support {
 
     use crate::code_embedding_runtime::CodeEmbeddingSnapshot;
     use crate::contracts::sources::{
-        GitIndexProfile, GitIndexStatus, GitProviderKind, GitRefreshPolicy,
+        GitConnectionMode, GitIndexProfile, GitIndexStatus, GitProviderKind,
     };
     use crate::db::{
-        Database, GitCheckpointUpdate, GitGenerationCoverage, NewGitRepositoryGeneration,
-        NewGitRepositorySource, StoredGitGenerationChunk, StoredGitGenerationCodeVectors,
-        StoredGitGenerationFile, StoredGitRepositoryGeneration, StoredGitRepositorySource,
+        Database, GitCheckpointUpdate, GitGenerationCoverage, GitRepositorySettingsUpdate,
+        NewGitProviderConnection, NewGitRepositoryGeneration, NewGitRepositorySource,
+        StoredGitGenerationChunk, StoredGitGenerationCodeVectors, StoredGitGenerationFile,
+        StoredGitRepositoryGeneration, StoredGitRepositorySource,
     };
     use crate::domain_errors::DomainError;
     use crate::embedding::EmbeddingProvider;
@@ -150,6 +169,7 @@ pub(crate) mod support {
     pub(crate) struct RecordingCodeSink {
         pub(crate) writes: Mutex<Vec<usize>>,
         pub(crate) points: Mutex<Vec<CodeVectorPoint>>,
+        pub(crate) vectors: Mutex<HashMap<Uuid, Vec<f32>>>,
         pub(crate) fail: bool,
     }
 
@@ -158,6 +178,7 @@ pub(crate) mod support {
             Arc::new(Self {
                 writes: Mutex::new(Vec::new()),
                 points: Mutex::new(Vec::new()),
+                vectors: Mutex::new(HashMap::new()),
                 fail,
             })
         }
@@ -169,6 +190,10 @@ pub(crate) mod support {
         pub(crate) fn point_count(&self) -> usize {
             self.points.lock().unwrap().len()
         }
+
+        pub(crate) fn forget_vectors(&self) {
+            self.vectors.lock().unwrap().clear();
+        }
     }
 
     #[async_trait]
@@ -178,19 +203,152 @@ pub(crate) mod support {
                 return Err(anyhow!("git_code_sink_failed"));
             }
             self.writes.lock().unwrap().push(dimensions);
+            let mut stored = self.vectors.lock().unwrap();
+            for point in points {
+                stored.insert(point.chunk_key, point.vector.clone());
+            }
             self.points.lock().unwrap().extend(points.iter().cloned());
             Ok(())
+        }
+
+        async fn retrieve(&self, point_ids: &[Uuid]) -> Result<Vec<(Uuid, Vec<f32>)>> {
+            let stored = self.vectors.lock().unwrap();
+            Ok(point_ids
+                .iter()
+                .filter_map(|id| stored.get(id).cloned().map(|vector| (*id, vector)))
+                .collect())
         }
     }
 
     /// A source change performed mid-walk, so the pre-activation re-read sees a
-    /// target that moved under the attempt.
+    /// source that moved under the attempt.
     #[derive(Clone)]
     pub(crate) struct SourceMutation {
         pub(crate) db: Database,
         pub(crate) group_id: i64,
         pub(crate) repository_key: Uuid,
         pub(crate) commit_sha: String,
+        pub(crate) action: SourceMutationAction,
+    }
+
+    #[derive(Debug, Clone)]
+    pub(crate) enum SourceMutationAction {
+        /// Another attempt advances the observed target.
+        ObservedTarget,
+        /// A user edits the selection filters.
+        ExcludePatterns(Vec<String>),
+        /// A user disables the source.
+        Disable,
+        /// A user rewrites the target ref.
+        TargetRef(String),
+        /// A user changes the index profile.
+        IndexProfile(GitIndexProfile),
+        /// A connection is attached to the source while acquisition is paused.
+        ConnectionAttach,
+        /// The configured connection is disabled while acquisition is paused.
+        ConnectionDisable(String),
+        /// A rebuild request arrives while this run owns the repository.
+        ForceRebuild,
+    }
+
+    impl SourceMutation {
+        async fn apply(&self) -> Result<()> {
+            match &self.action {
+                SourceMutationAction::ObservedTarget => {
+                    self.db
+                        .update_git_repository_checkpoint(
+                            self.group_id,
+                            self.repository_key,
+                            &crate::db::GitCheckpointUpdate {
+                                target_commit_sha: Some(self.commit_sha.clone()),
+                                indexed_commit_sha: None,
+                                index_status: crate::contracts::sources::GitIndexStatus::Indexing,
+                                pipeline_version: None,
+                                config_fingerprint: None,
+                                skip_summary: None,
+                            },
+                        )
+                        .await?;
+                }
+                SourceMutationAction::ForceRebuild => {
+                    self.db
+                        .request_git_force_rebuild(self.group_id, self.repository_key)
+                        .await?;
+                }
+                SourceMutationAction::ConnectionAttach => {
+                    let connection_key = format!("mutation-{}", Uuid::new_v4());
+                    self.db
+                        .upsert_git_provider_connection(
+                            self.group_id,
+                            &NewGitProviderConnection {
+                                connection_key: connection_key.clone(),
+                                provider: GitProviderKind::GitHub,
+                                mode: GitConnectionMode::Public,
+                                display_name: "Mutation connection".to_string(),
+                                base_url: "https://github.com".to_string(),
+                                credential_secret_key: None,
+                                webhook_secret_key: None,
+                            },
+                        )
+                        .await?;
+                    sqlx::query(
+                        "UPDATE context69.git_repository_sources SET connection_key = $1 \
+                         WHERE group_id = $2 AND repository_key = $3",
+                    )
+                    .bind(connection_key)
+                    .bind(self.group_id)
+                    .bind(self.repository_key)
+                    .execute(self.db.pool())
+                    .await?;
+                }
+                SourceMutationAction::ConnectionDisable(connection_key) => {
+                    self.db
+                        .disable_git_provider_connection(self.group_id, connection_key)
+                        .await?;
+                }
+                action => {
+                    let source = self
+                        .db
+                        .get_git_repository_source(self.group_id, self.repository_key)
+                        .await?
+                        .ok_or_else(|| anyhow!("mutation target source is missing"))?;
+                    let target_ref = match action {
+                        SourceMutationAction::TargetRef(target_ref) => Some(target_ref.clone()),
+                        _ => None,
+                    };
+                    let index_profile = match action {
+                        SourceMutationAction::IndexProfile(profile) => {
+                            Some(profile.as_str().to_owned())
+                        }
+                        _ => None,
+                    };
+                    let exclude_patterns = match action {
+                        SourceMutationAction::ExcludePatterns(patterns) => patterns.clone(),
+                        _ => source.exclude_patterns.clone(),
+                    };
+                    let enabled = !matches!(action, SourceMutationAction::Disable);
+                    self.db
+                        .update_git_repository_source_settings(
+                            self.group_id,
+                            self.repository_key,
+                            &GitRepositorySettingsUpdate {
+                                target_ref: target_ref.as_deref(),
+                                pinned_commit_action: "keep",
+                                pinned_commit_value: None,
+                                index_profile: index_profile.as_deref(),
+                                include_patterns: &source.include_patterns,
+                                exclude_patterns: &exclude_patterns,
+                                interval_seconds: source.interval_seconds,
+                                webhook_enabled: source.webhook_enabled,
+                                enabled,
+                                retention_count: source.retention_count,
+                            },
+                        )
+                        .await?;
+                }
+            }
+            Ok(())
+        }
     }
 
     #[derive(Clone)]
@@ -199,12 +357,15 @@ pub(crate) mod support {
         /// (path, blob sha, exact content)
         pub(crate) files: Vec<(&'static str, String, &'static [u8])>,
         pub(crate) excluded: usize,
+        /// Acquired entries the provider declared beyond the per-blob budget.
+        pub(crate) too_large: usize,
         pub(crate) fail_blob: Option<String>,
         pub(crate) mutate: Option<SourceMutation>,
     }
 
     struct FakeAcquirer {
         spec: FakeAcquirerSpec,
+        fetched: Arc<Mutex<Vec<String>>>,
     }
 
     #[async_trait]
@@ -215,18 +376,7 @@ pub(crate) mod support {
 
         async fn list_tree(&self, commit_sha: &SafeSha) -> Result<TreeListing> {
             if let Some(mutation) = &self.spec.mutate {
-                mutation
-                    .db
-                    .update_git_repository_checkpoint(
-                        mutation.group_id,
-                        mutation.repository_key,
-                        &GitCheckpointUpdate {
-                            target_commit_sha: Some(mutation.commit_sha.clone()),
-                            indexed_commit_sha: None,
-                            index_status: GitIndexStatus::Indexing,
-                        },
-                    )
-                    .await?;
+                mutation.apply().await?;
             }
             let mut files = Vec::with_capacity(self.spec.files.len());
             for (path, blob, _) in &self.spec.files {
@@ -240,10 +390,15 @@ pub(crate) mod support {
                 commit_sha: commit_sha.clone(),
                 files,
                 excluded_files: self.spec.excluded,
+                too_large_files: self.spec.too_large,
             })
         }
 
         async fn fetch_blob(&self, blob_sha: &SafeSha) -> Result<BlobContent> {
+            self.fetched
+                .lock()
+                .unwrap()
+                .push(blob_sha.as_str().to_owned());
             if self.spec.fail_blob.as_deref() == Some(blob_sha.as_str()) {
                 return Err(anyhow!(DomainError::upstream_error("git_http_status_500")));
             }
@@ -265,6 +420,7 @@ pub(crate) mod support {
         spec: FakeAcquirerSpec,
         pub(crate) created: Arc<AtomicUsize>,
         pub(crate) seen_url: Mutex<Option<String>>,
+        pub(crate) fetched: Arc<Mutex<Vec<String>>>,
     }
 
     impl FakeProvider {
@@ -273,6 +429,7 @@ pub(crate) mod support {
                 spec,
                 created: Arc::new(AtomicUsize::new(0)),
                 seen_url: Mutex::new(None),
+                fetched: Arc::new(Mutex::new(Vec::new())),
             }
         }
     }
@@ -287,6 +444,7 @@ pub(crate) mod support {
             *self.seen_url.lock().unwrap() = Some(canonical_url.to_owned());
             Ok(Box::new(FakeAcquirer {
                 spec: self.spec.clone(),
+                fetched: Arc::clone(&self.fetched),
             }))
         }
     }
@@ -352,9 +510,15 @@ pub(crate) mod support {
                         name: nonce.to_string(),
                         default_branch: "main".to_string(),
                         target_ref: "refs/heads/main".to_string(),
-                        target_commit_sha: None,
+                        pinned_commit_sha: None,
                         index_profile: profile,
-                        refresh_policy: GitRefreshPolicy::Manual,
+                        include_patterns: Vec::new(),
+                        exclude_patterns: Vec::new(),
+                        interval_seconds: None,
+                        webhook_enabled: false,
+                        enabled: true,
+                        retention_count: 2,
+                        created_by_user_id: None,
                     },
                 )
                 .await
@@ -399,6 +563,31 @@ pub(crate) mod support {
                 .await
                 .expect("activate prior generation");
             prior.generation_key
+        }
+
+        pub(crate) async fn observe_target(&self, commit_sha: &str) {
+            let source = self
+                .db
+                .get_git_repository_source(self.group_id, self.repository_key)
+                .await
+                .expect("read source")
+                .expect("the fixture owns the source");
+            self.db
+                .update_git_repository_checkpoint(
+                    self.group_id,
+                    self.repository_key,
+                    &GitCheckpointUpdate {
+                        target_commit_sha: Some(commit_sha.to_owned()),
+                        indexed_commit_sha: source.checkpoint.indexed_commit_sha.clone(),
+                        index_status: GitIndexStatus::Indexing,
+                        pipeline_version: None,
+                        config_fingerprint: None,
+                        skip_summary: None,
+                    },
+                )
+                .await
+                .expect("observe the new target")
+                .expect("the fixture owns the source");
         }
 
         pub(crate) async fn reads(&self, generation_key: Option<Uuid>) -> Reads {
@@ -485,6 +674,7 @@ pub(crate) mod support {
                 ("assets/logo.bin", sha(0xb3), &[0xff, 0xfe, 0x00]),
             ],
             excluded: 2,
+            too_large: 0,
             fail_blob: None,
             mutate: None,
         }

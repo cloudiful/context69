@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Removes one repository source after its generations and vectors are gone.\n-- The row's generations, files, chunks, webhook registration, and active\n-- pointer cascade; webhook deliveries keep their history with a null source.\n--\n-- $1 group_id, $2 repository_key.\nDELETE FROM context69.git_repository_sources\nWHERE group_id = $1\n  AND repository_key = $2\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ec34eeefd4cfa018562489548cdb2a147dd137f9763639372cdb2e478cbe0ed3"
+}

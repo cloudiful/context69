@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::contracts::sources::{
     GitActiveGeneration, GitGenerationStatus, GitIndexProfile, GitRepositoryGeneration,
+    GitRepositorySkipSummary,
 };
 
 use super::enums;
@@ -96,6 +97,18 @@ pub struct GitGenerationCoverage {
     pub total_bytes: i64,
 }
 
+/// The checkpoint and fence values one index attempt publishes atomically.
+#[derive(Debug, Clone)]
+pub struct GitGenerationPublication {
+    pub expected_config_revision: i64,
+    pub observed_commit_sha: String,
+    pub pipeline_version: u32,
+    pub config_fingerprint: String,
+    pub skip_summary: GitRepositorySkipSummary,
+    pub coverage: GitGenerationCoverage,
+    pub observed_force_rebuild_requested_at: Option<DateTime<Utc>>,
+}
+
 /// The exact code destination and acknowledged point count of one generation.
 ///
 /// `fingerprint` is the destination identity: the code vector-space fingerprint
@@ -104,6 +117,8 @@ pub struct GitGenerationCoverage {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewGitGenerationCodeVectors {
     pub fingerprint: String,
+    /// Hash of the normalized Qdrant endpoint that owns these points.
+    pub endpoint_identity: String,
     pub dimensions: i64,
     pub collection_name: String,
     pub point_count: i64,
@@ -114,6 +129,9 @@ pub struct NewGitGenerationCodeVectors {
 pub struct StoredGitGenerationCodeVectors {
     pub generation_key: Uuid,
     pub fingerprint: String,
+    /// Hash of the normalized endpoint that owns these points. Rows recorded
+    /// before this identity existed read `None` and cleanup fails closed.
+    pub endpoint_identity: Option<String>,
     pub dimensions: i64,
     pub collection_name: String,
     pub point_count: i64,
@@ -125,10 +143,36 @@ impl StoredGitGenerationCodeVectors {
         Self {
             generation_key: row.generation_key,
             fingerprint: row.fingerprint,
+            endpoint_identity: row.endpoint_identity,
             dimensions: row.dimensions,
             collection_name: row.collection_name,
             point_count: row.point_count,
             created_at: row.created_at,
+        }
+    }
+}
+
+/// One generation a cleanup pass may remove, with its optional code destination.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GitGenerationCleanupTarget {
+    pub generation_key: Uuid,
+    pub status: String,
+    pub cleanup_pending: bool,
+    pub code_vectors: Option<StoredGitGenerationCodeVectors>,
+}
+
+impl GitGenerationCleanupTarget {
+    pub(crate) fn from_row(
+        generation_key: Uuid,
+        status: String,
+        cleanup_pending: bool,
+        code_vectors: Option<StoredGitGenerationCodeVectors>,
+    ) -> Self {
+        Self {
+            generation_key,
+            status,
+            cleanup_pending,
+            code_vectors,
         }
     }
 }

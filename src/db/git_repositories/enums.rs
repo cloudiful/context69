@@ -9,7 +9,7 @@ use anyhow::{Result, anyhow};
 use crate::contracts::Visibility;
 use crate::contracts::sources::{
     GitConnectionMode, GitGenerationStatus, GitIndexProfile, GitIndexStatus, GitProviderKind,
-    GitRefreshPolicy, GitWebhookDeliveryStatus, GitWebhookOwnership,
+    GitWebhookDeliveryStatus, GitWebhookOwnership,
 };
 
 pub(crate) fn provider_kind(value: &str) -> Result<GitProviderKind> {
@@ -28,15 +28,6 @@ pub(crate) fn connection_mode(value: &str) -> Result<GitConnectionMode> {
         "installation" => Ok(GitConnectionMode::Installation),
         "token" => Ok(GitConnectionMode::Token),
         other => Err(anyhow!("unknown git connection mode: {other}")),
-    }
-}
-
-pub(crate) fn refresh_policy(value: &str) -> Result<GitRefreshPolicy> {
-    match value {
-        "manual" => Ok(GitRefreshPolicy::Manual),
-        "webhook" => Ok(GitRefreshPolicy::Webhook),
-        "reconcile" => Ok(GitRefreshPolicy::Reconcile),
-        other => Err(anyhow!("unknown git refresh policy: {other}")),
     }
 }
 

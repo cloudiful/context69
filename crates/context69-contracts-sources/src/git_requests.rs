@@ -2,12 +2,15 @@
 //! connection attachment, provider connection creation, and repository webhook
 //! registration (issue #681 work units 3C2, 4A2, 4B3, and phase 5H).
 //!
-//! Registration is public GitHub only and carries no credential or connection
-//! key: the caller supplies a canonical URL, a default branch, the target ref,
-//! and optionally a pinned commit plus the independent index and refresh
-//! policies. Owner, name, and provider are derived server-side from the
-//! validated URL, so a request can never widen provider access or rename the
-//! repository it targets.
+//! Registration names the provider explicitly and may reference an existing
+//! group-owned connection: the caller supplies a provider, a canonical URL, a
+//! default branch, the target ref, and optionally a pinned commit, a connection
+//! key, plus the independent index and refresh policies. A Forgejo registration
+//! requires a connection, because only the connection can establish the
+//! instance origin the canonical URL must match. Owner and name are derived
+//! server-side from the validated URL, so a request can never widen provider
+//! access or rename the repository it targets, and the body never carries a
+//! credential value or secret-store key.
 //!
 //! [`GitRepositoryConnectionRequest`] only names a connection that already
 //! exists in the same group. The accepted key charset excludes path
@@ -38,26 +41,311 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::git_repositories::{
-    GitConnectionMode, GitIndexProfile, GitProviderKind, GitRefreshPolicy, GitWebhookOwnership,
+    GitConnectionMode, GitIndexProfile, GitProviderKind, GitWebhookOwnership,
 };
 
 fn default_index_profile() -> GitIndexProfile {
     GitIndexProfile::Lexical
 }
 
-fn default_refresh_policy() -> GitRefreshPolicy {
-    GitRefreshPolicy::Manual
+fn default_enabled() -> bool {
+    true
 }
 
-/// Registration request for one public GitHub repository ref.
+fn default_retention_count() -> i64 {
+    2
+}
+
+/// Largest number of user include or exclude glob patterns one source keeps.
+pub const GIT_SOURCE_PATTERN_MAX_COUNT: usize = 128;
+
+/// Longest accepted user include or exclude glob pattern, in characters.
+pub const GIT_SOURCE_PATTERN_MAX_CHARS: usize = 512;
+
+/// Smallest accepted independent periodic interval, in seconds.
+pub const GIT_REFRESH_INTERVAL_MIN_SECONDS: i64 = 300;
+
+/// Largest accepted independent periodic interval, in seconds (30 days).
+pub const GIT_REFRESH_INTERVAL_MAX_SECONDS: i64 = 2_592_000;
+
+/// Smallest accepted retention count: only the active snapshot is retained.
+pub const GIT_RETENTION_MIN: i64 = 1;
+
+/// Largest accepted retention count.
+pub const GIT_RETENTION_MAX: i64 = 50;
+
+/// Default retention count: the active generation plus one previous successful
+/// snapshot, counted as the total retained snapshots.
+pub const GIT_RETENTION_DEFAULT: i64 = 2;
+
+/// Optional body of the group Git index request.
 ///
-/// `canonical_url` must be exactly `https://github.com/{owner}/{name}` (a
-/// trailing slash and a single `.git` suffix are tolerated by the validator).
-/// `target_ref` is a full ref (`refs/heads/main`, `refs/tags/v1`) or `HEAD`,
-/// and when it names a branch it must match `default_branch`.
+/// Normal sync keeps the same-target no-op. `force_rebuild` bypasses that
+/// no-op and incremental reuse so the current target is reconstructed even when
+/// its commit and pipeline identity are unchanged.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema,
+)]
+#[serde(deny_unknown_fields)]
+pub struct GitIndexRequest {
+    #[serde(default)]
+    pub force_rebuild: bool,
+}
+
+/// Independent, user-editable settings of one repository source.
+///
+/// The fields are the complete settings surface, so registration and the
+/// settings update share one shape: the bounded default allowlist stays in
+/// effect unless an include adds a path, a user exclude always wins, the
+/// periodic interval is optional and independent of the webhook switch, and
+/// retention is a bounded count.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GitRepositorySettingsRequest {
+    /// Additional repository-relative glob patterns admitted beyond the
+    /// bounded default source/docs/manifest allowlist.
+    #[serde(default)]
+    #[schema(max_items = 128)]
+    pub include_patterns: Vec<String>,
+    /// Glob patterns excluded even when the default allowlist or an include
+    /// matches. Safety exclusions cannot be re-enabled.
+    #[serde(default)]
+    #[schema(max_items = 128)]
+    pub exclude_patterns: Vec<String>,
+    /// Optional periodic refresh interval, in whole seconds (300..2592000).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_seconds: Option<i64>,
+    /// Whether authenticated provider push events refresh this source.
+    #[serde(default)]
+    pub webhook_enabled: bool,
+    /// Whether this source accepts index work.
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    /// Total successful snapshots to retain, including the active one (1..50).
+    #[serde(default = "default_retention_count")]
+    pub retention_count: i64,
+}
+
+impl Default for GitRepositorySettingsRequest {
+    fn default() -> Self {
+        Self {
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+            interval_seconds: None,
+            webhook_enabled: false,
+            enabled: true,
+            retention_count: GIT_RETENTION_DEFAULT,
+        }
+    }
+}
+
+impl GitRepositorySettingsRequest {
+    /// Validates every bounded setting before any storage or provider work.
+    ///
+    /// Patterns are trimmed, counted in characters, and refused when blank or
+    /// when they carry control characters; duplicate patterns are collapsed so
+    /// one source cannot store the same rule twice. The interval is either
+    /// absent or inside the supported range, and retention stays inside its own
+    /// small bound. No submitted value is echoed back through the error.
+    pub fn validated(self) -> Result<Self, GitRepositorySettingsRejection> {
+        let include_patterns = validated_patterns(self.include_patterns)?;
+        let exclude_patterns = validated_patterns(self.exclude_patterns)?;
+        if let Some(interval) = self.interval_seconds
+            && !(GIT_REFRESH_INTERVAL_MIN_SECONDS..=GIT_REFRESH_INTERVAL_MAX_SECONDS)
+                .contains(&interval)
+        {
+            return Err(GitRepositorySettingsRejection::IntervalOutOfRange);
+        }
+        if !(GIT_RETENTION_MIN..=GIT_RETENTION_MAX).contains(&self.retention_count) {
+            return Err(GitRepositorySettingsRejection::RetentionOutOfRange);
+        }
+        Ok(Self {
+            include_patterns,
+            exclude_patterns,
+            interval_seconds: self.interval_seconds,
+            webhook_enabled: self.webhook_enabled,
+            enabled: self.enabled,
+            retention_count: self.retention_count,
+        })
+    }
+}
+
+/// Explicit pinned-commit edit on a source settings update.
+///
+/// The tri-state form is required because an omitted field means "keep the
+/// current pin" while JSON `null` would be indistinguishable from an absent
+/// value after deserialization. `Clear` removes the pin so the next run
+/// resolves the tracked ref again.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(tag = "op", content = "value", rename_all = "snake_case")]
+pub enum GitPinnedCommitPatch {
+    #[default]
+    Keep,
+    Set(String),
+    Clear,
+}
+
+impl GitPinnedCommitPatch {
+    /// Stable action name understood by the persistence statement.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Keep => "keep",
+            Self::Set(_) => "set",
+            Self::Clear => "clear",
+        }
+    }
+
+    /// The supplied pin when this is a non-blank `Set`.
+    pub fn set_value(&self) -> Option<&str> {
+        match self {
+            Self::Set(value) if !value.trim().is_empty() => Some(value),
+            _ => None,
+        }
+    }
+}
+
+/// Editable target, profile, and settings of one registered repository.
+///
+/// Registration fixes the provider identity and canonical URL. A later patch may
+/// move the tracked ref, pin or clear an exact commit, and change the index
+/// profile, so those are explicit fields here rather than being fixed forever at
+/// registration time. The shared settings fields keep the one bounded validation
+/// surface used by registration.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct GitRepositorySettingsUpdateRequest {
+    /// New full target ref (`refs/heads/main`, `refs/tags/v1`, or `HEAD`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_ref: Option<String>,
+    /// Pin edit; omission keeps the current pin and `clear` removes it.
+    #[serde(default)]
+    pub pinned_commit: GitPinnedCommitPatch,
+    /// New index profile; omission keeps the current profile.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub index_profile: Option<GitIndexProfile>,
+    #[serde(default)]
+    #[schema(max_items = 128)]
+    pub include_patterns: Vec<String>,
+    #[serde(default)]
+    #[schema(max_items = 128)]
+    pub exclude_patterns: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_seconds: Option<i64>,
+    #[serde(default)]
+    pub webhook_enabled: bool,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_retention_count")]
+    pub retention_count: i64,
+}
+
+impl Default for GitRepositorySettingsUpdateRequest {
+    fn default() -> Self {
+        Self {
+            target_ref: None,
+            pinned_commit: GitPinnedCommitPatch::Keep,
+            index_profile: None,
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+            interval_seconds: None,
+            webhook_enabled: false,
+            enabled: true,
+            retention_count: GIT_RETENTION_DEFAULT,
+        }
+    }
+}
+
+impl GitRepositorySettingsUpdateRequest {
+    /// Validates the shared settings surface and returns the normalized request.
+    pub fn validated(self) -> Result<Self, GitRepositorySettingsRejection> {
+        let settings = GitRepositorySettingsRequest {
+            include_patterns: self.include_patterns,
+            exclude_patterns: self.exclude_patterns,
+            interval_seconds: self.interval_seconds,
+            webhook_enabled: self.webhook_enabled,
+            enabled: self.enabled,
+            retention_count: self.retention_count,
+        }
+        .validated()?;
+        Ok(Self {
+            target_ref: self.target_ref,
+            pinned_commit: self.pinned_commit,
+            index_profile: self.index_profile,
+            include_patterns: settings.include_patterns,
+            exclude_patterns: settings.exclude_patterns,
+            interval_seconds: settings.interval_seconds,
+            webhook_enabled: settings.webhook_enabled,
+            enabled: settings.enabled,
+            retention_count: settings.retention_count,
+        })
+    }
+}
+
+fn validated_patterns(
+    patterns: Vec<String>,
+) -> Result<Vec<String>, GitRepositorySettingsRejection> {
+    if patterns.len() > GIT_SOURCE_PATTERN_MAX_COUNT {
+        return Err(GitRepositorySettingsRejection::TooManyPatterns);
+    }
+    let mut validated: Vec<String> = Vec::with_capacity(patterns.len());
+    for pattern in patterns {
+        let pattern = pattern.trim();
+        if pattern.is_empty() {
+            return Err(GitRepositorySettingsRejection::BlankPattern);
+        }
+        if pattern.chars().count() > GIT_SOURCE_PATTERN_MAX_CHARS {
+            return Err(GitRepositorySettingsRejection::PatternTooLong);
+        }
+        if pattern.chars().any(char::is_control) {
+            return Err(GitRepositorySettingsRejection::PatternControlCharacter);
+        }
+        let pattern = pattern.to_string();
+        if !validated.contains(&pattern) {
+            validated.push(pattern);
+        }
+    }
+    Ok(validated)
+}
+
+/// Why a settings request was refused before any persistence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitRepositorySettingsRejection {
+    TooManyPatterns,
+    BlankPattern,
+    PatternTooLong,
+    PatternControlCharacter,
+    IntervalOutOfRange,
+    RetentionOutOfRange,
+}
+
+impl GitRepositorySettingsRejection {
+    /// Stable bounded reason for API error bodies.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::TooManyPatterns => "git_source_patterns_too_many",
+            Self::BlankPattern => "git_source_pattern_blank",
+            Self::PatternTooLong => "git_source_pattern_too_long",
+            Self::PatternControlCharacter => "git_source_pattern_control_character",
+            Self::IntervalOutOfRange => "git_source_interval_out_of_range",
+            Self::RetentionOutOfRange => "git_source_retention_out_of_range",
+        }
+    }
+}
+
+/// Registration request for one repository ref on an explicit provider.
+///
+/// A GitHub registration may be public or attach an existing GitHub connection,
+/// and its `canonical_url` must be exactly `https://github.com/{owner}/{name}`.
+/// A Forgejo registration must attach a connection whose origin the canonical
+/// `https://{origin}/{owner}/{name}` URL matches. A trailing slash and a single
+/// `.git` suffix are tolerated by the validator. `target_ref` is a full ref
+/// (`refs/heads/main`, `refs/tags/v1`) or `HEAD`, and when it names a branch it
+/// must match `default_branch`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct GitRepositoryRegistrationRequest {
-    /// Canonical public GitHub HTTPS repository URL.
+    /// Provider family this repository is acquired from.
+    pub provider: GitProviderKind,
+    /// Canonical HTTPS repository URL on the provider origin.
     pub canonical_url: String,
     /// Default branch name of the repository.
     pub default_branch: String,
@@ -66,12 +354,27 @@ pub struct GitRepositoryRegistrationRequest {
     /// Optional pinned commit SHA the target ref must resolve to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pinned_commit: Option<String>,
+    /// Optional existing group-owned connection used for acquisition.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connection_key: Option<String>,
     /// Independent index profile; defaults to cheap lexical indexing.
     #[serde(default = "default_index_profile")]
     pub index_profile: GitIndexProfile,
-    /// Refresh policy; defaults to manual one-off snapshots.
-    #[serde(default = "default_refresh_policy")]
-    pub refresh_policy: GitRefreshPolicy,
+    /// Independent selection and refresh settings for the source.
+    #[serde(flatten)]
+    pub settings: GitRepositorySettingsRequest,
+}
+
+impl GitRepositoryRegistrationRequest {
+    /// Validates the optional connection key without touching storage. A blank
+    /// key is absent; a supplied key must use the shared connection-key charset.
+    pub fn validated_connection_key(&self) -> Result<Option<String>, GitConnectionKeyRejection> {
+        match self.connection_key.as_deref() {
+            None => Ok(None),
+            Some(key) if key.trim().is_empty() => Err(GitConnectionKeyRejection::Blank),
+            Some(key) => validate_git_connection_key(key).map(Some),
+        }
+    }
 }
 
 /// Maximum characters accepted for an existing provider-connection key.
@@ -299,6 +602,45 @@ impl GitRepositoryConnectionRequest {
     /// charset shared by connection attachment and connection creation.
     pub fn validated_connection_key(&self) -> Result<String, GitConnectionKeyRejection> {
         validate_git_connection_key(&self.connection_key)
+    }
+}
+
+/// Why a registration request was refused before any persistence or provider
+/// work. Every variant names a stable bounded reason and never echoes a
+/// submitted URL, key, or credential.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitRepositoryRegistrationRejection {
+    /// The provider has no acquisition implementation in this phase.
+    ProviderUnsupported,
+    /// The provider requires an origin-bearing connection.
+    ConnectionRequired,
+    /// The referenced connection does not exist in the calling group.
+    ConnectionNotFound,
+    /// The connection belongs to another provider family.
+    ConnectionProviderMismatch,
+    /// The connection is disabled.
+    ConnectionDisabled,
+    /// The connection origin does not match the canonical repository URL.
+    ConnectionOriginMismatch,
+    /// The connection mode cannot acquire this provider's repositories.
+    ConnectionModeUnsupported,
+    /// A token connection has no stored read credential.
+    ConnectionCredentialMissing,
+}
+
+impl GitRepositoryRegistrationRejection {
+    /// Stable bounded reason for API error bodies.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ProviderUnsupported => "git_provider_unsupported",
+            Self::ConnectionRequired => "git_connection_required",
+            Self::ConnectionNotFound => "git_connection_not_found",
+            Self::ConnectionProviderMismatch => "git_connection_provider_mismatch",
+            Self::ConnectionDisabled => "git_connection_disabled",
+            Self::ConnectionOriginMismatch => "git_connection_origin_mismatch",
+            Self::ConnectionModeUnsupported => "git_connection_mode_unsupported",
+            Self::ConnectionCredentialMissing => "git_connection_credential_missing",
+        }
     }
 }
 

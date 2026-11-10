@@ -10,11 +10,14 @@
 //! They report statuses and counts only and never print a signing secret,
 //! signature, derived key name, or body.
 
-use super::{WebhookIngressOutcome, parse_provider, process_delivery};
+use super::{
+    WebhookIngressOutcome, event_name, parse_provider, process_delivery, signature_carriers,
+    single_delivery_id,
+};
+use crate::services::git_webhook_signature::SignatureCarrier;
 use crate::{
     contracts::sources::{
-        GitIndexProfile, GitProviderKind, GitRefreshPolicy, GitWebhookDeliveryStatus,
-        GitWebhookOwnership,
+        GitIndexProfile, GitProviderKind, GitWebhookDeliveryStatus, GitWebhookOwnership,
     },
     db::{Database, NewGitRepositorySource, NewGitWebhookRegistration},
     services::{
@@ -27,17 +30,22 @@ use sha2::Sha256;
 use sqlx::Row;
 use uuid::Uuid;
 
-fn sign(secret: &[u8], body: &[u8]) -> String {
+fn raw_signature(secret: &[u8], body: &[u8]) -> String {
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts any key length");
     mac.update(body);
-    format!(
-        "sha256={}",
-        mac.finalize()
-            .into_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect::<String>()
-    )
+    mac.finalize()
+        .into_bytes()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+fn sign(secret: &[u8], body: &[u8]) -> String {
+    format!("sha256={}", raw_signature(secret, body))
+}
+
+fn carriers(signature: &str) -> [SignatureCarrier<'_>; 1] {
+    [SignatureCarrier::HubSha256(signature)]
 }
 
 #[tokio::test]
@@ -70,6 +78,124 @@ fn the_provider_path_parses_only_known_kinds() {
     for unknown in ["", "GitHub", "github-app", "bitbucket"] {
         assert!(parse_provider(unknown).is_none(), "path {unknown}");
     }
+}
+
+#[test]
+fn forgejo_aliases_delivery_ids_and_events_are_read_from_their_headers() {
+    use axum::http::{HeaderMap, HeaderValue};
+
+    let mut headers = HeaderMap::new();
+    headers.insert("x-forgejo-signature", HeaderValue::from_static("aa"));
+    headers.insert("x-gitea-signature", HeaderValue::from_static("bb"));
+    headers.insert("x-gogs-signature", HeaderValue::from_static("cc"));
+    headers.insert("x-hub-signature-256", HeaderValue::from_static("sha256=dd"));
+    assert_eq!(
+        signature_carriers(&headers),
+        vec![
+            SignatureCarrier::RawHex("aa"),
+            SignatureCarrier::RawHex("bb"),
+            SignatureCarrier::RawHex("cc"),
+            SignatureCarrier::HubSha256("sha256=dd"),
+        ],
+        "every recognized carrier is verified, not just the first"
+    );
+
+    headers.insert("x-forgejo-delivery", HeaderValue::from_static("delivery-1"));
+    headers.insert("x-gitea-delivery", HeaderValue::from_static("delivery-2"));
+    assert!(
+        single_delivery_id(&headers).is_none(),
+        "conflicting provider delivery aliases are never resolved by ordering"
+    );
+    headers.insert("x-gogs-delivery", HeaderValue::from_static("delivery-1"));
+    headers.remove("x-gitea-delivery");
+    headers.insert("x-github-delivery", HeaderValue::from_static("delivery-1"));
+    assert_eq!(
+        single_delivery_id(&headers).as_deref(),
+        Some("delivery-1"),
+        "identical aliases keep the one idempotency key"
+    );
+
+    headers.insert("x-forgejo-event", HeaderValue::from_static("push"));
+    headers.insert("x-github-event", HeaderValue::from_static("ping"));
+    assert_eq!(
+        event_name(&headers).as_deref(),
+        Some("push"),
+        "the Forgejo family is preferred when both families are present"
+    );
+}
+
+#[test]
+fn a_push_matches_only_its_repository_and_tracked_ref() {
+    let payload = |full_name: &str, reference: &str| {
+        serde_json::from_value::<super::PushPayload>(serde_json::json!({
+            "ref": reference,
+            "after": "a".repeat(40),
+            "repository": { "full_name": full_name }
+        }))
+        .expect("a push payload")
+    };
+    assert!(
+        payload("octo/repo", "refs/heads/main").matches("octo", "repo", "refs/heads/main", "main"),
+        "the stable full name and tracked ref match"
+    );
+    assert!(
+        payload("OCTO/Repo", "refs/heads/main").matches("octo", "repo", "refs/heads/main", "main"),
+        "provider casing is not a different repository"
+    );
+    assert!(
+        payload("octo/repo", "main").matches("octo", "repo", "refs/heads/main", "main"),
+        "the documented Gitea short branch form is accepted"
+    );
+    for case in [
+        payload("octo/other", "refs/heads/main"),
+        payload("octo/repo", "refs/heads/other"),
+        payload("octo/repo", "refs/tags/v1"),
+    ] {
+        assert!(
+            !case.matches("octo", "repo", "refs/heads/main", "main"),
+            "a foreign repository or untracked ref must not refresh the source"
+        );
+    }
+    assert!(
+        !payload("octo/repo", "refs/heads/main").matches("octo", "repo", "refs/tags/v1", "main"),
+        "a short branch form is never inferred for a tag target"
+    );
+}
+
+#[test]
+fn a_head_tracked_source_follows_the_default_branch_push() {
+    let payload = |reference: &str, default_branch: Option<&str>| {
+        let mut repository = serde_json::json!({ "full_name": "octo/repo" });
+        if let Some(default_branch) = default_branch {
+            repository["default_branch"] = serde_json::Value::String(default_branch.to_string());
+        }
+        serde_json::from_value::<super::PushPayload>(serde_json::json!({
+            "ref": reference,
+            "after": "a".repeat(40),
+            "repository": repository
+        }))
+        .expect("a push payload")
+    };
+    assert!(
+        payload("refs/heads/main", Some("main")).matches("octo", "repo", "HEAD", "main"),
+        "a HEAD source follows the authenticated default branch push"
+    );
+    assert!(
+        payload("main", Some("main")).matches("octo", "repo", "HEAD", "main"),
+        "the short branch form also matches a HEAD source"
+    );
+    assert!(
+        payload("refs/heads/main", None).matches("octo", "repo", "HEAD", "main"),
+        "an absent payload default branch falls back to the stored default"
+    );
+    assert!(
+        !payload("refs/heads/other", Some("main")).matches("octo", "repo", "HEAD", "main"),
+        "an unrelated branch push never refreshes a HEAD source"
+    );
+    assert!(
+        !payload("refs/heads/main", Some("bad branch")).matches("octo", "repo", "HEAD", "main"),
+        "an unsafe payload default branch never matches"
+    );
 }
 
 /// One seeded group, repository, registration, and keyed store over the scratch
@@ -112,9 +238,15 @@ async fn fixture(active: bool, seal: bool) -> Seed {
                 name: nonce.to_string(),
                 default_branch: "main".to_string(),
                 target_ref: "refs/heads/main".to_string(),
-                target_commit_sha: None,
+                pinned_commit_sha: None,
                 index_profile: GitIndexProfile::Lexical,
-                refresh_policy: GitRefreshPolicy::Manual,
+                include_patterns: Vec::new(),
+                exclude_patterns: Vec::new(),
+                interval_seconds: None,
+                webhook_enabled: false,
+                enabled: true,
+                retention_count: 2,
+                created_by_user_id: None,
             },
         )
         .await
@@ -227,7 +359,7 @@ async fn unknown_hook_and_bad_signature_write_no_delivery() {
             GitProviderKind::GitHub,
             hook,
             &delivery_id,
-            &signature,
+            &carriers(&signature),
             payload,
         )
         .await
@@ -253,18 +385,22 @@ async fn active_registration_records_received() {
         GitProviderKind::GitHub,
         &seed.hook_id,
         &delivery_id,
-        &sign(&seed.signing_secret, body),
+        &carriers(&sign(&seed.signing_secret, body)),
         body,
     )
     .await
     .expect("a valid active delivery is processed");
 
-    assert_eq!(
-        outcome,
+    match outcome {
         WebhookIngressOutcome::Recorded {
-            status: GitWebhookDeliveryStatus::Received
+            status: GitWebhookDeliveryStatus::Received,
+            verified: Some(registration),
+        } => {
+            assert_eq!(registration.group_id, seed.group_id);
+            assert_eq!(registration.repository_key, seed.repository_key);
         }
-    );
+        other => panic!("a valid active delivery must be dispatchable: {other:?}"),
+    }
     assert_eq!(
         delivery_status(&seed.db, &delivery_id).await.as_deref(),
         Some("received")
@@ -283,7 +419,7 @@ async fn inactive_registration_records_ignored() {
         GitProviderKind::GitHub,
         &seed.hook_id,
         &delivery_id,
-        &sign(&seed.signing_secret, body),
+        &carriers(&sign(&seed.signing_secret, body)),
         body,
     )
     .await
@@ -292,7 +428,8 @@ async fn inactive_registration_records_ignored() {
     assert_eq!(
         outcome,
         WebhookIngressOutcome::Recorded {
-            status: GitWebhookDeliveryStatus::Ignored
+            status: GitWebhookDeliveryStatus::Ignored,
+            verified: None,
         }
     );
     assert_eq!(
@@ -315,7 +452,7 @@ async fn a_repeated_delivery_id_stays_one_row() {
             GitProviderKind::GitHub,
             &seed.hook_id,
             &delivery_id,
-            &signature,
+            &carriers(&signature),
             body,
         )
         .await
@@ -326,6 +463,136 @@ async fn a_repeated_delivery_id_stays_one_row() {
         delivery_count(&seed.db, &delivery_id).await,
         1,
         "the provider delivery id is the idempotency key"
+    );
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_delivery_id_is_unique_within_its_registration_not_globally() {
+    let first = fixture(true, true).await;
+    let second = fixture(true, true).await;
+    let body = b"{}";
+    let delivery_id = format!("{}", Uuid::new_v4());
+
+    let first_outcome = process_delivery(
+        &first.db,
+        &first.store,
+        GitProviderKind::GitHub,
+        &first.hook_id,
+        &delivery_id,
+        &carriers(&sign(&first.signing_secret, body)),
+        body,
+    )
+    .await
+    .expect("the first registration accepts its delivery");
+    let second_outcome = process_delivery(
+        &second.db,
+        &second.store,
+        GitProviderKind::GitHub,
+        &second.hook_id,
+        &delivery_id,
+        &carriers(&sign(&second.signing_secret, body)),
+        body,
+    )
+    .await
+    .expect("the second registration accepts the same delivery id");
+
+    let first_verified = match first_outcome {
+        WebhookIngressOutcome::Recorded {
+            verified: Some(registration),
+            ..
+        } => registration,
+        other => panic!("the first delivery must be dispatchable: {other:?}"),
+    };
+    let second_verified = match second_outcome {
+        WebhookIngressOutcome::Recorded {
+            verified: Some(registration),
+            ..
+        } => registration,
+        other => panic!("the second delivery must be dispatchable: {other:?}"),
+    };
+    assert_ne!(
+        first_verified.repository_key, second_verified.repository_key,
+        "the same delivery id belongs to two distinct registrations"
+    );
+    assert_eq!(
+        delivery_count(&first.db, &delivery_id).await,
+        2,
+        "each registration owns its own delivery row"
+    );
+
+    let queued_target = "a".repeat(40);
+    first
+        .db
+        .mark_git_webhook_delivery_processed(
+            GitProviderKind::GitHub,
+            &first.hook_id,
+            first.repository_key,
+            &delivery_id,
+            GitWebhookDeliveryStatus::Queued,
+            Some(queued_target.as_str()),
+        )
+        .await
+        .expect("mark the first registration's delivery queued");
+    let second_status: String = sqlx::query_scalar(
+        "SELECT status FROM context69.git_webhook_deliveries \
+         WHERE provider_kind = $1 AND external_hook_id = $2 \
+           AND repository_key = $3 AND delivery_id = $4",
+    )
+    .bind(GitProviderKind::GitHub.as_str())
+    .bind(&second.hook_id)
+    .bind(second.repository_key)
+    .bind(&delivery_id)
+    .fetch_one(second.db.pool())
+    .await
+    .expect("read the second registration's delivery");
+    assert_eq!(
+        second_status, "received",
+        "processing one registration's delivery never mutates another's"
+    );
+
+    let replay_first = process_delivery(
+        &first.db,
+        &first.store,
+        GitProviderKind::GitHub,
+        &first.hook_id,
+        &delivery_id,
+        &carriers(&sign(&first.signing_secret, body)),
+        body,
+    )
+    .await
+    .expect("a replay is idempotent");
+    assert!(
+        matches!(
+            replay_first,
+            WebhookIngressOutcome::Recorded {
+                status: GitWebhookDeliveryStatus::Queued,
+                verified: None,
+            }
+        ),
+        "the first registration dedupes its own processed delivery"
+    );
+
+    let replay_second = process_delivery(
+        &second.db,
+        &second.store,
+        GitProviderKind::GitHub,
+        &second.hook_id,
+        &delivery_id,
+        &carriers(&sign(&second.signing_secret, body)),
+        body,
+    )
+    .await
+    .expect("the second registration's unprocessed delivery is still retried");
+    assert!(
+        matches!(
+            replay_second,
+            WebhookIngressOutcome::Recorded {
+                status: GitWebhookDeliveryStatus::Received,
+                verified: Some(_),
+            }
+        ),
+        "another registration's processed row cannot hide this delivery"
     );
 }
 
@@ -357,7 +624,7 @@ async fn a_sealed_row_without_a_master_key_fails_closed() {
         GitProviderKind::GitHub,
         &seed.hook_id,
         &delivery_id,
-        &sign(&seed.signing_secret, body),
+        &carriers(&sign(&seed.signing_secret, body)),
         body,
     )
     .await
@@ -378,7 +645,7 @@ async fn a_reference_less_registration_is_rejected() {
         GitProviderKind::GitHub,
         &seed.hook_id,
         &delivery_id,
-        &sign(&seed.signing_secret, body),
+        &carriers(&sign(&seed.signing_secret, body)),
         body,
     )
     .await
@@ -446,7 +713,7 @@ async fn the_signing_secret_is_read_through_the_owning_record_scope() {
         GitProviderKind::GitHub,
         &first.hook_id,
         &delivery_id,
-        &sign(&second.signing_secret, body),
+        &carriers(&sign(&second.signing_secret, body)),
         body,
     )
     .await

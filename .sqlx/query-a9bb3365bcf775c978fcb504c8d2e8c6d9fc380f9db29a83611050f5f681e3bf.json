@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Exclusive ownership lock for one group delete (issue #28 phase P13).\n--\n-- Source registration takes shared locks on the target group key and every\n-- ancestor key in the same transaction as its insert. Taking the exclusive lock\n-- on this group before its row lock means a concurrent registration either\n-- commits first and is counted, or waits and then fails once the group is gone.\n-- The advisory lock is deliberately acquired before the row lock so a\n-- registration that already holds the shared lock can finish its insert instead\n-- of deadlocking against the delete's row lock.\n--\n-- $1 group_id.\nSELECT pg_advisory_xact_lock(\n    hashtextextended('context69.git_group_ownership:' || $1::bigint::text, 0)\n)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_advisory_xact_lock",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "a9bb3365bcf775c978fcb504c8d2e8c6d9fc380f9db29a83611050f5f681e3bf"
+}

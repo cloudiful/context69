@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Sources with at least one generation whose vector cleanup is due.\n--\n-- Maintenance is independent of refresh eligibility: manual-only and disabled\n-- sources are included because retention cleanup must finish without waiting\n-- for another index. A source already marked for deletion is excluded; the\n-- deletion retry owns every generation of that source.\n--\n-- Two kinds of generation are due. A pending retry belongs to an ordinary\n-- retention failure. An abandoned `building` generation older than one hour has\n-- no pending flag when its process was cancelled or died before recording one,\n-- so it is due on age alone. Its provisional destination, if any, must still be\n-- cleaned before the row disappears.\n--\n-- Fairness: only due generations are eligible, and sources are ordered by their\n-- earliest due retry. A source that has never been attempted (or whose bounded\n-- backoff elapsed) is ordered before a source that keeps failing, so a bounded\n-- batch cannot permanently starve a later recoverable source. A source whose\n-- lifetime guard was held has a short scheduler-only deferral and is skipped\n-- until it elapses, so one long index run cannot fill every batch.\n--\n-- $1 limit.\nSELECT\n    s.group_id,\n    s.repository_key,\n    s.retention_count\nFROM context69.git_repository_sources s\nWHERE s.deletion_requested_at IS NULL\n  AND (s.cleanup_deferred_until IS NULL OR s.cleanup_deferred_until <= now())\n  AND EXISTS (\n      SELECT 1\n      FROM context69.git_repository_generations g\n      WHERE g.repository_key = s.repository_key\n        AND (\n            (\n                g.cleanup_pending\n                AND (g.cleanup_next_retry_at IS NULL OR g.cleanup_next_retry_at <= now())\n            )\n            OR (\n                g.status = 'building'\n                AND g.started_at < now() - interval '1 hour'\n                AND NOT g.cleanup_pending\n                AND (g.cleanup_next_retry_at IS NULL OR g.cleanup_next_retry_at <= now())\n            )\n        )\n  )\nORDER BY\n    (\n        SELECT MIN(COALESCE(g.cleanup_next_retry_at, to_timestamp(0)))\n        FROM context69.git_repository_generations g\n        WHERE g.repository_key = s.repository_key\n          AND (\n              (\n                  g.cleanup_pending\n                  AND (g.cleanup_next_retry_at IS NULL OR g.cleanup_next_retry_at <= now())\n              )\n              OR (\n                  g.status = 'building'\n                  AND g.started_at < now() - interval '1 hour'\n                  AND NOT g.cleanup_pending\n                  AND (g.cleanup_next_retry_at IS NULL OR g.cleanup_next_retry_at <= now())\n              )\n          )\n    ),\n    (\n        SELECT MIN(g.cleanup_attempts)\n        FROM context69.git_repository_generations g\n        WHERE g.repository_key = s.repository_key\n          AND g.cleanup_pending\n    ),\n    s.repository_key\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "retention_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "retention_count"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ad89e53b1a35346b50f35537f673af4968effedbef7b5cdb170d3c94c7a36719"
+}

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Marks a source for deletion and stops admissions immediately.\n--\n-- The row and its generations stay until vector cleanup succeeds, so a failed\n-- cleanup keeps retryable ownership instead of losing the only record of the\n-- remote points.\n--\n-- $1 group_id, $2 repository_key.\nUPDATE context69.git_repository_sources\nSET enabled = FALSE,\n    index_status = 'disabled',\n    deletion_requested_at = COALESCE(deletion_requested_at, now()),\n    refresh_dirty = FALSE,\n    updated_at = now()\nWHERE group_id = $1\n  AND repository_key = $2\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "465469a3bf2b04d55d58d5c05f5409fd186141c8a2f747accc241ba446990268"
+}

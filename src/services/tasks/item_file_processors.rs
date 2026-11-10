@@ -1112,6 +1112,7 @@ mod tests {
                 sync: sync.clone(),
                 source_folders: SourceFoldersService::new(db.clone(), library, sync),
                 translation,
+                secrets: secret_store::build_unkeyed(db),
                 concurrency: 1,
             });
             (service, storage_root)

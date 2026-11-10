@@ -18,6 +18,7 @@ use context69_contracts_namespace::{
 };
 use context69_http_support::{
     AuthenticatedUser, CurrentUser, internal_error_response, json_error_response,
+    typed_status_for_error,
 };
 use serde::Deserialize;
 use utoipa::OpenApi;
@@ -316,7 +317,10 @@ async fn delete_group(
 ) -> impl IntoResponse {
     match state.namespace.delete_group(&user, &group_path).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
-        Err(error) => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
+        Err(error) => match typed_status_for_error(&error) {
+            Some(_) => internal_error_response(error),
+            None => json_error_response(StatusCode::BAD_REQUEST, error.to_string()),
+        },
     }
 }
 

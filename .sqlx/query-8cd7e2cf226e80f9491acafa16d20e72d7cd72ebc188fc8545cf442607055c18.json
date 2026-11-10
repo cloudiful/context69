@@ -1,0 +1,102 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Reads the code vector metadata of one generation of a repository owned by $1.\n-- A generation without recorded code vectors reads as no row, which is the\n-- lexical-only outcome.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key.\nSELECT\n    v.generation_key,\n    v.fingerprint,\n    v.endpoint_identity,\n    v.dimensions,\n    v.collection_name,\n    v.point_count,\n    v.created_at\nFROM context69.git_generation_code_vectors v\nJOIN context69.git_repository_generations g\n    ON g.generation_key = v.generation_key\nJOIN context69.git_repository_sources s\n    ON s.repository_key = g.repository_key\nWHERE s.group_id = $1\n  AND g.repository_key = $2\n  AND g.generation_key = $3\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "endpoint_identity",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "endpoint_identity"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "point_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "point_count"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8cd7e2cf226e80f9491acafa16d20e72d7cd72ebc188fc8545cf442607055c18"
+}

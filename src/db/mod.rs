@@ -34,6 +34,7 @@ mod search_settings;
 mod source_connections;
 mod sync_runs;
 mod task_file_dedup;
+pub(crate) mod task_git_dedup;
 pub(crate) use task_file_dedup::lock_file_processing_slots;
 mod tasks;
 mod translations;
@@ -51,17 +52,20 @@ pub use document_versions::{
     AuditChunk, AuditSamples, AuditSummary, AuditVerdict, MissingVersionDocument,
     audit_missing_versions, classify_audit_document, list_missing_version_page,
 };
+pub(crate) use git_repositories::GitIndexLifetimeGuard;
 pub use git_repositories::{
-    GitCheckpointUpdate, GitChunkReplacement, GitFileDiffSide, GitGenerationCoverage,
-    GitGroupOwnership, GitLexicalCodeSearch, GitManifestReplacement, MAX_GIT_CHUNKS_PER_FILE,
-    MAX_GIT_FILE_BYTES, MAX_GIT_GENERATION_BYTES, MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE,
-    MAX_GIT_MANIFEST_FILES, MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk,
-    NewGitGenerationCodeVectors, NewGitGenerationFile, NewGitProviderConnection,
-    NewGitRepositoryGeneration, NewGitRepositorySource, NewGitWebhookDelivery,
-    NewGitWebhookRegistration, StoredGitActiveGeneration, StoredGitCodeChunkHydration,
-    StoredGitFileDiff, StoredGitGenerationChunk, StoredGitGenerationCodeVectors,
-    StoredGitGenerationFile, StoredGitProviderConnection, StoredGitRepositoryGeneration,
-    StoredGitRepositorySource, StoredGitWebhookDelivery, StoredGitWebhookRegistration,
+    GitCheckpointUpdate, GitChunkEmbeddingRow, GitChunkReplacement, GitChunkReuseRow,
+    GitFileDiffSide, GitGenerationCleanupTarget, GitGenerationCoverage, GitGenerationPublication,
+    GitGroupOwnership, GitLexicalCodeSearch, GitManifestReplacement, GitRepositorySettingsUpdate,
+    GitSeedOutcome, MAX_GIT_CHUNKS_PER_FILE, MAX_GIT_FILE_BYTES, MAX_GIT_GENERATION_BYTES,
+    MAX_GIT_LEXICAL_LIMIT, MAX_GIT_LIST_PAGE, MAX_GIT_MANIFEST_FILES, MAX_GIT_SEARCH_TERM_LENGTH,
+    NewGitGenerationChunk, NewGitGenerationCodeVectors, NewGitGenerationFile,
+    NewGitProviderConnection, NewGitRepositoryGeneration, NewGitRepositorySource,
+    NewGitWebhookDelivery, NewGitWebhookRegistration, StoredGitActiveGeneration,
+    StoredGitCodeChunkHydration, StoredGitFileDiff, StoredGitGenerationChunk,
+    StoredGitGenerationCodeVectors, StoredGitGenerationFile, StoredGitProviderConnection,
+    StoredGitRepositoryGeneration, StoredGitRepositorySource, StoredGitWebhookDelivery,
+    StoredGitWebhookRegistration,
 };
 pub use library_ingest_runs::{IngestRunMode, IngestRunSource, LibraryIngestRun, NewIngestRun};
 pub use library_metadata_mirror::{LibraryMetadataMirrorLock, LibraryMetadataMirrorMarker};

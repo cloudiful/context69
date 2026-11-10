@@ -17,7 +17,8 @@ use crate::{
     domain_errors::DomainError,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
-        settings::SettingsService, source_folders::SourceFoldersService, sync::SyncService,
+        secret_store::SecretStore, settings::SettingsService, source_folders::SourceFoldersService,
+        sync::SyncService,
     },
 };
 
@@ -76,6 +77,9 @@ pub struct TaskService {
     source_folders: SourceFoldersService,
     translation: TranslationService,
     settings: SettingsService,
+    /// The deployment secret store, used to open provider read credentials at
+    /// acquisition time. It is never projected into a task payload or log.
+    secrets: SecretStore,
     /// The process-wide chunking budget, shared with the library, the sync
     /// service, and the translation publisher.
     chunking: ChunkingRuntime,
@@ -124,6 +128,7 @@ pub struct TaskServiceDependencies {
     pub sync: SyncService,
     pub source_folders: SourceFoldersService,
     pub translation: TranslationService,
+    pub secrets: SecretStore,
     pub concurrency: usize,
 }
 
@@ -137,6 +142,7 @@ impl TaskService {
             sync,
             source_folders,
             translation,
+            secrets,
             concurrency,
         } = dependencies;
         let worker_capacity = normalize_task_worker_concurrency(concurrency);
@@ -158,6 +164,7 @@ impl TaskService {
             sync,
             source_folders,
             translation,
+            secrets,
             chunking,
             worker_slots: Arc::new(Semaphore::new(worker_capacity)),
             worker_capacity,
@@ -340,6 +347,9 @@ impl TaskService {
     }
     pub(crate) fn settings(&self) -> &SettingsService {
         &self.settings
+    }
+    pub(crate) fn secrets(&self) -> &SecretStore {
+        &self.secrets
     }
 
     /// A clone of this service whose chunk consumers use one pinned budget.

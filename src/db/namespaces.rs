@@ -11,6 +11,7 @@ use super::Database;
 use crate::{
     contracts::{GroupKind, MembershipRole, Pagination, Visibility},
     domain::UserRecord,
+    domain_errors::DomainError,
 };
 
 #[derive(Debug, Clone, FromRow)]
@@ -355,16 +356,30 @@ impl Database {
             None
         };
 
+        let target_parent_id = target_parent.as_ref().map(|group| group.id);
+        // The exclusive ownership locks cover the moved subtree and both the
+        // old and new ancestor chains, so a move cannot interleave with a
+        // registration or deletion that would cascade it. The re-parent, path
+        // rebuild, and locks commit together.
+        let mut tx = self.pool().begin().await?;
+        sqlx::query_file!(
+            "src/sql/db/namespaces/lock_group_move_ownership.sql",
+            existing.id,
+            target_parent_id
+        )
+        .execute(&mut *tx)
+        .await?;
         sqlx::query_file!(
             "src/sql/db/namespaces/move_group_update_parent.sql",
             existing.id,
-            target_parent.as_ref().map(|group| group.id)
+            target_parent_id
         )
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
         sqlx::query_file!("src/sql/db/namespaces/rebuild_group_paths.sql")
-            .execute(self.pool())
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
 
         let moved_path = if let Some(target_parent) = target_parent {
             format!("{}/{}", target_parent.group_path, existing.group_key)
@@ -385,9 +400,43 @@ impl Database {
         if existing.kind == GroupKind::Personal {
             return Err(anyhow!("personal groups cannot be deleted"));
         }
-        sqlx::query_file!("src/sql/db/namespaces/delete_group.sql", group_path)
-            .execute(self.pool())
+        // The exclusive ownership lock, the row lock, the Git-ownership check,
+        // and the delete are one transaction. The lock is taken before the row
+        // lock so a concurrent source registration holding the shared ancestor
+        // lock can finish its insert and be counted instead of deadlocking.
+        let mut tx = self.pool().begin().await?;
+        sqlx::query_file!(
+            "src/sql/db/namespaces/lock_group_ownership_for_deletion.sql",
+            existing.id
+        )
+        .execute(&mut *tx)
+        .await?;
+        let locked = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/lock_group_for_deletion.sql",
+            existing.id
+        )
+        .fetch_optional(&mut *tx)
+        .await?;
+        if locked.is_none() {
+            tx.rollback().await?;
+            return Err(anyhow!("unknown group"));
+        }
+        let owned = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/count_group_git_owned_state.sql",
+            existing.id
+        )
+        .fetch_one(&mut *tx)
+        .await?;
+        if owned.unwrap_or(0) > 0 {
+            tx.rollback().await?;
+            return Err(anyhow!(DomainError::conflict(
+                "git_group_owned_state_present"
+            )));
+        }
+        sqlx::query_file!("src/sql/db/namespaces/delete_group.sql", existing.id)
+            .execute(&mut *tx)
             .await?;
+        tx.commit().await?;
         Ok(())
     }
 
@@ -632,3 +681,7 @@ fn role_from_rank(rank: Option<i16>) -> Option<MembershipRole> {
         _ => None,
     }
 }
+
+#[cfg(test)]
+#[path = "namespaces_tests.rs"]
+mod tests;

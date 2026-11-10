@@ -32,6 +32,14 @@ export type MetadataIndexFixture = Schemas["MetadataIndexResponse"];
 export type MetadataIndexPageFixture = Schemas["MetadataIndexPageResponse"];
 export type GroupTranslationSettingsFixture = Schemas["GroupTranslationSettingsResponse"];
 export type TaskRefFixture = Schemas["TaskRef"];
+export type GitRepositorySourceFixture = Schemas["GitRepositorySource"];
+export type GitProviderConnectionFixture = Schemas["GitProviderConnection"];
+export type GitRepositoryFileFixture = Schemas["GitRepositoryFile"];
+export type GitRepositoryFileListFixture = Schemas["GitRepositoryFileListResponse"];
+export type GitRepositoryFileDetailFixture = Schemas["GitRepositoryFileDetailResponse"];
+export type GitRepositoryFileContentFixture = Schemas["GitRepositoryFileContentResponse"];
+export type GitCodeSearchFixture = Schemas["GitCodeSearchResponse"];
+export type GitWebhookRegistrationFixture = Schemas["GitWebhookRegistration"];
 export type TaskFixture = Schemas["TaskResponse"];
 export type TaskItemsFixture = Schemas["TaskItemsResponse"];
 export type TaskDiagnoseFixture = Schemas["TaskDiagnoseResponse"];
@@ -589,6 +597,186 @@ export const WORKSPACE_TRANSLATION: GroupTranslationSettingsFixture = {
   running_count: 0,
   succeeded_count: 2,
   failed_count: 0,
+};
+
+export const GIT_CONNECTION: GitProviderConnectionFixture = {
+  group_key: "alpha",
+  group_path: "stock/alpha",
+  visibility: "private",
+  connection_key: "research-forgejo",
+  provider: "forgejo",
+  mode: "token",
+  display_name: "Research Forgejo",
+  base_url: "https://forgejo.example.test",
+  has_read_credential: true,
+  has_webhook_secret: true,
+  disabled: false,
+  created_at: "2026-01-01T08:00:00Z",
+  updated_at: "2026-01-02T08:00:00Z",
+};
+
+export const GIT_SOURCE: GitRepositorySourceFixture = {
+  group_key: "alpha",
+  group_path: "stock/alpha",
+  visibility: "private",
+  repository_key: "88888888-8888-4888-8888-888888888888",
+  connection_key: "research-forgejo",
+  provider: "forgejo",
+  canonical_url: "https://forgejo.example.test/research/context69",
+  owner: "research",
+  name: "context69",
+  default_branch: "main",
+  version: { ref_name: "refs/heads/main", commit_sha: "2222222222222222222222222222222222222222" },
+  include_patterns: ["docs/**"],
+  exclude_patterns: ["vendor/**"],
+  interval_seconds: 3600,
+  webhook_enabled: true,
+  enabled: true,
+  retention_count: 2,
+  refresh_pending: false,
+  last_refresh_attempt_at: "2026-01-02T08:00:00Z",
+  deletion_pending: false,
+  last_skip_summary: {
+    excluded_directory: 2,
+    binary: 1,
+    minified: 0,
+    source_map: 0,
+    lockfile: 1,
+    secret: 0,
+    too_large: 0,
+    excluded_by_user: 1,
+    not_included: 3,
+  },
+  index_profile: "hybrid",
+  index_status: "ready",
+  checkpoint: {
+    target_commit_sha: "1111111111111111111111111111111111111111",
+    indexed_commit_sha: "1111111111111111111111111111111111111111",
+    indexed_at: "2026-01-02T08:00:00Z",
+    checkpoint_updated_at: "2026-01-02T08:00:00Z",
+  },
+  active_generation_key: "99999999-9999-4999-8999-999999999999",
+  created_at: "2026-01-01T08:00:00Z",
+  updated_at: "2026-01-02T08:00:00Z",
+};
+
+export const GIT_FILES: GitRepositoryFileFixture[] = [
+  {
+    file_key: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    generation_key: "99999999-9999-4999-8999-999999999999",
+    repository_key: GIT_SOURCE.repository_key,
+    path: "src/main.rs",
+    language: "rust",
+    byte_count: 84,
+    line_count: 4,
+    created_at: "2026-01-02T08:00:00Z",
+  },
+  {
+    file_key: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    generation_key: "99999999-9999-4999-8999-999999999999",
+    repository_key: GIT_SOURCE.repository_key,
+    path: "docs/usage.md",
+    language: "markdown",
+    byte_count: 40,
+    line_count: 2,
+    created_at: "2026-01-02T08:00:00Z",
+  },
+];
+
+export const GIT_FILE_LIST: GitRepositoryFileListFixture = {
+  repository_key: GIT_SOURCE.repository_key,
+  generation_key: "99999999-9999-4999-8999-999999999999",
+  generation_number: 4,
+  ref_name: "refs/heads/main",
+  commit_sha: "1111111111111111111111111111111111111111",
+  index_status: "ready",
+  checkpoint: GIT_SOURCE.checkpoint,
+  file_count: GIT_FILES.length,
+  excluded_file_count: 7,
+  total_bytes: 124,
+  files: GIT_FILES,
+  pagination: { has_more: false, next_cursor: null },
+};
+
+export const GIT_FILE_DETAIL: GitRepositoryFileDetailFixture = {
+  repository_key: GIT_SOURCE.repository_key,
+  generation_key: "99999999-9999-4999-8999-999999999999",
+  generation_number: 4,
+  ref_name: "refs/heads/main",
+  commit_sha: "1111111111111111111111111111111111111111",
+  index_status: "ready",
+  checkpoint: GIT_SOURCE.checkpoint,
+  file_count: GIT_FILES.length,
+  excluded_file_count: 7,
+  total_bytes: 124,
+  file: GIT_FILES[0],
+};
+
+export const GIT_FILE_CONTENT: GitRepositoryFileContentFixture = {
+  repository_key: GIT_SOURCE.repository_key,
+  generation_key: "99999999-9999-4999-8999-999999999999",
+  generation_number: 4,
+  ref_name: "refs/heads/main",
+  commit_sha: "1111111111111111111111111111111111111111",
+  index_status: "ready",
+  checkpoint: GIT_SOURCE.checkpoint,
+  file_count: GIT_FILES.length,
+  excluded_file_count: 7,
+  total_bytes: 124,
+  file: GIT_FILES[0],
+  start_line: 1,
+  end_line: 4,
+  text: "fn main() {\n    println!(\"research\");\n}\n",
+  byte_count: 45,
+  pagination: { has_more: false, next_cursor: null },
+};
+
+export const GIT_CODE_SEARCH: GitCodeSearchFixture = {
+  repository_key: GIT_SOURCE.repository_key,
+  generation_key: "99999999-9999-4999-8999-999999999999",
+  generation_number: 4,
+  ref_name: "refs/heads/main",
+  commit_sha: "1111111111111111111111111111111111111111",
+  index_status: "ready",
+  checkpoint: GIT_SOURCE.checkpoint,
+  requested_profile: "hybrid",
+  effective_profile: "hybrid",
+  file_count: GIT_FILES.length,
+  excluded_file_count: 7,
+  total_bytes: 124,
+  hits: [
+    {
+      repository_key: GIT_SOURCE.repository_key,
+      generation_key: "99999999-9999-4999-8999-999999999999",
+      generation_number: 4,
+      ref_name: "refs/heads/main",
+      commit_sha: "1111111111111111111111111111111111111111",
+      visibility: "private",
+      file_key: GIT_FILES[0].file_key,
+      path: GIT_FILES[0].path,
+      language: "rust",
+      chunk_key: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+      chunk_index: 0,
+      start_line: 1,
+      end_line: 3,
+      text: "fn main() {\n    println!(\"research\");\n}",
+      score: 0.92,
+      matched: "chunk_phrase",
+    },
+  ],
+  truncated: false,
+  vector_unavailable: null,
+};
+
+export const GIT_WEBHOOK: GitWebhookRegistrationFixture = {
+  repository_key: GIT_SOURCE.repository_key,
+  provider: "forgejo",
+  external_hook_id: "research-context69-hook",
+  ownership: "integration",
+  active: true,
+  has_signing_secret: true,
+  created_at: "2026-01-01T08:00:00Z",
+  updated_at: "2026-01-02T08:00:00Z",
 };
 
 export function workspaceFileDetail(fileId: string): LibraryFileDetailFixture {

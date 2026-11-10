@@ -12,7 +12,8 @@ use context69::{
         maintenance,
         scheduler::{
             ManualRunResult, SCHEDULER_EXECUTION_LEASE_PREFIX, SCHEDULER_VALKEY_KEY_PREFIX,
-            build_valkey_execution_guard, run_manual_sync_guarded, startup_execution_slot_at,
+            build_valkey_execution_guard, run_git_refresh_scheduler, run_manual_sync_guarded,
+            startup_execution_slot_at,
         },
     },
 };
@@ -176,6 +177,7 @@ async fn serve_with_signal(app: Arc<Context69App>, mut signal: ShutdownSignal) -
         info!("scheduler disabled until runtime settings are configured and the service restarts");
         None
     };
+    let git_refresh_task = Some(tokio::spawn(run_git_refresh_scheduler(app.clone())));
     let cleanup_task = tokio::spawn(run_rerank_cache_cleanup(app.clone()));
     let mcp_task = if app.config.mcp.enabled {
         Some(tokio::spawn({
@@ -209,6 +211,7 @@ async fn serve_with_signal(app: Arc<Context69App>, mut signal: ShutdownSignal) -
         server_shutdown,
         background: OwnedBackground {
             scheduler_task,
+            git_refresh_task,
             cleanup_task: Some(cleanup_task),
             mcp_task,
         },
@@ -736,6 +739,7 @@ async fn run_bounded_shutdown<S: ShutdownSteps>(
 
 struct OwnedBackground {
     scheduler_task: Option<JoinHandle<Result<()>>>,
+    git_refresh_task: Option<JoinHandle<()>>,
     cleanup_task: Option<JoinHandle<Result<()>>>,
     mcp_task: Option<JoinHandle<()>>,
 }
@@ -744,6 +748,7 @@ impl OwnedBackground {
     fn empty() -> Self {
         Self {
             scheduler_task: None,
+            git_refresh_task: None,
             cleanup_task: None,
             mcp_task: None,
         }
@@ -751,6 +756,10 @@ impl OwnedBackground {
 
     async fn stop(&mut self) {
         if let Some(task) = self.scheduler_task.take() {
+            task.abort();
+            let _ = task.await;
+        }
+        if let Some(task) = self.git_refresh_task.take() {
             task.abort();
             let _ = task.await;
         }
@@ -766,6 +775,9 @@ impl OwnedBackground {
 
     fn abort(&mut self) {
         if let Some(task) = self.scheduler_task.take() {
+            task.abort();
+        }
+        if let Some(task) = self.git_refresh_task.take() {
             task.abort();
         }
         if let Some(task) = self.cleanup_task.take() {

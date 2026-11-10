@@ -54,14 +54,18 @@ pub use file_types::{
     MAX_GIT_MANIFEST_FILES, MAX_GIT_SEARCH_TERM_LENGTH, NewGitGenerationChunk,
     NewGitGenerationFile, StoredGitGenerationChunk, StoredGitGenerationFile,
 };
+pub use files::{GitChunkEmbeddingRow, GitChunkReuseRow, GitSeedOutcome};
 pub use generation_types::{
-    GitGenerationCoverage, NewGitGenerationCodeVectors, NewGitRepositoryGeneration,
-    StoredGitActiveGeneration, StoredGitGenerationCodeVectors, StoredGitRepositoryGeneration,
+    GitGenerationCleanupTarget, GitGenerationCoverage, GitGenerationPublication,
+    NewGitGenerationCodeVectors, NewGitRepositoryGeneration, StoredGitActiveGeneration,
+    StoredGitGenerationCodeVectors, StoredGitRepositoryGeneration,
 };
+pub(crate) use repositories::GitIndexLifetimeGuard;
 pub use types::{
-    GitCheckpointUpdate, GitGroupOwnership, NewGitProviderConnection, NewGitRepositorySource,
-    NewGitWebhookDelivery, NewGitWebhookRegistration, StoredGitProviderConnection,
-    StoredGitRepositorySource, StoredGitWebhookDelivery, StoredGitWebhookRegistration,
+    GitCheckpointUpdate, GitGroupOwnership, GitRepositorySettingsUpdate, NewGitProviderConnection,
+    NewGitRepositorySource, NewGitWebhookDelivery, NewGitWebhookRegistration,
+    StoredGitProviderConnection, StoredGitRepositorySource, StoredGitWebhookDelivery,
+    StoredGitWebhookRegistration,
 };
 
 /// Behaviour of the two content helpers whose guarantees are not visible in the

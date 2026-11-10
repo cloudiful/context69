@@ -45,6 +45,60 @@ pub const MAX_GIT_WEBHOOK_BODY_BYTES: usize = 1024 * 1024;
 
 type HmacSha256 = Hmac<Sha256>;
 
+/// One recognized SHA-256 signature carrier.
+///
+/// Forgejo and Gitea send raw lowercase hex in their own header; GitHub and
+/// Forgejo's `X-Hub-Signature-256` alias carry the `sha256=` prefixed form. Both
+/// are the same HMAC over the exact request body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureCarrier<'a> {
+    RawHex(&'a str),
+    HubSha256(&'a str),
+}
+
+/// Verifies every recognized SHA-256 carrier against one HMAC computation.
+///
+/// The policy is deliberately strict: at least one carrier must be present,
+/// every present carrier must parse as a 32-byte digest, every value must match
+/// the body under `signing_secret`, and an empty or prefix-only value is a
+/// rejection even when another alias is valid. That rejects Forgejo's unsigned
+/// header set (`X-Forgejo-Signature: ""`, `X-Hub-Signature-256: "sha256="`) and
+/// never lets a conflicting alias win by ordering. SHA-1 is not a carrier here.
+pub fn verify_sha256_carriers(
+    signing_secret: &[u8],
+    body: &[u8],
+    carriers: &[SignatureCarrier<'_>],
+) -> bool {
+    if carriers.is_empty() {
+        return false;
+    }
+    let Ok(mut mac) = HmacSha256::new_from_slice(signing_secret) else {
+        return false;
+    };
+    mac.update(body);
+    for carrier in carriers {
+        let expected = match carrier {
+            SignatureCarrier::RawHex(value) => parse_raw_hex_signature(value),
+            SignatureCarrier::HubSha256(value) => parse_github_signature(value),
+        };
+        let Some(expected) = expected else {
+            return false;
+        };
+        if mac.clone().verify_slice(&expected).is_err() {
+            return false;
+        }
+    }
+    true
+}
+
+/// Parses a raw 64-character hex HMAC-SHA256 value with no algorithm prefix.
+pub fn parse_raw_hex_signature(header: &str) -> Option<[u8; 32]> {
+    if header.len() != 64 {
+        return None;
+    }
+    decode_hex_32(header)
+}
+
 /// Verifies a GitHub `sha256=` signature over the exact raw body bytes with
 /// constant-time comparison.
 ///
@@ -108,8 +162,9 @@ fn hex_nibble(byte: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::{
-        MAX_GIT_WEBHOOK_SIGNATURE_CHARS, is_valid_delivery_id, is_valid_hook_id,
-        parse_github_signature, verify_github_signature,
+        MAX_GIT_WEBHOOK_SIGNATURE_CHARS, SignatureCarrier, is_valid_delivery_id, is_valid_hook_id,
+        parse_github_signature, parse_raw_hex_signature, verify_github_signature,
+        verify_sha256_carriers,
     };
     use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
@@ -208,6 +263,56 @@ mod tests {
             RFC4231_BODY,
             &format!("sha256={valid}")
         ));
+    }
+
+    #[test]
+    fn forgejo_raw_and_hub_carriers_verify_together() {
+        let raw = RFC4231_DIGEST;
+        let hub = format!("sha256={raw}");
+        let carriers = [
+            SignatureCarrier::RawHex(raw),
+            SignatureCarrier::HubSha256(&hub),
+        ];
+        assert!(verify_sha256_carriers(RFC4231_KEY, RFC4231_BODY, &carriers));
+    }
+
+    #[test]
+    fn an_empty_unsigned_forgejo_header_set_is_rejected() {
+        let carriers = [
+            SignatureCarrier::RawHex(""),
+            SignatureCarrier::HubSha256("sha256="),
+        ];
+        assert!(!verify_sha256_carriers(
+            RFC4231_KEY,
+            RFC4231_BODY,
+            &carriers
+        ));
+        assert!(!verify_sha256_carriers(RFC4231_KEY, RFC4231_BODY, &[]));
+    }
+
+    #[test]
+    fn conflicting_or_sha1_only_carriers_are_rejected() {
+        let other = "0".repeat(64);
+        let carriers = [
+            SignatureCarrier::RawHex(RFC4231_DIGEST),
+            SignatureCarrier::RawHex(&other),
+        ];
+        assert!(
+            !verify_sha256_carriers(RFC4231_KEY, RFC4231_BODY, &carriers),
+            "a conflict between validly shaped carriers must never pick one"
+        );
+        assert!(
+            !verify_sha256_carriers(
+                RFC4231_KEY,
+                RFC4231_BODY,
+                &[SignatureCarrier::RawHex(
+                    "da39a3ee5e6b4b0d3255bfef95601890afd80709"
+                )]
+            ),
+            "SHA-1 is not accepted"
+        );
+        assert!(parse_raw_hex_signature(&other).is_some());
+        assert!(parse_raw_hex_signature(&format!("sha256={RFC4231_DIGEST}")).is_none());
     }
 
     #[test]

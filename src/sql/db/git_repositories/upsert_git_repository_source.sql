@@ -1,5 +1,16 @@
 -- Per-group repository/ref identity: the conflict target is the owning group
 -- plus the repository ref, so two groups register the same ref independently.
+--
+-- $1 group_id, $2 connection_key, $3 provider_kind, $4 canonical_url,
+-- $5 repository_owner, $6 repository_name, $7 default_branch, $8 target_ref,
+-- $9 pinned_commit_sha, $10 index_profile,
+-- $11 include_patterns text[], $12 exclude_patterns text[],
+-- $13 interval_seconds, $14 webhook_enabled, $15 enabled, $16 retention_count,
+-- $17 created_by_user_id.
+--
+-- A re-registration replaces the editable settings but never the derived
+-- index identity or skip summary of the active generation. `target_commit_sha`
+-- stays the observed target; `pinned_commit_sha` is the configured pin only.
 WITH upserted AS (
     INSERT INTO context69.git_repository_sources (
         group_id,
@@ -10,23 +21,36 @@ WITH upserted AS (
         repository_name,
         default_branch,
         target_ref,
-        target_commit_sha,
+        pinned_commit_sha,
         index_profile,
-        refresh_policy
+        include_patterns,
+        exclude_patterns,
+        interval_seconds,
+        webhook_enabled,
+        enabled,
+        retention_count,
+        created_by_user_id
     )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
     ON CONFLICT (group_id, canonical_url, target_ref) DO UPDATE
     SET connection_key = EXCLUDED.connection_key,
         provider_kind = EXCLUDED.provider_kind,
         repository_owner = EXCLUDED.repository_owner,
         repository_name = EXCLUDED.repository_name,
         default_branch = EXCLUDED.default_branch,
-        target_commit_sha = COALESCE(
-            EXCLUDED.target_commit_sha,
-            context69.git_repository_sources.target_commit_sha
-        ),
+        pinned_commit_sha = EXCLUDED.pinned_commit_sha,
         index_profile = EXCLUDED.index_profile,
-        refresh_policy = EXCLUDED.refresh_policy,
+        last_error_code = NULL,
+        include_patterns = EXCLUDED.include_patterns,
+        exclude_patterns = EXCLUDED.exclude_patterns,
+        interval_seconds = EXCLUDED.interval_seconds,
+        webhook_enabled = EXCLUDED.webhook_enabled,
+        enabled = EXCLUDED.enabled,
+        retention_count = EXCLUDED.retention_count,
+        created_by_user_id = COALESCE(
+            context69.git_repository_sources.created_by_user_id,
+            EXCLUDED.created_by_user_id
+        ),
         updated_at = now()
     RETURNING
         group_id,
@@ -39,10 +63,27 @@ WITH upserted AS (
         default_branch,
         target_ref,
         target_commit_sha,
+        pinned_commit_sha,
         indexed_commit_sha,
         index_profile,
-        refresh_policy,
+        include_patterns,
+        exclude_patterns,
+        interval_seconds,
+        webhook_enabled,
+        enabled,
+        retention_count,
+        created_by_user_id,
+        config_revision,
+        refresh_dirty,
+        refresh_requested_at,
+        last_refresh_attempt_at,
+        force_rebuild_requested_at,
+        deletion_requested_at,
+        last_skip_summary,
+        indexed_pipeline_version,
+        indexed_config_fingerprint,
         index_status,
+        last_error_code,
         last_indexed_at,
         checkpoint_updated_at,
         created_at,
@@ -59,10 +100,27 @@ SELECT
     upserted.default_branch,
     upserted.target_ref,
     upserted.target_commit_sha,
+    upserted.pinned_commit_sha,
     upserted.indexed_commit_sha,
     upserted.index_profile,
-    upserted.refresh_policy,
+    upserted.include_patterns,
+    upserted.exclude_patterns,
+    upserted.interval_seconds,
+    upserted.webhook_enabled,
+    upserted.enabled,
+    upserted.retention_count,
+    upserted.created_by_user_id,
+    upserted.config_revision,
+    upserted.refresh_dirty,
+    upserted.refresh_requested_at,
+    upserted.last_refresh_attempt_at,
+    upserted.force_rebuild_requested_at,
+    upserted.deletion_requested_at,
+    upserted.last_skip_summary,
+    upserted.indexed_pipeline_version,
+    upserted.indexed_config_fingerprint,
     upserted.index_status,
+    upserted.last_error_code,
     upserted.last_indexed_at,
     upserted.checkpoint_updated_at,
     upserted.created_at,
@@ -70,7 +128,7 @@ SELECT
     g.group_key,
     g.full_path AS group_path,
     g.visibility AS group_visibility,
-    ag.generation_key AS active_generation_key
+    ag.generation_key AS "active_generation_key?"
 FROM upserted
 JOIN context69.groups g ON g.id = upserted.group_id
 LEFT JOIN context69.git_repository_active_generations ag

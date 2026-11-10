@@ -1,0 +1,63 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Publishes a building generation and advances the source checkpoint in one\n-- atomic statement (issue #28 phase P6).\n--\n-- The source row is locked first and must still match the captured\n-- configuration revision, observed target, enabled state, and non-deleting\n-- state. Only then are the generation completed, the previous active generation\n-- superseded, the active pointer moved, and the source checkpoint/status/identity\n-- updated. No separate checkpoint statement can split that publication.\n--\n-- A force demand is consumed only when it is not newer than the demand this run\n-- observed; a request arriving during the run therefore survives.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key,\n-- $4 expected_config_revision, $5 observed_target_commit_sha,\n-- $6 indexed_pipeline_version, $7 indexed_config_fingerprint,\n-- $8 last_skip_summary, $9 file_count, $10 excluded_file_count,\n-- $11 total_bytes, $12 observed_force_rebuild_requested_at.\nWITH expected_source AS (\n    SELECT s.repository_key\n    FROM context69.git_repository_sources s\n    WHERE s.group_id = $1\n      AND s.repository_key = $2\n      AND s.config_revision = $4\n      AND s.target_commit_sha IS NOT DISTINCT FROM $5\n      AND s.enabled\n      AND s.deletion_requested_at IS NULL\n    FOR UPDATE\n),\ncompleted AS (\n    UPDATE context69.git_repository_generations g\n    SET status = 'ready',\n        file_count = $9,\n        excluded_file_count = $10,\n        total_bytes = $11,\n        completed_at = now(),\n        error_code = NULL,\n        updated_at = now()\n    FROM expected_source s\n    WHERE g.repository_key = s.repository_key\n      AND g.generation_key = $3\n      AND g.status = 'building'\n    RETURNING g.repository_key, g.generation_key\n),\nsuperseded AS (\n    UPDATE context69.git_repository_generations g\n    SET status = 'superseded',\n        completed_at = COALESCE(g.completed_at, now()),\n        updated_at = now()\n    FROM context69.git_repository_active_generations ag\n    WHERE ag.repository_key = (SELECT repository_key FROM completed)\n      AND ag.generation_key <> (SELECT generation_key FROM completed)\n      AND g.generation_key = ag.generation_key\n      AND g.status = 'ready'\n    RETURNING g.generation_key\n),\nsource_updated AS (\n    UPDATE context69.git_repository_sources s\n    SET target_commit_sha = $5,\n        indexed_commit_sha = $5,\n        index_status = 'ready',\n        indexed_pipeline_version = $6,\n        indexed_config_fingerprint = $7,\n        last_skip_summary = $8,\n        last_error_code = NULL,\n        last_indexed_at = now(),\n        checkpoint_updated_at = now(),\n        force_rebuild_requested_at = CASE\n            WHEN $12::timestamptz IS NOT NULL\n             AND s.force_rebuild_requested_at IS NOT NULL\n             AND s.force_rebuild_requested_at <= $12\n            THEN NULL\n            ELSE s.force_rebuild_requested_at\n        END,\n        updated_at = now()\n    FROM expected_source e, completed c\n    WHERE s.repository_key = e.repository_key\n      AND s.config_revision = $4\n      AND s.target_commit_sha IS NOT DISTINCT FROM $5\n      AND s.enabled\n      AND s.deletion_requested_at IS NULL\n    RETURNING s.repository_key\n),\nactivated AS (\n    INSERT INTO context69.git_repository_active_generations (repository_key, generation_key)\n    SELECT completed.repository_key, completed.generation_key\n    FROM completed\n    JOIN source_updated ON source_updated.repository_key = completed.repository_key\n    ON CONFLICT (repository_key) DO UPDATE\n    SET generation_key = EXCLUDED.generation_key,\n        activated_at = now()\n    RETURNING repository_key, generation_key, activated_at\n)\nSELECT repository_key, generation_key, activated_at\nFROM activated\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "activated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "activated_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Int8",
+        "Text",
+        "Jsonb",
+        "Int8",
+        "Int8",
+        "Int8",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8d847d1449869d3c886bc1d9e2bbd4a19c231ca71572f7fa878224e3f77c869f"
+}

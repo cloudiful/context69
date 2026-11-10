@@ -484,6 +484,10 @@ async fn rejects_tree_entries_with_unsafe_paths_or_sizes() {
     assert_eq!(listing.files.len(), 1);
     assert_eq!(listing.files[0].path.as_str(), "small.txt");
     assert_eq!(listing.excluded_files, 1, "the oversized entry is counted");
+    assert_eq!(
+        listing.too_large_files, 1,
+        "the oversized reason is preserved for the source summary"
+    );
 
     // Symlink blobs (mode 120000) are excluded: their content is a link
     // target, not file content.

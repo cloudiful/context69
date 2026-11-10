@@ -65,3 +65,12 @@ pub async fn build_valkey_execution_guard(
 pub fn startup_execution_slot_at() -> DateTime<Utc> {
     DateTime::<Utc>::UNIX_EPOCH
 }
+
+/// Starts the independent Git refresh scheduler.
+///
+/// It is wired through this module so the binary composes background work from
+/// one service surface while the implementation stays with the Git repository
+/// domain.
+pub async fn run_git_refresh_scheduler(app: Arc<Context69App>) {
+    crate::services::git_repository::refresh::run_git_refresh_scheduler(app).await;
+}

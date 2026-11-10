@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Takes the per-repository index lifetime lock for the caller's transaction.\n--\n-- One pool connection holds this transaction-scoped advisory lock for the whole\n-- index lifetime, so generation and source cleanup can observe that a writer is\n-- still in use instead of trusting an age threshold. The key is deliberately\n-- distinct from the short submission admission lock.\n--\n-- $1 lock key.\nSELECT pg_advisory_xact_lock(hashtextextended($1, 0))\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_advisory_xact_lock",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "40fd2a406f952a46d402255e1fa3341a33b59c95a7a0e3842f52c45d92761dd9"
+}

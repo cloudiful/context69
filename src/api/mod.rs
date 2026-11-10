@@ -139,7 +139,8 @@ pub(crate) use git_connection_mutations::create_git_connection;
 pub(crate) use git_connection_readiness::get_git_connection_readiness;
 pub(crate) use git_connections::{get_git_repository_webhook, list_git_provider_connections};
 pub(crate) use git_repositories::{
-    get_git_repository, index_git_repository, list_git_repositories, register_git_repository,
+    delete_git_repository, get_git_repository, index_git_repository, list_git_repositories,
+    register_git_repository, update_git_repository_settings,
 };
 pub(crate) use git_repository_code_search::search_git_repository_code;
 pub(crate) use git_repository_connections::{

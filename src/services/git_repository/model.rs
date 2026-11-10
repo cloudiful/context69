@@ -66,6 +66,11 @@ pub(crate) struct TreeListing {
     /// partial coverage is visible instead of silent. Non-file entries
     /// (trees, submodules) are not counted: they were never files.
     pub excluded_files: usize,
+    /// Subset of `excluded_files` rejected because the provider declared a
+    /// size beyond the per-blob budget. Acquisition carries the reason so the
+    /// source skip summary never reports a bare exclusion with no oversized
+    /// count.
+    pub too_large_files: usize,
 }
 
 /// Decoded blob bytes after response SHA and declared-size validation.

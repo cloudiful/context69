@@ -205,7 +205,40 @@ pub async fn clear_registry_entries(db: &Database) {
     sqlx::query("DELETE FROM context69.search_registry_entries")
         .execute(db.pool())
         .await
-        .expect("clear registry entries");
+        .expect("clear the target's registry entries");
+}
+
+/// A case owns the run ids it registered, so teardown must never delete a row
+/// another fixture owns in the reused issue test database.
+pub async fn delete_registry_entries(db: &Database, run_ids: &[Uuid]) {
+    if run_ids.is_empty() {
+        return;
+    }
+    sqlx::query_file!(
+        "tests/sql/vector_registry/delete_owned_registry_entries.sql",
+        run_ids
+    )
+    .execute(db.pool())
+    .await
+    .expect("delete owned registry entries");
+}
+
+pub async fn register_registry_entry(db: &Database, entry: &SearchRegistryEntry) {
+    let mut tx = db.pool().begin().await.expect("begin registry entry");
+    db.register_search_registry_entry_with_epoch_in(entry, &mut tx)
+        .await
+        .expect("register the fixture registry entry");
+    tx.commit()
+        .await
+        .expect("commit the fixture registry entry");
+}
+
+pub async fn registry_entry_exists(db: &Database, run_id: Uuid) -> bool {
+    let mut connection = db.pool().acquire().await.expect("acquire");
+    db.read_search_registry_entry_in(&mut *connection, run_id)
+        .await
+        .expect("read the registry entry")
+        .is_some()
 }
 
 /// Remove the task rows this target seeded.

@@ -1,0 +1,495 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Updates the editable target, profile, and settings of one repository owned by\n-- $1.\n--\n-- $1 group_id, $2 repository_key, $3 target_ref, $4 pinned_commit_action,\n-- $5 pinned_commit_value, $6 index_profile, $7 include_patterns text[],\n-- $8 exclude_patterns text[], $9 interval_seconds, $10 webhook_enabled,\n-- $11 enabled, $12 retention_count.\n--\n-- A target, pin, or profile edit marks the current snapshot stale and clears the\n-- last failure code: the stored index no longer describes the requested source.\n-- A changed include/exclude rule also marks it stale. Other settings keep the\n-- current status.\nWITH updated AS (\n    UPDATE context69.git_repository_sources s\n    SET target_ref = COALESCE($3, s.target_ref),\n        pinned_commit_sha = CASE\n            WHEN $4 = 'clear' THEN NULL\n            WHEN $4 = 'set' THEN $5\n            ELSE s.pinned_commit_sha\n        END,\n        index_profile = COALESCE($6, s.index_profile),\n        include_patterns = $7,\n        exclude_patterns = $8,\n        interval_seconds = $9,\n        webhook_enabled = $10,\n        enabled = $11,\n        retention_count = $12,\n        index_status = CASE\n            WHEN NOT $11 THEN 'disabled'\n            WHEN $3 IS NOT NULL OR $6 IS NOT NULL OR $4 <> 'keep' THEN 'stale'\n            WHEN s.index_status = 'disabled' THEN 'pending'\n            WHEN s.include_patterns IS DISTINCT FROM $7\n              OR s.exclude_patterns IS DISTINCT FROM $8\n            THEN 'stale'\n            ELSE s.index_status\n        END,\n        refresh_dirty = CASE WHEN $11 THEN s.refresh_dirty ELSE FALSE END,\n        last_error_code = CASE\n            WHEN NOT $11 OR $3 IS NOT NULL OR $6 IS NOT NULL OR $4 <> 'keep' THEN NULL\n            ELSE s.last_error_code\n        END,\n        updated_at = now()\n    WHERE s.group_id = $1\n      AND s.repository_key = $2\n    RETURNING\n        s.group_id,\n        s.repository_key,\n        s.connection_key,\n        s.provider_kind,\n        s.canonical_url,\n        s.repository_owner,\n        s.repository_name,\n        s.default_branch,\n        s.target_ref,\n        s.target_commit_sha,\n        s.pinned_commit_sha,\n        s.indexed_commit_sha,\n        s.index_profile,\n        s.include_patterns,\n        s.exclude_patterns,\n        s.interval_seconds,\n        s.webhook_enabled,\n        s.enabled,\n        s.retention_count,\n        s.created_by_user_id,\n        s.config_revision,\n        s.refresh_dirty,\n        s.refresh_requested_at,\n        s.last_refresh_attempt_at,\n        s.force_rebuild_requested_at,\n        s.deletion_requested_at,\n        s.last_skip_summary,\n        s.indexed_pipeline_version,\n        s.indexed_config_fingerprint,\n        s.index_status,\n        s.last_error_code,\n        s.last_indexed_at,\n        s.checkpoint_updated_at,\n        s.created_at,\n        s.updated_at\n)\nSELECT\n    updated.group_id,\n    updated.repository_key,\n    updated.connection_key,\n    updated.provider_kind,\n    updated.canonical_url,\n    updated.repository_owner,\n    updated.repository_name,\n    updated.default_branch,\n    updated.target_ref,\n    updated.target_commit_sha,\n    updated.pinned_commit_sha,\n    updated.indexed_commit_sha,\n    updated.index_profile,\n    updated.include_patterns,\n    updated.exclude_patterns,\n    updated.interval_seconds,\n    updated.webhook_enabled,\n    updated.enabled,\n    updated.retention_count,\n    updated.created_by_user_id,\n    updated.config_revision,\n    updated.refresh_dirty,\n    updated.refresh_requested_at,\n    updated.last_refresh_attempt_at,\n    updated.force_rebuild_requested_at,\n    updated.deletion_requested_at,\n    updated.last_skip_summary,\n    updated.indexed_pipeline_version,\n    updated.indexed_config_fingerprint,\n    updated.index_status,\n    updated.last_error_code,\n    updated.last_indexed_at,\n    updated.checkpoint_updated_at,\n    updated.created_at,\n    updated.updated_at,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility AS group_visibility,\n    ag.generation_key AS \"active_generation_key?\"\nFROM updated\nJOIN context69.groups g ON g.id = updated.group_id\nLEFT JOIN context69.git_repository_active_generations ag\n    ON ag.repository_key = updated.repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "connection_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "connection_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "provider_kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "provider_kind"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "canonical_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "canonical_url"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "repository_owner",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_owner"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "repository_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "default_branch",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "default_branch"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "target_ref",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "target_ref"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "target_commit_sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "target_commit_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "pinned_commit_sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "pinned_commit_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "indexed_commit_sha",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "indexed_commit_sha"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "index_profile",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "index_profile"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "include_patterns",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "include_patterns"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "exclude_patterns",
+        "type_info": "TextArray",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "exclude_patterns"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "interval_seconds",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "interval_seconds"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "webhook_enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "webhook_enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "enabled",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "enabled"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "retention_count",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "retention_count"
+          }
+        }
+      },
+      {
+        "ordinal": 19,
+        "name": "created_by_user_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "created_by_user_id"
+          }
+        }
+      },
+      {
+        "ordinal": 20,
+        "name": "config_revision",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "config_revision"
+          }
+        }
+      },
+      {
+        "ordinal": 21,
+        "name": "refresh_dirty",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "refresh_dirty"
+          }
+        }
+      },
+      {
+        "ordinal": 22,
+        "name": "refresh_requested_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "refresh_requested_at"
+          }
+        }
+      },
+      {
+        "ordinal": 23,
+        "name": "last_refresh_attempt_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "last_refresh_attempt_at"
+          }
+        }
+      },
+      {
+        "ordinal": 24,
+        "name": "force_rebuild_requested_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "force_rebuild_requested_at"
+          }
+        }
+      },
+      {
+        "ordinal": 25,
+        "name": "deletion_requested_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "deletion_requested_at"
+          }
+        }
+      },
+      {
+        "ordinal": 26,
+        "name": "last_skip_summary",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "last_skip_summary"
+          }
+        }
+      },
+      {
+        "ordinal": 27,
+        "name": "indexed_pipeline_version",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "indexed_pipeline_version"
+          }
+        }
+      },
+      {
+        "ordinal": 28,
+        "name": "indexed_config_fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "indexed_config_fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 29,
+        "name": "index_status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "index_status"
+          }
+        }
+      },
+      {
+        "ordinal": 30,
+        "name": "last_error_code",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "last_error_code"
+          }
+        }
+      },
+      {
+        "ordinal": 31,
+        "name": "last_indexed_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "last_indexed_at"
+          }
+        }
+      },
+      {
+        "ordinal": 32,
+        "name": "checkpoint_updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "checkpoint_updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 33,
+        "name": "created_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "created_at"
+          }
+        }
+      },
+      {
+        "ordinal": 34,
+        "name": "updated_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "updated_at"
+          }
+        }
+      },
+      {
+        "ordinal": 35,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 36,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 37,
+        "name": "group_visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 38,
+        "name": "active_generation_key?",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_active_generations",
+            "name": "generation_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "TextArray",
+        "TextArray",
+        "Int8",
+        "Bool",
+        "Bool",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "be0be9fe852c3bea9643670686d305867f45ac8d81cd5b59c3c55e48f8e6f1e1"
+}

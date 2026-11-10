@@ -29,8 +29,8 @@ use super::{
     ApiState, auth_middleware, build_api_state, cancel_active_tasks, cancel_vector_index_rebuild,
     create_admin_user, create_git_connection, create_git_webhook_registration,
     create_group_source_folder, create_personal_access_token, create_source,
-    create_source_connection, delete_git_repository_connection, delete_source,
-    delete_source_connection, diff_git_repository_files, disable_admin_user,
+    create_source_connection, delete_git_repository, delete_git_repository_connection,
+    delete_source, delete_source_connection, diff_git_repository_files, disable_admin_user,
     disable_git_connection, enable_admin_user, enable_git_connection,
     forbid_personal_access_token_middleware, get_git_connection_readiness, get_git_repository,
     get_git_repository_file, get_git_repository_file_content, get_git_repository_webhook,
@@ -44,8 +44,9 @@ use super::{
     require_workspace_scope_middleware, reset_admin_user_password, resume_vector_index_rebuild,
     revoke_personal_access_token, search_git_repository_code, set_git_repository_connection,
     submit_vector_index_rebuild, sync_group_source_folder, sync_source,
-    touch_personal_access_token_middleware, update_admin_user, update_group_source_folder_config,
-    update_source, update_source_connection, update_task_queue_state, update_translation_settings,
+    touch_personal_access_token_middleware, update_admin_user, update_git_repository_settings,
+    update_group_source_folder_config, update_source, update_source_connection,
+    update_task_queue_state, update_translation_settings,
 };
 use crate::services::auth::{AUTH_SESSION_DATA_KEY, SESSION_COOKIE_NAME};
 
@@ -301,7 +302,9 @@ fn sources_routes(api_state: ApiState) -> Router<ApiState> {
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}",
-            get(get_git_repository),
+            get(get_git_repository)
+                .patch(update_git_repository_settings)
+                .delete(delete_git_repository),
         )
         .route(
             "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index",

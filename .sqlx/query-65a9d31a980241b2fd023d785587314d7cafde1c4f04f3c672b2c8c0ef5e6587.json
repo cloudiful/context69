@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Records a failed source-deletion cleanup and its bounded retry time.\n--\n-- $1 group_id, $2 repository_key.\nUPDATE context69.git_repository_sources s\nSET deletion_attempts = s.deletion_attempts + 1,\n    deletion_attempted_at = now(),\n    deletion_next_retry_at = now() + LEAST(\n        interval '1 hour',\n        interval '30 seconds' * power(2, LEAST(s.deletion_attempts, 7))\n    ),\n    updated_at = now()\nWHERE s.group_id = $1\n  AND s.repository_key = $2\n  AND s.deletion_requested_at IS NOT NULL\nRETURNING s.repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "65a9d31a980241b2fd023d785587314d7cafde1c4f04f3c672b2c8c0ef5e6587"
+}

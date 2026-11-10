@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Tries the per-repository index lifetime lock without waiting.\n--\n-- Cleanup uses this so it defers instead of blocking behind an active index\n-- run, then retries on a later maintenance pass. The key is distinct from the\n-- short submission admission lock.\n--\n-- $1 lock key.\nSELECT pg_try_advisory_xact_lock(hashtextextended($1, 0)) AS acquired\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "acquired",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "8f846078de3da29635a744949ed4972392f9bc27b71063f1d3682c7d467f2b7c"
+}

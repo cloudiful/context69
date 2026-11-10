@@ -420,3 +420,31 @@ pub fn assert_fails_closed(result: Result<impl std::fmt::Debug>) {
         "a missing master key must be reported as a configuration failure: {message}"
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{require_selected_database, selected_database_name};
+
+    #[test]
+    fn the_selected_database_comes_from_the_runner_supplied_target() {
+        assert_eq!(
+            selected_database_name("postgres://fixture@example.test:5439/authorized_fixture")
+                .as_deref(),
+            Some("authorized_fixture")
+        );
+    }
+
+    #[test]
+    fn an_invalid_or_databaseless_target_cannot_select_a_fixture_database() {
+        assert!(selected_database_name("not-a-postgres-url").is_none());
+        assert!(selected_database_name("postgres://fixture@example.test:5439").is_none());
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "guarded fixture cleanup is refused outside the explicitly selected test database"
+    )]
+    fn a_mismatched_connected_database_is_refused() {
+        require_selected_database("other_fixture", Some("authorized_fixture"));
+    }
+}
