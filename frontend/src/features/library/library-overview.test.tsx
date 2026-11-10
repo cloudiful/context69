@@ -842,6 +842,73 @@ describe("group library", () => {
       expect(taskReads(backend)).toHaveLength(1);
     });
 
+    it("keeps the settled reuse results of a partially failed upload", async () => {
+      vi.stubGlobal("crypto", webcrypto);
+      const backend = installGroupBackend();
+      const user = userEvent.setup();
+      const successToast = vi.spyOn(toast, "success");
+      const errorToast = vi.spyOn(toast, "error");
+      const { router } = await renderOverviewView({ toasts: true });
+      const PREPARE_PATH = "/v1/groups/by-path/{group_path}/library/files/prepare-upload";
+      const TREE_PATH = "/v1/groups/by-path/{group_path}/library/tree";
+      const reusedFile = {
+        file_id: "file-ready",
+        group_key: "alpha",
+        group_path: "stock/alpha",
+        visibility: "private" as const,
+        folder_id: "folder-reports",
+        filename: "quarterly.md",
+        media_type: "text/markdown",
+        size_bytes: 120,
+        ingest_status: "succeeded" as const,
+        error_message: null,
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-02T00:00:00Z",
+      };
+      const originalPost = backend.spies.POST.getMockImplementation() as
+        (path: string, init?: never) => Promise<unknown>;
+      backend.spies.POST.mockImplementation(((path: string, init?: never) => {
+        if (path !== PREPARE_PATH) {
+          return originalPost(path, init);
+        }
+        record(backend, "POST", path, init as never);
+        const filename = (init as { body?: { filename?: string } } | undefined)?.body?.filename;
+        if (filename === "existing.txt") {
+          return Promise.resolve(accepted({
+            upload_required: false,
+            file: reusedFile,
+            task: { task_id: "task-reused" },
+          }));
+        }
+        return Promise.resolve({
+          error: { message: "prepare rejected" },
+          response: { ok: false, status: 422 },
+        });
+      }) as never);
+      installTaskRead(backend, (taskId) => Promise.resolve(accepted(taskResponse({
+        task_id: taskId,
+        status: "succeeded",
+      }))), "task-reused");
+      const treeReadsBefore = backend.callsFor("GET", TREE_PATH).length;
+
+      const input = screen.getByTestId("library-upload-input");
+      await user.upload(input, [
+        new File(["old"], "existing.txt", { type: "text/plain" }),
+        new File(["broken"], "broken.txt", { type: "text/plain" }),
+      ]);
+
+      expect(await screen.findByText("prepare rejected")).toBeInTheDocument();
+      expect(backend.uploadRequests).toHaveLength(0);
+      expect(taskReads(backend)).toHaveLength(1);
+      expect(taskReads(backend)[0].params?.path?.task_id).toBe("task-reused");
+      await waitFor(() => expect(backend.callsFor("GET", TREE_PATH).length).toBeGreaterThan(treeReadsBefore));
+      const search = new URLSearchParams(router.state.location.search);
+      expect(search.get("folder")).toBe("folder-reports");
+      expect(search.get("file")).toBe("file-ready");
+      expect(errorToast).toHaveBeenCalled();
+      expect(successToast).not.toHaveBeenCalled();
+    });
+
     it("never observes a retry-all task admitted after unmount", async () => {
       const backend = installGroupBackend({
         failedItems: [{

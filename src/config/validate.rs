@@ -15,9 +15,6 @@ use super::types::{
 };
 
 /// Validates the embedding configuration of a deployment.
-///
-/// The batching limits are stored in a PostgreSQL BIGINT, so a value the column
-/// cannot hold is refused here rather than at the first settings save.
 pub(super) fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> {
     validate_provider_config("embedding", config)
 }
@@ -28,26 +25,9 @@ pub(super) fn validate_embedding_config(config: &EmbeddingConfig) -> Result<()> 
 /// provider rules as the document block, without inheriting any document value.
 pub(super) fn validate_code_embedding_config(config: Option<&EmbeddingConfig>) -> Result<()> {
     match config {
-        Some(config) => {
-            validate_provider_config("code_embedding", config)?;
-            reject_non_default_code_input_policy(config)
-        }
+        Some(config) => validate_provider_config("code_embedding", config),
         None => Ok(()),
     }
-}
-
-/// Keeps the P1 fixed code input policy truthful.
-///
-/// Code chunks are embedded exactly as chunked; a custom token cap, server
-/// prefix, or special-token switch would silently change the vector space while
-/// the published fingerprint kept claiming the fixed policy.
-fn reject_non_default_code_input_policy(config: &EmbeddingConfig) -> Result<()> {
-    if config.input_policy.is_default() {
-        return Ok(());
-    }
-    Err(anyhow!(
-        "code_embedding.input_policy must remain the fixed default code input policy"
-    ))
 }
 
 fn validate_provider_config(section: &str, config: &EmbeddingConfig) -> Result<()> {
@@ -62,33 +42,6 @@ fn validate_provider_config(section: &str, config: &EmbeddingConfig) -> Result<(
     }
     if config.timeout.as_secs() == 0 {
         return Err(anyhow!("{section}.timeout_secs must be greater than 0"));
-    }
-    let limits =
-        crate::embedding::embedding_batch::EmbeddingBatchLimits::from_settings(&config.batching);
-    if !limits.is_positive() {
-        return Err(anyhow!(
-            "{section}.batching limits must all be greater than 0"
-        ));
-    }
-    config
-        .input_policy
-        .validate()
-        .map_err(|reason| anyhow!("{section}.input_policy is invalid: {reason}"))?;
-    for (name, value) in [
-        (
-            "max_items_per_request",
-            config.batching.max_items_per_request,
-        ),
-        ("max_item_chars", config.batching.max_item_chars),
-        ("max_request_chars", config.batching.max_request_chars),
-        ("max_request_bytes", config.batching.max_request_bytes),
-    ] {
-        if i64::try_from(value).is_err() {
-            return Err(anyhow!(
-                "{section}.batching.{name} must be at most {}",
-                i64::MAX
-            ));
-        }
     }
     Ok(())
 }
@@ -140,31 +93,6 @@ pub(super) fn validate_storage_config(
     if file_library.max_upload_size_mb == 0 {
         return Err(anyhow!(
             "file_library.max_upload_size_mb must be greater than 0"
-        ));
-    }
-    if file_library.max_upload_request_size_mb == 0 {
-        return Err(anyhow!(
-            "file_library.max_upload_request_size_mb must be greater than 0"
-        ));
-    }
-    if file_library.max_upload_request_size_mb < file_library.max_upload_size_mb {
-        return Err(anyhow!(
-            "file_library.max_upload_request_size_mb must be greater than or equal to file_library.max_upload_size_mb"
-        ));
-    }
-    if file_library.ingest_concurrency == 0 {
-        return Err(anyhow!(
-            "file_library.ingest_concurrency must be greater than 0"
-        ));
-    }
-    if file_library.url_import_concurrency == 0 {
-        return Err(anyhow!(
-            "file_library.url_import_concurrency must be greater than 0"
-        ));
-    }
-    if file_library.url_import_min_interval_ms == 0 {
-        return Err(anyhow!(
-            "file_library.url_import_min_interval_ms must be greater than 0"
         ));
     }
     if chunking.budget.overlap_chars >= chunking.budget.max_chars {
@@ -328,8 +256,6 @@ pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result
 mod tests {
     use std::time::Duration;
 
-    use context69_contracts::settings::EmbeddingBatchingSettings;
-
     use super::validate_code_embedding_config;
 
     fn code_config() -> super::EmbeddingConfig {
@@ -340,22 +266,11 @@ mod tests {
             query_model: None,
             dimensions: 1024,
             timeout: Duration::from_secs(30),
-            batching: EmbeddingBatchingSettings::default(),
-            input_policy: Default::default(),
         }
     }
 
     #[test]
-    fn a_custom_code_embedding_input_policy_is_rejected_before_installation() {
-        let mut config = code_config();
-        assert!(
-            validate_code_embedding_config(Some(&config)).is_ok(),
-            "the fixed default policy is the only accepted code policy"
-        );
-
-        config.input_policy.max_input_tokens = Some(256);
-        let error = validate_code_embedding_config(Some(&config))
-            .expect_err("a custom token cap must not reach the provider");
-        assert!(error.to_string().contains("input_policy"), "{error}");
+    fn a_complete_code_embedding_config_is_accepted() {
+        assert!(validate_code_embedding_config(Some(&code_config())).is_ok());
     }
 }

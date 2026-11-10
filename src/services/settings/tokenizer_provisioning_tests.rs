@@ -195,6 +195,41 @@ async fn a_cached_preset_activates_after_a_restart_without_a_retrieval() {
 }
 
 #[tokio::test]
+async fn a_verified_catalog_entry_is_ready_without_any_retrieval() {
+    let bytes = test_tokenizer_json(false);
+    let preset = test_preset(&bytes);
+    let server = test_support::serve_bytes(bytes.clone()).await;
+    let directory = test_support::test_directory("provisioning-catalog-ready");
+    let artifacts = test_support::test_directory("provisioning-catalog-artifacts");
+    std::fs::write(artifacts.join(format!("{}.json", preset.sha256)), &bytes)
+        .expect("write the mounted artifact");
+    let catalog =
+        TokenizerCatalog::load_with_presets(&artifacts, Arc::new(PresetSlots::new()), None)
+            .expect("load the verified catalog");
+    let provisioning =
+        provisioning(&directory, loopback_downloader(&server).await).with_catalog(catalog);
+    let slot = PresetSlot::for_test();
+
+    assert!(
+        provisioning.preset_ready(preset, &slot),
+        "a verified catalog entry makes the preset ready"
+    );
+    let status = provisioning
+        .prepare(preset, &slot)
+        .await
+        .expect("prepare the bundled preset");
+    assert_eq!(status, TokenizerProvisionStatus::AlreadyReady);
+    assert_eq!(server.request_count(), 0, "no retrieval is started");
+    assert!(
+        !directory.join(format!("{}.json", preset.sha256)).exists(),
+        "nothing is written to the writable preset cache"
+    );
+
+    std::fs::remove_dir_all(&directory).expect("remove the cache directory");
+    std::fs::remove_dir_all(&artifacts).expect("remove the artifact directory");
+}
+
+#[tokio::test]
 async fn a_retrieval_that_does_not_verify_publishes_nothing() {
     let bytes = test_tokenizer_json(false);
     let preset = test_preset(&bytes);
@@ -429,20 +464,27 @@ async fn a_dangling_symlink_at_the_cache_path_is_refused_and_left_untouched() {
 #[test]
 fn the_descriptors_report_the_pinned_license_and_a_process_local_readiness() {
     let descriptors = preset_descriptors();
-    let jina = descriptors
+    let gemma = descriptors
         .iter()
-        .find(|descriptor| {
-            descriptor.id == crate::tokenizer_presets::JINA_V5_SMALL_RETRIEVAL_R6856E76
-        })
-        .expect("the Jina preset is described");
-    assert_eq!(jina.license, "cc-by-nc-4.0");
+        .find(|descriptor| descriptor.id == crate::tokenizer_presets::EMBEDDINGGEMMA2_R_F9972AC)
+        .expect("the EmbeddingGemma 2 preset is described");
+    assert_eq!(gemma.label, "EmbeddingGemma 2");
+    assert_eq!(gemma.license, "apache-2.0");
     assert_eq!(
-        jina.license_url,
-        "https://creativecommons.org/licenses/by-nc/4.0/"
+        gemma.license_url,
+        "https://www.apache.org/licenses/LICENSE-2.0"
     );
     assert_eq!(
-        jina.sha256,
-        "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4"
+        gemma.sha256,
+        "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4"
     );
-    assert_eq!(jina.size_bytes, 11_422_654);
+    assert_eq!(gemma.size_bytes, 32_170_510);
+    assert_eq!(gemma.source_repo, "google/embeddinggemma-2");
+    assert_eq!(gemma.revision, "f9972ac22e696a105c482202646979e33e4b5a1e");
+    assert!(
+        descriptors
+            .iter()
+            .all(|descriptor| descriptor.id != "jina_v5_small_retrieval_r6856e76"),
+        "the retired preset is not described"
+    );
 }

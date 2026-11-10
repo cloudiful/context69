@@ -180,7 +180,9 @@ impl QdrantIndex {
         let index = Self {
             client,
             collection_name: config.collection_name.clone(),
+            endpoint: config.url.clone(),
             dimensions,
+            noop: false,
         };
         let recreated = index
             .ensure_collection(dimensions, CollectionShape::Document)
@@ -249,7 +251,9 @@ impl QdrantIndex {
         Ok(Self {
             client: Qdrant::from_url(&config.url).build()?,
             collection_name: collection_name.to_string(),
+            endpoint: config.url.clone(),
             dimensions,
+            noop: false,
         })
     }
 
@@ -280,7 +284,9 @@ impl QdrantIndex {
         let index = Self {
             client,
             collection_name: collection_name.to_string(),
+            endpoint: config.url.clone(),
             dimensions,
+            noop: false,
         };
         if !index.collection_exists_checked().await? {
             return Ok(None);
@@ -324,7 +330,9 @@ impl QdrantIndex {
         let index = Self {
             client,
             collection_name: collection_name.to_string(),
+            endpoint: config.url.clone(),
             dimensions,
+            noop: false,
         };
         let existing_dimensions = index.existing_dimensions().await?;
         match target_preparation(created_by_owner, existing_dimensions, dimensions) {
@@ -388,7 +396,9 @@ impl QdrantIndex {
         let index = Self {
             client,
             collection_name: config.collection_name.clone(),
+            endpoint: config.url.clone(),
             dimensions,
+            noop: false,
         };
         if index.collection_exists_checked().await? {
             index.probe_collection().await?;
@@ -761,7 +771,9 @@ impl QdrantIndex {
                 .build()
                 .expect("build test qdrant client"),
             collection_name: collection_name.to_string(),
+            endpoint: "http://127.0.0.1:1".to_string(),
             dimensions,
+            noop: collection_name == "test-noop",
         }
     }
 }

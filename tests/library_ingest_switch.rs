@@ -384,6 +384,28 @@ async fn replacement_switch_moves_every_layer_together() {
     let fixture = SwitchFixture::new().await;
     let kept = fixture.seed_section("kept", "old-hash").await;
     let vanished = fixture.seed_section("vanished", "vanished-hash").await;
+    let stale_translation_version = Uuid::new_v4();
+    let stale_translation = Uuid::new_v4();
+    sqlx::query_file!(
+        "tests/library_ingest_switch/seed_translation.sql",
+        stale_translation_version,
+        kept.document_id,
+        "fr",
+        "older-hash"
+    )
+    .execute(fixture.db.pool())
+    .await
+    .unwrap();
+    sqlx::query_file!(
+        "tests/library_ingest_switch/seed_translation_chunk.sql",
+        stale_translation,
+        stale_translation_version,
+        kept.document_id,
+        "fr"
+    )
+    .execute(fixture.db.pool())
+    .await
+    .unwrap();
     sqlx::query_file!(
         "tests/library_ingest_switch/insert_document_result.sql",
         kept.document_id,
@@ -409,7 +431,7 @@ async fn replacement_switch_moves_every_layer_together() {
             generation,
             vec![kept.document_id, reserved],
             vec![chunk, added_chunk],
-            1,
+            2,
         )
         .await;
     let baseline = fixture.baseline().await;
@@ -436,15 +458,28 @@ async fn replacement_switch_moves_every_layer_together() {
         .unwrap();
     assert_eq!(outcome.disposition, ReplacementSwitchDisposition::Switched);
     assert_eq!(outcome.document_ids, vec![kept.document_id, reserved]);
-    assert_eq!(outcome.retired_point_ids, vec![kept.chunk_id]);
+    let mut retired = outcome.retired_point_ids.clone();
+    retired.sort();
+    let mut expected_retired = vec![kept.chunk_id, stale_translation];
+    expected_retired.sort();
+    assert_eq!(retired, expected_retired);
 
-    assert_eq!(
-        fixture
-            .db
-            .list_chunk_ids_for_document(kept.document_id)
-            .await
-            .unwrap(),
-        vec![chunk]
+    let live_chunks = fixture
+        .db
+        .list_chunk_ids_for_document(kept.document_id)
+        .await
+        .unwrap();
+    assert!(
+        live_chunks.contains(&chunk),
+        "the replacement chunk is live"
+    );
+    assert!(
+        !live_chunks.contains(&kept.chunk_id),
+        "the retired original chunk is gone from the live rows"
+    );
+    assert!(
+        live_chunks.contains(&stale_translation),
+        "the stale translation row stays as history"
     );
     assert_eq!(
         fixture
@@ -486,7 +521,17 @@ async fn replacement_switch_moves_every_layer_together() {
     let entry = fixture.registry_entry(run_id).await;
     assert_eq!(entry.phase, "switched");
     assert!(entry.staged_ids.is_empty());
-    assert_eq!(entry.retired_ids, vec![kept.chunk_id]);
+    let mut expected_retired = vec![kept.chunk_id, stale_translation];
+    expected_retired.sort();
+    let mut stored_retired = entry.retired_ids.clone();
+    stored_retired.sort();
+    assert_eq!(stored_retired, expected_retired);
+    let origin = sqlx::query_file!("tests/sql/vector_registry/read_retired_origin.sql", run_id)
+        .fetch_one(fixture.db.pool())
+        .await
+        .unwrap();
+    assert_eq!(origin.retired_original_ids, vec![kept.chunk_id]);
+    assert_eq!(origin.reserved_ids, 2);
 
     let run = fixture
         .db

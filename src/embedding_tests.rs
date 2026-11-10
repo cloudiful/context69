@@ -24,7 +24,7 @@ use super::{
     format_embedding_attempt_timeout, format_embedding_http_error,
     format_embedding_transport_error, parse_embedding_response, read_response_body_stream,
 };
-use crate::{config::EmbeddingConfig, contracts::settings::EmbeddingBatchingSettings, retry};
+use crate::{config::EmbeddingConfig, retry};
 
 #[derive(Clone)]
 struct MockState {
@@ -170,18 +170,15 @@ fn provider(base_url: String, timeout: Duration) -> OpenAiCompatibleEmbeddingPro
         query_model: None,
         dimensions: 1,
         timeout,
-        batching: Default::default(),
-        input_policy: Default::default(),
     })
     .expect("build embedding provider")
 }
 
-/// A provider with an explicit model pair and request limits.
+/// A provider with an explicit model pair.
 fn provider_with(
     base_url: String,
     model: &str,
     query_model: Option<&str>,
-    batching: EmbeddingBatchingSettings,
 ) -> OpenAiCompatibleEmbeddingProvider {
     OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
         base_url,
@@ -190,8 +187,6 @@ fn provider_with(
         query_model: query_model.map(str::to_string),
         dimensions: 1,
         timeout: Duration::from_secs(10),
-        batching,
-        input_policy: Default::default(),
     })
     .expect("build embedding provider")
 }
@@ -234,8 +229,6 @@ async fn a_malformed_success_response_redacts_endpoint_credentials_and_the_api_k
         query_model: None,
         dimensions: 1,
         timeout: Duration::from_secs(5),
-        batching: Default::default(),
-        input_policy: Default::default(),
     })
     .expect("build embedding provider");
 
@@ -306,8 +299,6 @@ async fn a_transport_failure_never_exposes_endpoint_or_key_credentials_in_error_
         query_model: None,
         dimensions: 1,
         timeout: Duration::from_secs(2),
-        batching: Default::default(),
-        input_policy: Default::default(),
     })
     .expect("build embedding provider");
     let result = provider.embed_texts(&["hello".to_string()]).await;
@@ -439,8 +430,6 @@ async fn an_invalid_transport_endpoint_never_exposes_credentials_in_error_or_log
         query_model: None,
         dimensions: 1,
         timeout: Duration::from_secs(2),
-        batching: Default::default(),
-        input_policy: Default::default(),
     })
     .expect("build embedding provider");
     let result = provider.embed_texts(&["hello".to_string()]).await;
@@ -696,19 +685,11 @@ async fn response_body_limit_accepts_normal_body() {
 /// one the caller depends on: the same texts, in the same order, in as many
 /// requests as the limits require.
 #[tokio::test]
-async fn the_request_planner_splits_one_call_into_its_planned_requests() {
+async fn the_request_planner_packs_into_fixed_transport_batches() {
     let (base_url, state, server) = spawn_echo_mock().await;
 
-    let provider = provider_with(
-        base_url,
-        "doc-model",
-        None,
-        EmbeddingBatchingSettings {
-            max_items_per_request: 2,
-            ..Default::default()
-        },
-    );
-    let inputs: Vec<String> = (0..5).map(|index| format!("input-{index}")).collect();
+    let provider = provider_with(base_url, "doc-model", None);
+    let inputs: Vec<String> = (0..33).map(|index| format!("input-{index}")).collect();
     let vectors = provider
         .embed_texts(&inputs)
         .await
@@ -718,14 +699,14 @@ async fn the_request_planner_splits_one_call_into_its_planned_requests() {
     let requests = state.requests.lock().await.clone();
     assert_eq!(
         requests.len(),
-        3,
-        "five inputs at two per request are three requests"
+        2,
+        "thirty-three inputs at a fixed thirty-two per request are two requests"
     );
     let sizes: Vec<usize> = requests
         .iter()
         .map(|request| request["input"].as_array().expect("inputs").len())
         .collect();
-    assert_eq!(sizes, vec![2, 2, 1]);
+    assert_eq!(sizes, vec![32, 1], "requests carry at most 32 inputs");
 
     // The texts are never changed and never reordered.
     let sent: Vec<String> = requests
@@ -746,7 +727,10 @@ async fn the_request_planner_splits_one_call_into_its_planned_requests() {
 
     // The vectors keep the order of the inputs.
     let values: Vec<f32> = vectors.iter().map(|vector| vector[0]).collect();
-    assert_eq!(values, vec![0.0, 1.0, 2.0, 3.0, 4.0]);
+    assert_eq!(
+        values,
+        (0..33).map(|index| index as f32).collect::<Vec<_>>()
+    );
 }
 
 /// An indexed response is authoritative about the order of its vectors.
@@ -808,29 +792,24 @@ async fn a_response_with_a_broken_index_is_refused() {
     }
 }
 
-/// An input that is longer than the per-item limit is refused before it
-/// reaches the provider: a shortened input would change its vector.
+/// An input larger than the fixed transport request body is refused before it
+/// reaches the provider: an input is never split or shortened.
 #[tokio::test]
-async fn an_oversize_input_is_refused_before_any_request() {
+async fn an_input_larger_than_the_transport_bound_is_refused_before_any_request() {
     let (base_url, state, server) = spawn_mock(vec![], Duration::ZERO).await;
 
-    let provider = provider_with(
-        base_url,
-        "doc-model",
-        None,
-        EmbeddingBatchingSettings {
-            max_item_chars: 4,
-            ..Default::default()
-        },
-    );
+    let provider = provider_with(base_url, "doc-model", None);
+    let oversized = "x".repeat(1024 * 1024 + 1);
     let error = provider
-        .embed_texts(&["much too long for one item".to_string()])
+        .embed_texts(&[oversized])
         .await
         .expect_err("an oversize input must be refused");
     server.abort();
 
     assert!(
-        error.to_string().contains("never split or shortened"),
+        error
+            .to_string()
+            .contains("does not fit into one provider request body"),
         "{error}"
     );
     assert_eq!(
@@ -845,12 +824,7 @@ async fn an_oversize_input_is_refused_before_any_request() {
 async fn the_query_model_embeds_queries_only() {
     let (base_url, state, server) = spawn_mock(vec![], Duration::ZERO).await;
 
-    let provider = provider_with(
-        base_url,
-        "doc-model",
-        Some("query-model"),
-        Default::default(),
-    );
+    let provider = provider_with(base_url, "doc-model", Some("query-model"));
     provider
         .embed_texts(&["document".to_string()])
         .await
@@ -872,7 +846,7 @@ async fn the_query_model_embeds_queries_only() {
 async fn an_omitted_query_model_keeps_the_document_model() {
     let (base_url, state, server) = spawn_mock(vec![], Duration::ZERO).await;
 
-    let provider = provider_with(base_url, "doc-model", None, Default::default());
+    let provider = provider_with(base_url, "doc-model", None);
     provider
         .embed_query("query")
         .await
@@ -890,8 +864,6 @@ fn the_planner_never_exceeds_the_byte_budget_it_measured() {
     let texts: Vec<String> = (0..10).map(|index| format!("text-{index}")).collect();
     let limits = EmbeddingBatchLimits {
         max_items_per_request: 32,
-        max_item_chars: 8_000,
-        max_request_chars: 64_000,
         max_request_bytes: 60,
     };
     let batches =
@@ -942,8 +914,6 @@ fn the_byte_budget_counts_the_complete_serialized_request() {
 
     let exact_limits = EmbeddingBatchLimits {
         max_items_per_request: 8,
-        max_item_chars: 8_000,
-        max_request_chars: 64_000,
         max_request_bytes: exact,
     };
     let batches = plan_batches(&texts, "x", &exact_limits)
@@ -960,84 +930,7 @@ fn the_byte_budget_counts_the_complete_serialized_request() {
     assert!(
         error
             .to_string()
-            .contains("does not fit into one provider request"),
+            .contains("does not fit into one provider request body"),
         "{error}"
-    );
-}
-
-fn provider_with_policy(
-    base_url: String,
-    batching: EmbeddingBatchingSettings,
-    input_policy: crate::contracts::settings::EmbeddingInputPolicy,
-) -> OpenAiCompatibleEmbeddingProvider {
-    OpenAiCompatibleEmbeddingProvider::new(EmbeddingConfig {
-        base_url,
-        api_key: None,
-        model: "doc-model".to_string(),
-        query_model: Some("query-model".to_string()),
-        dimensions: 1,
-        timeout: Duration::from_secs(10),
-        batching,
-        input_policy,
-    })
-    .expect("build embedding provider")
-}
-
-/// The envelope is counted exactly before HTTP, the query prefix is separate,
-/// and the sent input stays byte-identical.
-#[tokio::test]
-async fn the_input_envelope_rejects_oversize_documents_and_queries_before_http() {
-    let (base_url, state, server) = spawn_echo_mock().await;
-    let mut policy = crate::contracts::settings::EmbeddingInputPolicy::default();
-    policy.document_server_prefix = "document-prefix ".to_string();
-    policy.query_server_prefix = "query-prefix ".to_string();
-    policy.max_input_tokens = Some(1);
-    let provider = provider_with_policy(base_url.clone(), Default::default(), policy);
-
-    let document_error = provider
-        .embed_texts(&["document".to_string()])
-        .await
-        .expect_err("an oversize document is refused");
-    assert!(
-        document_error.to_string().contains("input envelope"),
-        "{document_error}"
-    );
-    let query_error = provider
-        .embed_query("query")
-        .await
-        .expect_err("an oversize query is refused");
-    assert!(
-        query_error.to_string().contains("input envelope"),
-        "{query_error}"
-    );
-    assert_eq!(
-        state.calls.load(Ordering::Relaxed),
-        0,
-        "no request reaches the provider"
-    );
-
-    provider
-        .embed_texts_with_policy(
-            &["document".to_string()],
-            crate::embedding::InputPolicySelection::Pinned(None),
-        )
-        .await
-        .expect("a legacy pinned snapshot keeps the no-guard behavior");
-    assert_eq!(state.calls.load(Ordering::Relaxed), 1);
-
-    let mut generous = crate::contracts::settings::EmbeddingInputPolicy::default();
-    generous.document_server_prefix = "server-counted:".to_string();
-    generous.max_input_tokens = Some(100);
-    let provider = provider_with_policy(base_url, Default::default(), generous);
-    provider
-        .embed_texts(&["raw input".to_string()])
-        .await
-        .expect("a fitting document passes");
-    server.abort();
-    let requests = state.requests.lock().await.clone();
-    assert_eq!(
-        requests.last().expect("the last request")["input"],
-        json!(["raw input"]),
-        "the prefix is counted only and never sent"
     );
 }

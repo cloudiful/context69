@@ -149,10 +149,6 @@ mod atomic_first_insert_cases {
                 file_library: FileLibraryConfig {
                     storage_root: storage_root.to_path_buf(),
                     max_upload_size_mb: 10,
-                    max_upload_request_size_mb: 10,
-                    ingest_concurrency: 1,
-                    url_import_concurrency: 1,
-                    url_import_min_interval_ms: 1000,
                     trusted_proxy_enabled: false,
                     s3: None,
                 },
@@ -223,10 +219,6 @@ mod atomic_first_insert_cases {
                 file_library: FileLibraryConfig {
                     storage_root: storage_root.to_path_buf(),
                     max_upload_size_mb: 10,
-                    max_upload_request_size_mb: 10,
-                    ingest_concurrency: 1,
-                    url_import_concurrency: 1,
-                    url_import_min_interval_ms: 1000,
                     trusted_proxy_enabled: false,
                     s3: None,
                 },
@@ -1011,7 +1003,6 @@ mod atomic_first_insert_cases {
                 max_tokens: 8,
                 overlap_tokens: 2,
             }),
-            input_policy: None,
         };
         let current: serde_json::Value =
             sqlx::query_scalar("SELECT payload FROM context69.task_items WHERE id = $1")

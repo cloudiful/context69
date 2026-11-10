@@ -1,0 +1,197 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One page of current documents with their canonical version body.\n--\n-- Paged by document id, never by chunk rows: a document whose body produces\n-- zero chunks must still appear so its progress row advances.\nSELECT\n    d.id AS document_id,\n    d.group_id,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility,\n    d.source_key,\n    d.external_id,\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    d.updated_at_source,\n    d.record_hash,\n    d.metadata_json,\n    v.body_text\nFROM context69.documents d\nINNER JOIN context69.groups g ON g.id = d.group_id\nINNER JOIN context69.document_versions v\n    ON v.document_id = d.id\n   AND v.record_hash = d.record_hash\nWHERE $1::BIGINT IS NULL OR d.id > $1\nORDER BY d.id\nLIMIT $2\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "group_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "group_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "full_path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "visibility",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "visibility"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "external_id",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "external_id"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "title",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "summary",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "summary"
+          }
+        }
+      },
+      {
+        "ordinal": 9,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 10,
+        "name": "published_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "published_at"
+          }
+        }
+      },
+      {
+        "ordinal": 11,
+        "name": "updated_at_source",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "updated_at_source"
+          }
+        }
+      },
+      {
+        "ordinal": 12,
+        "name": "record_hash",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "record_hash"
+          }
+        }
+      },
+      {
+        "ordinal": 13,
+        "name": "metadata_json",
+        "type_info": "Jsonb",
+        "origin": {
+          "Table": {
+            "table": "context69.documents",
+            "name": "metadata_json"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "body_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_versions",
+            "name": "body_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "ed0637658236875dbaef199e4741994859d59abb41cbeda19be233fbdfda3ee8"
+}

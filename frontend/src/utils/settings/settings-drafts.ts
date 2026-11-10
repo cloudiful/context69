@@ -22,17 +22,6 @@ export const DEFAULT_CHUNKING_MAX_TOKENS = 1024;
 /** Token overlap two chunks share when the response carries no overlap. */
 export const DEFAULT_CHUNKING_OVERLAP_TOKENS = 128;
 
-/**
- * The embedding request planner defaults of a deployment that stored none.
- *
- * They match the contract defaults, so an older deployment and a fresh draft
- * describe the same limits.
- */
-export const DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST = 32;
-export const DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS = 8_000;
-export const DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS = 64_000;
-export const DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES = 1_048_576;
-
 export function createRuntimeDraft(): DraftRuntimeSettings {
   return {
     qdrant: {
@@ -47,18 +36,6 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       query_model: "",
       dimensions: 768,
       timeout_secs: 30,
-      batching: {
-        max_items_per_request: DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
-        max_item_chars: DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
-        max_request_chars: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
-        max_request_bytes: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
-      },
-      input_policy: {
-        max_input_tokens: null,
-        document_server_prefix: "",
-        query_server_prefix: "",
-        add_special_tokens: false,
-      },
     },
     code_embedding: {
       enabled: false,
@@ -68,12 +45,6 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       query_model: "",
       dimensions: 768,
       timeout_secs: 30,
-      batching: {
-        max_items_per_request: DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
-        max_item_chars: DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
-        max_request_chars: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
-        max_request_bytes: DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
-      },
       has_api_key: false,
       clear_api_key: false,
       touched: false,
@@ -97,10 +68,6 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
     file_library: {
       storage_root: "",
       max_upload_size_mb: 128,
-      max_upload_request_size_mb: 128,
-      ingest_concurrency: 2,
-      url_import_concurrency: 2,
-      url_import_min_interval_ms: 1000,
       trusted_proxy_enabled: false,
       s3_enabled: false,
       s3: {
@@ -167,27 +134,6 @@ export function runtimeResponseToDraft(
       query_model: response.embedding.query_model ?? "",
       dimensions: response.embedding.dimensions,
       timeout_secs: response.embedding.timeout_secs,
-      batching: {
-        max_items_per_request:
-          response.embedding.batching?.max_items_per_request
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
-        max_item_chars:
-          response.embedding.batching?.max_item_chars
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
-        max_request_chars:
-          response.embedding.batching?.max_request_chars
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
-        max_request_bytes:
-          response.embedding.batching?.max_request_bytes
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
-      },
-      input_policy: {
-        max_input_tokens: response.embedding.input_policy?.max_input_tokens ?? null,
-        document_server_prefix:
-          response.embedding.input_policy?.document_server_prefix ?? "",
-        query_server_prefix: response.embedding.input_policy?.query_server_prefix ?? "",
-        add_special_tokens: response.embedding.input_policy?.add_special_tokens ?? false,
-      },
     },
     code_embedding: {
       enabled: response.code_embedding?.enabled ?? false,
@@ -197,20 +143,6 @@ export function runtimeResponseToDraft(
       query_model: response.code_embedding?.query_model ?? "",
       dimensions: response.code_embedding?.dimensions || 768,
       timeout_secs: response.code_embedding?.timeout_secs || 30,
-      batching: {
-        max_items_per_request:
-          response.code_embedding?.batching?.max_items_per_request
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEMS_PER_REQUEST,
-        max_item_chars:
-          response.code_embedding?.batching?.max_item_chars
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_ITEM_CHARS,
-        max_request_chars:
-          response.code_embedding?.batching?.max_request_chars
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_CHARS,
-        max_request_bytes:
-          response.code_embedding?.batching?.max_request_bytes
-          ?? DEFAULT_EMBEDDING_BATCH_MAX_REQUEST_BYTES,
-      },
       has_api_key: response.code_embedding?.has_api_key ?? false,
       clear_api_key: false,
       // A response never marks the block pending: only an edit does.
@@ -238,10 +170,6 @@ export function runtimeResponseToDraft(
     file_library: {
       storage_root: response.file_library.storage_root,
       max_upload_size_mb: response.file_library.max_upload_size_mb,
-      max_upload_request_size_mb: response.file_library.max_upload_request_size_mb,
-      ingest_concurrency: response.file_library.ingest_concurrency,
-      url_import_concurrency: response.file_library.url_import_concurrency,
-      url_import_min_interval_ms: response.file_library.url_import_min_interval_ms,
       trusted_proxy_enabled: response.file_library.trusted_proxy_enabled,
       s3_enabled: !!response.file_library.s3,
       s3: {

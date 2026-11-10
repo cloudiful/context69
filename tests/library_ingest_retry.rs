@@ -251,6 +251,21 @@ mod integration {
         let db = connect_db().await;
         (guard, db)
     }
+
+    async fn clear_runtime_vector_identity(db: &Database) {
+        sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+            .execute(db.pool())
+            .await
+            .expect("clear the active vector identity");
+        sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the qdrant settings");
+        sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the embedding settings");
+    }
     async fn build_library_service(
         db: &Database,
         embedding: Arc<dyn EmbeddingProvider>,
@@ -288,10 +303,6 @@ mod integration {
                 file_library: FileLibraryConfig {
                     storage_root: storage_root.clone(),
                     max_upload_size_mb: 1,
-                    max_upload_request_size_mb: 1,
-                    ingest_concurrency: 1,
-                    url_import_concurrency: 1,
-                    url_import_min_interval_ms: 1000,
                     trusted_proxy_enabled: false,
                     s3: None,
                 },
@@ -353,6 +364,38 @@ mod integration {
                 .expect("cleanup");
         }
     }
+    /// An orphan document and chunk of a file whose SQL rows survived while its
+    /// points did not: the cleanup must tombstone and delete them before it
+    /// issues the exact-id remote purge.
+    async fn seed_orphan_document(db: &Database, file_id: Uuid, group_id: i64) -> (i64, Vec<Uuid>) {
+        let document_id: i64 = sqlx::query_scalar(
+            "INSERT INTO context69.documents \
+             (source_key, external_id, title, source_uri, updated_at_source, metadata_json, \
+              record_hash, group_id, visibility) \
+             VALUES ('library_files', $1, 'orphan', 'context69://test/orphan', now(), \
+                     jsonb_build_object('library_file_id', $2), 'orphan-record-hash', $3, 'public') \
+             RETURNING id",
+        )
+        .bind(format!("orphan-{}", Uuid::new_v4()))
+        .bind(file_id.to_string())
+        .bind(group_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("seed the orphan document");
+        let chunk_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO context69.document_chunks \
+             (id, document_id, chunk_index, chunk_text, record_hash) \
+             VALUES ($1, $2, 0, 'orphan chunk', 'orphan-chunk-record-hash')",
+        )
+        .bind(chunk_id)
+        .bind(document_id)
+        .execute(db.pool())
+        .await
+        .expect("seed the orphan chunk");
+        (document_id, vec![chunk_id])
+    }
+
     async fn seed_text_file(
         db: &Database,
         storage_root: &std::path::Path,
@@ -408,14 +451,16 @@ mod integration {
 
     #[tokio::test]
     #[ignore = "requires configured reusable PostgreSQL"]
-    async fn qdrant_cleanup_failure_preserves_sql_and_is_retryable_with_operation_context() {
+    async fn qdrant_cleanup_failure_commits_the_logical_delete_and_keeps_the_purge_retryable() {
         let (_guard, db) = prepare_isolated_db().await;
+        clear_runtime_vector_identity(&db).await;
         let embedding = Arc::new(EmbeddingSpy::default());
         let qdrant = QdrantIndex::for_test_unreachable("http://127.0.0.1:1", "test-collection", 4)
             .expect("build test qdrant index");
         let (service, storage_root) = build_library_service(&db, embedding.clone(), qdrant).await;
         let group = seed_group_record(&db).await;
         let file_id = seed_text_file(&db, &storage_root, &group).await;
+        let (document_id, _) = seed_orphan_document(&db, file_id, group.id).await;
 
         let error = service
             .persist_file_sections_for_task(file_id, &sample_section_payload(), Uuid::new_v4())
@@ -428,17 +473,24 @@ mod integration {
             0,
             "embedding must not run when Qdrant cleanup fails"
         );
-        assert!(error.retryable, "Qdrant cleanup failure must be retryable");
+        assert!(
+            error.retryable,
+            "Qdrant cleanup failure must be retryable: {}",
+            error.message
+        );
         assert_eq!(error.dependency_key.as_deref(), Some("qdrant"));
 
         // Operation-specific context must be present and bounded, without secrets.
         let msg = error.message.to_ascii_lowercase();
         assert!(msg.contains("qdrant"), "must contain qdrant");
         assert!(
-            msg.contains("operation=delete_points")
-                || msg.contains("operation=delete_points_for_library_file")
-                || msg.contains("qdrant library file cleanup"),
-            "must contain operation: {}",
+            msg.contains("operation=delete_points"),
+            "must contain the exact-id operation: {}",
+            error.message
+        );
+        assert!(
+            msg.contains("logical ingest cleanup committed"),
+            "must state that the logical cleanup is durable: {}",
             error.message
         );
         assert!(
@@ -467,7 +519,8 @@ mod integration {
             "must not leak document text"
         );
 
-        // File row intact – Qdrant delete failed before SQL delete.
+        // The file row stays for the retry; the canonical document rows and
+        // their points are already excluded by the permanent tombstone.
         let row: Option<(String,)> =
             sqlx::query_as("SELECT ingest_status FROM context69.library_files WHERE id = $1")
                 .bind(file_id)
@@ -476,10 +529,9 @@ mod integration {
                 .expect("load file status");
         assert!(
             row.is_some(),
-            "file row must survive Qdrant cleanup failure"
+            "file row must survive a pending vector purge"
         );
 
-        // Also verify no new documents were created (orphan prevention)
         let doc_count: (i64,) = sqlx::query_as(
             "SELECT COUNT(*) FROM context69.documents WHERE metadata_json->>'library_file_id' = $1",
         )
@@ -489,9 +541,170 @@ mod integration {
         .expect("doc count");
         assert_eq!(
             doc_count.0, 0,
-            "no documents should be created when cleanup fails"
+            "the logical cleanup deletes the canonical documents before the remote purge"
         );
 
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context69.library_deleted_entities \
+             WHERE document_id = $1 AND purged_at IS NULL",
+        )
+        .bind(document_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("pending tombstone count");
+        assert_eq!(pending, 1, "the document tombstone stays pending for retry");
+
+        // The retry allocates a fresh document id: a tombstoned id is never
+        // revived, even though the failed remote purge is still pending.
+        let retry_qdrant =
+            QdrantIndex::for_test_noop("test-noop", 4).expect("build the no-op retry qdrant index");
+        let (retry_service, retry_storage_root) =
+            build_library_service(&db, embedding.clone(), retry_qdrant).await;
+        retry_service
+            .persist_file_sections_for_task(file_id, &sample_section_payload(), Uuid::new_v4())
+            .await
+            .expect("the retry publishes under a fresh document id");
+        let retried_document: i64 = sqlx::query_scalar(
+            "SELECT id FROM context69.documents WHERE metadata_json->>'library_file_id' = $1",
+        )
+        .bind(file_id.to_string())
+        .fetch_one(db.pool())
+        .await
+        .expect("read the retried document");
+        assert_ne!(
+            retried_document, document_id,
+            "the retry must not revive the tombstoned document id"
+        );
+        let revived: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context69.library_deleted_entities WHERE document_id = $1",
+        )
+        .bind(retried_document)
+        .fetch_one(db.pool())
+        .await
+        .expect("count the retried tombstone");
+        assert_eq!(revived, 0, "the fresh document is not tombstoned");
+        let still_pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context69.library_deleted_entities \
+             WHERE document_id = $1 AND purged_at IS NULL",
+        )
+        .bind(document_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("pending tombstone count after retry");
+        assert_eq!(
+            still_pending, 1,
+            "the pending purge of the old document stays durable"
+        );
+
+        sqlx::query("DELETE FROM context69.library_deleted_entities WHERE document_id = $1")
+            .bind(document_id)
+            .execute(db.pool())
+            .await
+            .expect("clear the fixture tombstone");
+        clear_runtime_vector_identity(&db).await;
+        cleanup_group(&db, group.id).await;
+        let _ = std::fs::remove_dir_all(storage_root);
+        let _ = std::fs::remove_dir_all(retry_storage_root);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL and the designated test Qdrant"]
+    async fn a_non_fenced_library_ingest_is_refused_while_the_rebuild_barrier_is_held() {
+        let (_guard, db) = prepare_isolated_db().await;
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL, rebuild_owner_token = NULL, \
+                 rebuild_fingerprint = NULL, rebuild_collection = NULL, \
+                 rebuild_started_at = NULL, rebuild_error = NULL \
+             WHERE id = 1",
+        )
+        .execute(db.pool())
+        .await
+        .expect("reset the fixture barrier");
+        sqlx::query("DELETE FROM context69.search_registry_entries WHERE phase = 'staging'")
+            .execute(db.pool())
+            .await
+            .expect("clear an unresolved staging entry from an earlier target");
+
+        let qdrant = QdrantPointsMock::start().await;
+        let index = QdrantIndex::for_test_unreachable(qdrant.url(), "test-collection", 4)
+            .expect("build test qdrant index");
+        let embedding = Arc::new(EmbeddingSpy::default());
+        let (service, storage_root) = build_library_service(&db, embedding.clone(), index).await;
+        let group = seed_group_record(&db).await;
+        let file_id = seed_text_file(&db, &storage_root, &group).await;
+
+        let mut tx = db.pool().begin().await.expect("begin the barrier claim");
+        let outcome = db
+            .begin_rebuild_in(
+                &mut tx,
+                Uuid::new_v4(),
+                Uuid::new_v4(),
+                "held-fingerprint",
+                "held-target",
+            )
+            .await
+            .expect("claim the rebuild barrier");
+        assert!(matches!(
+            outcome,
+            context69::db::RebuildStartOutcome::Started(_)
+        ));
+        tx.commit().await.expect("commit the barrier claim");
+
+        let error = service
+            .persist_file_sections_for_task(file_id, &sample_section_payload(), Uuid::new_v4())
+            .await
+            .expect_err("a held barrier refuses the non-fenced ingest");
+        assert!(
+            error.message.contains("rebuild is in progress"),
+            "the refusal names the running rebuild: {}",
+            error.message
+        );
+        assert_eq!(
+            embedding.calls(),
+            0,
+            "the barrier refuses the writer before any embedding"
+        );
+        let documents: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM context69.documents \
+             WHERE metadata_json->>'library_file_id' = $1",
+        )
+        .bind(file_id.to_string())
+        .fetch_one(db.pool())
+        .await
+        .expect("count the writer's documents");
+        assert!(
+            documents.0 <= 1,
+            "the refusal never persists more than the one partially-upserted document"
+        );
+        let chunks: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM context69.document_chunks \
+             WHERE document_id IN (SELECT id FROM context69.documents \
+                                   WHERE metadata_json->>'library_file_id' = $1)",
+        )
+        .bind(file_id.to_string())
+        .fetch_one(db.pool())
+        .await
+        .expect("count the writer's chunks");
+        assert_eq!(
+            chunks.0, 0,
+            "the guarded chunk transaction writes no vector-bearing row"
+        );
+
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL, rebuild_owner_token = NULL, \
+                 rebuild_fingerprint = NULL, rebuild_collection = NULL, \
+                 rebuild_started_at = NULL, rebuild_error = NULL \
+             WHERE id = 1",
+        )
+        .execute(db.pool())
+        .await
+        .expect("reset the fixture barrier");
+        sqlx::query("DELETE FROM context69.search_registry_entries WHERE phase = 'staging'")
+            .execute(db.pool())
+            .await
+            .expect("clear the fixture staging entries");
         cleanup_group(&db, group.id).await;
         let _ = std::fs::remove_dir_all(storage_root);
     }
@@ -686,6 +899,13 @@ mod integration {
         let qdrant = QdrantPointsMock::start().await;
         let index = QdrantIndex::for_test_unreachable(qdrant.url(), "test-noop", 4)
             .expect("build the mock qdrant index");
+        let fingerprint = context69::embedding::embedding_runtime::vector_identity_fingerprint(
+            "http://qdrant.test",
+            "test-noop",
+            "http://embedding.test",
+            "test-model",
+            4,
+        );
         let generation = runtime.generation();
         runtime.publish(
             generation,
@@ -695,10 +915,36 @@ mod integration {
                 index: Arc::new(index),
                 collection: "test-noop".to_string(),
                 generation,
-                configured_fingerprint: Some("library_ingest_retry-fingerprint".to_string()),
+                configured_fingerprint: Some(fingerprint.clone()),
             },
         );
         assert!(runtime.is_ready());
+        sqlx::query_file!(
+            "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+            "http://qdrant.test",
+            "test-noop",
+            "http://embedding.test",
+            "test-model",
+            4
+        )
+        .execute(db.pool())
+        .await
+        .expect("seed the desired vector identity");
+        sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+            .execute(db.pool())
+            .await
+            .expect("clear the previous active index");
+        sqlx::query_file!(
+            "tests/sql/vector_registry/seed_active_index.sql",
+            "test-noop",
+            fingerprint,
+            "http://embedding.test",
+            "test-model",
+            4
+        )
+        .execute(db.pool())
+        .await
+        .expect("activate the seeded vector index");
 
         let payload_after = service
             .persist_file_sections_for_task_with_checkpoint(
@@ -757,6 +1003,18 @@ mod integration {
         let item_after_resume = read_item(&db, item.id).await;
 
         cleanup_fixture(&db, group.id, user_id, &storage_root).await;
+        sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+            .execute(db.pool())
+            .await
+            .expect("clear the active vector identity");
+        sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the qdrant settings");
+        sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the embedding settings");
 
         assert_eq!(parked.stage, "indexing");
         assert!(parked.retryable, "a missing pair must wait, not fail");
@@ -904,6 +1162,11 @@ mod integration {
         for source_key in source_keys {
             let _ = store.delete_source(source_key).await;
         }
+        sqlx::query("DELETE FROM context69.library_deleted_entities WHERE group_id = $1")
+            .bind(group_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the fixture tombstones");
         sqlx::query_file!(
             "tests/sql/source_delete_readiness/delete_group.sql",
             group_id
@@ -964,6 +1227,13 @@ mod integration {
         // published.
         let index = QdrantIndex::for_test_unreachable(qdrant.url(), "test-collection", 4)
             .expect("build the mock qdrant index");
+        let fingerprint = context69::embedding::embedding_runtime::vector_identity_fingerprint(
+            "http://qdrant.test",
+            "test-collection",
+            "http://embedding.test",
+            "test-model",
+            4,
+        );
         let generation = runtime.generation();
         assert!(runtime.publish(
             generation,
@@ -973,7 +1243,7 @@ mod integration {
                 index: Arc::new(index),
                 collection: "test-collection".to_string(),
                 generation,
-                configured_fingerprint: Some("library_ingest_retry-fingerprint".to_string()),
+                configured_fingerprint: Some(fingerprint.clone()),
             }
         ));
         assert!(runtime.is_ready());
@@ -1006,6 +1276,35 @@ mod integration {
         // only then removes the local rows.
         assert!(runtime.complete_rebuild(fence));
         assert!(runtime.is_ready());
+
+        // The captured deletion target must also match the deployment's
+        // desired and active vector identity.
+        sqlx::query_file!(
+            "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+            "http://qdrant.test",
+            "test-collection",
+            "http://embedding.test",
+            "test-model",
+            4
+        )
+        .execute(db.pool())
+        .await
+        .expect("seed the desired vector identity");
+        sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+            .execute(db.pool())
+            .await
+            .expect("clear the previous active index");
+        sqlx::query_file!(
+            "tests/sql/vector_registry/seed_active_index.sql",
+            "test-collection",
+            fingerprint,
+            "http://embedding.test",
+            "test-model",
+            4
+        )
+        .execute(db.pool())
+        .await
+        .expect("activate the seeded vector index");
 
         service
             .delete_source(&first_key)
@@ -1044,7 +1343,127 @@ mod integration {
                 .collect::<Vec<_>>()
         );
 
-        cleanup_source_fixture(&db, group.id, &[&first_key, &second_key]).await;
+        // A remote purge that fails after the canonical commit does not undo
+        // the logical delete: the source rows are gone, the document tombstones
+        // stay pending, and the deletion still reports success.
+        let failure_key = format!("r2-source-purge-failure-{}", Uuid::new_v4());
+        seed_source_fixture(&db, group.id, &failure_key).await;
+        service
+            .reload_sources()
+            .await
+            .expect("load the failure source");
+        let failure_document: i64 =
+            sqlx::query_scalar("SELECT id FROM context69.documents WHERE source_key = $1")
+                .bind(&failure_key)
+                .fetch_one(db.pool())
+                .await
+                .expect("read the failure source document");
+        let generation = runtime.generation();
+        assert!(
+            runtime.publish(
+                generation,
+                VectorSnapshot {
+                    embedding: embedding.clone(),
+                    identity: None,
+                    index: Arc::new(
+                        QdrantIndex::for_test_unreachable(
+                            "http://127.0.0.1:1",
+                            "test-collection",
+                            4
+                        )
+                        .expect("build the unreachable qdrant index")
+                    ),
+                    collection: "test-collection".to_string(),
+                    generation,
+                    configured_fingerprint: Some(fingerprint.clone()),
+                }
+            )
+        );
+        service
+            .delete_source(&failure_key)
+            .await
+            .expect("the logical delete succeeds while the vector purge is pending");
+        assert_eq!(
+            source_fixture_counts(&db, &failure_key).await,
+            (0, 0, 0),
+            "the canonical source rows are deleted before the failed remote purge"
+        );
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context69.library_deleted_entities \
+             WHERE document_id = $1 AND purged_at IS NULL",
+        )
+        .bind(failure_document)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the pending source tombstone");
+        assert_eq!(
+            pending, 1,
+            "the failed purge leaves the permanent document tombstone pending"
+        );
+        assert_eq!(
+            qdrant.delete_calls().len(),
+            2,
+            "the unreachable purge is not recorded as a successful delete"
+        );
+
+        // A snapshot whose identity no longer matches the active index is
+        // refused before any local or remote row is removed.
+        let third_key = format!("r2-source-mismatch-{}", Uuid::new_v4());
+        seed_source_fixture(&db, group.id, &third_key).await;
+        service
+            .reload_sources()
+            .await
+            .expect("load the third source");
+        let generation = runtime.generation();
+        assert!(
+            runtime.publish(
+                generation,
+                VectorSnapshot {
+                    embedding: embedding.clone(),
+                    identity: None,
+                    index: Arc::new(
+                        QdrantIndex::for_test_unreachable(qdrant.url(), "test-collection", 4)
+                            .expect("build the second mock qdrant index")
+                    ),
+                    collection: "test-collection".to_string(),
+                    generation,
+                    configured_fingerprint: Some("stale-identity".to_string()),
+                }
+            )
+        );
+        let error = service
+            .delete_source(&third_key)
+            .await
+            .expect_err("a captured identity outside the active index must block deletion");
+        assert!(
+            error.to_string().contains("captured vector identity"),
+            "unexpected error: {error}"
+        );
+        assert_eq!(source_fixture_counts(&db, &third_key).await, full);
+        assert_eq!(
+            qdrant.delete_calls().len(),
+            2,
+            "the refused deletion issues no remote delete"
+        );
+
+        cleanup_source_fixture(
+            &db,
+            group.id,
+            &[&first_key, &second_key, &failure_key, &third_key],
+        )
+        .await;
+        sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+            .execute(db.pool())
+            .await
+            .expect("clear the active vector identity");
+        sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the qdrant settings");
+        sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the embedding settings");
     }
 
     /// An application-managed instance without configuration must not fall back
@@ -1054,6 +1473,7 @@ mod integration {
     #[ignore = "requires configured reusable PostgreSQL"]
     async fn managed_unconfigured_and_legacy_optional_source_deletion_stay_distinct() {
         let (_guard, db) = prepare_isolated_db().await;
+        clear_runtime_vector_identity(&db).await;
         let qdrant = QdrantPointsMock::start().await;
         let group = seed_group_record(&db).await;
 
@@ -1142,6 +1562,7 @@ mod integration {
         );
 
         cleanup_source_fixture(&db, group.id, &[&managed_key, &legacy_key, &with_index_key]).await;
+        clear_runtime_vector_identity(&db).await;
     }
 
     fn embedding_provider() -> Arc<EmbeddingSpy> {

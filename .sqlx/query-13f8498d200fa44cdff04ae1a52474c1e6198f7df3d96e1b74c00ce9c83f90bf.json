@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Advance the staging cursor of one owned running rebuild.\nUPDATE context69.search_registry_epoch\nSET rebuild_staged_document_id = $5::bigint,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\nRETURNING TRUE AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "13f8498d200fa44cdff04ae1a52474c1e6198f7df3d96e1b74c00ce9c83f90bf"
+}

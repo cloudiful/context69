@@ -4,7 +4,7 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { apiClient } from "@/services/api";
+import { apiClient, isPartialUploadFailure } from "@/services/api";
 import type {
   LibraryFileDetailResponse,
   LibraryIngestStatus,
@@ -693,6 +693,24 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
       }
     } catch (error) {
       if (operation.isDisposed()) {
+        return;
+      }
+      if (isPartialUploadFailure(error)) {
+        const results = await operation.settle(error.tasks);
+        if (operation.isDisposed()) {
+          return;
+        }
+        if (error.files.length > 0) {
+          setUrlSelection(error.files[0].folder_id ?? folderId, error.files[0].file_id);
+        }
+        await invalidateLibrary();
+        if (operation.isDisposed()) {
+          return;
+        }
+        toast.error(t("common.error"), {
+          description: error.message,
+          duration: 5000,
+        });
         return;
       }
       toast.error(t("common.error"), {

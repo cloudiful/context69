@@ -338,8 +338,6 @@ pub struct TokenChunkDocumentIter<'a> {
     tokenizer: ResolvedTokenizer,
     max_tokens: usize,
     overlap_tokens: usize,
-    /// The pinned embedding input envelope, absent for a legacy budget.
-    input_policy: Option<super::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
     /// The paragraphs of the normalized source, in order.
     paragraphs: std::str::Split<'a, &'static str>,
     /// The text of the current paragraph that is not in the window yet.
@@ -410,7 +408,6 @@ impl<'a> TokenChunkDocumentIter<'a> {
             tokenizer,
             max_tokens,
             overlap_tokens,
-            input_policy: None,
             paragraphs: document.body_text.split(PARAGRAPH_SEPARATOR),
             paragraph: "",
             separator_due: false,
@@ -421,15 +418,6 @@ impl<'a> TokenChunkDocumentIter<'a> {
             finished: false,
             failure: None,
         })
-    }
-
-    /// Attaches the pinned embedding input envelope.
-    pub fn with_input_policy(
-        mut self,
-        policy: Option<super::chunking_token_artifact::ResolvedEmbeddingInputPolicy>,
-    ) -> Self {
-        self.input_policy = policy;
-        self
     }
 
     /// Iterator that reports a configuration failure on its first item.
@@ -447,7 +435,6 @@ impl<'a> TokenChunkDocumentIter<'a> {
             tokenizer: ResolvedTokenizer::from_static(TokenizerKind::Cl100kBase),
             max_tokens: 1,
             overlap_tokens: 0,
-            input_policy: None,
             paragraphs: document.body_text.split(PARAGRAPH_SEPARATOR),
             paragraph: "",
             separator_due: false,
@@ -617,48 +604,6 @@ impl<'a> TokenChunkDocumentIter<'a> {
         }
     }
 
-    /// Whether the pinned envelope admits one complete input.
-    fn envelope_fits(&self, text: &str) -> bool {
-        match &self.input_policy {
-            Some(policy) => {
-                policy.count_input(policy.document_prefix(), text)
-                    <= policy.max_input_tokens().unwrap_or(usize::MAX)
-            }
-            None => true,
-        }
-    }
-
-    /// The exact envelope token count of one already-built chunk.
-    fn envelope_count(&self, text: &str) -> usize {
-        match &self.input_policy {
-            Some(policy) => policy.count_input(policy.document_prefix(), text),
-            None => 0,
-        }
-    }
-
-    /// The largest positive byte prefix of the window that fits `overlap`.
-    ///
-    /// Token counts are not monotonic in prefix length, so the UTF-8
-    /// boundaries are scanned from largest to smallest instead of being
-    /// binary-searched. Returns `0` when not even one character fits beside
-    /// the overlap.
-    fn largest_content_prefix(&self, overlap: &str, max_len: usize) -> usize {
-        let text = &self.window[..max_len];
-        let mut boundaries = Vec::with_capacity(text.chars().count() + 1);
-        boundaries.push(0);
-        boundaries.extend(
-            text.char_indices()
-                .map(|(index, character)| index + character.len_utf8()),
-        );
-        for characters in (1..boundaries.len()).rev() {
-            let end = boundaries[characters];
-            if self.envelope_fits(&format!("{overlap}{}", &text[..end])) {
-                return end;
-            }
-        }
-        0
-    }
-
     /// Produces the next chunk of the document.
     fn next_chunk(&mut self) -> Result<Option<DocumentChunk>, ChunkingError> {
         let mut overlap = self.next_overlap.take().unwrap_or_default();
@@ -668,43 +613,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
             // The normalized source is exhausted.
             return Ok(None);
         }
-        let cut = self.cut_content(&mut overlap, &mut overlap_tokens)?;
-        let mut content_len = cut;
-        if self.input_policy.is_some() {
-            loop {
-                let candidate = format!("{overlap}{}", &self.window[..content_len]);
-                if self.envelope_fits(&candidate) {
-                    break;
-                }
-                let fit = self.largest_content_prefix(&overlap, content_len);
-                if fit > 0 {
-                    content_len = fit;
-                    break;
-                }
-                // The overlap is optional: give it up until one source
-                // character can make positive progress.
-                if overlap.is_empty() {
-                    let first = self.window.chars().next().unwrap_or('\0');
-                    let count = self.envelope_count(&format!("{first}"));
-                    let (max_input_tokens, prefix_chars) = match &self.input_policy {
-                        Some(policy) => (
-                            policy.max_input_tokens().unwrap_or(usize::MAX),
-                            policy.document_prefix().chars().count(),
-                        ),
-                        None => (usize::MAX, 0),
-                    };
-                    return Err(ChunkingError::InputEnvelopeExceeded {
-                        role: "document",
-                        count,
-                        max_input_tokens,
-                        prefix_chars,
-                    });
-                }
-                let mut chars = overlap.chars();
-                chars.next();
-                overlap = chars.as_str().to_string();
-            }
-        }
+        let content_len = self.cut_content(&mut overlap, &mut overlap_tokens)?;
         let content = self.window[..content_len].to_string();
         self.window.drain(..content_len);
         Ok(Some(self.build_chunk(&overlap, &content)))

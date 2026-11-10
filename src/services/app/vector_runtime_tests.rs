@@ -29,8 +29,6 @@ fn update(
         timeout_secs: 30,
         api_key: api_key.map(str::to_string),
         confirm_vector_space_unchanged: confirm,
-        batching: Default::default(),
-        input_policy: Default::default(),
     }
 }
 

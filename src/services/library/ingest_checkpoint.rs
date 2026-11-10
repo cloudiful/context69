@@ -50,6 +50,14 @@ pub struct IndexingCheckpoint {
     /// an identity is treated the same way: it is unproven, not trusted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub budget_identity: Option<String>,
+    /// Digest of the physical collection and the logical embedding identity
+    /// the checkpointed batches were written to.
+    ///
+    /// A legacy checkpoint without this field is unproven: the run restarts
+    /// from batch 0 and reingests under the captured target instead of
+    /// trusting batches from a different activated generation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_identity: Option<String>,
 }
 
 impl Default for IndexingCheckpoint {
@@ -60,31 +68,81 @@ impl Default for IndexingCheckpoint {
             total_batches: None,
             record_hash: None,
             budget_identity: None,
+            target_identity: None,
         }
     }
 }
 
+/// Stable digest of the captured physical collection and logical embedding
+/// identity.
+///
+/// The digest is version-tagged and length-delimited so it cannot collide with
+/// another field's history or with a different split of the same strings. An
+/// unmanaged runtime has no logical embedding fingerprint; the explicit
+/// `unmanaged` tag keeps that case distinct from a managed identity whose
+/// fingerprint string happens to be empty.
+pub fn checkpoint_target_identity(collection: &str, fingerprint: Option<&str>) -> String {
+    use sha2::{Digest, Sha256};
+
+    let mut digest = Sha256::new();
+    for part in ["ctx69-checkpoint-target-v1", collection] {
+        digest.update((part.len() as u64).to_le_bytes());
+        digest.update(part.as_bytes());
+        digest.update([0]);
+    }
+    match fingerprint {
+        Some(fingerprint) => {
+            digest.update((7u64).to_le_bytes());
+            digest.update(b"managed");
+            digest.update([0]);
+            digest.update((fingerprint.len() as u64).to_le_bytes());
+            digest.update(fingerprint.as_bytes());
+            digest.update([0]);
+        }
+        None => {
+            digest.update((9u64).to_le_bytes());
+            digest.update(b"unmanaged");
+            digest.update([0]);
+            digest.update(0u64.to_le_bytes());
+            digest.update([0]);
+        }
+    }
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 impl IndexingCheckpoint {
-    pub fn reset(current_hash: String, total_batches: usize, budget_identity: String) -> Self {
+    pub fn reset(
+        current_hash: String,
+        total_batches: usize,
+        budget_identity: String,
+        target_identity: String,
+    ) -> Self {
         Self {
             v: INDEXING_CHECKPOINT_VERSION,
             next_batch_index: 0,
             total_batches: Some(total_batches),
             record_hash: Some(current_hash),
             budget_identity: Some(budget_identity),
+            target_identity: Some(target_identity),
         }
     }
 
-    /// Whether this checkpoint was produced by the same record set and the same
-    /// chunk budget. Anything unproven does not match.
-    pub fn matches(&self, record_hash: &str, budget_identity: &str) -> bool {
+    /// Whether this checkpoint was produced by the same record set, the same
+    /// chunk budget and the same captured vector target. Anything unproven does
+    /// not match.
+    pub fn matches(&self, record_hash: &str, budget_identity: &str, target_identity: &str) -> bool {
         self.record_hash.as_deref() == Some(record_hash)
             && self.budget_identity.as_deref() == Some(budget_identity)
+            && self.target_identity.as_deref() == Some(target_identity)
     }
 
     /// `true` when the parsed checkpoint carries any actual data (non-default).
     fn is_present(&self) -> bool {
-        self.total_batches.is_some() || self.record_hash.is_some()
+        self.total_batches.is_some() || self.record_hash.is_some() || self.target_identity.is_some()
     }
 }
 
@@ -292,7 +350,8 @@ mod tests {
     #[test]
     fn payload_with_checkpoint_preserves_other_keys() {
         let payload = json!({"section_payload": [1, 2, 3], "file_id": "abc"});
-        let checkpoint = IndexingCheckpoint::reset("hash".into(), 2, "chars:100:0".into());
+        let checkpoint =
+            IndexingCheckpoint::reset("hash".into(), 2, "chars:100:0".into(), "target".into());
         let next = payload_with_checkpoint(&payload, &checkpoint).expect("advance");
         assert_eq!(
             next.get("section_payload")
@@ -330,7 +389,7 @@ mod tests {
         });
         let next = IndexingCheckpoint {
             next_batch_index: 4,
-            ..IndexingCheckpoint::reset("abc".into(), 3, "x".into())
+            ..IndexingCheckpoint::reset("abc".into(), 3, "x".into(), "target".into())
         };
         let err = payload_with_checkpoint(&payload, &next).expect_err("oversize");
         assert!(err.to_string().contains("total batches"));
@@ -431,10 +490,81 @@ mod tests {
 
     #[test]
     fn reset_returns_current_hash_and_zero_progress() {
-        let checkpoint = IndexingCheckpoint::reset("hash".into(), 5, "chars:100:0".into());
+        let checkpoint =
+            IndexingCheckpoint::reset("hash".into(), 5, "chars:100:0".into(), "target".into());
         assert_eq!(checkpoint.next_batch_index, 0);
         assert_eq!(checkpoint.record_hash.as_deref(), Some("hash"));
         assert_eq!(checkpoint.total_batches, Some(5));
         assert_eq!(checkpoint.budget_identity.as_deref(), Some("chars:100:0"));
+        assert_eq!(checkpoint.target_identity.as_deref(), Some("target"));
+    }
+
+    #[test]
+    fn target_identity_is_stable_and_distinguishes_unmanaged_from_managed() {
+        let unmanaged = checkpoint_target_identity("collection", None);
+        assert_eq!(unmanaged.len(), 64);
+        assert_eq!(
+            unmanaged,
+            checkpoint_target_identity("collection", None),
+            "the same captured target must produce the same digest"
+        );
+        assert_ne!(
+            unmanaged,
+            checkpoint_target_identity("collection", Some("fingerprint"))
+        );
+        assert_ne!(
+            unmanaged,
+            checkpoint_target_identity("other-collection", None)
+        );
+    }
+
+    #[test]
+    fn checkpoint_matches_requires_the_captured_target() {
+        let checkpoint = IndexingCheckpoint::reset(
+            "hash".into(),
+            2,
+            "chars:100:0".into(),
+            checkpoint_target_identity("collection", None),
+        );
+        assert!(checkpoint.matches(
+            "hash",
+            "chars:100:0",
+            &checkpoint_target_identity("collection", None)
+        ));
+        assert!(!checkpoint.matches(
+            "hash",
+            "chars:100:0",
+            &checkpoint_target_identity("other", None)
+        ));
+        let legacy = IndexingCheckpoint {
+            target_identity: None,
+            ..checkpoint
+        };
+        assert!(
+            !legacy.matches(
+                "hash",
+                "chars:100:0",
+                &checkpoint_target_identity("collection", None)
+            ),
+            "a legacy checkpoint without a target never proves completion"
+        );
+    }
+
+    #[test]
+    fn checkpoint_target_identity_stays_within_the_bounded_payload() {
+        let long_budget = format!("tokens:hf_local:{}:999999:999999", "a".repeat(64));
+        let checkpoint = IndexingCheckpoint::reset(
+            "b".repeat(64),
+            999_999,
+            long_budget,
+            checkpoint_target_identity("c".repeat(64).as_str(), Some(&"d".repeat(64))),
+        );
+        let encoded = serde_json::to_string(&indexing_checkpoint_to_value(&checkpoint))
+            .expect("serialize the bounded checkpoint");
+        assert!(
+            encoded.len() <= INDEXING_CHECKPOINT_MAX_BYTES,
+            "supported budget and target identities must stay under the checkpoint bound: {}",
+            encoded.len()
+        );
     }
 }

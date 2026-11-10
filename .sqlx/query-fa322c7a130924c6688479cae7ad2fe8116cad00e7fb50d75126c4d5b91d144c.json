@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.document_chunks (\n    id,\n    document_id,\n    chunk_index,\n    chunk_text,\n    record_hash\n)\nSELECT chunk_id, $1, chunk_index, chunk_text, $2\nFROM unnest($3::uuid[], $4::integer[], $5::text[])\n    AS input(chunk_id, chunk_index, chunk_text)\nON CONFLICT (id) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text",
+        "UuidArray",
+        "Int4Array",
+        "TextArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "fa322c7a130924c6688479cae7ad2fe8116cad00e7fb50d75126c4d5b91d144c"
+}

@@ -234,12 +234,38 @@ impl SourceStore {
         Ok(())
     }
 
-    pub async fn list_source_chunk_ids(&self, source_key: &str) -> Result<Vec<Uuid>> {
+    /// The exact original and translated chunk ids of one source, read on a
+    /// caller connection so the remote purge can name what the canonical
+    /// delete is about to remove.
+    pub(crate) async fn list_source_chunk_ids_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        source_key: &str,
+    ) -> Result<Vec<Uuid>> {
         Ok(
             sqlx::query_file_scalar!("src/sql/source_store/list_source_chunk_ids.sql", source_key)
-                .fetch_all(self.db.pool())
+                .fetch_all(connection)
                 .await?,
         )
+    }
+
+    /// The document ids the canonical source delete owns.
+    ///
+    /// The predicate is the same source_key/group scope as the delete, so a
+    /// tombstone never names a document outside the deleted source.
+    pub(crate) async fn list_source_document_ids_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: Option<i64>,
+        source_key: &str,
+    ) -> Result<Vec<i64>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/source_store/list_source_document_ids.sql",
+            source_key,
+            group_id
+        )
+        .fetch_all(connection)
+        .await?)
     }
 
     pub async fn delete_source(&self, source_key: &str) -> Result<bool> {

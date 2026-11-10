@@ -46,8 +46,6 @@ pub struct TranslationChunkingBudget {
     pub tokenizer: TranslationChunkingTokenizer,
     pub max_tokens: usize,
     pub overlap_tokens: usize,
-    /// The explicit embedding input envelope, absent for a legacy budget.
-    pub input_policy: Option<context69_contracts_core::embedding::EmbeddingInputPolicy>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]

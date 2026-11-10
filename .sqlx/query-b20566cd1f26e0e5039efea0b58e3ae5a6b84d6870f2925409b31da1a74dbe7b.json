@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The owned tombstone's purge state for the legacy-origin case.\n--\n-- An unknown-origin row must stay pending and must never be claimed: the claim\n-- stamps last_purge_attempt_at before any network call, so a NULL attempt is\n-- direct proof that no remote delete was attempted for this row.\nSELECT\n    purged_at IS NULL AS \"unpurged!\",\n    last_purge_attempt_at IS NULL AS \"unattempted!\"\nFROM context69.library_deleted_entities\nWHERE id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "unpurged!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "unattempted!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "b20566cd1f26e0e5039efea0b58e3ae5a6b84d6870f2925409b31da1a74dbe7b"
+}

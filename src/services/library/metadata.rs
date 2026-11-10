@@ -7,18 +7,81 @@ use context69_search::SearchRegistryEntry;
 
 /// The outcome of one metadata publication on a caller transaction.
 ///
-/// The payloads are the exact committed ids and must only be sent after the
-/// caller commits. The invalidated translation point ids are the ones the new
-/// canonical source hash makes unhydratable; the caller admits and retires
-/// them in the same transaction, so the stale translations leave the search
-/// results in the commit that moves the source hash.
+/// The invalidated translation point ids are the ones the new canonical source
+/// hash makes unhydratable; the caller admits and retires them in the same
+/// transaction, so the stale translations leave the search results in the
+/// commit that moves the source hash. The canonical payload mirror is queued
+/// by the file marker instead of a captured payload list.
 pub(super) struct MetadataPublication {
-    pub payloads: Vec<crate::domain::ChunkPayload>,
     pub document_ids: Vec<i64>,
     pub invalidated_translation_point_ids: Vec<Uuid>,
 }
 
+/// The optional, coherent vector capture of one metadata mutation.
+///
+/// A metadata-only deployment needs no runtime at all, so the capture never
+/// requires a snapshot to exist. When the locked transaction finds an active
+/// vector index, the capture must prove that this node still holds the same
+/// physical pair and logical identity before any canonical write commits.
+pub(super) struct MetadataVectorCapture {
+    pub(super) runtime: Option<LibraryRuntime>,
+    pub(super) identity: Option<crate::db::RegistryVectorIdentity>,
+}
+
 impl LibraryService {
+    /// Capture the published pair and its identity when this node has one.
+    ///
+    /// The snapshot is optional by design: the presence of production registry
+    /// caps does not prove that a vector runtime was ever activated.
+    pub(super) fn capture_metadata_vector(&self) -> MetadataVectorCapture {
+        let Some(snapshot) = self.vector.current().snapshot else {
+            return MetadataVectorCapture {
+                runtime: None,
+                identity: None,
+            };
+        };
+        let identity = snapshot.configured_fingerprint.clone().map(|fingerprint| {
+            crate::db::RegistryVectorIdentity {
+                embedding_fingerprint: fingerprint,
+                collection_name: snapshot.collection.clone(),
+            }
+        });
+        MetadataVectorCapture {
+            runtime: Some(LibraryRuntime {
+                embedding: EmbeddingRuntime::new(Some(snapshot.embedding), snapshot.identity),
+                index: (*snapshot.index).clone(),
+            }),
+            identity,
+        }
+    }
+
+    /// Guard one metadata mutation under the locked epoch.
+    ///
+    /// The rebuild barrier is always checked, even for a deployment without
+    /// vector settings. An active index requires the captured pair to match
+    /// the persisted desired identity and the active pointer; a deployment
+    /// without an active index may publish canonical metadata only. The return
+    /// value states whether a remote payload mirror belongs to this mutation.
+    pub(super) async fn guard_metadata_mutation(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        capture: &MetadataVectorCapture,
+    ) -> Result<bool> {
+        self.db.require_rebuild_idle_in(connection).await?;
+        if self
+            .db
+            .read_active_vector_index_state_in(connection)
+            .await?
+            .is_none()
+        {
+            return Ok(false);
+        }
+        self.db
+            .require_idle_admissible_vector_identity_in(connection, capture.identity.as_ref())
+            .await?;
+        Ok(true)
+    }
+
     pub(super) async fn apply_file_translation_directive(
         &self,
         file_id: Uuid,
@@ -72,17 +135,14 @@ impl LibraryService {
     ) -> Result<crate::domain::LibraryFileRecord> {
         let metadata_value = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
         let caps = self.registry_caps();
+        let capture = self.capture_metadata_vector();
         let mut tx = self.db.pool().begin().await?;
         // The registry epoch is locked before the file row, so a publication
         // that admits a registry entry never holds a file lock while it waits
-        // for the epoch and every registry writer takes the same order.
-        if caps.is_some() {
-            self.db.lock_search_registry_epoch_in(&mut tx).await?;
-            // A rebuild owns the whole collection while it runs, so a
-            // publication that overlapped it would write points the rebuild
-            // overwrites or loses.
-            self.db.require_rebuild_idle_in(&mut tx).await?;
-        }
+        // for the epoch and every registry writer takes the same order. The
+        // guard also proves the captured pair against an active index; a
+        // deployment without one publishes metadata only.
+        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
         let current = self
             .store
             .lock_file_on(&mut tx, file_id)
@@ -123,9 +183,12 @@ impl LibraryService {
                 .await?;
             self.db.bump_search_generation_in(&mut tx).await?;
         }
+        if mirror {
+            self.db
+                .enqueue_library_metadata_mirror_in(&mut tx, file_id)
+                .await?;
+        }
         tx.commit().await?;
-        self.send_metadata_payload_updates(&publication.payloads)
-            .await;
         if caps.is_none() {
             self.bump_search_generation("library file business metadata update")
                 .await?;
@@ -225,95 +288,143 @@ impl LibraryService {
         self.apply_file_business_metadata(file_id, metadata).await
     }
 
-    pub(super) async fn cleanup_ingest_artifacts(&self, file_id: Uuid) -> Result<()> {
-        self.cleanup_ingest_vector_artifacts(file_id).await?;
-        self.store
-            .delete_documents_for_library_file(file_id)
+    /// Test-only drive of the canonical refresh service path.
+    #[cfg(feature = "integration-test-helpers")]
+    pub async fn refresh_metadata_for_file_for_test(&self, file_id: Uuid) -> Result<()> {
+        self.refresh_metadata_for_file(file_id).await
+    }
+
+    pub(super) async fn cleanup_ingest_artifacts(
+        &self,
+        file_id: Uuid,
+        runtime: &super::LibraryRuntime,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
+    ) -> Result<()> {
+        let mut tx = self.db.pool().begin().await?;
+        self.db
+            .require_idle_admissible_vector_identity_in(&mut tx, identity)
             .await?;
-        Ok(())
+        let (document_ids, chunk_ids) = self
+            .collect_ingest_cleanup_targets_on(&mut tx, file_id)
+            .await?;
+        let purge_target = runtime.index.purge_target();
+        self.db
+            .insert_deleted_document_entities_in_with_target(
+                &mut tx,
+                &document_ids,
+                Some(&purge_target),
+            )
+            .await?;
+        sqlx::query_file!(
+            "src/sql/library_store/documents/delete_documents_for_library_file.sql",
+            file_id.to_string()
+        )
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        self.purge_captured_cleanup_points(runtime, &chunk_ids)
+            .await
     }
 
     /// The cleanup of a partial ingest under the captured grant of a running
     /// item.
     ///
-    /// The vector points are removed before the transaction, and the documents
-    /// are deleted inside the guarded write of the grant, so a worker that lost
-    /// its segment removes nothing.
+    /// The tombstones, the canonical document rows and the grant commit in one
+    /// short transaction of the captured target. The points are removed only
+    /// afterwards, by the exact chunk ids collected in that transaction, so a
+    /// rebuild that starts after the commit can no longer expose or protect
+    /// still-live data: the tombstone already excludes the points and document
+    /// ids are never reused.
     pub(super) async fn cleanup_ingest_artifacts_fenced(
         &self,
         fence: crate::library_store::TaskWriteFence,
         file_id: Uuid,
+        runtime: &super::LibraryRuntime,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<()> {
-        // The vector points are removed outside any transaction and cannot be
-        // rolled back, so the grant is checked again right before them: a
-        // segment that lost its claim must not remove points of a file it no
-        // longer owns.
-        if !crate::library_store::task_write_granted(&self.db, fence).await? {
+        let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+        self.db
+            .require_idle_admissible_vector_identity_in(write.connection(), identity)
+            .await?;
+        let (document_ids, chunk_ids) = self
+            .collect_ingest_cleanup_targets_on(write.connection(), file_id)
+            .await?;
+        let purge_target = runtime.index.purge_target();
+        self.db
+            .insert_deleted_document_entities_in_with_target(
+                write.connection(),
+                &document_ids,
+                Some(&purge_target),
+            )
+            .await?;
+        sqlx::query_file!(
+            "src/sql/library_store/documents/delete_documents_for_library_file.sql",
+            file_id.to_string()
+        )
+        .execute(write.connection())
+        .await?;
+        if !write.commit().await? {
             return Err(crate::library_store::TaskWriteDenied::new(fence).into());
         }
-        self.cleanup_ingest_vector_artifacts(file_id).await?;
-        if !self
+        self.purge_captured_cleanup_points(runtime, &chunk_ids)
+            .await
+    }
+
+    /// The documents and exact chunk ids one ingest cleanup removes.
+    ///
+    /// Both selections use the file-artifact ownership predicate of the
+    /// canonical delete, and the chunk selection includes the translated
+    /// chunks, so the remote purge names every point that belonged to the file.
+    async fn collect_ingest_cleanup_targets_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<(Vec<i64>, Vec<Uuid>)> {
+        let document_ids = self
             .store
-            .delete_documents_for_library_file_fenced(fence, file_id)
-            .await?
-        {
-            return Err(crate::library_store::TaskWriteDenied::new(fence).into());
-        }
-        Ok(())
+            .list_document_ids_for_library_file_on(connection, file_id)
+            .await?;
+        let chunk_ids = self
+            .store
+            .list_chunk_ids_for_library_file_on(connection, file_id)
+            .await?;
+        Ok((document_ids, chunk_ids))
     }
 
-    async fn cleanup_ingest_vector_artifacts(&self, file_id: Uuid) -> Result<()> {
-        let chunk_ids = self.store.list_chunk_ids_for_library_file(file_id).await?;
-        if !chunk_ids.is_empty() {
-            let runtime = self.vector.snapshot().ok_or_else(|| {
-                DomainError::unavailable(format!(
-                    "embedding/vector dependency unavailable: cannot clean {} indexed chunks without vector runtime",
-                    chunk_ids.len()
-                ))
+    /// Remove the captured exact points of a committed cleanup.
+    ///
+    /// The canonical deletion already committed, so a remote failure is a
+    /// pending purge, not a rolled-back delete. The qdrant-classified error is
+    /// returned for the retry path; the permanent document tombstones are the
+    /// durable retry record, and document ids are never reused.
+    async fn purge_captured_cleanup_points(
+        &self,
+        runtime: &super::LibraryRuntime,
+        chunk_ids: &[Uuid],
+    ) -> Result<()> {
+        if chunk_ids.is_empty() {
+            return Ok(());
+        }
+        runtime
+            .index
+            .delete_points(chunk_ids)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "the logical ingest cleanup committed; the vector purge is pending: {error}"
+                )
             })
-            .map_err(anyhow::Error::from)?;
-            // Keep SQL chunks and their deterministic IDs until the remote delete succeeds.
-            // A later retry needs those IDs to remove points left by a partial ingest.
-            // Operation context (operation=delete_points, collection, category, point_count) is
-            // produced inside QdrantIndex::delete_points; on failure we bubble a retryable
-            // qdrant-classified error and never reach the SQL delete below.
-            runtime.index.delete_points(&chunk_ids).await?;
-        }
-        if let Some(runtime) = self.vector.snapshot() {
-            // SQL may already have been cleared by a previous partial ingest while its
-            // Qdrant points survived; the payload filter catches those orphaned points.
-            // This second delete is explicit: operation=delete_points_for_library_file with
-            // file_id/collection/category in the error, so orphan cleanup is observable
-            // and still idempotent (missing filter match = success, permission not swallowed).
-            runtime
-                .index
-                .delete_points_for_library_file(file_id)
-                .await?;
-        }
-        // Qdrant deletions must complete before SQL deletion. On failure the
-        // caller (persist_sections / handle_task_ingest_failure) maps the error
-        // to a retryable IngestFailure routed to `qdrant`, leaving
-        // document_chunks/documents and the library_files row intact for retry.
-        Ok(())
-    }
-
-    pub(super) async fn refresh_metadata_for_folder_subtree(&self, folder_id: Uuid) -> Result<()> {
-        let file_ids = self.descendant_file_ids(folder_id).await?;
-        for file_id in file_ids {
-            self.refresh_metadata_for_file(file_id).await?;
-        }
-        Ok(())
     }
 
     pub(super) async fn refresh_metadata_for_file(&self, file_id: Uuid) -> Result<()> {
         let caps = self.registry_caps();
+        let capture = self.capture_metadata_vector();
         let mut tx = self.db.pool().begin().await?;
-        // The registry epoch comes before the file row, so a refresh that
-        // admits a registry entry never holds a file lock while it waits for
-        // the epoch.
-        if caps.is_some() {
-            self.db.lock_search_registry_epoch_in(&mut tx).await?;
-        }
+        // A refresh must never publish canonical metadata/hash across a
+        // running rebuild, even when it has no translations to retire. The
+        // idle guard locks the registry epoch first, so it also serializes
+        // with every other epoch writer.
+        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
         let file = self
             .store
             .lock_file_on(&mut tx, file_id)
@@ -325,9 +436,12 @@ impl LibraryService {
                 .await?;
             self.db.bump_search_generation_in(&mut tx).await?;
         }
+        if mirror {
+            self.db
+                .enqueue_library_metadata_mirror_in(&mut tx, file_id)
+                .await?;
+        }
         tx.commit().await?;
-        self.send_metadata_payload_updates(&publication.payloads)
-            .await;
         Ok(())
     }
 
@@ -336,8 +450,9 @@ impl LibraryService {
     /// The file row is already locked by the caller as its first statement.
     /// Documents are locked in ascending id order, exactly as the replacement
     /// switch locks them, and every document update is a compare-and-set on the
-    /// current hash read from the same connection. The returned payloads are the
-    /// exact committed ids and must only be sent after the caller commits.
+    /// current hash read from the same connection. The caller enqueues the
+    /// file's mirror marker in this same transaction; the worker rereads the
+    /// canonical payloads after the commit.
     ///
     /// The invalidated translation point ids are read under the document lock,
     /// so a translation that another writer published in the meantime is
@@ -467,36 +582,9 @@ impl LibraryService {
             document_ids.push(mapping.document_id);
         }
         Ok(MetadataPublication {
-            payloads: self
-                .store
-                .list_chunk_payloads_for_files_on(connection, &[file.id])
-                .await?,
             document_ids,
             invalidated_translation_point_ids,
         })
-    }
-
-    /// Mirror the committed payloads to the vector index after the database
-    /// commit. The ids were captured inside the transaction, so this can never
-    /// reach a later replacement generation. A failure leaves the database
-    /// consistent and is repaired by a reindex.
-    pub(super) async fn send_metadata_payload_updates(
-        &self,
-        payloads: &[crate::domain::ChunkPayload],
-    ) {
-        if payloads.is_empty() {
-            return;
-        }
-        let Some(runtime) = self.vector.snapshot() else {
-            return;
-        };
-        if let Err(error) = runtime.index.update_chunk_payloads(payloads).await {
-            warn!(
-                error = %error,
-                payload_count = payloads.len(),
-                "committed metadata payload mirror failed; a reindex repairs it"
-            );
-        }
     }
 
     pub(super) async fn bump_search_generation(&self, reason: &str) -> Result<()> {

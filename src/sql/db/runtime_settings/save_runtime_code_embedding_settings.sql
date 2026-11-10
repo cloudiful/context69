@@ -12,13 +12,9 @@ INSERT INTO context69.runtime_code_embedding_settings (
     query_model,
     dimensions,
     timeout_secs,
-    max_items_per_request,
-    max_item_chars,
-    max_request_chars,
-    max_request_bytes,
     updated_at
 )
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, now())
 ON CONFLICT (singleton) DO UPDATE
 SET enabled = EXCLUDED.enabled,
     base_url = EXCLUDED.base_url,
@@ -26,8 +22,4 @@ SET enabled = EXCLUDED.enabled,
     query_model = EXCLUDED.query_model,
     dimensions = EXCLUDED.dimensions,
     timeout_secs = EXCLUDED.timeout_secs,
-    max_items_per_request = EXCLUDED.max_items_per_request,
-    max_item_chars = EXCLUDED.max_item_chars,
-    max_request_chars = EXCLUDED.max_request_chars,
-    max_request_bytes = EXCLUDED.max_request_bytes,
     updated_at = now()

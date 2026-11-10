@@ -33,12 +33,33 @@ pub struct StoragePathRow {
 }
 
 impl LibraryStore {
-    pub async fn list_chunk_ids_for_library_file(&self, file_id: Uuid) -> Result<Vec<Uuid>> {
+    pub(crate) async fn list_chunk_ids_for_library_file_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<Vec<Uuid>> {
         Ok(sqlx::query_file_scalar!(
             "src/sql/library_store/documents/list_chunk_ids_for_library_file.sql",
             file_id.to_string()
         )
-        .fetch_all(self.db.pool())
+        .fetch_all(connection)
+        .await?)
+    }
+
+    /// The documents of one library file that the canonical delete removes.
+    ///
+    /// The selection is the same ownership predicate as the delete: a document
+    /// belongs to the file when its metadata names that library file.
+    pub(crate) async fn list_document_ids_for_library_file_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<Vec<i64>> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/library_store/documents/list_document_ids_for_library_file.sql",
+            file_id.to_string()
+        )
+        .fetch_all(connection)
         .await?)
     }
 
@@ -76,15 +97,35 @@ impl LibraryStore {
         Ok(())
     }
 
-    pub async fn replace_file_documents(
+    /// The links and the successful status of one file, in one guarded write.
+    ///
+    /// The links are replaced and the status projected in the same transaction
+    /// after the captured identity proved the barrier idle and the target
+    /// active, so a finalization that outlived its publication writes neither.
+    pub async fn replace_file_documents_and_status(
         &self,
         file_id: Uuid,
         documents: &[LibraryFileDocumentRecord],
-    ) -> Result<()> {
+        status: LibraryIngestStatus,
+        error_message: Option<&str>,
+        mark_ingested_now: bool,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
+    ) -> Result<bool> {
         let mut tx = self.db.pool().begin().await?;
-        replace_file_documents_on(&mut tx, file_id, documents).await?;
+        self.db
+            .require_idle_admissible_vector_identity_in(&mut tx, identity)
+            .await?;
+        let updated = replace_file_documents_and_status_on(
+            &mut tx,
+            file_id,
+            documents,
+            status,
+            error_message,
+            mark_ingested_now,
+        )
+        .await?;
         tx.commit().await?;
-        Ok(())
+        Ok(updated)
     }
 
     /// The links of one file and its status, in one guarded write.
@@ -100,27 +141,24 @@ impl LibraryStore {
         status: LibraryIngestStatus,
         error_message: Option<&str>,
         mark_ingested_now: bool,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<bool> {
         let mut write = match self.begin_task_write(fence).await {
             Ok(write) => write,
             Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(false),
             Err(error) => return Err(error),
         };
-        replace_file_documents_on(write.connection(), file_id, documents).await?;
-        let ingested_at = if mark_ingested_now {
-            Some(chrono::Utc::now())
-        } else {
-            None
-        };
-        sqlx::query_file_as!(
-            super::FileRow,
-            "src/sql/library_store/files/update_file_status.sql",
+        self.db
+            .require_idle_admissible_vector_identity_in(write.connection(), identity)
+            .await?;
+        replace_file_documents_and_status_on(
+            write.connection(),
             file_id,
-            status.as_str(),
+            documents,
+            status,
             error_message,
-            ingested_at
+            mark_ingested_now,
         )
-        .fetch_optional(write.connection())
         .await?;
         write.commit().await
     }
@@ -444,6 +482,34 @@ mod merge_tests {
             merge_file_documents(file, old, &[link(file, 3, "new"), link(file, 3, "new")]).is_err()
         );
     }
+}
+
+/// The links and the status of one file, replaced on a borrowed connection.
+async fn replace_file_documents_and_status_on(
+    connection: &mut sqlx::PgConnection,
+    file_id: Uuid,
+    documents: &[LibraryFileDocumentRecord],
+    status: LibraryIngestStatus,
+    error_message: Option<&str>,
+    mark_ingested_now: bool,
+) -> Result<bool> {
+    replace_file_documents_on(&mut *connection, file_id, documents).await?;
+    let ingested_at = if mark_ingested_now {
+        Some(chrono::Utc::now())
+    } else {
+        None
+    };
+    let updated = sqlx::query_file_as!(
+        super::FileRow,
+        "src/sql/library_store/files/update_file_status.sql",
+        file_id,
+        status.as_str(),
+        error_message,
+        ingested_at
+    )
+    .fetch_optional(&mut *connection)
+    .await?;
+    Ok(updated.is_some())
 }
 
 /// The links of one file, replaced on a borrowed connection.

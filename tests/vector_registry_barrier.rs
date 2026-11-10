@@ -113,10 +113,6 @@ async fn build_task_service(db: &Database) -> anyhow::Result<TaskService> {
             file_library: FileLibraryConfig {
                 storage_root,
                 max_upload_size_mb: 1,
-                max_upload_request_size_mb: 1,
-                ingest_concurrency: 1,
-                url_import_concurrency: 1,
-                url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
                 s3: None,
             },
@@ -297,6 +293,7 @@ async fn a_failed_barrier_refuses_everything_until_the_same_identity_rebuilds() 
         .await
         .expect("start the rebuild");
     tx.commit().await.expect("commit the rebuild start");
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
 
     let mut tx = db.pool().begin().await.expect("begin failure");
     assert!(
@@ -473,6 +470,7 @@ async fn a_dead_owner_is_taken_over_by_the_same_identity_only() {
     .await
     .expect("start the rebuild");
     tx.commit().await.expect("commit the rebuild start");
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
 
     let (next_owner, _next_owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin takeover");
@@ -843,6 +841,7 @@ async fn a_superseded_owner_token_releases_the_barrier_but_an_elapsed_lease_does
     // A reclaimed item carries a fresh token: the recorded owner provably
     // cannot write, so the same identity may take the barrier over.
     set_item_lease(&db, owner, Uuid::new_v4(), false).await;
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
     let (next_owner, _next_owner_token) = seed_task_item(&db, "running").await;
     let mut tx = db.pool().begin().await.expect("begin takeover");
     let outcome = db
@@ -1048,6 +1047,8 @@ async fn the_completion_waits_for_the_epoch_before_it_writes_the_identity() {
         .await
         .expect("start the rebuild");
     tx.commit().await.expect("commit the rebuild start");
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
+    support::mark_rebuild_staging_complete(&db).await;
 
     // Another connection holds the epoch.
     let mut gate = db.pool().begin().await.expect("begin the gate");
@@ -1747,6 +1748,7 @@ async fn a_refused_target_frees_only_the_barrier_of_its_own_owner() {
         .await
         .expect("start the rebuild");
     tx.commit().await.expect("commit the rebuild start");
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
 
     // A newer owner takes the barrier over: the previous owner is not a live
     // writer any more, because its grant was superseded.
@@ -2217,6 +2219,8 @@ async fn a_completed_rebuild_activates_the_exact_target() {
     .await
     .expect("start the rebuild");
     tx.commit().await.expect("commit the rebuild start");
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
+    support::mark_rebuild_staging_complete(&db).await;
 
     // A completion that no longer owns the barrier writes nothing: the
     // previous collection stays active and the target is never published.
@@ -2804,6 +2808,14 @@ where
 async fn run_actual_rebuild_case(db: &Database, fault: RebuildCaseFault) -> anyhow::Result<()> {
     let qdrant_url = "http://unraid.cloud1ful.com:6336";
 
+    // Clear only the fixture-owned rows an earlier case of this target left
+    // behind. Fixture tasks and registry entries carry no cross-run identity,
+    // and the runner reset this schema for the target, so they are the
+    // target's own predecessors. Foreign runtime singletons, vector state and
+    // non-fixture rows are never cleared; the strict preflight below still
+    // refuses them.
+    support::reset_barrier(db).await;
+
     // Read-only emptiness gate: this case owns the five runtime singletons, the
     // recorded vector index rows, the registry entries and the one durable
     // barrier. A previous failed run or a live peer makes the reusable fixture
@@ -2858,24 +2870,17 @@ async fn run_actual_rebuild_case(db: &Database, fault: RebuildCaseFault) -> anyh
         .fetch_one(db.pool())
         .await?;
         group_id = Some(gid);
-        support::seed_reindex_document(&db, gid, 65).await?;
-
-        // The rebuild reindexes the whole stored corpus; the preflight above
-        // proved it is the case-owned corpus, so the global page order is the
-        // expected cursor.
-        let cursor_row: Option<(i64, i32)> = sqlx::query_as(
-            "SELECT document_id, chunk_index FROM context69.document_chunks \
-             ORDER BY document_id, chunk_index LIMIT 1 OFFSET 63",
-        )
-        .fetch_optional(db.pool())
-        .await?;
-        expected_cursor = cursor_row.map(|(document_id, chunk_index)| RebuildCursor {
-            document_id,
-            chunk_index,
-        });
-        total_chunks = sqlx::query_scalar("SELECT count(*) FROM context69.document_chunks")
-            .fetch_one(db.pool())
+        let (document_id, fresh_chunks) = support::seed_reindex_document(&db, gid, 65)
             .await?;
+        let fresh_chunks = i64::try_from(fresh_chunks).context("fresh chunk count")?;
+
+        // The rebuild re-chunks the canonical body; the global page order is
+        // just the single seeded document's fresh chunk index.
+        expected_cursor = (fresh_chunks >= 64).then_some(RebuildCursor {
+            document_id,
+            chunk_index: 63,
+        });
+        total_chunks = fresh_chunks;
 
         let started_mock = if fault == RebuildCaseFault::ProviderFails {
             http_mock::EmbeddingMock::start_failing_proof(4096).await?
@@ -3249,6 +3254,9 @@ async fn run_nonempty_sentinel_variant(
     fault: SentinelObservationFault,
 ) -> anyhow::Result<()> {
     let sentinel = "rebuild-preflight-sentinel";
+    // Clear the fixture-owned predecessor rows first; the sentinel this case
+    // plants below is a foreign runtime row and is still refused.
+    reset_barrier(db).await;
     let preflight = support::read_rebuild_fixture_preflight(db)
         .await
         .context("read the sentinel probe precondition")?;
@@ -3458,6 +3466,2119 @@ async fn an_actual_rebuild_missing_resumed_claim_reports_and_cleans_up() {
         collections.is_empty(),
         "the missing resumed claim left no owned collection: {collections:?}"
     );
+}
+
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_document_rebuild_stages_fresh_chunks_verifies_hashes_and_swaps_by_stored_id() {
+    let db = connect().await;
+    reset_barrier(&db).await;
+
+    let group_id: i64 = sqlx::query_file_scalar!(
+        "tests/sql/task_execution/seed_group.sql",
+        format!("staging-{}", Uuid::new_v4()),
+        "staging fixture",
+        format!("test/staging-{}", Uuid::new_v4()),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("seed the staging group");
+
+    let (document_id, _) = support::seed_reindex_document(&db, group_id, 5)
+        .await
+        .expect("seed the canonical document");
+    // A canonical body that produces no chunks must still stage a progress row.
+    let (empty_document_id, empty_chunks) = support::seed_reindex_document(&db, group_id, 0)
+        .await
+        .expect("seed the empty canonical document");
+    assert_eq!(empty_chunks, 0, "an empty body produces no chunks");
+
+    let row = db
+        .list_rebuild_documents_page(Some(document_id - 1), 10)
+        .await
+        .expect("read the rebuild document page")
+        .into_iter()
+        .find(|row| row.document_id == document_id)
+        .expect("the seeded document is pageable")
+        .clone();
+    let empty_row = db
+        .list_rebuild_documents_page(Some(empty_document_id - 1), 10)
+        .await
+        .expect("read the empty rebuild document page")
+        .into_iter()
+        .find(|row| row.document_id == empty_document_id)
+        .expect("the empty document is pageable")
+        .clone();
+    assert_eq!(
+        row.body_text.trim().is_empty(),
+        false,
+        "the canonical body is stored"
+    );
+
+    // One current translation survives the rebuild with its exact ids.
+    let translation_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO context69.document_translation_versions \
+         (id, document_id, target_locale, source_locale, source_record_hash, provider_key, \
+          provider_config_hash, translated_title, translated_summary, translated_body_text) \
+         VALUES ($1, $2, 'zh-CN', 'en', $3, 'deepl', 'config-hash', 'translated', NULL, 'body')",
+    )
+    .bind(translation_id)
+    .bind(document_id)
+    .bind(&row.record_hash)
+    .execute(db.pool())
+    .await
+    .expect("seed the current translation version");
+    let mut translation_chunk_ids = Vec::new();
+    for index in 0..2i32 {
+        let chunk_id = Uuid::new_v4();
+        translation_chunk_ids.push(chunk_id);
+        sqlx::query(
+            "INSERT INTO context69.document_translation_chunks \
+             (id, translation_id, document_id, target_locale, chunk_index, chunk_text) \
+             VALUES ($1, $2, $3, 'zh-CN', $4, $5)",
+        )
+        .bind(chunk_id)
+        .bind(translation_id)
+        .bind(document_id)
+        .bind(index)
+        .bind(format!("translated chunk {index}"))
+        .execute(db.pool())
+        .await
+        .expect("seed a current translation chunk");
+    }
+
+    let (owner_item, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the barrier claim");
+    db.begin_rebuild_in(&mut tx, owner_item, owner_token, FINGERPRINT, COLLECTION)
+        .await
+        .expect("claim the rebuild barrier");
+    tx.commit().await.expect("commit the barrier claim");
+
+    let budget = context69::chunking::ChunkingRuntime::new(
+        context69::chunking::ChunkBudget::chars(context69::chunking::ChunkingConfig {
+            max_chars: 1000,
+            overlap_chars: 100,
+        }),
+    )
+    .resolve_snapshot()
+    .expect("resolve the staging budget");
+    let normalized = context69::domain::NormalizedDocument {
+        external_id: row.external_id.clone(),
+        title: row.title.clone(),
+        summary: row.summary.clone(),
+        body_text: row.body_text.clone(),
+        source_uri: row.source_uri.clone(),
+        published_at: row.published_at,
+        updated_at: row.updated_at_source,
+        metadata_json: row.metadata_json.clone(),
+        record_hash: row.record_hash.clone(),
+    };
+    let chunks = context69::chunking::chunk_document_resolved(
+        document_id,
+        "reindex-fixture",
+        &normalized,
+        &budget,
+    )
+    .expect("chunk the canonical body");
+    assert!(chunks.len() >= 5, "the fixture body produces chunks");
+
+    let staged = db
+        .stage_rebuild_document(
+            COLLECTION,
+            &row,
+            &chunks,
+            owner_item,
+            owner_token,
+            FINGERPRINT,
+        )
+        .await
+        .expect("stage the document chunks");
+    assert!(staged, "the owner still holds the barrier");
+    let staged_empty = db
+        .stage_rebuild_document(
+            COLLECTION,
+            &empty_row,
+            &[],
+            owner_item,
+            owner_token,
+            FINGERPRINT,
+        )
+        .await
+        .expect("stage the empty document");
+    assert!(staged_empty, "the empty document stages a progress row");
+
+    let counts = db
+        .count_rebuild_staging_chunks(COLLECTION)
+        .await
+        .expect("count the staged chunks");
+    assert_eq!(counts.original, i64::try_from(chunks.len()).unwrap());
+    assert_eq!(counts.translated, 2);
+    let verification = db
+        .verify_rebuild_staging(COLLECTION)
+        .await
+        .expect("verify the staged snapshot");
+    assert_eq!(verification.document_hash_mismatch, 0);
+    assert_eq!(verification.chunk_count_mismatch, 0);
+    assert_eq!(verification.chunk_hash_mismatch, 0);
+    assert_eq!(verification.staged_documents, 2);
+
+    let previous_ids: Vec<Uuid> =
+        sqlx::query_scalar("SELECT id FROM context69.document_chunks WHERE document_id = $1")
+            .bind(document_id)
+            .fetch_all(db.pool())
+            .await
+            .expect("read the legacy chunk ids");
+    let mut tx = db.pool().begin().await.expect("begin the activation swap");
+    db.swap_rebuild_chunks_in(&mut tx, COLLECTION)
+        .await
+        .expect("swap the staged chunks");
+    tx.commit().await.expect("commit the activation swap");
+
+    let live_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM context69.document_chunks WHERE document_id = $1 ORDER BY chunk_index",
+    )
+    .bind(document_id)
+    .fetch_all(db.pool())
+    .await
+    .expect("read the live chunk ids");
+    let expected: Vec<Uuid> = chunks.iter().map(|chunk| chunk.id).collect();
+    assert_eq!(live_ids, expected, "live ids equal the staged target ids");
+    assert!(
+        previous_ids.iter().all(|id| !live_ids.contains(id)),
+        "the legacy ids were replaced"
+    );
+    let empty_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM context69.document_chunks WHERE document_id = $1")
+            .bind(empty_document_id)
+            .fetch_one(db.pool())
+            .await
+            .expect("count the empty document's chunks");
+    assert_eq!(empty_count, 0);
+    let live_translation_ids: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM context69.document_translation_chunks \
+         WHERE translation_id = $1 ORDER BY chunk_index",
+    )
+    .bind(translation_id)
+    .fetch_all(db.pool())
+    .await
+    .expect("read the current translation chunk ids");
+    assert_eq!(
+        live_translation_ids, translation_chunk_ids,
+        "current translation vectors survive activation with their ids"
+    );
+
+    let mut connection = db.pool().acquire().await.expect("acquire cleanup");
+    db.delete_rebuild_staging_in(&mut connection, COLLECTION)
+        .await
+        .expect("delete the staged rows");
+    drop(connection);
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM context69.document_rebuild_staging_documents")
+            .fetch_one(db.pool())
+            .await
+            .expect("count remaining staging rows");
+    assert_eq!(remaining, 0);
+
+    sqlx::query("DELETE FROM context69.documents WHERE group_id = $1")
+        .bind(group_id)
+        .execute(db.pool())
+        .await
+        .expect("delete the staging documents");
+    sqlx::query("DELETE FROM context69.groups WHERE id = $1")
+        .bind(group_id)
+        .execute(db.pool())
+        .await
+        .expect("delete the staging group");
+    reset_barrier(&db).await;
+}
+
+#[cfg(feature = "integration-test-helpers")]
+async fn seed_barrier_fixture_group(db: &Database) -> i64 {
+    sqlx::query_file_scalar!(
+        "tests/sql/task_execution/seed_group.sql",
+        format!("barrier-acceptance-{}", Uuid::new_v4()),
+        "barrier acceptance fixture",
+        format!("test/barrier-acceptance-{}", Uuid::new_v4()),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("seed the barrier acceptance group")
+}
+
+#[cfg(feature = "integration-test-helpers")]
+fn rebuild_row_normalized(
+    row: &context69::db::RebuildDocumentRow,
+) -> context69::domain::NormalizedDocument {
+    context69::domain::NormalizedDocument {
+        external_id: row.external_id.clone(),
+        title: row.title.clone(),
+        summary: row.summary.clone(),
+        body_text: row.body_text.clone(),
+        source_uri: row.source_uri.clone(),
+        published_at: row.published_at,
+        updated_at: row.updated_at_source,
+        metadata_json: row.metadata_json.clone(),
+        record_hash: row.record_hash.clone(),
+    }
+}
+
+fn pinned_budget() -> context69::chunking::ChunkBudget {
+    context69::chunking::ChunkBudget::chars(context69::chunking::ChunkingConfig {
+        max_chars: 1000,
+        overlap_chars: 100,
+    })
+}
+
+fn character_budget(
+    max_chars: usize,
+    overlap_chars: usize,
+) -> context69::chunking::ResolvedChunkBudget {
+    context69::chunking::ChunkingRuntime::new(context69::chunking::ChunkBudget::chars(
+        context69::chunking::ChunkingConfig {
+            max_chars,
+            overlap_chars,
+        },
+    ))
+    .resolve_snapshot()
+    .expect("resolve the fixture chunk budget")
+}
+
+#[cfg(feature = "integration-test-helpers")]
+fn chunk_rebuild_document(
+    document_id: i64,
+    row: &context69::db::RebuildDocumentRow,
+    budget: &context69::chunking::ResolvedChunkBudget,
+    generation: Option<i64>,
+) -> Vec<context69::domain::DocumentChunk> {
+    context69::chunking::chunk_document_iter_resolved(
+        document_id,
+        &row.source_key,
+        &rebuild_row_normalized(row),
+        budget,
+        generation,
+    )
+    .expect("chunk the canonical rebuild body")
+    .collect::<Result<Vec<_>, _>>()
+    .expect("the canonical body chunks without error")
+}
+
+#[cfg(feature = "integration-test-helpers")]
+async fn live_chunk_ids(db: &Database, document_id: i64) -> Vec<Uuid> {
+    sqlx::query_scalar(
+        "SELECT id FROM context69.document_chunks WHERE document_id = $1 ORDER BY chunk_index",
+    )
+    .bind(document_id)
+    .fetch_all(db.pool())
+    .await
+    .expect("read the live chunk ids")
+}
+
+#[cfg(feature = "integration-test-helpers")]
+async fn reset_acceptance_fixture(db: &Database, group_id: i64, collections: &[&str]) {
+    let collections: Vec<String> = collections
+        .iter()
+        .map(|value| (*value).to_string())
+        .collect();
+    for statement in [
+        "DELETE FROM context69.document_chunk_rebuild_staging WHERE target_collection = ANY($1)",
+        "DELETE FROM context69.document_translation_rebuild_staging WHERE target_collection = ANY($1)",
+        "DELETE FROM context69.document_rebuild_staging_documents WHERE target_collection = ANY($1)",
+    ] {
+        sqlx::query(statement)
+            .bind(&collections)
+            .execute(db.pool())
+            .await
+            .expect("delete the fixture staging rows");
+    }
+    for statement in [
+        "DELETE FROM context69.document_translation_chunks WHERE document_id IN (SELECT id FROM context69.documents WHERE group_id = $1)",
+        "DELETE FROM context69.document_translation_versions WHERE document_id IN (SELECT id FROM context69.documents WHERE group_id = $1)",
+        "DELETE FROM context69.document_chunks WHERE document_id IN (SELECT id FROM context69.documents WHERE group_id = $1)",
+        "DELETE FROM context69.document_versions WHERE document_id IN (SELECT id FROM context69.documents WHERE group_id = $1)",
+        "DELETE FROM context69.documents WHERE group_id = $1",
+    ] {
+        sqlx::query(statement)
+            .bind(group_id)
+            .execute(db.pool())
+            .await
+            .expect("delete the fixture document rows");
+    }
+    sqlx::query("DELETE FROM context69.groups WHERE id = $1")
+        .bind(group_id)
+        .execute(db.pool())
+        .await
+        .expect("delete the fixture group");
+    sqlx::query("DELETE FROM context69.vector_index_state WHERE collection_name = ANY($1)")
+        .bind(&collections)
+        .execute(db.pool())
+        .await
+        .expect("delete the fixture vector index rows");
+    clear_runtime_settings(db).await;
+    reset_barrier(db).await;
+}
+
+/// The newest saved chunk budget governs the fresh chunk boundaries, and the
+/// activation installs exactly the target ids generated under its pinned seed.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_rebuild_uses_the_latest_saved_budget_and_activates_its_target_ids() {
+    const TARGET: &str = "barrier-latest-budget__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE context69.runtime_chunking_settings \
+         SET max_chars = 500, overlap_chars = 0 WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("save the newest chunk budget");
+
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let (document_id, _) = support::seed_reindex_document(&db, group_id, 2)
+        .await
+        .expect("seed the canonical document");
+    let row = db
+        .list_rebuild_documents_page(Some(document_id - 1), 10)
+        .await
+        .expect("read the rebuild document page")
+        .into_iter()
+        .find(|row| row.document_id == document_id)
+        .expect("the seeded document is pageable")
+        .clone();
+
+    let old_chunks = chunk_rebuild_document(document_id, &row, &character_budget(1000, 100), None);
+    let (max_chars, overlap_chars): (i64, i64) = sqlx::query_as(
+        "SELECT max_chars, overlap_chars FROM context69.runtime_chunking_settings \
+         WHERE singleton = TRUE",
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the newest saved budget");
+    assert_eq!((max_chars, overlap_chars), (500, 0));
+    let saved_budget = character_budget(
+        usize::try_from(max_chars).unwrap(),
+        usize::try_from(overlap_chars).unwrap(),
+    );
+
+    let mut connection = db.pool().acquire().await.expect("acquire a connection");
+    let generation = db
+        .next_ingest_generation_in(&mut connection)
+        .await
+        .expect("reserve the fixture generation");
+    drop(connection);
+    let target_chunks = chunk_rebuild_document(document_id, &row, &saved_budget, Some(generation));
+    assert!(
+        target_chunks.len() > old_chunks.len(),
+        "the newer boundary set produces more chunks: {} vs {}",
+        target_chunks.len(),
+        old_chunks.len()
+    );
+    assert!(
+        target_chunks
+            .iter()
+            .all(|chunk| chunk.text.chars().count() <= 500),
+        "every fresh boundary stays within the newest saved budget"
+    );
+    assert!(
+        target_chunks
+            .iter()
+            .all(|chunk| old_chunks.iter().all(|old| old.id != chunk.id)),
+        "the pinned generation yields different target ids than the old build"
+    );
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the rebuild claim");
+    let (outcome, resumed) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            Some(generation),
+        )
+        .await
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    assert!(!resumed, "a fresh claim never resumes a target");
+    tx.commit().await.expect("commit the rebuild claim");
+
+    assert!(
+        db.stage_rebuild_document(
+            TARGET,
+            &row,
+            &target_chunks,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+        )
+        .await
+        .expect("stage the target chunks"),
+        "the owner still holds the barrier"
+    );
+    let staged = db
+        .list_rebuild_staging_chunks_page(TARGET, None, None, 1000)
+        .await
+        .expect("read the staged target chunks");
+    let expected_ids: Vec<Uuid> = target_chunks.iter().map(|chunk| chunk.id).collect();
+    let staged_ids: Vec<Uuid> = staged.iter().map(|chunk| chunk.chunk_id).collect();
+    assert_eq!(
+        staged_ids, expected_ids,
+        "the target ids are staged exactly"
+    );
+    let staged_texts: Vec<&str> = staged
+        .iter()
+        .map(|chunk| chunk.chunk_text.as_str())
+        .collect();
+    let target_texts: Vec<&str> = target_chunks
+        .iter()
+        .map(|chunk| chunk.text.as_str())
+        .collect();
+    assert_eq!(
+        staged_texts, target_texts,
+        "the staged boundaries equal the newest saved budget"
+    );
+
+    let counts = db
+        .count_rebuild_staging_chunks(TARGET)
+        .await
+        .expect("count the staged snapshot");
+    let total = counts.original + counts.translated;
+    let mut connection = db.pool().acquire().await.expect("acquire completion");
+    assert!(
+        db.complete_rebuild_staging_in(
+            &mut connection,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            total,
+        )
+        .await
+        .expect("complete the staged snapshot")
+    );
+    drop(connection);
+    let mut tx = db.pool().begin().await.expect("begin the activation");
+    let activated = db
+        .complete_owned_rebuild_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &context69::db::VectorIndexState {
+                collection_name: TARGET,
+                fingerprint: &desired.embedding_fingerprint,
+                embedding_base_url: "https://embeddings.example/v1",
+                embedding_model: "model-a",
+                dimensions: 8,
+                rebuilt_chunks: target_chunks.len(),
+            },
+        )
+        .await
+        .expect("activate the staged target");
+    assert!(activated.is_some(), "the owner activates its target");
+    tx.commit().await.expect("commit the activation");
+
+    assert_eq!(
+        live_chunk_ids(&db, document_id).await,
+        expected_ids,
+        "activation installs exactly the target ids"
+    );
+    let active = db
+        .read_active_vector_index_state()
+        .await
+        .expect("read the active vector index")
+        .expect("the target is active");
+    assert_eq!(active.collection_name, TARGET);
+
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// A barrier created before the durable document snapshot existed is never
+/// resumed or activated, and the old active state keeps serving.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_legacy_barrier_without_a_pinned_snapshot_is_refused_and_keeps_the_old_active_state() {
+    const TARGET: &str = "barrier-legacy__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    clear_runtime_settings(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let (document_id, _) = support::seed_reindex_document(&db, group_id, 1)
+        .await
+        .expect("seed the canonical document");
+    let old_ids = live_chunk_ids(&db, document_id).await;
+    let active_before = db
+        .read_active_vector_index_state()
+        .await
+        .expect("read the old active index")
+        .expect("the old active index exists");
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the legacy claim");
+    db.begin_rebuild_in(
+        &mut tx,
+        owner,
+        owner_token,
+        &desired.embedding_fingerprint,
+        TARGET,
+    )
+    .await
+    .expect("start the legacy rebuild");
+    tx.commit().await.expect("commit the legacy claim");
+    let legacy = db
+        .read_rebuild_staging_state()
+        .await
+        .expect("read the legacy staging state");
+    assert!(legacy.chunk_budget.is_none());
+    assert!(legacy.generation.is_none());
+
+    let state = context69::db::VectorIndexState {
+        collection_name: TARGET,
+        fingerprint: &desired.embedding_fingerprint,
+        embedding_base_url: "https://embeddings.example/v1",
+        embedding_model: "model-a",
+        dimensions: 8,
+        rebuilt_chunks: 0,
+    };
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the legacy completion");
+    let error = db
+        .complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+        .await
+        .expect_err("a legacy barrier never activates");
+    assert!(
+        error
+            .to_string()
+            .contains("records no pinned document snapshot"),
+        "the refusal is explicit: {error}"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the refused completion");
+
+    // An expired owner may not take over a legacy barrier either.
+    set_item_lease(&db, owner, Uuid::new_v4(), false).await;
+    let (next_owner, next_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the legacy takeover");
+    let (outcome, _) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            next_owner,
+            next_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            None,
+        )
+        .await
+        .expect("check the legacy takeover");
+    assert_eq!(
+        outcome,
+        RebuildStartOutcome::Refused(RebuildRefusalReason::LegacyStaging)
+    );
+    tx.rollback().await.expect("roll back the refused takeover");
+
+    // The same refusal applies after the legacy barrier is recorded failed.
+    let mut tx = db.pool().begin().await.expect("begin the legacy failure");
+    assert!(
+        db.fail_rebuild_in(&mut tx, owner, owner_token, "legacy rebuild failed")
+            .await
+            .expect("record the legacy failure")
+    );
+    tx.commit().await.expect("commit the legacy failure");
+    let mut tx = db.pool().begin().await.expect("begin the failed takeover");
+    let (outcome, _) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            next_owner,
+            next_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            None,
+        )
+        .await
+        .expect("check the failed takeover");
+    assert_eq!(
+        outcome,
+        RebuildStartOutcome::Refused(RebuildRefusalReason::LegacyStaging)
+    );
+    tx.rollback().await.expect("roll back the failed takeover");
+
+    let active_after = db
+        .read_active_vector_index_state()
+        .await
+        .expect("read the active index after the refusals")
+        .expect("the old active index still exists");
+    assert_eq!(active_after.collection_name, active_before.collection_name);
+    assert_eq!(live_chunk_ids(&db, document_id).await, old_ids);
+
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// A failed task may still own a running legacy barrier; the explicit discard
+/// clears it and a fresh checked claim then pins a real snapshot.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_failed_task_with_a_running_legacy_barrier_can_discard_and_start_fresh() {
+    const TARGET: &str = "barrier-legacy-cancel__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    clear_runtime_settings(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let failed = seed_task_item_full(&db, "failed", "vector_rebuild").await;
+    let mut tx = db.pool().begin().await.expect("begin the legacy claim");
+    db.begin_rebuild_in(
+        &mut tx,
+        failed.item_id,
+        failed.token,
+        &desired.embedding_fingerprint,
+        TARGET,
+    )
+    .await
+    .expect("start the legacy rebuild");
+    tx.commit().await.expect("commit the legacy claim");
+    assert_eq!(barrier_state(&db).await, RebuildBarrierState::Running);
+
+    assert!(
+        db.discard_failed_rebuild(failed.task_id)
+            .await
+            .expect("discard the running legacy barrier")
+    );
+    assert_eq!(barrier_state(&db).await, RebuildBarrierState::Idle);
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the fresh claim");
+    let (outcome, _) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            None,
+        )
+        .await
+        .expect("claim the fresh rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    tx.commit().await.expect("commit the fresh claim");
+    let staged = db
+        .read_rebuild_staging_state()
+        .await
+        .expect("read the fresh pinned snapshot");
+    assert!(staged.chunk_budget.is_some());
+    assert!(staged.generation.is_some());
+
+    reset_barrier(&db).await;
+    clear_runtime_settings(&db).await;
+}
+
+/// A claim blocked on the epoch still pins the chunk settings committed while
+/// it waited, and a later settings save never rewrites a resumed snapshot.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_fresh_claim_pins_the_committed_saved_budget_under_the_epoch_lock() {
+    const TARGET: &str = "barrier-committed-budget__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    clear_runtime_settings(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+
+    let mut gate = db.pool().begin().await.expect("begin the settings gate");
+    db.lock_search_registry_epoch_in(&mut gate)
+        .await
+        .expect("hold the epoch");
+    sqlx::query(
+        "UPDATE context69.runtime_chunking_settings \
+         SET max_chars = 500, overlap_chars = 0 WHERE singleton = TRUE",
+    )
+    .execute(&mut *gate)
+    .await
+    .expect("commit the new budget under the epoch");
+    let fingerprint = desired.embedding_fingerprint.clone();
+    let claim_db = db.clone();
+    let claim = tokio::spawn(async move {
+        let (owner, owner_token) = seed_task_item(&claim_db, "running").await;
+        let mut tx = claim_db
+            .pool()
+            .begin()
+            .await
+            .expect("begin the blocked claim");
+        let result = claim_db
+            .begin_rebuild_checked_with_budget_in(
+                &mut tx,
+                owner,
+                owner_token,
+                &fingerprint,
+                TARGET,
+                None,
+            )
+            .await;
+        match result {
+            Ok((outcome, resumed)) => {
+                tx.commit().await.expect("commit the blocked claim");
+                Ok((outcome, resumed))
+            }
+            Err(error) => {
+                let _ = tx.rollback().await;
+                Err(error)
+            }
+        }
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    assert!(!claim.is_finished(), "the claim waits for the epoch lock");
+    gate.commit().await.expect("commit the saved budget");
+
+    let (outcome, resumed) = claim
+        .await
+        .expect("join the claim")
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    assert!(!resumed);
+    let staged = db
+        .read_rebuild_staging_state()
+        .await
+        .expect("read the committed pinned budget");
+    let pinned = context69::chunking::parse_chunk_budget_value(
+        staged.chunk_budget.as_ref().expect("the budget is pinned"),
+    )
+    .expect("parse the pinned budget");
+    assert_eq!(pinned.chars.max_chars, 500);
+    assert_eq!(pinned.chars.overlap_chars, 0);
+    assert!(staged.generation.is_some());
+
+    reset_barrier(&db).await;
+    clear_runtime_settings(&db).await;
+}
+
+/// A settings save while the rebuild is paused never replaces the pinned
+/// budget or generation, and the resumed page skips the completed document.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_paused_resume_keeps_the_pinned_budget_generation_and_completed_documents() {
+    const TARGET: &str = "barrier-pinned-budget__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    sqlx::query(
+        "UPDATE context69.runtime_chunking_settings \
+         SET max_chars = 1000, overlap_chars = 100 WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("save the pinned chunk budget");
+
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let (first_id, _) = support::seed_reindex_document(&db, group_id, 1)
+        .await
+        .expect("seed the first document");
+    let (second_id, _) = support::seed_reindex_document(&db, group_id, 1)
+        .await
+        .expect("seed the second document");
+    let first_row = db
+        .list_rebuild_documents_page(Some(first_id - 1), 10)
+        .await
+        .expect("read the first page")
+        .into_iter()
+        .find(|row| row.document_id == first_id)
+        .expect("the first document is pageable")
+        .clone();
+    let second_row = db
+        .list_rebuild_documents_page(Some(first_id), 10)
+        .await
+        .expect("read the second page")
+        .into_iter()
+        .find(|row| row.document_id == second_id)
+        .expect("the second document is pageable")
+        .clone();
+
+    let pinned_value = context69::chunking::chunk_budget_to_value(
+        &db.get_runtime_settings()
+            .await
+            .expect("read the pinned runtime settings")
+            .expect("the pinned runtime settings exist")
+            .chunking
+            .chunk_budget(),
+    );
+    let generation = 7_071_i64;
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the fresh claim");
+    let (outcome, resumed) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            Some(generation),
+        )
+        .await
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    assert!(!resumed, "a fresh claim never resumes a target");
+    tx.commit().await.expect("commit the fresh claim");
+
+    let first_chunks = chunk_rebuild_document(
+        first_id,
+        &first_row,
+        &character_budget(1000, 100),
+        Some(generation),
+    );
+    assert!(
+        db.stage_rebuild_document(
+            TARGET,
+            &first_row,
+            &first_chunks,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+        )
+        .await
+        .expect("stage the first document")
+    );
+    let staged_state = db
+        .read_rebuild_staging_state()
+        .await
+        .expect("read the pinned staging state");
+    assert_eq!(staged_state.chunk_budget, Some(pinned_value.clone()));
+    assert_eq!(staged_state.generation, Some(generation));
+    assert_eq!(staged_state.staged_document_id, Some(first_id));
+
+    let mut tx = db.pool().begin().await.expect("begin the pause");
+    assert!(
+        db.request_rebuild_pause_in(&mut tx, owner, owner_token)
+            .await
+            .expect("request the pause")
+    );
+    tx.commit().await.expect("commit the pause");
+
+    sqlx::query(
+        "UPDATE context69.runtime_chunking_settings \
+         SET max_chars = 250, overlap_chars = 0 WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("save a different budget while paused");
+    // The parked item is no longer a live writer, so its explicit resume is
+    // the only path that may reopen the same owned barrier.
+    sqlx::query("UPDATE context69.task_items SET status = 'queued' WHERE id = $1")
+        .bind(owner)
+        .execute(db.pool())
+        .await
+        .expect("park the rebuild item");
+
+    let mut tx = db.pool().begin().await.expect("begin the resume");
+    assert!(
+        db.resume_rebuild_in(&mut tx, owner)
+            .await
+            .expect("resume the paused rebuild")
+    );
+    let (outcome, resumed) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            None,
+        )
+        .await
+        .expect("resume the rebuild claim");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    assert!(resumed, "the same owner resumes the recorded target");
+    tx.commit().await.expect("commit the resumed claim");
+
+    let resumed_state = db
+        .read_rebuild_staging_state()
+        .await
+        .expect("read the resumed staging state");
+    assert_eq!(
+        resumed_state.chunk_budget,
+        Some(pinned_value.clone()),
+        "a settings save never replaces the pinned budget"
+    );
+    assert_eq!(
+        resumed_state.generation,
+        Some(generation),
+        "a settings save never replaces the pinned generation"
+    );
+    assert_eq!(resumed_state.staged_document_id, Some(first_id));
+
+    let second_chunks = chunk_rebuild_document(
+        second_id,
+        &second_row,
+        &character_budget(1000, 100),
+        Some(generation),
+    );
+    assert!(
+        db.stage_rebuild_document(
+            TARGET,
+            &second_row,
+            &second_chunks,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+        )
+        .await
+        .expect("stage the second document")
+    );
+    let staged_after = db
+        .list_rebuild_staging_chunks_page(TARGET, None, None, 1000)
+        .await
+        .expect("read the staged chunks");
+    let first_ids: Vec<Uuid> = staged_after
+        .iter()
+        .filter(|chunk| chunk.document_id == first_id)
+        .map(|chunk| chunk.chunk_id)
+        .collect();
+    let expected_first: Vec<Uuid> = first_chunks.iter().map(|chunk| chunk.id).collect();
+    assert_eq!(
+        first_ids, expected_first,
+        "resuming never re-chunks a completed document"
+    );
+    assert_eq!(
+        db.read_rebuild_staging_state()
+            .await
+            .expect("read the advanced staging state")
+            .staged_document_id,
+        Some(second_id),
+        "the resumed page advances only past the new document"
+    );
+
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// A current document without its canonical body blocks the staging pass
+/// before any staged row is written.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_rebuild_without_a_canonical_body_fails_before_writing_any_staging() {
+    const TARGET: &str = "barrier-missing-body__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let document_id: i64 = sqlx::query_scalar(
+        "INSERT INTO context69.documents \
+         (group_id, visibility, source_key, external_id, title, source_uri, updated_at_source, \
+          metadata_json, record_hash) \
+         VALUES ($1, 'public', 'reindex-fixture', $2, 'missing body', \
+                 'https://example.com/rebuild', now(), '{}'::jsonb, $3) \
+         RETURNING id",
+    )
+    .bind(group_id)
+    .bind(format!("missing-{}", Uuid::new_v4()))
+    .bind(format!("missing-hash-{}", Uuid::new_v4()))
+    .fetch_one(db.pool())
+    .await
+    .expect("seed the document without a canonical body");
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the rebuild claim");
+    let outcome = db
+        .begin_rebuild_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+        )
+        .await
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    tx.commit().await.expect("commit the rebuild claim");
+
+    let missing = db
+        .list_rebuild_missing_documents_page(None, 64)
+        .await
+        .expect("read the documents without a canonical body");
+    assert!(
+        missing.contains(&document_id),
+        "the worker's fail-closed precondition reports the document: {missing:?}"
+    );
+    let counts = db
+        .count_rebuild_staging_chunks(TARGET)
+        .await
+        .expect("count the staged snapshot");
+    assert_eq!((counts.original, counts.translated), (0, 0));
+    let staged_documents: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM context69.document_rebuild_staging_documents \
+         WHERE target_collection = $1",
+    )
+    .bind(TARGET)
+    .fetch_one(db.pool())
+    .await
+    .expect("count the staged documents");
+    assert_eq!(staged_documents, 0, "no staging row is written");
+
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// A hash or chunk-count mismatch refuses the activation transaction and
+/// leaves the previous chunks and active pointer exactly as they were.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_hash_count_or_membership_mismatch_refuses_activation_and_keeps_the_old_state() {
+    const TARGET: &str = "barrier-mismatch__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let (document_id, _) = support::seed_reindex_document(&db, group_id, 1)
+        .await
+        .expect("seed the canonical document");
+    let row = db
+        .list_rebuild_documents_page(Some(document_id - 1), 10)
+        .await
+        .expect("read the rebuild document page")
+        .into_iter()
+        .find(|row| row.document_id == document_id)
+        .expect("the seeded document is pageable")
+        .clone();
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the rebuild claim");
+    let (outcome, _) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            Some(11),
+        )
+        .await
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    tx.commit().await.expect("commit the rebuild claim");
+
+    let chunks = chunk_rebuild_document(document_id, &row, &character_budget(1000, 100), Some(11));
+    assert!(
+        db.stage_rebuild_document(
+            TARGET,
+            &row,
+            &chunks,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+        )
+        .await
+        .expect("stage the target chunks")
+    );
+    let counts = db
+        .count_rebuild_staging_chunks(TARGET)
+        .await
+        .expect("count the staged snapshot");
+    let total = counts.original + counts.translated;
+    let mut connection = db.pool().acquire().await.expect("acquire completion");
+    assert!(
+        db.complete_rebuild_staging_in(
+            &mut connection,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            total,
+        )
+        .await
+        .expect("complete the staged snapshot")
+    );
+    drop(connection);
+
+    let old_ids = live_chunk_ids(&db, document_id).await;
+    let state = context69::db::VectorIndexState {
+        collection_name: TARGET,
+        fingerprint: &desired.embedding_fingerprint,
+        embedding_base_url: "https://embeddings.example/v1",
+        embedding_model: "model-a",
+        dimensions: 8,
+        rebuilt_chunks: chunks.len(),
+    };
+
+    // The canonical document moved under the staged snapshot.
+    sqlx::query("UPDATE context69.documents SET record_hash = $1 WHERE id = $2")
+        .bind("moved-hash")
+        .bind(document_id)
+        .execute(db.pool())
+        .await
+        .expect("move the canonical document hash");
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the refused activation");
+    let error = db
+        .complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+        .await
+        .expect_err("a document hash mismatch refuses activation");
+    assert!(
+        error.to_string().contains("document hash mismatch"),
+        "the refusal names the mismatch: {error}"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the refused activation");
+    assert_eq!(
+        db.read_active_vector_index_state()
+            .await
+            .expect("read the active vector index")
+            .expect("the previous collection is still active")
+            .collection_name,
+        COLLECTION
+    );
+    assert_eq!(
+        live_chunk_ids(&db, document_id).await,
+        old_ids,
+        "the refused activation keeps the old chunks"
+    );
+    let staged_documents: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM context69.document_rebuild_staging_documents \
+         WHERE target_collection = $1",
+    )
+    .bind(TARGET)
+    .fetch_one(db.pool())
+    .await
+    .expect("count the retained staging rows");
+    assert_eq!(
+        staged_documents, 1,
+        "the refused activation keeps the staged snapshot for a retry"
+    );
+
+    // Restore the hash and corrupt the staged chunk count instead.
+    sqlx::query("UPDATE context69.documents SET record_hash = $1 WHERE id = $2")
+        .bind(&row.record_hash)
+        .bind(document_id)
+        .execute(db.pool())
+        .await
+        .expect("restore the canonical document hash");
+    sqlx::query(
+        "UPDATE context69.document_rebuild_staging_documents \
+         SET chunk_count = chunk_count + 1 WHERE target_collection = $1 AND document_id = $2",
+    )
+    .bind(TARGET)
+    .bind(document_id)
+    .execute(db.pool())
+    .await
+    .expect("corrupt the staged chunk count");
+    let mut tx = db.pool().begin().await.expect("begin the second refusal");
+    let error = db
+        .complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+        .await
+        .expect_err("a staged chunk count mismatch refuses activation");
+    assert!(
+        error.to_string().contains("chunk count mismatch"),
+        "the refusal names the mismatch: {error}"
+    );
+    tx.rollback().await.expect("roll back the second refusal");
+    assert_eq!(
+        db.read_active_vector_index_state()
+            .await
+            .expect("read the active vector index")
+            .expect("the previous collection is still active")
+            .collection_name,
+        COLLECTION
+    );
+
+    sqlx::query(
+        "UPDATE context69.document_rebuild_staging_documents \
+         SET chunk_count = $1 WHERE target_collection = $2 AND document_id = $3",
+    )
+    .bind(i32::try_from(chunks.len()).unwrap())
+    .bind(TARGET)
+    .bind(document_id)
+    .execute(db.pool())
+    .await
+    .expect("restore the staged chunk count");
+
+    // A canonical document added after the staged snapshot is not part of the
+    // target and must refuse activation instead of being silently omitted.
+    let (unstaged_document_id, _) = support::seed_reindex_document(&db, group_id, 1)
+        .await
+        .expect("seed a document outside the staged snapshot");
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the membership refusal");
+    let error = db
+        .complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+        .await
+        .expect_err("a document outside the staged snapshot refuses activation");
+    assert!(
+        error.to_string().contains("document membership mismatch"),
+        "the refusal names the membership mismatch: {error}"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the membership refusal");
+    assert_eq!(
+        db.read_active_vector_index_state()
+            .await
+            .expect("read the active vector index")
+            .expect("the previous collection is still active")
+            .collection_name,
+        COLLECTION
+    );
+    sqlx::query("DELETE FROM context69.document_chunks WHERE document_id = $1")
+        .bind(unstaged_document_id)
+        .execute(db.pool())
+        .await
+        .expect("remove the unstaged document chunks");
+    sqlx::query("DELETE FROM context69.document_versions WHERE document_id = $1")
+        .bind(unstaged_document_id)
+        .execute(db.pool())
+        .await
+        .expect("remove the unstaged document versions");
+    sqlx::query("DELETE FROM context69.documents WHERE id = $1")
+        .bind(unstaged_document_id)
+        .execute(db.pool())
+        .await
+        .expect("remove the unstaged document");
+
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the accepted activation");
+    assert!(
+        db.complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+            .await
+            .expect("the restored snapshot activates")
+            .is_some()
+    );
+    tx.commit().await.expect("commit the accepted activation");
+    assert_eq!(
+        live_chunk_ids(&db, document_id).await,
+        chunks.iter().map(|chunk| chunk.id).collect::<Vec<_>>()
+    );
+
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// The quota projection discounts exactly the producer-proven originals of a
+/// replacement entry once its collection is no longer active, keeps the
+/// translation ids and the history, and refuses an activation that still
+/// exceeds the policy.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn the_quota_projection_discounts_proven_replaced_originals_and_refuses_overflow() {
+    const TARGET: &str = "barrier-quota__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let (document_id, _) = support::seed_reindex_document(&db, group_id, 4)
+        .await
+        .expect("seed the canonical document with four old originals");
+    let file_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO context69.library_files \
+         (id, group_id, external_id, filename, media_type, size_bytes, sha256, \
+          storage_rel_path, ingest_status, visibility) \
+         VALUES ($1, $2, $3, 'quota.txt', 'text/plain', 1, $4, $5, 'succeeded', 'public')",
+    )
+    .bind(file_id)
+    .bind(group_id)
+    .bind(format!("quota-{file_id}"))
+    .bind("3".repeat(64))
+    .bind(format!("objects/{file_id}"))
+    .execute(db.pool())
+    .await
+    .expect("seed the owning library file");
+    sqlx::query(
+        "INSERT INTO context69.library_file_documents \
+         (file_id, document_id, group_id, visibility, section_key, section_label, \
+          section_metadata_json, sort_order) \
+         VALUES ($1, $2, $3, 'public', 'section-0', 'section-0', '{}'::jsonb, 0)",
+    )
+    .bind(file_id)
+    .bind(document_id)
+    .bind(group_id)
+    .execute(db.pool())
+    .await
+    .expect("link the document to its owning file");
+    let stale_translation = Uuid::new_v4();
+    let stale_translation_version = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO context69.document_translation_versions \
+         (id, document_id, target_locale, source_record_hash, provider_key, \
+          provider_config_hash, translated_title, translated_body_text) \
+         VALUES ($1, $2, 'fr', 'stale-source-hash', 'test', 'test', 'stale', 'stale')",
+    )
+    .bind(stale_translation_version)
+    .bind(document_id)
+    .execute(db.pool())
+    .await
+    .expect("seed the stale translation version");
+    sqlx::query(
+        "INSERT INTO context69.document_translation_chunks \
+         (id, translation_id, document_id, target_locale, chunk_index, chunk_text) \
+         VALUES ($1, $2, $3, 'fr', 0, 'stale translation')",
+    )
+    .bind(stale_translation)
+    .bind(stale_translation_version)
+    .bind(document_id)
+    .execute(db.pool())
+    .await
+    .expect("seed the stale translation chunk");
+
+    let old_originals = live_chunk_ids(&db, document_id).await;
+    assert_eq!(old_originals.len(), 4);
+    let mut retired_ids = old_originals.clone();
+    retired_ids.push(stale_translation);
+
+    let row = db
+        .list_rebuild_documents_page(Some(document_id - 1), 10)
+        .await
+        .expect("read the rebuild document page")
+        .into_iter()
+        .find(|row| row.document_id == document_id)
+        .expect("the seeded document is pageable")
+        .clone();
+    let fresh: Vec<context69::domain::DocumentChunk> = (0..6)
+        .map(|index| context69::domain::DocumentChunk {
+            id: Uuid::new_v4(),
+            document_id,
+            chunk_index: index,
+            text: format!("replacement chunk {index}"),
+            record_hash: row.record_hash.clone(),
+        })
+        .collect();
+    let fresh_ids: Vec<Uuid> = fresh.iter().map(|chunk| chunk.id).collect();
+
+    let run_id = Uuid::new_v4();
+    let entry = context69_search::SearchRegistryEntry {
+        run_id,
+        file_id: Some(file_id),
+        document_ids: vec![document_id],
+        staged_ids: fresh_ids.clone(),
+        retired_ids: Vec::new(),
+        baseline_record_hash: None,
+        staged_record_hash: None,
+        generation: 13,
+        phase: "staging".into(),
+    };
+    let mut tx = db.pool().begin().await.expect("begin the producer switch");
+    let admitted = db
+        .admit_search_registry_entry_checked_in(
+            &entry,
+            Some(&desired),
+            i64::try_from(retired_ids.len()).unwrap(),
+            RegistryQuotaOverride::exact([1000, 1000, 1000]),
+            &mut tx,
+        )
+        .await
+        .expect("admit the replacement staging entry");
+    assert!(matches!(admitted, AdmissionOutcome::Admitted(_)));
+    let mut connection = tx;
+    db.delete_document_chunks_in(&mut connection, document_id)
+        .await
+        .expect("delete the old original chunks");
+    db.insert_document_chunks_in(&mut connection, document_id, &row.record_hash, &fresh)
+        .await
+        .expect("insert the replacement chunks");
+    assert!(
+        db.switch_search_registry_entry_with_retired_origin_in(
+            run_id,
+            &retired_ids,
+            &old_originals,
+            &mut connection,
+        )
+        .await
+        .expect("switch the replacement entry with its origin")
+        .is_some()
+    );
+    connection
+        .commit()
+        .await
+        .expect("commit the producer switch");
+    let entry = db
+        .read_search_registry_state()
+        .await
+        .expect("read the switched entry")
+        .entries
+        .into_iter()
+        .find(|entry| entry.run_id == run_id)
+        .expect("the switched replacement entry");
+    assert_eq!(entry.phase, "switched");
+    assert!(entry.staged_ids.is_empty());
+    let mut stored_retired = entry.retired_ids.clone();
+    stored_retired.sort();
+    let mut expected_retired = retired_ids.clone();
+    expected_retired.sort();
+    assert_eq!(stored_retired, expected_retired);
+    let origin = sqlx::query_file!("tests/sql/vector_registry/read_retired_origin.sql", run_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the producer provenance");
+    let mut stored_origin = origin.retired_original_ids.clone();
+    stored_origin.sort();
+    let mut expected_origin = old_originals.clone();
+    expected_origin.sort();
+    assert_eq!(stored_origin, expected_origin);
+    assert_eq!(origin.reserved_ids, 5);
+
+    let mut connection = db.pool().acquire().await.expect("acquire current usage");
+    let before = sqlx::query_file!(
+        "src/sql/db/search_registry/read_usage.sql",
+        file_id,
+        &Vec::<Uuid>::new(),
+    )
+    .fetch_one(&mut *connection)
+    .await
+    .expect("read the C1 usage");
+    assert_eq!(before.total, 5, "the active C1 row counts all five ids");
+    assert_eq!(before.file_total, 5);
+    drop(connection);
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the rebuild claim");
+    let (outcome, _) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            Some(13),
+        )
+        .await
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    tx.commit().await.expect("commit the rebuild claim");
+    assert!(
+        db.stage_rebuild_document(
+            TARGET,
+            &row,
+            &fresh,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+        )
+        .await
+        .expect("stage the target chunks")
+    );
+    let counts = db
+        .count_rebuild_staging_chunks(TARGET)
+        .await
+        .expect("count the staged snapshot");
+    let total = counts.original + counts.translated;
+    let mut connection = db.pool().acquire().await.expect("acquire completion");
+    assert!(
+        db.complete_rebuild_staging_in(
+            &mut connection,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            total,
+        )
+        .await
+        .expect("complete the staged snapshot")
+    );
+    drop(connection);
+
+    sqlx::query(
+        "UPDATE context69.runtime_file_library_settings \
+         SET registry_max_ids_total = 6, registry_max_ids_per_file = 6, \
+             registry_max_ids_per_run = 6 \
+         WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("narrow the registry capacity policy");
+    let state = context69::db::VectorIndexState {
+        collection_name: TARGET,
+        fingerprint: &desired.embedding_fingerprint,
+        embedding_base_url: "https://embeddings.example/v1",
+        embedding_model: "model-a",
+        dimensions: 8,
+        rebuilt_chunks: fresh.len(),
+    };
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the refused activation");
+    let error = db
+        .complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+        .await
+        .expect_err("a projection of seven ids refuses the cap of six");
+    assert!(
+        error.to_string().contains("capacity policy"),
+        "the refusal names the capacity policy: {error}"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the refused activation");
+    assert_eq!(
+        db.read_active_vector_index_state()
+            .await
+            .expect("read the active vector index")
+            .expect("the previous collection is still active")
+            .collection_name,
+        COLLECTION
+    );
+    assert_eq!(
+        live_chunk_ids(&db, document_id).await,
+        fresh_ids,
+        "the refused activation keeps the replacement chunks"
+    );
+
+    sqlx::query(
+        "UPDATE context69.runtime_file_library_settings \
+         SET registry_max_ids_total = 7, registry_max_ids_per_file = 7, \
+             registry_max_ids_per_run = 7 \
+         WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("widen the registry capacity policy");
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the accepted activation");
+    assert!(
+        db.complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+            .await
+            .expect("the discounted projection fits the policy")
+            .is_some()
+    );
+    tx.commit().await.expect("commit the accepted activation");
+
+    let state = db
+        .read_search_registry_state()
+        .await
+        .expect("read the registry state");
+    let entry = state
+        .entries
+        .iter()
+        .find(|entry| entry.run_id == run_id)
+        .expect("the replacement entry stays as history");
+    assert_eq!(entry.retired_ids.len(), 5);
+    let origin = sqlx::query_file!("tests/sql/vector_registry/read_retired_origin.sql", run_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("read the preserved provenance");
+    assert_eq!(origin.retired_original_ids, old_originals);
+    assert_eq!(origin.reserved_ids, 5);
+    let mut connection = db.pool().acquire().await.expect("acquire the projection");
+    let projected = db
+        .read_projected_registry_usage_in(&mut connection, TARGET)
+        .await
+        .expect("read the projected usage");
+    assert_eq!(projected.total, 7);
+    assert_eq!(projected.max_file, 7);
+    assert_eq!(projected.max_run, 6);
+    drop(connection);
+    let usage = sqlx::query_file!(
+        "src/sql/db/search_registry/read_usage.sql",
+        file_id,
+        &Vec::<Uuid>::new(),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the C2 usage");
+    assert_eq!(usage.total, 7);
+    assert_eq!(usage.file_total, 7);
+    assert_eq!(
+        live_chunk_ids(&db, document_id).await,
+        fresh.iter().map(|chunk| chunk.id).collect::<Vec<_>>()
+    );
+
+    sqlx::query("DELETE FROM context69.library_files WHERE id = $1")
+        .bind(file_id)
+        .execute(db.pool())
+        .await
+        .expect("remove the fixture library file");
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// A legacy entry without provenance, a translation-only entry, an abandoned
+/// entry and an id-less live reservation all stay fully reserved, and a tight
+/// cap refuses an activation that would depend on an unproven discount.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn the_quota_projection_keeps_unproven_reservations_and_refuses_a_legacy_overflow() {
+    const TARGET: &str = "barrier-quota-legacy__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let group_id = seed_barrier_fixture_group(&db).await;
+    let (document_id, _) = support::seed_reindex_document(&db, group_id, 3)
+        .await
+        .expect("seed the canonical document");
+    let row = db
+        .list_rebuild_documents_page(Some(document_id - 1), 10)
+        .await
+        .expect("read the rebuild document page")
+        .into_iter()
+        .find(|row| row.document_id == document_id)
+        .expect("the seeded document is pageable")
+        .clone();
+    let fresh: Vec<context69::domain::DocumentChunk> = (0..3)
+        .map(|index| context69::domain::DocumentChunk {
+            id: Uuid::new_v4(),
+            document_id,
+            chunk_index: index,
+            text: format!("legacy fixture chunk {index}"),
+            record_hash: row.record_hash.clone(),
+        })
+        .collect();
+
+    let legacy_run = Uuid::new_v4();
+    let legacy_ids: Vec<Uuid> = (0..4).map(|_| Uuid::new_v4()).collect();
+    sqlx::query(
+        "INSERT INTO context69.search_registry_entries \
+         (run_id, file_id, document_ids, staged_ids, retired_ids, reserved_ids, generation, \
+          phase, embedding_fingerprint, collection_name) \
+         VALUES ($1, NULL, '{}'::BIGINT[], '{}'::UUID[], $2, $3, 1, 'switched', $4, $5)",
+    )
+    .bind(legacy_run)
+    .bind(&legacy_ids)
+    .bind(i64::try_from(legacy_ids.len()).unwrap())
+    .bind(&desired.embedding_fingerprint)
+    .bind(COLLECTION)
+    .execute(db.pool())
+    .await
+    .expect("seed the legacy switched entry");
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the rebuild claim");
+    let (outcome, _) = db
+        .begin_rebuild_checked_with_budget_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            Some(13),
+        )
+        .await
+        .expect("claim the rebuild");
+    assert!(matches!(outcome, RebuildStartOutcome::Started(_)));
+    tx.commit().await.expect("commit the rebuild claim");
+    assert!(
+        db.stage_rebuild_document(
+            TARGET,
+            &row,
+            &fresh,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+        )
+        .await
+        .expect("stage the target chunks")
+    );
+    let counts = db
+        .count_rebuild_staging_chunks(TARGET)
+        .await
+        .expect("count the staged snapshot");
+    let mut connection = db.pool().acquire().await.expect("acquire completion");
+    assert!(
+        db.complete_rebuild_staging_in(
+            &mut connection,
+            owner,
+            owner_token,
+            &desired.embedding_fingerprint,
+            TARGET,
+            counts.original + counts.translated,
+        )
+        .await
+        .expect("complete the staged snapshot")
+    );
+    drop(connection);
+
+    let state = context69::db::VectorIndexState {
+        collection_name: TARGET,
+        fingerprint: &desired.embedding_fingerprint,
+        embedding_base_url: "https://embeddings.example/v1",
+        embedding_model: "model-a",
+        dimensions: 8,
+        rebuilt_chunks: fresh.len(),
+    };
+    sqlx::query(
+        "UPDATE context69.runtime_file_library_settings \
+         SET registry_max_ids_total = 6, registry_max_ids_per_file = 6, \
+             registry_max_ids_per_run = 6 \
+         WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("narrow the registry capacity policy");
+    let mut tx = db.pool().begin().await.expect("begin the legacy refusal");
+    let error = db
+        .complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+        .await
+        .expect_err("an unproven legacy reservation cannot be discounted to fit");
+    assert!(
+        error.to_string().contains("capacity policy"),
+        "the refusal names the capacity policy: {error}"
+    );
+    tx.rollback().await.expect("roll back the legacy refusal");
+    assert_eq!(
+        db.read_active_vector_index_state()
+            .await
+            .expect("read the active vector index")
+            .expect("the previous collection is still active")
+            .collection_name,
+        COLLECTION
+    );
+
+    sqlx::query(
+        "UPDATE context69.runtime_file_library_settings \
+         SET registry_max_ids_total = 7, registry_max_ids_per_file = 7, \
+             registry_max_ids_per_run = 7 \
+         WHERE singleton = TRUE",
+    )
+    .execute(db.pool())
+    .await
+    .expect("widen the registry capacity policy");
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the accepted activation");
+    assert!(
+        db.complete_owned_rebuild_in(&mut tx, owner, owner_token, &state)
+            .await
+            .expect("the fully counted legacy row fits the wider policy")
+            .is_some()
+    );
+    tx.commit().await.expect("commit the accepted activation");
+    let legacy = sqlx::query_file!(
+        "tests/sql/vector_registry/read_retired_origin.sql",
+        legacy_run
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the legacy entry");
+    assert!(legacy.retired_original_ids.is_empty());
+    assert_eq!(legacy.reserved_ids, 4);
+
+    let translation_run = Uuid::new_v4();
+    let translation_ids: Vec<Uuid> = (0..2).map(|_| Uuid::new_v4()).collect();
+    let abandoned_run = Uuid::new_v4();
+    let abandoned_ids: Vec<Uuid> = (0..3).map(|_| Uuid::new_v4()).collect();
+    let same_hash_run = Uuid::new_v4();
+    let same_hash_ids: Vec<Uuid> = (0..2).map(|_| Uuid::new_v4()).collect();
+    let null_collection_run = Uuid::new_v4();
+    let null_collection_ids: Vec<Uuid> = (0..2).map(|_| Uuid::new_v4()).collect();
+    let idless_run = Uuid::new_v4();
+    let proven_run = Uuid::new_v4();
+    let proven_origin: Vec<Uuid> = (0..2).map(|_| Uuid::new_v4()).collect();
+    let proven_retired: Vec<Uuid> = proven_origin
+        .iter()
+        .copied()
+        .chain(std::iter::once(Uuid::new_v4()))
+        .collect();
+    for (run_id, retired_ids, phase, collection) in [
+        (
+            translation_run,
+            &translation_ids,
+            "switched",
+            Some(COLLECTION),
+        ),
+        (abandoned_run, &abandoned_ids, "retired", Some(COLLECTION)),
+        (same_hash_run, &same_hash_ids, "switched", Some(COLLECTION)),
+        (null_collection_run, &null_collection_ids, "switched", None),
+    ] {
+        sqlx::query(
+            "INSERT INTO context69.search_registry_entries \
+             (run_id, file_id, document_ids, staged_ids, retired_ids, reserved_ids, generation, \
+              phase, embedding_fingerprint, collection_name) \
+             VALUES ($1, NULL, '{}'::BIGINT[], '{}'::UUID[], $2, $3, 1, $4, $5, $6)",
+        )
+        .bind(run_id)
+        .bind(retired_ids)
+        .bind(i64::try_from(retired_ids.len()).unwrap())
+        .bind(phase)
+        .bind(collection.map(|_| desired.embedding_fingerprint.as_str()))
+        .bind(collection)
+        .execute(db.pool())
+        .await
+        .expect("seed a fully reserved branch entry");
+    }
+    sqlx::query(
+        "INSERT INTO context69.search_registry_entries \
+         (run_id, file_id, document_ids, staged_ids, retired_ids, reserved_ids, generation, \
+          phase, embedding_fingerprint, collection_name) \
+         VALUES ($1, NULL, '{}'::BIGINT[], '{}'::UUID[], '{}'::UUID[], 5, 1, 'switched', $2, $3)",
+    )
+    .bind(idless_run)
+    .bind(&desired.embedding_fingerprint)
+    .bind(TARGET)
+    .execute(db.pool())
+    .await
+    .expect("seed the id-less live original reservation");
+    sqlx::query(
+        "INSERT INTO context69.search_registry_entries \
+         (run_id, file_id, document_ids, staged_ids, retired_ids, retired_original_ids, \
+          reserved_ids, generation, phase, embedding_fingerprint, collection_name) \
+         VALUES ($1, NULL, '{}'::BIGINT[], '{}'::UUID[], $2, $3, $4, 1, 'switched', $5, $6)",
+    )
+    .bind(proven_run)
+    .bind(&proven_retired)
+    .bind(&proven_origin)
+    .bind(i64::try_from(proven_retired.len()).unwrap())
+    .bind(&desired.embedding_fingerprint)
+    .bind(COLLECTION)
+    .execute(db.pool())
+    .await
+    .expect("seed the proven replacement entry");
+
+    let usage = sqlx::query_file!(
+        "src/sql/db/search_registry/read_usage.sql",
+        Uuid::nil(),
+        &Vec::<Uuid>::new(),
+    )
+    .fetch_one(db.pool())
+    .await
+    .expect("read the branch usage");
+    assert_eq!(
+        usage.total, 22,
+        "legacy, translation-only, abandoned, same-hash, NULL-collection and id-less rows stay full; the proven origin is discounted"
+    );
+    let mut connection = db.pool().acquire().await.expect("acquire the projection");
+    let projected = db
+        .read_projected_registry_usage_in(&mut connection, TARGET)
+        .await
+        .expect("read the target projection");
+    assert_eq!(projected.total, 22);
+    let projected_old = db
+        .read_projected_registry_usage_in(&mut connection, COLLECTION)
+        .await
+        .expect("read the old-collection projection");
+    assert_eq!(
+        projected_old.total, 24,
+        "the proven entry counts fully while its own collection is the target"
+    );
+    drop(connection);
+
+    reset_acceptance_fixture(&db, group_id, &[COLLECTION, TARGET]).await;
+}
+
+/// An ordinary writer is refused by the barrier and by a captured identity
+/// that no longer names the active index; a missing captured identity fails
+/// closed while the deployment publishes vectors.
+#[cfg(feature = "integration-test-helpers")]
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn an_unmanaged_writer_is_refused_by_the_barrier_and_by_a_lost_identity() {
+    const TARGET: &str = "barrier-writer__target";
+    let db = connect().await;
+    reset_barrier(&db).await;
+    clear_registry_entries(&db).await;
+    clear_runtime_settings(&db).await;
+    sqlx::query("DELETE FROM context69.vector_index_state")
+        .execute(db.pool())
+        .await
+        .expect("clear the fixture vector index rows");
+
+    let mut tx = db.pool().begin().await.expect("begin the unmanaged guard");
+    db.require_idle_admissible_vector_identity_in(&mut tx, None)
+        .await
+        .expect("an unpublished deployment admits an unmanaged writer");
+    tx.rollback().await.expect("roll back the unmanaged guard");
+
+    let desired = seed_runtime_settings(
+        &db,
+        "http://qdrant.example:6333",
+        COLLECTION,
+        "https://embeddings.example/v1",
+        "model-a",
+        8,
+    )
+    .await;
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the lost identity guard");
+    let error = db
+        .require_idle_admissible_vector_identity_in(&mut tx, None)
+        .await
+        .expect_err("a lost identity fails closed while vectors are published");
+    assert!(
+        error.to_string().contains("captured none"),
+        "the conflict is actionable: {error}"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the lost identity guard");
+
+    let mut tx = db.pool().begin().await.expect("begin the matching guard");
+    db.require_idle_admissible_vector_identity_in(&mut tx, Some(&desired))
+        .await
+        .expect("the captured identity names the active index");
+    tx.rollback().await.expect("roll back the matching guard");
+
+    let (owner, owner_token) = seed_task_item(&db, "running").await;
+    let mut tx = db.pool().begin().await.expect("begin the rebuild claim");
+    db.begin_rebuild_in(
+        &mut tx,
+        owner,
+        owner_token,
+        &desired.embedding_fingerprint,
+        TARGET,
+    )
+    .await
+    .expect("claim the rebuild");
+    tx.commit().await.expect("commit the rebuild claim");
+    support::pin_rebuild_snapshot(&db, &pinned_budget(), 1).await;
+    support::mark_rebuild_staging_complete(&db).await;
+    let mut tx = db.pool().begin().await.expect("begin the barrier guard");
+    let error = db
+        .require_idle_admissible_vector_identity_in(&mut tx, Some(&desired))
+        .await
+        .expect_err("a running rebuild refuses the ordinary writer");
+    assert!(
+        error.to_string().contains("rebuild is in progress"),
+        "the conflict is actionable: {error}"
+    );
+    tx.rollback().await.expect("roll back the barrier guard");
+
+    let mut tx = db.pool().begin().await.expect("begin the activation");
+    assert!(
+        db.complete_owned_rebuild_in(
+            &mut tx,
+            owner,
+            owner_token,
+            &context69::db::VectorIndexState {
+                collection_name: TARGET,
+                fingerprint: &desired.embedding_fingerprint,
+                embedding_base_url: "https://embeddings.example/v1",
+                embedding_model: "model-a",
+                dimensions: 8,
+                rebuilt_chunks: 0,
+            },
+        )
+        .await
+        .expect("activate the target")
+        .is_some()
+    );
+    tx.commit().await.expect("commit the activation");
+
+    let mut tx = db
+        .pool()
+        .begin()
+        .await
+        .expect("begin the stale identity guard");
+    let error = db
+        .require_idle_admissible_vector_identity_in(&mut tx, Some(&desired))
+        .await
+        .expect_err("an identity captured before activation cannot write after it");
+    assert!(
+        error.to_string().contains("captured vector identity"),
+        "the conflict is actionable: {error}"
+    );
+    tx.rollback()
+        .await
+        .expect("roll back the stale identity guard");
+
+    sqlx::query("DELETE FROM context69.vector_index_state WHERE collection_name = ANY($1)")
+        .bind(&[COLLECTION.to_string(), TARGET.to_string()])
+        .execute(db.pool())
+        .await
+        .expect("delete the fixture vector index rows");
+    clear_runtime_settings(&db).await;
+    reset_barrier(&db).await;
 }
 
 #[cfg(feature = "integration-test-helpers")]

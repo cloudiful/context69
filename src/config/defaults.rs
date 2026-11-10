@@ -22,8 +22,6 @@ pub const DEFAULT_SESSION_IDLE_TTL_SECS: u64 = 60 * 60 * 24 * 7;
 pub const DEFAULT_SESSION_VALKEY_URL: &str = "redis://127.0.0.1:6379";
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
-pub const DEFAULT_URL_IMPORT_CONCURRENCY: usize = 1;
-pub const DEFAULT_URL_IMPORT_MIN_INTERVAL_MS: u64 = 1000;
 pub const DEFAULT_SECRET_STORE_KEY_VERSION: u32 = 1;
 /// The default number of vector point ids the search registry admits for the
 /// whole deployment.
@@ -33,10 +31,6 @@ pub const DEFAULT_REGISTRY_MAX_IDS_TOTAL: i64 = 32768;
 pub const DEFAULT_REGISTRY_MAX_IDS_PER_FILE: i64 = 16384;
 /// The default number of vector point ids one ingestion run may admit.
 pub const DEFAULT_REGISTRY_MAX_IDS_PER_RUN: i64 = 8192;
-
-pub(super) fn default_max_upload_request_size_mb() -> usize {
-    256
-}
 
 pub(super) fn default_session_idle_ttl() -> Duration {
     Duration::from_secs(DEFAULT_SESSION_IDLE_TTL_SECS)
@@ -48,14 +42,6 @@ pub(super) fn default_scheduler_execution_guard_ttl() -> Duration {
 
 pub(super) fn default_scheduler_execution_guard_renew_interval() -> Duration {
     Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS)
-}
-
-pub(super) fn default_url_import_concurrency() -> usize {
-    DEFAULT_URL_IMPORT_CONCURRENCY
-}
-
-pub(super) fn default_url_import_min_interval_ms() -> u64 {
-    DEFAULT_URL_IMPORT_MIN_INTERVAL_MS
 }
 
 pub(super) fn default_secret_store_key_version() -> u32 {
@@ -131,8 +117,6 @@ impl Default for FileConfig {
                 query_model: None,
                 dimensions: 768,
                 timeout: Duration::from_secs(30),
-                batching: context69_contracts::settings::EmbeddingBatchingSettings::default(),
-                input_policy: Default::default(),
             },
             code_embedding: None,
             docling: None,
@@ -151,10 +135,6 @@ impl Default for FileConfig {
             file_library: FileLibraryConfig {
                 storage_root: PathBuf::from("./data/library"),
                 max_upload_size_mb: 128,
-                max_upload_request_size_mb: default_max_upload_request_size_mb(),
-                ingest_concurrency: 1,
-                url_import_concurrency: DEFAULT_URL_IMPORT_CONCURRENCY,
-                url_import_min_interval_ms: DEFAULT_URL_IMPORT_MIN_INTERVAL_MS,
                 trusted_proxy_enabled: false,
                 s3: None,
             },

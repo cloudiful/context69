@@ -6,6 +6,10 @@
 -- attempt at once. Both running and failed barriers are cleared, because a
 -- failed barrier still blocks target editing.
 --
+-- The staging rows of the released target are deleted in the same statement,
+-- so a later rebuild of the same identity never inherits the cancelled
+-- attempt's partial snapshot.
+--
 -- `$1` narrows the clear to the items of one cancelled task. `NULL` is the bulk
 -- cancellation: every barrier whose recorded owner can no longer write is
 -- freed. `$2` restricts the clear to a failed barrier for the explicit discard
@@ -16,56 +20,86 @@
 -- this target collection, so a refused attempt frees its own barrier and
 -- never the barrier of a newer owner. `$4` is the grant token and `$5` the
 -- recorded collection of that exact clear.
-UPDATE context69.search_registry_epoch
-SET rebuild_state = 'idle',
-    rebuild_owner_item = NULL,
-    rebuild_owner_token = NULL,
-    rebuild_fingerprint = NULL,
-    rebuild_collection = NULL,
-    rebuild_started_at = NULL,
-    rebuild_error = NULL,
-    rebuild_pause_requested = FALSE,
-    rebuild_cursor_document_id = NULL,
-    rebuild_cursor_chunk_index = NULL,
-    rebuild_processed_chunks = 0,
-    rebuild_total_chunks = 0,
-    -- The recorded target is released, so no attempt may treat it as a
-    -- collection it created any more.
-    rebuild_target_created = FALSE,
-    epoch = context69.search_registry_epoch.epoch + 1,
-    updated_at = now()
-WHERE id = 1
-  AND rebuild_state IN ('running', 'failed')
-  AND (
-        (
-            $3::uuid IS NOT NULL
-            AND rebuild_owner_item = $3
-            AND rebuild_owner_token = $4
-            AND rebuild_collection = $5
-        )
-        OR (
-            $3::uuid IS NULL
-            AND (
-                (
-                    $1::uuid IS NOT NULL
-                    AND rebuild_owner_item IN (
-                        SELECT item.id
-                        FROM context69.task_items item
-                        WHERE item.task_id = $1
+WITH target AS (
+    SELECT rebuild_collection AS collection
+    FROM context69.search_registry_epoch
+    WHERE id = 1
+),
+cleared AS (
+    UPDATE context69.search_registry_epoch
+    SET rebuild_state = 'idle',
+        rebuild_owner_item = NULL,
+        rebuild_owner_token = NULL,
+        rebuild_fingerprint = NULL,
+        rebuild_collection = NULL,
+        rebuild_started_at = NULL,
+        rebuild_error = NULL,
+        rebuild_pause_requested = FALSE,
+        rebuild_cursor_document_id = NULL,
+        rebuild_cursor_chunk_index = NULL,
+        rebuild_processed_chunks = 0,
+        rebuild_total_chunks = 0,
+        rebuild_staging_complete = FALSE,
+        rebuild_staged_document_id = NULL,
+        rebuild_translation_cursor_document_id = NULL,
+        rebuild_translation_cursor_translation_id = NULL,
+        rebuild_translation_cursor_chunk_index = NULL,
+        rebuild_translation_processed_chunks = 0,
+        -- The recorded target is released, so no attempt may treat it as a
+        -- collection it created any more.
+        rebuild_target_created = FALSE,
+        epoch = context69.search_registry_epoch.epoch + 1,
+        updated_at = now()
+    WHERE id = 1
+      AND rebuild_state IN ('running', 'failed')
+      AND (
+            (
+                $3::uuid IS NOT NULL
+                AND rebuild_owner_item = $3
+                AND rebuild_owner_token = $4
+                AND rebuild_collection = $5
+            )
+            OR (
+                $3::uuid IS NULL
+                AND (
+                    (
+                        $1::uuid IS NOT NULL
+                        AND rebuild_owner_item IN (
+                            SELECT item.id
+                            FROM context69.task_items item
+                            WHERE item.task_id = $1
+                        )
+                        AND (NOT $2::boolean OR rebuild_state = 'failed')
                     )
-                    AND (NOT $2::boolean OR rebuild_state = 'failed')
-                )
-                OR (
-                    $1::uuid IS NULL
-                    AND NOT EXISTS (
-                        SELECT 1
-                        FROM context69.task_items item
-                        WHERE item.id = rebuild_owner_item
-                          AND item.status = 'running'
-                          AND item.lease_token = rebuild_owner_token
+                    OR (
+                        $1::uuid IS NULL
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM context69.task_items item
+                            WHERE item.id = rebuild_owner_item
+                              AND item.status = 'running'
+                              AND item.lease_token = rebuild_owner_token
+                        )
                     )
                 )
             )
         )
-    )
-RETURNING epoch
+    RETURNING epoch
+),
+deleted_original_chunks AS (
+    DELETE FROM context69.document_chunk_rebuild_staging staging
+    USING target, cleared
+    WHERE staging.target_collection = target.collection
+),
+deleted_translations AS (
+    DELETE FROM context69.document_translation_rebuild_staging staging
+    USING target, cleared
+    WHERE staging.target_collection = target.collection
+),
+deleted_documents AS (
+    DELETE FROM context69.document_rebuild_staging_documents staging
+    USING target, cleared
+    WHERE staging.target_collection = target.collection
+)
+SELECT epoch
+FROM cleared

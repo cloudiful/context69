@@ -364,7 +364,13 @@ pub async fn switch_replacement(
     // replacement does not publish, so every translation that becomes
     // unhydratable leaves the search results with the switch. A translation
     // of the new hash survives a same-hash reindex.
+    //
+    // The original subset is read before the canonical rows are deleted: only
+    // that producer query can prove which retired ids were old originals. The
+    // translation subset is not provable afterwards, so it is never recorded
+    // as an original and stays fully reserved.
     let mut retired_point_ids: Vec<Uuid> = Vec::new();
+    let mut retired_original_ids: Vec<Uuid> = Vec::new();
     for baseline in &plan.baseline_documents {
         let new_hash = plan
             .sections
@@ -377,12 +383,24 @@ pub async fn switch_replacement(
                     baseline.document_id
                 )
             })?;
+        let originals = db
+            .replacement_point_ids_on(write.connection(), baseline.document_id, new_hash, false)
+            .await?;
+        retired_original_ids.extend(originals);
         let ids = db
             .replacement_point_ids_on(write.connection(), baseline.document_id, new_hash, true)
             .await?;
         retired_point_ids.extend(ids);
     }
     let retired_point_ids = dedup_ids(retired_point_ids);
+    let retired_original_ids = dedup_ids(retired_original_ids);
+    let retired_set: BTreeSet<Uuid> = retired_point_ids.iter().copied().collect();
+    ensure!(
+        retired_original_ids
+            .iter()
+            .all(|id| retired_set.contains(id)),
+        "the retired original ids are not a subset of the retired ids"
+    );
 
     let mut document_ids: Vec<i64> = Vec::new();
     for section in &plan.sections {
@@ -459,11 +477,10 @@ pub async fn switch_replacement(
     }
 
     let switched_epoch = db
-        .transition_search_registry_entry_in(
+        .switch_search_registry_entry_with_retired_origin_in(
             plan.run_id,
-            "staging",
-            "switched",
-            Some(&retired_point_ids),
+            &retired_point_ids,
+            &retired_original_ids,
             write.connection(),
         )
         .await?;

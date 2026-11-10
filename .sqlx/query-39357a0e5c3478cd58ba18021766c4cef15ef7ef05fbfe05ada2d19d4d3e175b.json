@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Clear one document's staged chunks before it is re-staged on resume.\nDELETE FROM context69.document_chunk_rebuild_staging\nWHERE target_collection = $1\n  AND document_id = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "39357a0e5c3478cd58ba18021766c4cef15ef7ef05fbfe05ada2d19d4d3e175b"
+}

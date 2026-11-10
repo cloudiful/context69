@@ -5,7 +5,6 @@ use super::support::{
     assert_stored_bytes_exclude, identity_fingerprint, keyed, reset, run, runtime_request,
     seed_vector_identity, service, store_metadata, unkeyed,
 };
-use context69::contracts::settings::{EmbeddingBatchingSettings, EmbeddingInputPolicy};
 use context69::services::secret_store::key_names;
 
 const SYNTHETIC_KEY: &str = "synthetic-embedding-key";
@@ -116,45 +115,24 @@ fn an_absent_embedding_key_keeps_the_stored_one() {
     });
 }
 
-/// The optional query model and the request limits are part of the stored
-/// embedding configuration, and they round-trip unchanged.
+/// The optional query model is part of the stored embedding configuration and
+/// round-trips unchanged.
 #[test]
 #[ignore = "requires configured reusable PostgreSQL"]
-fn the_query_model_and_the_request_limits_round_trip() {
+fn the_query_model_round_trips() {
     run(async |db| {
         reset(db).await;
         let settings = service(db, keyed(db));
 
         let mut request = runtime_request(Some(SYNTHETIC_KEY), None);
         request.embedding.query_model = Some("context69-query-alias".to_string());
-        request.embedding.batching = EmbeddingBatchingSettings {
-            max_items_per_request: 8,
-            max_item_chars: 4_000,
-            max_request_chars: 32_000,
-            max_request_bytes: 524_288,
-        };
-        request.embedding.input_policy = EmbeddingInputPolicy {
-            max_input_tokens: Some(4_096),
-            document_server_prefix: "document:".to_string(),
-            query_server_prefix: "query:".to_string(),
-            ..Default::default()
-        };
         let saved = settings
             .update_runtime_settings(&request)
             .await
-            .expect("save the query model and the limits");
+            .expect("save the query model");
         assert_eq!(
             saved.embedding.query_model.as_deref(),
             Some("context69-query-alias")
-        );
-        assert_eq!(saved.embedding.batching.max_items_per_request, 8);
-        assert_eq!(saved.embedding.batching.max_item_chars, 4_000);
-        assert_eq!(saved.embedding.batching.max_request_chars, 32_000);
-        assert_eq!(saved.embedding.batching.max_request_bytes, 524_288);
-        assert_eq!(saved.embedding.input_policy.max_input_tokens, Some(4_096));
-        assert_eq!(
-            saved.embedding.input_policy.document_server_prefix,
-            "document:"
         );
 
         let read = settings
@@ -165,8 +143,6 @@ fn the_query_model_and_the_request_limits_round_trip() {
             read.embedding.query_model.as_deref(),
             Some("context69-query-alias")
         );
-        assert_eq!(read.embedding.batching, saved.embedding.batching);
-        assert_eq!(read.embedding.input_policy, saved.embedding.input_policy);
 
         // A blank query model is the document model, so it is stored as none.
         let mut blank = runtime_request(None, None);
@@ -181,12 +157,11 @@ fn the_query_model_and_the_request_limits_round_trip() {
     });
 }
 
-/// A request limit that no provider request could honor is refused before
-/// anything is written, so the stored configuration and the stored credential
-/// stay exactly as they were.
+/// An invalid upload limit is refused before anything is written, so the stored
+/// configuration and the stored credential stay exactly as they were.
 #[test]
 #[ignore = "requires configured reusable PostgreSQL"]
-fn an_invalid_request_limit_leaves_the_settings_and_the_secret_unchanged() {
+fn an_invalid_upload_limit_leaves_the_settings_and_the_secret_unchanged() {
     run(async |db| {
         reset(db).await;
         let settings = service(db, keyed(db));
@@ -201,21 +176,21 @@ fn an_invalid_request_limit_leaves_the_settings_and_the_secret_unchanged() {
             .expect("read the stored configuration");
 
         let mut invalid = runtime_request(Some("rotated-key"), None);
-        invalid.embedding.batching.max_items_per_request = 0;
+        invalid.file_library.max_upload_size_mb = 0;
         let error = settings
             .update_runtime_settings(&invalid)
             .await
-            .expect_err("a zero request limit must be refused");
-        assert!(
-            error.to_string().contains("max_items_per_request"),
-            "{error}"
-        );
+            .expect_err("a zero upload limit must be refused");
+        assert!(error.to_string().contains("max_upload_size_mb"), "{error}");
 
         let after = settings
             .get_runtime_settings()
             .await
             .expect("read the stored configuration again");
-        assert_eq!(after.embedding.batching, before.embedding.batching);
+        assert_eq!(
+            after.file_library.max_upload_size_mb,
+            before.file_library.max_upload_size_mb
+        );
         assert_eq!(after.embedding.model, before.embedding.model);
         assert_eq!(after.embedding.query_model, before.embedding.query_model);
 

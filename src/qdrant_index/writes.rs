@@ -265,7 +265,7 @@ impl QdrantIndex {
     /// touches a client. The predicate and its policy are unchanged; it is
     /// shared with the cleanup path so the same lane is complete.
     pub(super) fn is_noop(&self) -> bool {
-        self.collection_name == "test-noop"
+        self.noop
     }
 }
 

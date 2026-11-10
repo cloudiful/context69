@@ -142,10 +142,6 @@ mod integration {
                 file_library: FileLibraryConfig {
                     storage_root: storage_root.clone(),
                     max_upload_size_mb: 1,
-                    max_upload_request_size_mb: 1,
-                    ingest_concurrency: 1,
-                    url_import_concurrency: 1,
-                    url_import_min_interval_ms: 1000,
                     trusted_proxy_enabled: false,
                     s3: None,
                 },
@@ -261,6 +257,37 @@ mod integration {
         file_id
     }
 
+    /// A genuinely file-owned document and chunk: the cleanup must tombstone and
+    /// delete them before it issues the captured exact-id remote purge.
+    async fn seed_orphan_document(db: &Database, file_id: Uuid, group_id: i64) -> (i64, Vec<Uuid>) {
+        let document_id: i64 = sqlx::query_scalar(
+            "INSERT INTO context69.documents \
+             (source_key, external_id, title, source_uri, updated_at_source, metadata_json, \
+              record_hash, group_id, visibility) \
+             VALUES ('library_files', $1, 'orphan', 'context69://test/orphan', now(), \
+                     jsonb_build_object('library_file_id', $2), 'orphan-record-hash', $3, 'public') \
+             RETURNING id",
+        )
+        .bind(format!("orphan-{}", Uuid::new_v4()))
+        .bind(file_id.to_string())
+        .bind(group_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("seed the orphan document");
+        let chunk_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO context69.document_chunks \
+             (id, document_id, chunk_index, chunk_text, record_hash) \
+             VALUES ($1, $2, 0, 'orphan chunk', 'orphan-chunk-record-hash')",
+        )
+        .bind(chunk_id)
+        .bind(document_id)
+        .execute(db.pool())
+        .await
+        .expect("seed the orphan chunk");
+        (document_id, vec![chunk_id])
+    }
+
     fn sample_section_payload() -> Value {
         json!([
             {
@@ -290,6 +317,7 @@ mod integration {
         let (service, storage_root) = build_library_service(&db, embedding.clone(), qdrant).await;
         let group = seed_group_record(&db).await;
         let file_id = seed_text_file(&db, &storage_root, &group).await;
+        let (document_id, _) = seed_orphan_document(&db, file_id, group.id).await;
 
         let error = service
             .persist_file_sections_for_task(file_id, &sample_section_payload(), Uuid::new_v4())
@@ -318,19 +346,24 @@ mod integration {
             "Qdrant cleanup failure must surface under qdrant after the split"
         );
 
-        // 4. The error message preserves the Qdrant context that callers will
-        //    need for UI/messaging in phase 4.
-        assert!(
-            error
-                .message
-                .contains("qdrant library file cleanup request failed"),
-            "underlying Qdrant context must be preserved: {}",
-            error.message
-        );
+        // 4. The error records that the logical cleanup is durable and names
+        //    the captured exact-id purge that is still pending.
+        for expected in [
+            "logical ingest cleanup committed",
+            "vector purge is pending",
+            "operation=delete_points",
+            "collection=test-collection",
+        ] {
+            assert!(
+                error.message.contains(expected),
+                "underlying Qdrant context must be preserved ({expected}): {}",
+                error.message
+            );
+        }
 
-        // 5. Cleanup failure must not have wiped the library file row, because
-        //    the SQL delete lives after the Qdrant delete and we want a retry
-        //    to find the file again.
+        // 5. The logical cleanup is durable: the canonical document rows are
+        //    gone and the permanent document tombstone stays pending, while the
+        //    library file row remains for a retry after the failed remote purge.
         let row: Option<(String,)> =
             sqlx::query_as("SELECT ingest_status FROM context69.library_files WHERE id = $1")
                 .bind(file_id)
@@ -342,6 +375,37 @@ mod integration {
             "library file row must survive a Qdrant cleanup failure"
         );
 
+        let documents: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context69.documents \
+             WHERE metadata_json->>'library_file_id' = $1",
+        )
+        .bind(file_id.to_string())
+        .fetch_one(db.pool())
+        .await
+        .expect("count the file documents");
+        assert_eq!(
+            documents, 0,
+            "the canonical cleanup deletes the owned documents before the remote purge"
+        );
+
+        let pending: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM context69.library_deleted_entities \
+             WHERE document_id = $1 AND purged_at IS NULL",
+        )
+        .bind(document_id)
+        .fetch_one(db.pool())
+        .await
+        .expect("count the pending document tombstone");
+        assert_eq!(
+            pending, 1,
+            "the document tombstone stays pending for the physical purge retry"
+        );
+
+        sqlx::query("DELETE FROM context69.library_deleted_entities WHERE document_id = $1")
+            .bind(document_id)
+            .execute(db.pool())
+            .await
+            .expect("clear the fixture tombstone");
         cleanup_group(&db, group.id).await;
         let _ = std::fs::remove_dir_all(storage_root);
     }

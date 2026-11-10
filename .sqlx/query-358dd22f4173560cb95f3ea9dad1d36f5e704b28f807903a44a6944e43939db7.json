@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Delete the registry entries whose live and retired ids are all replaced\n-- original chunk ids, and the id-less reservations of an earlier rebuild.\n-- Translation ids are never members of document_chunks, so translation entries\n-- survive untouched. An ordinary admission always stages at least one id, so a\n-- switched entry with neither staged nor retired ids can only be the counted\n-- reservation a previous rebuild wrote for replaced original ids.\nDELETE FROM context69.search_registry_entries e\nWHERE e.phase = 'switched'\n  AND (\n      (\n          cardinality(e.staged_ids) + cardinality(e.retired_ids) > 0\n          AND e.staged_ids <@ ARRAY(SELECT id FROM context69.document_chunks)\n          AND e.retired_ids <@ ARRAY(SELECT id FROM context69.document_chunks)\n      )\n      OR (\n          cardinality(e.staged_ids) = 0\n          AND cardinality(e.retired_ids) = 0\n          AND e.reserved_ids > 0\n      )\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "358dd22f4173560cb95f3ea9dad1d36f5e704b28f807903a44a6944e43939db7"
+}

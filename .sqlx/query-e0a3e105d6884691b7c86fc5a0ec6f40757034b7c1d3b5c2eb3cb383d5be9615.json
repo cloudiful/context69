@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The producer switch of one replacement registry entry.\n--\n-- Only the staging -> switched edge is allowed here. The caller supplies the\n-- complete old-live set as retired ids and the producer-proven original subset\n-- separately. The subset predicate and the reservation bound repeat the\n-- database constraint and the admission guarantee, so a raw caller cannot\n-- record provenance that the stored arrays do not support or retire more ids\n-- than the entry reserved. The result is a resolved switched entry with an\n-- empty staged set and a reservation equal to the retired set.\nUPDATE context69.search_registry_entries\nSET phase = 'switched',\n    retired_ids = $2::uuid[],\n    retired_original_ids = $3::uuid[],\n    reserved_ids = cardinality($2::uuid[])::bigint,\n    staged_ids = '{}'::uuid[]\nWHERE run_id = $1\n  AND phase = 'staging'\n  AND $3::uuid[] <@ $2::uuid[]\n  AND cardinality($2::uuid[])::bigint <= reserved_ids\nRETURNING run_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "run_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e0a3e105d6884691b7c86fc5a0ec6f40757034b7c1d3b5c2eb3cb383d5be9615"
+}

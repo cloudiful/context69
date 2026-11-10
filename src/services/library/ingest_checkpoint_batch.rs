@@ -38,7 +38,11 @@ pub(super) struct BatchPersistInputs<'a> {
     pub(super) current_hash: &'a str,
     /// Identity of the pinned chunk budget this run chunks under.
     pub(super) budget_identity: &'a str,
+    /// Digest of the captured physical collection and embedding identity.
+    pub(super) target_identity: &'a str,
     pub(super) attempt: i32,
+    /// Without a vector identity the chunk write cannot be attributed.
+    pub(super) identity: Option<&'a crate::db::RegistryVectorIdentity>,
     /// Whoever authorizes this run's payload checkpoint.
     pub(super) checkpoint_write: super::ingest_checkpoint_persistence::CheckpointWrite,
 }
@@ -59,6 +63,7 @@ impl LibraryService {
         document_id: i64,
         batch: &[crate::domain::DocumentChunk],
         runtime: &LibraryRuntime,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<(), UnifiedIngestError> {
         let texts = batch
             .iter()
@@ -75,25 +80,11 @@ impl LibraryService {
             ))
         })?;
         // The task service is scoped to the item's pinned budget, so its live
-        // snapshot is the snapshot that chunked this batch: the provider guard
-        // uses the exact policy the task pinned, never a later settings save.
-        let resolved_budget = self.chunking_runtime.resolve_snapshot().map_err(|error| {
-            normalize_task_failure(IngestFailure::new(
-                LibraryIngestFailureStage::Embedding,
-                error,
-            ))
+        // snapshot is the snapshot that chunked this batch.
+        let embeddings = embedding.embed_texts(&texts).await.map_err(|error| {
+            let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
+            normalize_task_failure(failure)
         })?;
-        let input_policy = resolved_budget.input_policy().cloned();
-        let embeddings = embedding
-            .embed_texts_with_policy(
-                &texts,
-                crate::embedding::InputPolicySelection::Pinned(input_policy.as_ref()),
-            )
-            .await
-            .map_err(|error| {
-                let failure = IngestFailure::new(LibraryIngestFailureStage::Embedding, error);
-                normalize_task_failure(failure)
-            })?;
         let group = PayloadGroup {
             group_id: file.group_id,
             group_key: &file.group_key,
@@ -140,6 +131,18 @@ impl LibraryService {
                             IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
                         normalize_task_failure(failure)
                     })?;
+                // A rebuild owns the whole collection while it runs, and an
+                // activation changes which collection is active. The captured
+                // identity proves both: this transaction must not add chunks
+                // under an identity the deployment no longer admits.
+                self.db
+                    .require_idle_admissible_vector_identity_in(write.connection(), identity)
+                    .await
+                    .map_err(|error| {
+                        let failure =
+                            IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                        normalize_task_failure(failure)
+                    })?;
                 sqlx::query_file!("src/sql/db/documents/savepoint_chunk_insert.sql")
                     .execute(write.connection())
                     .await
@@ -167,29 +170,31 @@ impl LibraryService {
                                     IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
                                 normalize_task_failure(failure)
                             })?;
+                        self.db
+                            .verify_document_chunk_batch_in(write.connection(), document_id, batch)
+                            .await
+                            .map_err(|error| {
+                                let failure =
+                                    IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                                normalize_task_failure(failure)
+                            })?;
                     }
                     Err(error) => {
-                        let msg = error.to_string().to_ascii_lowercase();
-                        if msg.contains("duplicate key") || msg.contains("unique constraint") {
-                            // Document chunks primary key collision => already
-                            // inserted by an earlier partial ingest. The
-                            // statement is rolled back to its savepoint and the
-                            // batch counts as persisted.
-                            sqlx::query_file!("src/sql/db/documents/rollback_to_chunk_insert.sql")
-                                .execute(write.connection())
-                                .await
-                                .map_err(|error| {
-                                    let failure = IngestFailure::new(
-                                        LibraryIngestFailureStage::Indexing,
-                                        error,
-                                    );
-                                    normalize_task_failure(failure)
-                                })?;
-                        } else {
-                            let failure =
-                                IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
-                            return Err(normalize_task_failure(failure));
-                        }
+                        // A primary-key conflict is not proof that the whole
+                        // batch was persisted: the statement is rolled back to
+                        // its savepoint and the retryable failure refuses the
+                        // checkpoint advance. A mixed batch must never publish.
+                        sqlx::query_file!("src/sql/db/documents/rollback_to_chunk_insert.sql")
+                            .execute(write.connection())
+                            .await
+                            .map_err(|error| {
+                                let failure =
+                                    IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                                normalize_task_failure(failure)
+                            })?;
+                        let failure =
+                            IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                        return Err(normalize_task_failure(failure));
                     }
                 }
                 if !write.commit().await.map_err(|error| {
@@ -203,28 +208,50 @@ impl LibraryService {
                     ));
                 }
             }
-            None => match self
-                .db
-                .insert_document_chunks(
-                    document_id,
-                    &prepared_section.normalized.record_hash,
-                    batch,
-                )
-                .await
-            {
-                Ok(()) => {}
-                Err(error) => {
-                    let msg = error.to_string().to_ascii_lowercase();
-                    if msg.contains("duplicate key") || msg.contains("unique constraint") {
-                        // Document chunks primary key collision => already inserted
-                        // by an earlier partial ingest. Treat as success.
-                    } else {
+            None => {
+                let mut tx = self.db.pool().begin().await.map_err(|error| {
+                    let failure = IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                    normalize_task_failure(failure)
+                })?;
+                self.db
+                    .require_idle_admissible_vector_identity_in(&mut tx, identity)
+                    .await
+                    .map_err(|error| {
+                        let failure =
+                            IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                        normalize_task_failure(failure)
+                    })?;
+                match self
+                    .db
+                    .insert_document_chunks_in(
+                        &mut tx,
+                        document_id,
+                        &prepared_section.normalized.record_hash,
+                        batch,
+                    )
+                    .await
+                {
+                    Ok(()) => {
+                        self.db
+                            .verify_document_chunk_batch_in(&mut tx, document_id, batch)
+                            .await
+                            .map_err(|error| {
+                                let failure =
+                                    IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                                normalize_task_failure(failure)
+                            })?;
+                    }
+                    Err(error) => {
                         let failure =
                             IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
                         return Err(normalize_task_failure(failure));
                     }
                 }
-            },
+                tx.commit().await.map_err(|error| {
+                    let failure = IngestFailure::new(LibraryIngestFailureStage::Indexing, error);
+                    normalize_task_failure(failure)
+                })?;
+            }
         }
 
         // The vector upsert is an external mutation, so the grant is checked
@@ -277,7 +304,9 @@ impl LibraryService {
             completed_chunks_before,
             current_hash,
             budget_identity,
+            target_identity,
             attempt,
+            identity,
             checkpoint_write,
         } = inputs;
         self.persist_batch_content(
@@ -287,6 +316,7 @@ impl LibraryService {
             document_id,
             batch,
             runtime,
+            identity,
         )
         .await?;
 
@@ -300,6 +330,7 @@ impl LibraryService {
             total_batches: Some(total_batches),
             record_hash: Some(current_hash.to_string()),
             budget_identity: Some(budget_identity.to_string()),
+            target_identity: Some(target_identity.to_string()),
         };
         let progress = PipelineProgress::new(attempt, PipelineProgressStage::Indexing)
             .with_batch_counters(
@@ -577,10 +608,6 @@ mod provider_barrier {
                     storage_root: std::env::temp_dir()
                         .join(format!("context69-p3c-barrier-{}", Uuid::new_v4())),
                     max_upload_size_mb: 1,
-                    max_upload_request_size_mb: 1,
-                    ingest_concurrency: 1,
-                    url_import_concurrency: 1,
-                    url_import_min_interval_ms: 1000,
                     trusted_proxy_enabled: false,
                     s3: None,
                 },
@@ -632,6 +659,7 @@ mod provider_barrier {
                 document_id,
                 &[chunk],
                 &runtime,
+                None,
             )
             .await
             .expect("the batch content is written");

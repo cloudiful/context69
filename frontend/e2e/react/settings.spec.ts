@@ -108,7 +108,7 @@ test.describe("react settings", () => {
   test("reports a failed connection probe", async ({ page }) => {
     await installAppTransport(page, { settings: true, user: ADMIN_USER, embeddingTestFails: true });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/embedding");
     await page.getByTestId("runtime-embedding-test").click();
 
     await expect(page.getByText("embedding refused").first()).toBeVisible();
@@ -117,7 +117,7 @@ test.describe("react settings", () => {
   test("saves the runtime fields and search page through one shared Save", async ({ page }) => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/embedding");
     await page.getByLabel("Document model").fill("embed-2");
 
     await page.locator('a[href="/settings/search"]').first().click();
@@ -150,7 +150,7 @@ test.describe("react settings", () => {
   test("saves the independent code model and keeps it after a reload", async ({ page }) => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/embedding");
     await expect(page.getByRole("heading", { name: "Code embedding (optional)" })).toBeVisible();
     await expect(page.getByLabel("Code model", { exact: true })).toHaveValue("code-embed-1");
 
@@ -281,8 +281,8 @@ test.describe("react settings", () => {
     await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
     await page.goto("/settings/appearance");
-    await page.getByRole("tab", { name: "Runtime" }).click();
-    await expect(page).toHaveURL(/\/settings\/runtime$/);
+    await page.getByRole("tab", { name: "Vector Index" }).click();
+    await expect(page).toHaveURL(/\/settings\/vector-index$/);
     await expect(page.getByLabel("Qdrant URL")).toBeVisible();
   });
 
@@ -321,7 +321,7 @@ test.describe("react settings", () => {
       },
     });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/vector-index");
 
     const state = page.getByTestId("runtime-vector-rebuild-state");
     await expect(state).toContainText("Rebuilding");
@@ -347,7 +347,7 @@ test.describe("react settings", () => {
   test("saves the chunking fields and restores the original mock value", async ({ page }) => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/chunking");
     const maxChars = page.getByLabel("Max Characters");
     await expect(maxChars).toHaveValue("1200");
     await maxChars.fill("1500");
@@ -376,7 +376,7 @@ test.describe("react settings", () => {
   test("saves the token budget and the tokenizer beside the character budget", async ({ page }) => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/chunking");
     await page.locator("#runtime-chunking-unit").click();
     await page.getByRole("option", { name: "Tokens" }).click();
 
@@ -408,31 +408,34 @@ test.describe("react settings", () => {
     await expect(page.getByLabel("Max Tokens")).toHaveValue("512");
   });
 
-  test("prepares the pinned Jina tokenizer and derives the input check from the lower selection", async ({ page }) => {
+  test("prepares the pinned EmbeddingGemma 2 tokenizer and derives the input check from the lower selection", async ({ page }) => {
     const transport = await installAppTransport(page, { settings: true, user: ADMIN_USER });
 
-    await page.goto("/settings/runtime");
+    await page.goto("/settings/chunking");
     // One control serves both budget units, and the upper section owns none.
     await expect(page.locator("#runtime-chunking-tokenizer")).toBeVisible();
     await expect(page.getByText("Input tokenizer", { exact: true })).toHaveCount(0);
 
     await page.locator("#runtime-chunking-tokenizer").click();
-    await page.getByRole("option", { name: "Jina embeddings v5 text small retrieval" }).click();
+    await page.getByRole("option", { name: "EmbeddingGemma 2" }).click();
 
-    // Selecting alone shows the notice and never downloads.
-    await expect(
-      page.getByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
-    ).toContainText("Non-commercial use only");
+    // Selecting alone shows the preparation row without license prose and
+    // never downloads.
+    const presetRow = page.getByTestId(
+      "runtime-tokenizer-preset-embeddinggemma2_r_f9972ac",
+    );
+    await expect(presetRow).toBeVisible();
+    await expect(presetRow.getByRole("link")).toHaveCount(0);
     expect(transport.calls.filter((call) => (
       call.method === "POST" && call.path === "/v1/settings/runtime/tokenizer-artifacts/provision"
     )).length).toBe(0);
 
-    await page.getByTestId("runtime-tokenizer-preset-prepare-jina_v5_small_retrieval_r6856e76").click();
+    await page.getByTestId("runtime-tokenizer-preset-prepare-embeddinggemma2_r_f9972ac").click();
     await expect.poll(() => transport.calls.filter((call) => (
       call.method === "POST" && call.path === "/v1/settings/runtime/tokenizer-artifacts/provision"
     )).length).toBe(1);
     await expect(
-      page.getByTestId("runtime-tokenizer-preset-jina_v5_small_retrieval_r6856e76"),
+      page.getByTestId("runtime-tokenizer-preset-embeddinggemma2_r_f9972ac"),
     ).toHaveCount(0);
 
     await page.getByTestId("settings-save").click();
@@ -442,16 +445,10 @@ test.describe("react settings", () => {
     const put = transport.calls.find((call) => call.method === "PUT" && call.path === "/v1/settings/runtime");
     const body = put?.body as {
       chunking: { tokenizer: string; tokenizer_sha256: string | null };
-      embedding: { input_policy: Record<string, unknown> };
     };
     expect(body.chunking).toMatchObject({
       tokenizer: "hf_local",
-      tokenizer_sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
-    });
-    expect(body.embedding.input_policy).toMatchObject({
-      tokenizer: "hf_local",
-      tokenizer_sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
-      add_special_tokens: false,
+      tokenizer_sha256: "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
     });
     expect(transport.unmocked).toEqual([]);
   });

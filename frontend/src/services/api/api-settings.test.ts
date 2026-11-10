@@ -189,23 +189,23 @@ describe("settings api vector index rebuild control", () => {
 describe("settings api tokenizer preset preparation", () => {
   it("sends only the known preset identifier", async () => {
     const response = {
-      preset_id: "jina_v5_small_retrieval_r6856e76",
-      sha256: "aeb13307a71acd8fe81861d94ad54ab689df773318809eed3cbe794b4492dae4",
-      size_bytes: 11422654,
+      preset_id: "embeddinggemma2_r_f9972ac",
+      sha256: "4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4",
+      size_bytes: 32170510,
       status: "provisioned",
       ready: true,
-      license: "cc-by-nc-4.0",
+      license: "apache-2.0",
     };
     const post = vi.fn().mockResolvedValue({ data: response, response: { ok: true, status: 200 } });
     const api = createSettingsApi({ openapiClient: { POST: post } as never, unwrapResponse });
 
     expect(
-      await api.provisionTokenizerPreset({ preset_id: "jina_v5_small_retrieval_r6856e76" }),
+      await api.provisionTokenizerPreset({ preset_id: "embeddinggemma2_r_f9972ac" }),
     ).toBe(response);
     expect(post).toHaveBeenCalledWith(
       "/v1/settings/runtime/tokenizer-artifacts/provision",
       {
-        body: { preset_id: "jina_v5_small_retrieval_r6856e76" },
+        body: { preset_id: "embeddinggemma2_r_f9972ac" },
         signal: undefined,
       },
     );

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Record the staged progress row of one document, including zero chunks.\nINSERT INTO context69.document_rebuild_staging_documents (\n    target_collection,\n    document_id,\n    record_hash,\n    chunk_count\n)\nVALUES ($1, $2, $3, $4)\nON CONFLICT (target_collection, document_id) DO UPDATE\nSET record_hash = EXCLUDED.record_hash,\n    chunk_count = EXCLUDED.chunk_count\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3617cf6049c2a12ed2416bcd9210178495ddf4d71e73feeda3a71b030b72eca6"
+}

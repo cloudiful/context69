@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Copy the current translated chunks of one document into rebuild staging.\n--\n-- Only the version whose source_record_hash equals the document's current\n-- record_hash is current. Ids and texts are preserved exactly; translations are\n-- never re-chunked by a rebuild.\nINSERT INTO context69.document_translation_rebuild_staging (\n    target_collection,\n    translation_id,\n    document_id,\n    chunk_index,\n    chunk_id,\n    chunk_text,\n    record_hash\n)\nSELECT $1, t.id, c.document_id, c.chunk_index, c.id, c.chunk_text, d.record_hash\nFROM context69.document_translation_chunks c\nINNER JOIN context69.document_translation_versions t ON t.id = c.translation_id\nINNER JOIN context69.documents d ON d.id = c.document_id\nWHERE c.document_id = $2\n  AND t.source_record_hash = d.record_hash\nON CONFLICT (target_collection, translation_id, chunk_index) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "67c15fd8b2d6532a2e0c3b400463fb0abca335922283188e5a4141ea8a09d33a"
+}

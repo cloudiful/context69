@@ -29,6 +29,19 @@ use sqlx::Row;
 use uuid::Uuid;
 
 pub const DIMENSIONS: usize = 4;
+pub const HARNESS_EMBEDDING_BASE_URL: &str = "http://127.0.0.1:1";
+pub const HARNESS_EMBEDDING_MODEL: &str = "harness";
+
+/// The deployed fingerprint of one collection in this fixture's test space.
+pub fn harness_fingerprint(qdrant_url: &str, collection: &str) -> String {
+    context69::embedding::embedding_runtime::vector_identity_fingerprint(
+        qdrant_url,
+        collection,
+        HARNESS_EMBEDDING_BASE_URL,
+        HARNESS_EMBEDDING_MODEL,
+        DIMENSIONS,
+    )
+}
 
 struct NoopCallbacks;
 
@@ -81,11 +94,15 @@ pub struct DeleteFixture {
     pub library: LibraryService,
     pub group: GroupRecord,
     pub storage_root: PathBuf,
+    _guard: tokio::sync::MutexGuard<'static, ()>,
 }
+
+static SUITE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 impl DeleteFixture {
     /// Build a fixture on a service with the given index published.
-    pub async fn new(index: Option<QdrantIndex>) -> Self {
+    pub async fn new(index: Option<QdrantIndex>, qdrant_url: &str) -> Self {
+        let guard = SUITE_LOCK.lock().await;
         let db = Database::connect(&context69_test_support::accessor::database_url())
             .await
             .expect("connect test database");
@@ -94,18 +111,33 @@ impl DeleteFixture {
             .expect("bootstrap the library schema");
         let storage_root = std::env::temp_dir().join(format!("context69-p25-{}", Uuid::new_v4()));
         let group = seed_group(&db).await;
-        let library = build_library(&db, &storage_root, index).await;
+        let library = build_library(&db, &storage_root, index, qdrant_url, true).await;
         Self {
             library,
             db,
             group,
             storage_root,
+            _guard: guard,
         }
     }
 
     /// Build one more service on the same database and storage root.
-    pub async fn library_with_index(&self, index: Option<QdrantIndex>) -> LibraryService {
-        build_library(&self.db, &self.storage_root, index).await
+    pub async fn library_with_index(
+        &self,
+        index: Option<QdrantIndex>,
+        qdrant_url: &str,
+    ) -> LibraryService {
+        build_library(&self.db, &self.storage_root, index, qdrant_url, true).await
+    }
+
+    /// Build a service whose published pair carries no identity fingerprint
+    /// while the deployment still has a desired and an active identity.
+    pub async fn library_without_identity(
+        &self,
+        index: Option<QdrantIndex>,
+        qdrant_url: &str,
+    ) -> LibraryService {
+        build_library(&self.db, &self.storage_root, index, qdrant_url, false).await
     }
 
     /// Seed one library file row without documents, in the given folder.
@@ -357,6 +389,15 @@ impl DeleteFixture {
     /// Remove every row the fixture created.
     pub async fn cleanup(self) {
         let _ = std::fs::remove_dir_all(&self.storage_root);
+        let _ = sqlx::query("UPDATE context69.vector_index_state SET active = FALSE WHERE active")
+            .execute(self.db.pool())
+            .await;
+        let _ = sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+            .execute(self.db.pool())
+            .await;
+        let _ = sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+            .execute(self.db.pool())
+            .await;
         for statement in [
             "DELETE FROM context69.library_files WHERE group_id = $1",
             "DELETE FROM context69.library_folders WHERE group_id = $1",
@@ -377,6 +418,8 @@ async fn build_library(
     db: &Database,
     storage_root: &std::path::Path,
     index: Option<QdrantIndex>,
+    qdrant_url: &str,
+    publish_fingerprint: bool,
 ) -> LibraryService {
     let embedding = Arc::new(FakeEmbedding);
     let configured = index.is_some();
@@ -386,6 +429,10 @@ async fn build_library(
         "",
     );
     if let Some(index) = index {
+        let collection = index.collection_name().to_string();
+        let fingerprint = harness_fingerprint(qdrant_url, &collection);
+        seed_desired_vector_settings(db, qdrant_url, &collection).await;
+        seed_active_vector_state(db, &collection, &fingerprint).await;
         let generation = runtime.generation();
         assert!(runtime.publish(
             generation,
@@ -393,11 +440,14 @@ async fn build_library(
                 embedding,
                 identity: None,
                 index: Arc::new(index),
-                collection: "p25".into(),
+                collection: collection.clone(),
                 generation,
-                configured_fingerprint: Some("harness-fingerprint".to_string()),
+                configured_fingerprint: publish_fingerprint.then_some(fingerprint),
             }
         ));
+    } else {
+        clear_desired_vector_settings(db).await;
+        clear_active_vector_state(db).await;
     }
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
@@ -417,10 +467,6 @@ async fn build_library(
             file_library: FileLibraryConfig {
                 storage_root: storage_root.to_path_buf(),
                 max_upload_size_mb: 1,
-                max_upload_request_size_mb: 1,
-                ingest_concurrency: 1,
-                url_import_concurrency: 1,
-                url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
                 s3: None,
             },
@@ -433,6 +479,81 @@ async fn build_library(
     )
     .await
     .expect("build library service")
+}
+
+async fn seed_desired_vector_settings(db: &Database, qdrant_url: &str, collection: &str) {
+    sqlx::query(
+        "INSERT INTO context69.runtime_qdrant_settings \
+         (singleton, url, collection_name) VALUES (TRUE, $1, $2) \
+         ON CONFLICT (singleton) DO UPDATE \
+         SET url = EXCLUDED.url, collection_name = EXCLUDED.collection_name",
+    )
+    .bind(qdrant_url)
+    .bind(collection)
+    .execute(db.pool())
+    .await
+    .expect("seed desired qdrant settings");
+    sqlx::query(
+        "INSERT INTO context69.runtime_embedding_settings \
+         (singleton, base_url, model, dimensions, timeout_secs) \
+         VALUES (TRUE, $1, $2, $3, 30) \
+         ON CONFLICT (singleton) DO UPDATE \
+         SET base_url = EXCLUDED.base_url, model = EXCLUDED.model, \
+             dimensions = EXCLUDED.dimensions",
+    )
+    .bind(HARNESS_EMBEDDING_BASE_URL)
+    .bind(HARNESS_EMBEDDING_MODEL)
+    .bind(DIMENSIONS as i64)
+    .execute(db.pool())
+    .await
+    .expect("seed desired embedding settings");
+}
+
+async fn clear_desired_vector_settings(db: &Database) {
+    sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+        .execute(db.pool())
+        .await
+        .expect("clear the desired qdrant settings");
+    sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+        .execute(db.pool())
+        .await
+        .expect("clear the desired embedding settings");
+}
+
+async fn seed_active_vector_state(db: &Database, collection: &str, fingerprint: &str) {
+    sqlx::query("UPDATE context69.vector_index_state SET active = FALSE WHERE active")
+        .execute(db.pool())
+        .await
+        .expect("claim the active vector index");
+    sqlx::query(
+        "INSERT INTO context69.vector_index_state (
+             collection_name, fingerprint, embedding_base_url, embedding_model,
+             dimensions, rebuilt_chunks, active
+         )
+         VALUES ($1, $2, $3, $4, $5, 0, TRUE)
+         ON CONFLICT (collection_name) DO UPDATE
+         SET fingerprint = EXCLUDED.fingerprint,
+             embedding_base_url = EXCLUDED.embedding_base_url,
+             embedding_model = EXCLUDED.embedding_model,
+             dimensions = EXCLUDED.dimensions,
+             active = TRUE,
+             rebuilt_at = NOW()",
+    )
+    .bind(collection)
+    .bind(fingerprint)
+    .bind(HARNESS_EMBEDDING_BASE_URL)
+    .bind(HARNESS_EMBEDDING_MODEL)
+    .bind(DIMENSIONS as i64)
+    .execute(db.pool())
+    .await
+    .expect("seed the active vector index");
+}
+
+async fn clear_active_vector_state(db: &Database) {
+    sqlx::query("UPDATE context69.vector_index_state SET active = FALSE WHERE active")
+        .execute(db.pool())
+        .await
+        .expect("clear the active vector index");
 }
 
 async fn seed_group(db: &Database) -> GroupRecord {

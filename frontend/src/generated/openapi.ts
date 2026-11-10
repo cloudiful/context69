@@ -2554,85 +2554,6 @@ export interface components {
             field: "metadata";
             path: string;
         };
-        /**
-         * @description The manual limits of the embedding request planner.
-         *
-         *     They bound one provider request: how many inputs it may carry, how long one
-         *     input may be, how long the whole request may be, and how many serialized
-         *     bytes it may occupy. An advertised provider limit may only tighten them, so
-         *     the effective limit is the smaller of the two.
-         *
-         *     Every value is positive and representable in a PostgreSQL BIGINT, because
-         *     the settings row stores them there. A request that carries none keeps these
-         *     defaults, so an older client never changes the planner's behavior.
-         */
-        EmbeddingBatchingSettings: {
-            /**
-             * @description The maximum number of characters one input may have. An input that is
-             *     longer is refused, never split or shortened.
-             * @default 8000
-             */
-            max_item_chars: number;
-            /**
-             * @description The maximum number of inputs one provider request may carry.
-             * @default 32
-             */
-            max_items_per_request: number;
-            /**
-             * @description The maximum number of serialized bytes one provider request may carry.
-             * @default 1048576
-             */
-            max_request_bytes: number;
-            /**
-             * @description The maximum number of characters one provider request may carry.
-             * @default 64000
-             */
-            max_request_chars: number;
-        };
-        /**
-         * @description The exact input-token envelope and server-added prefixes of one provider.
-         *
-         *     `max_input_tokens = None` disables the guard while keeping the policy
-         *     serialized and versioned. The prefixes are counted only; they are never
-         *     sent to the provider, trimmed, normalized or separated from the input.
-         */
-        EmbeddingInputPolicy: {
-            /**
-             * @description Whether the tokenizer adds its special tokens when it counts.
-             * @default false
-             */
-            add_special_tokens: boolean;
-            /**
-             * @description Text the provider prepends to every document input before tokenizing.
-             * @default
-             */
-            document_server_prefix: string;
-            /**
-             * @description The full input-token cap. `None` disables the guard.
-             * @default null
-             */
-            max_input_tokens: number | null;
-            /**
-             * @description Text the provider prepends to every query input before tokenizing.
-             * @default
-             */
-            query_server_prefix: string;
-            /** @default cl100k_base */
-            tokenizer: components["schemas"]["EmbeddingTokenizer"];
-            /**
-             * @description The pinned local artifact hash. Present exactly for `hf_local`.
-             * @default null
-             */
-            tokenizer_sha256: string | null;
-        };
-        /**
-         * @description Tokenizer that measures the embedding input envelope.
-         *
-         *     It is separate from the chunking tokenizer: an operator may chunk with one
-         *     vocabulary and count the provider input with another.
-         * @enum {string}
-         */
-        EmbeddingTokenizer: "cl100k_base" | "o200k_base" | "hf_local";
         EnsureScopeResponse: {
             group: components["schemas"]["GroupResponse"];
             metadata_indexes: components["schemas"]["MetadataIndexResponse"][];
@@ -4026,8 +3947,6 @@ export interface components {
          */
         RuntimeCodeEmbeddingSettings: {
             base_url: string;
-            /** @description The manual limits of the code embedding request planner. */
-            batching?: components["schemas"]["EmbeddingBatchingSettings"];
             dimensions: number;
             enabled: boolean;
             has_api_key: boolean;
@@ -4039,12 +3958,8 @@ export interface components {
         };
         RuntimeEmbeddingSettings: {
             base_url: string;
-            /** @description The manual limits of the embedding request planner. */
-            batching?: components["schemas"]["EmbeddingBatchingSettings"];
             dimensions: number;
             has_api_key: boolean;
-            /** @description The explicit input-token envelope and server-added prefixes. */
-            input_policy?: components["schemas"]["EmbeddingInputPolicy"];
             /** @description The model documents are embedded with. */
             model: string;
             /** @description The model queries are embedded with. Absent means the document model. */
@@ -4053,8 +3968,6 @@ export interface components {
             timeout_secs: number;
         };
         RuntimeFileLibrarySettings: {
-            ingest_concurrency: number;
-            max_upload_request_size_mb: number;
             max_upload_size_mb: number;
             /**
              * Format: int64
@@ -4074,9 +3987,6 @@ export interface components {
             s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
             trusted_proxy_enabled: boolean;
-            url_import_concurrency: number;
-            /** Format: int64 */
-            url_import_min_interval_ms: number;
         };
         RuntimeQdrantSettings: {
             collection_name: string;
@@ -5326,7 +5236,6 @@ export interface components {
         UpdateCodeEmbeddingSettings: {
             api_key?: components["schemas"]["SecretPatch"];
             base_url: string;
-            batching?: components["schemas"]["EmbeddingBatchingSettings"];
             dimensions: number;
             enabled: boolean;
             model: string;
@@ -5387,8 +5296,6 @@ export interface components {
         UpdateRuntimeEmbeddingSettings: {
             api_key?: string | null;
             base_url: string;
-            /** @description The manual limits of the embedding request planner. */
-            batching?: components["schemas"]["EmbeddingBatchingSettings"];
             /**
              * @description Operator assertion that a changed gateway/model alias still produces the
              *     same vector space, so existing vectors may be kept. Transient: it is
@@ -5396,8 +5303,6 @@ export interface components {
              */
             confirm_vector_space_unchanged?: boolean;
             dimensions: number;
-            /** @description The explicit input-token envelope and server-added prefixes. */
-            input_policy?: components["schemas"]["EmbeddingInputPolicy"];
             /** @description The model documents are embedded with. */
             model: string;
             /**
@@ -5410,8 +5315,6 @@ export interface components {
             timeout_secs: number;
         };
         UpdateRuntimeFileLibrarySettings: {
-            ingest_concurrency: number;
-            max_upload_request_size_mb: number;
             max_upload_size_mb: number;
             /**
              * Format: int64
@@ -5434,9 +5337,6 @@ export interface components {
             s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
             storage_root: string;
             trusted_proxy_enabled?: boolean;
-            url_import_concurrency: number;
-            /** Format: int64 */
-            url_import_min_interval_ms: number;
         };
         UpdateRuntimeS3Settings: {
             access_key: string;

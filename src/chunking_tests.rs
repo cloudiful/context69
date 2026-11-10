@@ -1,7 +1,6 @@
 use chrono::Utc;
 use serde_json::json;
 
-use super::chunking_token::TokenizerKind;
 use super::{ChunkBudget, ChunkingConfig, chunk_document, chunk_document_iter};
 use crate::domain::NormalizedDocument;
 
@@ -324,92 +323,5 @@ fn a_character_budget_reports_the_same_chunks_as_the_legacy_api() {
             .iter()
             .map(|chunk| chunk.text.as_str())
             .collect::<Vec<_>>()
-    );
-}
-
-/// The character path enforces the same complete embedding envelope at its
-/// emission point and never drops the tail of an oversized paragraph.
-#[test]
-fn the_input_envelope_splits_an_oversized_char_paragraph_and_preserves_bytes() {
-    let prefix = "system:";
-    let body: String = (0..400).map(|index| format!("word{index} ")).collect();
-    let sample = &body[..body.len().min(160)];
-    let mut policy = context69_contracts::settings::EmbeddingInputPolicy::default();
-    policy.document_server_prefix = prefix.to_string();
-    policy.max_input_tokens = Some(super::chunking_token::token_count(
-        &format!("{prefix}{sample}"),
-        super::chunking_token::TokenizerKind::Cl100kBase,
-    ));
-    let mut budget = ChunkBudget::chars(ChunkingConfig {
-        max_chars: 400,
-        overlap_chars: 50,
-    });
-    budget.input_policy = Some(policy.clone());
-    let runtime = super::ChunkingRuntime::new(budget.clone());
-    let resolved = runtime
-        .resolve(&budget)
-        .expect("resolve the pinned envelope");
-    let chunks = resolved
-        .chunk_document(1, "file_library", &document(&body))
-        .expect("the envelope chunks the source");
-    assert!(chunks.len() > 1, "the envelope must split the paragraph");
-    let envelope = resolved.input_policy().expect("the policy is pinned");
-    let cap = policy.max_input_tokens.expect("the cap is set");
-    let mut source = String::new();
-    for (index, chunk) in chunks.iter().enumerate() {
-        assert!(
-            envelope.count_input(prefix, &chunk.text) <= cap,
-            "every emitted chunk fits the complete envelope"
-        );
-        let overlap = if index == 0 {
-            String::new()
-        } else {
-            let previous = &chunks[index - 1].text;
-            let chars: Vec<char> = previous.chars().collect();
-            chars[chars.len().saturating_sub(50)..].iter().collect()
-        };
-        assert!(
-            chunk.text.starts_with(&overlap),
-            "chunk {index} repeats the configured overlap"
-        );
-        source.push_str(&chunk.text[overlap.len()..]);
-    }
-    assert_eq!(source, body.trim());
-}
-
-/// Legacy budgets serialize and identify exactly as before, while a nondefault
-/// policy adds a collision-safe component.
-#[test]
-fn the_input_policy_identity_is_versioned_and_only_added_when_nondefault() {
-    let legacy = ChunkBudget::tokens(TokenizerKind::O200kBase, 512, 64);
-    assert_eq!(legacy.identity(), "tokens:o200k_base:512:64");
-    let value = super::chunk_budget_to_value(&legacy);
-    assert!(value.get("input_policy").is_none(), "{value}");
-
-    let mut first = legacy.clone();
-    let mut policy = context69_contracts::settings::EmbeddingInputPolicy::default();
-    policy.max_input_tokens = Some(1024);
-    policy.document_server_prefix = "a".repeat(2);
-    policy.query_server_prefix = "b".to_string();
-    first.input_policy = Some(policy.clone());
-    let mut second = first.clone();
-    let mut other = policy.clone();
-    other.document_server_prefix = "a".to_string();
-    other.query_server_prefix = "ab".to_string();
-    second.input_policy = Some(other);
-    let first_identity = first.identity();
-    let second_identity = second.identity();
-    assert_ne!(
-        first_identity, second_identity,
-        "length-prefixed fields do not collide"
-    );
-    assert_eq!(first_identity, first.identity());
-    assert!(first_identity.starts_with("tokens:o200k_base:512:64:input:"));
-
-    first.input_policy = Some(context69_contracts::settings::EmbeddingInputPolicy::default());
-    assert_eq!(
-        first.identity(),
-        "tokens:o200k_base:512:64",
-        "an explicit default policy keeps the legacy identity"
     );
 }

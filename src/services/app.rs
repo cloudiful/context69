@@ -385,21 +385,18 @@ mod tests {
     use crate::config::Config;
 
     #[test]
-    fn task_worker_capacity_uses_scheduler_not_file_library() {
+    fn task_worker_capacity_uses_scheduler_and_is_independent_of_upload_limits() {
         let mut config = Config::default();
         config.scheduler.max_concurrency = 8;
-        config.file_library.ingest_concurrency = 1;
-        config.file_library.url_import_concurrency = 1;
+        config.file_library.max_upload_size_mb = 128;
         assert_eq!(task_worker_capacity(&config), 8);
 
-        // Changing file_library values must not affect capacity.
-        config.file_library.ingest_concurrency = 100;
-        config.file_library.url_import_concurrency = 100;
+        // Changing the upload limit must not affect capacity.
+        config.file_library.max_upload_size_mb = 256;
         assert_eq!(task_worker_capacity(&config), 8);
 
         config.scheduler.max_concurrency = 2;
-        config.file_library.ingest_concurrency = 1;
-        config.file_library.url_import_concurrency = 1;
+        config.file_library.max_upload_size_mb = 128;
         assert_eq!(task_worker_capacity(&config), 2);
     }
 

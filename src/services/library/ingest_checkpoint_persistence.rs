@@ -7,14 +7,14 @@
 //! a lost lease or process death leaves at-most-once damage bounded to a
 //! deterministic re-upsert of the in-flight batch.
 
-use anyhow::{Context, anyhow};
+use anyhow::anyhow;
 use serde_json::Value;
 use uuid::Uuid;
 
 use super::ingest_batches::ChunkBatchIter;
 use super::ingest_checkpoint::{
-    IndexingCheckpoint, compute_prepared_record_hash, count_prepared_ingest_totals,
-    parse_indexing_checkpoint, payload_with_checkpoint_reset,
+    IndexingCheckpoint, checkpoint_target_identity, compute_prepared_record_hash,
+    count_prepared_ingest_totals, parse_indexing_checkpoint, payload_with_checkpoint_reset,
 };
 use super::ingest_checkpoint_batch::BatchPersistInputs;
 use super::ingest_progress::{PipelineProgress, PipelineProgressStage};
@@ -23,6 +23,7 @@ use super::ingest_progress_store::write_pipeline_progress;
 use super::ingest_types::{IngestFailure, IngestSection, PreparedIngestSection};
 use super::task_ingest::{
     normalize_indexing_runtime_failure, normalize_task_failure, task_failure,
+    task_failure_with_dependency,
 };
 use crate::chunk_payload::{PayloadDocument, PayloadGroup, seed};
 use crate::chunking::{ChunkBudget, chunk_document_iter_resolved};
@@ -224,161 +225,224 @@ impl LibraryService {
             .await
             .map_err(normalize_task_failure)?;
 
-        let runtime = self
-            .runtime()
-            .map_err(normalize_indexing_runtime_failure)?
-            .clone();
-
-        let current_hash = compute_prepared_record_hash(&prepared);
-        let budget_identity = budget.identity();
-        // One counting pass feeds both the batch checkpoint and the chunk
-        // counters the progress record publishes, so a total can never
-        // disagree with the batches it is measured against.
-        let resolved_budget = self
-            .chunking_runtime
-            .resolve(budget)
-            .map_err(|error| task_failure("indexing", error, false))?;
-        let totals = count_prepared_ingest_totals(&prepared, &resolved_budget)
-            .map_err(|error| task_failure("indexing", error, false))?;
-        let total_batches = totals.total_batches;
-        let total_chunks = totals.total_chunks;
+        let (runtime, identity) = self
+            .captured_runtime()
+            .map_err(normalize_indexing_runtime_failure)?;
+        let target_identity = checkpoint_target_identity(
+            runtime.index.collection_name(),
+            identity
+                .as_ref()
+                .map(|identity| identity.embedding_fingerprint.as_str()),
+        );
 
         let mut checkpoint = parse_indexing_checkpoint(current_payload);
-        let mut current_payload_value = current_payload.clone();
-
-        // Old tasks without checkpoint start at batch 0. A checkpoint whose
-        // record set or chunk budget does not match the pinned snapshot is
-        // unproven, including a legacy checkpoint that carries no budget
-        // identity at all: it restarts from 0 with a fresh cleanup instead of
-        // skipping batches chunked under another budget.
-        if !checkpoint.matches(&current_hash, &budget_identity) && checkpoint.next_batch_index != 0
-        {
-            checkpoint = IndexingCheckpoint::reset(
-                current_hash.clone(),
-                total_batches,
-                budget_identity.clone(),
-            );
-            let reset_payload = payload_with_checkpoint_reset(&current_payload_value, &checkpoint)
+        let mut cleanup_attempted = false;
+        let outcome: Result<Value, UnifiedIngestError> = async {
+            let current_hash = compute_prepared_record_hash(&prepared);
+            let budget_identity = budget.identity();
+            // One counting pass feeds both the batch checkpoint and the chunk
+            // counters the progress record publishes, so a total can never
+            // disagree with the batches it is measured against.
+            let resolved_budget = self
+                .chunking_runtime
+                .resolve(budget)
                 .map_err(|error| task_failure("indexing", error, false))?;
-            let ok = checkpoint_write
-                .write(&self.db, &reset_payload)
-                .await
-                .map_err(|error| task_failure("indexing", error, true))?;
-            if !ok {
-                return Err(task_failure(
-                    "indexing",
-                    anyhow!("task item lease was lost while resetting checkpoint"),
-                    true,
-                ));
+            let totals = count_prepared_ingest_totals(&prepared, &resolved_budget)
+                .map_err(|error| task_failure("indexing", error, false))?;
+            let total_batches = totals.total_batches;
+            let total_chunks = totals.total_chunks;
+
+            let mut current_payload_value = current_payload.clone();
+
+            // Old tasks without checkpoint start at batch 0. A checkpoint whose
+            // record set, chunk budget or captured vector target does not match
+            // the pinned snapshot is unproven, including a legacy checkpoint
+            // that carries no target identity at all: it restarts from 0 with a
+            // fresh cleanup instead of skipping batches from another generation.
+            if !checkpoint.matches(&current_hash, &budget_identity, &target_identity)
+                && checkpoint.next_batch_index != 0
+            {
+                checkpoint = IndexingCheckpoint::reset(
+                    current_hash.clone(),
+                    total_batches,
+                    budget_identity.clone(),
+                    target_identity.clone(),
+                );
+                let reset_payload =
+                    payload_with_checkpoint_reset(&current_payload_value, &checkpoint)
+                        .map_err(|error| task_failure("indexing", error, false))?;
+                let ok = checkpoint_write
+                    .write(&self.db, &reset_payload)
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                if !ok {
+                    return Err(task_failure(
+                        "indexing",
+                        anyhow!("task item lease was lost while resetting checkpoint"),
+                        true,
+                    ));
+                }
+                current_payload_value = reset_payload;
+            } else if checkpoint.record_hash.is_none() {
+                checkpoint.record_hash = Some(current_hash.clone());
+                checkpoint.total_batches = Some(total_batches);
+                checkpoint.budget_identity = Some(budget_identity.clone());
+                checkpoint.target_identity = Some(target_identity.clone());
             }
-            current_payload_value = reset_payload;
-        } else if checkpoint.record_hash.is_none() {
-            checkpoint.record_hash = Some(current_hash.clone());
-            checkpoint.total_batches = Some(total_batches);
-            checkpoint.budget_identity = Some(budget_identity.clone());
-        }
 
-        // Cleanup runs once per file, before any embedding. Skip when resuming
-        // past batch 0 so checkpointed chunks/points are not deleted.
-        if checkpoint.next_batch_index == 0 {
-            match checkpoint_write.fence() {
-                Some(fence) => self.cleanup_ingest_artifacts_fenced(fence, file.id).await,
-                None => self.cleanup_ingest_artifacts(file.id).await,
+            // Cleanup runs once per file, before any embedding. Skip when resuming
+            // past batch 0 so checkpointed chunks/points are not deleted.
+            if checkpoint.next_batch_index == 0 {
+                match checkpoint_write.fence() {
+                    Some(fence) => {
+                        self.cleanup_ingest_artifacts_fenced(
+                            fence,
+                            file.id,
+                            &runtime,
+                            identity.as_ref(),
+                        )
+                        .await
+                    }
+                    None => {
+                        self.cleanup_ingest_artifacts(file.id, &runtime, identity.as_ref())
+                            .await
+                    }
+                }
+                .map_err(|error| {
+                    let failure = IngestFailure::new(LibraryIngestFailureStage::Storage, error);
+                    normalize_task_failure(failure)
+                })?;
+                cleanup_attempted = true;
             }
-            .map_err(|error| {
-                let failure = IngestFailure::new(LibraryIngestFailureStage::Storage, error);
-                normalize_task_failure(failure)
-            })?;
-        }
 
-        // Publish the planned totals once, before the first batch. The completed
-        // counters stay absent: a resume has already checkpointed batches whose
-        // chunk count is only recovered as the loop re-walks them, and a `0`
-        // published now would be an untruthful observation rather than an
-        // unknown one.
-        let planned = PipelineProgress::new(attempt, PipelineProgressStage::Chunking)
-            .with_known_totals(total_chunks, total_batches)?
-            .observed_now();
-        current_payload_value = checkpoint_write
-            .write_progress(&self.db, &current_payload_value, &planned)
-            .await?;
-
-        if checkpoint.next_batch_index >= total_batches && total_batches > 0 {
-            // Every batch of this run is already checkpointed, so the counts
-            // are known exactly instead of being reconstructed by the loop.
-            let resumed = PipelineProgress::new(attempt, PipelineProgressStage::Indexing)
-                .with_batch_counters(total_chunks, total_chunks, total_batches, total_batches)?
+            // Publish the planned totals once, before the first batch. The completed
+            // counters stay absent: a resume has already checkpointed batches whose
+            // chunk count is only recovered as the loop re-walks them, and a `0`
+            // published now would be an untruthful observation rather than an
+            // unknown one.
+            let planned = PipelineProgress::new(attempt, PipelineProgressStage::Chunking)
+                .with_known_totals(total_chunks, total_batches)?
                 .observed_now();
             current_payload_value = checkpoint_write
-                .write_progress(&self.db, &current_payload_value, &resumed)
+                .write_progress(&self.db, &current_payload_value, &planned)
                 .await?;
-            self.finalize_resumed_indexing(&file, &prepared, lease_token, checkpoint_write.fence())
-                .await?;
-            return Ok(current_payload_value);
-        }
 
-        let mut mappings = Vec::with_capacity(prepared.len());
-        let mut global_batch_index = 0usize;
-        let mut resume_progress = ResumeChunkProgress::new(checkpoint.next_batch_index);
-
-        for (index, prepared_section) in prepared.into_iter().enumerate() {
-            let document_id = self
-                .upsert_section_document(
-                    checkpoint_write.fence(),
+            if checkpoint.next_batch_index >= total_batches && total_batches > 0 {
+                // Every batch of this run is already checkpointed, so the counts
+                // are known exactly instead of being reconstructed by the loop.
+                let resumed = PipelineProgress::new(attempt, PipelineProgressStage::Indexing)
+                    .with_batch_counters(total_chunks, total_chunks, total_batches, total_batches)?
+                    .observed_now();
+                current_payload_value = checkpoint_write
+                    .write_progress(&self.db, &current_payload_value, &resumed)
+                    .await?;
+                self.finalize_resumed_indexing(
                     &file,
-                    &prepared_section,
-                    index,
-                    &mut mappings,
+                    &prepared,
+                    lease_token,
+                    checkpoint_write.fence(),
+                    identity.as_ref(),
                 )
                 .await?;
-            let chunks = chunk_document_iter_resolved(
-                document_id,
-                super::FILE_LIBRARY_SOURCE_KEY,
-                &prepared_section.normalized,
-                &resolved_budget,
-                None,
-            )
-            .map_err(|error| task_failure("indexing", error, false))?;
-
-            for batch in ChunkBatchIter::new(chunks) {
-                let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
-                let this_batch_index = global_batch_index;
-                global_batch_index += 1;
-
-                if resume_progress.observe_batch(batch.len()) {
-                    // A resumed batch is re-walked through the same chunking
-                    // pass that produced it, so the chunks it already covers
-                    // are counted rather than guessed.
-                    continue;
-                }
-
-                self.persist_one_batch(
-                    BatchPersistInputs {
-                        file: &file,
-                        prepared_section: &prepared_section,
-                        document_id,
-                        batch: &batch,
-                        this_batch_index,
-                        total_batches,
-                        total_chunks,
-                        completed_chunks_before: resume_progress.completed_chunks(),
-                        current_hash: &current_hash,
-                        budget_identity: &budget_identity,
-                        attempt,
-                        checkpoint_write,
-                    },
-                    &mut checkpoint,
-                    &mut current_payload_value,
-                    &runtime,
-                )
-                .await?;
-                resume_progress.record_persisted_batch(batch.len());
+                return Ok(current_payload_value);
             }
-        }
 
-        self.finalize_after_indexing(&file, mappings, lease_token, checkpoint_write.fence())
+            let mut mappings = Vec::with_capacity(prepared.len());
+            let mut global_batch_index = 0usize;
+            let mut resume_progress = ResumeChunkProgress::new(checkpoint.next_batch_index);
+
+            for (index, prepared_section) in prepared.into_iter().enumerate() {
+                let document_id = self
+                    .upsert_section_document(
+                        checkpoint_write.fence(),
+                        &file,
+                        &prepared_section,
+                        index,
+                        &mut mappings,
+                        identity.as_ref(),
+                    )
+                    .await?;
+                let chunks = chunk_document_iter_resolved(
+                    document_id,
+                    super::FILE_LIBRARY_SOURCE_KEY,
+                    &prepared_section.normalized,
+                    &resolved_budget,
+                    None,
+                )
+                .map_err(|error| task_failure("indexing", error, false))?;
+
+                for batch in ChunkBatchIter::new(chunks) {
+                    let batch = batch.map_err(|error| task_failure("indexing", error, false))?;
+                    let this_batch_index = global_batch_index;
+                    global_batch_index += 1;
+
+                    if resume_progress.observe_batch(batch.len()) {
+                        // A resumed batch is re-walked through the same chunking
+                        // pass that produced it, so the chunks it already covers
+                        // are counted rather than guessed.
+                        continue;
+                    }
+
+                    self.persist_one_batch(
+                        BatchPersistInputs {
+                            file: &file,
+                            prepared_section: &prepared_section,
+                            document_id,
+                            batch: &batch,
+                            this_batch_index,
+                            total_batches,
+                            total_chunks,
+                            completed_chunks_before: resume_progress.completed_chunks(),
+                            current_hash: &current_hash,
+                            budget_identity: &budget_identity,
+                            target_identity: &target_identity,
+                            attempt,
+                            identity: identity.as_ref(),
+                            checkpoint_write,
+                        },
+                        &mut checkpoint,
+                        &mut current_payload_value,
+                        &runtime,
+                    )
+                    .await?;
+                    resume_progress.record_persisted_batch(batch.len());
+                }
+            }
+
+            self.finalize_after_indexing(
+                &file,
+                mappings,
+                lease_token,
+                checkpoint_write.fence(),
+                identity.as_ref(),
+            )
             .await?;
-        Ok(current_payload_value)
+            Ok(current_payload_value)
+        }
+        .await;
+        if let Err(error) = &outcome
+            && error.retryable
+            && checkpoint.next_batch_index == 0
+            && cleanup_attempted
+        {
+            match checkpoint_write.fence() {
+                Some(fence) => {
+                    self.cleanup_ingest_artifacts_fenced(
+                        fence,
+                        file.id,
+                        &runtime,
+                        identity.as_ref(),
+                    )
+                    .await
+                }
+                None => {
+                    self.cleanup_ingest_artifacts(file.id, &runtime, identity.as_ref())
+                        .await
+                }
+            }
+            .map_err(|cleanup| task_failure_with_dependency("indexing", cleanup, "qdrant"))?;
+        }
+        outcome
     }
 
     /// The document of one section, its version and its metadata values.
@@ -393,6 +457,7 @@ impl LibraryService {
         prepared_section: &PreparedIngestSection,
         index: usize,
         mappings: &mut Vec<crate::domain::LibraryFileDocumentRecord>,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<i64, UnifiedIngestError> {
         let seed_payload = seed(
             &PayloadGroup {
@@ -419,6 +484,10 @@ impl LibraryService {
                 let mut write = crate::library_store::begin_task_write(&self.db, fence)
                     .await
                     .map_err(|error| task_failure("indexing", error, true))?;
+                self.db
+                    .require_idle_admissible_vector_identity_in(write.connection(), identity)
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
                 let upserted = self
                     .db
                     .upsert_document_in(write.connection(), &seed_payload)
@@ -437,11 +506,27 @@ impl LibraryService {
                 }
                 upserted
             }
-            None => self
-                .db
-                .upsert_document(&seed_payload)
-                .await
-                .map_err(|error| task_failure("indexing", error, true))?,
+            None => {
+                let mut tx = self
+                    .db
+                    .pool()
+                    .begin()
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                self.db
+                    .require_idle_admissible_vector_identity_in(&mut tx, identity)
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                let upserted = self
+                    .db
+                    .upsert_document_in(&mut tx, &seed_payload)
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                tx.commit()
+                    .await
+                    .map_err(|error| task_failure("indexing", error, true))?;
+                upserted
+            }
         };
         mappings.push(crate::domain::LibraryFileDocumentRecord {
             file_id: file.id,
@@ -465,11 +550,19 @@ impl LibraryService {
         prepared: &[PreparedIngestSection],
         lease_token: Uuid,
         fence: Option<crate::library_store::TaskWriteFence>,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<(), UnifiedIngestError> {
         let mut mappings = Vec::with_capacity(prepared.len());
         for (index, prepared_section) in prepared.iter().enumerate() {
             let _ = self
-                .upsert_section_document(fence, file, prepared_section, index, &mut mappings)
+                .upsert_section_document(
+                    fence,
+                    file,
+                    prepared_section,
+                    index,
+                    &mut mappings,
+                    identity,
+                )
                 .await?;
         }
         match fence {
@@ -491,6 +584,7 @@ impl LibraryService {
             file.id,
             &mappings,
             crate::contracts::LibraryIngestStatus::Succeeded,
+            identity,
         )
         .await?;
         Ok(())
@@ -502,11 +596,8 @@ impl LibraryService {
         mappings: Vec<crate::domain::LibraryFileDocumentRecord>,
         lease_token: Uuid,
         fence: Option<crate::library_store::TaskWriteFence>,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<(), UnifiedIngestError> {
-        self.store
-            .replace_file_documents(file.id, &mappings)
-            .await
-            .map_err(|error| task_failure("indexing", error, true))?;
         match fence {
             Some(fence) => self
                 .bump_search_generation_fenced(fence, "library ingest")
@@ -526,6 +617,7 @@ impl LibraryService {
             file.id,
             &mappings,
             crate::contracts::LibraryIngestStatus::Succeeded,
+            identity,
         )
         .await?;
         Ok(())
@@ -535,20 +627,22 @@ impl LibraryService {
     ///
     /// A task that holds a grant replaces the links and projects the status on
     /// the connection of its guarded transaction, so a file never carries the
-    /// links of one segment and the status of another.
+    /// links of one segment and the status of another. Both the fenced and the
+    /// pooled write prove the captured identity before they mutate either.
     pub(super) async fn replace_file_links_and_status(
         &self,
         fence: Option<crate::library_store::TaskWriteFence>,
         file_id: Uuid,
         mappings: &[crate::domain::LibraryFileDocumentRecord],
         status: crate::contracts::LibraryIngestStatus,
+        identity: Option<&crate::db::RegistryVectorIdentity>,
     ) -> Result<(), UnifiedIngestError> {
         match fence {
             Some(fence) => {
                 let replaced = self
                     .store
                     .replace_file_documents_and_status_fenced(
-                        fence, file_id, mappings, status, None, true,
+                        fence, file_id, mappings, status, None, true, identity,
                     )
                     .await
                     .map_err(|error| task_failure("finalize", error, true))?;
@@ -562,15 +656,20 @@ impl LibraryService {
                 Ok(())
             }
             None => {
-                self.store
-                    .replace_file_documents(file_id, mappings)
+                let updated = self
+                    .store
+                    .replace_file_documents_and_status(
+                        file_id, mappings, status, None, true, identity,
+                    )
                     .await
-                    .map_err(|error| task_failure("indexing", error, true))?;
-                self.project_file_status(None, file_id, status, None, true)
-                    .await
-                    .map_err(|error| task_failure("finalize", error, true))?
-                    .context("file disappeared while finalizing task ingest")
-                    .map_err(|error| task_failure("finalize", error, false))?;
+                    .map_err(|error| task_failure("finalize", error, true))?;
+                if !updated {
+                    return Err(task_failure(
+                        "finalize",
+                        anyhow!("file disappeared while finalizing task ingest"),
+                        false,
+                    ));
+                }
                 Ok(())
             }
         }

@@ -80,8 +80,6 @@ pub async fn runtime_settings(
             query_model: None,
             dimensions: usize::try_from(dimensions).expect("the dimensions are non-negative"),
             timeout_secs: u64::try_from(timeout_secs).expect("the timeout is non-negative"),
-            batching: Default::default(),
-            input_policy: Default::default(),
         },
         scheduler: StoredRuntimeSchedulerSettings {
             interval_secs: 300,
@@ -104,10 +102,6 @@ pub async fn runtime_settings(
                 .display()
                 .to_string(),
             max_upload_size_mb: 16,
-            max_upload_request_size_mb: 32,
-            ingest_concurrency: 1,
-            url_import_concurrency: 1,
-            url_import_min_interval_ms: 1000,
             trusted_proxy_enabled: false,
             registry_max_ids_total: quota.map(|caps| caps.0),
             registry_max_ids_per_file: quota.map(|caps| caps.1),
@@ -186,10 +180,9 @@ pub fn fallback_identity() -> context69::db::RegistryVectorIdentity {
 pub async fn store_quota(db: &Database, quota: (i64, i64, i64)) {
     sqlx::query(
         "INSERT INTO context69.runtime_file_library_settings \
-         (singleton, storage_root, max_upload_size_mb, max_upload_request_size_mb, \
-          ingest_concurrency, registry_max_ids_total, registry_max_ids_per_file, \
-          registry_max_ids_per_run) \
-         VALUES (TRUE, '/tmp/quota-policy', 16, 32, 1, $1, $2, $3) \
+         (singleton, storage_root, max_upload_size_mb, registry_max_ids_total, \
+          registry_max_ids_per_file, registry_max_ids_per_run) \
+         VALUES (TRUE, '/tmp/quota-policy', 16, $1, $2, $3) \
          ON CONFLICT (singleton) DO UPDATE SET registry_max_ids_total = EXCLUDED.registry_max_ids_total, \
              registry_max_ids_per_file = EXCLUDED.registry_max_ids_per_file, \
              registry_max_ids_per_run = EXCLUDED.registry_max_ids_per_run",

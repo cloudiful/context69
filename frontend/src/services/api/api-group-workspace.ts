@@ -13,6 +13,7 @@ import type {
   UpdateMetadataIndexRequest,
   UpdateGroupTranslationSettingsRequest,
   TaskRef,
+  LibraryFileSummary,
 } from "./api-types";
 
 type Deps = {
@@ -25,6 +26,40 @@ type Deps = {
 
 function encodeGroupPath(groupPath: string) {
   return encodeURIComponent(groupPath);
+}
+
+/**
+ * A sequential upload that stopped after some files were already accepted.
+ *
+ * The successful reusable files and upload task references stay attached, so a
+ * caller can settle or refresh them instead of treating the batch as if nothing
+ * had happened.
+ */
+export interface PartialUploadFailure extends Error {
+  files: LibraryFileSummary[];
+  tasks: TaskRef[];
+}
+
+export function isPartialUploadFailure(error: unknown): error is PartialUploadFailure {
+  return error instanceof Error
+    && error.name === "PartialUploadFailure"
+    && Array.isArray((error as PartialUploadFailure).files)
+    && Array.isArray((error as PartialUploadFailure).tasks);
+}
+
+function partialUploadFailure(
+  cause: unknown,
+  files: LibraryFileSummary[],
+  reusedTasks: TaskRef[],
+  uploadedTasks: TaskRef[],
+): PartialUploadFailure {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  const error = new Error(message) as PartialUploadFailure;
+  error.name = "PartialUploadFailure";
+  error.files = files;
+  error.tasks = [...reusedTasks, ...uploadedTasks];
+  (error as Error & { cause?: unknown }).cause = cause;
+  return error;
 }
 
 export interface UploadLibraryFilesOptions extends RequestOptions {
@@ -163,7 +198,7 @@ export function createGroupWorkspaceApi({
       const sourcePolicy = (options.deleteSourceAfterProcessing ?? false)
         ? "release_after_processing"
         : "retain";
-      const prepared = await Promise.all(files.map(async (file) => {
+      const settled = await Promise.allSettled(files.map(async (file) => {
         const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
         const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
         const result = await unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/prepare-upload", {
@@ -183,37 +218,62 @@ export function createGroupWorkspaceApi({
         }));
         return { file, result, sha256 };
       }));
+      const prepared = settled.flatMap((item) => item.status === "fulfilled" ? [item.value] : []);
       const reused = prepared.filter(({ result }) => !result.upload_required);
-      const pending = prepared.filter(({ result }) => result.upload_required).map(({ file }) => file);
+      const reusedFiles = reused.flatMap(({ result }) => result.file ? [result.file] : []);
+      const reusedTasks = reused.flatMap(({ result }) => result.task ? [result.task] : []);
+      const rejected = settled.find((item) => item.status === "rejected");
+      if (rejected) {
+        throw partialUploadFailure(rejected.reason, reusedFiles, reusedTasks, []);
+      }
+      const pending = prepared.filter(({ result }) => result.upload_required);
       if (pending.length === 0) {
-        return {
-          files: reused.flatMap(({ result }) => result.file ? [result.file] : []),
-          tasks: reused.flatMap(({ result }) => result.task ? [result.task] : []),
-        };
+        return { files: reusedFiles, tasks: reusedTasks };
       }
-      const form = new FormData();
-      if (folderId) {
-        form.append("folder_id", folderId);
-      }
-      form.append("metadata", JSON.stringify({
+      const metadata = JSON.stringify({
         metadata: { metadata_json: {} },
         source_policy: sourcePolicy,
-      }));
-      for (const { file, sha256 } of prepared.filter(({ result }) => result.upload_required)) {
+      });
+      const uploadedTasks: TaskRef[] = [];
+      for (const { file, sha256 } of pending) {
+        const form = new FormData();
+        if (folderId) {
+          form.append("folder_id", folderId);
+        }
+        form.append("metadata", metadata);
         form.append("sha256", sha256);
         form.append("files", file);
+
+        let response: Response;
+        try {
+          response = await authFetch(resolveApiUrl(`/v1/groups/by-path/${encodeGroupPath(groupPath)}/library/files/upload`), {
+            body: form,
+            method: "POST",
+            signal: options.signal,
+          });
+        } catch (error) {
+          throw partialUploadFailure(error, reusedFiles, reusedTasks, uploadedTasks);
+        }
+        if (!response.ok) {
+          // Parse the server error so its message stays actionable, but keep
+          // the already accepted references attached to the failure.
+          let failure: unknown = new Error(`upload failed with status ${response.status}`);
+          try {
+            await unwrapFetchResponse<TaskRef>(response);
+          } catch (error) {
+            failure = error;
+          }
+          throw partialUploadFailure(failure, reusedFiles, reusedTasks, uploadedTasks);
+        }
+        try {
+          uploadedTasks.push(await unwrapFetchResponse<TaskRef>(response));
+        } catch (error) {
+          throw partialUploadFailure(error, reusedFiles, reusedTasks, uploadedTasks);
+        }
       }
-
-      const response = await authFetch(resolveApiUrl(`/v1/groups/by-path/${encodeGroupPath(groupPath)}/library/files/upload`), {
-        body: form,
-        method: "POST",
-        signal: options.signal,
-      });
-
-      const uploaded = await unwrapFetchResponse<TaskRef>(response);
       return {
-        files: reused.flatMap(({ result }) => result.file ? [result.file] : []),
-        tasks: [...reused.flatMap(({ result }) => result.task ? [result.task] : []), uploaded],
+        files: reusedFiles,
+        tasks: [...reusedTasks, ...uploadedTasks],
       };
     },
     getGroupLibraryFile(groupPath: string, fileId: string, options?: RequestOptions) {

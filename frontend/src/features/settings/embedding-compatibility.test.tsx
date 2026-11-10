@@ -66,7 +66,7 @@ describe("embedding compatibility confirmation", () => {
 
     await userEvent.clear(screen.getByLabelText("Rerank Candidates"));
     await userEvent.type(screen.getByLabelText("Rerank Candidates"), "55");
-    await goToSection(router, "Runtime", "/settings/runtime");
+    await goToSection(router, "Embedding", "/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Document model"));
     await userEvent.type(screen.getByLabelText("Document model"), "alias-model");
@@ -87,7 +87,7 @@ describe("embedding compatibility confirmation", () => {
 
   it("submits the acknowledgement only for an accepted candidate and spends it", async () => {
     const backend = setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Document model"));
     await userEvent.type(screen.getByLabelText("Document model"), "alias-model");
@@ -124,7 +124,7 @@ describe("embedding compatibility confirmation", () => {
 
   it("binds the confirmation to the candidate shown and re-prompts after a new edit", async () => {
     const backend = setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Document model"));
     await userEvent.type(screen.getByLabelText("Document model"), "alias-one");
@@ -162,7 +162,7 @@ describe("embedding compatibility confirmation", () => {
 
   it("never offers confirmation for a dimension change", async () => {
     const backend = setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Dimensions"));
     await userEvent.type(screen.getByLabelText("Dimensions"), "1024");
@@ -183,7 +183,7 @@ describe("embedding compatibility confirmation", () => {
     const backend = setup({
       runtime: { ...RUNTIME_SETTINGS, requires_rebuild: true },
     });
-    await openSettings("/settings/runtime");
+    const router = await openSettings("/settings/vector-index");
 
     const status = await screen.findByTestId("runtime-requires-rebuild");
     expect(status).toHaveTextContent("Search and ingestion stay unavailable");
@@ -193,20 +193,22 @@ describe("embedding compatibility confirmation", () => {
     expect(backend.callsFor("POST", "/v1/settings/runtime/vector-index/rebuild")).toHaveLength(0);
 
     // A save never clears or triggers the requirement by itself.
-    await userEvent.type(screen.getByLabelText("Embedding API Key"), "rotated-key");
+    await router.navigate("/settings/embedding");
+    await userEvent.type(await screen.findByLabelText("Embedding API Key"), "rotated-key");
     await userEvent.click(screen.getByTestId("settings-save"));
     await waitFor(() => {
       expect(screen.getByTestId("settings-save")).toBeDisabled();
     });
     expect(backend.callsFor("POST", "/v1/settings/runtime/vector-index/rebuild")).toHaveLength(0);
-    expect(screen.getByTestId("runtime-requires-rebuild")).toBeInTheDocument();
+    await router.navigate("/settings/vector-index");
+    expect(await screen.findByTestId("runtime-requires-rebuild")).toBeInTheDocument();
   });
 
   it("keeps the rebuild a separate, explicitly confirmed full re-embed", async () => {
     const backend = setup({
       runtime: { ...RUNTIME_SETTINGS, requires_rebuild: true },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/vector-index");
 
     await userEvent.click(await screen.findByTestId("runtime-requires-rebuild-action"));
     const dialog = await screen.findByRole("alertdialog");
@@ -222,7 +224,7 @@ describe("embedding compatibility confirmation", () => {
 
   it("never saves or confirms from the connection test", async () => {
     const backend = setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Document model"));
     await userEvent.type(screen.getByLabelText("Document model"), "alias-model");
@@ -247,7 +249,7 @@ describe("embedding compatibility confirmation", () => {
 
   it("discards a pending probe outcome after the query alias is edited", async () => {
     setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     let resolveProbe!: () => void;
     const pendingProbe = new Promise<void>((resolve) => {

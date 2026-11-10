@@ -78,6 +78,14 @@ impl EmbeddingProvider for TestEmbedder {
 }
 
 async fn build_service(db: &Database, embedder: Arc<TestEmbedder>) -> LibraryService {
+    build_service_with_fingerprint(db, embedder, None).await
+}
+
+async fn build_service_with_fingerprint(
+    db: &Database,
+    embedder: Arc<TestEmbedder>,
+    configured_fingerprint: Option<&str>,
+) -> LibraryService {
     let settings = SettingsService::new(db.clone());
     let translation = TranslationService::new(TranslationDependencies {
         pool: db.pool().clone(),
@@ -94,10 +102,15 @@ async fn build_service(db: &Database, embedder: Arc<TestEmbedder>) -> LibrarySer
             dimensions: 4,
         }),
     );
-    LibraryService::new(
-        db.clone(),
+    let vector = context69::vector_runtime::VectorRuntime::from_legacy(
         embedding,
         Some(QdrantIndex::for_test_noop("test-noop", 4).expect("the no-op test index")),
+        "test-noop",
+    );
+    vector.set_configured_fingerprint(configured_fingerprint.map(str::to_string));
+    LibraryService::with_vector_runtime(
+        db.clone(),
+        vector,
         LibraryServiceConfig {
             chunking: context69::chunking::ChunkingConfig {
                 max_chars: 200,
@@ -107,10 +120,6 @@ async fn build_service(db: &Database, embedder: Arc<TestEmbedder>) -> LibrarySer
                 storage_root: std::env::temp_dir()
                     .join(format!("context69-p3d-{}", Uuid::new_v4())),
                 max_upload_size_mb: 1,
-                max_upload_request_size_mb: 1,
-                ingest_concurrency: 1,
-                url_import_concurrency: 1,
-                url_import_min_interval_ms: 1000,
                 trusted_proxy_enabled: false,
                 s3: None,
             },
@@ -123,6 +132,61 @@ async fn build_service(db: &Database, embedder: Arc<TestEmbedder>) -> LibrarySer
     )
     .await
     .expect("build the library service")
+}
+
+/// Seed the desired and active vector identity of the deployment.
+async fn seed_active_identity(db: &Database) {
+    let base_url = "http://127.0.0.1:1";
+    let model = "p3d-test";
+    let collection = "test-noop";
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_desired_runtime_identity.sql",
+        "http://127.0.0.1:1",
+        collection,
+        base_url,
+        model,
+        4
+    )
+    .execute(db.pool())
+    .await
+    .expect("seed the desired vector identity");
+    let fingerprint = context69::embedding::embedding_runtime::vector_identity_fingerprint(
+        "http://127.0.0.1:1",
+        collection,
+        base_url,
+        model,
+        4,
+    );
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the previous active index");
+    sqlx::query_file!(
+        "tests/sql/vector_registry/seed_active_index.sql",
+        collection,
+        fingerprint,
+        base_url,
+        model,
+        4
+    )
+    .execute(db.pool())
+    .await
+    .expect("activate the seeded vector index");
+}
+
+async fn clear_vector_identity(db: &Database) {
+    sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+        .execute(db.pool())
+        .await
+        .expect("clear the active vector identity");
+    sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+        .execute(db.pool())
+        .await
+        .expect("clear the qdrant settings");
+    sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+        .execute(db.pool())
+        .await
+        .expect("clear the embedding settings");
 }
 
 fn section_payload() -> Value {
@@ -455,5 +519,61 @@ async fn a_loss_at_the_provider_barrier_publishes_nothing() {
         "the lost grant does not advance the counter"
     );
 
+    cleanup_ingest(&db, file_id, group_id, task_id, user_id).await;
+}
+
+/// A captured identity that no longer matches the active vector index is
+/// refused before the document, chunks or status change, and the file keeps
+/// its committed state for a retry under the current configuration.
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_mismatched_captured_identity_writes_no_row_and_preserves_the_file() {
+    let db = connect().await;
+    let _guard = TEST_LOCK.lock().await;
+    let user_id = seed_user(&db).await;
+    let group_id = seed_group(&db).await;
+    let (task_id, item_id) = seed_task(&db, user_id, group_id).await;
+    let item = claim(&db, item_id).await;
+    let fence = TaskWriteFence::from_claimed_item(&item).expect("the captured grant");
+    let file_id = seed_library_file(&db, group_id).await;
+    seed_metadata_index(&db, group_id).await;
+    seed_active_identity(&db).await;
+    let generation_before = search_generation(&db).await;
+
+    let embedder = Arc::new(TestEmbedder {
+        calls: AtomicUsize::new(0),
+        hold: false,
+        started: Arc::new(tokio::sync::Notify::new()),
+        release: Arc::new(tokio::sync::Notify::new()),
+    });
+    let service =
+        build_service_with_fingerprint(&db, embedder.clone(), Some("stale-captured-identity"))
+            .await;
+
+    let refused = service
+        .persist_file_sections_for_task_fenced(file_id, &section_payload(), fence)
+        .await;
+    assert!(
+        refused.is_err(),
+        "a captured identity outside the active vector index cannot ingest"
+    );
+    assert_eq!(
+        embedder.calls.load(Ordering::SeqCst),
+        0,
+        "the provider did not run"
+    );
+
+    let rows = ingest_rows(&db, file_id).await;
+    assert_eq!(rows.documents, 0, "no document is written");
+    assert_eq!(rows.versions, 0, "no version is written");
+    assert_eq!(rows.chunks, 0, "no chunk is written");
+    assert_eq!(rows.links, 0, "no link is written");
+    assert_eq!(
+        search_generation(&db).await,
+        generation_before,
+        "the refused ingest does not advance the counter"
+    );
+
+    clear_vector_identity(&db).await;
     cleanup_ingest(&db, file_id, group_id, task_id, user_id).await;
 }

@@ -1108,6 +1108,7 @@ mod ingest_content {
                     LibraryIngestStatus::Succeeded,
                     None,
                     true,
+                    None,
                 )
                 .await
                 .expect("the live grant writes the links"),
@@ -1155,6 +1156,7 @@ mod ingest_content {
                     LibraryIngestStatus::Failed,
                     Some("crashed"),
                     false,
+                    None,
                 )
                 .await
                 .expect("a refused write is not an error"),
@@ -1260,6 +1262,112 @@ mod ingest_content {
         assert_eq!(rows.chunks, 0, "no chunk is written");
         assert_eq!(rows.links, 0, "no link is written");
         assert_eq!(rows.status, "failed", "the status of the file is untouched");
+
+        cleanup_content(&db, file_id, group_id).await;
+        cleanup(&db, task_id, user_id, group_id).await;
+    }
+
+    /// A successful finalization commits the links and the status together, and
+    /// a rebuild that owns the barrier refuses both the fenced and the pooled
+    /// helper before either row changes.
+    #[tokio::test]
+    #[ignore = "requires configured reusable PostgreSQL"]
+    async fn a_finalization_cannot_change_links_or_status_while_a_rebuild_owns_the_barrier() {
+        let db = connect().await;
+        let _guard = TEST_LOCK.lock().await;
+        let user_id = seed_user(&db).await;
+        let group_id = seed_group(&db).await;
+        let (task_id, item_id) = seed_task(&db, user_id, group_id).await;
+        let item = claim(&db, item_id).await;
+        let fence = TaskWriteFence::from_claimed_item(&item).expect("the captured grant");
+        let store = LibraryStore::new(db.clone());
+        let file_id = seed_library_file(&db, group_id).await;
+        let before = content_rows(&db, file_id).await;
+        sqlx::query_file!("tests/sql/vector_registry/clear_active_index.sql")
+            .execute(db.pool())
+            .await
+            .expect("clear the active vector identity");
+        sqlx::query("DELETE FROM context69.runtime_qdrant_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the qdrant settings");
+        sqlx::query("DELETE FROM context69.runtime_embedding_settings")
+            .execute(db.pool())
+            .await
+            .expect("clear the embedding settings");
+
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'running', rebuild_owner_item = $1 WHERE id = 1",
+        )
+        .bind(item_id)
+        .execute(db.pool())
+        .await
+        .expect("hold the rebuild barrier");
+
+        let fenced = store
+            .replace_file_documents_and_status_fenced(
+                fence,
+                file_id,
+                &[],
+                LibraryIngestStatus::Succeeded,
+                None,
+                true,
+                None,
+            )
+            .await;
+        assert!(
+            fenced.is_err(),
+            "the fenced finalization cannot bypass an owned rebuild barrier"
+        );
+        let pooled = store
+            .replace_file_documents_and_status(
+                file_id,
+                &[],
+                LibraryIngestStatus::Succeeded,
+                None,
+                true,
+                None,
+            )
+            .await;
+        assert!(
+            pooled.is_err(),
+            "the pooled finalization cannot bypass an owned rebuild barrier"
+        );
+        assert_eq!(
+            content_rows(&db, file_id).await,
+            before,
+            "a refused finalization changes neither the links nor the status"
+        );
+
+        sqlx::query(
+            "UPDATE context69.search_registry_epoch \
+             SET rebuild_state = 'idle', rebuild_owner_item = NULL WHERE id = 1",
+        )
+        .execute(db.pool())
+        .await
+        .expect("release the rebuild barrier");
+
+        assert!(
+            store
+                .replace_file_documents_and_status_fenced(
+                    fence,
+                    file_id,
+                    &[],
+                    LibraryIngestStatus::Succeeded,
+                    None,
+                    true,
+                    None,
+                )
+                .await
+                .expect("the live grant finalizes after the barrier is released"),
+            "the live grant commits the links and the status"
+        );
+        assert_eq!(
+            content_rows(&db, file_id).await.status,
+            "succeeded",
+            "the successful finalization projects the status"
+        );
 
         cleanup_content(&db, file_id, group_id).await;
         cleanup(&db, task_id, user_id, group_id).await;

@@ -2,7 +2,9 @@
 
 #[cfg(feature = "integration-test-helpers")]
 use anyhow::{Context, Result};
+use context69::chunking::{ChunkBudget, ChunkingConfig, ChunkingRuntime, chunk_document_resolved};
 use context69::db::{Database, RebuildBarrierState, RegistryVectorIdentity};
+use context69::domain::NormalizedDocument;
 use context69_search::SearchRegistryEntry;
 use uuid::Uuid;
 
@@ -115,18 +117,38 @@ pub async fn set_item_lease(db: &Database, item_id: Uuid, token: Uuid, expired: 
 /// schema, so the barrier is restored between the cases.
 pub async fn reset_barrier(db: &Database) {
     // The product allows one active vector rebuild task. A failed case of this
-    // target may have left its seeded task behind, so the target's own rebuild
-    // tasks are cleared before a case seeds one.
+    // target may have left its seeded task behind, and the fixture also seeds
+    // ordinary file-batch tasks, so every task owned by a fixture user is
+    // cleared before a case seeds one. Deleting a task cascades to its items,
+    // attempts and ingest run.
     sqlx::query(
         "DELETE FROM context69.tasks \
-         WHERE kind = 'vector_rebuild' \
-           AND user_id IN ( \
-               SELECT id FROM context69.users WHERE login_name LIKE 'barrier-%' \
-           )",
+         WHERE user_id IN ( \
+             SELECT id FROM context69.users WHERE login_name LIKE 'barrier-%' \
+         )",
     )
     .execute(db.pool())
     .await
-    .expect("clear the target's rebuild tasks");
+    .expect("clear the target's fixture tasks");
+    // Registry entries carry no owner marker; this target owns the schema the
+    // runner reset, so every entry present here belongs to an earlier fixture
+    // case that did not resolve it.
+    sqlx::query("DELETE FROM context69.search_registry_entries")
+        .execute(db.pool())
+        .await
+        .expect("clear the target's registry entries");
+    // A previous attempt of this target may have left staged document rows
+    // keyed by a target collection it no longer owns.
+    for statement in [
+        "DELETE FROM context69.document_chunk_rebuild_staging",
+        "DELETE FROM context69.document_translation_rebuild_staging",
+        "DELETE FROM context69.document_rebuild_staging_documents",
+    ] {
+        sqlx::query(statement)
+            .execute(db.pool())
+            .await
+            .expect("clear the target's rebuild staging");
+    }
     sqlx::query(
         "UPDATE context69.search_registry_epoch \
          SET rebuild_state = 'idle', rebuild_owner_item = NULL, rebuild_owner_token = NULL, \
@@ -146,6 +168,35 @@ pub async fn reset_barrier(db: &Database) {
         .execute(db.pool())
         .await
         .expect("clear the recorded vector identities");
+}
+
+/// Pin the durable document snapshot a production claim writes.
+///
+/// Low-level barrier tests that complete without going through the checked
+/// deployment entry seed this instead of relying on an activation without a
+/// snapshot.
+pub async fn pin_rebuild_snapshot(db: &Database, budget: &ChunkBudget, generation: i64) {
+    let value = context69::chunking::chunk_budget_to_value(budget);
+    sqlx::query(
+        "UPDATE context69.search_registry_epoch \
+         SET rebuild_chunk_budget = $1, rebuild_generation = $2 WHERE id = 1",
+    )
+    .bind(value)
+    .bind(generation)
+    .execute(db.pool())
+    .await
+    .expect("pin the rebuild snapshot");
+}
+
+/// Record that the fixture's document staging is complete and ready to swap.
+pub async fn mark_rebuild_staging_complete(db: &Database) {
+    sqlx::query(
+        "UPDATE context69.search_registry_epoch \
+         SET rebuild_staging_complete = TRUE WHERE id = 1",
+    )
+    .execute(db.pool())
+    .await
+    .expect("mark the rebuild staging complete");
 }
 
 /// Remove the registry entries this target owns, so every case observes the
@@ -266,9 +317,8 @@ pub async fn seed_runtime_settings(
     .expect("seed the chunking settings");
     sqlx::query(
         "INSERT INTO context69.runtime_file_library_settings \
-         (singleton, storage_root, max_upload_size_mb, max_upload_request_size_mb, \
-          ingest_concurrency) \
-         VALUES (TRUE, '/tmp/barrier-storage', 10, 10, 1) \
+         (singleton, storage_root, max_upload_size_mb) \
+         VALUES (TRUE, '/tmp/barrier-storage', 10) \
          ON CONFLICT (singleton) DO NOTHING",
     )
     .execute(db.pool())
@@ -337,21 +387,44 @@ pub async fn activate_index(
 ///
 /// The rebuild page query joins `documents` and `groups`, so the fixture owns
 /// one group-scoped document instead of a synthetic chunk-only row.
-pub async fn seed_reindex_document(db: &Database, group_id: i64, chunks: usize) -> Result<i64> {
+pub async fn seed_reindex_document(
+    db: &Database,
+    group_id: i64,
+    chunks: usize,
+) -> Result<(i64, usize)> {
     let external_id = format!("reindex-{}", Uuid::new_v4());
+    let record_hash = external_id.clone();
+    // One paragraph per requested fresh chunk, each large enough that the
+    // 1000-character fixture budget cannot merge two of them.
+    let body_text = (0..chunks)
+        .map(|index| format!("rebuild paragraph {index} {}", "x".repeat(900)))
+        .collect::<Vec<_>>()
+        .join("\n\n");
     let document_id: i64 = sqlx::query_scalar(
         "INSERT INTO context69.documents \
          (group_id, visibility, source_key, external_id, title, source_uri, \
           updated_at_source, metadata_json, record_hash) \
          VALUES ($1, 'public', 'reindex-fixture', $2, 'rebuild fixture', \
-                 'https://example.com/rebuild', now(), '{}'::jsonb, $2) \
+                 'https://example.com/rebuild', now(), '{}'::jsonb, $3) \
          RETURNING id",
     )
     .bind(group_id)
     .bind(&external_id)
+    .bind(&record_hash)
     .fetch_one(db.pool())
     .await
     .context("seed the reindex document")?;
+    sqlx::query(
+        "INSERT INTO context69.document_versions \
+         (document_id, record_hash, title, body_text, source_uri, metadata_json) \
+         VALUES ($1, $2, 'rebuild fixture', $3, 'https://example.com/rebuild', '{}'::jsonb)",
+    )
+    .bind(document_id)
+    .bind(&record_hash)
+    .bind(&body_text)
+    .execute(db.pool())
+    .await
+    .context("seed the canonical reindex version")?;
     for chunk_index in 0..chunks {
         sqlx::query_file!(
             "tests/sql/task_execution/insert_document_chunk.sql",
@@ -365,7 +438,28 @@ pub async fn seed_reindex_document(db: &Database, group_id: i64, chunks: usize) 
         .await
         .context("seed one reindex chunk")?;
     }
-    Ok(document_id)
+    // The rebuild re-chunks the canonical body, so the expected page boundary
+    // is the fresh chunking result, not the legacy row count.
+    let normalized = NormalizedDocument {
+        external_id,
+        title: "rebuild fixture".to_string(),
+        summary: None,
+        body_text,
+        source_uri: "https://example.com/rebuild".to_string(),
+        published_at: None,
+        updated_at: chrono::Utc::now(),
+        metadata_json: serde_json::json!({}),
+        record_hash,
+    };
+    let budget = ChunkingRuntime::new(ChunkBudget::chars(ChunkingConfig {
+        max_chars: 1000,
+        overlap_chars: 100,
+    }))
+    .resolve_snapshot()
+    .context("resolve the fixture chunk budget")?;
+    let fresh = chunk_document_resolved(document_id, "reindex-fixture", &normalized, &budget)
+        .context("chunk the canonical fixture body")?;
+    Ok((document_id, fresh.len()))
 }
 
 #[cfg(feature = "integration-test-helpers")]
@@ -526,9 +620,8 @@ pub async fn try_seed_runtime_settings(
     .context("seed the chunking settings")?;
     sqlx::query(
         "INSERT INTO context69.runtime_file_library_settings \
-         (singleton, storage_root, max_upload_size_mb, max_upload_request_size_mb, \
-          ingest_concurrency) \
-         VALUES (TRUE, '/tmp/barrier-storage', 10, 10, 1)",
+         (singleton, storage_root, max_upload_size_mb) \
+         VALUES (TRUE, '/tmp/barrier-storage', 10)",
     )
     .execute(db.pool())
     .await

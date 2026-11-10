@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Advance the independent translation-embedding cursor of one owned rebuild.\nUPDATE context69.search_registry_epoch\nSET rebuild_translation_cursor_document_id = $5::bigint,\n    rebuild_translation_cursor_translation_id = $6::uuid,\n    rebuild_translation_cursor_chunk_index = $7::integer,\n    rebuild_translation_processed_chunks = $8::bigint,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\n  AND $7::integer >= 0\n  AND $8::bigint >= 0\nRETURNING TRUE AS \"updated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "updated!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Uuid",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "4fa8efaffa6cb498905f9495f0db5918117a3c5826bf67a73006e2579f34d524"
+}

@@ -1,0 +1,32 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Frees the rebuild barrier of a cancelled owner (issue 1212 P3).\n--\n-- Cancellation is not a failure: the cancelled work must never complete, and a\n-- late page or completion of it must write nothing. Clearing the owner, the\n-- cursor and the pause flag while bumping the epoch invalidates every stale\n-- attempt at once. Both running and failed barriers are cleared, because a\n-- failed barrier still blocks target editing.\n--\n-- The staging rows of the released target are deleted in the same statement,\n-- so a later rebuild of the same identity never inherits the cancelled\n-- attempt's partial snapshot.\n--\n-- `$1` narrows the clear to the items of one cancelled task. `NULL` is the bulk\n-- cancellation: every barrier whose recorded owner can no longer write is\n-- freed. `$2` restricts the clear to a failed barrier for the explicit discard\n-- of a terminal rebuild.\n--\n-- `$3` selects the other mode: the clear of one exact owned barrier. It\n-- matches only the barrier that records this owner item, this grant token and\n-- this target collection, so a refused attempt frees its own barrier and\n-- never the barrier of a newer owner. `$4` is the grant token and `$5` the\n-- recorded collection of that exact clear.\nWITH target AS (\n    SELECT rebuild_collection AS collection\n    FROM context69.search_registry_epoch\n    WHERE id = 1\n),\ncleared AS (\n    UPDATE context69.search_registry_epoch\n    SET rebuild_state = 'idle',\n        rebuild_owner_item = NULL,\n        rebuild_owner_token = NULL,\n        rebuild_fingerprint = NULL,\n        rebuild_collection = NULL,\n        rebuild_started_at = NULL,\n        rebuild_error = NULL,\n        rebuild_pause_requested = FALSE,\n        rebuild_cursor_document_id = NULL,\n        rebuild_cursor_chunk_index = NULL,\n        rebuild_processed_chunks = 0,\n        rebuild_total_chunks = 0,\n        rebuild_staging_complete = FALSE,\n        rebuild_staged_document_id = NULL,\n        rebuild_translation_cursor_document_id = NULL,\n        rebuild_translation_cursor_translation_id = NULL,\n        rebuild_translation_cursor_chunk_index = NULL,\n        rebuild_translation_processed_chunks = 0,\n        -- The recorded target is released, so no attempt may treat it as a\n        -- collection it created any more.\n        rebuild_target_created = FALSE,\n        epoch = context69.search_registry_epoch.epoch + 1,\n        updated_at = now()\n    WHERE id = 1\n      AND rebuild_state IN ('running', 'failed')\n      AND (\n            (\n                $3::uuid IS NOT NULL\n                AND rebuild_owner_item = $3\n                AND rebuild_owner_token = $4\n                AND rebuild_collection = $5\n            )\n            OR (\n                $3::uuid IS NULL\n                AND (\n                    (\n                        $1::uuid IS NOT NULL\n                        AND rebuild_owner_item IN (\n                            SELECT item.id\n                            FROM context69.task_items item\n                            WHERE item.task_id = $1\n                        )\n                        AND (NOT $2::boolean OR rebuild_state = 'failed')\n                    )\n                    OR (\n                        $1::uuid IS NULL\n                        AND NOT EXISTS (\n                            SELECT 1\n                            FROM context69.task_items item\n                            WHERE item.id = rebuild_owner_item\n                              AND item.status = 'running'\n                              AND item.lease_token = rebuild_owner_token\n                        )\n                    )\n                )\n            )\n        )\n    RETURNING epoch\n),\ndeleted_original_chunks AS (\n    DELETE FROM context69.document_chunk_rebuild_staging staging\n    USING target, cleared\n    WHERE staging.target_collection = target.collection\n),\ndeleted_translations AS (\n    DELETE FROM context69.document_translation_rebuild_staging staging\n    USING target, cleared\n    WHERE staging.target_collection = target.collection\n),\ndeleted_documents AS (\n    DELETE FROM context69.document_rebuild_staging_documents staging\n    USING target, cleared\n    WHERE staging.target_collection = target.collection\n)\nSELECT epoch\nFROM cleared\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Bool",
+        "Uuid",
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "58c85663ad86b16380b0ccf7a0f920c8a4fb59592d98aa10ee04b9cb367d195c"
+}

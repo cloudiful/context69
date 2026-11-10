@@ -130,7 +130,7 @@ describe("settings save orchestration", () => {
 
   it("stops at the runtime admission step when the runtime save fails", async () => {
     const backend = installFakeBackend({ fail: { runtimePut: true } });
-    const router = await openSettings("/settings/runtime");
+    const router = await openSettings("/settings/embedding");
 
     await userEvent.type(screen.getByLabelText("Document model"), "-2");
     await goToSection(router, "Search", "/settings/search");
@@ -151,7 +151,7 @@ describe("settings save orchestration", () => {
 
   it("captures every group's payload at click time and adopts the saved baselines", async () => {
     const backend = setup();
-    const router = await openSettings("/settings/runtime");
+    const router = await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Document model"));
     await userEvent.type(screen.getByLabelText("Document model"), "embed-2");
@@ -231,7 +231,7 @@ describe("settings save orchestration", () => {
 
   it("does not claim success while a newer edit remains after the save", async () => {
     const backend = setup();
-    const router = await openSettings("/settings/runtime");
+    const router = await openSettings("/settings/embedding");
     const putSpy = backend.spies.PUT as unknown as {
       getMockImplementation: () => (path: string, init?: unknown) => unknown;
       mockImplementation: (implementation: (path: string, init?: unknown) => unknown) => void;
@@ -273,12 +273,12 @@ describe("settings save orchestration", () => {
     });
     expect(screen.getByLabelText("Document model")).toHaveValue("embed-3");
     expect(screen.queryByText("Settings saved")).not.toBeInTheDocument();
-    expect(router.state.location.pathname).toBe("/settings/runtime");
+    expect(router.state.location.pathname).toBe("/settings/embedding");
   });
 
   it("drops the pending state when a group is edited back to its baseline", async () => {
     setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.type(screen.getByLabelText("Document model"), "-2");
     expect(screen.getByText("Unsaved changes")).toBeInTheDocument();
@@ -294,12 +294,12 @@ describe("settings save orchestration", () => {
 
   it("discards an unsaved draft on a fresh mount", async () => {
     const backend = setup();
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.type(screen.getByLabelText("Document model"), "-2");
     cleanup();
 
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     expect(await screen.findByLabelText("Document model")).toHaveValue("embed-1");
     expect(backend.callsFor("PUT", "/v1/settings/runtime")).toHaveLength(0);
@@ -307,7 +307,7 @@ describe("settings save orchestration", () => {
 
   it("runs the runtime probe with the unsaved draft and reports the outcome", async () => {
     const backend = setup({ fail: { testEmbedding: true } });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Embedding Base URL"));
     await userEvent.type(screen.getByLabelText("Embedding Base URL"), "http://embedding-2:8080/v1");
@@ -329,7 +329,7 @@ describe("settings save orchestration", () => {
     const backend = installFakeBackend({
       runtime: { ...RUNTIME_SETTINGS, code_embedding: CODE_EMBEDDING },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.type(screen.getByLabelText("Embedding API Key"), "document-key");
     await userEvent.click(screen.getByTestId("settings-save"));
@@ -349,7 +349,7 @@ describe("settings save orchestration", () => {
     const backend = installFakeBackend({
       runtime: { ...RUNTIME_SETTINGS, code_embedding: CODE_EMBEDDING },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.click(screen.getByTestId("runtime-code-embedding-test"));
 
@@ -370,7 +370,7 @@ describe("settings save orchestration", () => {
     const backend = installFakeBackend({
       runtime: { ...RUNTIME_SETTINGS, code_embedding: CODE_EMBEDDING },
     });
-    await openSettings("/settings/runtime");
+    await openSettings("/settings/embedding");
 
     await userEvent.clear(screen.getByLabelText("Code model"));
     await userEvent.type(screen.getByLabelText("Code model"), "code-embed-2");

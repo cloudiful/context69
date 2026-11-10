@@ -7,9 +7,7 @@
 use anyhow::Result;
 
 use super::SettingsService;
-use crate::contracts::settings::{
-    EmbeddingBatchingSettings, TestRuntimeEmbeddingPurpose, TestRuntimeEmbeddingRequest,
-};
+use crate::contracts::settings::{TestRuntimeEmbeddingPurpose, TestRuntimeEmbeddingRequest};
 use crate::support::normalize::normalize_optional_string;
 
 /// The synthetic string a probe embeds.
@@ -73,30 +71,6 @@ impl SettingsService {
         }
     }
 
-    /// The batching limits a non-persisting probe plans against.
-    ///
-    /// They are the stored limits of the selected purpose when a configuration
-    /// exists: the limits belong to the deployment, not to the draft.
-    async fn probe_batching(
-        &self,
-        purpose: TestRuntimeEmbeddingPurpose,
-    ) -> Result<EmbeddingBatchingSettings> {
-        Ok(match purpose {
-            TestRuntimeEmbeddingPurpose::Document => self
-                .db
-                .get_runtime_settings()
-                .await?
-                .map(|settings| settings.embedding.batching)
-                .unwrap_or_default(),
-            TestRuntimeEmbeddingPurpose::Code => self
-                .db
-                .get_runtime_code_embedding_settings()
-                .await?
-                .map(|settings| settings.batching)
-                .unwrap_or_default(),
-        })
-    }
-
     pub async fn test_embedding_connection(
         &self,
         request: &TestRuntimeEmbeddingRequest,
@@ -107,7 +81,6 @@ impl SettingsService {
         let api_key = self
             .probe_credential(request.purpose, &request.base_url, request.api_key.clone())
             .await?;
-        let batching = self.probe_batching(request.purpose).await?;
         // Construction performs no I/O; the probe embeds one synthetic string.
         // Every error path carries endpoint/model only, never the key.
         let provider =
@@ -118,8 +91,6 @@ impl SettingsService {
                 query_model: None,
                 dimensions: request.dimensions,
                 timeout: std::time::Duration::from_secs(request.timeout_secs),
-                batching,
-                input_policy: Default::default(),
             })?;
         provider.embed_texts(&[PROBE_TEXT.to_string()]).await?;
 
@@ -139,8 +110,6 @@ impl SettingsService {
                     query_model: None,
                     dimensions: request.dimensions,
                     timeout: std::time::Duration::from_secs(request.timeout_secs),
-                    batching,
-                    input_policy: Default::default(),
                 },
             )?;
             query_provider

@@ -437,9 +437,11 @@ async function runContrastSuite(page: Page, theme: Theme): Promise<void> {
   await expectContrast(refresh, "text", 4.5, `${theme}: outline button label (hover)`);
   await page.mouse.move(0, 0);
 
-  // Settings runtime: input boundary, focus ring, switches, default button, invalid input.
-  await page.goto("/settings/runtime");
-  await expect(page.getByRole("heading", { name: "Runtime" })).toBeVisible();
+  // Settings embedding: input boundary, focus ring, switches, default button, invalid input.
+  await page.goto("/settings/embedding");
+  await expect(
+    page.getByRole("heading", { name: "Embedding", exact: true }).first(),
+  ).toBeVisible();
 
   const input = page.locator("#runtime-embedding-base-url");
   await expectContrast(input, "border", 3, `${theme}: input boundary`);

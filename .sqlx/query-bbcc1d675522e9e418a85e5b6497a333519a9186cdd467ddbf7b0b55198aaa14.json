@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Exact staged totals: fresh originals and preserved translations.\nSELECT\n    (SELECT count(*)\n     FROM context69.document_chunk_rebuild_staging\n     WHERE target_collection = $1)::bigint AS \"original!\",\n    (SELECT count(*)\n     FROM context69.document_translation_rebuild_staging\n     WHERE target_collection = $1)::bigint AS \"translated!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "original!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "translated!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "bbcc1d675522e9e418a85e5b6497a333519a9186cdd467ddbf7b0b55198aaa14"
+}

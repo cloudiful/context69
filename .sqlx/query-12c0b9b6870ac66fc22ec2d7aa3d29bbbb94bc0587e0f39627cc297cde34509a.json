@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The producer-proven retired origin of one replacement registry entry.\n--\n-- Shared by the real switch and rebuild quota fixtures so both observe the\n-- stored provenance and reservation of the same transition instead of a\n-- fabricated entry shape.\nSELECT retired_original_ids, reserved_ids\nFROM context69.search_registry_entries\nWHERE run_id = $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "retired_original_ids",
+        "type_info": "UuidArray",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "retired_original_ids"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "reserved_ids",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "reserved_ids"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "12c0b9b6870ac66fc22ec2d7aa3d29bbbb94bc0587e0f39627cc297cde34509a"
+}

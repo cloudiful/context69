@@ -1328,7 +1328,6 @@ mod runner_cases {
                 max_tokens: 0,
                 overlap_tokens: 0,
             }),
-            input_policy: None,
         };
         let mock = QdrantPointsMock::start().await;
         let fixture = harness::SwitchFixture::new().await;

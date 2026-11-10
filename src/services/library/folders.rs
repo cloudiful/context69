@@ -78,6 +78,67 @@ impl LibraryService {
         })
     }
 
+    /// Revalidate a folder move under the locked mutation transaction.
+    ///
+    /// Both folder rows are locked in id order, so two opposing moves cannot
+    /// interleave their reads. The candidate parent is refused when it is the
+    /// folder itself, belongs to another group, or is already an ancestor of
+    /// the moving folder, which is exactly the condition that would create a
+    /// cycle in the current tree.
+    async fn revalidate_folder_move_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: Option<i64>,
+        folder_id: Uuid,
+        target_folder_id: Option<Uuid>,
+    ) -> Result<()> {
+        if target_folder_id == Some(folder_id) {
+            return Err(DomainError::invalid_argument("folder cannot be moved into itself").into());
+        }
+        let mut ids = vec![folder_id];
+        if let Some(target_id) = target_folder_id {
+            ids.push(target_id);
+        }
+        ids.sort_unstable();
+        ids.dedup();
+        let mut source = None;
+        let mut target = None;
+        for id in ids {
+            let Some(row) = self
+                .store
+                .lock_folder_for_delete_on(connection, id, project_id)
+                .await?
+            else {
+                return Err(DomainError::not_found(format!("unknown folder {id}")).into());
+            };
+            if id == folder_id {
+                source = Some(row);
+            } else if target_folder_id == Some(id) {
+                target = Some(row);
+            }
+        }
+        let source = source.expect("the source folder is locked");
+        let Some(target) = target else {
+            return Ok(());
+        };
+        if target.group_id != source.group_id {
+            return Err(
+                DomainError::invalid_argument("folder cannot be moved across groups").into(),
+            );
+        }
+        let ancestors = self
+            .store
+            .folder_ancestor_ids_on(connection, target.id)
+            .await?;
+        if ancestors.contains(&folder_id) {
+            return Err(DomainError::invalid_argument(
+                "folder cannot be moved into its descendant",
+            )
+            .into());
+        }
+        Ok(())
+    }
+
     pub async fn move_folder(
         &self,
         folder_id: Uuid,
@@ -105,13 +166,38 @@ impl LibraryService {
             }
         }
 
+        let caps = self.registry_caps();
+        let capture = self.capture_metadata_vector();
+        let mut tx = self.db.pool().begin().await?;
+        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
+        self.revalidate_folder_move_on(&mut tx, None, folder_id, request.target_folder_id)
+            .await?;
         let moved = self
             .store
-            .move_folder(folder_id, request.target_folder_id)
+            .move_folder_on(&mut tx, folder_id, request.target_folder_id)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
-        self.refresh_metadata_for_folder_subtree(folder_id).await?;
-        self.bump_search_generation("library folder move").await?;
+        let file_ids = self
+            .store
+            .descendant_file_ids_on(&mut tx, folder_id)
+            .await?;
+        for file_id in file_ids {
+            let Some(file) = self.store.lock_file_on(&mut tx, file_id).await? else {
+                continue;
+            };
+            let publication = self.refresh_metadata_for_file_on(&mut tx, &file).await?;
+            if let Some(caps) = caps {
+                self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
+                    .await?;
+            }
+            if mirror {
+                self.db
+                    .enqueue_library_metadata_mirror_in(&mut tx, file_id)
+                    .await?;
+            }
+        }
+        self.db.bump_search_generation_in(&mut tx).await?;
+        tx.commit().await?;
         let path = self.folder_path(moved.parent_id, &moved.name).await?;
 
         Ok(LibraryFolderResponse {
@@ -161,13 +247,43 @@ impl LibraryService {
             }
         }
 
+        let caps = self.registry_caps();
+        let capture = self.capture_metadata_vector();
+        let mut tx = self.db.pool().begin().await?;
+        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
+        self.revalidate_folder_move_on(
+            &mut tx,
+            Some(project.id),
+            folder_id,
+            request.target_folder_id,
+        )
+        .await?;
         let moved = self
             .store
-            .move_folder_in_project(project.id, folder_id, request.target_folder_id)
+            .move_folder_in_project_on(&mut tx, project.id, folder_id, request.target_folder_id)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown folder {folder_id}")))?;
-        self.refresh_metadata_for_folder_subtree(folder_id).await?;
-        self.bump_search_generation("library folder move").await?;
+        let file_ids = self
+            .store
+            .descendant_file_ids_in_project_on(&mut tx, project.id, folder_id)
+            .await?;
+        for file_id in file_ids {
+            let Some(file) = self.store.lock_file_on(&mut tx, file_id).await? else {
+                continue;
+            };
+            let publication = self.refresh_metadata_for_file_on(&mut tx, &file).await?;
+            if let Some(caps) = caps {
+                self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
+                    .await?;
+            }
+            if mirror {
+                self.db
+                    .enqueue_library_metadata_mirror_in(&mut tx, file_id)
+                    .await?;
+            }
+        }
+        self.db.bump_search_generation_in(&mut tx).await?;
+        tx.commit().await?;
         let path = self.folder_path(moved.parent_id, &moved.name).await?;
 
         Ok(LibraryFolderResponse {
@@ -253,8 +369,11 @@ impl LibraryService {
             .await?;
         // A rebuild owns the whole collection while it runs, so a logical
         // delete that overlapped it would remove points the rebuild still
-        // holds and would publish a tombstone the rebuild never applied.
-        self.db.require_rebuild_idle_in(write.connection()).await?;
+        // holds and would publish a tombstone the rebuild never applied. The
+        // captured target is proved against the active pointer in the same
+        // epoch-locked transaction.
+        let (purge_target, captured_index) =
+            self.require_delete_purge_target(write.connection()).await?;
         let Some(folder) = self
             .store
             .lock_folder_for_delete_on(write.connection(), folder_id, project_id)
@@ -294,7 +413,12 @@ impl LibraryService {
             )
             .await?;
             self.db
-                .insert_deleted_file_entity_in(write.connection(), file.id, Some(file.group_id))
+                .insert_deleted_file_entity_in_with_target(
+                    write.connection(),
+                    file.id,
+                    Some(file.group_id),
+                    purge_target.as_ref(),
+                )
                 .await?;
             let deleted = match project_id {
                 Some(project_id) => {
@@ -344,11 +468,12 @@ impl LibraryService {
         }
         // The points are removed after the commit. A failed purge leaves the
         // tombstones pending and the search exclusion valid.
-        self.purge_deleted_entities_best_effort(
+        self.purge_deleted_entities_best_effort_with_index(
             &deleted_file_ids
                 .into_iter()
                 .map(DeletedEntityTarget::File)
                 .collect::<Vec<_>>(),
+            captured_index.as_deref(),
         )
         .await;
         self.delete_unreferenced_objects_with_lease(paths, fence.map(|fence| fence.token()))

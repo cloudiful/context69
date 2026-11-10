@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.library_file_metadata_mirror (file_id, version)\nVALUES ($1, 1)\nON CONFLICT (file_id) DO UPDATE\nSET version = context69.library_file_metadata_mirror.version + 1,\n    attempts = 0,\n    next_attempt_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "51195160c258c7cf474d77066039e84b529d3950b8ed15f934c4ad90bf38f3c7"
+}

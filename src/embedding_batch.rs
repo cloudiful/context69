@@ -6,11 +6,10 @@
 //! texts themselves. The result is the same number of vectors in the same
 //! order as the inputs, whatever grouping the planner chose.
 //!
-//! Two kinds of limit bound one request:
+//! Two limits bound one automatic request:
 //!
-//! - a per-item limit, which bounds one input;
-//! - a per-request limit, which bounds the number of inputs, the number of
-//!   characters, and the number of serialized bytes of one request.
+//! - the number of inputs it carries;
+//! - the number of serialized bytes it occupies.
 //!
 //! A storage page size is not one of these limits. A caller that reads a page
 //! of rows still sends its texts through this planner.
@@ -21,55 +20,35 @@
 use anyhow::Result;
 use serde::Serialize;
 
-use crate::contracts::settings::EmbeddingBatchingSettings;
 use crate::domain_errors::DomainError;
 
-/// The limits one embedding provider request is bound by.
+/// The number of inputs one automatic embedding request may carry.
+const EMBEDDING_REQUEST_MAX_ITEMS: usize = 32;
+/// The number of serialized bytes one automatic embedding request may carry.
+const EMBEDDING_REQUEST_MAX_BYTES: usize = 1_048_576;
+
+/// The fixed transport limits one embedding provider request is bound by.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EmbeddingBatchLimits {
     /// The maximum number of inputs one request may carry.
     pub max_items_per_request: usize,
-    /// The maximum number of characters one input may have.
-    pub max_item_chars: usize,
-    /// The maximum number of characters one request may carry.
-    pub max_request_chars: usize,
     /// The maximum number of serialized bytes one request may carry.
     pub max_request_bytes: usize,
 }
 
 impl EmbeddingBatchLimits {
-    /// The limits of one stored or submitted batching configuration.
-    pub fn from_settings(settings: &EmbeddingBatchingSettings) -> Self {
+    /// The fixed automatic transport packing of this deployment.
+    pub fn fixed() -> Self {
         Self {
-            max_items_per_request: settings.max_items_per_request,
-            max_item_chars: settings.max_item_chars,
-            max_request_chars: settings.max_request_chars,
-            max_request_bytes: settings.max_request_bytes,
+            max_items_per_request: EMBEDDING_REQUEST_MAX_ITEMS,
+            max_request_bytes: EMBEDDING_REQUEST_MAX_BYTES,
         }
-    }
-
-    /// The batching configuration these limits describe.
-    pub fn to_settings(self) -> EmbeddingBatchingSettings {
-        EmbeddingBatchingSettings {
-            max_items_per_request: self.max_items_per_request,
-            max_item_chars: self.max_item_chars,
-            max_request_chars: self.max_request_chars,
-            max_request_bytes: self.max_request_bytes,
-        }
-    }
-
-    /// The limits of the default configuration.
-    pub fn default_limits() -> Self {
-        Self::from_settings(&EmbeddingBatchingSettings::default())
     }
 
     /// Whether every limit is usable. A zero limit would make every request
     /// impossible, so it is refused instead of planned.
     pub fn is_positive(&self) -> bool {
-        self.max_items_per_request > 0
-            && self.max_item_chars > 0
-            && self.max_request_chars > 0
-            && self.max_request_bytes > 0
+        self.max_items_per_request > 0 && self.max_request_bytes > 0
     }
 }
 
@@ -152,9 +131,9 @@ fn item_bytes(text: &str) -> usize {
 /// array, so a caller can join the returned vectors with the inputs without
 /// reordering either.
 ///
-/// An input that is longer than the per-item limit is refused. It is never
-/// split, shortened, or averaged, because a shortened input would silently
-/// change the vector it produces.
+/// An input that does not fit into one provider request is refused with an
+/// actionable transport error. It is never split, shortened, or averaged,
+/// because a shortened input would silently change the vector it produces.
 pub fn plan_batches(
     texts: &[String],
     model: &str,
@@ -162,7 +141,7 @@ pub fn plan_batches(
 ) -> Result<Vec<EmbeddingBatch>> {
     if !limits.is_positive() {
         return Err(DomainError::invalid_argument(
-            "the embedding batching limits must all be greater than 0",
+            "the embedding transport limits must all be greater than 0",
         )
         .into());
     }
@@ -170,47 +149,33 @@ pub fn plan_batches(
     let envelope = envelope_bytes(model);
     let mut start = 0usize;
     let mut items = 0usize;
-    let mut chars = 0usize;
     let mut bytes = envelope;
 
     for (index, text) in texts.iter().enumerate() {
-        let text_chars = text.chars().count();
-        if text_chars > limits.max_item_chars {
-            return Err(DomainError::invalid_argument(format!(
-                "embedding input {index} has {text_chars} characters, which exceeds the configured \
-                 limit of {}; an input is never split or shortened",
-                limits.max_item_chars
-            ))
-            .into());
-        }
         let text_bytes = item_bytes(text);
 
         if items > 0 {
-            let candidate_chars = chars + text_chars;
             let candidate_bytes = bytes + 1 + text_bytes;
             if items + 1 > limits.max_items_per_request
-                || candidate_chars > limits.max_request_chars
                 || candidate_bytes > limits.max_request_bytes
             {
                 batches.push(EmbeddingBatch { start, end: index });
                 start = index;
                 items = 0;
-                chars = 0;
                 bytes = envelope;
             }
         }
 
         let separator = usize::from(items > 0);
-        chars += text_chars;
         bytes += separator + text_bytes;
         items += 1;
 
         // A batch never exceeds a limit while it is being filled, so an input
         // that overflows one here cannot fit into a request on its own.
-        if chars > limits.max_request_chars || bytes > limits.max_request_bytes {
+        if bytes > limits.max_request_bytes {
             return Err(DomainError::invalid_argument(format!(
-                "embedding input {index} does not fit into one provider request; raise the \
-                 embedding request limits or shorten the input"
+                "embedding input {index} does not fit into one provider request body; shorten the \
+                 input"
             ))
             .into());
         }
