@@ -116,11 +116,6 @@ mod tests {
     #[test]
     fn both_image_download_stages_carry_the_exact_pin_and_size_check() {
         let preset = preset_by_id(EMBEDDINGGEMMA2_R_F9972AC).expect("the preset");
-        let checksum = format!(
-            "ADD --checksum=sha256:{} {}",
-            preset.sha256,
-            preset.download_url()
-        );
         let size_check = format!(
             "test \"$(wc -c < /tmp/tokenizer.json)\" -eq {}",
             preset.size_bytes
@@ -130,10 +125,17 @@ mod tests {
              /var/lib/context69/tokenizers/{}.json",
             preset.sha256
         );
-        for dockerfile in [
-            include_str!("../Dockerfile"),
-            include_str!("../forgejo.Dockerfile"),
+        for (dockerfile, download_url) in [
+            (include_str!("../Dockerfile"), preset.download_url()),
+            (
+                include_str!("../forgejo.Dockerfile"),
+                format!(
+                    "https://huggingface.cloud1ful.com/{}/resolve/{}/{}",
+                    preset.repo, preset.revision, preset.file
+                ),
+            ),
         ] {
+            let checksum = format!("ADD --checksum=sha256:{} {}", preset.sha256, download_url);
             assert!(dockerfile.contains(&checksum), "the download checksum pin");
             assert!(dockerfile.contains(&size_check), "the exact size check");
             assert!(
