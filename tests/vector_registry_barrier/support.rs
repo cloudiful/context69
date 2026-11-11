@@ -111,11 +111,25 @@ pub async fn set_item_lease(db: &Database, item_id: Uuid, token: Uuid, expired: 
     .expect("set the item lease");
 }
 
-/// Return the barrier to its idle state.
+/// Return the barrier to its idle state and clear the registry entries left by
+/// earlier cases of this target.
 ///
 /// Every test of this target observes the barrier, and the target owns the
 /// schema, so the barrier is restored between the cases.
 pub async fn reset_barrier(db: &Database) {
+    reset_barrier_in(db, true).await;
+}
+
+/// Return the barrier to its idle state without deleting registry entries.
+///
+/// A case that must prove another fixture's registry row survives the complete
+/// setup and teardown lifecycle uses this instead of the globally clearing
+/// reset.
+pub async fn reset_barrier_preserving_registry(db: &Database) {
+    reset_barrier_in(db, false).await;
+}
+
+async fn reset_barrier_in(db: &Database, clear_registry: bool) {
     // The product allows one active vector rebuild task. A failed case of this
     // target may have left its seeded task behind, and the fixture also seeds
     // ordinary file-batch tasks, so every task owned by a fixture user is
@@ -130,13 +144,15 @@ pub async fn reset_barrier(db: &Database) {
     .execute(db.pool())
     .await
     .expect("clear the target's fixture tasks");
-    // Registry entries carry no owner marker; this target owns the schema the
-    // runner reset, so every entry present here belongs to an earlier fixture
-    // case that did not resolve it.
-    sqlx::query("DELETE FROM context69.search_registry_entries")
-        .execute(db.pool())
-        .await
-        .expect("clear the target's registry entries");
+    if clear_registry {
+        // Registry entries carry no owner marker; this target owns the schema
+        // the runner reset, so every entry present here belongs to an earlier
+        // fixture case that did not resolve it.
+        sqlx::query("DELETE FROM context69.search_registry_entries")
+            .execute(db.pool())
+            .await
+            .expect("clear the target's registry entries");
+    }
     // A previous attempt of this target may have left staged document rows
     // keyed by a target collection it no longer owns.
     for statement in [

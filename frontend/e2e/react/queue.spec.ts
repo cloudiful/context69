@@ -550,9 +550,6 @@ test.describe("react processing queue", () => {
   });
 
   test("keeps the loaded rows when a Refresh times out", async ({ page }) => {
-    await page.clock.install();
-    // Freeze before the page work so the later deadline run is always forward.
-    await page.clock.pauseAt(new Date());
     const transport = await installAppTransport(page, {
       user: ADMIN_USER,
       queue: { hangListAfter: 1, streamUpdates: { delayMs: 600_000, tasks: [] } },
@@ -560,6 +557,10 @@ test.describe("react processing queue", () => {
 
     await page.goto("/processing-queue");
     await expect(page.getByTestId("queue-task-row")).toHaveCount(2);
+
+    await page.clock.install();
+    // Freeze after the initial rows render so the later deadline run is always forward.
+    await page.clock.pauseAt(new Date());
 
     await page.getByRole("button", { name: "Refresh queue" }).click();
     await expect(page.getByText("Loading")).toHaveCount(0);

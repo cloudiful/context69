@@ -66,8 +66,8 @@ use serde_json::json;
 use support::{
     activate_index, barrier_state, clear_registry_entries, clear_runtime_settings, connect,
     delete_registry_entries, delete_tasks, fingerprint, identity, register_registry_entry,
-    registry_entry, registry_entry_exists, reset_barrier, seed_runtime_settings, seed_task_item,
-    seed_task_item_full, set_item_lease,
+    registry_entry, registry_entry_exists, reset_barrier, reset_barrier_preserving_registry,
+    seed_runtime_settings, seed_task_item, seed_task_item_full, set_item_lease,
 };
 
 const FINGERPRINT: &str = "barrier-fingerprint";
@@ -2051,7 +2051,17 @@ async fn a_cancelled_or_discarded_rebuild_frees_the_barrier_and_a_stale_completi
 #[ignore = "requires configured reusable PostgreSQL"]
 async fn an_active_vector_index_must_exist_and_match_the_desired_configuration() {
     let db = connect().await;
-    reset_barrier(&db).await;
+
+    // A different fixture owns this sentinel entry: neither setup nor teardown
+    // may remove it, only the run ids this case registered.
+    let foreign = registry_entry(Uuid::new_v4());
+    register_registry_entry(&db, &foreign).await;
+    reset_barrier_preserving_registry(&db).await;
+    assert!(
+        registry_entry_exists(&db, foreign.run_id).await,
+        "the fixture reset preserves another fixture's registry entry"
+    );
+
     let identity = seed_runtime_settings(
         &db,
         "http://qdrant.example:6333",
@@ -2061,11 +2071,6 @@ async fn an_active_vector_index_must_exist_and_match_the_desired_configuration()
         8,
     )
     .await;
-
-    // A different fixture owns this sentinel entry: teardown must remove only
-    // this case's own run ids, never every registry row in the shared database.
-    let foreign = registry_entry(Uuid::new_v4());
-    register_registry_entry(&db, &foreign).await;
 
     // A deployment without an active pointer fails closed even when its
     // desired configuration is known.
@@ -2176,12 +2181,17 @@ async fn an_active_vector_index_must_exist_and_match_the_desired_configuration()
         registry_entry_exists(&db, foreign.run_id).await,
         "exact teardown preserves another fixture's registry entry"
     );
-    delete_registry_entries(&db, &[foreign.run_id]).await;
     clear_runtime_settings(&db).await;
     // The target owns the schema, so the barrier is restored after the
     // case as well: another suite that has to move the vector space
-    // must not meet a rebuild this target left behind.
-    reset_barrier(&db).await;
+    // must not meet a rebuild this target left behind. The teardown reset is
+    // registry-preserving so the foreign row is still there to assert.
+    reset_barrier_preserving_registry(&db).await;
+    assert!(
+        registry_entry_exists(&db, foreign.run_id).await,
+        "the fixture teardown preserves another fixture's registry entry"
+    );
+    delete_registry_entries(&db, &[foreign.run_id]).await;
 }
 
 /// A completed rebuild activates the exact target it verified: the previous
