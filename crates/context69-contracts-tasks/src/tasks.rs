@@ -287,6 +287,7 @@ pub enum TaskSortBy {
     Kind,
     Stage,
     GroupPath,
+    RunningFirst,
 }
 
 impl TaskSortBy {
@@ -298,6 +299,7 @@ impl TaskSortBy {
             Self::Kind => "kind",
             Self::Stage => "stage",
             Self::GroupPath => "group_path",
+            Self::RunningFirst => "running_first",
         }
     }
 }

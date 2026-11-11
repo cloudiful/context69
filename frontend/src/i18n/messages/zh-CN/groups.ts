@@ -58,11 +58,18 @@ export const groups = {
     loadFailed: "加载群组翻译设置失败",
     invalidGlossary: "术语表每行必须使用 source = target 格式",
   },
+  librarySettings: {
+    title: "文件库上传",
+    releaseAfterProcessing: "处理成功后释放原文件",
+    description: "仅影响该群组之后的上传。保留会保存原文件；释放会在处理成功后删除原文件且不可撤销，已处理的文本、分段和向量仍会保留。",
+    loadFailed: "加载群组文件库设置失败",
+  },
   gitSources: {
     tab: "Git",
     title: "Git 仓库",
     description: "注册提供方仓库、管理快照，并浏览已索引的源码。",
     addSource: "添加仓库",
+    newRepository: "Git 仓库",
     addConnection: "添加连接",
     sourcesTitle: "仓库",
     connectionsTitle: "提供方连接",

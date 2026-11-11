@@ -17,7 +17,6 @@ import type {
 import {
   ACTIVE_STATUSES,
   DEFAULT_QUEUE_SORT_BY_VIEW,
-  QUEUE_BULK_REPORT_ID,
   QueuePartialFailureError,
   QueueTaskSkippedError,
   buildQueueBulkReport,
@@ -193,6 +192,10 @@ export interface QueueState {
   bulkActionOptions: QueueBulkActionOption[];
   /** The last bulk action's persistent per-item report. */
   bulkReport: QueueBulkReport | null;
+  /** Whether the persistent report dialog is open. */
+  bulkReportOpen: boolean;
+  /** Opens or closes the persistent report dialog. */
+  setBulkReportOpen: (open: boolean) => void;
   dismissBulkReport: () => void;
   /** The authoritative detail behind the focused task card, if one is valid. */
   focusedTask: TaskResponse | null;
@@ -292,6 +295,7 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
   const [bulkAction, setBulkAction] = useState<QueueBulkAction | null>(null);
   const [bulkProgress, setBulkProgress] = useState<QueueBulkProgress | null>(null);
   const [bulkReport, setBulkReport] = useState<QueueBulkReport | null>(null);
+  const [bulkReportOpen, setBulkReportOpen] = useState(false);
   // Synchronous guard: two clicks in one tick both see the old state, so the
   // ref is what actually prevents a duplicate batch submission.
   const bulkRunningRef = useRef(false);
@@ -1035,6 +1039,7 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
       const summary = summarizeQueueBulkOutcomes(outcomes);
       const report = buildQueueBulkReport(action, outcomes);
       setBulkReport(report);
+      setBulkReportOpen(false);
       // The tasks that were handled leave the selection; the skipped and failed
       // ones stay selected so they can be seen and acted on again.
       const handled = new Set(
@@ -1061,8 +1066,11 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         refetchFocusedTask(focusedTaskId);
       }
       reload();
-      // The toast stays brief and offers the persistent report instead of
-      // joining per-id reasons into one long description.
+      // The toast is brief and offers the persistent report dialog instead of
+      // joining per-id reasons into one long description. The action closes
+      // over the exact report object of this operation, so a toast from an
+      // older batch can never open a newer batch's result.
+      const reportForToast = report;
       toast[summary.failed === 0 && summary.skipped === 0 ? "success" : "warning"](
         t("processingQueue.bulkSummary", {
           succeeded: summary.succeeded,
@@ -1072,7 +1080,10 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         {
           action: {
             label: t("processingQueue.bulkReport.details"),
-            onClick: () => document.getElementById(QUEUE_BULK_REPORT_ID)?.focus(),
+            onClick: () => {
+              setBulkReport(reportForToast);
+              setBulkReportOpen(true);
+            },
           },
           duration: 3500,
         },
@@ -1144,7 +1155,12 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     bulkActions,
     bulkActionOptions,
     bulkReport,
-    dismissBulkReport: () => setBulkReport(null),
+    bulkReportOpen,
+    setBulkReportOpen,
+    dismissBulkReport: () => {
+      setBulkReport(null);
+      setBulkReportOpen(false);
+    },
     focusedTask: focusedTaskId !== null ? focusedTaskQuery.data ?? null : null,
     focusedTaskLoading: focusedTaskId !== null && focusedTaskQuery.isLoading,
     focusedTaskError: focusedTaskId !== null && focusedTaskQuery.isError,

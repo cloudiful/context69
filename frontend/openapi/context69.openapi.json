@@ -3314,6 +3314,100 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/library-settings": {
+      "get": {
+        "tags": [],
+        "operationId": "get_group_library_settings",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupLibrarySettingsResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [],
+        "operationId": "update_group_library_settings",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateGroupLibrarySettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupLibrarySettingsResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
       "post": {
         "tags": [],
@@ -11345,6 +11439,18 @@
           "shared"
         ]
       },
+      "GroupLibrarySettingsResponse": {
+        "type": "object",
+        "description": "The library defaults one group persists for future uploads.",
+        "required": [
+          "default_source_policy"
+        ],
+        "properties": {
+          "default_source_policy": {
+            "$ref": "#/components/schemas/SourcePolicy"
+          }
+        }
+      },
       "GroupMemberPageResponse": {
         "type": "object",
         "required": [
@@ -15509,7 +15615,8 @@
           "status",
           "kind",
           "stage",
-          "group_path"
+          "group_path",
+          "running_first"
         ]
       },
       "TaskStatus": {
@@ -16676,6 +16783,18 @@
               "string",
               "null"
             ]
+          }
+        }
+      },
+      "UpdateGroupLibrarySettingsRequest": {
+        "type": "object",
+        "description": "Replaces the library defaults one group persists for future uploads.",
+        "required": [
+          "default_source_policy"
+        ],
+        "properties": {
+          "default_source_policy": {
+            "$ref": "#/components/schemas/SourcePolicy"
           }
         }
       },

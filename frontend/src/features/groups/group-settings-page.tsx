@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { Visibility } from "@/services/api";
 
 import { useGroupWorkspaceContext } from "./group-workspace";
+import { LibrarySettingsSection } from "./library-settings-section";
 import { MetadataIndexesSection } from "./metadata-indexes-section";
 import { TranslationSettingsSection } from "./translation-settings-section";
 
@@ -95,6 +96,7 @@ export function GroupSettingsPage() {
         ) : null}
       </section>
 
+      <LibrarySettingsSection groupPath={state.groupPath} canManage={state.canManage} />
       <MetadataIndexesSection groupPath={state.groupPath} canManage={state.canManage} />
       <TranslationSettingsSection groupPath={state.groupPath} canManage={state.canManage} />
 

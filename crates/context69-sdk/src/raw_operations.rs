@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (152 operations, sorted by `operation_id` for deterministic diffs).
+//! (154 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -601,6 +601,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "LibraryResourcePageResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "get_group_library_settings",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/library-settings",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GroupLibrarySettingsResponse",
         success_status: 200,
         idempotent: false,
     },
@@ -1547,6 +1558,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "UpdateGroupRequest",
         response_schema: "GroupResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "update_group_library_settings",
+        method: "PUT",
+        path_template: "/v1/groups/by-path/{group_path}/library-settings",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "UpdateGroupLibrarySettingsRequest",
+        response_schema: "GroupLibrarySettingsResponse",
         success_status: 200,
         idempotent: false,
     },

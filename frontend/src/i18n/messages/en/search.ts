@@ -1,5 +1,4 @@
 export const search = {
-  consoleTitle: "Search",
   resultsTitle: "Search Results",
   resultsAtLeast: "At least {count} results",
   sourceLoadFailed: "Failed to load sources",

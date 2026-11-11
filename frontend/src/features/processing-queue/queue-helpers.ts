@@ -104,15 +104,17 @@ export function queueStageLabel(t: Translate, stage: string | null | undefined):
 }
 
 /**
- * Per-view default ordering: processing stays stable by creation time so
- * progress updates do not move active rows, completed surfaces the most
- * recently updated task first, trash keeps creation time.
+ * Per-view default ordering: processing uses the server's authoritative
+ * running-first order (running parents lead, then created/id descending across
+ * all pages), completed surfaces the most recently updated task first, and
+ * trash keeps creation time. An explicit column sort replaces the default
+ * until the operator clears it.
  */
 export const DEFAULT_QUEUE_SORT_BY_VIEW: Record<
   TaskListView,
   { field: TaskSortBy; direction: SortDirection }
 > = {
-  processing: { field: "created_at", direction: "desc" },
+  processing: { field: "running_first", direction: "desc" },
   completed: { field: "updated_at", direction: "desc" },
   trash: { field: "created_at", direction: "desc" },
 };

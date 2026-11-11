@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,11 @@ import { LibraryTable } from "@/features/library/library-table";
 import { LibraryToolbar } from "@/features/library/library-toolbar";
 import { buildGroupExplorerEntry, canReleaseFileSource, type ExplorerEntry } from "@/features/library/library-model";
 import { useLibraryWorkspace } from "@/features/library/use-library-workspace";
+import { RepositoryDialog } from "@/features/groups/git/dialogs/repository";
+import {
+  useGitConnections,
+  useGitRepositoryRegistration,
+} from "@/features/groups/git/use-git-repository-registration";
 
 import { useGroupWorkspaceContext } from "./group-workspace";
 
@@ -33,6 +39,21 @@ export function GroupOverviewPage() {
   const library = useLibraryWorkspace({
     groupPath: state.groupPath,
     groupName: state.group?.name ?? null,
+  });
+
+  const [gitRepositoryDialogOpen, setGitRepositoryDialogOpen] = useState(false);
+  const gitConnectionsQuery = useGitConnections(state.groupPath, { enabled: gitRepositoryDialogOpen });
+  const gitRegistration = useGitRepositoryRegistration(state.groupPath, {
+    onSuccess: () => {
+      setGitRepositoryDialogOpen(false);
+      toast.success(t("groups.gitSources.createAccepted"));
+      navigate(`/groups/${encodeURIComponent(state.groupPath)}/git`);
+    },
+    onError: (error) => {
+      toast.error(t("common.error"), {
+        description: error instanceof Error ? error.message : t("groups.gitSources.createFailed"),
+      });
+    },
   });
 
   const fromSearch = isSearchReturn(new URLSearchParams(searchParams.toString()));
@@ -89,36 +110,34 @@ export function GroupOverviewPage() {
 
       <LibraryToolbar
         trail={trail}
-        groupName={state.group?.name ?? null}
-        canGoUp={library.canGoUp}
-        countLabel={library.resourcesPagination
-          ? t("library.resourceCount", { count: library.resourcesPagination.total })
-          : ""}
         statusFilter={library.statusFilter}
+        searchMode={library.searchMode}
         resourceQuery={library.query}
         scopedQuery={library.scopedSearch.query}
         scopedPlaceholder={t("search.scoped.placeholder", {
           folder: library.selectedFolder?.name ?? t("library.rootFolder"),
         })}
         scopedLoading={library.scopedSearch.loading}
-        retryAllCount={library.retryAllFailedCount}
-        retryAllBusy={library.retryAllBusy}
         uploadBusy={library.uploadBusy}
-        releaseAfterUpload={library.releaseSourceAfterUpload}
+        uploadReady={library.uploadReady}
+        canManage={state.canManage}
         selectedCount={selectedCount}
+        retryableSelectedCount={library.retryableSelectedCount}
+        retrySelectedBusy={library.retrySelectedBusy}
         onUp={() => library.navigateToFolder(library.parentFolderId)}
         onBreadcrumb={(folderId) => library.navigateToFolder(folderId)}
         onStatusFilter={library.changeStatusFilter}
+        onSearchMode={library.changeSearchMode}
         onResourceQuery={library.changeQuery}
         onScopedQuery={library.setScopedQuery}
         onScopedSearch={() => void library.runScopedSearch()}
-        onRetryAll={library.retryAllFailed}
         onUpload={() => fileInputRef.current?.click()}
-        onReleaseAfterUpload={library.setReleaseSourceAfterUpload}
         onCreateFolder={() => library.setCreateFolderOpen(true)}
         onCreateText={() => library.setCreateTextOpen(true)}
         onCreateSource={library.openSourceFolderCreate}
         onCreateChildGroup={state.openCreateChild}
+        onCreateGitRepository={() => setGitRepositoryDialogOpen(true)}
+        onRetrySelected={() => void library.retrySelected()}
         onDeleteSelected={library.deleteSelected}
       />
       <input
@@ -214,6 +233,15 @@ export function GroupOverviewPage() {
         />
       </div>
 
+      <RepositoryDialog
+        open={gitRepositoryDialogOpen}
+        source={null}
+        connections={gitConnectionsQuery.data ?? []}
+        busy={gitRegistration.isPending}
+        onOpenChange={setGitRepositoryDialogOpen}
+        onCreate={async (body) => { await gitRegistration.mutateAsync(body); }}
+        onUpdate={async () => {}}
+      />
       <CreateFolderDialog
         open={library.createFolderOpen}
         busy={library.createBusy}

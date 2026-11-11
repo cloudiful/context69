@@ -103,8 +103,11 @@ export const processingQueue = {
   rerunFailed: "Failed to reprocess the source",
   viewTask: "View task",
   // Selection and the contextual bulk actions it offers. The counts always
-  // describe the captured selection, never the visible page.
-  selectAllMatching: "Select all matching",
+  // describe the captured selection, never the visible page. The select-all
+  // control keeps the server's cross-page matching set and its 50000-task cap:
+  // the captured ids are never just the rows on this page.
+  selectAllMatching: "Select all",
+  selectAllMatchingHint: "Select every matching task across pages",
   selectPage: "Select the tasks on this page",
   selectTask: "Select the task",
   selectTaskNamed: "Select {name}",

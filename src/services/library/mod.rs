@@ -59,6 +59,7 @@ mod embedding_gate;
 mod filenames;
 mod files;
 mod folders;
+mod group_settings;
 mod ingest_batches;
 mod ingest_checkpoint;
 mod processing_health;

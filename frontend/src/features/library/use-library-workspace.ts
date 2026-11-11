@@ -4,8 +4,9 @@ import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { apiClient, isPartialUploadFailure } from "@/services/api";
+import { apiClient, groupLibrarySettingsQueryKey, isPartialUploadFailure } from "@/services/api";
 import type {
+  GroupLibrarySettingsResponse,
   LibraryFileDetailResponse,
   LibraryIngestStatus,
   LibraryResourceItem,
@@ -23,6 +24,7 @@ import {
   canMutateEntry,
   canReleaseFileSource,
   collectDescendantFolderIds,
+  confirmedSourcePolicy,
   fileResourceEntry,
   findFileLocation,
   findFolderById,
@@ -35,14 +37,15 @@ import {
   isValidLibraryFolder,
   readLibraryFileQuery,
   readLibraryFolderQuery,
+  selectedFailedFileIds,
   type ExplorerEntry,
   type FileExplorerEntry,
   type FolderSummary,
+  type LibrarySearchMode,
 } from "./library-model";
 import { settleTaskRefs } from "./library-tasks";
 
 export const DEFAULT_LIBRARY_PAGE_SIZE = 50;
-const FAILED_COLLECT_PAGE_SIZE = 100;
 
 export interface ConfirmRequest {
   title: string;
@@ -70,6 +73,7 @@ export interface ScopedSearchState {
   loading: boolean;
   open: boolean;
   results: SearchHit[];
+  error: string | null;
 }
 
 interface UseLibraryWorkspaceOptions {
@@ -149,6 +153,8 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
   // starts at page one with no rows selected, and the first request of the new
   // folder already carries that page instead of briefly reading the old offset.
   const resourceScope = `${groupPath}\u0000${folderId ?? ""}`;
+  const resourceScopeRef = useRef(resourceScope);
+  resourceScopeRef.current = resourceScope;
   const [pagingWindow, setPagingWindow] = useState({ scope: resourceScope, page: 1 });
   if (pagingWindow.scope !== resourceScope) {
     // Commit the transition: the new scope owns page one, so a later visit to a
@@ -178,7 +184,6 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
   const [unavailableFileIds, setUnavailableFileIds] = useState<string[]>([]);
   const [uploadBusy, setUploadBusy] = useState(false);
   const [actionBusy, setActionBusy] = useState(false);
-  const [releaseSourceAfterUpload, setReleaseSourceAfterUpload] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [createTextOpen, setCreateTextOpen] = useState(false);
@@ -192,11 +197,15 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     title: "",
     value: defaultSourceTemplate(),
   });
+  const [searchMode, setSearchMode] = useState<LibrarySearchMode>("resources");
+  const searchModeRef = useRef(searchMode);
+  searchModeRef.current = searchMode;
   const [scopedSearch, setScopedSearch] = useState<ScopedSearchState>({
     query: "",
     loading: false,
     open: false,
     results: [],
+    error: null,
   });
   const scopedSearchController = useRef<AbortController | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -245,26 +254,16 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     placeholderData: (previous) => previous,
   });
 
+  const librarySettingsQuery = useQuery({
+    queryKey: groupLibrarySettingsQueryKey(groupPath),
+    queryFn: ({ signal }) => apiClient.getGroupLibrarySettings(groupPath, { signal }),
+    retry: false,
+  });
+
   const detailQuery = useQuery({
     queryKey: ["library", "file", groupPath, selectedFileId],
     queryFn: ({ signal }) => apiClient.getGroupLibraryFile(groupPath, selectedFileId as string, { signal }),
     enabled: !!selectedFileId,
-    retry: false,
-  });
-
-  const failedCountQuery = useQuery({
-    queryKey: ["library", "failed-count", groupPath, folderId ?? "root"],
-    queryFn: ({ signal }) => apiClient.getGroupLibraryResources(groupPath, {
-      folderId,
-      recursive: true,
-      page: 1,
-      pageSize: 1,
-      query: "",
-      status: "failed",
-      sortBy: "updated_at",
-      sortDirection: "desc",
-    }, { signal }),
-    enabled: !!treeQuery.data,
     retry: false,
   });
 
@@ -363,7 +362,6 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     await Promise.all([
       queryClient.invalidateQueries({ queryKey: ["library", "tree", groupPath] }),
       queryClient.invalidateQueries({ queryKey: ["library", "resources", groupPath] }),
-      queryClient.invalidateQueries({ queryKey: ["library", "failed-count", groupPath] }),
       queryClient.invalidateQueries({ queryKey: ["library", "file", groupPath] }),
     ]);
   }, [groupPath, queryClient]);
@@ -486,6 +484,23 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     }, 250);
   }, [setPage]);
 
+  const resetScopedSearch = useCallback(() => {
+    scopedSearchController.current?.abort();
+    scopedSearchController.current = null;
+    setScopedSearch({ query: "", loading: false, open: false, results: [], error: null });
+  }, []);
+
+  const changeSearchMode = useCallback((mode: LibrarySearchMode) => {
+    if (searchModeRef.current === mode) {
+      return;
+    }
+    searchModeRef.current = mode;
+    setSearchMode(mode);
+    resetScopedSearch();
+    setQueryState("");
+    setPage(1);
+  }, [resetScopedSearch, setPage]);
+
   // A group switch is a new owner; the previous lifetime is disposed first so
   // its settlement results, toasts and window writes cannot reach the new group.
   useEffect(() => {
@@ -499,6 +514,11 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
       disposeTaskOwner(owner);
     };
   }, [groupPath]);
+
+  // Body-search results belong to one group/folder scope and cannot outlive it.
+  useEffect(() => {
+    resetScopedSearch();
+  }, [resourceScope, resetScopedSearch]);
 
   useEffect(() => () => {
     if (searchTimer.current) {
@@ -665,11 +685,24 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     if (files.length === 0) {
       return;
     }
+    const settingsState = queryClient.getQueryState<GroupLibrarySettingsResponse>(
+      groupLibrarySettingsQueryKey(groupPath),
+    );
+    const sourcePolicy = confirmedSourcePolicy(settingsState);
+    if (!sourcePolicy) {
+      toast.error(t("common.error"), {
+        description: settingsState?.error instanceof Error
+          ? settingsState.error.message
+          : t("library.sourcePolicyUnavailable"),
+        duration: 5000,
+      });
+      return;
+    }
     setUploadBusy(true);
     const operation = beginTaskOperation();
     try {
       const response = await apiClient.uploadGroupLibraryFiles(groupPath, folderId, files, {
-        deleteSourceAfterProcessing: releaseSourceAfterUpload,
+        sourcePolicy,
         signal: operation.signal,
       });
       if (operation.isDisposed()) {
@@ -721,10 +754,9 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
       operation.finish();
       if (!operation.isDisposed()) {
         setUploadBusy(false);
-        setReleaseSourceAfterUpload(false);
       }
     }
-  }, [beginTaskOperation, folderId, groupPath, invalidateLibrary, releaseSourceAfterUpload, setUrlSelection, t]);
+  }, [beginTaskOperation, folderId, groupPath, invalidateLibrary, queryClient, setUrlSelection, t]);
 
   const requestMoveEntry = useCallback((entry: ExplorerEntry) => {
     const excluded = entry.kind === "folder"
@@ -945,27 +977,74 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     });
   }, [beginTaskOperation, explorerEntries, folderId, groupPath, invalidateLibrary, selectedFileId, selectedKeys, setUrlSelection, t]);
 
-  const retryFile = useCallback(async (fileId: string) => {
-    if (retryingFileIds.includes(fileId) || unavailableFileIds.includes(fileId)) {
+  const retryFiles = useCallback(async (fileIds: string[]) => {
+    const requested = [...new Set(fileIds)];
+    if (requested.length === 0) {
       return;
     }
-    setRetryingFileIds((current) => [...current, fileId]);
+    const knownUnavailable = new Set(unavailableFileIds);
+    let skipped = 0;
+    const candidates: string[] = [];
+    for (const fileId of requested) {
+      if (knownUnavailable.has(fileId)) {
+        skipped += 1;
+      } else {
+        candidates.push(fileId);
+      }
+    }
+    const available: string[] = [];
     const operation = beginTaskOperation();
     try {
-      const fileDetail = await apiClient.getGroupLibraryFile(groupPath, fileId, {
-        signal: operation.signal,
-      });
-      if (operation.isDisposed()) {
-        return;
+      for (const fileId of candidates) {
+        if (operation.isDisposed() || operation.signal.aborted) {
+          return;
+        }
+        let sourceAvailable: boolean;
+        try {
+          const fileDetail = await apiClient.getGroupLibraryFile(groupPath, fileId, {
+            signal: operation.signal,
+          });
+          if (operation.isDisposed()) {
+            return;
+          }
+          sourceAvailable = fileDetail.source_available !== false;
+          observeSourceAvailability(fileId, sourceAvailable);
+        } catch (error) {
+          if (operation.isDisposed() || operation.signal.aborted) {
+            return;
+          }
+          toast.error(t("library.retryNotSubmitted"), {
+            description: t("library.retryNotSubmittedDescription", {
+              message: error instanceof Error ? error.message : t("library.retryFailed"),
+            }),
+            duration: 5000,
+          });
+          return;
+        }
+        if (!sourceAvailable) {
+          skipped += 1;
+        } else {
+          available.push(fileId);
+        }
       }
-      observeSourceAvailability(fileId, fileDetail.source_available !== false);
-      if (fileDetail.source_available === false) {
-        throw new Error(t("library.sourceMissingMessage"));
+      if (skipped > 0 && available.length > 0) {
+        toast.warning(t("library.retrySkipped", { count: skipped }), { duration: 3500 });
+      }
+      if (available.length === 0) {
+        if (requested.length === 1 && skipped > 0) {
+          toast.error(t("common.error"), {
+            description: t("library.sourceMissingMessage"),
+            duration: 5000,
+          });
+        } else if (skipped > 0) {
+          toast.warning(t("library.retrySkipped", { count: skipped }), { duration: 3500 });
+        }
+        return;
       }
       const task = await apiClient.submitTask({
         kind: "retry_file_batch",
         group_path: groupPath,
-        items: [{ file_id: fileId }],
+        items: available.map((file_id) => ({ file_id })),
       }, { signal: operation.signal });
       if (operation.isDisposed()) {
         return;
@@ -992,11 +1071,20 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
       });
     } finally {
       operation.finish();
-      if (!operation.isDisposed()) {
-        setRetryingFileIds((current) => current.filter((id) => id !== fileId));
-      }
     }
-  }, [beginTaskOperation, groupPath, invalidateLibrary, observeSourceAvailability, retryingFileIds, t, unavailableFileIds]);
+  }, [beginTaskOperation, groupPath, invalidateLibrary, observeSourceAvailability, t, unavailableFileIds]);
+
+  const retryFile = useCallback(async (fileId: string) => {
+    if (retryingFileIds.includes(fileId) || unavailableFileIds.includes(fileId)) {
+      return;
+    }
+    setRetryingFileIds((current) => [...current, fileId]);
+    try {
+      await retryFiles([fileId]);
+    } finally {
+      setRetryingFileIds((current) => current.filter((id) => id !== fileId));
+    }
+  }, [retryFiles, retryingFileIds, unavailableFileIds]);
 
   const releaseFileSource = useCallback((fileId: string, filename: string) => {
     setConfirmRequest({
@@ -1028,134 +1116,23 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     });
   }, [groupPath, invalidateLibrary, observeSourceAvailability, t]);
 
-  const retryAllFailedCount = failedCountQuery.data?.pagination.total ?? 0;
-  const [retryAllBusy, setRetryAllBusy] = useState(false);
+  const selectedFailedIds = useMemo(
+    () => selectedFailedFileIds(explorerEntries, selectedKeys),
+    [explorerEntries, selectedKeys],
+  );
+  const [retrySelectedBusy, setRetrySelectedBusy] = useState(false);
 
-  const retryAllFailed = useCallback(() => {
-    if (retryAllBusy || retryAllFailedCount === 0) {
+  const retrySelected = useCallback(async () => {
+    if (retrySelectedBusy || selectedFailedIds.length === 0) {
       return;
     }
-    setConfirmRequest({
-      title: t("library.retryAllFailed"),
-      message: t("library.retryAllConfirm", { count: retryAllFailedCount }),
-      acceptLabel: t("library.retryAllConfirmAction"),
-      action: () => {
-        setConfirmRequest(null);
-        void (async () => {
-          setRetryAllBusy(true);
-          const operation = beginTaskOperation();
-          try {
-            const collected: string[] = [];
-            for (let currentPage = 1; ; currentPage += 1) {
-              if (operation.isDisposed() || operation.signal.aborted) {
-                return;
-              }
-              const response = await apiClient.getGroupLibraryResources(groupPath, {
-                folderId,
-                recursive: true,
-                page: currentPage,
-                pageSize: FAILED_COLLECT_PAGE_SIZE,
-                query: "",
-                status: "failed",
-                sortBy: "updated_at",
-                sortDirection: "desc",
-              }, { signal: operation.signal });
-              for (const item of response.items) {
-                if (item.kind === "file") {
-                  collected.push(item.id);
-                }
-              }
-              if (
-                collected.length >= response.pagination.total
-                || response.items.length === 0
-                || currentPage >= 1000
-              ) {
-                break;
-              }
-            }
-            const unique = [...new Set(collected)];
-            const candidates = unique.filter((id) => !unavailableFileIds.includes(id));
-            let skipped = unique.length - candidates.length;
-            const available: string[] = [];
-            await Promise.all(candidates.map(async (fileId) => {
-              try {
-                const fileDetail = await apiClient.getGroupLibraryFile(groupPath, fileId, {
-                  signal: operation.signal,
-                });
-                if (operation.isDisposed()) {
-                  return;
-                }
-                observeSourceAvailability(fileId, fileDetail.source_available !== false);
-                if (fileDetail.source_available === false) {
-                  skipped += 1;
-                } else {
-                  available.push(fileId);
-                }
-              } catch {
-                skipped += 1;
-              }
-            }));
-            if (operation.isDisposed()) {
-              return;
-            }
-            if (skipped > 0) {
-              toast.warning(t("library.retryAllSkipped", { count: skipped }), { duration: 3500 });
-            }
-            if (available.length === 0) {
-              await invalidateLibrary();
-              return;
-            }
-            const task = await apiClient.submitTask({
-              kind: "retry_file_batch",
-              group_path: groupPath,
-              items: available.map((file_id) => ({ file_id })),
-            }, { signal: operation.signal });
-            if (operation.isDisposed()) {
-              return;
-            }
-            toast.success(t("library.retryAccepted"), {
-              description: t("library.retryAcceptedMessage"),
-              duration: 2500,
-            });
-            const results = await operation.settle([task]);
-            if (operation.isDisposed()) {
-              return;
-            }
-            await invalidateLibrary();
-            if (operation.isDisposed()) {
-              return;
-            }
-            if (results.some((result) => result.status === "failed")) {
-              toast.error(t("common.error"), { description: t("library.retryFailed") });
-            }
-          } catch (error) {
-            if (operation.isDisposed()) {
-              return;
-            }
-            toast.error(t("common.error"), {
-              description: error instanceof Error ? error.message : t("library.retryFailed"),
-              duration: 5000,
-            });
-          } finally {
-            operation.finish();
-            if (!operation.isDisposed()) {
-              setRetryAllBusy(false);
-            }
-          }
-        })();
-      },
-    });
-  }, [
-    beginTaskOperation,
-    folderId,
-    groupPath,
-    invalidateLibrary,
-    observeSourceAvailability,
-    retryAllBusy,
-    retryAllFailedCount,
-    t,
-    unavailableFileIds,
-  ]);
+    setRetrySelectedBusy(true);
+    try {
+      await retryFiles(selectedFailedIds);
+    } finally {
+      setRetrySelectedBusy(false);
+    }
+  }, [retryFiles, retrySelectedBusy, selectedFailedIds]);
 
   const openSourceFolderCreate = useCallback(() => {
     setSourceFolder({
@@ -1264,14 +1241,18 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
   }, [beginTaskOperation, groupPath, invalidateLibrary, t]);
 
   const runScopedSearch = useCallback(async () => {
+    if (searchModeRef.current !== "body") {
+      return;
+    }
     const trimmed = scopedSearch.query.trim();
     if (!trimmed) {
-      setScopedSearch((current) => ({ ...current, results: [], open: false }));
+      setScopedSearch((current) => ({ ...current, results: [], open: false, error: null }));
       return;
     }
     scopedSearchController.current?.abort();
     const controller = new AbortController();
     scopedSearchController.current = controller;
+    const scopeAtStart = resourceScopeRef.current;
     setScopedSearch((current) => ({ ...current, loading: true }));
     const prefix = selectedFolder?.path?.replace(/\/+$/, "") || null;
     try {
@@ -1281,7 +1262,9 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
         limit: 20,
         page: 1,
       }, { signal: controller.signal });
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted
+        || searchModeRef.current !== "body"
+        || resourceScopeRef.current !== scopeAtStart) {
         return;
       }
       const results = response.items.filter((hit) => {
@@ -1298,12 +1281,23 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
         loading: false,
         results,
         open: results.length > 0,
+        error: null,
       }));
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
         return;
       }
-      setScopedSearch((current) => ({ ...current, loading: false, results: [] }));
+      if (controller.signal.aborted
+        || searchModeRef.current !== "body"
+        || resourceScopeRef.current !== scopeAtStart) {
+        return;
+      }
+      setScopedSearch((current) => ({
+        ...current,
+        loading: false,
+        results: [],
+        error: error instanceof Error ? error.message : t("search.scoped.loadFailed"),
+      }));
       toast.error(t("common.error"), {
         description: error instanceof Error ? error.message : t("search.scoped.loadFailed"),
         duration: 5000,
@@ -1378,19 +1372,20 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     query,
     refresh,
     releaseFileSource,
-    releaseSourceAfterUpload,
     releasingFileIds,
     resourceContextEntry,
     requestMoveEntry,
     resourcesPagination: resourcesQuery.data?.pagination ?? null,
-    retryAllBusy,
-    retryAllFailed,
-    retryAllFailedCount,
+    retryableSelectedCount: selectedFailedIds.length,
     retryFile,
+    retrySelected,
+    retrySelectedBusy,
     retryingFileIds,
     runScopedSearch,
     saveSourceFolder,
     scopedSearch,
+    searchMode,
+    changeSearchMode,
     statusFilter,
     selectedExplorerEntry,
     selectedFileEntry,
@@ -1412,7 +1407,6 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     updateSourceFolderValue: (value: string) => {
       setSourceFolder((current) => ({ ...current, value }));
     },
-    setReleaseSourceAfterUpload,
     setResourceContextKey,
     setScopedOpen,
     setScopedQuery,
@@ -1426,6 +1420,7 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     unavailableFileIds,
     uploadBusy,
     uploadFiles,
+    uploadReady: confirmedSourcePolicy(librarySettingsQuery) !== null,
     groupName,
   };
 }
