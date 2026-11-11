@@ -1,5 +1,4 @@
 export const search = {
-  consoleTitle: "搜索",
   resultsTitle: "搜索结果",
   resultsAtLeast: "至少 {count} 条",
   sourceLoadFailed: "加载来源失败",

@@ -279,7 +279,6 @@ export function SearchPage() {
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
-      <h1 className="text-lg font-semibold">{t("search.consoleTitle")}</h1>
       <SearchForm
         filters={draft}
         sources={sourcesQuery.data?.items ?? []}

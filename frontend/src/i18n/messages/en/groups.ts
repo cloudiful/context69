@@ -58,11 +58,18 @@ export const groups = {
     loadFailed: "Failed to load group translation settings",
     invalidGlossary: "Each glossary line must use source = target",
   },
+  librarySettings: {
+    title: "Library uploads",
+    releaseAfterProcessing: "Release original files after processing",
+    description: "Applies only to future uploads in this group. Retaining keeps the stored original; releasing deletes it once processing succeeds and cannot be undone, though processed text, sections, and vectors stay.",
+    loadFailed: "Failed to load the group library settings",
+  },
   gitSources: {
     tab: "Git",
     title: "Git repositories",
     description: "Register provider repositories, control their snapshots, and browse the indexed source.",
     addSource: "Add repository",
+    newRepository: "Git repository",
     addConnection: "Add connection",
     sourcesTitle: "Repositories",
     connectionsTitle: "Provider connections",

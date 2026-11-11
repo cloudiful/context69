@@ -85,6 +85,7 @@ WITH page AS (
           OR ($12::text = 'trash' AND task.deleted_at IS NOT NULL)
       )
     ORDER BY
+        CASE WHEN ($8::TEXT = 'running_first' OR $8::TEXT IS NULL) AND $12::TEXT = 'processing' THEN task.status = 'running' END DESC NULLS LAST,
         CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
         CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
         CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'asc' THEN task.kind END ASC NULLS LAST,
@@ -182,6 +183,7 @@ LEFT JOIN LATERAL (
     LIMIT 1
 ) context ON TRUE
 ORDER BY
+    CASE WHEN ($8::TEXT = 'running_first' OR $8::TEXT IS NULL) AND $12::TEXT = 'processing' THEN task.status = 'running' END DESC NULLS LAST,
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
     CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'asc' THEN task.kind END ASC NULLS LAST,

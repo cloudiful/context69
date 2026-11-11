@@ -102,7 +102,9 @@ export const processingQueue = {
   rerunFailed: "重新处理源失败",
   viewTask: "查看任务",
   // 选择与由选择产生的批量操作。计数始终描述已捕获的选择，而不是当前页。
-  selectAllMatching: "选择全部匹配项",
+  // 全选保留服务端跨页匹配集与 50000 个任务的上限：捕获的 ID 从不只是当前页。
+  selectAllMatching: "全选",
+  selectAllMatchingHint: "全选（跨页匹配的所有任务）",
   selectPage: "选择本页任务",
   selectTask: "选择该任务",
   selectTaskNamed: "选择 {name}",

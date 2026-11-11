@@ -3,14 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Link, NavLink, Outlet, useParams } from "react-router";
 
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { GroupEntityDialog, GroupMemberDialog, MoveGroupDialog } from "./group-dialogs";
-import { visibilityLabel } from "@/lib/visibility-label";
 
-import { membershipRoleLabel } from "./group-labels";
 import { GroupWorkspaceProvider, useGroupWorkspaceContext } from "./group-workspace";
 
 function GroupWorkspaceDialogs() {
@@ -96,12 +93,6 @@ function GroupLayoutBody({ groupPath }: { groupPath: string }) {
         </Button>
         <div className="flex min-w-0 items-center gap-2">
           <h1 className="truncate text-lg font-semibold">{state.group?.name ?? groupPath}</h1>
-          {state.group?.current_role ? (
-            <Badge variant="secondary">{membershipRoleLabel(t, state.group.current_role)}</Badge>
-          ) : null}
-          {state.group?.visibility ? (
-            <Badge variant="outline">{visibilityLabel(t, state.group.visibility)}</Badge>
-          ) : null}
         </div>
         {state.loading ? <Loader2 aria-hidden="true" className="size-4 animate-spin text-muted-foreground" /> : null}
         <nav aria-label={t("groups.overviewTitle")} className="ml-auto flex items-center gap-1">

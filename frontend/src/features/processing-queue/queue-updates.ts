@@ -61,7 +61,14 @@ export function queueUpdateRequiresReload(
   if (scope.dependencyKey !== null && current.dependency_key !== incoming.dependency_key) {
     return true;
   }
-  if (current[scope.sort.field] !== incoming[scope.sort.field]) {
+  if (scope.sort.field === "running_first") {
+    // The server's default order leads with the running bit and falls back to
+    // created/id, so only a boundary crossing can reorder the window. A frame
+    // between non-running states (waiting -> queued) keeps its position.
+    if ((current.status === "running") !== (incoming.status === "running")) {
+      return true;
+    }
+  } else if (current[scope.sort.field] !== incoming[scope.sort.field]) {
     return true;
   }
   // The server searches task and item payload fields the client does not see,

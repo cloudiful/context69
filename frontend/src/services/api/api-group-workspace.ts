@@ -12,6 +12,8 @@ import type {
   CreateMetadataIndexRequest,
   UpdateMetadataIndexRequest,
   UpdateGroupTranslationSettingsRequest,
+  UpdateGroupLibrarySettingsRequest,
+  SourcePolicy,
   TaskRef,
   LibraryFileSummary,
 } from "./api-types";
@@ -63,7 +65,12 @@ function partialUploadFailure(
 }
 
 export interface UploadLibraryFilesOptions extends RequestOptions {
+  sourcePolicy?: SourcePolicy;
   deleteSourceAfterProcessing?: boolean;
+}
+
+export function groupLibrarySettingsQueryKey(groupPath: string) {
+  return ["group-library-settings", groupPath] as const;
 }
 
 export function createGroupWorkspaceApi({
@@ -82,6 +89,18 @@ export function createGroupWorkspaceApi({
     },
     updateGroupTranslationSettings(groupPath: string, payload: UpdateGroupTranslationSettingsRequest) {
       return unwrapResponse(openapiClient.PUT("/v1/groups/by-path/{group_path}/translation-settings", {
+        params: { path: { group_path: groupPath } },
+        body: payload,
+      }));
+    },
+    getGroupLibrarySettings(groupPath: string, options?: RequestOptions) {
+      return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/library-settings", {
+        params: { path: { group_path: groupPath } },
+        signal: options?.signal,
+      }));
+    },
+    updateGroupLibrarySettings(groupPath: string, payload: UpdateGroupLibrarySettingsRequest) {
+      return unwrapResponse(openapiClient.PUT("/v1/groups/by-path/{group_path}/library-settings", {
         params: { path: { group_path: groupPath } },
         body: payload,
       }));
@@ -195,9 +214,8 @@ export function createGroupWorkspaceApi({
       }));
     },
     async uploadGroupLibraryFiles(groupPath: string, folderId: string | null, files: File[], options: UploadLibraryFilesOptions = {}) {
-      const sourcePolicy = (options.deleteSourceAfterProcessing ?? false)
-        ? "release_after_processing"
-        : "retain";
+      const sourcePolicy: SourcePolicy = options.sourcePolicy
+        ?? (options.deleteSourceAfterProcessing ? "release_after_processing" : "retain");
       const settled = await Promise.allSettled(files.map(async (file) => {
         const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
         const sha256 = Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");

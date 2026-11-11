@@ -2,12 +2,13 @@ use context69_contracts::{
     ApiErrorCode, CanonicalApiErrorResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
     CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateDocumentResultRequest,
     CreateTextRequest, CursorPageQuery, CursorPagination, DocumentChunkResponse,
-    DocumentResultProvenance, DocumentResultResponse, FileBatchItem,
+    DocumentResultProvenance, DocumentResultResponse, FileBatchItem, GroupLibrarySettingsResponse,
     ImportLibraryFileFromUrlRequest, IngestOptions, LibraryIngestFailureStage, LibraryIngestStatus,
     LibraryTextContentFormat, ListDocumentResultsQuery, ListDocumentResultsResponse,
     MetadataObject, OffsetPageQuery, OffsetPagination, Pagination, PersonalAccessTokenScope,
     PrepareLibraryUploadRequest, SearchRequest, SecretPatch, SortDirection, SortOrder,
-    SourcePolicy, TaskListQuery, TaskListView, UpsertLibraryTextRequest, UrlBatchRequest,
+    SourcePolicy, TaskListQuery, TaskListView, TaskSortBy, UpdateGroupLibrarySettingsRequest,
+    UpsertLibraryTextRequest, UrlBatchRequest,
 };
 use serde_json::{json, to_value};
 
@@ -516,6 +517,31 @@ fn api_error_code_wire_names_and_typed_shape() {
     let converted: context69_contracts::ApiErrorResponse = full.into();
     assert_eq!(converted.code, "not_found");
     assert_eq!(converted.request_id.as_deref(), Some("req-1"));
+}
+
+#[test]
+fn group_library_settings_and_running_first_sort_wire_contract() {
+    let settings: GroupLibrarySettingsResponse =
+        serde_json::from_value(json!({ "default_source_policy": "release_after_processing" }))
+            .expect("group library settings");
+    assert_eq!(
+        settings.default_source_policy,
+        SourcePolicy::ReleaseAfterProcessing
+    );
+
+    let update = UpdateGroupLibrarySettingsRequest {
+        default_source_policy: SourcePolicy::Retain,
+    };
+    assert_eq!(
+        to_value(update).expect("update group library settings"),
+        json!({ "default_source_policy": "retain" })
+    );
+
+    assert_eq!(
+        to_value(TaskSortBy::RunningFirst).expect("running first"),
+        json!("running_first")
+    );
+    assert_eq!(TaskSortBy::RunningFirst.as_str(), "running_first");
 }
 
 #[test]

@@ -8,7 +8,6 @@ import { Button } from "@/components/ui/button";
 import { apiClient, type GitProviderConnection } from "@/services/api";
 import type {
   GitProviderConnectionRequest,
-  GitRepositoryRegistrationRequest,
   GitRepositorySettingsUpdateRequest,
   GitRepositorySource,
   GitWebhookOwnership,
@@ -22,6 +21,11 @@ import { WebhookDialog } from "./dialogs/webhook";
 import { gitSourcesRefetchInterval } from "./polling";
 import { ConnectionsTable } from "./tables/connections";
 import { SourcesTable } from "./tables/sources";
+import {
+  invalidateGitSources,
+  useGitConnections,
+  useGitRepositoryRegistration,
+} from "./use-git-repository-registration";
 
 function settingsFrom(
   source: GitRepositorySource,
@@ -71,35 +75,23 @@ export function GitPage() {
     refetchInterval: gitSourcesRefetchInterval,
   });
 
-  const connectionsQuery = useQuery({
-    queryKey: ["git-connections", groupPath],
-    queryFn: ({ signal }) => apiClient.listGitConnections(groupPath, { signal }),
-    retry: false,
-  });
+  const connectionsQuery = useGitConnections(groupPath);
 
   const sources = sourcesQuery.data ?? [];
   const connections = connectionsQuery.data ?? [];
   const selectedSource = sources.find((source) => source.repository_key === selectedKey) ?? null;
 
   function invalidateSources() {
-    return Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["git-sources", groupPath] }),
-      queryClient.invalidateQueries({ queryKey: ["git-files", groupPath] }),
-      queryClient.invalidateQueries({ queryKey: ["git-file", groupPath] }),
-      queryClient.invalidateQueries({ queryKey: ["git-content", groupPath] }),
-      queryClient.invalidateQueries({ queryKey: ["git-code-search", groupPath] }),
-    ]);
+    return invalidateGitSources(queryClient, groupPath);
   }
 
   function invalidateConnections() {
     return queryClient.invalidateQueries({ queryKey: ["git-connections", groupPath] });
   }
 
-  const createSourceMutation = useMutation({
-    mutationFn: (body: GitRepositoryRegistrationRequest) => apiClient.registerGitRepository(groupPath, body),
-    onSuccess: async () => {
+  const createSourceMutation = useGitRepositoryRegistration(groupPath, {
+    onSuccess: () => {
       setSourceDialog({ open: false, source: null });
-      await invalidateSources();
       toast.success(t("groups.gitSources.createAccepted"));
     },
     onError: (error) => {
@@ -107,7 +99,6 @@ export function GitPage() {
         description: error instanceof Error ? error.message : t("groups.gitSources.createFailed"),
       });
     },
-    retry: false,
   });
 
   const updateSourceMutation = useMutation({

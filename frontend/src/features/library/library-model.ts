@@ -1,9 +1,13 @@
+import type { QueryState } from "@tanstack/react-query";
+
 import type {
+  GroupLibrarySettingsResponse,
   GroupResponse,
   LibraryFileSummary,
   LibraryFolderNode,
   LibraryIngestStatus,
   LibraryResourceItem,
+  SourcePolicy,
 } from "@/services/api";
 
 export interface ExplorerBaseEntry {
@@ -39,6 +43,8 @@ export interface FileExplorerEntry extends ExplorerBaseEntry {
 }
 
 export type ExplorerEntry = FolderExplorerEntry | FileExplorerEntry;
+
+export type LibrarySearchMode = "resources" | "body";
 
 export interface GroupExplorerEntry extends ExplorerBaseEntry {
   kind: "group";
@@ -221,6 +227,33 @@ export function libraryStatusLabel(
 
 export function isRetryableFileStatus(status: LibraryIngestStatus): boolean {
   return status === "failed";
+}
+
+export function confirmedSourcePolicy(
+  state: Pick<QueryState<GroupLibrarySettingsResponse>, "status" | "fetchStatus" | "data"> | undefined,
+): SourcePolicy | null {
+  if (!state || state.status !== "success" || state.fetchStatus !== "idle") {
+    return null;
+  }
+  return state.data?.default_source_policy ?? null;
+}
+
+export function selectedFailedFileIds(
+  entries: ExplorerEntry[],
+  selectedKeys: Iterable<string>,
+): string[] {
+  const selected = new Set(selectedKeys);
+  const fileIds = new Set<string>();
+  for (const entry of entries) {
+    if (entry.kind !== "file" || !selected.has(entry.key)) {
+      continue;
+    }
+    if (!isRetryableFileStatus(entry.ingestStatus)) {
+      continue;
+    }
+    fileIds.add(entry.id);
+  }
+  return [...fileIds];
 }
 
 /** Releasing is only meaningful for a completed, user-owned file. */

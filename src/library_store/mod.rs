@@ -15,6 +15,7 @@ mod detail;
 pub(crate) mod documents;
 mod files;
 mod folders;
+mod group_settings;
 mod mappers;
 pub(crate) mod objects;
 mod resources;

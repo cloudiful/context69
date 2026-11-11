@@ -86,6 +86,17 @@ describe("queueUpdateRequiresReload", () => {
     expect(queueUpdateRequiresReload(current, next, scope({ sort: { field: "status", direction: "asc" } }))).toBe(true);
   });
 
+  it("reloads when the running bit flips under the running-first default", () => {
+    const current = task({ status: "queued" });
+    expect(queueUpdateRequiresReload(current, task({ status: "running" }), scope({ sort: { field: "running_first", direction: "desc" } }))).toBe(true);
+    expect(queueUpdateRequiresReload(task({ status: "running" }), task({ status: "running", updated_at: "2026-01-01T00:01:00Z" }), scope({ sort: { field: "running_first", direction: "desc" } }))).toBe(false);
+  });
+
+  it("keeps a non-running transition in place under running-first", () => {
+    const current = task({ status: "waiting" });
+    expect(queueUpdateRequiresReload(current, task({ status: "queued" }), scope({ sort: { field: "running_first", direction: "desc" } }))).toBe(false);
+  });
+
   it("reloads for any frame while a free-text search is active", () => {
     const current = task();
     const next = task({ updated_at: "2026-01-01T00:02:00Z" });

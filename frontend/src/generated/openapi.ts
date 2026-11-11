@@ -708,6 +708,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/library-settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_group_library_settings"];
+        put: operations["update_group_library_settings"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/import-url": {
         parameters: {
             query?: never;
@@ -3551,6 +3567,10 @@ export interface components {
         };
         /** @enum {string} */
         GroupKind: "personal" | "shared";
+        /** @description The library defaults one group persists for future uploads. */
+        GroupLibrarySettingsResponse: {
+            default_source_policy: components["schemas"]["SourcePolicy"];
+        };
         GroupMemberPageResponse: {
             items: components["schemas"]["GroupMemberResponse"][];
             pagination: components["schemas"]["Pagination"];
@@ -5038,7 +5058,7 @@ export interface components {
             total: number;
         };
         /** @enum {string} */
-        TaskSortBy: "created_at" | "updated_at" | "status" | "kind" | "stage" | "group_path";
+        TaskSortBy: "created_at" | "updated_at" | "status" | "kind" | "stage" | "group_path" | "running_first";
         /** @enum {string} */
         TaskStatus: "queued" | "running" | "waiting" | "succeeded" | "failed" | "cancelled";
         /**
@@ -5432,6 +5452,10 @@ export interface components {
             picture_description_model?: string | null;
             picture_description_preset?: string | null;
             vlm_pipeline_model?: string | null;
+        };
+        /** @description Replaces the library defaults one group persists for future uploads. */
+        UpdateGroupLibrarySettingsRequest: {
+            default_source_policy: components["schemas"]["SourcePolicy"];
         };
         UpdateGroupRequest: {
             name?: string | null;
@@ -8110,6 +8134,76 @@ export interface operations {
             };
             /** @description A webhook is already registered, or the hook identity is claimed */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    get_group_library_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupLibrarySettingsResponse"];
+                };
+            };
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_group_library_settings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateGroupLibrarySettingsRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupLibrarySettingsResponse"];
+                };
+            };
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

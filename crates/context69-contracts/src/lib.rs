@@ -28,6 +28,9 @@ pub use context69_contracts_core::pagination::{
     OffsetPagination, PAGE_MAX, PAGE_MIN, PAGE_SIZE_MAX, PAGE_SIZE_MIN, SortDirection,
     default_limit, default_page, default_page_size,
 };
+pub use context69_contracts_library::group_settings::{
+    GroupLibrarySettingsResponse, UpdateGroupLibrarySettingsRequest,
+};
 pub use context69_contracts_library::ingest::{
     CanonicalUploadMetadata, IngestOptions, SourcePolicy,
 };

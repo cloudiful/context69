@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.groups\nSET\n    default_source_policy = $2,\n    updated_at = now()\nWHERE id = $1\nRETURNING default_source_policy\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "default_source_policy",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "default_source_policy"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "7b9f7ffcdc4c6e5add1e955d4c004d5197d60e504fa349aaeedd9b8ee8ae3687"
+}

@@ -37,6 +37,7 @@ mod git_webhook_ingress;
 mod git_webhook_registration;
 mod group_access;
 mod group_library;
+mod group_library_settings;
 mod group_source_folders;
 mod health;
 mod library;
@@ -154,6 +155,9 @@ pub(crate) use group_library::{
     get_group_library_tree, import_group_library_file_url, move_group_library_file,
     move_group_library_folder, prepare_group_library_upload, release_group_library_file_source,
     upload_group_library_files, upsert_group_library_text,
+};
+pub(crate) use group_library_settings::{
+    get_group_library_settings, update_group_library_settings,
 };
 pub(crate) use group_source_folders::{
     create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,

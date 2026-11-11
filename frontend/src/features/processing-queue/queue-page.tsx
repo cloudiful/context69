@@ -12,7 +12,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useAuthSession } from "@/hooks/use-auth";
 import type { TaskListView } from "@/services/api";
 
-import { QueueBulkReport } from "./queue-bulk-report";
+import { QueueBulkReportDialog } from "./queue-bulk-report";
 import { QueueFocusedTask } from "./queue-focused-task";
 import { QueueTable } from "./queue-table";
 import { useQueue } from "./use-queue";
@@ -21,11 +21,12 @@ const VIEWS: TaskListView[] = ["processing", "completed", "trash"];
 const TASK_PARAM = "task";
 
 /**
- * The processing queue workbench: three typed views over one server window,
- * header filters on the columns they narrow, cursor-paged items inside an
- * expanded row, and a selection whose bulk actions state their scope and
- * consequences before they run. A `?task=<uuid>` parameter focuses one task
- * without changing the current view, filters, or page.
+ * The processing queue workbench: three typed views over one server window in
+ * one compact toolbar row, header filters on the columns they narrow,
+ * cursor-paged items inside an expanded row, and a selection whose bulk actions
+ * state their scope and consequences before they run. A `?task=<uuid>`
+ * parameter focuses one task without changing the current view, filters, or
+ * page.
  */
 export function ProcessingQueuePage() {
   const { t } = useTranslation();
@@ -56,10 +57,108 @@ export function ProcessingQueuePage() {
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-lg font-semibold">{t("nav.processingQueue")}</h1>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <Tabs
+            value={queue.scope.view}
+            onValueChange={(value) => queue.setView(value as TaskListView)}
+          >
+            <TabsList
+              variant="line"
+              className="[&_[data-slot=tabs-trigger]]:after:hidden"
+            >
+              {VIEWS.map((view) => (
+                <TabsTrigger key={view} value={view} disabled={busy}>
+                  {t(`processingQueue.tabs.${view}`)}
+                </TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <form
+            className="flex min-w-0 flex-1 items-center gap-2 sm:flex-none"
+            onSubmit={(event) => {
+              event.preventDefault();
+              queue.submitSearch();
+            }}
+          >
+            <div className="relative min-w-0 w-full max-w-xs">
+              <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={queue.searchInput}
+                onChange={(event) => queue.setSearchInput(event.target.value)}
+                placeholder={t("processingQueue.searchPlaceholder")}
+                title={t("processingQueue.searchHint")}
+                aria-label={t("processingQueue.searchPlaceholder")}
+                className="pl-8"
+                disabled={busy}
+              />
+            </div>
+          </form>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          {queue.selectionCount > 0 || queue.bulkProgress
+            ? (
+                <>
+                  <span className="text-sm text-muted-foreground" data-testid="queue-selection-count">
+                    {t("processingQueue.selectionCount", { count: queue.selectionCount })}
+                  </span>
+                  {queue.selection.snapshot
+                    ? (
+                        <span className="text-sm text-muted-foreground" data-testid="queue-selection-snapshot">
+                          {t("processingQueue.selectionSnapshot")}
+                        </span>
+                      )
+                    : null}
+                  {queue.selectionCount > 0
+                    ? (
+                        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={queue.clearSelection}>
+                          <X aria-hidden="true" />
+                          {t("processingQueue.clearSelection")}
+                        </Button>
+                      )
+                    : null}
+                  {queue.bulkProgress
+                    ? (
+                        <span className="text-sm text-muted-foreground" data-testid="queue-bulk-progress">
+                          {t("processingQueue.bulkProgress", {
+                            completed: queue.bulkProgress.completed,
+                            total: queue.bulkProgress.total,
+                          })}
+                        </span>
+                      )
+                    : null}
+                  {queue.selectionCount > 0
+                    ? (
+                        <div className="flex flex-wrap items-center gap-2" data-testid="queue-bulk-actions">
+                          {queue.bulkActionOptions.map((option) => (
+                            <Button
+                              key={option.action}
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              disabled={busy}
+                              onClick={() => queue.runBulkAction(option.action)}
+                            >
+                              {option.label}
+                            </Button>
+                          ))}
+                        </div>
+                      )
+                    : null}
+                </>
+              )
+            : null}
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy}
+            aria-label={t("processingQueue.selectAllMatchingHint")}
+            title={t("processingQueue.selectAllMatchingHint")}
+            onClick={queue.selectAllMatching}
+          >
+            <ListChecks aria-hidden="true" />
+            {t("processingQueue.selectAllMatching")}
+          </Button>
           {isAdmin ? (
             <Button
               type="button"
@@ -122,99 +221,6 @@ export function ProcessingQueuePage() {
         </div>
       ) : null}
 
-      <Tabs
-        value={queue.scope.view}
-        onValueChange={(value) => queue.setView(value as TaskListView)}
-      >
-        <TabsList variant="line">
-          {VIEWS.map((view) => (
-            <TabsTrigger key={view} value={view} disabled={busy}>
-              {t(`processingQueue.tabs.${view}`)}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-      </Tabs>
-
-      <form
-        className="flex items-center gap-2"
-        onSubmit={(event) => {
-          event.preventDefault();
-          queue.submitSearch();
-        }}
-      >
-        <div className="relative w-full max-w-sm">
-          <Search aria-hidden="true" className="pointer-events-none absolute top-1/2 left-2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={queue.searchInput}
-            onChange={(event) => queue.setSearchInput(event.target.value)}
-            placeholder={t("processingQueue.searchPlaceholder")}
-            title={t("processingQueue.searchHint")}
-            aria-label={t("processingQueue.searchPlaceholder")}
-            className="pl-8"
-            disabled={busy}
-          />
-        </div>
-      </form>
-
-      <div className="flex flex-wrap items-center gap-2 rounded-md border px-2 py-1.5">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={busy}
-          onClick={queue.selectAllMatching}
-        >
-          <ListChecks aria-hidden="true" />
-          {t("processingQueue.selectAllMatching")}
-        </Button>
-        <span className="text-sm text-muted-foreground" data-testid="queue-selection-count">
-          {t("processingQueue.selectionCount", { count: queue.selectionCount })}
-        </span>
-        {queue.selection.snapshot
-          ? (
-              <span className="text-sm text-muted-foreground" data-testid="queue-selection-snapshot">
-                {t("processingQueue.selectionSnapshot")}
-              </span>
-            )
-          : null}
-        {queue.selectionCount > 0
-          ? (
-              <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={queue.clearSelection}>
-                <X aria-hidden="true" />
-                {t("processingQueue.clearSelection")}
-              </Button>
-            )
-          : null}
-        {queue.bulkProgress
-          ? (
-              <span className="text-sm text-muted-foreground" data-testid="queue-bulk-progress">
-                {t("processingQueue.bulkProgress", {
-                  completed: queue.bulkProgress.completed,
-                  total: queue.bulkProgress.total,
-                })}
-              </span>
-            )
-          : null}
-        {queue.selectionCount > 0
-          ? (
-              <div className="ml-auto flex flex-wrap items-center gap-2" data-testid="queue-bulk-actions">
-                {queue.bulkActionOptions.map((option) => (
-                  <Button
-                    key={option.action}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => queue.runBulkAction(option.action)}
-                  >
-                    {option.label}
-                  </Button>
-                ))}
-              </div>
-            )
-          : null}
-      </div>
-
       {focusedTaskId
         ? (
             <QueueFocusedTask
@@ -231,8 +237,10 @@ export function ProcessingQueuePage() {
 
       {queue.bulkReport
         ? (
-            <QueueBulkReport
+            <QueueBulkReportDialog
               report={queue.bulkReport}
+              open={queue.bulkReportOpen}
+              onOpenChange={queue.setBulkReportOpen}
               onDismiss={queue.dismissBulkReport}
               onOpenTask={openTask}
             />
