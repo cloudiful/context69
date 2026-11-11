@@ -325,3 +325,80 @@ fn a_character_budget_reports_the_same_chunks_as_the_legacy_api() {
             .collect::<Vec<_>>()
     );
 }
+
+#[test]
+fn the_two_token_versions_keep_their_own_serialized_identity() {
+    use super::ChunkBudgetMode;
+    use crate::chunking::chunking_token::TokenizerKind;
+
+    let legacy = ChunkBudget::tokens(TokenizerKind::O200kBase, 1024, 128);
+    assert_eq!(legacy.identity(), "tokens:o200k_base:1024:128");
+    let serialized = serde_json::to_value(&legacy).expect("the legacy budget serializes");
+    assert_eq!(serialized["mode"], json!("tokens"));
+    let parsed = super::parse_chunk_budget_value(&serialized).expect("the legacy budget parses");
+    assert_eq!(parsed.mode, ChunkBudgetMode::Tokens);
+    assert_eq!(parsed.identity(), legacy.identity());
+
+    let bounded = ChunkBudget::tokens_v2(TokenizerKind::O200kBase, 1024, 128);
+    assert_eq!(bounded.identity(), "tokens_v2:o200k_base:1024:128");
+    let serialized = serde_json::to_value(&bounded).expect("the bounded budget serializes");
+    assert_eq!(serialized["mode"], json!("tokens_v2"));
+    let parsed = super::parse_chunk_budget_value(&serialized).expect("the bounded budget parses");
+    assert_eq!(
+        parsed.mode,
+        ChunkBudgetMode::TokensV2,
+        "a parsed budget keeps the version it was stored with"
+    );
+    assert_eq!(parsed.identity(), bounded.identity());
+}
+
+#[test]
+fn an_unknown_token_budget_version_fails_closed() {
+    use crate::chunking::chunking_token::TokenizerKind;
+
+    let mut budget = serde_json::to_value(ChunkBudget::tokens(TokenizerKind::Cl100kBase, 512, 64))
+        .expect("the budget serializes");
+    budget["mode"] = json!("tokens_v3");
+
+    let error = super::parse_chunk_budget_value(&budget)
+        .expect_err("an unknown stored version must not be read as a known one");
+    assert!(
+        matches!(error, super::ChunkingError::InvalidSnapshot { .. }),
+        "{error}"
+    );
+}
+
+#[test]
+fn fresh_budgets_select_the_bounded_token_version() {
+    use super::ChunkBudgetMode;
+    use crate::chunking::chunking_token::TokenizerKind;
+    use std::path::PathBuf;
+
+    assert_eq!(
+        ChunkBudgetMode::Tokens.fresh(),
+        ChunkBudgetMode::TokensV2,
+        "a fresh token budget uses the bounded cut"
+    );
+    assert_eq!(ChunkBudgetMode::Chars.fresh(), ChunkBudgetMode::Chars);
+    assert_eq!(ChunkBudgetMode::TokensV2.fresh(), ChunkBudgetMode::TokensV2);
+
+    let config = crate::config::ChunkingBudgetConfig {
+        max_chars: 1200,
+        overlap_chars: 200,
+        unit: ChunkBudgetMode::Tokens,
+        tokenizer: TokenizerKind::O200kBase,
+        tokenizer_sha256: None,
+        tokenizer_artifact_dir: PathBuf::from("/var/lib/context69/tokenizers"),
+        max_tokens: 512,
+        overlap_tokens: 64,
+    };
+    let budget = config.chunk_budget();
+    assert_eq!(budget.mode, ChunkBudgetMode::TokensV2);
+    assert_eq!(budget.identity(), "tokens_v2:o200k_base:512:64");
+
+    let characters = crate::config::ChunkingBudgetConfig {
+        unit: ChunkBudgetMode::Chars,
+        ..config
+    };
+    assert_eq!(characters.chunk_budget().identity(), "chars:1200:200");
+}

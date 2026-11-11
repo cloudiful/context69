@@ -313,6 +313,24 @@ impl Database {
         .context("count rebuild staging chunks")?)
     }
 
+    /// The staged and total document counts of one running rebuild target.
+    ///
+    /// Staged documents are cut and staged, not necessarily embedded, and the
+    /// total is the canonical document set the rebuild selects.
+    pub async fn read_rebuild_document_progress(
+        &self,
+        target_collection: &str,
+    ) -> Result<(i64, i64)> {
+        let row = sqlx::query_file!(
+            "src/sql/db/documents/count_rebuild_progress_documents.sql",
+            target_collection,
+        )
+        .fetch_one(&self.pool)
+        .await
+        .context("count rebuild progress documents")?;
+        Ok((row.staged, row.total))
+    }
+
     pub async fn list_rebuild_staging_chunks_page(
         &self,
         target_collection: &str,

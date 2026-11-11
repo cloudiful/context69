@@ -5553,6 +5553,16 @@ export interface components {
             user_id: number;
         };
         /**
+         * @description The truthful phase of a running vector rebuild.
+         *
+         *     Document staging and chunk embedding are interleaved: each document is cut
+         *     and its chunks are embedded before the next document is staged. A rebuild
+         *     that has not staged every document is therefore processing documents, not
+         *     only tokenizing them.
+         * @enum {string}
+         */
+        VectorIndexRebuildPhase: "processing_documents" | "embedding" | "verifying";
+        /**
          * @description The durable state of the vector index rebuild.
          *
          *     The states are the rebuild's own, not the task queue's: a rebuild that
@@ -5583,9 +5593,18 @@ export interface components {
             can_resume?: boolean;
             /** @description The dimensions the deployment is configured for. */
             desired_dimensions?: number | null;
+            /**
+             * @description Documents already cut and staged into the target, absent unless a
+             *     rebuild is active. Staged is not embedded: a staged document may still
+             *     be waiting for its chunks to be embedded.
+             */
+            documents_staged?: number | null;
+            /** @description Documents selected by the rebuild, absent unless a rebuild is active. */
+            documents_total?: number | null;
             error_message?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
+            phase?: null | components["schemas"]["VectorIndexRebuildPhase"];
             /** @description The physical collection ordinary writers use today. */
             physical_collection?: string | null;
             processed_chunks: number;

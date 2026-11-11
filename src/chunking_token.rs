@@ -227,6 +227,101 @@ impl TokenizerEngine {
         }
         None
     }
+
+    /// The prefix of `window` the bounded candidate cut selects.
+    ///
+    /// The window is encoded once; the candidate ends come from the tokenizer's
+    /// own view of the original text, so no accumulated prefix is re-encoded
+    /// per step. At most five positive, deduplicated descending token-index
+    /// candidates are tried and each is verified with one exact count.
+    fn bounded_prefix_within<'a>(&self, window: &'a str, limit: usize) -> Option<&'a str> {
+        if limit == 0 || window.is_empty() {
+            return None;
+        }
+        let (tokens, offsets) = self.encode_with_offsets(window);
+        if tokens.is_empty() {
+            // A non-empty window can produce zero ordinary tokens when the
+            // tokenizer normalizes every character away (for example a NUL
+            // removed by the BERT cleaner). The whole window still fits any
+            // positive budget, and accepting it preserves the original text
+            // instead of retrying the same window until the budget fails.
+            return (self.count(window) <= limit).then_some(window);
+        }
+        if tokens.len() <= limit {
+            return Some(window);
+        }
+        let mut previous = usize::MAX;
+        for take in bounded_takes(limit, tokens.len()) {
+            if take == 0 || take >= previous {
+                continue;
+            }
+            previous = take;
+            let Some(end) = self.candidate_end(window, &tokens, offsets.as_deref(), take) else {
+                continue;
+            };
+            if end == 0 {
+                continue;
+            }
+            let candidate = &window[..end];
+            if self.count(candidate) <= limit {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    /// The token ids of `text` and, for a Hugging Face engine, the byte span of
+    /// every token inside the original input.
+    fn encode_with_offsets(&self, text: &str) -> (Vec<u32>, Option<Vec<(usize, usize)>>) {
+        match self {
+            Self::Tiktoken(kind) => (kind.encoder().encode_ordinary(text), None),
+            Self::Hf(tokenizer) => match tokenizer.encode(text, false) {
+                Ok(encoding) => (
+                    encoding.get_ids().to_vec(),
+                    Some(encoding.get_offsets().to_vec()),
+                ),
+                Err(_) => (Vec::new(), None),
+            },
+        }
+    }
+
+    /// The original-text byte end of the first `take` tokens of one window,
+    /// aligned down to a character boundary.
+    fn candidate_end(
+        &self,
+        window: &str,
+        tokens: &[u32],
+        offsets: Option<&[(usize, usize)]>,
+        take: usize,
+    ) -> Option<usize> {
+        let raw = match offsets {
+            Some(offsets) => offsets.get(take - 1)?.1,
+            None => self.decode_bytes(&tokens[..take])?.len(),
+        };
+        let mut end = raw.min(window.len());
+        while end > 0 && !window.is_char_boundary(end) {
+            end -= 1;
+        }
+        Some(end)
+    }
+}
+
+/// Candidate selection used to cut one chunk out of the pending window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PrefixStrategy {
+    /// Legacy downward scan that re-encodes each shorter candidate prefix.
+    Legacy,
+    /// Bounded candidate cut that encodes the window once.
+    Bounded,
+}
+
+/// The token-index candidates of the bounded cut, descending and at most five.
+///
+/// The values are token indices, not byte lengths: every candidate is verified
+/// with one exact count, so a candidate that does not fit simply yields to the
+/// next one.
+fn bounded_takes(limit: usize, available: usize) -> [usize; 5] {
+    [limit, limit * 3 / 4, limit / 2, limit / 4, 1].map(|take| take.min(available))
 }
 
 /// One resolved tokenizer selection and its loaded engine.
@@ -338,6 +433,8 @@ pub struct TokenChunkDocumentIter<'a> {
     tokenizer: ResolvedTokenizer,
     max_tokens: usize,
     overlap_tokens: usize,
+    /// Candidate selection of this budget version.
+    strategy: PrefixStrategy,
     /// The paragraphs of the normalized source, in order.
     paragraphs: std::str::Split<'a, &'static str>,
     /// The text of the current paragraph that is not in the window yet.
@@ -408,6 +505,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
             tokenizer,
             max_tokens,
             overlap_tokens,
+            strategy: PrefixStrategy::Legacy,
             paragraphs: document.body_text.split(PARAGRAPH_SEPARATOR),
             paragraph: "",
             separator_due: false,
@@ -418,6 +516,12 @@ impl<'a> TokenChunkDocumentIter<'a> {
             finished: false,
             failure: None,
         })
+    }
+
+    /// Builds the iterator with the candidate selection of its budget version.
+    pub fn with_strategy(mut self, strategy: PrefixStrategy) -> Self {
+        self.strategy = strategy;
+        self
     }
 
     /// Iterator that reports a configuration failure on its first item.
@@ -435,6 +539,7 @@ impl<'a> TokenChunkDocumentIter<'a> {
             tokenizer: ResolvedTokenizer::from_static(TokenizerKind::Cl100kBase),
             max_tokens: 1,
             overlap_tokens: 0,
+            strategy: PrefixStrategy::Legacy,
             paragraphs: document.body_text.split(PARAGRAPH_SEPARATOR),
             paragraph: "",
             separator_due: false,
@@ -561,7 +666,16 @@ impl<'a> TokenChunkDocumentIter<'a> {
         let mut limit = self.content_limit(*overlap_tokens);
         let mut shortenings = 0usize;
         loop {
-            let Some(prefix) = self.tokenizer.engine().prefix_within(&self.window, limit) else {
+            let prefix = match self.strategy {
+                PrefixStrategy::Legacy => {
+                    self.tokenizer.engine().prefix_within(&self.window, limit)
+                }
+                PrefixStrategy::Bounded => self
+                    .tokenizer
+                    .engine()
+                    .bounded_prefix_within(&self.window, limit),
+            };
+            let Some(prefix) = prefix else {
                 let (character, tokens) = self.first_character()?;
                 if tokens > self.max_tokens {
                     return Err(ChunkingError::CharacterExceedsBudget {

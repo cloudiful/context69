@@ -19,7 +19,9 @@ use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
 use super::TaskService;
-use crate::contracts::{VectorIndexRebuildState, VectorIndexRebuildStatus};
+use crate::contracts::{
+    VectorIndexRebuildPhase, VectorIndexRebuildState, VectorIndexRebuildStatus,
+};
 use crate::db::{RebuildBarrier, RebuildBarrierState};
 use crate::domain::UserRecord;
 use crate::domain_errors::DomainError;
@@ -196,6 +198,21 @@ impl TaskService {
         // status reports them as absent instead of refusing to describe the
         // rebuild it already has.
         let desired = self.settings().get_runtime_settings().await.ok();
+        let staging = if barrier.state == RebuildBarrierState::Idle {
+            None
+        } else {
+            Some(self.db.read_rebuild_staging_state().await?)
+        };
+        // The document counts are only needed while a rebuild is active. A
+        // completed or idle deployment reports no fabricated zero.
+        let documents = if barrier.state == RebuildBarrierState::Running {
+            match barrier.collection.as_deref() {
+                Some(target) => Some(self.db.read_rebuild_document_progress(target).await?),
+                None => None,
+            }
+        } else {
+            None
+        };
         let mut inputs = RebuildStatusInputs {
             barrier,
             tasks: Vec::new(),
@@ -207,6 +224,18 @@ impl TaskService {
             desired_dimensions: desired
                 .as_ref()
                 .map(|settings| settings.embedding.dimensions),
+            staging_complete: staging
+                .as_ref()
+                .is_some_and(|staging| staging.staging_complete),
+            translation_processed_chunks: staging
+                .as_ref()
+                .map_or(0, |staging| staging.translation_processed_chunks),
+            documents_staged: documents
+                .as_ref()
+                .and_then(|(staged, _)| usize::try_from(*staged).ok()),
+            documents_total: documents
+                .as_ref()
+                .and_then(|(_, total)| usize::try_from(*total).ok()),
         };
         for row in rows {
             if inputs.active_collection_name.is_none()
@@ -304,6 +333,10 @@ struct RebuildStatusInputs {
     active_rebuilt_chunks: Option<i64>,
     queue_paused: bool,
     desired_dimensions: Option<usize>,
+    staging_complete: bool,
+    translation_processed_chunks: i64,
+    documents_staged: Option<usize>,
+    documents_total: Option<usize>,
 }
 
 /// The rebuild the status describes.
@@ -354,17 +387,23 @@ fn rebuild_state(
 /// The chunk counts of the observed rebuild.
 ///
 /// While the barrier is owned the counts are the durable cursor of the running
-/// rebuild. A completed rebuild reports the counts of the activated index,
-/// because the barrier is cleared by its own completion.
+/// rebuild. The original and translation cursors commit disjoint rows, so their
+/// sum is the embedded count exactly once. A completed rebuild reports the
+/// counts of the activated index, because the barrier is cleared by its own
+/// completion.
 fn rebuild_counts(inputs: &RebuildStatusInputs, state: VectorIndexRebuildState) -> (usize, usize) {
     match state {
         VectorIndexRebuildState::Running
         | VectorIndexRebuildState::Pausing
         | VectorIndexRebuildState::Paused
-        | VectorIndexRebuildState::Failed => (
-            usize::try_from(inputs.barrier.processed_chunks).unwrap_or(0),
-            usize::try_from(inputs.barrier.total_chunks).unwrap_or(0),
-        ),
+        | VectorIndexRebuildState::Failed => {
+            let originals = usize::try_from(inputs.barrier.processed_chunks).unwrap_or(0);
+            let translations = usize::try_from(inputs.translation_processed_chunks).unwrap_or(0);
+            (
+                originals.saturating_add(translations),
+                usize::try_from(inputs.barrier.total_chunks).unwrap_or(0),
+            )
+        }
         VectorIndexRebuildState::Succeeded => {
             let chunks = usize::try_from(inputs.active_rebuilt_chunks.unwrap_or(0)).unwrap_or(0);
             (chunks, chunks)
@@ -375,11 +414,48 @@ fn rebuild_counts(inputs: &RebuildStatusInputs, state: VectorIndexRebuildState) 
     }
 }
 
+/// The document phase and counts of an active rebuild.
+///
+/// Staging and embedding are interleaved, so an incomplete staging pass is
+/// processing documents, not only tokenizing them. Only an active rebuild
+/// reports these fields; every other state reports them absent rather than a
+/// fabricated zero.
+fn rebuild_documents(
+    inputs: &RebuildStatusInputs,
+    state: VectorIndexRebuildState,
+    processed_chunks: usize,
+    total_chunks: usize,
+) -> (
+    Option<VectorIndexRebuildPhase>,
+    Option<usize>,
+    Option<usize>,
+) {
+    let active = matches!(
+        state,
+        VectorIndexRebuildState::Running
+            | VectorIndexRebuildState::Pausing
+            | VectorIndexRebuildState::Paused
+    );
+    if !active {
+        return (None, None, None);
+    }
+    let phase = if !inputs.staging_complete {
+        VectorIndexRebuildPhase::ProcessingDocuments
+    } else if processed_chunks < total_chunks {
+        VectorIndexRebuildPhase::Embedding
+    } else {
+        VectorIndexRebuildPhase::Verifying
+    };
+    (Some(phase), inputs.documents_staged, inputs.documents_total)
+}
+
 /// The durable status of the vector index rebuild.
 fn project_rebuild_status(inputs: &RebuildStatusInputs) -> VectorIndexRebuildStatus {
     let observed = observed_rebuild_task(inputs);
     let state = rebuild_state(inputs, observed);
     let (processed_chunks, total_chunks) = rebuild_counts(inputs, state);
+    let (phase, documents_staged, documents_total) =
+        rebuild_documents(inputs, state, processed_chunks, total_chunks);
     let owned = match (observed, inputs.barrier.owner_item_id) {
         (Some(task), Some(owner)) => task.item_id == Some(owner),
         _ => false,
@@ -403,6 +479,9 @@ fn project_rebuild_status(inputs: &RebuildStatusInputs) -> VectorIndexRebuildSta
         state,
         processed_chunks,
         total_chunks,
+        phase,
+        documents_staged,
+        documents_total,
         error_message: observed
             .and_then(|task| task.error_summary.clone())
             .or_else(|| inputs.barrier.error.clone()),
@@ -478,6 +557,10 @@ mod tests {
             active_rebuilt_chunks: Some(40),
             queue_paused: false,
             desired_dimensions: Some(1024),
+            staging_complete: false,
+            translation_processed_chunks: 0,
+            documents_staged: Some(3),
+            documents_total: Some(5),
         }
     }
 
@@ -556,6 +639,9 @@ mod tests {
         assert_eq!(status.state, VectorIndexRebuildState::Succeeded);
         assert_eq!(status.processed_chunks, 40);
         assert_eq!(status.total_chunks, 40);
+        assert_eq!(status.phase, None);
+        assert_eq!(status.documents_staged, None);
+        assert_eq!(status.documents_total, None);
         assert_eq!(status.active_dimensions, Some(768));
         assert_eq!(status.desired_dimensions, Some(1024));
         assert_eq!(status.physical_collection.as_deref(), Some("context69"));
@@ -613,6 +699,9 @@ mod tests {
         ));
         assert_eq!(status.state, VectorIndexRebuildState::Idle);
         assert_eq!(status.task_id, None);
+        assert_eq!(status.phase, None);
+        assert_eq!(status.documents_staged, None);
+        assert_eq!(status.documents_total, None);
         assert!(!status.can_pause);
         assert!(!status.can_resume);
         assert!(!status.can_cancel);
@@ -627,5 +716,99 @@ mod tests {
         inputs.queue_paused = true;
         let status = project_rebuild_status(&inputs);
         assert!(status.queue_paused);
+    }
+
+    fn running_inputs(owner_item: Uuid, owner_task: Uuid) -> RebuildStatusInputs {
+        inputs(
+            barrier(RebuildBarrierState::Running, Some(owner_item), false),
+            vec![task(owner_task, "running", owner_item)],
+        )
+    }
+
+    #[test]
+    fn an_interleaved_streaming_rebuild_reports_documents_not_a_percentage() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut inputs = running_inputs(owner_item, owner_task);
+        inputs.staging_complete = false;
+        inputs.documents_staged = Some(2);
+        inputs.documents_total = Some(7);
+        let status = project_rebuild_status(&inputs);
+        assert_eq!(status.state, VectorIndexRebuildState::Running);
+        assert_eq!(
+            status.phase,
+            Some(VectorIndexRebuildPhase::ProcessingDocuments),
+            "staging and embedding are interleaved while documents remain"
+        );
+        assert_eq!(status.documents_staged, Some(2));
+        assert_eq!(status.documents_total, Some(7));
+        assert_eq!(status.processed_chunks, 12);
+        assert_eq!(status.total_chunks, 40);
+    }
+
+    #[test]
+    fn translation_progress_is_added_exactly_once() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut inputs = running_inputs(owner_item, owner_task);
+        inputs.translation_processed_chunks = 28;
+        let status = project_rebuild_status(&inputs);
+        assert_eq!(
+            status.processed_chunks, 40,
+            "the original and translation cursors commit disjoint rows"
+        );
+        assert_eq!(status.total_chunks, 40);
+    }
+
+    #[test]
+    fn a_complete_staging_pass_that_is_not_embedded_is_not_complete() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut inputs = running_inputs(owner_item, owner_task);
+        inputs.staging_complete = true;
+        let status = project_rebuild_status(&inputs);
+        assert_eq!(
+            status.phase,
+            Some(VectorIndexRebuildPhase::Embedding),
+            "every document is staged but the remaining chunks are not embedded"
+        );
+        assert!(status.processed_chunks < status.total_chunks);
+        assert_ne!(status.processed_chunks, status.total_chunks);
+    }
+
+    #[test]
+    fn an_unknown_chunk_total_never_reports_completion() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut inputs = running_inputs(owner_item, owner_task);
+        inputs.barrier.total_chunks = 0;
+        inputs.translation_processed_chunks = 0;
+        let status = project_rebuild_status(&inputs);
+        assert_eq!(
+            status.total_chunks, 0,
+            "the total is unknown, not zero work"
+        );
+        assert_eq!(status.processed_chunks, 12);
+        assert_ne!(status.processed_chunks, status.total_chunks);
+        assert_eq!(
+            status.phase,
+            Some(VectorIndexRebuildPhase::ProcessingDocuments)
+        );
+    }
+
+    #[test]
+    fn a_fully_embedded_attempt_verifies_before_activation() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut inputs = running_inputs(owner_item, owner_task);
+        inputs.staging_complete = true;
+        inputs.translation_processed_chunks = 28;
+        let status = project_rebuild_status(&inputs);
+        assert_eq!(
+            status.phase,
+            Some(VectorIndexRebuildPhase::Verifying),
+            "every known chunk is embedded, so the target is being verified"
+        );
+        assert_eq!(status.processed_chunks, status.total_chunks);
     }
 }

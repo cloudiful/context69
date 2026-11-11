@@ -134,7 +134,7 @@ use crate::contracts::{
     TranslationStatus, UpdateAdminUserRequest, UpdateGroupTranslationSettingsRequest,
     UpdateMetadataIndexRequest, UpdateTaskQueueStateRequest, UpdateTranslationSettingsRequest,
     UpsertLibraryTextRequest, UpsertSourceConnectionRequest, UrlBatchRequest,
-    VectorIndexRebuildState, VectorIndexRebuildStatus,
+    VectorIndexRebuildPhase, VectorIndexRebuildState, VectorIndexRebuildStatus,
 };
 
 use crate::contracts::sources::{
@@ -468,6 +468,7 @@ use crate::contracts::tasks::{TaskSelectionItem, TaskSelectionQuery, TaskSelecti
         CancelActiveTasksResponse,
         TaskQueueStateResponse,
         UpdateTaskQueueStateRequest,
+        VectorIndexRebuildPhase,
         VectorIndexRebuildState,
         VectorIndexRebuildStatus,
         RebuildControlRequest,
@@ -703,6 +704,7 @@ mod tests {
             "TaskStreamUpdate",
             "ClearTaskHistoryRequest",
             "ClearTaskHistoryResponse",
+            "VectorIndexRebuildPhase",
             "VectorIndexRebuildState",
             "VectorIndexRebuildStatus",
             "RebuildControlRequest",

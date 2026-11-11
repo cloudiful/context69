@@ -18,8 +18,10 @@ pub enum TranslationChunkingMode {
     /// Legacy character budget.
     #[default]
     Chars,
-    /// Token budget measured with an explicit tokenizer.
+    /// Token budget measured with an explicit tokenizer and the legacy cut.
     Tokens,
+    /// Token budget measured with an explicit tokenizer and the bounded cut.
+    TokensV2,
 }
 
 /// Tokenizer that measures a token budget.

@@ -114,6 +114,11 @@ export function VectorRebuildControl() {
               {t(`settings.runtime.vectorRebuildStates.${state}`)}
             </p>
           ) : null}
+          {active && status?.phase ? (
+            <p className="text-xs text-muted-foreground" data-testid="runtime-vector-rebuild-phase">
+              {t(`settings.runtime.vectorRebuildPhase.${status.phase}`)}
+            </p>
+          ) : null}
           {active && status && status.total_chunks > 0 ? (
             <p className="text-xs text-muted-foreground">
               {t("settings.runtime.vectorRebuildProgress", {
@@ -121,6 +126,27 @@ export function VectorRebuildControl() {
                 total: status.total_chunks,
               })}
             </p>
+          ) : null}
+          {active && status && status.total_chunks === 0 ? (
+            <>
+              {status.documents_staged != null ? (
+                <p className="text-xs text-muted-foreground" data-testid="runtime-vector-rebuild-documents">
+                  {status.documents_total != null
+                    ? t("settings.runtime.vectorRebuildDocumentsProgress", {
+                        staged: status.documents_staged,
+                        total: status.documents_total,
+                      })
+                    : t("settings.runtime.vectorRebuildDocumentsStaged", {
+                        staged: status.documents_staged,
+                      })}
+                </p>
+              ) : null}
+              <p className="text-xs text-muted-foreground" data-testid="runtime-vector-rebuild-embedded">
+                {t("settings.runtime.vectorRebuildEmbeddedChunks", {
+                  processed: status.processed_chunks,
+                })}
+              </p>
+            </>
           ) : null}
           {state === "pausing" || state === "paused" ? (
             <p className="text-xs text-muted-foreground">

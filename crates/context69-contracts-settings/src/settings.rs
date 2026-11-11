@@ -318,6 +318,23 @@ pub enum VectorIndexRebuildState {
     Cancelled,
 }
 
+/// The truthful phase of a running vector rebuild.
+///
+/// Document staging and chunk embedding are interleaved: each document is cut
+/// and its chunks are embedded before the next document is staged. A rebuild
+/// that has not staged every document is therefore processing documents, not
+/// only tokenizing them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum VectorIndexRebuildPhase {
+    /// Documents are still being cut and embedded as each one is staged.
+    ProcessingDocuments,
+    /// Every document is staged; the remaining staged chunks are embedded.
+    Embedding,
+    /// Every known chunk is embedded; the target is verified before activation.
+    Verifying,
+}
+
 /// The durable status of the vector index rebuild.
 ///
 /// The optional fields are the durable facts an operator needs beside the
@@ -330,6 +347,17 @@ pub struct VectorIndexRebuildStatus {
     pub state: VectorIndexRebuildState,
     pub processed_chunks: usize,
     pub total_chunks: usize,
+    /// The phase of a running rebuild, absent whenever no attempt is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phase: Option<VectorIndexRebuildPhase>,
+    /// Documents already cut and staged into the target, absent unless a
+    /// rebuild is active. Staged is not embedded: a staged document may still
+    /// be waiting for its chunks to be embedded.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents_staged: Option<usize>,
+    /// Documents selected by the rebuild, absent unless a rebuild is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub documents_total: Option<usize>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

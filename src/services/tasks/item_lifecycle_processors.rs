@@ -1,8 +1,7 @@
 use crate::domain_errors::DomainError;
 
 use anyhow::{Context, Result};
-use chrono::{Duration as ChronoDuration, Utc};
-use context69_contracts::{DocumentKey, VectorIndexRebuildState};
+use context69_contracts::DocumentKey;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -179,18 +178,6 @@ pub(super) async fn process_vector_rebuild(
                 .into(),
         ));
     }
-    let status = service.sync().vector_index_rebuild_status().await;
-    // A rebuild already in flight elsewhere is a shared-resource wait, not a
-    // failure: park on the `dependency` queue reason (the `external_job`
-    // reason was removed with the Docling async chain in issue 529 Task 2).
-    if status.state == VectorIndexRebuildState::Running {
-        return Ok(ProcessResult::Waiting {
-            reason: "dependency".to_string(),
-            dependency_key: Some("qdrant".to_string()),
-            next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
-            message: Some("another vector index rebuild is still running".to_string()),
-        });
-    }
     // The rebuild owns the persistent barrier, so it carries the captured
     // grant of this task item: the barrier records an owner that can prove
     // it is a live writer.
@@ -229,12 +216,17 @@ pub(super) async fn process_vector_rebuild(
             "the vector rebuild was cancelled or its ownership was superseded",
         )
         .into()),
-        Err(error) if error.to_string().contains("already running") => Ok(ProcessResult::Waiting {
-            reason: "dependency".to_string(),
-            dependency_key: Some("qdrant".to_string()),
-            next_attempt_at: Utc::now() + ChronoDuration::seconds(5),
-            message: Some("another vector index rebuild is still running".to_string()),
-        }),
+        Err(error)
+            if error
+                .downcast_ref::<crate::services::sync::RebuildBusy>()
+                .is_some() =>
+        {
+            Ok(ProcessResult::Failed {
+                stage: stage.to_string(),
+                message: "another vector index rebuild is already running".to_string(),
+                retryable: false,
+            })
+        }
         Err(error) => {
             // No published vector pair is a dependency wait, not a failed
             // rebuild attempt; anything else keeps its original failure path.

@@ -49,8 +49,31 @@ pub enum ChunkBudgetMode {
     /// Legacy character budget.
     #[default]
     Chars,
-    /// Token budget measured with an explicit tokenizer.
+    /// Token budget measured with an explicit tokenizer and the legacy
+    /// downward candidate scan.
     Tokens,
+    /// Token budget measured with an explicit tokenizer and the bounded
+    /// candidate cut.
+    ///
+    /// Only a budget produced for a new task selects this version; a budget
+    /// that was already pinned keeps the version it was stored with. A build
+    /// that does not know this mode refuses the snapshot instead of cutting
+    /// with a budget it never selected.
+    TokensV2,
+}
+
+impl ChunkBudgetMode {
+    /// The mode a freshly produced token budget uses.
+    ///
+    /// A stored or pinned mode is never rewritten: only a budget built for a
+    /// new task selects the bounded cutting algorithm.
+    #[must_use]
+    pub fn fresh(self) -> Self {
+        match self {
+            Self::Tokens => Self::TokensV2,
+            other => other,
+        }
+    }
 }
 
 /// Token budget used when [`ChunkBudgetMode::Tokens`] is selected.
@@ -208,7 +231,7 @@ impl ChunkingRuntime {
         let tokenizer =
             match budget.mode {
                 ChunkBudgetMode::Chars => None,
-                ChunkBudgetMode::Tokens => {
+                ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => {
                     let tokens = budget.tokens.as_ref().ok_or_else(|| {
                         ChunkingError::InvalidTokenBudget {
                             reason: "token mode requires a token budget".to_string(),
@@ -381,6 +404,9 @@ impl ChunkBudget {
     }
 
     /// Budget that measures chunks with an explicit tokenizer reference.
+    ///
+    /// The budget keeps the legacy cutting algorithm; a new task uses
+    /// [`Self::tokens_v2_ref`].
     pub fn tokens_ref(tokenizer: TokenizerRef, max_tokens: usize, overlap_tokens: usize) -> Self {
         Self {
             mode: ChunkBudgetMode::Tokens,
@@ -393,8 +419,37 @@ impl ChunkBudget {
         }
     }
 
+    /// Budget that measures chunks with an explicit tokenizer using the
+    /// bounded candidate cut.
+    pub fn tokens_v2(key: TokenizerKind, max_tokens: usize, overlap_tokens: usize) -> Self {
+        Self::tokens_v2_ref(key.into(), max_tokens, overlap_tokens)
+    }
+
+    /// Budget that measures chunks with an explicit tokenizer reference using
+    /// the bounded candidate cut.
+    pub fn tokens_v2_ref(
+        tokenizer: TokenizerRef,
+        max_tokens: usize,
+        overlap_tokens: usize,
+    ) -> Self {
+        Self {
+            mode: ChunkBudgetMode::TokensV2,
+            chars: ChunkingConfig::default(),
+            tokens: Some(TokenBudget {
+                tokenizer,
+                max_tokens,
+                overlap_tokens,
+            }),
+        }
+    }
+
+    /// Whether the budget uses the bounded candidate cut.
+    pub fn uses_bounded_cut(&self) -> bool {
+        self.mode == ChunkBudgetMode::TokensV2
+    }
+
     pub fn validate(&self) -> Result<(), ChunkingError> {
-        if self.mode != ChunkBudgetMode::Tokens {
+        if self.mode == ChunkBudgetMode::Chars {
             if self.chars.max_chars == 0 {
                 return Err(ChunkingError::InvalidCharacterBudget {
                     reason: "max_chars must be greater than zero".to_string(),
@@ -433,15 +488,20 @@ impl ChunkBudget {
                 "chars:{}:{}",
                 self.chars.max_chars, self.chars.overlap_chars
             ),
-            ChunkBudgetMode::Tokens => match self.tokens.as_ref() {
-                Some(tokens) => format!(
-                    "tokens:{}:{}:{}",
-                    tokens.tokenizer.identity_name(),
-                    tokens.max_tokens,
-                    tokens.overlap_tokens
-                ),
-                None => "tokens:unconfigured".to_string(),
-            },
+            ChunkBudgetMode::Tokens => self.token_identity("tokens"),
+            ChunkBudgetMode::TokensV2 => self.token_identity("tokens_v2"),
+        }
+    }
+
+    fn token_identity(&self, prefix: &str) -> String {
+        match self.tokens.as_ref() {
+            Some(tokens) => format!(
+                "{prefix}:{}:{}:{}",
+                tokens.tokenizer.identity_name(),
+                tokens.max_tokens,
+                tokens.overlap_tokens
+            ),
+            None => format!("{prefix}:unconfigured"),
         }
     }
 }
@@ -535,7 +595,7 @@ impl ChunkBudgetSource for ChunkBudget {
                     .chunk_document_iter(document_id, source_key, document, None)?
                     .collect()
             }
-            ChunkBudgetMode::Tokens => {
+            ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => {
                 let resolved = static_resolved_budget(self)?;
                 let iter = token_chunk_iter(document_id, source_key, document, &resolved, None)?;
                 iter.collect()
@@ -577,7 +637,7 @@ impl ChunkBudgetSource for ChunkBudget {
                     ),
                 ),
             },
-            ChunkBudgetMode::Tokens => {
+            ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => {
                 match static_resolved_budget(self).and_then(|resolved| {
                     token_chunk_iter(document_id, source_key, document, &resolved, generation)
                 }) {
@@ -659,13 +719,9 @@ impl ResolvedChunkBudget {
                 &self.budget.chars,
                 generation,
             )),
-            ChunkBudgetMode::Tokens => ChunkBudgetDocumentIter::Tokens(token_chunk_iter(
-                document_id,
-                source_key,
-                document,
-                self,
-                generation,
-            )?),
+            ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => ChunkBudgetDocumentIter::Tokens(
+                token_chunk_iter(document_id, source_key, document, self, generation)?,
+            ),
         })
     }
 }
@@ -696,7 +752,7 @@ fn static_resolved_budget(budget: &ChunkBudget) -> Result<ResolvedChunkBudget, C
     budget.validate()?;
     let tokenizer = match budget.mode {
         ChunkBudgetMode::Chars => None,
-        ChunkBudgetMode::Tokens => {
+        ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => {
             let tokens =
                 budget
                     .tokens
@@ -785,13 +841,15 @@ pub fn chunk_document_iter_with_budget<'a>(
                 resolved.chunk_document_iter(document_id, source_key, document, generation)?
             }
         },
-        ChunkBudgetMode::Tokens => ChunkBudgetDocumentIter::Tokens(token_chunk_iter(
-            document_id,
-            source_key,
-            document,
-            &static_resolved_budget(budget)?,
-            generation,
-        )?),
+        ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => {
+            ChunkBudgetDocumentIter::Tokens(token_chunk_iter(
+                document_id,
+                source_key,
+                document,
+                &static_resolved_budget(budget)?,
+                generation,
+            )?)
+        }
     })
 }
 
@@ -817,6 +875,11 @@ fn token_chunk_iter<'a>(
         .ok_or_else(|| ChunkingError::InvalidTokenBudget {
             reason: "token mode requires a resolved tokenizer".to_string(),
         })?;
+    let strategy = if budget.budget.uses_bounded_cut() {
+        chunking_token::PrefixStrategy::Bounded
+    } else {
+        chunking_token::PrefixStrategy::Legacy
+    };
     chunking_token::TokenChunkDocumentIter::new_resolved(
         document_id,
         source_key,
@@ -826,6 +889,7 @@ fn token_chunk_iter<'a>(
         tokens.overlap_tokens,
         generation,
     )
+    .map(|iter| iter.with_strategy(strategy))
 }
 
 pub struct ChunkDocumentIter<'a> {

@@ -15,6 +15,23 @@ impl TaskService {
                 DomainError::invalid_argument("a task must contain at least one item").into(),
             );
         }
+        let key = request
+            .idempotency_key
+            .as_deref()
+            .map(str::trim)
+            .filter(|v| !v.is_empty());
+        // A fresh rebuild without an idempotency key is refused before it is
+        // enqueued while another live owner runs. A keyed request keeps its
+        // reuse-or-create semantics, and the durable claim still classifies a
+        // racing loser exactly once.
+        if key.is_none()
+            && request.kind == TaskKind::VectorRebuild
+            && self.rebuild_owner_is_live().await?
+        {
+            return Err(
+                DomainError::conflict("another vector index rebuild is already running").into(),
+            );
+        }
         let request_hash = hash_payload(&request);
         let mut payloads = request.payloads.clone();
         let mut input_storage_object_ids = if request.input_storage_object_ids.is_empty() {
@@ -90,11 +107,6 @@ impl TaskService {
         for payload in &mut payloads {
             *payload = crate::chunking::payload_with_chunk_budget(payload, &budget);
         }
-        let key = request
-            .idempotency_key
-            .as_deref()
-            .map(str::trim)
-            .filter(|v| !v.is_empty());
         let task_id = Uuid::new_v4();
         let submission = self
             .db
@@ -127,6 +139,22 @@ impl TaskService {
             self.notify_dispatch();
         }
         Ok(TaskRef { task_id, item_ids })
+    }
+
+    /// Whether a different durable rebuild owner is still running.
+    ///
+    /// The barrier is authoritative: an idle or failed barrier has no live
+    /// owner, and a running barrier whose owner can no longer write may be
+    /// taken over by the next attempt.
+    async fn rebuild_owner_is_live(&self) -> Result<bool> {
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if barrier.state != crate::db::RebuildBarrierState::Running {
+            return Ok(false);
+        }
+        let (Some(owner), Some(token)) = (barrier.owner_item_id, barrier.owner_token) else {
+            return Ok(false);
+        };
+        self.db.rebuild_owner_live(owner, token).await
     }
 
     async fn release_staged_input_objects(&self, object_ids: &[Uuid]) {

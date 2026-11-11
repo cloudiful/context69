@@ -40,6 +40,7 @@ mod sources;
 use connections::SourceConnectionSecrets;
 
 pub(crate) use connections::save_source_connection;
+pub(crate) use execution::RebuildBusy;
 
 /// One source connection write once the caller's request has been folded onto
 /// what is stored: the trimmed name and the database URL that will be sealed for it.
@@ -109,6 +110,9 @@ impl VectorRebuildTracker {
                     state: VectorIndexRebuildState::Idle,
                     processed_chunks: 0,
                     total_chunks: 0,
+                    phase: None,
+                    documents_staged: None,
+                    documents_total: None,
                     error_message: None,
                     started_at: None,
                     finished_at: None,
@@ -168,6 +172,9 @@ impl VectorRebuildTracker {
             state: VectorIndexRebuildState::Running,
             processed_chunks: 0,
             total_chunks: 0,
+            phase: None,
+            documents_staged: None,
+            documents_total: None,
             error_message: None,
             started_at: Some(chrono::Utc::now()),
             finished_at: None,
@@ -186,6 +193,13 @@ impl VectorRebuildTracker {
 
     fn status(&self) -> VectorIndexRebuildStatus {
         self.read().status.clone()
+    }
+
+    /// Whether `generation` is still the Running attempt of this tracker.
+    fn is_running_for(&self, generation: u64) -> bool {
+        let tracked = self.read();
+        tracked.generation == Some(generation)
+            && tracked.status.state == VectorIndexRebuildState::Running
     }
 
     fn progress(&self, generation: u64, processed_chunks: usize, total_chunks: usize) -> bool {
@@ -226,6 +240,55 @@ impl VectorRebuildTracker {
         tracked.status.error_message = Some(message);
         tracked.status.finished_at = Some(chrono::Utc::now());
         true
+    }
+}
+
+/// Closes an admitted rebuild attempt's local ownership if it never settles.
+///
+/// The guard is armed once the tracker owns the admitted generation and
+/// disarmed by every explicit terminal settlement. An attempt that is dropped
+/// while still Running (a cancelled or aborted worker) abandons exactly its own
+/// runtime generation and latches the tracker failure, so the next explicit
+/// rebuild can be admitted. It never touches the durable barrier: the database
+/// remains the authority of ownership, and an abandoned barrier is resolved by
+/// the existing liveness/takeover rules. A superseded guard mutates nothing.
+pub(crate) struct RebuildAttemptGuard<'a> {
+    tracker: &'a VectorRebuildTracker,
+    vector: &'a VectorRuntime,
+    generation: u64,
+    armed: bool,
+}
+
+impl<'a> RebuildAttemptGuard<'a> {
+    pub(crate) fn new(
+        tracker: &'a VectorRebuildTracker,
+        vector: &'a VectorRuntime,
+        generation: u64,
+    ) -> Self {
+        Self {
+            tracker,
+            vector,
+            generation,
+            armed: true,
+        }
+    }
+
+    /// Marks the attempt settled, so its drop has no side effect.
+    pub(crate) fn disarm(mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for RebuildAttemptGuard<'_> {
+    fn drop(&mut self) {
+        if !self.armed || !self.tracker.is_running_for(self.generation) {
+            return;
+        }
+        self.vector.abandon_rebuild(self.generation);
+        self.tracker.fail(
+            self.generation,
+            "the rebuild attempt was aborted".to_string(),
+        );
     }
 }
 
@@ -674,4 +737,66 @@ fn missing_source_connection_database_url() -> DomainError {
     DomainError::invalid_argument(
         "source connection database_url is required when creating a new connection",
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::{Arc, atomic::AtomicBool};
+
+    use super::{RebuildAttemptGuard, VectorRebuildTracker};
+    use crate::contracts::VectorIndexRebuildState;
+    use crate::vector_runtime::VectorRuntime;
+
+    fn running_tracker(generation: u64) -> VectorRebuildTracker {
+        let tracker = VectorRebuildTracker::new();
+        tracker.begin(generation);
+        tracker
+    }
+
+    #[test]
+    fn an_armed_guard_abandons_the_attempt_that_never_settled() {
+        let vector = VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
+        let generation = vector.begin_rebuild();
+        let tracker = running_tracker(generation);
+        {
+            let _guard = RebuildAttemptGuard::new(&tracker, &vector, generation);
+        }
+        assert_eq!(
+            tracker.status().state,
+            VectorIndexRebuildState::Failed,
+            "the abandoned attempt is latched as failed for its own generation"
+        );
+        assert!(!tracker.status().can_pause);
+        assert!(vector.requires_rebuild());
+        assert!(!vector.is_rebuilding());
+        assert!(!vector.is_ready());
+    }
+
+    #[test]
+    fn a_disarmed_guard_leaves_a_settled_attempt_untouched() {
+        let vector = VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
+        let generation = vector.begin_rebuild();
+        let tracker = running_tracker(generation);
+        let guard = RebuildAttemptGuard::new(&tracker, &vector, generation);
+        guard.disarm();
+        assert_eq!(tracker.status().state, VectorIndexRebuildState::Running);
+        assert!(!vector.requires_rebuild());
+        assert!(vector.is_rebuilding());
+    }
+
+    #[test]
+    fn a_superseded_guard_does_not_damage_the_replacement() {
+        let vector = VectorRuntime::configured(Arc::new(AtomicBool::new(true)));
+        let first = vector.begin_rebuild();
+        let tracker = running_tracker(first);
+        let replacement = vector.begin_rebuild();
+        tracker.begin(replacement);
+        {
+            let _guard = RebuildAttemptGuard::new(&tracker, &vector, first);
+        }
+        assert_eq!(tracker.status().state, VectorIndexRebuildState::Running);
+        assert_eq!(tracker.read().generation, Some(replacement));
+        assert!(!vector.requires_rebuild());
+        assert!(vector.is_rebuilding());
+    }
 }
