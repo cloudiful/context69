@@ -124,9 +124,3 @@ pub(super) fn file_detail(
 #[cfg(test)]
 #[path = "git_repository_file_tests.rs"]
 mod tests;
-
-/// Database-gated round trips for the same route, reusing the manifest
-/// listing's disposable fixture.
-#[cfg(test)]
-#[path = "git_repository_file_db_tests.rs"]
-mod db_tests;

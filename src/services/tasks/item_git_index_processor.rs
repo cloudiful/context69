@@ -473,32 +473,6 @@ fn snapshot_progressed(outcome: GitSnapshotIndexOutcome) -> ProcessResult {
     }
 }
 
-/// Test-only lexical entry point retained so the existing processor tests keep
-/// exercising the same five-argument call without a code request.
-#[cfg(test)]
-async fn run_git_index_snapshot(
-    db: &Database,
-    group_id: i64,
-    repository_key: Uuid,
-    provider: &dyn GitSnapshotProvider,
-    limits: GitIndexLimits,
-) -> ProcessResult {
-    match super::super::git_repository::indexing::index_git_repository_snapshot(
-        db,
-        provider,
-        limits,
-        group_id,
-        repository_key,
-        None,
-        false,
-    )
-    .await
-    {
-        Ok(outcome) => snapshot_progressed(outcome),
-        Err(error) => index_failure(GIT_INDEX_STAGE, &error),
-    }
-}
-
 fn finalize_result(payload: &Value) -> ProcessResult {
     ProcessResult::Succeeded(
         parse_repository_key(payload)

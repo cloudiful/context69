@@ -57,11 +57,6 @@ mod translations;
 #[path = "tasks/rebuild_control.rs"]
 pub(crate) mod rebuild_control;
 
-/// Disposable Git scratch rows shared by the database-gated manifest and
-/// exact-file round trips, so one fixture seeds both reads.
-#[cfg(test)]
-mod git_repository_files_db_fixture;
-
 #[derive(Clone)]
 pub struct ApiState {
     pub app: Arc<Context69App>,

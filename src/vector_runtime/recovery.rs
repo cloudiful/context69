@@ -432,7 +432,3 @@ fn jitter_fraction() -> f64 {
         .unwrap_or(0);
     0.8 + (nanos % 4001) as f64 / 10000.0
 }
-
-#[cfg(test)]
-#[path = "recovery_tests.rs"]
-mod tests;

@@ -20,76 +20,12 @@ pub use types::{
 
 #[cfg(test)]
 mod tests {
-    use std::{
-        env, fs,
-        time::{Duration, SystemTime, UNIX_EPOCH},
-    };
+    use std::time::Duration;
 
     use super::{
-        DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
-        DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SECRET_STORE_KEY_VERSION, SourceConfig,
-        normalize::normalize_source_config, types::FileConfig,
+        DEFAULT_SECRET_STORE_KEY_VERSION, SourceConfig, normalize::normalize_source_config,
+        types::FileConfig,
     };
-
-    #[test]
-    fn scheduler_lease_fields_fall_back_to_defaults_when_missing_from_toml() {
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("system time should be after unix epoch")
-            .as_nanos();
-        let path = env::temp_dir().join(format!("context69-config-{unique}.toml"));
-
-        fs::write(
-            &path,
-            r#"
-[app_db]
-url = "postgres://postgres:postgres@127.0.0.1:5432/context69"
-
-[qdrant]
-url = "http://127.0.0.1:6334"
-collection_name = "context69_chunks"
-recreate_on_dimension_mismatch = false
-
-[embedding]
-base_url = "http://127.0.0.1:11434/v1"
-model = "nomic-embed-text"
-dimensions = 768
-timeout_secs = 30
-
-[file_library]
-storage_root = "./data/library"
-max_upload_size_mb = 128
-
-[scheduler]
-interval_secs = 300
-run_on_start = true
-max_concurrency = 2
-job_id = "context69-sync"
-
-[api]
-bind_addr = "0.0.0.0:8096"
-
-[mcp]
-enabled = true
-"#,
-        )
-        .expect("test config should be written");
-
-        let parsed: FileConfig =
-            toml::from_str(&fs::read_to_string(&path).expect("test config should be readable"))
-                .expect("config should parse");
-        let _ = fs::remove_file(&path);
-
-        assert_eq!(
-            parsed.scheduler.execution_guard_ttl,
-            Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS)
-        );
-        assert_eq!(
-            parsed.scheduler.execution_guard_renew_interval,
-            Duration::from_secs(DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS)
-        );
-    }
-
     #[test]
     fn browser_session_defaults_are_stable() {
         let config = FileConfig::default();

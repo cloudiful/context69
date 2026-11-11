@@ -17,100 +17,6 @@ use uuid::Uuid;
 
 use super::Database;
 
-/// Deterministic parking points for the two cancellation windows.
-///
-/// The hooks exist only under `integration-test-helpers`; production sessions
-/// never see them. A test arms one point for one file, observes the session
-/// through an independent connection, aborts the operation, and then proves a
-/// fresh session can take the lock.
-#[cfg(feature = "integration-test-helpers")]
-mod cancellation_windows {
-    use std::sync::{Arc, Mutex};
-
-    use tokio::sync::Semaphore;
-    use uuid::Uuid;
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub(super) enum Point {
-        Acquisition,
-        Release,
-    }
-
-    struct Armed {
-        point: Point,
-        file_id: Uuid,
-        reached: Arc<Semaphore>,
-    }
-
-    static ARMED: Mutex<Option<Armed>> = Mutex::new(None);
-
-    pub(super) fn arm(point: Point, file_id: Uuid) {
-        *ARMED.lock().expect("the cancellation window lock") = Some(Armed {
-            point,
-            file_id,
-            reached: Arc::new(Semaphore::new(0)),
-        });
-    }
-
-    pub(super) fn clear() {
-        *ARMED.lock().expect("the cancellation window lock") = None;
-    }
-
-    fn reached(point: Point, file_id: Uuid) -> Option<Arc<Semaphore>> {
-        let armed = ARMED.lock().expect("the cancellation window lock");
-        armed.as_ref().and_then(|current| {
-            (current.point == point && current.file_id == file_id)
-                .then(|| Arc::clone(&current.reached))
-        })
-    }
-
-    pub(super) async fn wait(point: Point, file_id: Uuid) {
-        let Some(reached) = reached(point, file_id) else {
-            return;
-        };
-        reached
-            .acquire()
-            .await
-            .expect("the cancellation window stays open")
-            .forget();
-    }
-
-    pub(super) async fn park(point: Point, file_id: Uuid) {
-        let Some(reached) = reached(point, file_id) else {
-            return;
-        };
-        reached.add_permits(1);
-        std::future::pending::<()>().await;
-    }
-}
-
-#[cfg(feature = "integration-test-helpers")]
-impl LibraryMetadataMirrorLock {
-    /// Arm the point after the server took the lock and before the guard is
-    /// returned to the caller.
-    pub fn arm_acquisition_cancellation_window(file_id: Uuid) {
-        cancellation_windows::arm(cancellation_windows::Point::Acquisition, file_id);
-    }
-
-    /// Arm the point after the guard owns the held session and before the
-    /// unlock statement is submitted.
-    pub fn arm_release_cancellation_window(file_id: Uuid) {
-        cancellation_windows::arm(cancellation_windows::Point::Release, file_id);
-    }
-
-    pub async fn wait_acquisition_cancellation_window(file_id: Uuid) {
-        cancellation_windows::wait(cancellation_windows::Point::Acquisition, file_id).await;
-    }
-
-    pub async fn wait_release_cancellation_window(file_id: Uuid) {
-        cancellation_windows::wait(cancellation_windows::Point::Release, file_id).await;
-    }
-
-    pub fn clear_cancellation_windows() {
-        cancellation_windows::clear();
-    }
-}
-
 /// One pending mirror marker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct LibraryMetadataMirrorMarker {
@@ -159,9 +65,6 @@ impl LibraryMetadataMirrorLock {
 
     /// Releases the lock explicitly and returns the connection to the pool.
     pub async fn release(mut self) {
-        #[cfg(feature = "integration-test-helpers")]
-        cancellation_windows::park(cancellation_windows::Point::Release, self.file_id).await;
-
         let unlocked = match sqlx::query_file_scalar!(
             "src/sql/db/library_metadata_mirror/session_unlock.sql",
             self.file_id
@@ -323,10 +226,6 @@ impl Database {
                 return Err(error.into());
             }
         };
-        #[cfg(feature = "integration-test-helpers")]
-        if locked {
-            cancellation_windows::park(cancellation_windows::Point::Acquisition, file_id).await;
-        }
         if locked {
             Ok(Some(guard))
         } else {

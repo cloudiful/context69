@@ -15,8 +15,6 @@ use crate::{
 };
 
 mod last_used_recorder;
-#[cfg(test)]
-mod last_used_recorder_tests;
 
 pub use last_used_recorder::LastUsedRecorder;
 
@@ -276,3 +274,6 @@ mod tests {
         assert_eq!(scope_to_string(PersonalAccessTokenScope::Admin), "admin");
     }
 }
+
+#[cfg(test)]
+mod last_used_recorder_tests;

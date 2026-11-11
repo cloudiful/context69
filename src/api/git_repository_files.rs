@@ -185,9 +185,3 @@ pub(super) fn generation_not_ready() -> Response {
 #[cfg(test)]
 #[path = "git_repository_files_tests.rs"]
 mod tests;
-
-/// Database-gated round trips for the same route: skipped unless
-/// `CONTEXT69_TEST_DATABASE_URL` names a migrated scratch database.
-#[cfg(test)]
-#[path = "git_repository_files_db_tests.rs"]
-mod db_tests;

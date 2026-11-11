@@ -22,7 +22,3 @@ sha2.workspace = true
 tokio = { workspace = true, features = ["sync", "time"] }
 url.workspace = true
 uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
-
-[dev-dependencies]
-axum = { workspace = true, features = [ "json" ] }
-tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

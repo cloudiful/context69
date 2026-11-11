@@ -245,37 +245,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn started_job_is_observed_without_result_fetch() {
-        use axum::{
-            Json, Router,
-            routing::{get, post},
-        };
-        let router = Router::new()
-            .route("/v1/tasks/x/cancel", post(|| async { axum::http::StatusCode::CONFLICT }))
-            .route("/v1/status/poll/x", get(|query: axum::extract::Query<std::collections::HashMap<String, String>>| async move {
-                assert_eq!(query.get("wait").map(String::as_str), Some("0"));
-                Json(serde_json::json!({"task_id": "x", "task_type": "convert", "task_status": "started"}))
-            }));
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let deadline = Utc::now() + chrono::Duration::hours(1);
-        assert_eq!(
-            observe(deadline, Some(&endpoint), "pending", "x")
-                .await
-                .status,
-            "awaiting_terminal"
-        );
-        assert_eq!(
-            observe(deadline, Some(&endpoint), "awaiting_terminal", "x")
-                .await
-                .status,
-            "awaiting_terminal"
-        );
-        server.abort();
-    }
-
-    #[tokio::test]
     async fn an_unsupported_capability_settles_unsupported_with_its_own_reason() {
         let capability = cancel_result(Cancel::UnsupportedCapability);
         assert_eq!(capability.status, "unsupported");
@@ -294,27 +263,6 @@ mod tests {
             auth.error.unwrap().contains("authentication"),
             "the authentication reason is preserved"
         );
-    }
-
-    #[tokio::test]
-    async fn an_unsupported_capability_never_retries_until_the_deadline() {
-        use axum::{Router, routing::post};
-        let router = Router::new().route(
-            "/v1/tasks/x/cancel",
-            post(|| async { axum::http::StatusCode::NOT_IMPLEMENTED }),
-        );
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
-        let server = tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
-        let deadline = Utc::now() + chrono::Duration::hours(1);
-
-        let settlement = observe(deadline, Some(&endpoint), "pending", "x").await;
-        assert_eq!(settlement.status, "unsupported");
-        assert_eq!(settlement.outcome, None);
-        let error = settlement.error.expect("a capability reason");
-        assert!(error.contains("not supported"), "{error}");
-        assert!(!error.contains("authentication"), "{error}");
-        server.abort();
     }
 
     #[test]

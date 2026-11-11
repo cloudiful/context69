@@ -358,18 +358,6 @@ impl LibraryService {
         Ok(())
     }
 
-    /// Test-only drive of the fenced delete path.
-    #[cfg(feature = "integration-test-helpers")]
-    pub async fn delete_file_in_project_for_task_fenced_for_test(
-        &self,
-        project: &crate::domain::GroupRecord,
-        file_id: Uuid,
-        fence: crate::library_store::TaskWriteFence,
-    ) -> Result<()> {
-        self.delete_file_in_project_for_task_fenced(project, file_id, fence)
-            .await
-    }
-
     /// Refuse a delete of a file that an active ingest run still writes.
     ///
     /// The refusal happens before any mutation, so the caller can cancel the

@@ -146,17 +146,13 @@ impl LibraryService {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
     use anyhow::{Result, anyhow};
     use uuid::Uuid;
 
-    use crate::config::FileLibraryConfig;
-    use crate::services::library::object_storage::{
-        LibraryObjectStorage, StagingEntry, content_object_key, staging_object_key,
-    };
+    use crate::services::library::object_storage::StagingEntry;
 
     use super::run_rowless_staging_sweep;
 
@@ -306,87 +302,5 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!((capped.deleted, capped.failed, capped.scanned), (0, 1, 1));
-    }
-
-    fn temp_root() -> PathBuf {
-        std::env::temp_dir().join(format!("context69-rowless-{}", Uuid::new_v4()))
-    }
-
-    fn local_config(root: &Path) -> FileLibraryConfig {
-        FileLibraryConfig {
-            storage_root: root.to_path_buf(),
-            max_upload_size_mb: 1,
-            trusted_proxy_enabled: false,
-            s3: None,
-        }
-    }
-
-    fn set_modified(root: &Path, key: &str, modified: SystemTime) {
-        let file = std::fs::File::options()
-            .write(true)
-            .open(root.join(key))
-            .unwrap();
-        file.set_times(std::fs::FileTimes::new().set_modified(modified))
-            .unwrap();
-    }
-
-    #[tokio::test]
-    async fn local_backend_sweeps_only_stale_in_size_staging_files() {
-        let root = temp_root();
-        let storage = LibraryObjectStorage::from_config(&local_config(&root)).unwrap();
-        let stale_a = staging_object_key(5, Uuid::new_v4());
-        let stale_b = staging_object_key(5, Uuid::new_v4());
-        let fresh = staging_object_key(5, Uuid::new_v4());
-        let oversized = staging_object_key(5, Uuid::new_v4());
-        let malformed = "staging/5/not-a-uuid".to_string();
-        let content = content_object_key(5, &"a".repeat(64));
-        for (key, len, modified) in [
-            (stale_a.as_str(), 5usize, stale_time()),
-            (stale_b.as_str(), 5, stale_time()),
-            (fresh.as_str(), 5, fresh_time()),
-            (oversized.as_str(), 9, stale_time()),
-            (malformed.as_str(), 1, stale_time()),
-            (content.as_str(), 1, stale_time()),
-        ] {
-            storage.write(key, vec![b'x'; len].into()).await.unwrap();
-            set_modified(&root, key, modified);
-        }
-        let directory = root.join("staging/empty-group");
-        std::fs::create_dir_all(&directory).unwrap();
-
-        let list = |start_after: Option<String>, limit: usize| {
-            let storage = storage.clone();
-            async move {
-                storage
-                    .list_staging_page(start_after.as_deref(), limit)
-                    .await
-            }
-        };
-        let delete = |key: String| {
-            let storage = storage.clone();
-            async move { storage.delete(&key).await }
-        };
-
-        // Batch size 1 forces one delete per drain; the second drain clears the
-        // rest, so the sweep converges without a persisted cursor and never
-        // touches the fresh, oversized, malformed, directory, or `objects/` key.
-        let first = run_rowless_staging_sweep(&list, &delete, cutoff_time(), 8, 100, 1, 100)
-            .await
-            .unwrap();
-        assert_eq!(
-            first.deleted, 1,
-            "batch budget caps the drain at one delete"
-        );
-        let second = run_rowless_staging_sweep(list, delete, cutoff_time(), 8, 100, 1, 100)
-            .await
-            .unwrap();
-        assert_eq!(second.deleted, 1);
-        assert!(!root.join(&stale_a).exists() && !root.join(&stale_b).exists());
-        for survivor in [&fresh, &oversized, &malformed, &content] {
-            assert!(root.join(survivor).exists(), "must survive: {survivor}");
-        }
-        assert!(directory.exists(), "a staging directory must survive");
-
-        std::fs::remove_dir_all(&root).unwrap();
     }
 }

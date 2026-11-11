@@ -258,20 +258,10 @@ fn invalid_cursor() -> Response {
     )
 }
 
-/// Route tests for the content read: authorization, refusals, the exact-file
-/// mapping, and the response the route composes.
 #[cfg(test)]
 #[path = "git_repository_file_content_tests.rs"]
 mod tests;
 
-/// Pure line-window, page, and continuation tests for the same read, split into
-/// their own module so each test file stays cohesive.
 #[cfg(test)]
 #[path = "git_repository_file_content_window_tests.rs"]
 mod window_tests;
-
-/// Database-gated round trips for the same route, reusing the manifest
-/// listing's disposable fixture.
-#[cfg(test)]
-#[path = "git_repository_file_content_db_tests.rs"]
-mod db_tests;

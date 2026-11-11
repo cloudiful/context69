@@ -24,7 +24,6 @@ members = [
     "crates/context69-secret-crypto",
     "crates/context69-secret-store",
     "crates/context69-settings-http",
-    "crates/context69-test-support",
     "crates/context69-translation",
 ]
 resolver = "3"
@@ -69,7 +68,6 @@ context69-sdk = { path = "crates/context69-sdk", version = "0.25.10" }
 context69-secret-crypto = { path = "crates/context69-secret-crypto", version = "0.1.0" }
 context69-secret-store = { path = "crates/context69-secret-store", version = "0.1.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.1.0" }
-context69-test-support = { path = "crates/context69-test-support", version = "0.1.0" }
 context69-translation = { path = "crates/context69-translation", version = "0.1.0" }
 futures = "0.3.34"
 getrandom = "0.4.3"
@@ -116,18 +114,6 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 default-run = "context69"
-
-[features]
-# `integration-test-helpers` exposes the narrow test-only QdrantIndex
-# constructor (and any future helper of the same shape) to integration
-# tests under `tests/`. It is enabled only when callers pass
-# `--features integration-test-helpers` (for example
-# `cargo test --test qdrant_cleanup_failure --features
-# integration-test-helpers`). The production binary and any build that
-# does not enable the feature never see the constructor and cannot
-# reach it through the public API — the `src/qdrant_index/test_helpers.rs`
-# module is entirely absent.
-integration-test-helpers = []
 
 [dependencies]
 anyhow.workspace = true
@@ -185,20 +171,11 @@ tower-sessions-redis-store.workspace = true
 utoipa = { workspace = true, features = [ "axum_extras", "chrono", "uuid" ] }
 uuid = { workspace = true, features = [ "serde", "v4", "v5" ] }
 
-[dev-dependencies]
-context69-test-support = { workspace = true }
-sqlx = { workspace = true }
-# The upgrade recovery test spawns the built binary through tokio's async process API.
-tokio = { workspace = true, features = ["process"] }
-# Dev-only transport for the in-process Qdrant gRPC mock in
-# `tests/qdrant_connection_probe.rs`. `qdrant-client` already pins this exact
-# version in the dependency graph, so it adds no new version to the build and
-# never reaches a production binary.
-tonic = "0.14.6"
-toml.workspace = true
-
 # Unpublished upstream: axum-login main upgraded to tower-sessions 0.15 (PR #315)
 # but crates.io still ships 0.18.0 pinned to tower-sessions 0.14.
 [patch.crates-io]
 axum-login = { git = "https://github.com/maxcountryman/axum-login", rev = "151c72d7a1b4646830f86b4332e6bd6e34d719a7" }
 tower-sessions-redis-store = { git = "https://github.com/maxcountryman/tower-sessions-stores", rev = "d18c9bf76f1d4fb73130dbe5aa643197f14b5d2d" }
+
+[dev-dependencies]
+toml.workspace = true

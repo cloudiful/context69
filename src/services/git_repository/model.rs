@@ -54,10 +54,6 @@ pub(crate) struct TreeFileEntry {
 /// has been validated against the requested commit.
 #[derive(Debug, Clone)]
 pub(crate) struct TreeListing {
-    /// Retained for unit assertions; production consumers already own the
-    /// requested commit identity that was checked against the provider echo.
-    #[cfg(test)]
-    pub commit_sha: SafeSha,
     /// File (blob) entries only; directories, submodules, symlinks, and
     /// entries rejected by path/size policy are skipped, not returned.
     pub files: Vec<TreeFileEntry>,
@@ -76,8 +72,5 @@ pub(crate) struct TreeListing {
 /// Decoded blob bytes after response SHA and declared-size validation.
 #[derive(Debug)]
 pub(crate) struct BlobContent {
-    /// Retained for unit assertions; production callers need only the bytes.
-    #[cfg(test)]
-    pub declared_size: u64,
     pub bytes: Bytes,
 }

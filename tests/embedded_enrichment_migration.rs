@@ -1,16 +1,11 @@
 //! Embedded-enrichment retirement checks.
 //!
-//! The pure case proves the normalizer behavior the retirement relies on, and
-//! the database module ties the durable outbox schema to the worker contract
-//! through the reusable PostgreSQL runner.
+//! The pure case proves the normalizer behavior the retirement relies on.
 
 use chrono::Utc;
 use context69::domain::SourceRecord;
 use context69::normalize::normalize_record;
 use serde_json::{Value, json};
-
-#[path = "embedded_enrichment_migration/database.rs"]
-mod database;
 
 fn source(metadata_json: Value) -> SourceRecord {
     SourceRecord {

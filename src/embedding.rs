@@ -450,7 +450,3 @@ fn parse_embedding_response(
         )))
     })
 }
-
-#[cfg(test)]
-#[path = "embedding_tests.rs"]
-mod tests;

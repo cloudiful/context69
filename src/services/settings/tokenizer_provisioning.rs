@@ -92,39 +92,6 @@ impl TokenizerProvisioning {
         })
     }
 
-    /// The preparation that retrieves from a fixed URL.
-    ///
-    /// The loopback tests use it to serve the pinned bytes without reaching
-    /// the network. It is deliberately not part of the provisioning API.
-    #[cfg(test)]
-    pub(crate) fn with_downloader(
-        cache_dir: PathBuf,
-        slots: Arc<PresetSlots>,
-        downloader: TokenizerArtifactDownloader,
-    ) -> Self {
-        Self {
-            cache_dir,
-            slots,
-            catalog: TokenizerCatalog::installed_or_empty(),
-            downloader,
-            wait: TOKENIZER_PROVISION_WAIT,
-        }
-    }
-
-    /// The same preparation against a test-authored verified catalog.
-    #[cfg(test)]
-    pub(crate) fn with_catalog(mut self, catalog: Arc<TokenizerCatalog>) -> Self {
-        self.catalog = catalog;
-        self
-    }
-
-    /// The same preparation with a shorter wait for a test.
-    #[cfg(test)]
-    pub(crate) fn with_wait(mut self, wait: Duration) -> Self {
-        self.wait = wait;
-        self
-    }
-
     /// Prepares one known preset.
     ///
     /// An unknown identifier is refused before any HTTP request or filesystem

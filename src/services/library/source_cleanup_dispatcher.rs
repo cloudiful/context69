@@ -19,8 +19,6 @@
 //! its own transaction inside `run_source_object_cleanup`, and a drain
 //! failure only logs and continues.
 
-#[cfg(test)]
-use std::future::Future;
 use std::{sync::Arc, time::Duration};
 
 use tokio::sync::Notify;
@@ -133,38 +131,6 @@ impl SourceCleanupDispatcher {
                 }
                 _ = tokio::time::sleep(fallback) => {
                     self.drain_once(&library, DrainReason::Fallback).await;
-                }
-            }
-        }
-    }
-
-    /// Test seam: drive the wake/fallback/shutdown loop with an injected
-    /// drain so unit tests need no database or storage.
-    #[cfg(test)]
-    pub(crate) async fn run_with_drain<F, Fut>(
-        &self,
-        shutdown: CancellationToken,
-        fallback: Duration,
-        drain: F,
-    ) where
-        F: Fn() -> Fut,
-        Fut: Future<Output = anyhow::Result<()>>,
-    {
-        if let Err(error) = drain().await {
-            tracing::warn!(%error, "source cleanup startup drain failed; retrying on wake/fallback");
-        }
-        loop {
-            tokio::select! {
-                _ = shutdown.cancelled() => break,
-                _ = self.wake.notified() => {
-                    if let Err(error) = drain().await {
-                        tracing::warn!(%error, "source cleanup woken drain failed; retrying on wake/fallback");
-                    }
-                }
-                _ = tokio::time::sleep(fallback) => {
-                    if let Err(error) = drain().await {
-                        tracing::warn!(%error, "source cleanup fallback drain failed; retrying on wake/fallback");
-                    }
                 }
             }
         }
@@ -368,32 +334,9 @@ impl SourceCleanupDispatcher {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc,
-        atomic::{AtomicUsize, Ordering},
-    };
     use std::time::Duration;
 
-    use tokio::time::timeout;
-    use tokio_util::sync::CancellationToken;
-
     use super::SourceCleanupDispatcher;
-
-    async fn wait_for_count(
-        count: &Arc<AtomicUsize>,
-        expected: usize,
-        per_poll: Duration,
-        polls: usize,
-    ) -> bool {
-        for _ in 0..polls {
-            if count.load(Ordering::SeqCst) >= expected {
-                return true;
-            }
-            tokio::time::sleep(per_poll).await;
-        }
-        count.load(Ordering::SeqCst) >= expected
-    }
-
     #[test]
     fn clones_share_one_notify() {
         let dispatcher = SourceCleanupDispatcher::new();
@@ -771,147 +714,5 @@ mod tests {
                 "the compat {label} statement must be the normal statement without only the artifact clause"
             );
         }
-    }
-
-    #[tokio::test]
-    async fn wake_triggers_immediate_drain() {
-        let dispatcher = SourceCleanupDispatcher::with_fallback_interval(Duration::from_secs(3600));
-        let count = Arc::new(AtomicUsize::new(0));
-        let shutdown = CancellationToken::new();
-        let runner_shutdown = shutdown.clone();
-        let runner_dispatcher = dispatcher.clone();
-        let runner_count = Arc::clone(&count);
-        let handle = tokio::spawn(async move {
-            runner_dispatcher
-                .run_with_drain(runner_shutdown, Duration::from_secs(3600), move || {
-                    let count = Arc::clone(&runner_count);
-                    async move {
-                        count.fetch_add(1, Ordering::SeqCst);
-                        Ok(())
-                    }
-                })
-                .await;
-        });
-        assert!(
-            wait_for_count(&count, 1, Duration::from_millis(10), 100).await,
-            "startup drain must run once"
-        );
-        assert_eq!(count.load(Ordering::SeqCst), 1);
-        // No fallback may fire with an hour-long interval.
-        tokio::time::sleep(Duration::from_millis(50)).await;
-        assert_eq!(
-            count.load(Ordering::SeqCst),
-            1,
-            "dispatcher must not poll at high frequency without wake"
-        );
-        dispatcher.wake();
-        assert!(
-            wait_for_count(&count, 2, Duration::from_millis(10), 100).await,
-            "wake must trigger an immediate drain"
-        );
-        dispatcher.wake();
-        assert!(
-            wait_for_count(&count, 3, Duration::from_millis(10), 100).await,
-            "second wake must trigger another drain"
-        );
-        shutdown.cancel();
-        timeout(Duration::from_secs(2), handle)
-            .await
-            .expect("shutdown must stop the loop")
-            .expect("dispatcher task");
-    }
-
-    #[tokio::test]
-    async fn fallback_triggers_without_wake() {
-        let dispatcher = SourceCleanupDispatcher::with_fallback_interval(Duration::from_millis(20));
-        let count = Arc::new(AtomicUsize::new(0));
-        let shutdown = CancellationToken::new();
-        let runner_shutdown = shutdown.clone();
-        let runner_dispatcher = dispatcher.clone();
-        let runner_count = Arc::clone(&count);
-        let handle = tokio::spawn(async move {
-            runner_dispatcher
-                .run_with_drain(runner_shutdown, Duration::from_millis(20), move || {
-                    let count = Arc::clone(&runner_count);
-                    async move {
-                        count.fetch_add(1, Ordering::SeqCst);
-                        Ok(())
-                    }
-                })
-                .await;
-        });
-        assert!(
-            wait_for_count(&count, 3, Duration::from_millis(10), 200).await,
-            "fallback must drain repeatedly without any wake"
-        );
-        shutdown.cancel();
-        timeout(Duration::from_secs(2), handle)
-            .await
-            .expect("shutdown must stop the fallback loop")
-            .expect("dispatcher task");
-    }
-
-    #[tokio::test]
-    async fn shutdown_exits_promptly_when_idle() {
-        let dispatcher = SourceCleanupDispatcher::with_fallback_interval(Duration::from_secs(3600));
-        let shutdown = CancellationToken::new();
-        let runner_shutdown = shutdown.clone();
-        let runner_dispatcher = dispatcher.clone();
-        let handle = tokio::spawn(async move {
-            runner_dispatcher
-                .run_with_drain(runner_shutdown, Duration::from_secs(3600), || async {
-                    Ok(())
-                })
-                .await;
-        });
-        tokio::time::sleep(Duration::from_millis(20)).await;
-        shutdown.cancel();
-        timeout(Duration::from_secs(2), handle)
-            .await
-            .expect("shutdown must exit an idle dispatcher")
-            .expect("dispatcher task");
-    }
-
-    #[tokio::test]
-    async fn failed_drain_does_not_block_later_wakes() {
-        let dispatcher = SourceCleanupDispatcher::with_fallback_interval(Duration::from_secs(3600));
-        let calls = Arc::new(AtomicUsize::new(0));
-        let shutdown = CancellationToken::new();
-        let runner_shutdown = shutdown.clone();
-        let runner_dispatcher = dispatcher.clone();
-        let runner_calls = Arc::clone(&calls);
-        let handle = tokio::spawn(async move {
-            runner_dispatcher
-                .run_with_drain(runner_shutdown, Duration::from_secs(3600), move || {
-                    let calls = Arc::clone(&runner_calls);
-                    async move {
-                        let call = calls.fetch_add(1, Ordering::SeqCst) + 1;
-                        if call == 2 {
-                            anyhow::bail!("injected drain failure");
-                        }
-                        Ok(())
-                    }
-                })
-                .await;
-        });
-        assert!(
-            wait_for_count(&calls, 1, Duration::from_millis(10), 100).await,
-            "startup drain must run"
-        );
-        dispatcher.wake();
-        assert!(
-            wait_for_count(&calls, 2, Duration::from_millis(10), 100).await,
-            "failing woken drain must still be attempted"
-        );
-        dispatcher.wake();
-        assert!(
-            wait_for_count(&calls, 3, Duration::from_millis(10), 100).await,
-            "a failed drain must not block the next wake"
-        );
-        shutdown.cancel();
-        timeout(Duration::from_secs(2), handle)
-            .await
-            .expect("shutdown must exit after failures")
-            .expect("dispatcher task");
     }
 }

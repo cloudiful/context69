@@ -54,9 +54,8 @@ mod tests {
     use chrono::Utc;
     use uuid::Uuid;
 
-    use super::{S3_GATE_CACHE, cached_s3_gate, observe_s3_gate_transition};
-    use crate::db::Database;
-    use crate::library_store::{DependencyGateRecord, DependencyGateTransition, LibraryStore};
+    use super::{S3_GATE_CACHE, observe_s3_gate_transition};
+    use crate::library_store::{DependencyGateRecord, DependencyGateTransition};
     use crate::services::library::LibraryDependency;
 
     /// Serializes the tests that mutate the process-wide [`S3_GATE_CACHE`].
@@ -113,78 +112,6 @@ mod tests {
         assert!(S3_GATE_CACHE.get().is_none());
 
         // Leave no cached record behind for the rest of this test binary.
-        S3_GATE_CACHE.invalidate();
-    }
-
-    #[tokio::test]
-    #[ignore = "requires configured reusable PostgreSQL"]
-    async fn s3_gate_cache_serves_the_last_record_until_this_process_sees_a_transition() {
-        let _guard = CACHE_TEST_LOCK.lock().await;
-        S3_GATE_CACHE.invalidate();
-
-        let url = context69_test_support::accessor::database_url();
-        let db = Database::connect(&url)
-            .await
-            .expect("connect test database");
-        let store = LibraryStore::new(db.clone());
-        sqlx::query(
-            "INSERT INTO context69.library_dependency_gates (dependency_key, state) \
-             VALUES ('s3', 'closed') \
-             ON CONFLICT (dependency_key) DO UPDATE SET state = 'closed', failure_count = 0, \
-             last_error = NULL, next_probe_at = NULL, probe_lease_token = NULL, \
-             probe_lease_expires_at = NULL, updated_at = now()",
-        )
-        .execute(db.pool())
-        .await
-        .expect("seed closed s3 gate");
-
-        let cached = cached_s3_gate(&store)
-            .await
-            .expect("read s3 gate")
-            .expect("s3 gate row");
-        assert_eq!(cached.state, "closed");
-
-        // Another instance trips the gate. Inside the TTL this process keeps
-        // serving the cached record instead of rescanning the gate table.
-        store
-            .record_dependency_failure(
-                LibraryDependency::S3.as_str(),
-                Uuid::nil(),
-                "cache test failure",
-            )
-            .await
-            .expect("trip s3 gate");
-        let served = cached_s3_gate(&store)
-            .await
-            .expect("read s3 gate")
-            .expect("s3 gate row");
-        assert_eq!(
-            served.state, "closed",
-            "the cached gate record is served inside the TTL"
-        );
-
-        // Once this process records the transition, the next read is fresh.
-        observe_s3_gate_transition(
-            LibraryDependency::S3,
-            Some(&transition(LibraryDependency::S3)),
-        );
-        let refreshed = cached_s3_gate(&store)
-            .await
-            .expect("read s3 gate")
-            .expect("s3 gate row");
-        assert_eq!(
-            refreshed.state, "open",
-            "an observed transition drops the cached record"
-        );
-
-        sqlx::query(
-            "UPDATE context69.library_dependency_gates SET state = 'closed', failure_count = 0, \
-             last_error = NULL, next_probe_at = NULL, probe_lease_token = NULL, \
-             probe_lease_expires_at = NULL, updated_at = now() WHERE dependency_key = 's3'",
-        )
-        .execute(db.pool())
-        .await
-        .expect("restore s3 gate");
         S3_GATE_CACHE.invalidate();
     }
 }

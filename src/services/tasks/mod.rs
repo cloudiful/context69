@@ -35,15 +35,9 @@ mod inline_waits;
 mod item_file_processors;
 mod item_git_index_processor;
 mod item_lifecycle_processors;
-#[cfg(test)]
-mod item_pipeline_tests;
 mod item_replacement_processor;
 mod pause_control;
 
-/// The claim is a global primitive over the shared scratch database, so every
-/// case that claims an item serializes on this lock.
-#[cfg(test)]
-pub(crate) static TASK_CASE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 mod item_processors;
 mod item_translation_processors;
 mod item_url_processor;
@@ -374,34 +368,12 @@ impl TaskService {
         &self.chunking
     }
 
-    /// The process-wide chunking budget handle, for tests that drive the same
-    /// activation a settings save performs.
-    #[cfg(any(test, feature = "integration-test-helpers"))]
-    pub fn chunking_runtime(&self) -> ChunkingRuntime {
-        self.chunking.clone()
-    }
     /// The registry-visible replacement processor, or `None` while it stays
     /// disabled (issue 1138 P17).
     pub(super) fn replacement_caps(&self) -> Option<RegistryQuotaOverride> {
         self.replacement_caps
     }
 
-    /// Test-only setup of the replacement caps.
-    ///
-    /// The caps only narrow the persisted policy: a test can lower the
-    /// registry capacity, never raise it.
-    #[cfg(any(test, feature = "integration-test-helpers"))]
-    #[must_use]
-    pub fn with_replacement_caps_for_test(mut self, caps: [i64; 3]) -> Self {
-        self.replacement_caps = Some(RegistryQuotaOverride::exact(caps));
-        self
-    }
-
-    /// Test-only drive of one claimed item through the production worker path.
-    #[cfg(feature = "integration-test-helpers")]
-    pub async fn run_item_for_test(&self, item: crate::db::ClaimedItem) -> Result<()> {
-        runtime_driver::run_item(self, item).await
-    }
     /// Uses the application's shared settings service (which carries the
     /// registered settings observers) instead of the per-service instance
     /// built in [`Self::new`].
@@ -637,3 +609,6 @@ mod tests {
         assert_eq!(slots.available_permits(), 2);
     }
 }
+
+#[cfg(test)]
+mod item_pipeline_tests;

@@ -205,8 +205,6 @@ fn connection_not_found() -> Response {
 #[path = "git_connection_lifecycle_tests.rs"]
 mod tests;
 
-/// The enable arm's focused tests, in their own module so neither file crosses the
-/// size boundary.
 #[cfg(test)]
 #[path = "git_connection_enable_tests.rs"]
 mod enable_tests;

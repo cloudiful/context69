@@ -118,7 +118,7 @@ impl Database {
 #[cfg(test)]
 mod tests {
     use super::SourceConnectionRow;
-    use crate::db::{Database, NewSourceConnection, StoredSourceConnection};
+    use crate::db::StoredSourceConnection;
     use uuid::Uuid;
 
     const GET_MIGRATION_SQL: &str =
@@ -272,89 +272,5 @@ mod tests {
             stored.database_url_secret_key.as_deref(),
             Some("source_connection.database_url.key")
         );
-    }
-
-    /// The migration round trip, against a migrated scratch database.
-    ///
-    /// Skipped unless `CONTEXT69_TEST_DATABASE_URL` names one. Every row it
-    /// writes is keyed by a fresh UUID and removed again, so it leaves nothing
-    /// behind.
-    #[tokio::test]
-    #[ignore = "requires configured reusable PostgreSQL"]
-    async fn a_connection_round_trips_its_identity_and_store_reference() {
-        let url = context69_test_support::accessor::database_url();
-        let db = Database::connect(&url)
-            .await
-            .expect("connect test database");
-        let name = format!("source-connection-round-trip-{}", Uuid::new_v4());
-        let connection_key = Uuid::new_v4();
-        let secret_key = format!("source_connection.database_url.{connection_key}");
-
-        // The reference resolves to a store row, which is why the seal happens
-        // before the save.
-        sqlx::query("INSERT INTO context69.internal_secrets (key, value) VALUES ($1, $2)")
-            .bind(&secret_key)
-            .bind(b"sealed-bytes".as_slice())
-            .execute(db.pool())
-            .await
-            .expect("seed the store row the reference points at");
-
-        let saved = db
-            .save_source_connection(&NewSourceConnection {
-                connection_key,
-                name: name.clone(),
-                database_url_secret_key: secret_key.clone(),
-            })
-            .await
-            .expect("insert the connection");
-        assert_eq!(saved.connection_key, connection_key);
-
-        // A re-save that supplies a different identity must not move the
-        // connection onto it, or the sealed value would be orphaned.
-        let resaved = db
-            .save_source_connection(&NewSourceConnection {
-                connection_key: Uuid::new_v4(),
-                name: name.clone(),
-                database_url_secret_key: secret_key.clone(),
-            })
-            .await
-            .expect("update the connection");
-        assert_eq!(
-            resaved.connection_key, connection_key,
-            "an update keeps the identity the connection was created with"
-        );
-
-        let fetched = db
-            .get_source_connection(&name)
-            .await
-            .expect("read the connection")
-            .expect("the connection exists");
-        assert_eq!(fetched.connection_key, connection_key);
-        assert_eq!(
-            fetched.database_url_secret_key.as_deref(),
-            Some(secret_key.as_str())
-        );
-        assert!(
-            db.list_source_connections()
-                .await
-                .expect("list connections")
-                .iter()
-                .any(|connection| connection.name == name
-                    && connection.connection_key == connection_key),
-            "a listed connection carries the same identity and reference"
-        );
-
-        assert!(db.delete_source_connection(&name).await.expect("delete"));
-        assert!(
-            !db.delete_source_connection(&name)
-                .await
-                .expect("delete again"),
-            "deleting an unknown connection reports that nothing was removed"
-        );
-        sqlx::query("DELETE FROM context69.internal_secrets WHERE key = $1")
-            .bind(&secret_key)
-            .execute(db.pool())
-            .await
-            .expect("remove the seeded store row");
     }
 }

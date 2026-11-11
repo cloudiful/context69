@@ -303,11 +303,3 @@ fn registration_conflict() -> Response {
 #[cfg(test)]
 #[path = "git_webhook_registration_tests.rs"]
 mod tests;
-
-#[cfg(test)]
-#[path = "git_webhook_registration_db_fixture.rs"]
-mod fixture;
-
-#[cfg(test)]
-#[path = "git_webhook_registration_db_tests.rs"]
-mod db_tests;

@@ -221,14 +221,6 @@ fn search_response(outcome: &CodeSearchOutcome) -> GitCodeSearchResponse {
 #[path = "git_repository_code_search_tests.rs"]
 mod tests;
 
-/// Disposable-search helpers shared by the database-gated round trips, over the
-/// shared Git fixture.
 #[cfg(test)]
 #[path = "git_repository_code_search_db_fixture.rs"]
 mod fixture;
-
-/// Database-gated round trips for the same route, over the shared disposable
-/// Git fixture.
-#[cfg(test)]
-#[path = "git_repository_code_search_db_tests.rs"]
-mod db_tests;

@@ -12,8 +12,7 @@
     "build:with-api": "bun run generate:api:from-backend && bun run build",
     "check": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@fontsource-variable/geist": "5.3.0",
@@ -37,12 +36,7 @@
     "zod": "4.6.1"
   },
   "devDependencies": {
-    "@playwright/test": "1.63.0",
     "@tailwindcss/vite": "^4.3.3",
-    "@testing-library/dom": "10.4.2",
-    "@testing-library/jest-dom": "7.0.1",
-    "@testing-library/react": "16.3.3",
-    "@testing-library/user-event": "14.6.7",
     "@types/node": "26.5.1",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

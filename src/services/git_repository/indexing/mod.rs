@@ -18,15 +18,8 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-#[cfg(test)]
-use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
-
-use crate::contracts::sources::GitRepositorySkipSummary;
-use crate::db::Database;
-#[cfg(test)]
-use crate::domain_errors::DomainError;
 
 use super::code_vectors::CodeVectorRequest;
 use super::forgejo_client::ForgejoAcquirer;
@@ -35,6 +28,8 @@ use super::http::GitHttpTransport;
 use super::limits::GitIndexLimits;
 use super::model::GitAcquisitionLimits;
 use super::provider_url::ForgejoOrigin;
+use crate::contracts::sources::GitRepositorySkipSummary;
+use crate::db::Database;
 
 mod manifest;
 mod rollback;
@@ -146,39 +141,6 @@ impl<T: GitHttpTransport + ?Sized + Sync + 'static> GitSnapshotProvider
     }
 }
 
-/// Indexes one bounded snapshot of `repository_key` into a new generation.
-///
-/// On success the new generation is active and the source checkpoint names the
-/// pinned commit as indexed. On failure nothing is activated; partial content is
-/// retired and the generation is marked failed, leaving any previous active
-/// generation serving.
-#[cfg(test)]
-pub(crate) async fn index_git_repository_snapshot(
-    db: &Database,
-    provider: &dyn GitSnapshotProvider,
-    limits: GitIndexLimits,
-    group_id: i64,
-    repository_key: Uuid,
-    code: Option<&CodeVectorRequest>,
-    force_rebuild: bool,
-) -> Result<GitSnapshotIndexOutcome> {
-    let source = db
-        .get_git_repository_source(group_id, repository_key)
-        .await?
-        .ok_or_else(|| anyhow!(DomainError::not_found("git_index_source_missing")))?;
-    index_git_repository_snapshot_at_revision(
-        db,
-        provider,
-        limits,
-        group_id,
-        repository_key,
-        code,
-        force_rebuild,
-        source.config_revision,
-    )
-    .await
-}
-
 /// Indexes one snapshot against the source revision the caller captured before
 /// building the provider.
 ///
@@ -222,6 +184,3 @@ pub(crate) async fn index_git_repository_snapshot_at_revision(
     }
     result
 }
-
-#[cfg(test)]
-mod tests;

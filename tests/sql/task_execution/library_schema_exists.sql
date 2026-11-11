@@ -1,1 +1,0 @@
-SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = $1) AS "exists!"

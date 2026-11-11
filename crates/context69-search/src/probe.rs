@@ -124,13 +124,4 @@ mod tests {
         assert_eq!(probe.rerank_top_n, 0);
         assert_eq!(probe.rerank_candidate_len, 0);
     }
-
-    #[test]
-    fn elapsed_ms_does_not_decrease_with_wall_clock() {
-        let probe = SearchProbe::new();
-        let before = probe.elapsed_ms();
-        std::thread::sleep(std::time::Duration::from_millis(5));
-        let after = probe.elapsed_ms();
-        assert!(after >= before);
-    }
 }

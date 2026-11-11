@@ -208,34 +208,6 @@ impl LastUsedRecorder {
         self.drained.load(Ordering::Relaxed)
     }
 
-    /// Start a recorder with an injected sink, clock, reporter, and settings.
-    #[cfg(test)]
-    pub(crate) fn start_with(
-        sink: Arc<dyn UsageSink>,
-        clock: Box<dyn FlushClock>,
-        reporter: Arc<dyn FlushReporter>,
-        settings: RecorderSettings,
-    ) -> (Arc<Self>, watch::Receiver<bool>) {
-        Self::spawn(sink, clock, reporter, settings)
-    }
-
-    /// Stop the worker while the recorder stays alive.
-    ///
-    /// The worker is cancelled and joined, so its queue is closed afterwards and
-    /// every later observation is dropped instead of written.
-    #[cfg(test)]
-    pub(crate) async fn stop_worker(&self) {
-        self.cancel.cancel();
-        let handle = self
-            .worker
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
-        if let Some(handle) = handle {
-            let _ = handle.await;
-        }
-    }
-
     fn spawn(
         sink: Arc<dyn UsageSink>,
         clock: Box<dyn FlushClock>,

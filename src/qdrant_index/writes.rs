@@ -260,7 +260,7 @@ impl QdrantIndex {
 
     /// The no-op lane of the test index.
     ///
-    /// `QdrantIndex::for_test_noop` builds an index with this placeholder
+    /// `QdrantIndex::for_test` builds an index with this placeholder
     /// collection, and every write path of the test lane answers before it
     /// touches a client. The predicate and its policy are unchanged; it is
     /// shared with the cleanup path so the same lane is complete.

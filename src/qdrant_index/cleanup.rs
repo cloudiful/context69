@@ -10,18 +10,18 @@ use super::{
 
 /// Whether the cleanup of a no-op test index may skip the client.
 ///
-/// The test lane is compiled only for a test build or the
-/// `integration-test-helpers` feature. A production build has no bypass at all:
+/// The test lane is compiled only for a test build. A production build has no
+/// bypass at all:
 /// the function returns `false` for every index, whatever its collection is
 /// named, so the cleanup behavior is exactly the one before the test lane
 /// existed. No environment switch, configuration value or public API can turn
 /// the bypass on in production.
-#[cfg(any(test, feature = "integration-test-helpers"))]
+#[cfg(test)]
 fn cleanup_no_op(index: &QdrantIndex) -> bool {
     index.is_noop()
 }
 
-#[cfg(not(any(test, feature = "integration-test-helpers")))]
+#[cfg(not(test))]
 fn cleanup_no_op(_index: &QdrantIndex) -> bool {
     false
 }
@@ -186,7 +186,9 @@ mod tests {
     fn the_production_variant_of_the_gate_is_inert() {
         let source = include_str!("cleanup.rs");
         assert!(
-            source.contains("#[cfg(not(any(test, feature = \"integration-test-helpers\")))]\nfn cleanup_no_op(_index: &QdrantIndex) -> bool {\n    false\n}"),
+            source.contains(
+                "#[cfg(not(test))]\nfn cleanup_no_op(_index: &QdrantIndex) -> bool {\n    false\n}"
+            ),
             "the production gate must be a compiled no-bypass variant"
         );
     }

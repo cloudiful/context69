@@ -716,7 +716,6 @@ dependencies = [
  "context69-secret-crypto",
  "context69-secret-store",
  "context69-settings-http",
- "context69-test-support",
  "context69-translation",
  "futures",
  "getrandom 0.4.3",
@@ -737,7 +736,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "toml 1.1.6+spec-1.1.0",
- "tonic",
  "tower-http 0.7.1",
  "tower-sessions",
  "tower-sessions-redis-store",
@@ -994,7 +992,6 @@ dependencies = [
 name = "context69-sdk"
 version = "0.25.10"
 dependencies = [
- "axum",
  "chrono",
  "context69-contracts",
  "reqwest",
@@ -1060,7 +1057,6 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "context69-secret-crypto",
- "context69-test-support",
  "sqlx",
  "tracing",
 ]
@@ -1076,20 +1072,6 @@ dependencies = [
  "context69-contracts-settings",
  "context69-http-support",
  "utoipa",
-]
-
-[[package]]
-name = "context69-test-support"
-version = "0.1.0"
-dependencies = [
- "cloudiful-tasks",
- "context69-db-schema",
- "dotenvy",
- "libc",
- "serde",
- "serde_json",
- "sqlx",
- "tokio",
 ]
 
 [[package]]

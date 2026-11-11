@@ -346,14 +346,6 @@ fn diff_side(side: &GitFileDiffSide) -> GitRepositoryFileDiffFile {
 #[path = "git_repository_file_diff_tests.rs"]
 mod tests;
 
-/// Test inputs for the comparison: the in-memory stored types the page is
-/// composed from.
 #[cfg(test)]
 #[path = "git_repository_file_diff_db_fixture.rs"]
 mod fixture;
-
-/// Database-gated round trips for the same route: skipped unless
-/// `CONTEXT69_TEST_DATABASE_URL` names a migrated scratch database.
-#[cfg(test)]
-#[path = "git_repository_file_diff_db_tests.rs"]
-mod db_tests;

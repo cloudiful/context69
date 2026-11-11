@@ -1,1 +1,0 @@
-DELETE FROM context69.library_storage_object_cleanup WHERE completed_at IS NULL
