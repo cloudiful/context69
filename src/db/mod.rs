@@ -39,6 +39,7 @@ pub(crate) use task_file_dedup::lock_file_processing_slots;
 mod tasks;
 mod translations;
 mod upgrade_admission;
+mod vector_collection_retirement;
 mod vector_index_state;
 
 pub use context69_db_schema::MIGRATOR;
@@ -92,6 +93,10 @@ pub use tasks::{
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
     UpgradeAdmission, UpgradeGuardCounts,
+};
+pub use vector_collection_retirement::{
+    ActiveRetirementCandidate, ClaimedVectorCollectionRetirement, RETIREMENT_GRACE_SECONDS,
+    RetirementTarget, prove_retirement_endpoint, retirement_target,
 };
 pub use vector_index_state::{ActiveVectorIndexState, VectorIndexState};
 

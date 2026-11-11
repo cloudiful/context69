@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Enqueue one replaced collection with its proven pinned endpoint.\n--\n-- The unique key makes an identical enqueue idempotent: a name that is already\n-- pending is never duplicated, and its existing due time is kept.\nINSERT INTO context69.vector_collection_retirement (\n    endpoint,\n    collection_name,\n    next_attempt_at\n)\nVALUES ($1, $2, NOW() + make_interval(secs => ($3)::int))\nON CONFLICT (endpoint, collection_name) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8838d3a7df4335a5109baf2ddd65cfd072771c14706bb7fb4769c9c712947c4d"
+}

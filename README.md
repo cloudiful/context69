@@ -73,7 +73,15 @@ existing collection keeps serving until an explicit rebuild activates its
 target; while the configured and active identities disagree, search and
 ingestion stay unavailable, so the operator can still cancel the rebuild and
 keep the current collection. A fresh installation has no collection to keep, so
-its first index build is always explicit.
+its first index build is always explicit. After a verified activation, the
+replaced physical collection is scheduled for automatic deletion once a
+five-minute drain grace period has passed. The background maintenance retries a
+cleanup failure with capped backoff across restarts and treats an
+already-absent collection as success. It deletes only from the endpoint recorded
+with that retired collection, and it never deletes a collection whose owning
+endpoint cannot be proven, including a legacy identity without a recorded
+endpoint or a matching fingerprint. Historical collections that predate this
+behavior are never backfilled or swept.
 
 ## Deployment
 
@@ -124,7 +132,7 @@ Successful generations are retained up to the configured total, which includes t
 
 The group **Git** tab is the user-facing surface for this lifecycle. Group maintainers register provider connections and repositories, then edit the tracked ref, pin, index profile, include/exclude globs, interval, webhook switch, retention, and enabled state. Sync keeps the same-target no-op, while Rebuild sends an explicit force request that reconstructs the current snapshot even when the commit and pipeline identity are unchanged. Deleting a repository is confirmed and refreshes the list. Group viewers can browse indexed files, read bounded content windows, and run code search with generation, commit, and ref provenance, but cannot change sources or connections.
 
-Changing the embedding model, gateway, or dimensions changes the vector space. The existing collection keeps serving until an explicit Rebuild Vector Index completes and activates its target; while the configured and active identities disagree, search and ingestion stay unavailable, so the operator can still cancel the rebuild and keep the current collection. A fresh installation has no collection to keep, so its first index build is always explicit. Rebuild status, pause, resume, and cancel are durable and admin-only: a pause lets the committed batch finish before the rebuild parks, a resume continues after the last written page, and a cancel stops the attempt without touching the existing collections. Rebuilds stream one document at a time, staging and embedding each document in bounded batches before the next one advances; progress reports the documents already staged and the chunks already embedded, and a chunk total appears only once the staged total is known. Token budgets created by this version use the `tokens_v2` cutting path, which older binaries cannot execute: finish or cancel any `tokens_v2` task before rolling back, because an older binary cannot resume it and does not silently remap it. The processing queue can separately pause new work; running tasks continue.
+Changing the embedding model, gateway, or dimensions changes the vector space. The existing collection keeps serving until an explicit Rebuild Vector Index completes and activates its target; while the configured and active identities disagree, search and ingestion stay unavailable, so the operator can still cancel the rebuild and keep the current collection. A completed verified activation schedules only the collection it actually replaced for automatic deletion after a five-minute drain grace period; cleanup retries independently with capped backoff and never marks a successful rebuild failed. A fresh installation has no collection to keep, so its first index build is always explicit. Rebuild status, pause, resume, and cancel are durable and admin-only: a pause lets the committed batch finish before the rebuild parks, a resume continues after the last written page, and a cancel stops the attempt without touching the existing collections. Rebuilds stream one document at a time, staging and embedding each document in bounded batches before the next one advances; progress reports the documents already staged and the chunks already embedded, and a chunk total appears only once the staged total is known. Token budgets created by this version use the `tokens_v2` cutting path, which older binaries cannot execute: finish or cancel any `tokens_v2` task before rolling back, because an older binary cannot resume it and does not silently remap it. The processing queue can separately pause new work; running tasks continue.
 
 Registry capacity counts retained point ids rather than vector storage. A replacement discounts only the original ids that its producer recorded before deleting them, and only once the entry belongs to an inactive collection. Legacy entries without that recorded provenance remain fully reserved, so a tight capacity limit can require operator review or a fresh rebuild instead of a guessed discount.
 

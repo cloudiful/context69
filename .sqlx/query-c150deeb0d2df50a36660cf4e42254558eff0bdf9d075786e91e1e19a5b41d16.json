@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Remove a drained retirement row, only while the exact lease still owns it.\nDELETE FROM context69.vector_collection_retirement\nWHERE id = $1\n  AND lease_token = $2\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c150deeb0d2df50a36660cf4e42254558eff0bdf9d075786e91e1e19a5b41d16"
+}

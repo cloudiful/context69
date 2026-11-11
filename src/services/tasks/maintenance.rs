@@ -117,6 +117,7 @@ async fn run_docling_recovery(
     if let Err(_error) = super::docling_cleanup::run_once(service, &shutdown).await {
         tracing::warn!("docling cleanup pass failed; pending claims will expire");
     }
+    drain_vector_collection_retirement_once(service).await;
     let mut tick = tokio::time::interval(DOCLING_RECOVERY_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // The first interval tick completes immediately. Consume it so the first
@@ -130,8 +131,22 @@ async fn run_docling_recovery(
                 if let Err(_error) = super::docling_cleanup::run_once(service, &shutdown).await {
                     tracing::warn!("docling cleanup pass failed; pending claims will expire");
                 }
+                drain_vector_collection_retirement_once(service).await;
             },
         }
+    }
+}
+
+/// Drain at most one due retired document collection on this existing tick.
+///
+/// The grace period and retry backoff are persisted cutoffs the claim filters
+/// on, so no timer, task, or scheduler is added for them.
+async fn drain_vector_collection_retirement_once(service: &TaskService) {
+    if let Err(error) = crate::services::vector_collection_retirement::run_once(service.db()).await
+    {
+        tracing::warn!(
+            "vector collection retirement pass failed; the row stays pending: {error:#}"
+        );
     }
 }
 

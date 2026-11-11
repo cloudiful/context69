@@ -20,3 +20,4 @@ pub mod tasks;
 pub mod token_utils;
 pub mod translation;
 pub(crate) mod translation_registry;
+pub mod vector_collection_retirement;

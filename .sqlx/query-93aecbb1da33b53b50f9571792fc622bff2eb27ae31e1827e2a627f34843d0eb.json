@@ -1,0 +1,20 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO context69.vector_index_state (\n    collection_name,\n    fingerprint,\n    qdrant_url,\n    embedding_base_url,\n    embedding_model,\n    dimensions,\n    rebuilt_chunks\n)\nVALUES ($1, $2, $3, $4, $5, $6, $7)\nON CONFLICT (collection_name) DO UPDATE\nSET fingerprint = EXCLUDED.fingerprint,\n    qdrant_url = EXCLUDED.qdrant_url,\n    embedding_base_url = EXCLUDED.embedding_base_url,\n    embedding_model = EXCLUDED.embedding_model,\n    dimensions = EXCLUDED.dimensions,\n    rebuilt_chunks = EXCLUDED.rebuilt_chunks,\n    rebuilt_at = NOW()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "93aecbb1da33b53b50f9571792fc622bff2eb27ae31e1827e2a627f34843d0eb"
+}

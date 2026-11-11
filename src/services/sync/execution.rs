@@ -1146,6 +1146,7 @@ impl SyncService {
             snapshot: admitted.snapshot,
             fingerprint: admitted.configured_fingerprint,
             qdrant: plan.qdrant,
+            base_collection: plan.base_collection,
             dimensions: plan.dimensions,
             chunk_budget,
             rebuild_generation,
@@ -1427,6 +1428,10 @@ pub(crate) struct RebuildAttempt {
     /// The destination the target lives in, so the verification can read the
     /// target back without resolving the configuration again.
     qdrant: QdrantConfig,
+    /// The logical collection name the identity was built for, never the
+    /// physical target. Activation uses it to reconstruct a legacy endpoint
+    /// proof.
+    base_collection: String,
     /// The dimension the target must declare.
     dimensions: usize,
     /// The chunk budget pinned when this build first took the barrier.
@@ -1547,6 +1552,8 @@ fn fresh_target_name(base_collection: &str, fingerprint: &str) -> String {
 pub(crate) struct RebuiltIdentity {
     pub(crate) collection: String,
     pub(crate) fingerprint: String,
+    pub(crate) qdrant_url: String,
+    pub(crate) base_collection: String,
     pub(crate) base_url: String,
     pub(crate) model: String,
     pub(crate) dimensions: usize,
@@ -1566,6 +1573,8 @@ impl RebuildAttempt {
         Ok(RebuiltIdentity {
             collection: self.snapshot.collection.clone(),
             fingerprint: self.fingerprint.clone(),
+            qdrant_url: self.qdrant.url.clone(),
+            base_collection: self.base_collection.clone(),
             base_url: identity.base_url.clone(),
             model: identity.model.clone(),
             dimensions: identity.dimensions,
@@ -1711,6 +1720,8 @@ async fn complete_rebuild_transaction(
             &crate::db::VectorIndexState {
                 collection_name: &identity.collection,
                 fingerprint: &identity.fingerprint,
+                qdrant_url: &identity.qdrant_url,
+                base_collection: &identity.base_collection,
                 embedding_base_url: &identity.base_url,
                 embedding_model: &identity.model,
                 dimensions: identity.dimensions,
@@ -1915,6 +1926,7 @@ mod tests {
                 collection_name: "collection-a".to_string(),
                 recreate_on_dimension_mismatch: false,
             },
+            base_collection: "collection-a".to_string(),
             dimensions: 8,
             chunk_budget: crate::chunking::ChunkingRuntime::new(
                 crate::chunking::ChunkBudget::default(),
@@ -1982,6 +1994,10 @@ mod tests {
             first, second,
             "two builds never share a physical collection"
         );
+        assert_ne!(
+            first, "context69",
+            "a fresh target never reuses the logical base name a retired collection may hold"
+        );
         assert!(
             first.starts_with("context69__abcdef0123456789__"),
             "{first}"
@@ -2023,6 +2039,8 @@ mod tests {
         );
         assert_eq!(identity.collection, "collection-a");
         assert_eq!(identity.fingerprint, "fingerprint-a");
+        assert_eq!(identity.qdrant_url, "http://127.0.0.1:1");
+        assert_eq!(identity.base_collection, "collection-a");
         assert_eq!(identity.base_url, "https://embeddings.example/v1");
         assert_eq!(identity.model, "model-a");
         assert_eq!(identity.dimensions, 8);
