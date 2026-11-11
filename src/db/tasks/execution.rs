@@ -17,15 +17,25 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use cloudiful_tasks::{
     Attempt, EnqueueOutcome, EnqueueRequest, Queue, TaskId, TaskKind, WorkerConfig,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::db::Database;
+
+/// Converts a library `time` timestamp to the chrono type of the Context69
+/// schemas. Both sides are Unix-epoch seconds at nanosecond precision, so the
+/// instant and precision survive; `time`'s range is strictly inside chrono's.
+pub(super) fn native_utc(value: OffsetDateTime) -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp(value.unix_timestamp(), value.nanosecond())
+        .expect("library timestamps fall inside the chrono range")
+}
 
 /// Namespace the library tasks of the item execution live in.
 pub const EXECUTION_NAMESPACE: &str = "context69";
@@ -289,7 +299,7 @@ impl ExecutionContext {
     /// The lease deadline the library granted for the captured attempt.
     #[must_use]
     pub fn lease_until(&self) -> Option<chrono::DateTime<chrono::Utc>> {
-        self.attempt.lease_expires_at()
+        self.attempt.lease_expires_at().map(native_utc)
     }
 }
 

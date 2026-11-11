@@ -5,7 +5,7 @@ use serde_json::Value;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
-use super::execution::{self, SegmentPayload};
+use super::execution::{self, SegmentPayload, native_utc};
 use super::queue_control::task_queue_paused_in;
 use super::types::{ClaimMaintenanceOutcome, ClaimedItem};
 use crate::db::Database;
@@ -206,6 +206,7 @@ impl Database {
         let attempt = claim.attempt();
         let lease_until = attempt
             .lease_expires_at()
+            .map(native_utc)
             .ok_or_else(|| anyhow!("the library attempt carries no lease deadline"))?;
         let mirrored = sqlx::query_file_as!(
             ClaimedMirror,
