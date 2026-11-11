@@ -31,7 +31,7 @@ struct RuntimeCodeEmbeddingSettingsRow {
 fn chunking_unit_value(unit: &ChunkBudgetMode) -> &'static str {
     match unit {
         ChunkBudgetMode::Chars => "chars",
-        ChunkBudgetMode::Tokens => "tokens",
+        ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => "tokens",
     }
 }
 

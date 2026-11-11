@@ -1,7 +1,11 @@
 use chrono::Utc;
 use serde_json::json;
+use std::sync::Arc;
 
-use super::chunking_token::{TokenizerKind, token_count, token_suffix};
+use super::chunking_token::{
+    PrefixStrategy, ResolvedTokenizer, TokenChunkDocumentIter, TokenizerKind, token_count,
+    token_suffix,
+};
 use super::{ChunkBudget, ChunkingError};
 use crate::domain::{DocumentChunk, NormalizedDocument};
 
@@ -431,5 +435,188 @@ fn token_budget_identity_is_deterministic() {
         })
         .identity(),
         "chars:1200:200"
+    );
+}
+
+fn bounded_budget(
+    tokenizer: TokenizerKind,
+    max_tokens: usize,
+    overlap_tokens: usize,
+) -> ChunkBudget {
+    ChunkBudget::tokens_v2(tokenizer, max_tokens, overlap_tokens)
+}
+
+fn chunk_text_with(body_text: &str, budget: &ChunkBudget) -> Vec<DocumentChunk> {
+    super::chunk_document_with_budget(1, "file_library", &document(body_text), budget)
+        .expect("the token budget should be valid")
+}
+
+#[test]
+fn the_bounded_cut_keeps_the_token_invariants_for_dense_text() {
+    let bodies = [
+        (
+            "numeric",
+            "| 2026-11-01T00:01:00Z | 123.456 | 0.9876 | 12345 | 5f3759df |\n".repeat(24),
+        ),
+        (
+            "cjk",
+            format!(
+                "{}\n\n{}",
+                "这是一个用于测试分块的中文段落。".repeat(12),
+                "第二个段落同样需要保持在预算之内。".repeat(12)
+            ),
+        ),
+        (
+            "long paragraph",
+            "Delta paragraph without any inner boundary ".repeat(40),
+        ),
+        (
+            "emoji",
+            format!("{}\n\n{}", "🚀🧪🧭".repeat(20), "✅🎯🌍".repeat(20)),
+        ),
+        (
+            "combining marks",
+            format!(
+                "{}\n\n{}",
+                "e\u{0301}a\u{0300}o\u{0302}".repeat(20),
+                "na\u{0308}ive".repeat(20)
+            ),
+        ),
+    ];
+
+    for tokenizer in TOKENIZERS {
+        for (label, body) in &bodies {
+            let chunks = chunk_text_with(body, &bounded_budget(tokenizer, 64, 16));
+            assert!(!chunks.is_empty(), "{label} must produce a chunk");
+            assert_budget_respected(&chunks, tokenizer, 64);
+            assert_eq!(
+                contents(&chunks, tokenizer, 16).concat(),
+                normalized_source(body),
+                "{label} must be covered in order under the bounded cut"
+            );
+        }
+    }
+}
+
+#[test]
+fn the_bounded_cut_handles_empty_single_character_and_near_maximum_overlap() {
+    for tokenizer in TOKENIZERS {
+        let empty = chunk_text_with("", &bounded_budget(tokenizer, 16, 4));
+        assert!(empty.is_empty(), "an empty source emits no chunk");
+
+        let single = chunk_text_with("x", &bounded_budget(tokenizer, 16, 4));
+        assert_eq!(contents(&single, tokenizer, 4).concat(), "x");
+        assert_budget_respected(&single, tokenizer, 16);
+
+        let body = "alpha beta gamma delta epsilon zeta eta theta iota kappa";
+        let chunks = chunk_text_with(body, &bounded_budget(tokenizer, 4, 3));
+        assert!(
+            chunks.len() > 1,
+            "the near-maximum overlap must still split the paragraph"
+        );
+        assert_budget_respected(&chunks, tokenizer, 4);
+        assert_eq!(
+            contents(&chunks, tokenizer, 3).concat(),
+            normalized_source(body),
+            "the bounded cut must keep the paragraph covered in order"
+        );
+        assert!(chunks.last().unwrap().text.ends_with("kappa"));
+    }
+}
+
+#[test]
+fn the_bounded_cut_is_deterministic() {
+    let body = "| 42 | 1234.5678 | 0.0001 |\n".repeat(60);
+    let document = document(&body);
+
+    for tokenizer in TOKENIZERS {
+        let budget = bounded_budget(tokenizer, 32, 8);
+        let first = super::chunk_document_with_budget(1, "file_library", &document, &budget)
+            .expect("the token budget should be valid");
+        let second = super::chunk_document_with_budget(1, "file_library", &document, &budget)
+            .expect("the token budget should be valid");
+
+        assert_eq!(
+            first
+                .iter()
+                .map(|chunk| (chunk.id, chunk.text.as_str()))
+                .collect::<Vec<_>>(),
+            second
+                .iter()
+                .map(|chunk| (chunk.id, chunk.text.as_str()))
+                .collect::<Vec<_>>()
+        );
+    }
+}
+
+/// A Hugging Face tokenizer whose BERT cleaner removes NUL from the input.
+///
+/// The word-level model emits no token for the empty normalized text, so a
+/// window that is only a NUL encodes to zero ordinary tokens.
+fn hf_tokenizer_removing_nul() -> Arc<tokenizers::Tokenizer> {
+    let vocab = [
+        ("hello".to_string(), 0),
+        ("world".to_string(), 1),
+        ("[UNK]".to_string(), 2),
+    ];
+    let model = tokenizers::models::wordlevel::WordLevel::builder()
+        .vocab(vocab.into_iter().collect())
+        .unk_token("[UNK]".to_string())
+        .build()
+        .expect("the test word-level model is valid");
+    let mut tokenizer = tokenizers::Tokenizer::new(model);
+    tokenizer.with_normalizer(Some(
+        tokenizers::normalizers::NormalizerWrapper::BertNormalizer(
+            tokenizers::normalizers::bert::BertNormalizer::new(true, false, None, false),
+        ),
+    ));
+    Arc::new(tokenizer)
+}
+
+fn hf_bounded_chunks(body: &str, max_tokens: usize) -> Vec<DocumentChunk> {
+    let document = document(body);
+    let tokenizer = ResolvedTokenizer::from_hf("0".repeat(64), hf_tokenizer_removing_nul());
+    TokenChunkDocumentIter::new_resolved(
+        1,
+        "file_library",
+        &document,
+        tokenizer,
+        max_tokens,
+        0,
+        None,
+    )
+    .expect("the HF token budget should be valid")
+    .with_strategy(PrefixStrategy::Bounded)
+    .collect::<Result<Vec<_>, _>>()
+    .expect("the bounded cut must accept the nonempty window")
+}
+
+#[test]
+fn the_bounded_cut_accepts_a_nonempty_window_that_encodes_to_zero_tokens() {
+    let chunks = hf_bounded_chunks("\u{0}", 8);
+    assert_eq!(chunks.len(), 1, "the zero-token window terminates once");
+    assert_eq!(chunks[0].text, "\u{0}", "the original NUL is preserved");
+
+    assert!(
+        hf_bounded_chunks("", 8).is_empty(),
+        "empty input still produces no chunk"
+    );
+}
+
+#[test]
+fn the_bounded_cut_keeps_a_normalized_away_prefix_in_the_original_text() {
+    let body = "\u{0}hello world";
+    let chunks = hf_bounded_chunks(body, 1);
+    assert!(
+        chunks.iter().any(|chunk| chunk.text.starts_with('\u{0}')),
+        "the normalized-away prefix stays in the emitted text"
+    );
+    assert_eq!(
+        chunks
+            .iter()
+            .map(|chunk| chunk.text.as_str())
+            .collect::<String>(),
+        body,
+        "the bounded cut covers the original text in order"
     );
 }

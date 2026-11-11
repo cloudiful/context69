@@ -172,7 +172,13 @@ async fn reset_barrier_in(db: &Database, clear_registry: bool) {
              rebuild_started_at = NULL, rebuild_error = NULL, \
              rebuild_pause_requested = FALSE, rebuild_cursor_document_id = NULL, \
              rebuild_cursor_chunk_index = NULL, rebuild_processed_chunks = 0, \
-             rebuild_total_chunks = 0, rebuild_target_created = FALSE \
+             rebuild_total_chunks = 0, rebuild_target_created = FALSE, \
+             rebuild_chunk_budget = NULL, rebuild_generation = NULL, \
+             rebuild_staging_complete = FALSE, rebuild_staged_document_id = NULL, \
+             rebuild_translation_cursor_document_id = NULL, \
+             rebuild_translation_cursor_translation_id = NULL, \
+             rebuild_translation_cursor_chunk_index = NULL, \
+             rebuild_translation_processed_chunks = 0 \
          WHERE id = 1",
     )
     .execute(db.pool())
@@ -867,7 +873,13 @@ pub async fn try_reset_rebuild_barrier(db: &Database) -> Result<()> {
              rebuild_started_at = NULL, rebuild_error = NULL, \
              rebuild_pause_requested = FALSE, rebuild_cursor_document_id = NULL, \
              rebuild_cursor_chunk_index = NULL, rebuild_processed_chunks = 0, \
-             rebuild_total_chunks = 0, rebuild_target_created = FALSE \
+             rebuild_total_chunks = 0, rebuild_target_created = FALSE, \
+             rebuild_chunk_budget = NULL, rebuild_generation = NULL, \
+             rebuild_staging_complete = FALSE, rebuild_staged_document_id = NULL, \
+             rebuild_translation_cursor_document_id = NULL, \
+             rebuild_translation_cursor_translation_id = NULL, \
+             rebuild_translation_cursor_chunk_index = NULL, \
+             rebuild_translation_processed_chunks = 0 \
          WHERE id = 1",
     )
     .execute(db.pool())

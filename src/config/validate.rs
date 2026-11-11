@@ -118,7 +118,10 @@ pub(super) fn validate_storage_config(
     if chunking.tokenizer_download_dir.as_os_str().is_empty() {
         return Err(anyhow!("chunking.tokenizer_download_dir must not be empty"));
     }
-    if chunking.budget.unit == ChunkBudgetMode::Tokens {
+    if matches!(
+        chunking.budget.unit,
+        ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2
+    ) {
         if chunking.budget.max_tokens == 0 {
             return Err(anyhow!("chunking.max_tokens must be greater than 0"));
         }

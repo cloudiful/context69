@@ -46,6 +46,9 @@ impl From<&ChunkBudget> for context69_translation::TranslationChunkingBudget {
             mode: match budget.mode {
                 ChunkBudgetMode::Chars => context69_translation::TranslationChunkingMode::Chars,
                 ChunkBudgetMode::Tokens => context69_translation::TranslationChunkingMode::Tokens,
+                ChunkBudgetMode::TokensV2 => {
+                    context69_translation::TranslationChunkingMode::TokensV2
+                }
             },
             max_chars: budget.chars.max_chars,
             overlap_chars: budget.chars.overlap_chars,
@@ -72,6 +75,9 @@ impl From<&context69_translation::TranslationChunkingBudget> for ChunkBudget {
             mode: match budget.mode {
                 context69_translation::TranslationChunkingMode::Chars => ChunkBudgetMode::Chars,
                 context69_translation::TranslationChunkingMode::Tokens => ChunkBudgetMode::Tokens,
+                context69_translation::TranslationChunkingMode::TokensV2 => {
+                    ChunkBudgetMode::TokensV2
+                }
             },
             chars: ChunkingConfig {
                 max_chars: budget.max_chars,
@@ -362,5 +368,41 @@ impl TranslationPublisher for TranslationPublisherAdapter {
 
     fn current_chunking(&self) -> Option<context69_translation::TranslationChunkingBudget> {
         Some((&self.chunking.snapshot()).into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_translation_budget_roundtrip_preserves_the_bounded_cut() {
+        let bounded = ChunkBudget::tokens_v2_ref(
+            TokenizerRef::HfLocal {
+                sha256: "a".repeat(64),
+            },
+            1024,
+            128,
+        );
+        let translation = context69_translation::TranslationChunkingBudget::from(&bounded);
+        assert_eq!(
+            translation.mode,
+            context69_translation::TranslationChunkingMode::TokensV2
+        );
+        assert_eq!(
+            ChunkBudget::from(&translation).identity(),
+            bounded.identity()
+        );
+
+        let legacy = ChunkBudget::tokens_ref(TokenizerRef::Cl100kBase, 512, 64);
+        let translation = context69_translation::TranslationChunkingBudget::from(&legacy);
+        assert_eq!(
+            translation.mode,
+            context69_translation::TranslationChunkingMode::Tokens
+        );
+        assert_eq!(
+            ChunkBudget::from(&translation).identity(),
+            legacy.identity()
+        );
     }
 }

@@ -104,8 +104,8 @@ pub use context69_contracts_settings::settings::{
     TokenizerProvisionResponse, TokenizerProvisionStatus, UpdateCodeEmbeddingSettings,
     UpdateDoclingConnectionSettings, UpdateDoclingSettingsRequest, UpdateDoclingVlmSettings,
     UpdateRuntimeEmbeddingSettings, UpdateRuntimeFileLibrarySettings, UpdateRuntimeS3Settings,
-    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, VectorIndexRebuildState,
-    VectorIndexRebuildStatus,
+    UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest, VectorIndexRebuildPhase,
+    VectorIndexRebuildState, VectorIndexRebuildStatus,
 };
 pub use context69_contracts_sources::sources::{
     CreateSourceFolderRequest, ListSourcesResponse, SourceConfigInput, SourceConnectionResponse,

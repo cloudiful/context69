@@ -11,7 +11,7 @@ use crate::config::QdrantConfig;
 use crate::db::{
     RebuildDocumentRow, RegistryVectorIdentity, staged_original_payload, staged_translation_payload,
 };
-use crate::domain::NormalizedDocument;
+use crate::domain::{DocumentChunk, NormalizedDocument};
 use crate::domain_errors::DomainError;
 use crate::embedding::embedding_runtime::vector_identity_fingerprint;
 use crate::embedding::{EmbeddingIdentity, EmbeddingProvider, build_provider};
@@ -45,6 +45,22 @@ impl Drop for RebuildStartReservation<'_> {
         }
     }
 }
+
+/// The typed marker of a rebuild refused because another live owner runs.
+///
+/// It is deliberately distinct from the retryable refusals (unresolved staging
+/// entries) and from configuration refusals: losing the ownership race is a
+/// one-shot conflict, not a provider outage to retry.
+#[derive(Debug)]
+pub(crate) struct RebuildBusy;
+
+impl std::fmt::Display for RebuildBusy {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("another vector index rebuild is already running")
+    }
+}
+
+impl std::error::Error for RebuildBusy {}
 
 /// The checked grant row of a rebuild completion.
 #[derive(sqlx::FromRow)]
@@ -333,30 +349,35 @@ impl SyncService {
         Ok(outcome)
     }
 
-    /// Stages fresh document chunks and re-embeds originals plus current
-    /// translations using exactly the admitted attempt's pinned budget,
-    /// chunk-id seed, provider and target.
+    /// Stages and re-embeds one document at a time using exactly the admitted
+    /// attempt's pinned budget, chunk-id seed, provider and target.
     ///
-    /// The staging pass commits one document at a time (including documents
-    /// that produce no chunks), so a resume continues after the last committed
-    /// document. The embedding pass then follows two independent cursors and
-    /// records progress only for the generation this attempt owns.
+    /// Staging commits one document at a time (including documents that produce
+    /// no chunks), and a staged document is drained before the next one is
+    /// staged, so a resume continues from the durable cursors instead of
+    /// restarting the library. Progress is recorded only for the generation this
+    /// attempt owns.
     async fn rebuild_index_with_snapshot(
         &self,
         attempt: &RebuildAttempt,
         fence: TaskWriteFence,
     ) -> Result<RebuildProgress> {
-        let snapshot = &attempt.snapshot;
-        // One provider for the whole rebuild: the snapshot is the coherent
+        // One target for the whole rebuild: the snapshot is the coherent
         // provider/index pair this rebuild re-embeds with.
-        let embedding = snapshot.embedding.clone();
-        let target = snapshot.collection.as_str();
+        let target = attempt.snapshot.collection.as_str();
 
-        if let Some(progress) = self.stage_rebuild_documents(attempt, fence).await? {
-            return Ok(progress);
+        // A document without its current canonical body cannot be re-chunked;
+        // report the actionable ids once per attempt instead of skipping it.
+        let missing = self
+            .db
+            .list_rebuild_missing_documents_page(None, Self::REINDEX_BATCH_SIZE as i64)
+            .await?;
+        if !missing.is_empty() {
+            anyhow::bail!(
+                "documents without a canonical document_versions body cannot be rebuilt: {missing:?}"
+            );
         }
 
-        let staging = self.db.read_rebuild_staging_state().await?;
         let barrier = self.db.read_rebuild_barrier().await?;
         if !rebuild_is_owned(attempt, &fence, &barrier) {
             return Ok(RebuildProgress::Cancelled);
@@ -364,34 +385,27 @@ impl SyncService {
         if barrier.pause_requested {
             return Ok(RebuildProgress::Paused);
         }
-        let counts = self.db.count_rebuild_staging_chunks(target).await?;
-        let total_originals = usize::try_from(counts.original)
-            .context("the staged original count must be non-negative")?;
-        let total_translations = usize::try_from(counts.translated)
-            .context("the staged translation count must be non-negative")?;
-        let total_chunks = total_originals
-            .checked_add(total_translations)
-            .context("the staged chunk total overflowed")?;
+        let staging = self.db.read_rebuild_staging_state().await?;
+        let mut stream = RebuildStream {
+            staged_document_id: staging.staged_document_id,
+            original_cursor: barrier.cursor,
+            translation_cursor: staging.translation_cursor,
+            originals: usize::try_from(barrier.processed_chunks)
+                .context("the committed original count must be non-negative")?,
+            translations: usize::try_from(staging.translation_processed_chunks)
+                .context("the committed translation count must be non-negative")?,
+            known_total: None,
+        };
+        if staging.staging_complete {
+            stream.known_total = Some(self.count_staged_chunks(target).await?);
+        }
+        self.report_rebuild_progress(attempt.generation, &stream)
+            .await;
 
-        let mut rebuilt_originals = usize::try_from(barrier.processed_chunks)
-            .context("the committed original count must be non-negative")?;
-        let mut rebuilt_translations = usize::try_from(staging.translation_processed_chunks)
-            .context("the committed translation count must be non-negative")?;
-        self.set_vector_rebuild_progress(
-            attempt.generation,
-            rebuilt_originals + rebuilt_translations,
-            total_chunks,
-        )
-        .await;
-
-        let (mut last_document_id, mut last_chunk_index) = barrier
-            .cursor
-            .map(|cursor| (Some(cursor.document_id), Some(cursor.chunk_index)))
-            .unwrap_or((None, None));
         loop {
-            // The durable barrier is the authority before every page: a pause
-            // request parks after the page this attempt already committed, and
-            // a cancelled or superseded owner stops before the next page.
+            // The durable barrier is the authority at every control boundary: a
+            // pause request parks after the page this attempt already committed,
+            // and a cancelled or superseded owner stops before the next write.
             let barrier = self.db.read_rebuild_barrier().await?;
             if !rebuild_is_owned(attempt, &fence, &barrier) {
                 return Ok(RebuildProgress::Cancelled);
@@ -399,34 +413,181 @@ impl SyncService {
             if barrier.pause_requested {
                 return Ok(RebuildProgress::Paused);
             }
+            let next_original = self
+                .db
+                .list_rebuild_staging_chunks_page(
+                    target,
+                    stream.original_cursor.map(|cursor| cursor.document_id),
+                    stream.original_cursor.map(|cursor| cursor.chunk_index),
+                    1,
+                )
+                .await?
+                .first()
+                .map(|row| row.document_id);
+            let next_translation = self
+                .db
+                .list_translation_rebuild_staging_page(
+                    target,
+                    stream.translation_cursor.map(|cursor| cursor.document_id),
+                    stream
+                        .translation_cursor
+                        .map(|cursor| cursor.translation_id),
+                    stream.translation_cursor.map(|cursor| cursor.chunk_index),
+                    1,
+                )
+                .await?
+                .first()
+                .map(|row| row.document_id);
+            let next_document = match (next_original, next_translation) {
+                (Some(original), Some(translated)) => Some(original.min(translated)),
+                (original, translated) => original.or(translated),
+            };
+            let Some(document_id) = next_document else {
+                if stream.known_total.is_some() {
+                    break;
+                }
+                let documents = self
+                    .db
+                    .list_rebuild_documents_page(stream.staged_document_id, 1)
+                    .await?;
+                let Some(document) = documents.first() else {
+                    // Every canonical document is staged: the exact total is now
+                    // known and the remaining pages drain against it.
+                    let total = self.count_staged_chunks(target).await?;
+                    let mut connection = self.db.pool().acquire().await?;
+                    let completed = self
+                        .db
+                        .complete_rebuild_staging_in(
+                            &mut connection,
+                            fence.item_id(),
+                            fence.token(),
+                            &attempt.fingerprint,
+                            target,
+                            i64::try_from(total).context("the staged total must fit in BIGINT")?,
+                        )
+                        .await?;
+                    if !completed {
+                        return Ok(RebuildProgress::Cancelled);
+                    }
+                    stream.known_total = Some(total);
+                    self.report_rebuild_progress(attempt.generation, &stream)
+                        .await;
+                    continue;
+                };
+                let chunks = self.chunk_rebuild_document(attempt, document).await?;
+                // The CPU closure only computes. Ownership and pause are
+                // rechecked here, and the staging transaction below is the only
+                // writer, so a dropped closure never commits anything.
+                let barrier = self.db.read_rebuild_barrier().await?;
+                if !rebuild_is_owned(attempt, &fence, &barrier) {
+                    return Ok(RebuildProgress::Cancelled);
+                }
+                if barrier.pause_requested {
+                    return Ok(RebuildProgress::Paused);
+                }
+                let staged = self
+                    .db
+                    .stage_rebuild_document(
+                        target,
+                        document,
+                        &chunks,
+                        fence.item_id(),
+                        fence.token(),
+                        &attempt.fingerprint,
+                    )
+                    .await?;
+                if !staged {
+                    return Ok(RebuildProgress::Cancelled);
+                }
+                stream.staged_document_id = Some(document.document_id);
+                continue;
+            };
+            if next_original == Some(document_id)
+                && let Some(progress) = self
+                    .embed_staged_originals(attempt, fence, document_id, &mut stream)
+                    .await?
+            {
+                return Ok(progress);
+            }
+            if next_translation == Some(document_id)
+                && let Some(progress) = self
+                    .embed_staged_translations(attempt, fence, document_id, &mut stream)
+                    .await?
+            {
+                return Ok(progress);
+            }
+        }
+        // A pause requested during the last page still parks before completion:
+        // the resumed attempt then completes from the committed cursors.
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if !rebuild_is_owned(attempt, &fence, &barrier) {
+            return Ok(RebuildProgress::Cancelled);
+        }
+        if barrier.pause_requested {
+            return Ok(RebuildProgress::Paused);
+        }
+
+        let rebuilt = stream.processed();
+        info!(
+            chunks_rebuilt = rebuilt,
+            "reindexed qdrant collection from app db"
+        );
+        Ok(RebuildProgress::Completed(rebuilt))
+    }
+
+    /// Rebuilds the staged original chunks of one document.
+    ///
+    /// Every page is embedded, written to the target and checkpointed before
+    /// the next page, so a restart replays at most the page that was written but
+    /// never committed. Returns a terminal progress only when the attempt must
+    /// park or stop; `None` means this document has no original chunk left.
+    async fn embed_staged_originals(
+        &self,
+        attempt: &RebuildAttempt,
+        fence: TaskWriteFence,
+        document_id: i64,
+        stream: &mut RebuildStream,
+    ) -> Result<Option<RebuildProgress>> {
+        let target = attempt.snapshot.collection.as_str();
+        loop {
+            // The durable barrier is the authority before every page: a pause
+            // request parks after the page this attempt already committed, and
+            // a cancelled or superseded owner stops before the next write.
+            let barrier = self.db.read_rebuild_barrier().await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                return Ok(Some(RebuildProgress::Cancelled));
+            }
+            if barrier.pause_requested {
+                return Ok(Some(RebuildProgress::Paused));
+            }
             let rows = self
                 .db
                 .list_rebuild_staging_chunks_page(
                     target,
-                    last_document_id,
-                    last_chunk_index,
+                    stream.original_cursor.map(|cursor| cursor.document_id),
+                    stream.original_cursor.map(|cursor| cursor.chunk_index),
                     Self::REINDEX_BATCH_SIZE as i64,
                 )
-                .await?;
+                .await?
+                .into_iter()
+                .filter(|row| row.document_id == document_id)
+                .collect::<Vec<_>>();
             if rows.is_empty() {
-                break;
+                return Ok(None);
             }
             let payloads = rows.iter().map(staged_original_payload).collect::<Vec<_>>();
             let texts = payloads
                 .iter()
                 .map(|payload| payload.chunk_text.clone())
                 .collect::<Vec<_>>();
-            let embeddings = embedding.embed_texts(&texts).await?;
-            snapshot
+            let embeddings = attempt.snapshot.embedding.embed_texts(&texts).await?;
+            attempt
+                .snapshot
                 .index
                 .replace_document_chunks(&[], &payloads, &embeddings)
                 .await?;
-            rebuilt_originals += rows.len();
-            let last = rows.last().expect("non-empty staged batch");
-            last_document_id = Some(last.document_id);
-            last_chunk_index = Some(last.chunk_index);
-            // The cursor write is authorized by the same captured grant the
-            // rebuild started with.
+            stream.originals += rows.len();
+            let last = rows.last().expect("non-empty staged page");
             let mut connection = self.db.pool().acquire().await?;
             let advanced = self
                 .db
@@ -441,61 +602,69 @@ impl SyncService {
                             document_id: last.document_id,
                             chunk_index: last.chunk_index,
                         },
-                        processed_chunks: i64::try_from(rebuilt_originals)
+                        processed_chunks: i64::try_from(stream.originals)
                             .context("the rebuilt original count must fit in BIGINT")?,
-                        total_chunks: i64::try_from(total_chunks)
+                        total_chunks: i64::try_from(stream.reported_total())
                             .context("the total count must fit in BIGINT")?,
                     },
                 )
                 .await?;
             if !advanced {
-                return Ok(RebuildProgress::Cancelled);
+                return Ok(Some(RebuildProgress::Cancelled));
             }
-            self.set_vector_rebuild_progress(
-                attempt.generation,
-                rebuilt_originals + rebuilt_translations,
-                total_chunks,
-            )
-            .await;
+            stream.original_cursor = Some(crate::db::RebuildCursor {
+                document_id: last.document_id,
+                chunk_index: last.chunk_index,
+            });
+            self.report_rebuild_progress(attempt.generation, stream)
+                .await;
             info!(
                 batch_size = rows.len(),
-                rebuilt = rebuilt_originals,
-                total = total_originals,
-                "vector rebuild original batch completed"
+                rebuilt = stream.originals,
+                document_id,
+                "vector rebuild original page completed"
             );
         }
+    }
 
-        let (mut translation_document_id, mut translation_id, mut translation_chunk_index) =
-            staging
-                .translation_cursor
-                .map(|cursor| {
-                    (
-                        Some(cursor.document_id),
-                        Some(cursor.translation_id),
-                        Some(cursor.chunk_index),
-                    )
-                })
-                .unwrap_or((None, None, None));
+    /// Rebuilds the staged current translations of one document.
+    ///
+    /// Translation pages have their own cursor because they are ordered by
+    /// version as well as document, but they are drained under the same
+    /// per-document ordering as the originals.
+    async fn embed_staged_translations(
+        &self,
+        attempt: &RebuildAttempt,
+        fence: TaskWriteFence,
+        document_id: i64,
+        stream: &mut RebuildStream,
+    ) -> Result<Option<RebuildProgress>> {
+        let target = attempt.snapshot.collection.as_str();
         loop {
             let barrier = self.db.read_rebuild_barrier().await?;
             if !rebuild_is_owned(attempt, &fence, &barrier) {
-                return Ok(RebuildProgress::Cancelled);
+                return Ok(Some(RebuildProgress::Cancelled));
             }
             if barrier.pause_requested {
-                return Ok(RebuildProgress::Paused);
+                return Ok(Some(RebuildProgress::Paused));
             }
             let rows = self
                 .db
                 .list_translation_rebuild_staging_page(
                     target,
-                    translation_document_id,
-                    translation_id,
-                    translation_chunk_index,
+                    stream.translation_cursor.map(|cursor| cursor.document_id),
+                    stream
+                        .translation_cursor
+                        .map(|cursor| cursor.translation_id),
+                    stream.translation_cursor.map(|cursor| cursor.chunk_index),
                     Self::REINDEX_BATCH_SIZE as i64,
                 )
-                .await?;
+                .await?
+                .into_iter()
+                .filter(|row| row.document_id == document_id)
+                .collect::<Vec<_>>();
             if rows.is_empty() {
-                break;
+                return Ok(None);
             }
             let payloads = rows
                 .iter()
@@ -505,16 +674,14 @@ impl SyncService {
                 .iter()
                 .map(|payload| payload.chunk_text.clone())
                 .collect::<Vec<_>>();
-            let embeddings = embedding.embed_texts(&texts).await?;
-            snapshot
+            let embeddings = attempt.snapshot.embedding.embed_texts(&texts).await?;
+            attempt
+                .snapshot
                 .index
                 .replace_document_chunks(&[], &payloads, &embeddings)
                 .await?;
-            rebuilt_translations += rows.len();
-            let last = rows.last().expect("non-empty staged translation batch");
-            translation_document_id = Some(last.document_id);
-            translation_id = Some(last.translation_id);
-            translation_chunk_index = Some(last.chunk_index);
+            stream.translations += rows.len();
+            let last = rows.last().expect("non-empty staged translation page");
             let mut connection = self.db.pool().acquire().await?;
             let advanced = self
                 .db
@@ -528,147 +695,80 @@ impl SyncService {
                         translation_id: last.translation_id,
                         chunk_index: last.chunk_index,
                     },
-                    i64::try_from(rebuilt_translations)
+                    i64::try_from(stream.translations)
                         .context("the rebuilt translation count must fit in BIGINT")?,
                 )
                 .await?;
             if !advanced {
-                return Ok(RebuildProgress::Cancelled);
-            }
-            self.set_vector_rebuild_progress(
-                attempt.generation,
-                rebuilt_originals + rebuilt_translations,
-                total_chunks,
-            )
-            .await;
-            info!(
-                batch_size = rows.len(),
-                rebuilt = rebuilt_translations,
-                total = total_translations,
-                "vector rebuild translation batch completed"
-            );
-        }
-
-        // A pause requested during the last page still parks before completion:
-        // the resumed attempt then completes from the committed cursors.
-        let barrier = self.db.read_rebuild_barrier().await?;
-        if !rebuild_is_owned(attempt, &fence, &barrier) {
-            return Ok(RebuildProgress::Cancelled);
-        }
-        if barrier.pause_requested {
-            return Ok(RebuildProgress::Paused);
-        }
-
-        let rebuilt = rebuilt_originals + rebuilt_translations;
-        info!(
-            chunks_rebuilt = rebuilt,
-            "reindexed qdrant collection from app db"
-        );
-        Ok(RebuildProgress::Completed(rebuilt))
-    }
-
-    /// Stages every current document's fresh chunks from its canonical body.
-    ///
-    /// A missing canonical body fails closed before any point is written.
-    /// Returns a terminal progress only when the attempt must park or stop;
-    /// `None` means the staged snapshot is complete.
-    async fn stage_rebuild_documents(
-        &self,
-        attempt: &RebuildAttempt,
-        fence: TaskWriteFence,
-    ) -> Result<Option<RebuildProgress>> {
-        let target = attempt.snapshot.collection.as_str();
-        let staging = self.db.read_rebuild_staging_state().await?;
-        if staging.staging_complete {
-            return Ok(None);
-        }
-        // A document without its current canonical body cannot be re-chunked;
-        // report the actionable ids instead of skipping it or reusing stale
-        // chunks.
-        let missing = self
-            .db
-            .list_rebuild_missing_documents_page(None, Self::REINDEX_BATCH_SIZE as i64)
-            .await?;
-        if !missing.is_empty() {
-            anyhow::bail!(
-                "documents without a canonical document_versions body cannot be rebuilt: {missing:?}"
-            );
-        }
-
-        let mut after = staging.staged_document_id;
-        loop {
-            let barrier = self.db.read_rebuild_barrier().await?;
-            if !rebuild_is_owned(attempt, &fence, &barrier) {
                 return Ok(Some(RebuildProgress::Cancelled));
             }
-            if barrier.pause_requested {
-                return Ok(Some(RebuildProgress::Paused));
-            }
-            let documents = self
-                .db
-                .list_rebuild_documents_page(after, Self::REINDEX_BATCH_SIZE as i64)
-                .await?;
-            if documents.is_empty() {
-                break;
-            }
-            for document in &documents {
-                let normalized = rebuild_normalized_document(document);
-                let chunks = chunk_document_iter_resolved(
-                    document.document_id,
-                    &document.source_key,
-                    &normalized,
-                    &attempt.chunk_budget,
-                    Some(attempt.rebuild_generation),
-                )
-                .map_err(|error| anyhow::anyhow!("chunk rebuild document: {error}"))?
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| anyhow::anyhow!("chunk rebuild document: {error}"))?;
-                let staged = self
-                    .db
-                    .stage_rebuild_document(
-                        target,
-                        document,
-                        &chunks,
-                        fence.item_id(),
-                        fence.token(),
-                        &attempt.fingerprint,
-                    )
-                    .await?;
-                if !staged {
-                    return Ok(Some(RebuildProgress::Cancelled));
-                }
-                after = Some(document.document_id);
-            }
+            stream.translation_cursor = Some(crate::db::RebuildTranslationCursor {
+                document_id: last.document_id,
+                translation_id: last.translation_id,
+                chunk_index: last.chunk_index,
+            });
+            self.report_rebuild_progress(attempt.generation, stream)
+                .await;
+            info!(
+                batch_size = rows.len(),
+                rebuilt = stream.translations,
+                document_id,
+                "vector rebuild translation page completed"
+            );
         }
+    }
 
-        let barrier = self.db.read_rebuild_barrier().await?;
-        if !rebuild_is_owned(attempt, &fence, &barrier) {
-            return Ok(Some(RebuildProgress::Cancelled));
-        }
-        if barrier.pause_requested {
-            return Ok(Some(RebuildProgress::Paused));
-        }
-        let counts = self.db.count_rebuild_staging_chunks(target).await?;
-        let total = counts
-            .original
-            .checked_add(counts.translated)
-            .context("the staged chunk total overflowed")?;
-        let mut connection = self.db.pool().acquire().await?;
-        let completed = self
-            .db
-            .complete_rebuild_staging_in(
-                &mut connection,
-                fence.item_id(),
-                fence.token(),
-                &attempt.fingerprint,
-                target,
-                total,
+    /// Chunks one canonical body off the async worker threads.
+    ///
+    /// The closure only computes: it owns the normalized document, the pinned
+    /// budget and the chunk-id seed, and returns the chunks. Dropping it cannot
+    /// stop a closure that already started, so the caller rechecks ownership and
+    /// pause after it returns and discards the result before any staging write.
+    async fn chunk_rebuild_document(
+        &self,
+        attempt: &RebuildAttempt,
+        document: &RebuildDocumentRow,
+    ) -> Result<Vec<DocumentChunk>> {
+        let normalized = rebuild_normalized_document(document);
+        let budget = attempt.chunk_budget.clone();
+        let document_id = document.document_id;
+        let source_key = document.source_key.clone();
+        let generation = attempt.rebuild_generation;
+        tokio::task::spawn_blocking(move || {
+            chunk_document_iter_resolved(
+                document_id,
+                &source_key,
+                &normalized,
+                &budget,
+                Some(generation),
             )
-            .await?;
-        if !completed {
-            return Ok(Some(RebuildProgress::Cancelled));
-        }
-        Ok(None)
+            .map_err(|error| anyhow::anyhow!("chunk rebuild document: {error}"))?
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(|error| anyhow::anyhow!("chunk rebuild document: {error}"))
+        })
+        .await
+        .context("the rebuild chunk task did not finish")?
+    }
+
+    /// The exact number of staged chunks of one target.
+    ///
+    /// The original and translation counters keep their distinct meanings; this
+    /// is the total that the completion guard and the final verification need.
+    async fn count_staged_chunks(&self, target: &str) -> Result<usize> {
+        let counts = self.db.count_rebuild_staging_chunks(target).await?;
+        usize::try_from(
+            counts
+                .original
+                .checked_add(counts.translated)
+                .context("the staged chunk total overflowed")?,
+        )
+        .context("the staged chunk total must be non-negative")
+    }
+
+    /// Reports the streamed position until the exact staged total is known.
+    async fn report_rebuild_progress(&self, generation: u64, stream: &RebuildStream) {
+        self.set_vector_rebuild_progress(generation, stream.processed(), stream.reported_total())
+            .await;
     }
 
     pub async fn vector_index_rebuild_status(&self) -> VectorIndexRebuildStatus {
@@ -692,10 +792,16 @@ impl SyncService {
             return Ok(super::RebuildRunOutcome::Paused);
         }
         let attempt = self.begin_vector_index_rebuild(fence).await?;
+        let attempt_guard = super::RebuildAttemptGuard::new(
+            &self.vector_rebuild_status,
+            &self.vector,
+            attempt.generation,
+        );
         let progress = match self.rebuild_index_with_snapshot(&attempt, fence).await {
             Ok(progress) => progress,
             Err(error) => {
                 self.fail_rebuild_barrier(fence, &error).await;
+                attempt_guard.disarm();
                 fail_rebuild_attempt(&self.vector, &self.vector_rebuild_status, &attempt, error)
                     .await?;
                 unreachable!("a failed rebuild attempt returns its error");
@@ -709,6 +815,7 @@ impl SyncService {
                 self.vector.abandon_rebuild(attempt.generation);
                 self.vector_rebuild_status
                     .fail(attempt.generation, "paused".to_string());
+                attempt_guard.disarm();
                 Ok(super::RebuildRunOutcome::Paused)
             }
             RebuildProgress::Cancelled => {
@@ -719,6 +826,7 @@ impl SyncService {
                 self.vector.abandon_rebuild(attempt.generation);
                 self.vector_rebuild_status
                     .fail(attempt.generation, "cancelled".to_string());
+                attempt_guard.disarm();
                 Ok(super::RebuildRunOutcome::Cancelled)
             }
             RebuildProgress::Completed(rebuilt) => {
@@ -728,6 +836,7 @@ impl SyncService {
                 // activated, and the old active collection keeps serving.
                 if let Err(error) = self.verify_rebuild_target(&attempt, rebuilt).await {
                     self.fail_rebuild_barrier(fence, &error).await;
+                    attempt_guard.disarm();
                     fail_rebuild_attempt(
                         &self.vector,
                         &self.vector_rebuild_status,
@@ -763,6 +872,7 @@ impl SyncService {
                 if let Err(error) = &outcome {
                     self.fail_rebuild_barrier(fence, error).await;
                 }
+                attempt_guard.disarm();
                 outcome.map(|_| super::RebuildRunOutcome::Completed)
             }
         }
@@ -890,7 +1000,7 @@ impl SyncService {
         })?;
         if !self.vector_rebuild_status.claim_start() {
             self.release_rebuild_barrier(fence).await;
-            return Err(DomainError::conflict("vector index rebuild is already running").into());
+            return Err(RebuildBusy.into());
         }
         // The reservation releases the tracker gate on every later return or
         // error, so a cancelled or failed start can never block the next
@@ -1022,7 +1132,8 @@ impl SyncService {
                     | RebuildAdmissionError::MissingFingerprint => {
                         DomainError::unavailable(error.message()).into()
                     }
-                    RebuildAdmissionError::Busy | RebuildAdmissionError::StaleSnapshot => {
+                    RebuildAdmissionError::Busy => return Err(RebuildBusy.into()),
+                    RebuildAdmissionError::StaleSnapshot => {
                         DomainError::conflict(error.message()).into()
                     }
                 });
@@ -1248,6 +1359,37 @@ enum RebuildProgress {
     Completed(usize),
     Paused,
     Cancelled,
+}
+
+/// The committed streaming position of one rebuild attempt.
+///
+/// The original and translation cursors stay distinct because their page
+/// queries are ordered differently, but both are drained one document at a
+/// time: a document's originals are written before its translations, and no
+/// later document is staged before the current one is fully written.
+struct RebuildStream {
+    /// The last canonical document whose fresh chunks were committed.
+    staged_document_id: Option<i64>,
+    original_cursor: Option<crate::db::RebuildCursor>,
+    translation_cursor: Option<crate::db::RebuildTranslationCursor>,
+    originals: usize,
+    translations: usize,
+    /// The exact staged total, once staging has completed.
+    known_total: Option<usize>,
+}
+
+impl RebuildStream {
+    fn processed(&self) -> usize {
+        self.originals + self.translations
+    }
+
+    /// The total to report and to checkpoint.
+    ///
+    /// `0` means the final total is not known yet, which the durable counter
+    /// permits only while staging is incomplete.
+    fn reported_total(&self) -> usize {
+        self.known_total.unwrap_or(0)
+    }
 }
 
 /// Whether the durable barrier still belongs to this attempt.
@@ -1493,9 +1635,7 @@ fn rebuild_refusal_error(reason: crate::db::RebuildRefusalReason) -> anyhow::Err
              it and start a new rebuild",
         )
         .into(),
-        crate::db::RebuildRefusalReason::Busy => {
-            DomainError::conflict("another vector index rebuild is already running").into()
-        }
+        crate::db::RebuildRefusalReason::Busy => RebuildBusy.into(),
         crate::db::RebuildRefusalReason::IdentityMismatch => DomainError::conflict(
             "a vector index rebuild of another vector identity is pending; an explicit rebuild of \
              the current identity is required",

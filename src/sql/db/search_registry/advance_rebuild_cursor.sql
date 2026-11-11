@@ -19,5 +19,9 @@ WHERE id = 1
   AND rebuild_fingerprint = $3
   AND rebuild_collection = $4
   AND $7::bigint >= 0
-  AND $8::bigint >= $7::bigint
+  -- 0 = the staged total is unknown until staging completes. Unknown is only
+  -- accepted while this owned rebuild has not finished staging, and a known
+  -- total always bounds the committed progress.
+  AND ($8::bigint = 0 OR $8::bigint >= $7::bigint)
+  AND ($8::bigint <> 0 OR NOT rebuild_staging_complete)
 RETURNING TRUE AS "updated!"

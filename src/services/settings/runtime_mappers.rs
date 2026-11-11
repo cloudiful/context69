@@ -87,7 +87,7 @@ fn stored_chunking_settings(budget: &ChunkBudget) -> StoredRuntimeChunkingSettin
 fn chunk_budget_mode(unit: &ChunkingUnit) -> ChunkBudgetMode {
     match unit {
         ChunkingUnit::Chars => ChunkBudgetMode::Chars,
-        ChunkingUnit::Tokens => ChunkBudgetMode::Tokens,
+        ChunkingUnit::Tokens => ChunkBudgetMode::Tokens.fresh(),
     }
 }
 
@@ -95,7 +95,7 @@ fn chunk_budget_mode(unit: &ChunkingUnit) -> ChunkBudgetMode {
 fn chunking_unit(unit: ChunkBudgetMode) -> ChunkingUnit {
     match unit {
         ChunkBudgetMode::Chars => ChunkingUnit::Chars,
-        ChunkBudgetMode::Tokens => ChunkingUnit::Tokens,
+        ChunkBudgetMode::Tokens | ChunkBudgetMode::TokensV2 => ChunkingUnit::Tokens,
     }
 }
 
@@ -378,7 +378,6 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
 mod tests {
     use super::s3_secret_patch;
     use crate::contracts::{SecretPatch, UpdateRuntimeS3Settings};
-
     fn s3_request(secret_key: Option<&str>) -> UpdateRuntimeS3Settings {
         UpdateRuntimeS3Settings {
             endpoint: "https://objects.invalid".to_string(),
@@ -407,5 +406,59 @@ mod tests {
         // Dropping the S3 block drops the credential with it, so a re-add cannot
         // resurrect one the operator removed.
         assert_eq!(s3_secret_patch(None), SecretPatch::Clear);
+    }
+
+    #[test]
+    fn a_fresh_token_budget_carries_the_bounded_cut_and_keeps_the_public_unit() {
+        use super::{chunk_budget, chunking_settings, stored_chunking_settings};
+        use crate::chunking::{ChunkBudget, ChunkBudgetMode};
+        use context69_contracts::settings::{
+            ChunkingTokenizer, ChunkingUnit, RuntimeChunkingSettings,
+        };
+
+        let request = RuntimeChunkingSettings {
+            max_chars: 1200,
+            overlap_chars: 200,
+            unit: ChunkingUnit::Tokens,
+            tokenizer: ChunkingTokenizer::O200kBase,
+            tokenizer_sha256: None,
+            max_tokens: 512,
+            overlap_tokens: 64,
+        };
+        let budget = chunk_budget(&request);
+        assert_eq!(budget.mode, ChunkBudgetMode::TokensV2);
+        assert_eq!(budget.identity(), "tokens_v2:o200k_base:512:64");
+
+        let response = chunking_settings(&budget);
+        assert_eq!(
+            response.unit,
+            ChunkingUnit::Tokens,
+            "the public unit never exposes the stored token version"
+        );
+
+        let stored = stored_chunking_settings(&budget);
+        assert_eq!(
+            stored.chunk_budget().identity(),
+            budget.identity(),
+            "a stored settings row keeps the bounded version"
+        );
+
+        let legacy = ChunkBudget::tokens(
+            crate::chunking::chunking_token::TokenizerKind::Cl100kBase,
+            512,
+            64,
+        );
+        assert_eq!(chunking_settings(&legacy).unit, ChunkingUnit::Tokens);
+        let stored = stored_chunking_settings(&legacy);
+        assert_eq!(
+            stored.unit,
+            ChunkBudgetMode::Tokens,
+            "the stored unit keeps its persisted name"
+        );
+        assert_eq!(
+            stored.chunk_budget().mode,
+            ChunkBudgetMode::TokensV2,
+            "saved settings are a fresh producer, so the next task uses the bounded cut"
+        );
     }
 }

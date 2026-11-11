@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The document progress of one running rebuild target.\n--\n-- Staged counts the documents already cut and staged into the target. Total\n-- counts the canonical documents the rebuild selects, so a document without a\n-- canonical body keeps the progress short of completion instead of reporting a\n-- false 100%.\nSELECT\n    (SELECT count(*)\n     FROM context69.document_rebuild_staging_documents\n     WHERE target_collection = $1)::bigint AS \"staged!\",\n    (SELECT count(*)\n     FROM context69.documents)::bigint AS \"total!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "staged!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "total!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "d02f94920b5b16378d92d615892099a42166e446576512070444eec006827472"
+}

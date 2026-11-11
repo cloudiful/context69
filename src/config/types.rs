@@ -82,7 +82,7 @@ impl ChunkingBudgetConfig {
     /// values of the other one.
     pub fn chunk_budget(&self) -> ChunkBudget {
         ChunkBudget {
-            mode: self.unit,
+            mode: self.unit.fresh(),
             chars: ChunkingConfig {
                 max_chars: self.max_chars,
                 overlap_chars: self.overlap_chars,

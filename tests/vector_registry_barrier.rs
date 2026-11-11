@@ -2849,7 +2849,6 @@ async fn run_actual_rebuild_case(db: &Database, fault: RebuildCaseFault) -> anyh
     let mut run_handle: Option<tokio::task::JoinHandle<anyhow::Result<()>>> = None;
     let mut owned_collection: Option<String> = None;
     let mut expected_cursor: Option<RebuildCursor> = None;
-    let mut total_chunks = 0i64;
     let mut segment: Option<Uuid> = None;
     let mut generation = 0i64;
     // One absolute budget for the whole actual gate: setup, the first data
@@ -2884,7 +2883,6 @@ async fn run_actual_rebuild_case(db: &Database, fault: RebuildCaseFault) -> anyh
             document_id,
             chunk_index: 63,
         });
-        total_chunks = fresh_chunks;
 
         let started_mock = if fault == RebuildCaseFault::ProviderFails {
             http_mock::EmbeddingMock::start_failing_proof(4096).await?
@@ -3029,8 +3027,13 @@ async fn run_actual_rebuild_case(db: &Database, fault: RebuildCaseFault) -> anyh
             barrier.cursor
         );
         anyhow::ensure!(
-            barrier.processed_chunks == 64 && barrier.total_chunks == total_chunks,
-            "the committed page and the captured total are the checkpoint"
+            barrier.processed_chunks == 64
+                && barrier.total_chunks == 0
+                && !db
+                    .read_rebuild_staging_state()
+                    .await?
+                    .staging_complete,
+            "the committed page is the checkpoint while the streamed total is still unknown"
         );
 
         let queue = db.execution_queue().await?;

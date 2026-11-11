@@ -17072,6 +17072,15 @@
           }
         }
       },
+      "VectorIndexRebuildPhase": {
+        "type": "string",
+        "description": "The truthful phase of a running vector rebuild.\n\nDocument staging and chunk embedding are interleaved: each document is cut\nand its chunks are embedded before the next document is staged. A rebuild\nthat has not staged every document is therefore processing documents, not\nonly tokenizing them.",
+        "enum": [
+          "processing_documents",
+          "embedding",
+          "verifying"
+        ]
+      },
       "VectorIndexRebuildState": {
         "type": "string",
         "description": "The durable state of the vector index rebuild.\n\nThe states are the rebuild's own, not the task queue's: a rebuild that\nwaits for the queue is still `Queued`, and a rebuild that waits for an\noperator is `Paused` or `Pausing`.",
@@ -17130,6 +17139,22 @@
             "description": "The dimensions the deployment is configured for.",
             "minimum": 0
           },
+          "documents_staged": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Documents already cut and staged into the target, absent unless a\nrebuild is active. Staged is not embedded: a staged document may still\nbe waiting for its chunks to be embedded.",
+            "minimum": 0
+          },
+          "documents_total": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Documents selected by the rebuild, absent unless a rebuild is active.",
+            "minimum": 0
+          },
           "error_message": {
             "type": [
               "string",
@@ -17142,6 +17167,17 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "phase": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/VectorIndexRebuildPhase",
+                "description": "The phase of a running rebuild, absent whenever no attempt is active."
+              }
+            ]
           },
           "physical_collection": {
             "type": [

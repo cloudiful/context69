@@ -582,6 +582,32 @@ impl Database {
         )
     }
 
+    /// Whether the recorded owner of the rebuild barrier can still write.
+    ///
+    /// The owner is live only while the item still carries that exact token and
+    /// still runs. An elapsed lease deadline is not proof of death.
+    pub async fn rebuild_owner_live(&self, owner_item_id: Uuid, owner_token: Uuid) -> Result<bool> {
+        let mut connection = self.pool.acquire().await?;
+        self.rebuild_owner_live_in(&mut connection, owner_item_id, owner_token)
+            .await
+    }
+
+    async fn rebuild_owner_live_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+    ) -> Result<bool> {
+        Ok(sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/read_owner_live.sql",
+            owner_item_id,
+            owner_token
+        )
+        .fetch_one(&mut *connection)
+        .await
+        .context("read the rebuild owner liveness")?)
+    }
+
     /// The persistent rebuild barrier, read on the caller's connection.
     ///
     /// The caller must already hold the epoch row lock when the answer
@@ -871,14 +897,9 @@ impl Database {
                 // reclaimed item carries a fresh token, and a terminal or
                 // deleted item cannot write at all. An elapsed lease deadline
                 // is not proof of death, so a live owner keeps the barrier.
-                let live = sqlx::query_file_scalar!(
-                    "src/sql/db/search_registry/read_owner_live.sql",
-                    owner,
-                    owner_token
-                )
-                .fetch_one(&mut *connection)
-                .await
-                .context("read the rebuild owner liveness")?;
+                let live = self
+                    .rebuild_owner_live_in(connection, owner, owner_token)
+                    .await?;
                 if live {
                     return Ok((
                         RebuildStartOutcome::Refused(RebuildRefusalReason::Busy),
