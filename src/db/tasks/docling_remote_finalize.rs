@@ -4,6 +4,7 @@ use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
+use super::execution::native_utc;
 use crate::db::Database;
 
 /// One active remote job with its owning item/task state for the recovery
@@ -74,7 +75,7 @@ impl Database {
         }
         let queue = self.execution_queue().await?;
         let lease_until = match queue.renew_in(&mut transaction, &execution.attempt).await {
-            Ok(lease_until) => lease_until,
+            Ok(lease_until) => native_utc(lease_until),
             Err(cloudiful_tasks::Error::LeaseLost { .. })
             | Err(cloudiful_tasks::Error::InvalidTaskState { .. }) => {
                 transaction.rollback().await.ok();

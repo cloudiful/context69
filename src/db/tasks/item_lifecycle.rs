@@ -11,7 +11,7 @@ use crate::db::task_file_dedup::{
 };
 
 use super::INITIAL_ITEM_STAGE;
-use super::execution::ExecutionContext;
+use super::execution::{ExecutionContext, native_utc};
 use super::types::{
     AttachTaskItemArtifactRequest, FinishTaskItemRequest, RerunTaskItem, StoredTask,
     TaskItemArtifactRow, WaitTaskItemRequest,
@@ -277,7 +277,7 @@ impl Database {
         }
         let queue = self.execution_queue().await?;
         let lease_until = match queue.renew_in(&mut tx, &execution.attempt).await {
-            Ok(lease_until) => lease_until,
+            Ok(lease_until) => native_utc(lease_until),
             Err(error) if is_lease_lost(&error) => {
                 // The lease is gone: the renewal changes nothing, so a worker
                 // that lost its claim learns it instead of extending a lease it
