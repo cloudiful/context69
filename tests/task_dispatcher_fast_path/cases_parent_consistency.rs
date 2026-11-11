@@ -6,8 +6,10 @@
 //! path, and a slot that no claim can ever serve is released.
 
 use chrono::{Duration, Utc};
+use context69::contracts::sources::{GitIndexProfile, GitProviderKind};
 use context69::db::{
-    CreateTaskSubmissionRequest, Database, FinishTaskItemRequest, WaitTaskItemRequest,
+    CreateTaskSubmissionRequest, Database, FinishTaskItemRequest, NewGitRepositorySource,
+    WaitTaskItemRequest,
 };
 use serde_json::json;
 use sqlx::Row;
@@ -352,15 +354,52 @@ async fn a_new_git_index_task_starts_in_the_indexing_stage() {
         .await
         .expect("bootstrap the library schema");
     let user_id = seed_test_user(&db).await;
+    let group_key = format!("fast-path-git-{}", Uuid::new_v4());
+    let group_path = format!("test/{group_key}");
+    let group_id: i64 = sqlx::query_scalar(
+        "INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) \
+         VALUES ($1, $2, 'public', 'shared', $3) RETURNING id",
+    )
+    .bind(&group_key)
+    .bind("Fast Path Git Index Group")
+    .bind(&group_path)
+    .fetch_one(db.pool())
+    .await
+    .expect("seed owning group");
+    let repository_key = db
+        .upsert_git_repository_source(
+            group_id,
+            &NewGitRepositorySource {
+                connection_key: None,
+                provider: GitProviderKind::Generic,
+                canonical_url: format!("https://example.invalid/{group_key}.git"),
+                owner: group_key.clone(),
+                name: group_key.clone(),
+                default_branch: "main".to_string(),
+                target_ref: "refs/heads/main".to_string(),
+                pinned_commit_sha: None,
+                index_profile: GitIndexProfile::Hybrid,
+                include_patterns: Vec::new(),
+                exclude_patterns: Vec::new(),
+                interval_seconds: None,
+                webhook_enabled: false,
+                enabled: true,
+                retention_count: 2,
+                created_by_user_id: Some(user_id),
+            },
+        )
+        .await
+        .expect("seed git repository source")
+        .repository_key;
     let (task_id, _reused, _items) = db
         .create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
             task_id: Uuid::new_v4(),
             user_id,
-            group_id: None,
+            group_id: Some(group_id),
             kind: "git_index",
-            group_path: Some("test/parent-consistency"),
+            group_path: Some(group_path.as_str()),
             source_key: None,
-            payloads: &[json!({ "repository_key": Uuid::new_v4() })],
+            payloads: &[json!({ "repository_key": repository_key })],
             input_storage_object_ids: None,
             idempotency_key: None,
             request_hash: "git-index-stage",
@@ -380,6 +419,117 @@ async fn a_new_git_index_task_starts_in_the_indexing_stage() {
     assert_eq!(task.queued_count, 1);
 
     cleanup_task(&db, task_id, user_id).await;
+    sqlx::query("DELETE FROM context69.git_repository_sources WHERE repository_key = $1")
+        .bind(repository_key)
+        .execute(db.pool())
+        .await
+        .expect("clean up git repository source");
+    sqlx::query("DELETE FROM context69.groups WHERE id = $1")
+        .bind(group_id)
+        .execute(db.pool())
+        .await
+        .expect("clean up owning group");
+    cleanup_user(&db, user_id).await;
+}
+
+#[tokio::test]
+#[ignore = "requires configured reusable PostgreSQL"]
+async fn a_force_git_index_request_reuses_the_active_task_and_records_durable_demand() {
+    let url = context69_test_support::accessor::database_url();
+    let _guard = FAST_PATH_LOCK.lock().await;
+    let db = Database::connect(&url)
+        .await
+        .expect("connect test database");
+    context69_db_schema::bootstrap_library_schema(db.pool())
+        .await
+        .expect("bootstrap the library schema");
+    let user_id = seed_test_user(&db).await;
+    let group_key = format!("fast-path-force-{}", Uuid::new_v4());
+    let group_path = format!("test/{group_key}");
+    let group_id: i64 = sqlx::query_scalar(
+        "INSERT INTO context69.groups (group_key, name, visibility, kind, full_path) \
+         VALUES ($1, $2, 'public', 'shared', $3) RETURNING id",
+    )
+    .bind(&group_key)
+    .bind("Fast Path Git Force Group")
+    .bind(&group_path)
+    .fetch_one(db.pool())
+    .await
+    .expect("seed owning group");
+    let repository_key = db
+        .upsert_git_repository_source(
+            group_id,
+            &NewGitRepositorySource {
+                connection_key: None,
+                provider: GitProviderKind::Generic,
+                canonical_url: format!("https://example.invalid/{group_key}.git"),
+                owner: group_key.clone(),
+                name: group_key.clone(),
+                default_branch: "main".to_string(),
+                target_ref: "refs/heads/main".to_string(),
+                pinned_commit_sha: None,
+                index_profile: GitIndexProfile::Hybrid,
+                include_patterns: Vec::new(),
+                exclude_patterns: Vec::new(),
+                interval_seconds: None,
+                webhook_enabled: false,
+                enabled: true,
+                retention_count: 2,
+                created_by_user_id: Some(user_id),
+            },
+        )
+        .await
+        .expect("seed git repository source")
+        .repository_key;
+    let submit = async |force_rebuild: bool| {
+        db.create_task_submission_with_input_objects(CreateTaskSubmissionRequest {
+            task_id: Uuid::new_v4(),
+            user_id,
+            group_id: Some(group_id),
+            kind: "git_index",
+            group_path: Some(group_path.as_str()),
+            source_key: None,
+            payloads: &[json!({
+                "repository_key": repository_key,
+                "force_rebuild": force_rebuild
+            })],
+            input_storage_object_ids: None,
+            idempotency_key: None,
+            request_hash: "git-index-force",
+        })
+        .await
+        .expect("create git index task")
+    };
+    let (task_id, reused, _) = submit(false).await;
+    assert!(!reused);
+    let (reused_task_id, reused, _) = submit(true).await;
+    assert!(reused);
+    assert_eq!(reused_task_id, task_id);
+
+    let demand: Option<chrono::DateTime<Utc>> = sqlx::query_scalar(
+        "SELECT force_rebuild_requested_at FROM context69.git_repository_sources \
+         WHERE repository_key = $1",
+    )
+    .bind(repository_key)
+    .fetch_one(db.pool())
+    .await
+    .expect("read durable demand");
+    assert!(
+        demand.is_some(),
+        "a force request arriving while a task is active is persisted"
+    );
+
+    cleanup_task(&db, task_id, user_id).await;
+    sqlx::query("DELETE FROM context69.git_repository_sources WHERE repository_key = $1")
+        .bind(repository_key)
+        .execute(db.pool())
+        .await
+        .expect("clean up git repository source");
+    sqlx::query("DELETE FROM context69.groups WHERE id = $1")
+        .bind(group_id)
+        .execute(db.pool())
+        .await
+        .expect("clean up owning group");
     cleanup_user(&db, user_id).await;
 }
 

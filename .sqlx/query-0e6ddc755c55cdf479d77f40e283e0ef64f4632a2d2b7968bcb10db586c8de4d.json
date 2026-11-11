@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Every generation of one repository with its optional code vector destination.\n--\n-- Used when a whole source is deleted: every recorded destination must be\n-- cleared before the source row and its generation rows disappear. A lexical\n-- generation has no vector row, so its code columns are null.\n--\n-- $1 group_id, $2 repository_key.\nSELECT\n    g.generation_key,\n    g.status,\n    g.cleanup_pending,\n    v.fingerprint AS \"fingerprint?\",\n    v.endpoint_identity AS \"endpoint_identity?\",\n    v.dimensions AS \"dimensions?\",\n    v.collection_name AS \"collection_name?\",\n    v.point_count AS \"point_count?\",\n    v.created_at AS \"created_at?\"\nFROM context69.git_repository_generations g\nJOIN context69.git_repository_sources s\n    ON s.repository_key = g.repository_key\nLEFT JOIN context69.git_generation_code_vectors v\n    ON v.generation_key = g.generation_key\nWHERE s.group_id = $1\n  AND g.repository_key = $2\nORDER BY g.generation_number DESC\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "cleanup_pending",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "cleanup_pending"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "fingerprint?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "endpoint_identity?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "endpoint_identity"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "dimensions?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "collection_name?",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "point_count?",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "point_count"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at?",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_code_vectors",
+            "name": "created_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "0e6ddc755c55cdf479d77f40e283e0ef64f4632a2d2b7968bcb10db586c8de4d"
+}

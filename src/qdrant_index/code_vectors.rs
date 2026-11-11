@@ -9,12 +9,12 @@
 use anyhow::{Result, anyhow};
 use qdrant_client::{
     Payload,
-    qdrant::{Condition, Filter, PointStruct},
+    qdrant::{Condition, Filter, GetPointsBuilder, PointId, PointStruct},
 };
 use serde_json::json;
 use uuid::Uuid;
 
-use super::{QdrantIndex, SearchPointHit};
+use super::{QDRANT_OPERATION_TIMEOUT, QdrantIndex, SearchPointHit, point_id_to_uuid};
 
 /// Prefix of the physical collection one code destination owns.
 pub(crate) const CODE_COLLECTION_PREFIX: &str = "context69_code_v1_";
@@ -144,6 +144,63 @@ impl QdrantIndex {
         }
         let built = build_code_points(points, self.dimensions)?;
         self.upsert_points_insert_only(built, points.len()).await
+    }
+
+    /// Reads the stored vectors of the requested chunk ids, skipping ids the
+    /// collection no longer holds.
+    ///
+    /// Only the exact point ids are requested, so a copy pass never scans or
+    /// filters the collection. A vector whose dimension does not match this
+    /// destination is omitted rather than copied into the new generation.
+    pub(crate) async fn retrieve_code_vectors(
+        &self,
+        point_ids: &[Uuid],
+    ) -> Result<Vec<(Uuid, Vec<f32>)>> {
+        if self.is_noop() || point_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let collection = self.collection_name.clone();
+        let extra = format!("point_count={}", point_ids.len());
+        let request = GetPointsBuilder::new(
+            &self.collection_name,
+            point_ids
+                .iter()
+                .map(|id| PointId::from(id.to_string()))
+                .collect::<Vec<_>>(),
+        )
+        .with_vectors(true)
+        .build();
+        let response =
+            tokio::time::timeout(QDRANT_OPERATION_TIMEOUT, self.client.get_points(request))
+                .await
+                .map_err(|_| anyhow!("qdrant get_points timed out for {collection} ({extra})"))?
+                .map_err(|error| {
+                    anyhow!("qdrant get_points failed for {collection} ({extra}): {error}")
+                })?;
+
+        let mut vectors = Vec::new();
+        for point in response.result {
+            let Some(point_id) = point.id else {
+                continue;
+            };
+            let chunk_key = point_id_to_uuid(point_id)?;
+            let Some(vectors_output) = point.vectors else {
+                continue;
+            };
+            let Some(qdrant_client::qdrant::vectors_output::VectorsOptions::Vector(output)) =
+                vectors_output.vectors_options
+            else {
+                continue;
+            };
+            let Some(qdrant_client::qdrant::vector_output::Vector::Dense(dense)) = output.vector
+            else {
+                continue;
+            };
+            if dense.data.len() == self.dimensions {
+                vectors.push((chunk_key, dense.data));
+            }
+        }
+        Ok(vectors)
     }
 }
 

@@ -16,8 +16,7 @@ use crate::contracts::{
     GroupKind, MembershipRole, Visibility,
     sources::{
         GitCodeLexicalHit, GitCodeMatchKind, GitCodeSearchQuery, GitCommitCheckpoint,
-        GitGenerationStatus, GitIndexProfile, GitIndexStatus, GitProviderKind, GitRefreshPolicy,
-        GitVersionPolicy,
+        GitGenerationStatus, GitIndexProfile, GitIndexStatus, GitProviderKind, GitVersionPolicy,
     },
 };
 use crate::db::{
@@ -81,9 +80,25 @@ pub(super) fn source() -> StoredGitRepositorySource {
             ref_name: "refs/heads/main".to_string(),
             commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
         },
-        refresh: GitRefreshPolicy::Webhook,
+        include_patterns: Vec::new(),
+        exclude_patterns: Vec::new(),
+        interval_seconds: None,
+        webhook_enabled: false,
+        enabled: true,
+        retention_count: 2,
+        created_by_user_id: None,
+        config_revision: 0,
+        refresh_dirty: false,
+        refresh_requested_at: None,
+        last_refresh_attempt_at: None,
+        force_rebuild_requested_at: None,
+        deletion_requested_at: None,
+        last_skip_summary: Default::default(),
+        indexed_pipeline_version: 0,
+        indexed_config_fingerprint: String::new(),
         index_profile: GitIndexProfile::Lexical,
         index_status: GitIndexStatus::Ready,
+        last_error_code: None,
         checkpoint: GitCommitCheckpoint {
             target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
             indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
@@ -204,6 +219,9 @@ pub(super) async fn index_with_code(fixture: &Fixture) -> Uuid {
                 target_commit_sha: Some(INDEXED_COMMIT.to_string()),
                 indexed_commit_sha: Some(INDEXED_COMMIT.to_string()),
                 index_status: GitIndexStatus::Ready,
+                pipeline_version: None,
+                config_fingerprint: None,
+                skip_summary: None,
             },
         )
         .await

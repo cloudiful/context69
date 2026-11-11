@@ -91,6 +91,9 @@ sqlx = "0.9.0"
 tiktoken-rs = "0.12.0"
 time = "0.3.55"
 tokenizers = { version = "0.22.1", default-features = false, features = ["fancy-regex"] }
+tree-sitter = "0.27.2"
+tree-sitter-rust = "0.24.2"
+tree-sitter-typescript = "0.23.2"
 tokio = "1.53.1"
 tokio-util = "0.7"
 toml = "1.1.6"
@@ -168,6 +171,9 @@ sha2.workspace = true
 sqlx = { workspace = true, features = ["chrono", "json", "macros", "migrate", "postgres", "runtime-tokio", "sqlx-toml", "tls-rustls", "uuid"] }
 tiktoken-rs.workspace = true
 tokenizers.workspace = true
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-typescript.workspace = true
 tokio = { workspace = true, features = [ "macros", "net", "rt-multi-thread", "signal", "sync", "time" ] }
 tokio-util.workspace = true
 time.workspace = true

@@ -117,6 +117,9 @@ async fn index_with_chunks(fixture: &Fixture) -> Uuid {
                 target_commit_sha: Some(INDEXED_COMMIT.to_string()),
                 indexed_commit_sha: Some(INDEXED_COMMIT.to_string()),
                 index_status: GitIndexStatus::Ready,
+                pipeline_version: None,
+                config_fingerprint: None,
+                skip_summary: None,
             },
         )
         .await

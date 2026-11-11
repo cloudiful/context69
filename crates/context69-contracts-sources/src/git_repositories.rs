@@ -25,6 +25,20 @@ impl GitProviderKind {
             Self::Generic => "generic",
         }
     }
+
+    /// Whether repository acquisition is implemented for this provider.
+    ///
+    /// A provider without an implementation is rejected at registration instead
+    /// of being stored and only failing later in a worker.
+    pub fn supports_acquisition(self) -> bool {
+        matches!(self, Self::GitHub | Self::Forgejo)
+    }
+
+    /// Whether this provider can only acquire through an origin-bearing
+    /// connection, so the canonical URL origin is verifiable.
+    pub fn requires_connection(self) -> bool {
+        matches!(self, Self::Forgejo)
+    }
 }
 
 /// How a Git provider connection authenticates.
@@ -55,25 +69,6 @@ pub struct GitVersionPolicy {
     pub ref_name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub commit_sha: Option<String>,
-}
-
-/// Refresh policy for a tracked Git source.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum GitRefreshPolicy {
-    Manual,
-    Webhook,
-    Reconcile,
-}
-
-impl GitRefreshPolicy {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Manual => "manual",
-            Self::Webhook => "webhook",
-            Self::Reconcile => "reconcile",
-        }
-    }
 }
 
 /// Independent index profile for a Git source.
@@ -163,6 +158,50 @@ pub struct GitCommitCheckpoint {
     pub checkpoint_updated_at: Option<DateTime<Utc>>,
 }
 
+/// Skip counts of the last completed index, one bucket per selection reason.
+///
+/// The buckets are cumulative coverage accounting, never per-file detail, so a
+/// reader can see why a snapshot is smaller than the repository without the
+/// summary carrying paths or content.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema,
+)]
+pub struct GitRepositorySkipSummary {
+    #[serde(default)]
+    pub excluded_directory: i64,
+    #[serde(default)]
+    pub binary: i64,
+    #[serde(default)]
+    pub minified: i64,
+    #[serde(default)]
+    pub source_map: i64,
+    #[serde(default)]
+    pub lockfile: i64,
+    #[serde(default)]
+    pub secret: i64,
+    #[serde(default)]
+    pub too_large: i64,
+    #[serde(default)]
+    pub excluded_by_user: i64,
+    #[serde(default)]
+    pub not_included: i64,
+}
+
+impl GitRepositorySkipSummary {
+    /// Total skipped entries across every reason.
+    pub fn total(self) -> i64 {
+        self.excluded_directory
+            .saturating_add(self.binary)
+            .saturating_add(self.minified)
+            .saturating_add(self.source_map)
+            .saturating_add(self.lockfile)
+            .saturating_add(self.secret)
+            .saturating_add(self.too_large)
+            .saturating_add(self.excluded_by_user)
+            .saturating_add(self.not_included)
+    }
+}
+
 /// A registered Git repository source with its owning group, identity,
 /// policies, and checkpoint.
 ///
@@ -186,15 +225,59 @@ pub struct GitRepositorySource {
     pub name: String,
     pub default_branch: String,
     pub version: GitVersionPolicy,
-    pub refresh: GitRefreshPolicy,
+    /// Additional repository-relative glob patterns admitted beyond the
+    /// bounded default source/docs/manifest allowlist.
+    #[serde(default)]
+    pub include_patterns: Vec<String>,
+    /// Glob patterns excluded even when the default allowlist or an include
+    /// matches. Safety exclusions cannot be re-enabled either way.
+    #[serde(default)]
+    pub exclude_patterns: Vec<String>,
+    /// Optional independent periodic refresh interval, in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval_seconds: Option<i64>,
+    /// Whether authenticated provider push events refresh this source.
+    #[serde(default)]
+    pub webhook_enabled: bool,
+    /// Whether this source accepts index work.
+    #[serde(default = "default_source_enabled")]
+    pub enabled: bool,
+    /// Total successful snapshots to retain, including the active generation.
+    #[serde(default = "default_retention_count")]
+    pub retention_count: i64,
+    /// A refresh request is pending for this source.
+    #[serde(default)]
+    pub refresh_pending: bool,
+    /// When the latest refresh attempt was admitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_refresh_attempt_at: Option<DateTime<Utc>>,
+    /// A delete request is waiting for vector cleanup to finish.
+    #[serde(default)]
+    pub deletion_pending: bool,
+    /// Skip counts of the last completed index.
+    #[serde(default)]
+    pub last_skip_summary: GitRepositorySkipSummary,
     pub index_profile: GitIndexProfile,
     pub index_status: GitIndexStatus,
+    /// Stable code of the last terminal index failure, when the last attempt
+    /// failed. It is a bounded classification, never a provider or secret-bearing
+    /// message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_error_code: Option<String>,
     pub checkpoint: GitCommitCheckpoint,
     /// Generation currently activated for this repository, when one is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub active_generation_key: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+fn default_source_enabled() -> bool {
+    true
+}
+
+fn default_retention_count() -> i64 {
+    2
 }
 
 /// Provider connection metadata owned by one group.

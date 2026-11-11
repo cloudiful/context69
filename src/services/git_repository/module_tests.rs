@@ -8,7 +8,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 
 use super::github_client::{GitHubAcquirer, RepositoryAcquirer};
-use super::github_transport::{GitHttpTransport, TransportResponse};
+use super::http::{GitHttpTransport, TransportResponse};
 use super::model::GitAcquisitionLimits;
 use super::ref_path_safety::SafeRef;
 use bytes::Bytes;

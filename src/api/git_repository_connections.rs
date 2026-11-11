@@ -6,7 +6,9 @@
 //! already-registered repository source. They never create, configure, enable,
 //! or disable a connection, never read the secret store, never call a provider,
 //! and never submit an index task — attaching a connection records metadata
-//! only, so the credential-free public acquisition path is unchanged.
+//! only. The attach also verifies that the connection provider and origin can
+//! serve the repository URL, so a credential can never be pointed at a foreign
+//! host.
 //!
 //! The request body carries one non-secret key that must already exist in the
 //! calling group. Group ownership of both the repository and the connection is
@@ -24,7 +26,7 @@ use uuid::Uuid;
 use crate::{
     contracts::{
         MembershipRole,
-        sources::{GitRepositoryConnectionRequest, GitRepositorySource},
+        sources::{GitConnectionMode, GitRepositoryConnectionRequest, GitRepositorySource},
     },
     db::{NewGitRepositorySource, StoredGitProviderConnection, StoredGitRepositorySource},
     domain::GroupRecord,
@@ -51,7 +53,7 @@ use super::{
         (status = 400, description = "Invalid connection key", body = crate::contracts::ApiErrorResponse),
         (status = 403, description = "Insufficient permissions"),
         (status = 404, description = "Group, repository, or connection not found"),
-        (status = 409, description = "Connection is disabled or built for another provider", body = crate::contracts::ApiErrorResponse)
+        (status = 409, description = "Connection is disabled, built for another provider, or does not serve the repository origin", body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn set_git_repository_connection(
@@ -165,9 +167,11 @@ async fn owned_connection(
 
 /// Refuses a connection that cannot serve this repository.
 ///
-/// A disabled connection is a lifecycle state the caller must resolve first, and
-/// a provider mismatch would point the repository at the wrong provider, so both
-/// are conflicts instead of silently stored metadata.
+/// A disabled connection is a lifecycle state the caller must resolve first, a
+/// provider mismatch would point the repository at the wrong provider, and a
+/// connection whose stored origin does not serve the repository URL could only
+/// send its credential to a foreign host, so all three are conflicts instead of
+/// silently stored metadata.
 fn check_attachable(
     connection: &StoredGitProviderConnection,
     source: &StoredGitRepositorySource,
@@ -178,6 +182,18 @@ fn check_attachable(
     if connection.provider != source.provider {
         return Err(DomainError::conflict("git_connection_provider_mismatch"));
     }
+    if connection.mode == GitConnectionMode::Installation {
+        return Err(DomainError::conflict("git_connection_mode_unsupported"));
+    }
+    if connection.mode == GitConnectionMode::Token && connection.credential_secret_key.is_none() {
+        return Err(DomainError::conflict("git_connection_credential_missing"));
+    }
+    crate::services::git_repository::provider_url::validate_connection_origin(
+        connection.provider,
+        &connection.base_url,
+        &source.canonical_url,
+    )
+    .map_err(|_| DomainError::conflict("git_connection_origin_mismatch"))?;
     Ok(())
 }
 
@@ -199,9 +215,15 @@ fn connection_update(
         name: source.name.clone(),
         default_branch: source.default_branch.clone(),
         target_ref: source.version.ref_name.clone(),
-        target_commit_sha: source.version.commit_sha.clone(),
+        pinned_commit_sha: source.version.commit_sha.clone(),
         index_profile: source.index_profile,
-        refresh_policy: source.refresh,
+        include_patterns: source.include_patterns.clone(),
+        exclude_patterns: source.exclude_patterns.clone(),
+        interval_seconds: source.interval_seconds,
+        webhook_enabled: source.webhook_enabled,
+        enabled: source.enabled,
+        retention_count: source.retention_count,
+        created_by_user_id: source.created_by_user_id,
     }
 }
 
@@ -213,6 +235,14 @@ async fn store_connection(
     source: &StoredGitRepositorySource,
     connection_key: Option<String>,
 ) -> Response {
+    // A provider whose canonical URL is only verifiable against a connection
+    // cannot be left without one, so a detach is refused instead of storing an
+    // unusable source that would only fail in a worker.
+    if connection_key.is_none() && source.provider.requires_connection() {
+        return library_management_error_response(
+            DomainError::conflict("git_connection_required").into(),
+        );
+    }
     let update = connection_update(source, connection_key);
     match state
         .app

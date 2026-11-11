@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Sources with a pending delete whose work can be retried.\n--\n-- A source is excluded while a `git_index` task is still active, so cleanup\n-- never races a writer. Only due retries are eligible, ordered by earliest due\n-- time then the fewest attempts, so a bounded pass cannot keep selecting the\n-- same permanently failing sources while a later recoverable deletion waits.\n--\n-- $1 result limit.\nSELECT\n    s.group_id,\n    s.repository_key\nFROM context69.git_repository_sources s\nWHERE s.deletion_requested_at IS NOT NULL\n  AND (s.deletion_next_retry_at IS NULL OR s.deletion_next_retry_at <= now())\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.tasks t\n      JOIN context69.task_items i ON i.task_id = t.id\n      WHERE t.kind = 'git_index'\n        AND t.status IN ('queued', 'running', 'waiting')\n        AND i.payload ->> 'repository_key' = s.repository_key::text\n  )\nORDER BY\n    COALESCE(s.deletion_next_retry_at, to_timestamp(0)),\n    s.deletion_attempts,\n    s.deletion_requested_at ASC,\n    s.repository_key\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "60e96d3abc4aecfdc21d0ecbf40cbd2cee1951492f0151375c050d48de165699"
+}

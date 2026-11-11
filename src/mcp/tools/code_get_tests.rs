@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use super::{checked_get_args, get, window_page};
 use crate::contracts::McpGetCodeRequest;
-use crate::contracts::sources::{GitIndexProfile, GitProviderKind, GitRefreshPolicy};
+use crate::contracts::sources::{GitIndexProfile, GitProviderKind};
 use crate::contracts::{
     MCP_CODE_GET_CHUNK_LIMIT_DEFAULT, MCP_CODE_GET_CHUNK_LIMIT_MAX, McpGetCodeResponse,
 };
@@ -205,9 +205,15 @@ async fn db_seed(db: &Database) -> (i64, Uuid) {
                 name: nonce.to_string(),
                 default_branch: "main".to_string(),
                 target_ref: "refs/heads/main".to_string(),
-                target_commit_sha: Some("a".repeat(40)),
+                pinned_commit_sha: Some("a".repeat(40)),
                 index_profile: GitIndexProfile::Lexical,
-                refresh_policy: GitRefreshPolicy::Manual,
+                include_patterns: Vec::new(),
+                exclude_patterns: Vec::new(),
+                interval_seconds: None,
+                webhook_enabled: false,
+                enabled: true,
+                retention_count: 2,
+                created_by_user_id: None,
             },
         )
         .await

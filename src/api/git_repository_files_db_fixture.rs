@@ -15,8 +15,7 @@ use crate::{
     contracts::{
         CursorPageQuery,
         sources::{
-            GitIndexProfile, GitIndexStatus, GitProviderKind, GitRefreshPolicy,
-            GitRepositoryFileListResponse,
+            GitIndexProfile, GitIndexStatus, GitProviderKind, GitRepositoryFileListResponse,
         },
     },
     db::{
@@ -142,6 +141,9 @@ impl Fixture {
                     target_commit_sha: Some(TARGET_COMMIT.to_string()),
                     indexed_commit_sha: Some(INDEXED_COMMIT.to_string()),
                     index_status: GitIndexStatus::Ready,
+                    pipeline_version: None,
+                    config_fingerprint: None,
+                    skip_summary: None,
                 },
             )
             .await
@@ -268,9 +270,15 @@ async fn seed_repository(db: &Database, group_id: i64) -> Uuid {
             name: nonce.to_string(),
             default_branch: "main".to_string(),
             target_ref: "refs/heads/main".to_string(),
-            target_commit_sha: Some(TARGET_COMMIT.to_string()),
+            pinned_commit_sha: Some(TARGET_COMMIT.to_string()),
             index_profile: GitIndexProfile::Lexical,
-            refresh_policy: GitRefreshPolicy::Manual,
+            include_patterns: Vec::new(),
+            exclude_patterns: Vec::new(),
+            interval_seconds: None,
+            webhook_enabled: false,
+            enabled: true,
+            retention_count: 2,
+            created_by_user_id: None,
         },
     )
     .await

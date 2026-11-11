@@ -16,7 +16,7 @@ use crate::{
         GroupKind, MembershipRole, Visibility,
         sources::{
             GitCommitCheckpoint, GitGenerationStatus, GitIndexProfile, GitIndexStatus,
-            GitProviderKind, GitRefreshPolicy, GitVersionPolicy,
+            GitProviderKind, GitVersionPolicy,
         },
     },
     db::{
@@ -26,10 +26,9 @@ use crate::{
     domain::GroupRecord,
 };
 
+use super::super::git_read_access::{found_manifest_file, invalid_repository_path};
 use super::super::git_repository_files::{repository_not_found, require_manifest_read};
-use super::{
-    content_page, decode_cursor, file_content, found_content_entry, invalid_repository_path,
-};
+use super::{content_page, decode_cursor, file_content};
 
 pub(super) fn generation_key() -> Uuid {
     Uuid::parse_str("018f9f40-2222-7000-8000-0000000000c2").expect("uuid")
@@ -83,9 +82,25 @@ fn source() -> StoredGitRepositorySource {
             ref_name: "refs/heads/main".to_string(),
             commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
         },
-        refresh: GitRefreshPolicy::Webhook,
+        include_patterns: Vec::new(),
+        exclude_patterns: Vec::new(),
+        interval_seconds: None,
+        webhook_enabled: false,
+        enabled: true,
+        retention_count: 2,
+        created_by_user_id: None,
+        config_revision: 0,
+        refresh_dirty: false,
+        refresh_requested_at: None,
+        last_refresh_attempt_at: None,
+        force_rebuild_requested_at: None,
+        deletion_requested_at: None,
+        last_skip_summary: Default::default(),
+        indexed_pipeline_version: 0,
+        indexed_config_fingerprint: String::new(),
         index_profile: GitIndexProfile::Lexical,
         index_status: GitIndexStatus::Stale,
+        last_error_code: None,
         checkpoint: GitCommitCheckpoint {
             target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
             indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
@@ -268,7 +283,7 @@ async fn the_lookup_result_mapping_answers_absent_paths_exactly_as_an_unknown_re
         "the shared shape carries the bounded message: {unknown_body}"
     );
 
-    let absent = *found_content_entry(None).expect_err("an absent path is not an entry");
+    let absent = *found_manifest_file(None).expect_err("an absent path is not an entry");
     assert_eq!(
         absent.status(),
         unknown_status,
@@ -282,7 +297,7 @@ async fn the_lookup_result_mapping_answers_absent_paths_exactly_as_an_unknown_re
 
     // A stored row passes through untouched, so the mapping can neither swallow
     // nor rewrite the entry the window and the response are built from.
-    let found = found_content_entry(Some(file())).expect("a stored row is the entry itself");
+    let found = found_manifest_file(Some(file())).expect("a stored row is the entry itself");
     assert_eq!(found, file(), "the resolved entry is returned unchanged");
 }
 

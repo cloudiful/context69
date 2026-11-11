@@ -17,16 +17,19 @@ use context69_contracts_core::pagination::{CursorPageQuery, CursorPagination};
 use context69_contracts_sources::GIT_REPOSITORY_FILE_PATH_MAX_CHARS;
 use context69_contracts_sources::{
     GIT_CONNECTION_BASE_URL_MAX_CHARS, GIT_CONNECTION_DISPLAY_NAME_MAX_CHARS,
-    GIT_CONNECTION_KEY_MAX_CHARS, GIT_WEBHOOK_HOOK_ID_MAX_CHARS, GitActiveGeneration,
-    GitCommitCheckpoint, GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
+    GIT_CONNECTION_KEY_MAX_CHARS, GIT_REFRESH_INTERVAL_MAX_SECONDS,
+    GIT_REFRESH_INTERVAL_MIN_SECONDS, GIT_RETENTION_DEFAULT, GIT_RETENTION_MAX, GIT_RETENTION_MIN,
+    GIT_WEBHOOK_HOOK_ID_MAX_CHARS, GitActiveGeneration, GitCommitCheckpoint,
+    GitConnectionKeyRejection, GitConnectionMode, GitConnectionReadiness,
     GitConnectionReadinessResponse, GitConnectionRequestRejection, GitGenerationStatus,
-    GitIndexProfile, GitIndexStatus, GitProviderConnection, GitProviderConnectionRequest,
-    GitProviderKind, GitReadCredentialPatch, GitRefreshPolicy, GitRepositoryConnectionRequest,
-    GitRepositoryFile, GitRepositoryFileDetailResponse, GitRepositoryFileListResponse,
-    GitRepositoryFileQuery, GitRepositoryGeneration, GitRepositoryRegistrationRequest,
-    GitRepositorySource, GitVersionPolicy, GitWebhookDelivery, GitWebhookDeliveryStatus,
-    GitWebhookOwnership, GitWebhookRegistration, GitWebhookRegistrationRejection,
-    GitWebhookRegistrationRequest, validate_git_connection_key,
+    GitIndexProfile, GitIndexRequest, GitIndexStatus, GitPinnedCommitPatch, GitProviderConnection,
+    GitProviderConnectionRequest, GitProviderKind, GitReadCredentialPatch,
+    GitRepositoryConnectionRequest, GitRepositoryFile, GitRepositoryFileDetailResponse,
+    GitRepositoryFileListResponse, GitRepositoryFileQuery, GitRepositoryGeneration,
+    GitRepositoryRegistrationRequest, GitRepositorySettingsRejection, GitRepositorySettingsRequest,
+    GitRepositorySettingsUpdateRequest, GitRepositorySource, GitVersionPolicy, GitWebhookDelivery,
+    GitWebhookDeliveryStatus, GitWebhookOwnership, GitWebhookRegistration,
+    GitWebhookRegistrationRejection, GitWebhookRegistrationRequest, validate_git_connection_key,
 };
 use schemars::schema_for;
 use serde_json::{from_value, json, to_value};
@@ -59,9 +62,19 @@ fn sample_source() -> GitRepositorySource {
             ref_name: "main".to_string(),
             commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
         },
-        refresh: GitRefreshPolicy::Webhook,
+        include_patterns: Vec::new(),
+        exclude_patterns: Vec::new(),
+        interval_seconds: None,
+        webhook_enabled: false,
+        enabled: true,
+        retention_count: 2,
+        refresh_pending: false,
+        last_refresh_attempt_at: None,
+        deletion_pending: false,
+        last_skip_summary: Default::default(),
         index_profile: GitIndexProfile::Hybrid,
         index_status: GitIndexStatus::Ready,
+        last_error_code: None,
         checkpoint: GitCommitCheckpoint {
             target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
             indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
@@ -96,15 +109,6 @@ fn git_enum_wire_names_are_stable() {
         ])
         .expect("serialize connection modes"),
         json!(["public", "installation", "token"])
-    );
-    assert_eq!(
-        to_value([
-            GitRefreshPolicy::Manual,
-            GitRefreshPolicy::Webhook,
-            GitRefreshPolicy::Reconcile,
-        ])
-        .expect("serialize refresh policies"),
-        json!(["manual", "webhook", "reconcile"])
     );
     assert_eq!(
         to_value([
@@ -161,11 +165,10 @@ fn git_enum_wire_names_are_stable() {
 }
 
 #[test]
-fn repository_source_round_trips_identity_policies_and_checkpoint() {
+fn repository_source_round_trips_identity_profile_and_checkpoint() {
     let source = sample_source();
     let encoded = to_value(&source).expect("serialize source");
     assert_eq!(encoded["provider"], json!("github"));
-    assert_eq!(encoded["refresh"], json!("webhook"));
     assert_eq!(encoded["index_profile"], json!("hybrid"));
     assert_eq!(encoded["group_key"], json!("team-platform"));
     assert_eq!(encoded["group_path"], json!("acme/team-platform"));
@@ -197,7 +200,6 @@ fn repository_source_tolerates_absent_optional_fields() {
         "name": "repo",
         "default_branch": "main",
         "version": { "ref_name": "main" },
-        "refresh": "reconcile",
         "index_profile": "lexical",
         "index_status": "pending",
         "checkpoint": {},
@@ -735,7 +737,6 @@ fn migration_defines_git_tables_and_columns() {
             "target_commit_sha",
             "indexed_commit_sha",
             "index_profile",
-            "refresh_policy",
             "index_status",
             "last_indexed_at",
             "checkpoint_updated_at",
@@ -925,42 +926,49 @@ fn generation_contract_tolerates_absent_optional_fields() {
 #[test]
 fn registration_request_defaults_policies_without_optional_fields() {
     let request: GitRepositoryRegistrationRequest = from_value(json!({
+        "provider": "github",
         "canonical_url": "https://github.com/cloudiful/context69",
         "default_branch": "main",
         "target_ref": "refs/heads/main"
     }))
     .expect("minimal registration request");
 
+    assert_eq!(request.provider, GitProviderKind::GitHub);
     assert_eq!(request.index_profile, GitIndexProfile::Lexical);
-    assert_eq!(request.refresh_policy, GitRefreshPolicy::Manual);
     assert_eq!(request.pinned_commit, None);
+    assert_eq!(request.connection_key, None);
 }
 
 #[test]
-fn registration_request_round_trips_pin_and_policies_without_secret_fields() {
+fn registration_request_round_trips_pin_and_profile_without_secret_fields() {
     let request = GitRepositoryRegistrationRequest {
-        canonical_url: "https://github.com/cloudiful/context69".to_string(),
+        provider: GitProviderKind::Forgejo,
+        canonical_url: "https://forgejo.example/cloudiful/context69".to_string(),
         default_branch: "main".to_string(),
         target_ref: "refs/tags/v1.2.3".to_string(),
         pinned_commit: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+        connection_key: Some("forgejo-main".to_string()),
         index_profile: GitIndexProfile::Hybrid,
-        refresh_policy: GitRefreshPolicy::Webhook,
+        settings: Default::default(),
     };
     let encoded = to_value(&request).expect("serialize request");
     assert_eq!(encoded["index_profile"], json!("hybrid"));
-    assert_eq!(encoded["refresh_policy"], json!("webhook"));
     assert_eq!(
         encoded["pinned_commit"],
         json!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
     );
 
-    // Registration carries no credential or provider-connection material.
+    // Registration names a provider and may reference a connection, but it
+    // carries no credential value or secret-store material.
+    assert_eq!(encoded["provider"], json!("forgejo"));
+    assert_eq!(encoded["connection_key"], json!("forgejo-main"));
     let object = encoded.as_object().expect("request object");
     for forbidden in [
-        "connection_key",
+        "credential",
         "credential_secret_key",
         "webhook_secret_key",
         "access_token",
+        "read_credential",
     ] {
         assert!(
             !object.contains_key(forbidden),
@@ -976,17 +984,19 @@ fn registration_request_round_trips_pin_and_policies_without_secret_fields() {
 #[test]
 fn registration_request_omits_absent_optional_pin() {
     let request = GitRepositoryRegistrationRequest {
+        provider: GitProviderKind::GitHub,
         canonical_url: "https://github.com/cloudiful/context69".to_string(),
         default_branch: "main".to_string(),
         target_ref: "HEAD".to_string(),
         pinned_commit: None,
+        connection_key: None,
         index_profile: GitIndexProfile::Lexical,
-        refresh_policy: GitRefreshPolicy::Manual,
+        settings: Default::default(),
     };
     let encoded = to_value(&request).expect("serialize request");
     assert!(encoded.get("pinned_commit").is_none());
+    assert!(encoded.get("connection_key").is_none());
     assert_eq!(encoded["index_profile"], json!("lexical"));
-    assert_eq!(encoded["refresh_policy"], json!("manual"));
 }
 
 #[test]
@@ -1772,6 +1782,179 @@ fn file_detail_query_declares_one_bounded_path_parameter() {
     assert!(
         from_value::<GitRepositoryFileQuery>(json!({})).is_err(),
         "a missing path cannot silently select a default entry"
+    );
+}
+
+#[test]
+fn source_settings_default_to_bounded_retention() {
+    let settings = GitRepositorySettingsRequest::default();
+    assert!(settings.include_patterns.is_empty());
+    assert!(settings.exclude_patterns.is_empty());
+    assert_eq!(settings.interval_seconds, None);
+    assert!(!settings.webhook_enabled);
+    assert!(settings.enabled);
+    assert_eq!(settings.retention_count, GIT_RETENTION_DEFAULT);
+}
+
+#[test]
+fn source_settings_normalize_patterns_and_accept_the_bounds() {
+    let settings = GitRepositorySettingsRequest {
+        include_patterns: vec![
+            " src/** ".to_string(),
+            "src/**".to_string(),
+            "docs/*.md".to_string(),
+        ],
+        exclude_patterns: vec!["vendor/**".to_string()],
+        interval_seconds: Some(GIT_REFRESH_INTERVAL_MIN_SECONDS),
+        webhook_enabled: true,
+        enabled: false,
+        retention_count: GIT_RETENTION_MAX,
+    };
+    let validated = settings.validated().expect("bounds are inclusive");
+    assert_eq!(validated.include_patterns, vec!["src/**", "docs/*.md"]);
+    assert_eq!(validated.exclude_patterns, vec!["vendor/**"]);
+    assert_eq!(
+        validated.interval_seconds,
+        Some(GIT_REFRESH_INTERVAL_MIN_SECONDS)
+    );
+    assert!(validated.webhook_enabled);
+    assert!(!validated.enabled);
+    assert_eq!(validated.retention_count, GIT_RETENTION_MAX);
+}
+
+#[test]
+fn source_settings_refuse_out_of_range_interval_and_retention() {
+    let below = GitRepositorySettingsRequest {
+        interval_seconds: Some(GIT_REFRESH_INTERVAL_MIN_SECONDS - 1),
+        ..Default::default()
+    };
+    assert_eq!(
+        below.validated(),
+        Err(GitRepositorySettingsRejection::IntervalOutOfRange)
+    );
+    let above = GitRepositorySettingsRequest {
+        interval_seconds: Some(GIT_REFRESH_INTERVAL_MAX_SECONDS + 1),
+        ..Default::default()
+    };
+    assert_eq!(
+        above.validated(),
+        Err(GitRepositorySettingsRejection::IntervalOutOfRange)
+    );
+    let retention_zero = GitRepositorySettingsRequest {
+        retention_count: GIT_RETENTION_MIN - 1,
+        ..Default::default()
+    };
+    assert_eq!(
+        retention_zero.validated(),
+        Err(GitRepositorySettingsRejection::RetentionOutOfRange)
+    );
+    let retention_high = GitRepositorySettingsRequest {
+        retention_count: GIT_RETENTION_MAX + 1,
+        ..Default::default()
+    };
+    assert_eq!(
+        retention_high.validated(),
+        Err(GitRepositorySettingsRejection::RetentionOutOfRange)
+    );
+}
+
+#[test]
+fn settings_update_validates_shared_fields_and_keeps_editable_identity() {
+    let request = GitRepositorySettingsUpdateRequest {
+        target_ref: Some("refs/tags/v2.0.0".to_string()),
+        pinned_commit: GitPinnedCommitPatch::Set(
+            "0123456789abcdef0123456789abcdef01234567".to_string(),
+        ),
+        index_profile: Some(GitIndexProfile::Hybrid),
+        include_patterns: vec![" src/** ".to_string(), "src/**".to_string()],
+        exclude_patterns: vec!["vendor/**".to_string()],
+        interval_seconds: Some(GIT_REFRESH_INTERVAL_MIN_SECONDS),
+        webhook_enabled: true,
+        enabled: false,
+        retention_count: GIT_RETENTION_MAX,
+    };
+    let validated = request.validated().expect("bounded settings");
+    assert_eq!(validated.target_ref.as_deref(), Some("refs/tags/v2.0.0"));
+    assert_eq!(validated.include_patterns, vec!["src/**"]);
+    assert_eq!(validated.exclude_patterns, vec!["vendor/**"]);
+    assert_eq!(validated.index_profile, Some(GitIndexProfile::Hybrid));
+    assert_eq!(
+        validated.pinned_commit,
+        GitPinnedCommitPatch::Set("0123456789abcdef0123456789abcdef01234567".to_string())
+    );
+
+    let out_of_range = GitRepositorySettingsUpdateRequest {
+        interval_seconds: Some(GIT_REFRESH_INTERVAL_MIN_SECONDS - 1),
+        ..Default::default()
+    };
+    assert_eq!(
+        out_of_range.validated(),
+        Err(GitRepositorySettingsRejection::IntervalOutOfRange)
+    );
+}
+
+#[test]
+fn pinned_commit_patch_wire_shape_is_explicit() {
+    assert_eq!(
+        to_value(GitPinnedCommitPatch::Keep).expect("keep"),
+        json!({ "op": "keep" })
+    );
+    assert_eq!(
+        to_value(GitPinnedCommitPatch::Clear).expect("clear"),
+        json!({ "op": "clear" })
+    );
+    assert_eq!(
+        to_value(GitPinnedCommitPatch::Set(
+            "0123456789abcdef0123456789abcdef01234567".to_string()
+        ))
+        .expect("set"),
+        json!({
+            "op": "set",
+            "value": "0123456789abcdef0123456789abcdef01234567"
+        })
+    );
+    let decoded: GitRepositorySettingsUpdateRequest = from_value(json!({
+        "pinned_commit": { "op": "clear" }
+    }))
+    .expect("decode explicit clear");
+    assert_eq!(decoded.pinned_commit, GitPinnedCommitPatch::Clear);
+    let omitted: GitRepositorySettingsUpdateRequest =
+        from_value(json!({})).expect("decode empty patch");
+    assert_eq!(omitted.pinned_commit, GitPinnedCommitPatch::Keep);
+}
+
+#[test]
+fn git_index_request_defaults_the_force_flag_to_false() {
+    assert_eq!(
+        from_value::<GitIndexRequest>(json!({})).expect("empty body"),
+        GitIndexRequest::default()
+    );
+    assert!(!GitIndexRequest::default().force_rebuild);
+    assert!(
+        from_value::<GitIndexRequest>(json!({"force_rebuild": true}))
+            .expect("forced body")
+            .force_rebuild
+    );
+    assert!(
+        from_value::<GitIndexRequest>(json!({"force_rebuild": "yes"})).is_err(),
+        "a malformed force flag is rejected"
+    );
+}
+
+#[test]
+fn source_response_exposes_only_an_optional_stable_error_code() {
+    let mut source = sample_source();
+    let encoded = to_value(&source).expect("serialize source");
+    assert!(
+        encoded.get("last_error_code").is_none(),
+        "a source without a terminal failure carries no error field"
+    );
+    source.last_error_code = Some("git_index_failed".to_string());
+    let encoded = to_value(&source).expect("serialize failed source");
+    assert_eq!(encoded["last_error_code"], json!("git_index_failed"));
+    assert!(
+        encoded.get("error").is_none() && encoded.get("message").is_none(),
+        "no free-form error detail is exposed"
     );
 }
 

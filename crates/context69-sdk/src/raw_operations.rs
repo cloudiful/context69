@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (150 operations, sorted by `operation_id` for deterministic diffs).
+//! (152 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -261,6 +261,17 @@ pub const OPERATIONS: &[Operation] = &[
         request_schema: "UpsertSourceConnectionRequest",
         response_schema: "SourceConnectionResponse",
         success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "delete_git_repository",
+        method: "DELETE",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "-",
+        success_status: 204,
         idempotent: false,
     },
     Operation {
@@ -741,8 +752,8 @@ pub const OPERATIONS: &[Operation] = &[
         method: "POST",
         path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/index",
         requires_auth: true,
-        body_kind: BodyKind::Empty,
-        request_schema: "-",
+        body_kind: BodyKind::Json,
+        request_schema: "inline-json",
         response_schema: "TaskRef",
         success_status: 202,
         idempotent: true,
@@ -1514,6 +1525,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "UpdateDoclingSettingsRequest",
         response_schema: "DoclingSettingsResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "update_git_repository_settings",
+        method: "PATCH",
+        path_template: "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "GitRepositorySettingsUpdateRequest",
+        response_schema: "GitRepositorySource",
         success_status: 200,
         idempotent: false,
     },

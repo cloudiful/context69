@@ -16,8 +16,7 @@ use crate::{
         Visibility,
         sources::{
             GitCommitCheckpoint, GitConnectionKeyRejection, GitConnectionMode, GitIndexProfile,
-            GitIndexStatus, GitProviderKind, GitRefreshPolicy, GitRepositoryConnectionRequest,
-            GitVersionPolicy,
+            GitIndexStatus, GitProviderKind, GitRepositoryConnectionRequest, GitVersionPolicy,
         },
     },
     db::{
@@ -47,12 +46,12 @@ fn connection(
         group: ownership(),
         connection_key: "github-app".to_string(),
         provider,
-        mode: GitConnectionMode::Installation,
-        display_name: "GitHub App".to_string(),
+        mode: GitConnectionMode::Public,
+        display_name: "GitHub public".to_string(),
         base_url: "https://api.github.com".to_string(),
-        credential_secret_key: Some("internal/secret/read-token".to_string()),
+        credential_secret_key: None,
         webhook_secret_key: Some("internal/secret/hook-signing".to_string()),
-        app_private_key_secret_key: Some("github_app.private_key.g42.app".to_string()),
+        app_private_key_secret_key: None,
         disabled_at,
         created_at: now,
         updated_at: now,
@@ -74,9 +73,25 @@ fn source(provider: GitProviderKind) -> StoredGitRepositorySource {
             ref_name: "refs/heads/main".to_string(),
             commit_sha: Some("a".repeat(40)),
         },
-        refresh: GitRefreshPolicy::Reconcile,
+        include_patterns: Vec::new(),
+        exclude_patterns: Vec::new(),
+        interval_seconds: None,
+        webhook_enabled: false,
+        enabled: true,
+        retention_count: 2,
+        created_by_user_id: None,
+        config_revision: 0,
+        refresh_dirty: false,
+        refresh_requested_at: None,
+        last_refresh_attempt_at: None,
+        force_rebuild_requested_at: None,
+        deletion_requested_at: None,
+        last_skip_summary: Default::default(),
+        indexed_pipeline_version: 0,
+        indexed_config_fingerprint: String::new(),
         index_profile: GitIndexProfile::Hybrid,
         index_status: GitIndexStatus::Ready,
+        last_error_code: None,
         checkpoint: GitCommitCheckpoint {
             target_commit_sha: Some("a".repeat(40)),
             indexed_commit_sha: Some("a".repeat(40)),
@@ -176,23 +191,59 @@ fn attach_refuses_disabled_and_provider_mismatched_connections() {
 }
 
 #[test]
+fn attach_refuses_installation_and_uncredentialed_token_connections() {
+    let github = source(GitProviderKind::GitHub);
+
+    let mut installation = connection(GitProviderKind::GitHub, None);
+    installation.mode = GitConnectionMode::Installation;
+    installation.credential_secret_key = Some("internal/secret/read-token".to_string());
+    assert_eq!(
+        check_attachable(&installation, &github).expect_err("installation is unsupported"),
+        DomainError::conflict("git_connection_mode_unsupported")
+    );
+
+    let mut token = connection(GitProviderKind::GitHub, None);
+    token.mode = GitConnectionMode::Token;
+    assert_eq!(
+        check_attachable(&token, &github).expect_err("token needs a credential"),
+        DomainError::conflict("git_connection_credential_missing")
+    );
+}
+
+#[test]
+fn attach_refuses_a_connection_whose_origin_does_not_serve_the_repository() {
+    let mut forgejo_source = source(GitProviderKind::Forgejo);
+    forgejo_source.canonical_url = "https://forgejo.example/octo/repo".to_string();
+    let mut forgejo = connection(GitProviderKind::Forgejo, None);
+    forgejo.base_url = "https://forgejo.example/api/v1".to_string();
+    assert!(
+        check_attachable(&forgejo, &forgejo_source).is_ok(),
+        "a connection on the repository origin is attachable"
+    );
+    let foreign = connection(GitProviderKind::Forgejo, None);
+    assert_eq!(
+        check_attachable(&foreign, &forgejo_source).expect_err("origin mismatch"),
+        DomainError::conflict("git_connection_origin_mismatch")
+    );
+}
+
+#[test]
 fn connection_update_changes_only_the_connection_reference() {
     let stored = source(GitProviderKind::GitHub);
 
     for connection_key in [Some("github-app".to_string()), None] {
         let update = connection_update(&stored, connection_key.clone());
         assert_eq!(update.connection_key, connection_key);
-        // Identity, version, and both policies come from the stored row, so an
-        // attach or detach can never retarget or re-profile the repository.
+        // Identity, version, and profile come from the stored row, so an attach
+        // or detach can never retarget or re-profile the repository.
         assert_eq!(update.provider, stored.provider);
         assert_eq!(update.canonical_url, stored.canonical_url);
         assert_eq!(update.owner, stored.owner);
         assert_eq!(update.name, stored.name);
         assert_eq!(update.default_branch, stored.default_branch);
         assert_eq!(update.target_ref, stored.version.ref_name);
-        assert_eq!(update.target_commit_sha, stored.version.commit_sha);
+        assert_eq!(update.pinned_commit_sha, stored.version.commit_sha);
         assert_eq!(update.index_profile, stored.index_profile);
-        assert_eq!(update.refresh_policy, stored.refresh);
     }
 }
 

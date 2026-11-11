@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Exclusive ownership coordination for one group move (issue #28 phase P13).\n--\n-- Re-parenting a subtree changes which delete would cascade it. The move takes\n-- the exclusive ownership lock on the moved group and every ancestor of both\n-- its old and new locations, so it serializes with:\n--   * source registration, which holds shared locks on the same keys;\n--   * group deletion, which holds the exclusive lock on the deleting group.\n--\n-- The keys are deduplicated and ordered by id so concurrent moves that overlap\n-- request the shared keys in the same order. No global tree or hierarchy lock\n-- is taken.\n--\n-- $1 moved_group_id, $2 target_parent_group_id (nullable for a root move).\nWITH RECURSIVE old_chain AS (\n    SELECT g.id, g.parent_group_id\n    FROM context69.groups g\n    WHERE g.id = $1::bigint\n\n    UNION ALL\n\n    SELECT parent.id, parent.parent_group_id\n    FROM context69.groups parent\n    JOIN old_chain child ON child.parent_group_id = parent.id\n),\nnew_chain AS (\n    SELECT g.id, g.parent_group_id\n    FROM context69.groups g\n    WHERE g.id = $2::bigint\n\n    UNION ALL\n\n    SELECT parent.id, parent.parent_group_id\n    FROM context69.groups parent\n    JOIN new_chain child ON child.parent_group_id = parent.id\n),\nkeys AS (\n    SELECT id FROM old_chain\n    UNION\n    SELECT id FROM new_chain\n)\nSELECT pg_advisory_xact_lock(\n    hashtextextended('context69.git_group_ownership:' || ordered.id::text, 0)\n)\nFROM (SELECT id FROM keys ORDER BY id) ordered\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_advisory_xact_lock",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "1b54a895c2827b2e3fcc98c02f275eee46c18dd4257314d0ed44bdb003eb36db"
+}

@@ -2335,7 +2335,7 @@
             }
           },
           "400": {
-            "description": "Invalid repository registration",
+            "description": "Invalid repository registration, provider, or connection requirement",
             "content": {
               "application/json": {
                 "schema": {
@@ -2348,10 +2348,10 @@
             "description": "Insufficient permissions"
           },
           "404": {
-            "description": "Group not found"
+            "description": "Group or referenced connection not found"
           },
           "409": {
-            "description": "Idempotency key reuse conflict",
+            "description": "Connection provider, origin, or state conflict, or idempotency key reuse",
             "content": {
               "application/json": {
                 "schema": {
@@ -2395,6 +2395,115 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/GitRepositorySource"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          }
+        }
+      },
+      "delete": {
+        "tags": [],
+        "operationId": "delete_git_repository",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Repository source and its indexed content removed"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group or repository not found"
+          },
+          "409": {
+            "description": "Repository still has active work or cleanup is pending",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [],
+        "operationId": "update_git_repository_settings",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "repository_key",
+            "in": "path",
+            "description": "Git repository source key",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GitRepositorySettingsUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated Git repository source",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GitRepositorySource"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid source settings",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -2579,7 +2688,7 @@
             "description": "Group, repository, or connection not found"
           },
           "409": {
-            "description": "Connection is disabled or built for another provider",
+            "description": "Connection is disabled, built for another provider, or does not serve the repository origin",
             "content": {
               "application/json": {
                 "schema": {
@@ -3031,6 +3140,22 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GitIndexRequest"
+                  }
+                ]
+              }
+            }
+          }
+        },
         "responses": {
           "202": {
             "description": "Git index task accepted",
@@ -3038,6 +3163,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid force flag",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
                 }
               }
             }
@@ -7807,7 +7942,7 @@
         ],
         "responses": {
           "202": {
-            "description": "Delivery recorded"
+            "description": "Delivery accepted"
           },
           "401": {
             "description": "Unknown hook or invalid signature",
@@ -9945,6 +10080,16 @@
           "full_semantic"
         ]
       },
+      "GitIndexRequest": {
+        "type": "object",
+        "description": "Optional body of the group Git index request.\n\nNormal sync keeps the same-target no-op. `force_rebuild` bypasses that\nno-op and incremental reuse so the current target is reconstructed even when\nits commit and pipeline identity are unchanged.",
+        "properties": {
+          "force_rebuild": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
       "GitIndexStatus": {
         "type": "string",
         "description": "Index lifecycle state of a Git source.",
@@ -9956,6 +10101,57 @@
           "failed",
           "disabled"
         ]
+      },
+      "GitPinnedCommitPatch": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "keep"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "value",
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "set"
+                ]
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "op"
+            ],
+            "properties": {
+              "op": {
+                "type": "string",
+                "enum": [
+                  "clear"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "Explicit pinned-commit edit on a source settings update.\n\nThe tri-state form is required because an omitted field means \"keep the\ncurrent pin\" while JSON `null` would be indistinguishable from an absent\nvalue after deserialization. `Clear` removes the pin so the next run\nresolves the tracked ref again."
       },
       "GitProviderConnection": {
         "type": "object",
@@ -10119,15 +10315,6 @@
           }
         ],
         "description": "Tri-state read-credential patch for connection creation.\n\n`Keep` (the default) creates the connection without a read credential,\n`Set` seals the supplied value, and `Clear` is refused on create because a\nrow that does not exist yet has nothing to clear."
-      },
-      "GitRefreshPolicy": {
-        "type": "string",
-        "description": "Refresh policy for a tracked Git source.",
-        "enum": [
-          "manual",
-          "webhook",
-          "reconcile"
-        ]
       },
       "GitRepositoryConnectionRequest": {
         "type": "object",
@@ -10699,40 +10886,202 @@
         }
       },
       "GitRepositoryRegistrationRequest": {
-        "type": "object",
-        "description": "Registration request for one public GitHub repository ref.\n\n`canonical_url` must be exactly `https://github.com/{owner}/{name}` (a\ntrailing slash and a single `.git` suffix are tolerated by the validator).\n`target_ref` is a full ref (`refs/heads/main`, `refs/tags/v1`) or `HEAD`,\nand when it names a branch it must match `default_branch`.",
-        "required": [
-          "canonical_url",
-          "default_branch",
-          "target_ref"
-        ],
-        "properties": {
-          "canonical_url": {
-            "type": "string",
-            "description": "Canonical public GitHub HTTPS repository URL."
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/GitRepositorySettingsRequest",
+            "description": "Independent selection and refresh settings for the source."
           },
-          "default_branch": {
-            "type": "string",
-            "description": "Default branch name of the repository."
+          {
+            "type": "object",
+            "required": [
+              "provider",
+              "canonical_url",
+              "default_branch",
+              "target_ref"
+            ],
+            "properties": {
+              "canonical_url": {
+                "type": "string",
+                "description": "Canonical HTTPS repository URL on the provider origin."
+              },
+              "connection_key": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional existing group-owned connection used for acquisition."
+              },
+              "default_branch": {
+                "type": "string",
+                "description": "Default branch name of the repository."
+              },
+              "index_profile": {
+                "$ref": "#/components/schemas/GitIndexProfile",
+                "description": "Independent index profile; defaults to cheap lexical indexing."
+              },
+              "pinned_commit": {
+                "type": [
+                  "string",
+                  "null"
+                ],
+                "description": "Optional pinned commit SHA the target ref must resolve to."
+              },
+              "provider": {
+                "$ref": "#/components/schemas/GitProviderKind",
+                "description": "Provider family this repository is acquired from."
+              },
+              "target_ref": {
+                "type": "string",
+                "description": "Full target ref to index, or `HEAD`."
+              }
+            }
+          }
+        ],
+        "description": "Registration request for one repository ref on an explicit provider.\n\nA GitHub registration may be public or attach an existing GitHub connection,\nand its `canonical_url` must be exactly `https://github.com/{owner}/{name}`.\nA Forgejo registration must attach a connection whose origin the canonical\n`https://{origin}/{owner}/{name}` URL matches. A trailing slash and a single\n`.git` suffix are tolerated by the validator. `target_ref` is a full ref\n(`refs/heads/main`, `refs/tags/v1`) or `HEAD`, and when it names a branch it\nmust match `default_branch`."
+      },
+      "GitRepositorySettingsRequest": {
+        "type": "object",
+        "description": "Independent, user-editable settings of one repository source.\n\nThe fields are the complete settings surface, so registration and the\nsettings update share one shape: the bounded default allowlist stays in\neffect unless an include adds a path, a user exclude always wins, the\nperiodic interval is optional and independent of the webhook switch, and\nretention is a bounded count.",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this source accepts index work."
+          },
+          "exclude_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Glob patterns excluded even when the default allowlist or an include\nmatches. Safety exclusions cannot be re-enabled.",
+            "maxItems": 128
+          },
+          "include_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional repository-relative glob patterns admitted beyond the\nbounded default source/docs/manifest allowlist.",
+            "maxItems": 128
+          },
+          "interval_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional periodic refresh interval, in whole seconds (300..2592000)."
+          },
+          "retention_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total successful snapshots to retain, including the active one (1..50)."
+          },
+          "webhook_enabled": {
+            "type": "boolean",
+            "description": "Whether authenticated provider push events refresh this source."
+          }
+        },
+        "additionalProperties": false
+      },
+      "GitRepositorySettingsUpdateRequest": {
+        "type": "object",
+        "description": "Editable target, profile, and settings of one registered repository.\n\nRegistration fixes the provider identity and canonical URL. A later patch may\nmove the tracked ref, pin or clear an exact commit, and change the index\nprofile, so those are explicit fields here rather than being fixed forever at\nregistration time. The shared settings fields keep the one bounded validation\nsurface used by registration.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "exclude_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 128
+          },
+          "include_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 128
           },
           "index_profile": {
-            "$ref": "#/components/schemas/GitIndexProfile",
-            "description": "Independent index profile; defaults to cheap lexical indexing."
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/GitIndexProfile",
+                "description": "New index profile; omission keeps the current profile."
+              }
+            ]
+          },
+          "interval_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64"
           },
           "pinned_commit": {
+            "$ref": "#/components/schemas/GitPinnedCommitPatch",
+            "description": "Pin edit; omission keeps the current pin and `clear` removes it."
+          },
+          "retention_count": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "target_ref": {
             "type": [
               "string",
               "null"
             ],
-            "description": "Optional pinned commit SHA the target ref must resolve to."
+            "description": "New full target ref (`refs/heads/main`, `refs/tags/v1`, or `HEAD`)."
           },
-          "refresh_policy": {
-            "$ref": "#/components/schemas/GitRefreshPolicy",
-            "description": "Refresh policy; defaults to manual one-off snapshots."
+          "webhook_enabled": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false
+      },
+      "GitRepositorySkipSummary": {
+        "type": "object",
+        "description": "Skip counts of the last completed index, one bucket per selection reason.\n\nThe buckets are cumulative coverage accounting, never per-file detail, so a\nreader can see why a snapshot is smaller than the repository without the\nsummary carrying paths or content.",
+        "properties": {
+          "binary": {
+            "type": "integer",
+            "format": "int64"
           },
-          "target_ref": {
-            "type": "string",
-            "description": "Full target ref to index, or `HEAD`."
+          "excluded_by_user": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "excluded_directory": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "lockfile": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "minified": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "not_included": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "secret": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "source_map": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "too_large": {
+            "type": "integer",
+            "format": "int64"
           }
         }
       },
@@ -10750,7 +11099,6 @@
           "name",
           "default_branch",
           "version",
-          "refresh",
           "index_profile",
           "index_status",
           "checkpoint",
@@ -10785,6 +11133,21 @@
           "default_branch": {
             "type": "string"
           },
+          "deletion_pending": {
+            "type": "boolean",
+            "description": "A delete request is waiting for vector cleanup to finish."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Whether this source accepts index work."
+          },
+          "exclude_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Glob patterns excluded even when the default allowlist or an include\nmatches. Safety exclusions cannot be re-enabled either way."
+          },
           "group_key": {
             "type": "string",
             "description": "Key of the owning group; sources have no owner-less form."
@@ -10793,11 +11156,45 @@
             "type": "string",
             "description": "Current full path of the owning group."
           },
+          "include_patterns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Additional repository-relative glob patterns admitted beyond the\nbounded default source/docs/manifest allowlist."
+          },
           "index_profile": {
             "$ref": "#/components/schemas/GitIndexProfile"
           },
           "index_status": {
             "$ref": "#/components/schemas/GitIndexStatus"
+          },
+          "interval_seconds": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "Optional independent periodic refresh interval, in seconds."
+          },
+          "last_error_code": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Stable code of the last terminal index failure, when the last attempt\nfailed. It is a bounded classification, never a provider or secret-bearing\nmessage."
+          },
+          "last_refresh_attempt_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the latest refresh attempt was admitted."
+          },
+          "last_skip_summary": {
+            "$ref": "#/components/schemas/GitRepositorySkipSummary",
+            "description": "Skip counts of the last completed index."
           },
           "name": {
             "type": "string"
@@ -10808,12 +11205,18 @@
           "provider": {
             "$ref": "#/components/schemas/GitProviderKind"
           },
-          "refresh": {
-            "$ref": "#/components/schemas/GitRefreshPolicy"
+          "refresh_pending": {
+            "type": "boolean",
+            "description": "A refresh request is pending for this source."
           },
           "repository_key": {
             "type": "string",
             "format": "uuid"
+          },
+          "retention_count": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Total successful snapshots to retain, including the active generation."
           },
           "updated_at": {
             "type": "string",
@@ -10825,6 +11228,10 @@
           "visibility": {
             "$ref": "#/components/schemas/Visibility",
             "description": "Current visibility of the owning group."
+          },
+          "webhook_enabled": {
+            "type": "boolean",
+            "description": "Whether authenticated provider push events refresh this source."
           }
         }
       },

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Records a force-rebuild demand that arrived while another index task owns the\n-- repository (issue #28 phase P6).\n--\n-- The force timestamp is the consume token a completing run compares against,\n-- and the refresh marker makes the follow-up task eligible for scheduler\n-- admission. Both survive an active run, so a rebuild request is never lost by\n-- task deduplication.\n--\n-- $1 group_id, $2 repository_key.\nUPDATE context69.git_repository_sources\nSET force_rebuild_requested_at = now(),\n    refresh_dirty = TRUE,\n    refresh_requested_at = now(),\n    updated_at = now()\nWHERE group_id = $1\n  AND repository_key = $2\n  AND enabled\n  AND deletion_requested_at IS NULL\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "ca572899918cb3ccd4ca9079384c0a94dbac6571f24e2fec7ddcaaa57dfba052"
+}

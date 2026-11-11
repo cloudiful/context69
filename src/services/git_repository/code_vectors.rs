@@ -34,6 +34,7 @@ pub(crate) struct CodeVectorTarget {
     qdrant_url: String,
     collection_name: String,
     destination_fingerprint: String,
+    endpoint_identity: String,
 }
 
 impl CodeVectorTarget {
@@ -51,6 +52,7 @@ impl CodeVectorTarget {
             qdrant_url: qdrant_url.trim().to_string(),
             collection_name: code_collection_name(&destination_fingerprint),
             destination_fingerprint,
+            endpoint_identity: code_endpoint_identity(qdrant_url),
         })
     }
 
@@ -72,6 +74,22 @@ impl CodeVectorTarget {
 
     pub(crate) fn destination_fingerprint(&self) -> &str {
         &self.destination_fingerprint
+    }
+
+    pub(crate) fn endpoint_identity(&self) -> &str {
+        &self.endpoint_identity
+    }
+
+    /// Whether one stored generation metadata describes this exact destination.
+    pub(crate) fn matches_metadata(
+        &self,
+        metadata: &crate::db::StoredGitGenerationCodeVectors,
+    ) -> bool {
+        metadata.fingerprint == self.destination_fingerprint
+            && metadata.collection_name == self.collection_name
+            && usize::try_from(metadata.dimensions)
+                .map(|dimensions| dimensions == self.dimensions())
+                .unwrap_or(false)
     }
 }
 
@@ -177,12 +195,40 @@ pub(crate) fn normalize_qdrant_endpoint(value: &str) -> String {
     value.trim().trim_end_matches('/').to_string()
 }
 
+/// The destination identity of one normalized Qdrant endpoint.
+///
+/// Only the endpoint participates, so cleanup can decide whether the points it
+/// is about to remove belong to the currently configured destination. The
+/// embedding model fingerprint and physical collection are deliberately
+/// excluded: a model change does not move the points, and the collection is
+/// already stored beside this identity. The raw endpoint and any credentials
+/// are never persisted.
+pub(crate) fn code_endpoint_identity(value: &str) -> String {
+    let normalized = normalize_qdrant_endpoint(value);
+    let mut digest = Sha256::new();
+    digest.update((normalized.len() as u64).to_le_bytes());
+    digest.update(normalized.as_bytes());
+    digest
+        .finalize()
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
 /// A narrow write seam so orchestration tests can observe count and failure
 /// without a live Qdrant server. A successful fake is never evidence of remote
 /// durability; only the acknowledged production sink is.
 #[async_trait]
 pub(crate) trait CodeVectorSink: Send + Sync {
     async fn write(&self, dimensions: usize, points: &[CodeVectorPoint]) -> Result<()>;
+
+    /// Reads stored vectors for the exact chunk ids a reuse pass wants.
+    ///
+    /// The default keeps narrow write-only sinks valid; a sink that can serve
+    /// a reuse pass returns the vectors it actually stores.
+    async fn retrieve(&self, _point_ids: &[Uuid]) -> Result<Vec<(Uuid, Vec<f32>)>> {
+        Ok(Vec::new())
+    }
 }
 
 /// The production sink: an insert-only, acknowledged write to the captured
@@ -212,6 +258,10 @@ impl QdrantCodeVectorSink {
 impl CodeVectorSink for QdrantCodeVectorSink {
     async fn write(&self, _dimensions: usize, points: &[CodeVectorPoint]) -> Result<()> {
         self.index.upsert_code_points(points).await
+    }
+
+    async fn retrieve(&self, point_ids: &[Uuid]) -> Result<Vec<(Uuid, Vec<f32>)>> {
+        self.index.retrieve_code_vectors(point_ids).await
     }
 }
 

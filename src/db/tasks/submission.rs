@@ -3,6 +3,10 @@ use uuid::Uuid;
 
 use crate::db::Database;
 use crate::db::task_file_dedup::{FileDedupDecision, declared_file_id, resolve_file_dedup};
+use crate::db::task_git_dedup::{
+    active_git_index_task, declared_git_force_rebuild, declared_git_repository_key,
+    git_index_admission_allowed, lock_git_index_admission,
+};
 
 use super::INITIAL_ITEM_STAGE;
 use super::execution::FIRST_GENERATION;
@@ -59,6 +63,42 @@ impl Database {
                     .await?;
             tx.commit().await?;
             return Ok((existing.task_id, true, item_ids));
+        }
+
+        // Single-flight per repository for Git index work. The admission lock
+        // serializes every submission path; an already active task owns the
+        // repository, and the demand marker guarantees a follow-up even when the
+        // request arrived while that task was already past its target resolution.
+        if kind == "git_index"
+            && let Some(repository_key) = declared_git_repository_key(payloads)
+        {
+            lock_git_index_admission(&mut tx, repository_key).await?;
+            let owner_group_id = group_id.ok_or_else(|| {
+                crate::domain_errors::DomainError::invalid_argument(
+                    "git index tasks require an owning group",
+                )
+            })?;
+            if !git_index_admission_allowed(&mut tx, owner_group_id, repository_key).await? {
+                return Err(crate::domain_errors::DomainError::conflict(
+                    "git_repository_not_admitting_work",
+                )
+                .into());
+            }
+            if let Some(active_task_id) = active_git_index_task(&mut tx, repository_key).await? {
+                if declared_git_force_rebuild(payloads) {
+                    self.request_git_force_rebuild_in(&mut tx, owner_group_id, repository_key)
+                        .await?;
+                } else {
+                    self.request_git_refresh_in(&mut tx, owner_group_id, repository_key)
+                        .await?;
+                }
+                let item_ids =
+                    sqlx::query_file_scalar!("src/sql/db/tasks/item_ids.sql", active_task_id)
+                        .fetch_all(&mut *tx)
+                        .await?;
+                tx.commit().await?;
+                return Ok((active_task_id, true, item_ids));
+            }
         }
 
         // Deduplicate file-ingest items by `file_id`: a file may have at most

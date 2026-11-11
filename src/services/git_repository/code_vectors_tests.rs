@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use super::{
-    CodeVectorRequest, code_destination_fingerprint, code_vector_target, normalize_qdrant_endpoint,
-    validate_embedding_vectors,
+    CodeVectorRequest, code_destination_fingerprint, code_endpoint_identity, code_vector_target,
+    normalize_qdrant_endpoint, validate_embedding_vectors,
 };
 use crate::code_embedding_runtime::CodeEmbeddingSnapshot;
 use crate::qdrant_index::code_vectors::{CodeVectorPoint, build_code_points, code_vector_payload};
@@ -27,6 +27,25 @@ fn the_endpoint_normalization_only_ignores_whitespace_and_trailing_slashes() {
     assert_ne!(
         normalize_qdrant_endpoint("http://qdrant.invalid:6334"),
         normalize_qdrant_endpoint("http://other.invalid:6334")
+    );
+}
+
+#[test]
+fn the_endpoint_identity_hashes_only_the_normalized_endpoint() {
+    assert_eq!(
+        code_endpoint_identity("  http://qdrant.invalid:6334/  "),
+        code_endpoint_identity("http://qdrant.invalid:6334"),
+        "whitespace and a trailing slash are the same endpoint"
+    );
+    assert_ne!(
+        code_endpoint_identity("http://qdrant.invalid:6334"),
+        code_endpoint_identity("http://other.invalid:6334"),
+        "a different endpoint is a different identity"
+    );
+    let identity = code_endpoint_identity("http://qdrant.invalid:6334");
+    assert!(
+        !identity.contains("qdrant.invalid"),
+        "the raw endpoint is never the persisted identity"
     );
 }
 

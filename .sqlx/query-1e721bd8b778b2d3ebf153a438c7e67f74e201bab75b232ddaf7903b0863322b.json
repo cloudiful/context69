@@ -1,0 +1,40 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Due refresh work for the independent Git scheduler.\n--\n-- A source is due when it still carries a demand, or when its interval elapsed\n-- since the later of its last successful index and its last attempt. A source\n-- that already has an active `git_index` task is excluded, so admission is\n-- single-flight per repository. A 60-second retry window keeps a failing\n-- source from hot-looping between scheduler ticks, and disabled or\n-- deletion-pending sources are never selected.\n--\n-- $1 result limit.\nSELECT\n    s.group_id,\n    s.repository_key\nFROM context69.git_repository_sources s\nWHERE s.enabled\n  AND s.deletion_requested_at IS NULL\n  AND s.index_status <> 'disabled'\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.tasks t\n      JOIN context69.task_items i ON i.task_id = t.id\n      WHERE t.kind = 'git_index'\n        AND t.status IN ('queued', 'running', 'waiting')\n        AND i.payload ->> 'repository_key' = s.repository_key::text\n  )\n  AND (\n      (\n          s.refresh_dirty\n          AND (\n              s.last_refresh_attempt_at IS NULL\n              OR s.last_refresh_attempt_at <= now() - interval '60 seconds'\n          )\n      )\n      OR (\n          s.interval_seconds IS NOT NULL\n          AND GREATEST(\n              COALESCE(s.last_indexed_at, s.created_at),\n              COALESCE(s.last_refresh_attempt_at, s.created_at)\n          ) + make_interval(secs => s.interval_seconds) <= now()\n          AND (\n              s.last_refresh_attempt_at IS NULL\n              OR s.last_refresh_attempt_at <= now() - interval '60 seconds'\n          )\n      )\n  )\nORDER BY s.last_refresh_attempt_at ASC NULLS FIRST, s.updated_at ASC\nLIMIT $1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "1e721bd8b778b2d3ebf153a438c7e67f74e201bab75b232ddaf7903b0863322b"
+}

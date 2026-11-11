@@ -44,10 +44,9 @@ use super::{
     ApiState,
     auth::CurrentUser,
     errors::library_management_error_response,
-    git_repository_files::{
-        generation_not_ready, repository_not_found, require_manifest_read, serving_generation,
+    git_read_access::{
+        found_manifest_file, invalid_repository_path, readable_group, serving_source,
     },
-    group_access::{group_access_error_response, group_for_user},
 };
 
 /// Chunk rows one read may return.
@@ -78,27 +77,13 @@ pub(crate) async fn get_git_repository_file_content(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Query(query): Query<GitRepositoryFileContentQuery>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match readable_group(&state, session.user.id, &group_path).await {
         Ok(group) => group,
-        Err(error) => return group_access_error_response(error),
+        Err(response) => return response,
     };
-    if let Err(error) = require_manifest_read(&group) {
-        return group_access_error_response(error);
-    }
-    let source = match state
-        .app
-        .db
-        .get_git_repository_source(group.id, repository_key)
-        .await
-    {
-        Ok(Some(source)) => source,
-        Ok(None) => return repository_not_found(),
-        Err(error) => return library_management_error_response(error),
-    };
-    let generation = match serving_generation(&state.app.db, &source).await {
-        Ok(Some(generation)) => generation,
-        Ok(None) => return generation_not_ready(),
-        Err(error) => return library_management_error_response(error),
+    let (source, generation) = match serving_source(&state.app.db, group.id, repository_key).await {
+        Ok(serving) => serving,
+        Err(response) => return response,
     };
     let path = match SafeTreePath::parse(&query.path) {
         Ok(path) => path,
@@ -115,7 +100,7 @@ pub(crate) async fn get_git_repository_file_content(
         )
         .await
     {
-        Ok(found) => match found_content_entry(found) {
+        Ok(found) => match found_manifest_file(found) {
             Ok(file) => file,
             Err(response) => return *response,
         },
@@ -165,21 +150,6 @@ pub(crate) async fn get_git_repository_file_content(
         )),
     )
         .into_response()
-}
-
-/// The route's single decision about the exact-file lookup result.
-///
-/// `None` is a path the serving generation does not hold, and it answers with the
-/// very same response as an unknown or foreign repository: same status, same
-/// body. Keeping that mapping in one named place is what makes it testable
-/// without a database and impossible to drift into a distinguishable "no such
-/// path" shape, which would let this read enumerate another group's repository
-/// keys or indexed paths. The response travels boxed so this stays a plain
-/// `Result` rather than a large `Err` variant.
-fn found_content_entry(
-    found: Option<StoredGitGenerationFile>,
-) -> Result<StoredGitGenerationFile, Box<Response>> {
-    found.ok_or_else(|| Box::new(repository_not_found()))
 }
 
 /// One page of window text: the concatenated chunks that fit, the exact byte
@@ -279,14 +249,6 @@ fn decode_cursor(cursor: Option<&str>) -> Result<i64, Box<Response>> {
         Some(offset) => Ok(offset),
         None => Err(Box::new(invalid_cursor())),
     }
-}
-
-/// An unsafe path is refused without echoing it: the value never reached a
-/// lookup, and the message names no repository, group, or stored path.
-fn invalid_repository_path() -> Response {
-    library_management_error_response(
-        DomainError::invalid_argument("git_repository_path_invalid").into(),
-    )
 }
 
 /// A continuation this service did not issue.

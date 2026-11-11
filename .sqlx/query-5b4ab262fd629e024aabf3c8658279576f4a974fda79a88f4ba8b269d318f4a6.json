@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Whether a repository still admits Git index work.\n--\n-- Checked under the same per-repository admission lock a submission holds, so a\n-- delete that disabled the source cannot be overtaken by a task created just\n-- before it.\n--\n-- $1 group_id, $2 repository_key.\nSELECT 1 AS admits\nFROM context69.git_repository_sources s\nWHERE s.group_id = $1\n  AND s.repository_key = $2\n  AND s.enabled\n  AND s.deletion_requested_at IS NULL\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "admits",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "5b4ab262fd629e024aabf3c8658279576f4a974fda79a88f4ba8b269d318f4a6"
+}

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Counts the Git repository ownership a group delete would drop (issue #28\n-- phase P13).\n--\n-- Deleting a group cascades to its descendant groups and repository sources.\n-- Those source rows carry the only durable record of remote points, webhook\n-- registrations, and index generations, so the whole subtree is counted before\n-- any delete. A provider connection without a repository source owns no remote\n-- points and does not block removal; it cascades with the group like any other\n-- group-owned configuration.\n--\n-- $1 group_id.\nWITH RECURSIVE subtree AS (\n    SELECT id\n    FROM context69.groups\n    WHERE id = $1\n\n    UNION ALL\n\n    SELECT child.id\n    FROM context69.groups child\n    JOIN subtree parent ON child.parent_group_id = parent.id\n)\nSELECT count(*) AS owned\nFROM context69.git_repository_sources\nWHERE group_id IN (SELECT id FROM subtree)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "owned",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "f5ec7f60ba49466b0f48c2d7384dc0c5fe2243a0c11fa56adf6264a8200e02c0"
+}

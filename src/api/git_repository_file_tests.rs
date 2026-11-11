@@ -16,7 +16,7 @@ use crate::{
         GroupKind, MembershipRole, Visibility,
         sources::{
             GitCommitCheckpoint, GitGenerationStatus, GitIndexProfile, GitIndexStatus,
-            GitProviderKind, GitRefreshPolicy, GitRepositoryFile, GitVersionPolicy,
+            GitProviderKind, GitRepositoryFile, GitVersionPolicy,
         },
     },
     db::{
@@ -27,8 +27,9 @@ use crate::{
     services::git_repository::SafeTreePath,
 };
 
+use super::super::git_read_access::{found_manifest_file, invalid_repository_path};
 use super::super::git_repository_files::{repository_not_found, require_manifest_read};
-use super::{file_detail, found_entry, invalid_repository_path};
+use super::file_detail;
 
 /// Longest path the acquisition path validator accepts; the query contract
 /// declares the same bound so a generated client learns it from OpenAPI.
@@ -84,9 +85,25 @@ fn source() -> StoredGitRepositorySource {
             ref_name: "refs/heads/main".to_string(),
             commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
         },
-        refresh: GitRefreshPolicy::Webhook,
+        include_patterns: Vec::new(),
+        exclude_patterns: Vec::new(),
+        interval_seconds: None,
+        webhook_enabled: false,
+        enabled: true,
+        retention_count: 2,
+        created_by_user_id: None,
+        config_revision: 0,
+        refresh_dirty: false,
+        refresh_requested_at: None,
+        last_refresh_attempt_at: None,
+        force_rebuild_requested_at: None,
+        deletion_requested_at: None,
+        last_skip_summary: Default::default(),
+        indexed_pipeline_version: 0,
+        indexed_config_fingerprint: String::new(),
         index_profile: GitIndexProfile::Lexical,
         index_status: GitIndexStatus::Stale,
+        last_error_code: None,
         checkpoint: GitCommitCheckpoint {
             target_commit_sha: Some("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb".to_string()),
             indexed_commit_sha: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
@@ -341,7 +358,7 @@ async fn the_lookup_result_mapping_answers_absent_paths_exactly_as_an_unknown_re
         "the shared shape carries the bounded message: {unknown_body}"
     );
 
-    let absent = *found_entry(None).expect_err("an absent path is not an entry");
+    let absent = *found_manifest_file(None).expect_err("an absent path is not an entry");
     assert_eq!(
         absent.status(),
         unknown_status,
@@ -355,8 +372,8 @@ async fn the_lookup_result_mapping_answers_absent_paths_exactly_as_an_unknown_re
 
     // A stored row passes through untouched, so the mapping cannot swallow or
     // rewrite the entry the detail response is built from.
-    let found =
-        found_entry(Some(stored_file("src/main.rs"))).expect("a stored row is the entry itself");
+    let found = found_manifest_file(Some(stored_file("src/main.rs")))
+        .expect("a stored row is the entry itself");
     assert_eq!(found, stored_file("src/main.rs"));
 }
 

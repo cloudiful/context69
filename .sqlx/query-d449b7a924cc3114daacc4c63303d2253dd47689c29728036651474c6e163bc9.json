@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Full ancestor row-lock chain for one source registration (issue #28 phase\n-- P13).\n--\n-- The shared advisory locks serialize participants that use the ownership key\n-- protocol. These `FOR KEY SHARE` row locks are the independent control: a\n-- group delete takes `FOR UPDATE` on its own group row, which conflicts with\n-- this lock on every ancestor row. A registration into a descendant therefore\n-- cannot commit while an ancestor is being deleted, and an ancestor delete\n-- cannot pass its row lock until an in-flight registration commits.\n--\n-- Locks are taken on the target group and every ancestor in the same\n-- registration transaction, after the shared advisory locks.\n--\n-- $1 group_id.\nWITH RECURSIVE ancestors AS (\n    SELECT g.id, g.parent_group_id\n    FROM context69.groups g\n    WHERE g.id = $1::bigint\n\n    UNION ALL\n\n    SELECT parent.id, parent.parent_group_id\n    FROM context69.groups parent\n    JOIN ancestors child ON child.parent_group_id = parent.id\n)\nSELECT g.id\nFROM context69.groups g\nJOIN ancestors ancestor ON ancestor.id = g.id\nORDER BY g.id\nFOR KEY SHARE OF g\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d449b7a924cc3114daacc4c63303d2253dd47689c29728036651474c6e163bc9"
+}

@@ -1,8 +1,8 @@
+use super::super::http::{GitHttpTransport, TransportResponse};
 use super::super::ref_path_safety::{SafeRef, SafeSha};
 use super::super::resolve::MAX_TAG_DEREF_DEPTH;
-use super::{
-    GitAcquisitionLimits, GitHttpTransport, GitHubAcquirer, RepositoryAcquirer, TransportResponse,
-};
+use super::super::support::{encoded, ok_json};
+use super::{GitAcquisitionLimits, GitHubAcquirer, RepositoryAcquirer};
 use crate::domain_errors::DomainError;
 use std::sync::{Arc, Mutex};
 
@@ -77,11 +77,6 @@ impl GitHttpTransport for ScriptedTransport {
     }
 }
 
-fn encoded(content: &[u8]) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.encode(content)
-}
-
 fn acquirer(
     responses: Vec<anyhow::Result<TransportResponse>>,
     limits: GitAcquisitionLimits,
@@ -92,14 +87,6 @@ fn acquirer(
         limits,
     )
     .unwrap()
-}
-
-fn ok_json(body: String) -> anyhow::Result<TransportResponse> {
-    Ok(TransportResponse {
-        status: 200,
-        headers: vec![("content-type".into(), "application/json".into())],
-        body: body.into_bytes().into(),
-    })
 }
 
 #[tokio::test]
@@ -484,6 +471,10 @@ async fn rejects_tree_entries_with_unsafe_paths_or_sizes() {
     assert_eq!(listing.files.len(), 1);
     assert_eq!(listing.files[0].path.as_str(), "small.txt");
     assert_eq!(listing.excluded_files, 1, "the oversized entry is counted");
+    assert_eq!(
+        listing.too_large_files, 1,
+        "the oversized reason is preserved for the source summary"
+    );
 
     // Symlink blobs (mode 120000) are excluded: their content is a link
     // target, not file content.

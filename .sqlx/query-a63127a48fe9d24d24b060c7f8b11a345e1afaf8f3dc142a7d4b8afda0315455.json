@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Records one durable refresh demand on an enabled source of $1.\n--\n-- The demand survives an active task: a push or manual request during indexing\n-- leaves the marker set, so the next admission observes it instead of treating\n-- the completed task as the final state. `refresh_requested_at` is the consume\n-- token a completing run compares against.\n--\n-- $1 group_id, $2 repository_key.\nUPDATE context69.git_repository_sources\nSET refresh_dirty = TRUE,\n    refresh_requested_at = now(),\n    updated_at = now()\nWHERE group_id = $1\n  AND repository_key = $2\n  AND enabled\n  AND deletion_requested_at IS NULL\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a63127a48fe9d24d24b060c7f8b11a345e1afaf8f3dc142a7d4b8afda0315455"
+}

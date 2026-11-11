@@ -304,6 +304,7 @@ mod ordinary_replacement_cases {
             sync: sync.clone(),
             source_folders: SourceFoldersService::new(db.clone(), library, sync),
             translation,
+            secrets: context69::services::secret_store::build_unkeyed(&db),
             concurrency: 1,
         })
         .with_replacement_caps_for_test([1000, 1000, 1000])

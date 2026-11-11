@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The one active `git_index` task of a repository, if any.\n--\n-- The item payload carries the repository key, so admission is single-flight\n-- per repository even when the submitting source has no legacy `source_key`.\n-- A task in any non-terminal state owns the slot until it finishes.\n--\n-- $1 repository_key.\nSELECT t.id AS task_id\nFROM context69.tasks t\nJOIN context69.task_items i ON i.task_id = t.id\nWHERE t.kind = 'git_index'\n  AND t.status IN ('queued', 'running', 'waiting')\n  AND t.deleted_at IS NULL\n  AND i.payload ->> 'repository_key' = $1\nORDER BY t.created_at ASC\nLIMIT 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "a1963a56b9d5b0b9fd6ace2de82827ef075211cc0d71b6c12d1660ccedabeaf0"
+}

@@ -1,0 +1,37 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Inserts additional manifest entries into one building generation without\n-- retiring entries another step already seeded.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key, $4 path text[],\n-- $5 language text[], $6 provider_blob_sha text[], $7 content bytea[],\n-- $8 line_count bigint[].\n--\n-- The incremental pipeline first copies unchanged content from the baseline\n-- generation and then writes only changed/new files here. A complete-manifest\n-- replace would retire the seeded entries, so this statement is insert-only:\n-- every entry the arrays describe lands together with the bytes it needs, and\n-- nothing else in the generation is touched.\nWITH scoped_generation AS (\n    SELECT g.generation_key\n    FROM context69.git_repository_generations g\n    JOIN context69.git_repository_sources s ON s.repository_key = g.repository_key\n    WHERE s.group_id = $1\n      AND g.repository_key = $2\n      AND g.generation_key = $3\n      AND g.status = 'building'\n),\nincoming_files AS (\n    SELECT\n        scoped_generation.generation_key,\n        incoming.path,\n        incoming.language,\n        incoming.provider_blob_sha,\n        incoming.content,\n        incoming.line_count\n    FROM scoped_generation\n    CROSS JOIN LATERAL unnest(\n        $4::text[], $5::text[], $6::text[], $7::bytea[], $8::bigint[]\n    ) AS incoming(path, language, provider_blob_sha, content, line_count)\n),\nincoming_blobs AS (\n    SELECT DISTINCT ON (provider_blob_sha)\n        generation_key,\n        provider_blob_sha,\n        content\n    FROM incoming_files\n    ORDER BY provider_blob_sha, octet_length(content)\n),\nstored_blobs AS (\n    INSERT INTO context69.git_generation_blobs (\n        generation_key,\n        provider_blob_sha,\n        byte_count,\n        content\n    )\n    SELECT\n        generation_key,\n        provider_blob_sha,\n        octet_length(content),\n        content\n    FROM incoming_blobs\n    ON CONFLICT (generation_key, provider_blob_sha) DO NOTHING\n    RETURNING 1\n),\nstored_files AS (\n    INSERT INTO context69.git_generation_files (\n        generation_key,\n        repository_key,\n        provider_blob_sha,\n        path,\n        language,\n        byte_count,\n        line_count\n    )\n    SELECT\n        incoming.generation_key,\n        $2,\n        incoming.provider_blob_sha,\n        incoming.path,\n        incoming.language,\n        octet_length(incoming.content),\n        incoming.line_count\n    FROM incoming_files incoming\n    RETURNING 1\n)\nSELECT\n    (SELECT count(*) FROM scoped_generation) AS \"scoped_generation_count!\",\n    (SELECT count(*) FROM stored_files) AS \"stored_file_count!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "scoped_generation_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "stored_file_count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "TextArray",
+        "TextArray",
+        "TextArray",
+        "ByteaArray",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "a9d8591ff3a677b559b4dce808e9f9dee77d7093e5f5dbd4a9bb941101ddf09d"
+}

@@ -17,6 +17,7 @@ import { VectorIndexSection } from "@/features/settings/sections/vector-index-se
 import { SettingsLayout } from "@/features/settings/settings-layout";
 import { SearchPage } from "@/features/search/search-page";
 import { GroupLayout } from "@/features/groups/group-layout";
+import { GitPage } from "@/features/groups/git/page";
 import { GroupMembersPage } from "@/features/groups/group-members-page";
 import { GroupOverviewPage } from "@/features/groups/group-overview-page";
 import { GroupSettingsPage } from "@/features/groups/group-settings-page";
@@ -53,6 +54,7 @@ export const appRoutes: RouteObject[] = [
           { index: true, element: <GroupOverviewPage /> },
           { path: "overview", element: <Navigate to=".." relative="path" replace /> },
           { path: "members", element: <GroupMembersPage /> },
+          { path: "git", element: <GitPage /> },
           { path: "settings", element: <GroupSettingsPage /> },
         ],
       },

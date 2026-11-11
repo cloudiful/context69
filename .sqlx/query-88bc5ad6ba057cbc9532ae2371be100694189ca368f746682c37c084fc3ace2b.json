@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Shared ancestor-key lock for one source registration (issue #28 phase P13).\n--\n-- A source insert into a group that a concurrent delete would cascade must not\n-- slip past that delete's ownership check. This statement takes a shared\n-- advisory lock on the target group and every ancestor, in the same transaction\n-- that inserts the source. A group delete takes the exclusive lock on its own\n-- key first, so the two orders cannot deadlock: either the registration commits\n-- before the delete counts, or it waits and then its insert fails because the\n-- cascaded group is gone.\n--\n-- $1 group_id.\nWITH RECURSIVE ancestors AS (\n    SELECT g.id, g.parent_group_id\n    FROM context69.groups g\n    WHERE g.id = $1::bigint\n\n    UNION ALL\n\n    SELECT parent.id, parent.parent_group_id\n    FROM context69.groups parent\n    JOIN ancestors child ON child.parent_group_id = parent.id\n)\nSELECT pg_advisory_xact_lock_shared(\n    hashtextextended('context69.git_group_ownership:' || ancestors.id::text, 0)\n)\nFROM ancestors\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "pg_advisory_xact_lock_shared",
+        "type_info": "Void",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "88bc5ad6ba057cbc9532ae2371be100694189ca368f746682c37c084fc3ace2b"
+}

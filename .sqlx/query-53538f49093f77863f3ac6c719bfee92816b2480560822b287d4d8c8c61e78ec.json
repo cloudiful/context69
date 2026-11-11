@@ -1,0 +1,129 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Maps every chunk of a building generation that reuses baseline content to\n-- the baseline chunk it can copy a vector from.\n--\n-- $1 group_id, $2 repository_key, $3 target_generation_key,\n-- $4 baseline_generation_key, $5 limit, $6 offset.\n--\n-- A pair is reusable only when the target and baseline manifests hold the same\n-- path with the same provider blob id and the same chunk index. A changed file\n-- never matches, so its chunks are embedded rather than copied. The target\n-- generation must still be building and the baseline must be a completed\n-- generation of the same repository and group.\nSELECT\n    baseline_chunk.chunk_key AS source_chunk_key,\n    target_chunk.chunk_key AS target_chunk_key,\n    target_file.file_key AS target_file_key,\n    target_file.path,\n    target_file.language,\n    target_chunk.chunk_index,\n    target_chunk.start_line,\n    target_chunk.end_line,\n    target_chunk.chunk_text\nFROM context69.git_repository_generations target\nJOIN context69.git_repository_sources s ON s.repository_key = target.repository_key\nJOIN context69.git_repository_generations baseline\n    ON baseline.repository_key = target.repository_key\n   AND baseline.generation_key = $4\n   AND baseline.status IN ('ready', 'superseded')\nJOIN context69.git_generation_files target_file\n    ON target_file.generation_key = target.generation_key\nJOIN context69.git_generation_files baseline_file\n    ON baseline_file.generation_key = baseline.generation_key\n   AND baseline_file.path = target_file.path\n   AND baseline_file.provider_blob_sha = target_file.provider_blob_sha\nJOIN context69.git_generation_chunks target_chunk\n    ON target_chunk.generation_key = target.generation_key\n   AND target_chunk.file_key = target_file.file_key\nJOIN context69.git_generation_chunks baseline_chunk\n    ON baseline_chunk.generation_key = baseline.generation_key\n   AND baseline_chunk.file_key = baseline_file.file_key\n   AND baseline_chunk.chunk_index = target_chunk.chunk_index\nWHERE s.group_id = $1\n  AND target.repository_key = $2\n  AND target.generation_key = $3\n  AND target.status = 'building'\nORDER BY target_file.path ASC, target_chunk.chunk_index ASC\nLIMIT $5 OFFSET $6\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source_chunk_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_key"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "target_chunk_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_key"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "target_file_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "file_key"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "path"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "language",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_files",
+            "name": "language"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "start_line",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "start_line"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "end_line",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "end_line"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "chunk_text",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.git_generation_chunks",
+            "name": "chunk_text"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "53538f49093f77863f3ac6c719bfee92816b2480560822b287d4d8c8c61e78ec"
+}

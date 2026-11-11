@@ -9,8 +9,7 @@ use uuid::Uuid;
 
 use super::*;
 use crate::contracts::sources::{
-    GitCommitCheckpoint, GitGenerationStatus, GitIndexStatus, GitProviderKind, GitRefreshPolicy,
-    GitVersionPolicy,
+    GitCommitCheckpoint, GitGenerationStatus, GitIndexStatus, GitProviderKind, GitVersionPolicy,
 };
 use crate::db::{
     GitGroupOwnership, StoredGitGenerationCodeVectors, StoredGitRepositoryGeneration,
@@ -53,9 +52,25 @@ fn source(profile: GitIndexProfile) -> StoredGitRepositorySource {
             ref_name: "refs/heads/main".to_string(),
             commit_sha: None,
         },
-        refresh: GitRefreshPolicy::Manual,
+        include_patterns: Vec::new(),
+        exclude_patterns: Vec::new(),
+        interval_seconds: None,
+        webhook_enabled: false,
+        enabled: true,
+        retention_count: 2,
+        created_by_user_id: None,
+        config_revision: 0,
+        refresh_dirty: false,
+        refresh_requested_at: None,
+        last_refresh_attempt_at: None,
+        force_rebuild_requested_at: None,
+        deletion_requested_at: None,
+        last_skip_summary: Default::default(),
+        indexed_pipeline_version: 0,
+        indexed_config_fingerprint: String::new(),
         index_profile: profile,
         index_status: GitIndexStatus::Ready,
+        last_error_code: None,
         checkpoint: GitCommitCheckpoint {
             target_commit_sha: None,
             indexed_commit_sha: None,
@@ -274,6 +289,7 @@ fn the_destination_match_requires_identity_collection_and_dimensions() {
     let metadata = StoredGitGenerationCodeVectors {
         generation_key: generation_key(),
         fingerprint: target.destination_fingerprint().to_string(),
+        endpoint_identity: Some(target.endpoint_identity().to_string()),
         dimensions: 8,
         collection_name: target.collection_name().to_string(),
         point_count: 1,

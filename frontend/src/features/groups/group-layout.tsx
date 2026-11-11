@@ -80,6 +80,7 @@ function GroupLayoutBody({ groupPath }: { groupPath: string }) {
   const tabs = [
     { to: base, label: t("groups.overviewTitle"), end: true },
     { to: `${base}/members`, label: t("groups.membersTitle"), end: false },
+    { to: `${base}/git`, label: t("groups.gitSources.tab"), end: false },
     { to: `${base}/settings`, label: t("groups.settingsTitle"), end: false },
   ];
 

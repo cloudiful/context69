@@ -236,6 +236,7 @@ pub async fn start(
         sync: services.sync.clone(),
         source_folders: startup.source_folders.clone(),
         translation: services.translation.clone(),
+        secrets: services.secrets.clone(),
         concurrency: task_worker_capacity(config),
     })
     .with_settings(settings.clone());
@@ -299,6 +300,15 @@ pub async fn start_upgrade_recovery(
         sync: services.sync.clone(),
         source_folders: startup.source_folders.clone(),
         translation: services.translation.clone(),
+        // Build the same keyed store the normal profile uses. Only a rejected
+        // master secret falls back to the unkeyed store, which can still read
+        // legacy plaintext credentials; a sealed credential it cannot open
+        // fails closed in the acquisition path instead of becoming public
+        // access.
+        secrets: crate::services::secret_store::build(db, config).unwrap_or_else(|error| {
+            warn!(error = %error, "upgrade recovery secret store is unkeyed");
+            crate::services::secret_store::build_unkeyed(db)
+        }),
         concurrency: task_worker_capacity(config),
     })
     .with_settings(services.settings.clone());

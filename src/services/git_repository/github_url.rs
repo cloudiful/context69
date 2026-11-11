@@ -102,7 +102,7 @@ pub(crate) fn repo_path(coordinates: &GitHubRepoCoordinates) -> String {
 /// repository segments, `SafeRef`/`SafeTreePath` charset elsewhere), so the
 /// encoding is a defense-in-depth identity for approved input, but it is a
 /// real percent-encoder: any byte outside the unreserved set is escaped.
-fn encode_segment(segment: &str) -> String {
+pub(crate) fn encode_segment(segment: &str) -> String {
     let mut encoded = String::with_capacity(segment.len());
     for byte in segment.bytes() {
         match byte {

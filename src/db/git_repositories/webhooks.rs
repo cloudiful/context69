@@ -2,9 +2,10 @@
 //! 3B1).
 //!
 //! Registrations hang off a repository source, so they are group-scoped
-//! through that join. Deliveries are keyed by the provider delivery id and are
-//! recorded before a repository is necessarily known, so they stay
-//! provider-scoped; group resolution happens when a delivery is dispatched.
+//! through that join. Deliveries are scoped by the receiving registration:
+//! provider, provider-issued hook id, and owning repository source. The
+//! provider delivery id is only unique inside that scope, so two registrations
+//! can receive the same id without sharing or mutating each other's row.
 //!
 //! An unauthenticated provider ingress knows only the provider and the hook id,
 //! so one read resolves a registration by that unique pair and returns the
@@ -173,8 +174,10 @@ impl Database {
     }
 
     /// Records a provider delivery, returning the stored row. A redelivery of
-    /// the same `delivery_id` inserts nothing and returns the original row, so
-    /// callers can compare `received_at` to detect the duplicate.
+    /// the same id inside the same registration inserts nothing and returns the
+    /// original row, so callers can compare `received_at` to detect the
+    /// duplicate. Another registration's identical delivery id inserts its own
+    /// row.
     pub async fn record_git_webhook_delivery(
         &self,
         delivery: &NewGitWebhookDelivery,
@@ -183,6 +186,7 @@ impl Database {
             GitWebhookDeliveryRow,
             "src/sql/db/git_repositories/record_git_webhook_delivery.sql",
             delivery.delivery_id,
+            delivery.external_hook_id,
             delivery.provider.as_str(),
             delivery.repository_key,
             delivery.status.as_str(),
@@ -195,12 +199,18 @@ impl Database {
 
     pub async fn mark_git_webhook_delivery_processed(
         &self,
+        provider: GitProviderKind,
+        external_hook_id: &str,
+        repository_key: Uuid,
         delivery_id: &str,
         status: GitWebhookDeliveryStatus,
         target_commit_sha: Option<&str>,
     ) -> Result<bool> {
         let row = sqlx::query_file!(
             "src/sql/db/git_repositories/mark_git_webhook_delivery_processed.sql",
+            provider.as_str(),
+            external_hook_id,
+            repository_key,
             delivery_id,
             status.as_str(),
             target_commit_sha
@@ -313,9 +323,7 @@ mod signing_secret_reference_tests {
     //! join and that it leaves the registration's `active` state alone.
 
     use crate::{
-        contracts::sources::{
-            GitIndexProfile, GitProviderKind, GitRefreshPolicy, GitWebhookOwnership,
-        },
+        contracts::sources::{GitIndexProfile, GitProviderKind, GitWebhookOwnership},
         db::{
             Database, NewGitRepositorySource, NewGitWebhookRegistration,
             StoredGitWebhookRegistration,
@@ -362,9 +370,15 @@ mod signing_secret_reference_tests {
                     name: nonce.to_string(),
                     default_branch: "main".to_string(),
                     target_ref: "refs/heads/main".to_string(),
-                    target_commit_sha: None,
+                    pinned_commit_sha: None,
                     index_profile: GitIndexProfile::Lexical,
-                    refresh_policy: GitRefreshPolicy::Manual,
+                    include_patterns: Vec::new(),
+                    exclude_patterns: Vec::new(),
+                    interval_seconds: None,
+                    webhook_enabled: false,
+                    enabled: true,
+                    retention_count: 2,
+                    created_by_user_id: None,
                 },
             )
             .await

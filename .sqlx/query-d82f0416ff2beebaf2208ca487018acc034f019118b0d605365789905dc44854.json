@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Removes one non-active generation after its code vectors were deleted.\n--\n-- The active generation is refused even if a caller names it. Files, chunks,\n-- and code-vector metadata cascade with the generation row.\n--\n-- $1 group_id, $2 repository_key, $3 generation_key.\nDELETE FROM context69.git_repository_generations g\nUSING context69.git_repository_sources s\nWHERE s.group_id = $1\n  AND s.repository_key = $2\n  AND g.repository_key = $2\n  AND g.generation_key = $3\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.git_repository_active_generations ag\n      WHERE ag.repository_key = g.repository_key\n        AND ag.generation_key = g.generation_key\n  )\nRETURNING g.generation_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "generation_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_generations",
+            "name": "generation_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d82f0416ff2beebaf2208ca487018acc034f019118b0d605365789905dc44854"
+}

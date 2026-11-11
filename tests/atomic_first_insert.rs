@@ -186,6 +186,7 @@ mod atomic_first_insert_cases {
             sync: sync.clone(),
             source_folders: SourceFoldersService::new(db.clone(), library, sync),
             translation,
+            secrets: context69::services::secret_store::build_unkeyed(&db),
             concurrency: 1,
         })
     }

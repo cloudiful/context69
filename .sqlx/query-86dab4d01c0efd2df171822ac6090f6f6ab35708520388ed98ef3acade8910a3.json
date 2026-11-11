@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Refreshes the checkpoint of a same-target no-op only while its captured\n-- configuration revision and observed target are still current.\n--\n-- $1 group_id, $2 repository_key, $3 expected_config_revision,\n-- $4 expected_target_commit_sha, $5 observed_commit_sha,\n-- $6 indexed_pipeline_version, $7 indexed_config_fingerprint,\n-- $8 last_skip_summary.\nUPDATE context69.git_repository_sources\nSET target_commit_sha = $5,\n    indexed_commit_sha = $5,\n    index_status = 'ready',\n    indexed_pipeline_version = $6,\n    indexed_config_fingerprint = $7,\n    last_skip_summary = $8,\n    last_error_code = NULL,\n    last_indexed_at = now(),\n    checkpoint_updated_at = now(),\n    updated_at = now()\nWHERE group_id = $1\n  AND repository_key = $2\n  AND config_revision = $3\n  AND target_commit_sha IS NOT DISTINCT FROM $4\n  AND enabled\n  AND deletion_requested_at IS NULL\nRETURNING repository_key\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "repository_key",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.git_repository_sources",
+            "name": "repository_key"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Uuid",
+        "Int8",
+        "Text",
+        "Text",
+        "Int8",
+        "Text",
+        "Jsonb"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "86dab4d01c0efd2df171822ac6090f6f6ab35708520388ed98ef3acade8910a3"
+}
