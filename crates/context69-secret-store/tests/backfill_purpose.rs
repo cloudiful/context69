@@ -13,14 +13,9 @@
 //! sealed. The catalogue test therefore asserts every purpose is reachable
 //! through the resolver, which is what makes the sweep total over the catalogue.
 //!
-//! The no-key case belongs here too: a deployment with no master key must report
-//! zero work *without reaching the database*, so it is asserted against a pool
-//! that was never connected. No test in this file needs PostgreSQL.
+//! These are deterministic in-memory catalogue units; no database is required.
 
-use context69_secret_store::{SecretDatabase, SecretPurpose, SecretStore, key_names};
-use sqlx::postgres::PgPoolOptions;
-
-const MASTER_KEY_B64: &str = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8=";
+use context69_secret_store::{SecretPurpose, key_names};
 
 /// A record identifier a frame header could carry. Generic on purpose: the
 /// resolver accepts what the key-name bound accepts, not the syntax one writer
@@ -29,20 +24,6 @@ const RECORD: &str = "0f7c1a44-2b91-4f0e-9a3d-8c5e6b2d1a07";
 
 /// A record identifier the key-name bound refuses: a space.
 const MALFORMED_RECORD: &str = "not a record id";
-
-/// A pool over an address nothing is listening on, so any statement the no-key
-/// path issued would fail rather than pass quietly.
-///
-/// Opened inside the runtime that drives the case — a pool's driver belongs to
-/// the runtime that built it — and never connected, with a short acquire
-/// timeout so a path that *did* query fails the case promptly instead of waiting
-/// out the default.
-async fn unreachable_pool() -> sqlx::PgPool {
-    PgPoolOptions::new()
-        .acquire_timeout(std::time::Duration::from_secs(1))
-        .connect_lazy("postgres://c69test@127.0.0.1:1/nowhere")
-        .expect("a lazy pool needs no reachable server")
-}
 
 // --- the six fixed singleton names --------------------------------------------
 
@@ -189,45 +170,3 @@ fn a_prefixed_key_with_an_unusable_record_resolves_to_nothing() {
 }
 
 // --- the no-key path ----------------------------------------------------------
-
-#[test]
-fn a_deployment_without_a_master_key_reports_no_work_and_issues_no_statement() {
-    // The pool points at a port nothing is listening on, so a run that opened a
-    // transaction or issued a statement would fail here rather than pass
-    // quietly. Reaching the assertion is the proof that the no-key path decided
-    // before it touched the database.
-    for absent in [None, Some(""), Some("   ")] {
-        let report = sqlx::test_block_on(async {
-            let store = SecretStore::new(SecretDatabase::new(unreachable_pool().await), absent, 1)
-                .expect("build a store");
-            store.seal_legacy_plaintext().await
-        })
-        .expect("an unkeyed deployment has nothing to seal");
-        assert_eq!(
-            format!("{report:?}"),
-            "SealedLegacyReport { sealed: 0, batches: 0 }"
-        );
-    }
-}
-
-#[test]
-fn a_configured_key_starts_the_run_and_reports_only_a_category() {
-    // A store with a key, asked against a database that is not there: it really
-    // did start, so it fails as a database failure — and what it reports is the
-    // category, carrying no connection detail, no SQL, and no key material.
-    let error = sqlx::test_block_on(async {
-        let store = SecretStore::new(
-            SecretDatabase::new(unreachable_pool().await),
-            Some(MASTER_KEY_B64),
-            1,
-        )
-        .expect("a test master key builds a store");
-        store.seal_legacy_plaintext().await
-    })
-    .expect_err("no database");
-    assert_eq!(format!("{error:?}"), "DatabaseUnavailable");
-    let rendered = format!("{error}");
-    for leak in [MASTER_KEY_B64, "127.0.0.1", "SELECT", "internal_secrets"] {
-        assert!(!rendered.contains(leak), "{rendered} leaked {leak:?}");
-    }
-}

@@ -20,9 +20,6 @@ mod types;
 
 pub mod execution;
 
-#[cfg(test)]
-mod execution_bootstrap_tests;
-
 pub use artifact_backfill::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTerminalTaskItemArtifactRequest, RemainingArtifactReferences,

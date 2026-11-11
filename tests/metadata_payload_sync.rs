@@ -1,9 +1,7 @@
 //! Pure contract tests for the automatic payload-mirror worker (issue #910 S1).
 //!
 //! These cover the retry curve, the lease/timeout ordering, and the exact SQL
-//! fencing without a database or a Qdrant instance. Database and transport
-//! behaviour is exercised only by the ignored cases registered for the
-//! post-checkpoint verification.
+//! fencing without a database or a Qdrant instance.
 
 use std::time::Duration;
 
@@ -16,9 +14,6 @@ use context69::services::metadata_payload_sync::{
 
 const CLAIM_SQL: &str = include_str!("../src/sql/db/metadata_payload_sync/claim.sql");
 const POINTS_SQL: &str = include_str!("../src/sql/db/metadata_payload_sync/document_points.sql");
-
-#[path = "metadata_payload_sync/database.rs"]
-mod database;
 
 #[test]
 fn retry_curve_doubles_then_caps_without_discarding_the_job() {

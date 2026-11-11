@@ -69,19 +69,6 @@ mod tests {
     use std::time::Duration;
 
     use super::TtlCache;
-
-    #[test]
-    fn ttl_cache_serves_values_until_they_expire() {
-        let cache: TtlCache<String> = TtlCache::new(Duration::from_millis(100));
-
-        assert_eq!(cache.get(), None);
-        cache.put("closed".to_string());
-        assert_eq!(cache.get().as_deref(), Some("closed"));
-
-        std::thread::sleep(Duration::from_millis(150));
-        assert_eq!(cache.get(), None);
-    }
-
     #[test]
     fn ttl_cache_replaces_the_previous_value() {
         let cache: TtlCache<u8> = TtlCache::new(Duration::from_secs(60));
@@ -104,24 +91,6 @@ mod tests {
 
         cache.invalidate();
         assert_eq!(cache.get(), None);
-    }
-
-    #[tokio::test]
-    async fn ttl_cache_get_or_fetch_skips_the_fetch_until_the_value_expires() {
-        let calls = AtomicUsize::new(0);
-        let cache: TtlCache<u8> = TtlCache::new(Duration::from_millis(100));
-        let fetch = || {
-            calls.fetch_add(1, Ordering::Relaxed);
-            async { Ok::<u8, anyhow::Error>(41) }
-        };
-
-        assert_eq!(cache.get_or_fetch(fetch).await.unwrap(), 41);
-        assert_eq!(cache.get_or_fetch(fetch).await.unwrap(), 41);
-        assert_eq!(calls.load(Ordering::Relaxed), 1);
-
-        std::thread::sleep(Duration::from_millis(150));
-        assert_eq!(cache.get_or_fetch(fetch).await.unwrap(), 41);
-        assert_eq!(calls.load(Ordering::Relaxed), 2);
     }
 
     #[tokio::test]

@@ -15,9 +15,6 @@ mod replacement;
 mod search;
 mod writes;
 
-#[cfg(feature = "integration-test-helpers")]
-mod test_helpers;
-
 pub use errors::{format_qdrant_error, qdrant_timeout_error, truncate_for_qdrant_error};
 pub use writes::is_qdrant_idempotent_not_found;
 
@@ -100,11 +97,11 @@ impl QdrantIndex {
     /// desired settings.
     pub(crate) fn for_recorded_target(endpoint: &str, collection: &str) -> Result<Self> {
         let noop = {
-            #[cfg(any(test, feature = "integration-test-helpers"))]
+            #[cfg(test)]
             {
                 collection == "test-noop"
             }
-            #[cfg(not(any(test, feature = "integration-test-helpers")))]
+            #[cfg(not(test))]
             {
                 false
             }

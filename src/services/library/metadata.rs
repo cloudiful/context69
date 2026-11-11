@@ -278,22 +278,6 @@ impl LibraryService {
         Ok(())
     }
 
-    /// Test-only drive of the metadata publication service path.
-    #[cfg(feature = "integration-test-helpers")]
-    pub async fn apply_business_metadata_for_test(
-        &self,
-        file_id: Uuid,
-        metadata: &crate::contracts::CanonicalUploadMetadata,
-    ) -> Result<crate::domain::LibraryFileRecord> {
-        self.apply_file_business_metadata(file_id, metadata).await
-    }
-
-    /// Test-only drive of the canonical refresh service path.
-    #[cfg(feature = "integration-test-helpers")]
-    pub async fn refresh_metadata_for_file_for_test(&self, file_id: Uuid) -> Result<()> {
-        self.refresh_metadata_for_file(file_id).await
-    }
-
     pub(super) async fn cleanup_ingest_artifacts(
         &self,
         file_id: Uuid,

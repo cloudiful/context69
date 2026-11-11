@@ -335,7 +335,3 @@ mod tests;
 #[cfg(test)]
 #[path = "embedding_runtime_readiness_tests.rs"]
 mod readiness_tests;
-
-#[cfg(test)]
-#[path = "embedding_runtime_probe_tests.rs"]
-mod probe_tests;

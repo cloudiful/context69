@@ -117,19 +117,6 @@ impl CodeVectorRequest {
         }
     }
 
-    #[cfg(test)]
-    pub(crate) fn with_test_sink(
-        snapshot: Arc<CodeEmbeddingSnapshot>,
-        qdrant_url: Option<String>,
-        sink: Arc<dyn CodeVectorSink>,
-    ) -> Self {
-        Self {
-            snapshot,
-            qdrant_url,
-            sink: Some(sink),
-        }
-    }
-
     /// The injected test sink, if any. Production builds never carry one.
     pub(crate) fn test_sink(&self) -> Option<Arc<dyn CodeVectorSink>> {
         #[cfg(test)]

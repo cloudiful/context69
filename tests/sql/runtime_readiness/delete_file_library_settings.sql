@@ -1,2 +1,0 @@
-DELETE FROM context69.runtime_file_library_settings
-WHERE singleton

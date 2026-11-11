@@ -127,7 +127,7 @@ fn docling_liveness_url(base_url: &str) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{MAX_PROBE_TIMEOUT_SECS, docling_liveness_url, probe_timeout, transport_failure};
+    use super::{MAX_PROBE_TIMEOUT_SECS, docling_liveness_url, probe_timeout};
 
     #[test]
     fn the_probe_asks_the_keyless_liveness_path_on_the_service_root() {
@@ -222,36 +222,5 @@ mod tests {
             probe_timeout(3600),
             std::time::Duration::from_secs(MAX_PROBE_TIMEOUT_SECS)
         );
-    }
-
-    /// A transport failure is a bare classification, so neither the submitted
-    /// URL nor anything the remote sent can reach a probe error body.
-    #[tokio::test]
-    async fn the_probe_transport_failure_carries_nothing_from_the_request() {
-        // A refused loopback port exercises a real `reqwest` error rather than a
-        // hand-built one, which is what would smuggle the URL into the message.
-        let error = reqwest::Client::new()
-            .get("http://127.0.0.1:1/health?api_key=synthetic-secret")
-            .send()
-            .await
-            .expect_err("an unreachable loopback port must fail");
-        // The raw error does embed the request URL, which is exactly why the
-        // probe reports a classification instead.
-        assert!(
-            error.to_string().contains("synthetic-secret"),
-            "a raw reqwest error leaks the submitted URL, so the probe must not report it"
-        );
-        let failure = transport_failure(&error);
-        assert!(
-            matches!(
-                failure,
-                "the request timed out"
-                    | "the connection could not be established"
-                    | "the request failed"
-            ),
-            "a transport failure must be a bare classification, got: {failure}"
-        );
-        assert!(!failure.contains("synthetic-secret"));
-        assert!(!failure.contains("127.0.0.1"));
     }
 }

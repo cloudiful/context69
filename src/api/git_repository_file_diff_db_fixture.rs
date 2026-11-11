@@ -1,22 +1,13 @@
-//! Test inputs for the metadata-only generation comparison (issue #681 phase
-//! 5E).
+//! In-memory test inputs for the metadata-only generation comparison (issue #681
+//! phase 5E).
 //!
-//! Two kinds live here, both `#[cfg(test)]`-only and both disposable. The
-//! in-memory builders produce the stored types the page is composed from, so the
+//! The builders produce the stored types the page is composed from, so the
 //! projection, the change kinds, the ordering, and the continuation are checked
-//! without a database. The database wrapper reuses the shared Git fixture, so no
-//! second repository fixture exists: it indexes two generations with different
-//! synthetic commits and manifests and reads them back through the same accessor
-//! the route calls.
-//!
-//! Provider-shaped blob ids are derived from content exactly the way the shared
-//! fixture derives them, so an unchanged path keeps the same id and a rewritten
-//! path gets a different one — and neither is ever printed or asserted here.
+//! without a database.
 
 use chrono::{DateTime, Utc};
 use uuid::Uuid;
 
-use crate::api::git_repository_files_db_fixture::Fixture;
 use crate::contracts::{
     GroupKind, MembershipRole, Visibility,
     sources::{
@@ -25,9 +16,7 @@ use crate::contracts::{
     },
 };
 use crate::db::{
-    GitCheckpointUpdate, GitFileDiffSide, GitGenerationCoverage, NewGitGenerationFile,
-    NewGitRepositoryGeneration, StoredGitFileDiff, StoredGitRepositoryGeneration,
-    StoredGitRepositorySource,
+    GitFileDiffSide, StoredGitFileDiff, StoredGitRepositoryGeneration, StoredGitRepositorySource,
 };
 use crate::domain::GroupRecord;
 
@@ -265,131 +254,4 @@ pub(super) async fn response_body(response: axum::response::Response) -> String 
         .await
         .expect("read the bounded body");
     String::from_utf8(bytes.to_vec()).expect("a UTF-8 body")
-}
-
-/// The manifest of the compared-from generation: two shared paths, one rewritten
-/// path, and one path the newer generation drops.
-pub(super) const FROM_MANIFEST: [(&str, &str, &str); 4] = [
-    ("README.md", "# manifest\n", "markdown"),
-    ("docs/guide.md", "guide\n", "markdown"),
-    ("src/alpha.rs", "fn alpha() {}\n", "rust"),
-    ("src/dropped.rs", "fn dropped() {}\n", "rust"),
-];
-
-/// The manifest of the compared-to generation: `src/alpha.rs` is rewritten at the
-/// same path, `src/added.rs` appears, and `src/dropped.rs` is gone.
-pub(super) const TO_MANIFEST: [(&str, &str, &str); 4] = [
-    ("README.md", "# manifest\n", "markdown"),
-    ("docs/guide.md", "guide\n", "markdown"),
-    (
-        "src/alpha.rs",
-        "fn alpha() {}\n\nfn alpha_again() {}\n",
-        "rust",
-    ),
-    ("src/added.rs", "fn added() {}\n", "rust"),
-];
-
-/// Indexes both compared generations and leaves the source checkpoint on the
-/// compared-from commit, the way a repository that has indexed the older snapshot
-/// and since been re-pointed at a newer one looks.
-///
-/// Activating the newer generation supersedes the older one, so the compared-from
-/// generation ends this helper as a completed `Superseded` snapshot — exactly the
-/// state the default comparison starts from, and never a discarded one.
-///
-/// The commits are synthetic and only ever used for classification, exactly like
-/// the shared fixture's own commit constants.
-pub(super) async fn index_pair(fixture: &Fixture) -> (Uuid, Uuid) {
-    let from = index_generation(fixture, FROM_COMMIT, &FROM_MANIFEST).await;
-    fixture
-        .db
-        .update_git_repository_checkpoint(
-            fixture.group_id,
-            fixture.repository_key,
-            &GitCheckpointUpdate {
-                target_commit_sha: Some(TARGET_COMMIT.to_string()),
-                indexed_commit_sha: Some(FROM_COMMIT.to_string()),
-                index_status: GitIndexStatus::Stale,
-                pipeline_version: None,
-                config_fingerprint: None,
-                skip_summary: None,
-            },
-        )
-        .await
-        .expect("advance the source checkpoint")
-        .expect("the repository is owned by this group");
-    let to = index_generation(fixture, TO_COMMIT, &TO_MANIFEST).await;
-    (from, to)
-}
-
-/// Opens one generation pinned to `commit_sha`, stores `files` as its manifest,
-/// and activates it.
-async fn index_generation(
-    fixture: &Fixture,
-    commit_sha: &str,
-    files: &[(&str, &str, &str)],
-) -> Uuid {
-    let generation = fixture
-        .db
-        .start_git_repository_generation(
-            fixture.group_id,
-            fixture.repository_key,
-            &NewGitRepositoryGeneration {
-                ref_name: "refs/heads/main".to_string(),
-                commit_sha: commit_sha.to_string(),
-                index_profile: GitIndexProfile::Lexical,
-            },
-        )
-        .await
-        .expect("start a generation")
-        .generation_key;
-    fixture
-        .db
-        .replace_git_generation_files(
-            fixture.group_id,
-            fixture.repository_key,
-            generation,
-            &files
-                .iter()
-                .map(|(path, content, language)| NewGitGenerationFile {
-                    path: (*path).to_string(),
-                    language: (*language).to_string(),
-                    provider_blob_sha: provider_blob_sha(content),
-                    content: content.as_bytes().to_vec(),
-                    line_count: content.split_inclusive('\n').count() as i64,
-                })
-                .collect::<Vec<_>>(),
-        )
-        .await
-        .expect("store the manifest");
-    fixture
-        .db
-        .complete_and_activate_git_repository_generation(
-            fixture.group_id,
-            fixture.repository_key,
-            generation,
-            GitGenerationCoverage {
-                file_count: files.len() as i64,
-                excluded_file_count: 0,
-                total_bytes: files
-                    .iter()
-                    .map(|(_, content, _)| content.len() as i64)
-                    .sum(),
-            },
-        )
-        .await
-        .expect("activate the generation");
-    generation
-}
-
-/// A provider-shaped blob id derived from the content it addresses, the same
-/// derivation the shared fixture uses so an unchanged path keeps its id across
-/// generations and a rewritten path gets a different one.
-fn provider_blob_sha(content: &str) -> String {
-    let mut hash: u64 = 0xcbf2_9ce8_4222_2325;
-    for byte in content.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
-    }
-    format!("{hash:040x}")
 }

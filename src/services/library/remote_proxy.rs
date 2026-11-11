@@ -50,70 +50,13 @@ impl FetchedRemoteResponse {
     pub fn into_body(self) -> Box<dyn RemoteBody> {
         self.body
     }
-
-    /// A scripted response for an integration test.
-    ///
-    /// The status, the headers, the peer address, and the bytes are the only
-    /// things a test may supply: every guard the download policy applies stays
-    /// in production code.
-    #[cfg(any(test, feature = "integration-test-helpers"))]
-    pub fn for_test(
-        status: StatusCode,
-        headers: HeaderMap,
-        remote_address: Option<SocketAddr>,
-        body: Bytes,
-    ) -> Self {
-        Self {
-            status,
-            headers,
-            content_length: Some(body.len() as u64),
-            remote_address,
-            status_error: None,
-            body: Box::new(BytesBody(body)),
-        }
-    }
-
-    /// A scripted response whose body the caller supplies.
-    #[cfg(any(test, feature = "integration-test-helpers"))]
-    pub fn for_test_with_body(
-        status: StatusCode,
-        headers: HeaderMap,
-        remote_address: Option<SocketAddr>,
-        body: Box<dyn RemoteBody>,
-    ) -> Self {
-        Self {
-            status,
-            headers,
-            content_length: None,
-            remote_address,
-            status_error: None,
-            body,
-        }
-    }
-}
-
-/// A body that yields the scripted bytes in one chunk.
-#[cfg(any(test, feature = "integration-test-helpers"))]
-struct BytesBody(Bytes);
-
-#[cfg(any(test, feature = "integration-test-helpers"))]
-#[async_trait::async_trait]
-impl RemoteBody for BytesBody {
-    async fn next_chunk(&mut self) -> Result<Option<Bytes>> {
-        Ok(if self.0.is_empty() {
-            None
-        } else {
-            Some(self.0.split_to(self.0.len()))
-        })
-    }
 }
 
 /// The HTTP transport the remote download policy fetches through.
 ///
-/// The production transport is the [`RemoteTransport`] of this module. An
-/// integration test may inject a scripted one, but the policy around it —
-/// URL normalization, the public-address check, the redirect check, the peer
-/// check, and the size and type guards — stays in production code.
+/// The policy around the transport — URL normalization, the public-address
+/// check, the redirect check, the peer check, and the size and type guards —
+/// stays in this module.
 #[async_trait::async_trait]
 pub trait RemoteHttpTransport: Send + Sync {
     /// Fetch one URL and answer with the response the policy inspects.

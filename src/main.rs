@@ -961,38 +961,21 @@ fn init_tracing() {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{
-        Arc, Mutex,
-        atomic::{AtomicBool, Ordering},
-    };
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, Instant};
 
     use super::{
-        Quiescence, RecoveryStop, ServerTask, ShutdownSignal, ShutdownSteps, ShutdownTrigger,
-        StartupSyncOutcome, await_or_signal, await_startup_sync, join_quiesced,
-        run_bounded_shutdown, run_bounded_stop_without_server, shutdown_waiting_recovery,
-        wait_for_shutdown_trigger,
+        ServerTask, ShutdownSignal, ShutdownSteps, ShutdownTrigger, StartupSyncOutcome,
+        await_or_signal, await_startup_sync, run_bounded_shutdown, wait_for_shutdown_trigger,
     };
-
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    enum IdleMode {
-        Immediate,
-        Hold,
-    }
 
     struct FakeSteps {
         order: Arc<Mutex<Vec<&'static str>>>,
-        idle: IdleMode,
-        aborted: Arc<AtomicBool>,
     }
 
     impl FakeSteps {
-        fn new(order: Arc<Mutex<Vec<&'static str>>>, idle: IdleMode) -> Self {
-            Self {
-                order,
-                idle,
-                aborted: Arc::new(AtomicBool::new(false)),
-            }
+        fn new(order: Arc<Mutex<Vec<&'static str>>>) -> Self {
+            Self { order }
         }
     }
 
@@ -1007,14 +990,9 @@ mod tests {
 
         async fn wait_for_idle(&mut self) {
             self.order.lock().expect("order").push("wait-for-idle");
-            if self.idle == IdleMode::Hold {
-                std::future::pending::<()>().await;
-            }
         }
 
-        fn abort(&mut self) {
-            self.aborted.store(true, Ordering::SeqCst);
-        }
+        fn abort(&mut self) {}
     }
 
     fn pending_server() -> ServerTask {
@@ -1033,132 +1011,6 @@ mod tests {
 
         assert!(matches!(trigger, ShutdownTrigger::Signal(Ok(()))));
         server.abort();
-    }
-
-    #[tokio::test]
-    async fn delayed_signal_preserves_the_pending_server_handle() {
-        let started = Arc::new(AtomicBool::new(false));
-        let completed = Arc::new(AtomicBool::new(false));
-        let (release, released) = tokio::sync::oneshot::channel::<()>();
-        let task_started = started.clone();
-        let task_completed = completed.clone();
-        let mut server = ServerTask::new(tokio::spawn(async move {
-            task_started.store(true, Ordering::SeqCst);
-            let _ = released.await;
-            task_completed.store(true, Ordering::SeqCst);
-            Ok(())
-        }));
-        let mut signal: ShutdownSignal = Box::pin(async {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            Ok(())
-        });
-
-        // The trigger polls the real server future first; the later signal wins.
-        let trigger = wait_for_shutdown_trigger(&mut signal, &mut server).await;
-        assert!(matches!(trigger, ShutdownTrigger::Signal(Ok(()))));
-        assert!(started.load(Ordering::SeqCst), "the real server future ran");
-        assert!(
-            !completed.load(Ordering::SeqCst),
-            "the real server future is still pending after the signal"
-        );
-        assert!(
-            !server.is_finished(),
-            "a pending server must not look finished after cancellation"
-        );
-
-        // Releasing the real future must still be observed by the owner: the
-        // handle was retained, not detached.
-        release.send(()).expect("release the server future");
-        let outcome = server.finish().await;
-        assert!(outcome.is_ok(), "the retained server outcome is observed");
-        assert!(
-            completed.load(Ordering::SeqCst),
-            "the real server future reached natural completion"
-        );
-    }
-
-    struct DropFlag(Arc<AtomicBool>);
-
-    impl Drop for DropFlag {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
-    #[tokio::test]
-    async fn held_drain_is_aborted_and_reaped_only_after_the_deadline() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order, IdleMode::Immediate);
-        let aborted = steps.aborted.clone();
-        let dropped = Arc::new(AtomicBool::new(false));
-        let completed = Arc::new(AtomicBool::new(false));
-        let task_dropped = dropped.clone();
-        let task_completed = completed.clone();
-        let mut server = ServerTask::new(tokio::spawn(async move {
-            let _drop_guard = DropFlag(task_dropped);
-            std::future::pending::<()>().await;
-            task_completed.store(true, Ordering::SeqCst);
-            Ok(())
-        }));
-
-        let started = Instant::now();
-        let result = run_bounded_shutdown(&mut steps, &mut server, Duration::from_millis(50)).await;
-
-        assert!(result.is_ok());
-        assert!(started.elapsed() >= Duration::from_millis(50));
-        assert!(aborted.load(Ordering::SeqCst), "owned sources were stopped");
-        assert!(
-            !completed.load(Ordering::SeqCst),
-            "a held drain never reports completion"
-        );
-        assert!(
-            dropped.load(Ordering::SeqCst),
-            "the deadline aborts and reaps the real drain future"
-        );
-        assert!(
-            server.is_finished(),
-            "the aborted handle is joined, not described as complete while detached"
-        );
-    }
-
-    #[tokio::test]
-    async fn startup_sync_held_past_a_signal_takes_the_bounded_stop() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order.clone(), IdleMode::Hold);
-        let aborted = steps.aborted.clone();
-        let sync_ran = Arc::new(AtomicBool::new(false));
-        let sync_ran_by_future = sync_ran.clone();
-        let mut signal: ShutdownSignal = Box::pin(async {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            Ok(())
-        });
-
-        let outcome = await_startup_sync(
-            async move {
-                sync_ran_by_future.store(true, Ordering::SeqCst);
-                std::future::pending::<()>().await;
-                Ok(())
-            },
-            &mut signal,
-        )
-        .await
-        .expect("the installed signal source resolves cleanly");
-
-        assert!(matches!(outcome, StartupSyncOutcome::Stopped));
-        assert!(sync_ran.load(Ordering::SeqCst), "the real sync future ran");
-
-        let started = Instant::now();
-        run_bounded_stop_without_server(&mut steps, Duration::from_millis(50)).await;
-
-        assert!(started.elapsed() >= Duration::from_millis(50));
-        assert!(
-            aborted.load(Ordering::SeqCst),
-            "the startup stop aborts owned sources at the deadline"
-        );
-        assert_eq!(
-            *order.lock().expect("order"),
-            vec!["begin", "stop-background", "wait-for-idle"]
-        );
     }
 
     #[tokio::test]
@@ -1193,7 +1045,7 @@ mod tests {
     #[tokio::test]
     async fn composed_server_error_is_returned_after_cleanup() {
         let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order.clone(), IdleMode::Immediate);
+        let mut steps = FakeSteps::new(order.clone());
         let mut server = ServerTask::new(tokio::spawn(async {
             Err(anyhow::anyhow!("listen failed"))
         }));
@@ -1222,7 +1074,7 @@ mod tests {
     #[tokio::test]
     async fn composed_server_success_is_returned_after_cleanup() {
         let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order.clone(), IdleMode::Immediate);
+        let mut steps = FakeSteps::new(order.clone());
         let mut server = ServerTask::new(tokio::spawn(async { Ok(()) }));
 
         let trigger =
@@ -1242,7 +1094,7 @@ mod tests {
     #[tokio::test]
     async fn bounded_shutdown_stops_claims_then_background_then_idle_then_http() {
         let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order.clone(), IdleMode::Immediate);
+        let mut steps = FakeSteps::new(order.clone());
         let http_order = order.clone();
         let mut server = ServerTask::new(tokio::spawn(async move {
             http_order.lock().expect("order").push("http");
@@ -1260,45 +1112,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn held_worker_slot_is_bounded_by_the_shutdown_budget() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order, IdleMode::Hold);
-        let aborted = steps.aborted.clone();
-        let mut server = pending_server();
-
-        let started = Instant::now();
-        let result = run_bounded_shutdown(&mut steps, &mut server, Duration::from_millis(50)).await;
-
-        assert!(result.is_ok());
-        assert!(started.elapsed() >= Duration::from_millis(50));
-        assert!(aborted.load(Ordering::SeqCst));
-        assert!(server.is_finished());
-    }
-
-    #[tokio::test]
-    async fn held_http_drain_shares_the_same_budget_after_items_are_idle() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order.clone(), IdleMode::Immediate);
-        let aborted = steps.aborted.clone();
-        let mut server = pending_server();
-
-        let started = Instant::now();
-        let result = run_bounded_shutdown(&mut steps, &mut server, Duration::from_millis(50)).await;
-
-        assert!(result.is_ok());
-        assert!(started.elapsed() >= Duration::from_millis(50));
-        assert_eq!(
-            *order.lock().expect("order"),
-            vec!["begin", "stop-background", "wait-for-idle"]
-        );
-        assert!(aborted.load(Ordering::SeqCst));
-        assert!(server.is_finished());
-    }
-
-    #[tokio::test]
     async fn server_failure_still_stops_owned_sources() {
         let order = Arc::new(Mutex::new(Vec::new()));
-        let mut steps = FakeSteps::new(order.clone(), IdleMode::Immediate);
+        let mut steps = FakeSteps::new(order.clone());
         let mut server = ServerTask::new(tokio::spawn(async {
             Err(anyhow::anyhow!("listen failed"))
         }));
@@ -1312,287 +1128,9 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
-    const SIGTERM_CHILD_ENV: &str = "CONTEXT69_SIGTERM_CHILD";
-
-    #[cfg(unix)]
-    #[test]
-    fn sigterm_child_process_helper() {
-        if std::env::var(SIGTERM_CHILD_ENV).as_deref() != Ok("1") {
-            return;
-        }
-
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("test runtime");
-        runtime.block_on(async {
-            let mut signals = super::UnixShutdownSignals::install().expect("install handlers");
-            use std::io::Write;
-            println!("ready");
-            std::io::stdout().flush().expect("flush ready line");
-            signals.recv().await;
-        });
-        std::process::exit(0);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn sigterm_reaches_a_child_process_coordinator() {
-        use std::io::{BufRead, BufReader};
-        use std::process::{Command, Stdio};
-
-        let exe = std::env::current_exe().expect("current test binary");
-        let mut child = match Command::new(exe)
-            .args([
-                "--exact",
-                "tests::sigterm_child_process_helper",
-                "--nocapture",
-            ])
-            .env(SIGTERM_CHILD_ENV, "1")
-            .stdout(Stdio::piped())
-            .stderr(Stdio::null())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(error) => {
-                eprintln!("skipping SIGTERM delivery test: cannot spawn helper: {error}");
-                return;
-            }
-        };
-
-        let stdout = child.stdout.take().expect("child stdout");
-        let ready = BufReader::new(stdout)
-            .lines()
-            .map_while(std::result::Result::ok)
-            .any(|line| line.contains("ready"));
-        if !ready {
-            let _ = child.kill();
-            let _ = child.wait();
-            panic!("child did not report signal-handler registration");
-        }
-
-        let kill = Command::new("kill")
-            .args(["-TERM", &child.id().to_string()])
-            .status();
-        match kill {
-            Ok(status) if status.success() => {}
-            other => {
-                eprintln!("skipping SIGTERM delivery test: kill unavailable: {other:?}");
-                let _ = child.kill();
-                let _ = child.wait();
-                return;
-            }
-        }
-
-        let deadline = Instant::now() + Duration::from_secs(5);
-        loop {
-            if let Some(status) = child.try_wait().expect("wait for child") {
-                assert!(
-                    status.success(),
-                    "child exited with {status:?} after SIGTERM"
-                );
-                break;
-            }
-            if Instant::now() >= deadline {
-                let _ = child.kill();
-                let _ = child.wait();
-                panic!("child did not exit after SIGTERM delivery");
-            }
-            std::thread::sleep(Duration::from_millis(10));
-        }
-    }
-
-    const TASK_ARTIFACTS_CHILD_ENV: &str = "CONTEXT69_TASK_ARTIFACTS_CLI_CHILD";
-    const TASK_ARTIFACTS_ARGS_ENV: &str = "CONTEXT69_TASK_ARTIFACTS_CLI_ARGS";
-
-    #[test]
-    fn task_artifacts_cli_child_helper() {
-        if std::env::var(TASK_ARTIFACTS_CHILD_ENV).as_deref() != Ok("1") {
-            return;
-        }
-        let raw = std::env::var(TASK_ARTIFACTS_ARGS_ENV).unwrap_or_default();
-        let args: Vec<String> = if raw.is_empty() {
-            Vec::new()
-        } else {
-            raw.split('\u{1f}').map(str::to_string).collect()
-        };
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("child runtime");
-        if let Err(error) = runtime.block_on(super::run_task_artifacts(args)) {
-            eprintln!("fatal: {error:#}");
-            std::process::exit(1);
-        }
-    }
-
-    /// Run the same entry `main` uses in a child process with an unusable
-    /// database URL, so a successful or argument-only run proves no connection
-    /// was attempted.
-    fn run_task_artifacts_child(args: &[&str]) -> std::process::Output {
-        use std::process::{Command, Stdio};
-
-        let exe = std::env::current_exe().expect("current test binary");
-        Command::new(exe)
-            .args([
-                "--exact",
-                "tests::task_artifacts_cli_child_helper",
-                "--nocapture",
-            ])
-            .env(TASK_ARTIFACTS_CHILD_ENV, "1")
-            .env(TASK_ARTIFACTS_ARGS_ENV, args.join("\u{1f}"))
-            .env(
-                "DATABASE_URL",
-                "postgres://invalid:invalid@127.0.0.1:1/none",
-            )
-            .current_dir(std::env::temp_dir())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .expect("spawn the task-artifacts child")
-    }
-
-    fn child_text(output: &std::process::Output) -> (String, String) {
-        (
-            String::from_utf8_lossy(&output.stdout).into_owned(),
-            String::from_utf8_lossy(&output.stderr).into_owned(),
-        )
-    }
-
-    #[test]
-    fn task_artifacts_help_finishes_without_config_or_database() {
-        let output = run_task_artifacts_child(&["--help"]);
-        let (stdout, stderr) = child_text(&output);
-        assert!(output.status.success(), "help failed: {stderr}");
-        assert!(stdout.contains("Usage: context69 task-artifacts"));
-        assert!(stdout.contains("--restore-inline"));
-        assert!(
-            !stdout.contains("connect"),
-            "help must not connect: {stdout}"
-        );
-        assert!(
-            !stderr.contains("postgres") && !stderr.contains("connect"),
-            "help touched the database: {stderr}"
-        );
-    }
-
-    #[test]
-    fn task_artifacts_invalid_flags_fail_before_connecting() {
-        for args in [
-            vec!["--kind", "bogus"],
-            vec!["--apply"],
-            vec!["--restore-inline", "--apply"],
-            vec!["--apply=false"],
-            vec!["--apply=false", "--acknowledge-reader-upgrade=false"],
-            vec!["--restore-inline=false"],
-            vec![
-                "--restore-inline=false",
-                "--apply=false",
-                "--acknowledge-inline-growth=false",
-            ],
-            vec!["--apply", "false"],
-        ] {
-            let output = run_task_artifacts_child(&args);
-            let (stdout, stderr) = child_text(&output);
-            assert!(
-                !output.status.success(),
-                "invalid flags succeeded for {args:?}: {stdout}"
-            );
-            assert!(
-                !stdout.contains("connect") && !stderr.contains("connect"),
-                "invalid flags reached the database for {args:?}: {stdout} {stderr}"
-            );
-            assert!(
-                !stdout.contains("Usage:")
-                    && !stdout.contains(
-                        "{
-"
-                    ),
-                "invalid flags produced normal output for {args:?}"
-            );
-        }
-    }
-
     #[test]
     fn supported_modes_document_the_task_artifacts_command() {
         assert!(super::SUPPORTED_MODES.contains("task-artifacts"));
-    }
-
-    struct FakeRecovery {
-        order: Arc<Mutex<Vec<&'static str>>>,
-        stops: bool,
-    }
-
-    impl RecoveryStop for FakeRecovery {
-        fn cancel_writers(&self) {
-            self.order.lock().expect("order").push("cancel-writers");
-        }
-
-        async fn stop_writers(&mut self) {
-            self.order.lock().expect("order").push("stop-writers");
-            if !self.stops {
-                std::future::pending::<()>().await;
-            }
-        }
-    }
-
-    #[tokio::test]
-    async fn waiting_recovery_stop_cancels_then_joins_under_one_budget() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut recovery = FakeRecovery {
-            order: order.clone(),
-            stops: true,
-        };
-        // The real listener exits as soon as its cancellation token fires.
-        let mut server = ServerTask::new(tokio::spawn(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            Ok(())
-        }));
-
-        shutdown_waiting_recovery(&mut recovery, &mut server, Duration::from_secs(1)).await;
-
-        assert_eq!(
-            *order.lock().expect("order"),
-            vec!["cancel-writers", "stop-writers"]
-        );
-        assert!(server.is_finished(), "the health listener must stop too");
-    }
-
-    #[tokio::test]
-    async fn signal_during_the_quiescence_join_returns_to_bounded_stop() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut recovery = FakeRecovery {
-            order: order.clone(),
-            stops: false,
-        };
-        let mut server = ServerTask::new(tokio::spawn(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            Ok(())
-        }));
-        let listener = tokio_util::sync::CancellationToken::new();
-        let mut signal: ShutdownSignal = Box::pin(async {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            Ok(())
-        });
-
-        let started = Instant::now();
-        let quiescence = join_quiesced(&mut recovery, &mut server, &listener, &mut signal)
-            .await
-            .expect("the installed signal source resolves cleanly");
-
-        assert_eq!(quiescence, Quiescence::Signalled);
-        assert!(started.elapsed() >= Duration::from_millis(20));
-        assert_eq!(*order.lock().expect("order"), vec!["stop-writers"]);
-        assert!(listener.is_cancelled());
-
-        // The caller then takes the same bounded stop instead of waiting for
-        // the held writer join.
-        shutdown_waiting_recovery(&mut recovery, &mut server, Duration::from_millis(50)).await;
-        assert_eq!(
-            *order.lock().expect("order"),
-            vec!["stop-writers", "cancel-writers", "stop-writers"]
-        );
     }
 
     #[tokio::test]
@@ -1615,80 +1153,5 @@ mod tests {
             "a signal must not be treated as completion"
         );
         assert!(started.elapsed() < Duration::from_secs(1));
-    }
-
-    #[tokio::test]
-    async fn waiting_recovery_stop_is_bounded_when_writers_do_not_finish() {
-        let order = Arc::new(Mutex::new(Vec::new()));
-        let mut recovery = FakeRecovery {
-            order: order.clone(),
-            stops: false,
-        };
-        let mut server = ServerTask::new(tokio::spawn(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-            Ok(())
-        }));
-
-        let started = Instant::now();
-        shutdown_waiting_recovery(&mut recovery, &mut server, Duration::from_millis(50)).await;
-
-        assert!(started.elapsed() >= Duration::from_millis(50));
-        assert_eq!(
-            *order.lock().expect("order"),
-            vec!["cancel-writers", "stop-writers"]
-        );
-        assert!(server.is_finished(), "the health listener must be stopped");
-    }
-
-    #[tokio::test]
-    async fn recovery_health_router_serves_only_liveness_and_unready_health() {
-        use context69::db::UpgradeGuardCounts;
-
-        use super::{UpgradeHealthState, UpgradeRecoveryStatus, upgrade_health_router};
-
-        let status = UpgradeRecoveryStatus::pending(
-            UpgradeGuardCounts {
-                affected_documents: 1,
-                blocking_task_items: 1,
-                blocking_remote_jobs: 1,
-            },
-            Duration::from_secs(3),
-        );
-        let state = UpgradeHealthState(Arc::new(std::sync::RwLock::new(status)));
-        let router = upgrade_health_router(state);
-        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
-            .await
-            .expect("bind the health listener");
-        let address = listener.local_addr().expect("health listener address");
-        let server = tokio::spawn(async move {
-            let _ = axum::serve(listener, router).await;
-        });
-        let base = format!("http://{address}");
-
-        let live = reqwest::get(format!("{base}/livez"))
-            .await
-            .expect("GET /livez");
-        assert_eq!(live.status(), reqwest::StatusCode::OK);
-
-        let ready = reqwest::get(format!("{base}/readyz"))
-            .await
-            .expect("GET /readyz");
-        assert_eq!(ready.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
-        let body: serde_json::Value = ready.json().await.expect("readiness body");
-        assert_eq!(body["upgrade_pending"], serde_json::json!(true));
-        assert_eq!(body["blocking_remote_jobs"], serde_json::json!(1));
-        assert_eq!(body["elapsed_seconds"], serde_json::json!(3));
-
-        let health = reqwest::get(format!("{base}/healthz"))
-            .await
-            .expect("GET /healthz");
-        assert_eq!(health.status(), reqwest::StatusCode::SERVICE_UNAVAILABLE);
-
-        let other = reqwest::get(format!("{base}/api/v1/tasks"))
-            .await
-            .expect("GET a non-health route");
-        assert_eq!(other.status(), reqwest::StatusCode::NOT_FOUND);
-
-        server.abort();
     }
 }

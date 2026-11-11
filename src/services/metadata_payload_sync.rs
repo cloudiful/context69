@@ -93,17 +93,6 @@ impl MetadataPayloadSyncWorker {
         info!("metadata payload sync worker stopped");
     }
 
-    /// Drive one bounded mirror pass against the current ready pair.
-    ///
-    /// Integration tests own the clock and the retry state, so they call this
-    /// instead of starting the background loop. The retirement outbox is not
-    /// drained here: the mirror cases must observe only their own marker.
-    #[cfg(feature = "integration-test-helpers")]
-    pub async fn drain_mirror_once_for_test(&self) -> Result<()> {
-        let shutdown = CancellationToken::new();
-        self.drain_mirror_pass(&shutdown).await
-    }
-
     async fn drain_pass(
         &self,
         state: &CurrentVectorState,

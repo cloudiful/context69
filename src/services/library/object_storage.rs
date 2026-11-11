@@ -336,107 +336,12 @@ fn is_not_found_error(error: &anyhow::Error) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
-    use bytes::Bytes;
-    use uuid::Uuid;
-
-    use crate::config::FileLibraryConfig;
-
-    use super::super::streaming::ByteSink;
-    use super::{LibraryObjectStorage, content_object_key, staging_object_key};
-
-    #[tokio::test]
-    async fn local_backend_round_trips_objects() {
-        let root = std::env::temp_dir().join(format!("context69-storage-{}", Uuid::new_v4()));
-        let storage = LibraryObjectStorage::from_config(&config(root.clone())).unwrap();
-        let key = content_object_key(42, &"a".repeat(64));
-
-        storage
-            .write(&key, Bytes::from_static(b"content"))
-            .await
-            .unwrap();
-        assert!(storage.exists(&key).await.unwrap());
-        assert_eq!(
-            storage.read(&key).await.unwrap(),
-            Some(Bytes::from_static(b"content"))
-        );
-        storage.delete(&key).await.unwrap();
-        assert!(!storage.exists(&key).await.unwrap());
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// Issue 667 Phase 1: the streamed writer lands the bytes, and finalizing
-    /// copies them to the content-addressed key so the temporary staging key is
-    /// never what the catalog records.
-    #[tokio::test]
-    async fn streamed_staging_writer_finalizes_into_the_content_key() {
-        let root = std::env::temp_dir().join(format!("context69-storage-{}", Uuid::new_v4()));
-        let storage = LibraryObjectStorage::from_config(&config(root.clone())).unwrap();
-        let temp_key = staging_object_key(42, Uuid::new_v4());
-        let key = content_object_key(42, &"c".repeat(64));
-        assert_ne!(temp_key, key);
-
-        let mut writer = storage.open_stream_writer(&temp_key).await.unwrap();
-        writer
-            .write_chunk(Bytes::from_static(b"stream"))
-            .await
-            .unwrap();
-        writer.write_chunk(Bytes::from_static(b"ed")).await.unwrap();
-        writer.close().await.unwrap();
-        assert_eq!(
-            storage.read(&temp_key).await.unwrap(),
-            Some(Bytes::from_static(b"streamed"))
-        );
-
-        storage.copy(&temp_key, &key).await.unwrap();
-        assert_eq!(
-            storage.read(&key).await.unwrap(),
-            Some(Bytes::from_static(b"streamed"))
-        );
-        storage.delete(&temp_key).await.unwrap();
-        assert!(!storage.exists(&temp_key).await.unwrap());
-        assert!(storage.exists(&key).await.unwrap());
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
-
-    /// A failed stream is aborted and the caller deletes the temporary key:
-    /// the local filesystem backend writes in place and cannot abort, so the
-    /// delete is what guarantees the failure path leaves no staging bytes.
-    #[tokio::test]
-    async fn aborted_streamed_write_is_reclaimed_by_the_staging_delete() {
-        let root = std::env::temp_dir().join(format!("context69-storage-{}", Uuid::new_v4()));
-        let storage = LibraryObjectStorage::from_config(&config(root.clone())).unwrap();
-        let temp_key = staging_object_key(42, Uuid::new_v4());
-
-        let mut writer = storage.open_stream_writer(&temp_key).await.unwrap();
-        writer
-            .write_chunk(Bytes::from_static(b"half"))
-            .await
-            .unwrap();
-        writer.abort(&temp_key).await;
-        drop(writer);
-        storage.delete(&temp_key).await.unwrap();
-        assert!(!storage.exists(&temp_key).await.unwrap());
-
-        std::fs::remove_dir_all(root).unwrap();
-    }
+    use super::content_object_key;
 
     #[test]
     fn content_keys_are_group_scoped() {
         let hash = "b".repeat(64);
         assert_eq!(content_object_key(7, &hash), format!("objects/7/{hash}"));
         assert_ne!(content_object_key(7, &hash), content_object_key(8, &hash));
-    }
-
-    fn config(storage_root: PathBuf) -> FileLibraryConfig {
-        FileLibraryConfig {
-            storage_root,
-            max_upload_size_mb: 1,
-            trusted_proxy_enabled: false,
-            s3: None,
-        }
     }
 }

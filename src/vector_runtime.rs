@@ -961,7 +961,7 @@ impl VectorRuntime {
 /// production startup attaches the active physical collection and never
 /// adopts or creates a collection.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg(any(test, feature = "integration-test-helpers"))]
+#[cfg(test)]
 pub(crate) enum UnrecordedCollection {
     /// No collection exists: safe zero-data bootstrap may create it.
     CreateMissing,
@@ -977,7 +977,7 @@ pub(crate) enum UnrecordedCollection {
     BlockedDimensions { found: usize, points: u64 },
 }
 
-#[cfg(any(test, feature = "integration-test-helpers"))]
+#[cfg(test)]
 pub(crate) fn decide_unrecorded_collection(
     existing: Option<(u64, usize)>,
     dimensions: usize,
@@ -990,65 +990,6 @@ pub(crate) fn decide_unrecorded_collection(
         }
         Some((points, _)) => UnrecordedCollection::RebuildOnly { points },
     }
-}
-
-/// The index and the decision for a collection that has no recorded identity.
-#[cfg(feature = "integration-test-helpers")]
-pub(crate) struct UnrecordedAttach {
-    pub(crate) decision: UnrecordedCollection,
-    /// Present for the create, empty-adopt, and rebuild-only paths; absent when
-    /// the collection is blocked.
-    pub(crate) index: Option<Arc<QdrantIndex>>,
-}
-
-/// Inspects a collection without a recorded identity and attaches it read-only
-/// when it may be used.
-///
-/// Creation happens only for an absent collection. An existing collection is
-/// never deleted or recreated, and an unknown populated one yields a
-/// rebuild-only index: its vectors are never adopted as an empty space, no
-/// identity is persisted here, and the caller decides whether the explicit
-/// manual rebuild may run.
-///
-/// The seam is not part of the production startup: startup attaches the
-/// active physical collection and never adopts or creates one. It exists for
-/// the compatibility tests that drive the same read-only inspection.
-#[cfg(feature = "integration-test-helpers")]
-pub(crate) async fn attach_unrecorded_collection(
-    config: &crate::config::QdrantConfig,
-    dimensions: usize,
-) -> Result<UnrecordedAttach> {
-    let existing = QdrantIndex::inspect_existing(config, dimensions).await?;
-    let decision = decide_unrecorded_collection(existing, dimensions);
-    let index = match decision {
-        UnrecordedCollection::CreateMissing => Some(Arc::new(
-            QdrantIndex::bootstrap(config, dimensions, true).await?.0,
-        )),
-        UnrecordedCollection::AdoptEmpty => Some(Arc::new(
-            QdrantIndex::bootstrap(config, dimensions, false).await?.0,
-        )),
-        UnrecordedCollection::RebuildOnly { .. } => Some(Arc::new(
-            QdrantIndex::attach_read_only(config, dimensions).await?,
-        )),
-        UnrecordedCollection::BlockedDimensions { .. } => None,
-    };
-    Ok(UnrecordedAttach { decision, index })
-}
-
-/// Integration-test seam for the production unrecorded-collection bootstrap.
-///
-/// Compiled only with `integration-test-helpers`, so a loopback test can drive
-/// the same read-only inspection, creation, and rebuild-only attach the
-/// application connector uses without exposing it in a production build.
-#[cfg(feature = "integration-test-helpers")]
-#[doc(hidden)]
-pub async fn attach_unrecorded_collection_for_test(
-    config: &crate::config::QdrantConfig,
-    dimensions: usize,
-) -> Result<(bool, Option<Arc<QdrantIndex>>)> {
-    let attached = attach_unrecorded_collection(config, dimensions).await?;
-    let rebuild_only = matches!(attached.decision, UnrecordedCollection::RebuildOnly { .. });
-    Ok((rebuild_only, attached.index))
 }
 
 /// Classifies a connection/bootstrap failure from its message without exposing

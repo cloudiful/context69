@@ -62,16 +62,7 @@ impl Drop for ClaimRun {
 
 /// A test hook in front of the pipeline body.
 ///
-/// The production build runs an async no-op. A test installs a gate so the
-/// cancellation of the real driver can be observed with its spawned work
-/// genuinely pending, instead of mocking the handles the driver owns.
-#[cfg(not(test))]
 async fn work_body_gate() {}
-
-#[cfg(test)]
-async fn work_body_gate() {
-    tests::work_gate::wait().await;
-}
 
 /// The failure bookkeeping of one claimed attempt.
 ///

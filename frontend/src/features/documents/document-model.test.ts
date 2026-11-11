@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 
+import type { DocumentChunkResponse, DocumentResponse } from "@/services/api";
+
 import {
   DOCUMENT_PAGE_SIZE,
   documentBlocks,
@@ -10,7 +12,40 @@ import {
   parseDocumentId,
   safeExternalUrl,
 } from "./document-model";
-import { chunkFixture, documentFixture } from "./test-support";
+
+function chunkFixture(overrides: Partial<DocumentChunkResponse> = {}): DocumentChunkResponse {
+  return {
+    chunk_id: "chunk-1",
+    chunk_index: 0,
+    record_hash: "hash-42",
+    text: "First stored block.",
+    ...overrides,
+  };
+}
+
+function documentFixture(overrides: Partial<DocumentResponse> = {}): DocumentResponse {
+  return {
+    document_id: 42,
+    source_key: "gov_documents",
+    group_key: "alpha",
+    group_path: "stock/alpha",
+    external_id: "ext-42",
+    record_hash: "hash-42",
+    visibility: "private",
+    title: "Cyber Policy Update",
+    summary: "Stored summary about cyber policy.",
+    source_uri: "https://example.test/doc",
+    published_at: "2026-01-01",
+    updated_at: "2026-01-02T08:30:00Z",
+    metadata_json: {},
+    library_path: "Alpha Research/Reports",
+    library_section_label: "Body",
+    is_library_file: false,
+    library_file_id: null,
+    chunks: [chunkFixture()],
+    ...overrides,
+  };
+}
 
 describe("document model", () => {
   it("accepts only canonical positive document ids", () => {

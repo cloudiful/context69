@@ -1,2 +1,0 @@
-DELETE FROM context69.runtime_embedding_settings
-WHERE singleton

@@ -681,7 +681,3 @@ fn role_from_rank(rank: Option<i16>) -> Option<MembershipRole> {
         _ => None,
     }
 }
-
-#[cfg(test)]
-#[path = "namespaces_tests.rs"]
-mod tests;

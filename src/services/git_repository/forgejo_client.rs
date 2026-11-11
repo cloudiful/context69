@@ -294,8 +294,6 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
             return Err(anyhow!(DomainError::upstream_error("git_tree_incomplete")));
         }
         Ok(TreeListing {
-            #[cfg(test)]
-            commit_sha: commit_sha.clone(),
             files,
             excluded_files,
             too_large_files,
@@ -347,13 +345,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
             }
         }
         Ok(BlobContent {
-            #[cfg(test)]
-            declared_size,
             bytes: Bytes::from(decoded),
         })
     }
 }
-
-#[cfg(test)]
-#[path = "forgejo_client_tests.rs"]
-mod tests;

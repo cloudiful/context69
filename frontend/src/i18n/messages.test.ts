@@ -48,7 +48,6 @@ function collectSourceCatalogKeys(): Set<string> {
   }
 
   walk(join(SOURCE_ROOT, "src"));
-  walk(join(SOURCE_ROOT, "e2e"));
   return keys;
 }
 

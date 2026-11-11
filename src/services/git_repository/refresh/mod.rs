@@ -17,11 +17,6 @@ use std::time::Duration;
 mod cleanup;
 mod scheduler;
 
-#[cfg(test)]
-pub(crate) use cleanup::{
-    cleanup_deleted_source, prune_generations, remove_generation_vectors,
-    run_pending_generation_cleanup,
-};
 pub(crate) use cleanup::{complete_refresh, delete_repository};
 pub(crate) use scheduler::{request_and_enqueue_refresh, run_git_refresh_scheduler};
 

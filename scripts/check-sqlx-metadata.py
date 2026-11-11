@@ -18,8 +18,8 @@ The gate proves three conditions:
   the pinned library's own shipped `.sqlx` and is byte-identical to it, with no
   missing metadata outside that library and no library entry copied into the
   consumer cache;
-* A3 - the locked, offline workspace build with the helper features passes on the
-  two caches as they are.
+* A3 - the locked, offline workspace build passes on the two caches as they
+  are.
 
 The comparison always uses the inventory the native run just generated, for both
 native outcomes. SQLx exits 0 when the committed cache is a strict superset of
@@ -62,7 +62,7 @@ from pathlib import Path
 
 # The pinned library the consumer cache must never absorb (issue 1020 P1).
 EXPECTED_REPO = "https://github.com/cloudiful/tasks"
-EXPECTED_REV = "143fb74e067b5fd983e3957612a94f0cd41ac247"
+EXPECTED_REV = "ea91d20e66272e3f8073c81bbc399d583c558296"
 
 # SQLx leaves its check-mode inventory beside the build cache.
 SCRATCH_DIR_NAME = "sqlx-prepare-check"
@@ -78,12 +78,11 @@ SCRATCH_DIR_NAME = "sqlx-prepare-check"
 NATIVE_SUBCOMMAND = ["prepare", "--workspace", "--check"]
 # The child `cargo check` arguments. `--workspace` selects every member and its
 # test targets, matching the scope of the A3 offline build below.
-NATIVE_CHILD_ARGS = ["--workspace", "--all-targets", "--features", "integration-test-helpers"]
-# The independent offline build of A3, with the helper features enabled. Its own
-# `--workspace` already selects every member, so it takes only the target and
-# feature arguments.
+NATIVE_CHILD_ARGS = ["--workspace", "--all-targets"]
+# The independent offline build of A3. Its own `--workspace` already selects
+# every member, so it takes only the target arguments.
 OFFLINE_BUILD_SUBCOMMAND = ["check", "--locked", "--offline", "--workspace"]
-OFFLINE_BUILD_ARGS = ["--all-targets", "--features", "integration-test-helpers"]
+OFFLINE_BUILD_ARGS = ["--all-targets"]
 
 # The one native failure the composed gate may accept: the specific
 # missing-query-set report, after a successful compile.

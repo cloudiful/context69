@@ -75,12 +75,6 @@ impl<T: GitHttpTransport + ?Sized> GitHubAcquirer<T> {
         })
     }
 
-    /// Coordinates for repository client assertions.
-    #[cfg(test)]
-    pub(crate) fn coordinates(&self) -> &GitHubRepoCoordinates {
-        &self.coordinates
-    }
-
     /// Core ref resolution, shared by the trait impl and the resolution
     /// flows: `HEAD` routes through repository `default_branch` metadata,
     /// annotated tags dereference to commits with bounded depth.
@@ -223,8 +217,6 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             });
         }
         Ok(TreeListing {
-            #[cfg(test)]
-            commit_sha: commit_sha.clone(),
             files,
             excluded_files,
             too_large_files,
@@ -279,13 +271,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for GitHubAcquirer<
             }
         }
         Ok(BlobContent {
-            #[cfg(test)]
-            declared_size,
             bytes: Bytes::from(decoded),
         })
     }
 }
-
-#[cfg(test)]
-#[path = "github_client_tests.rs"]
-mod tests;

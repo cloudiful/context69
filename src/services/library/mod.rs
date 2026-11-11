@@ -144,17 +144,6 @@ mod url_import_runtime;
 mod url_imports;
 mod xlsx;
 
-/// The remote-download seam an integration test drives.
-///
-/// The types are the production transport contract: an injected transport
-/// answers with a status, headers, a peer address, and a body, and the
-/// production policy decides what may be fetched and how the bytes are
-/// guarded. Nothing here weakens that policy.
-#[cfg(feature = "integration-test-helpers")]
-pub mod test_remote {
-    pub use super::remote_proxy::{FetchedRemoteResponse, RemoteBody, RemoteHttpTransport};
-}
-
 pub(crate) use crate::contracts::LibraryIngestFailureStage;
 pub use ingest_types::LibraryDependency;
 use ingest_types::{
@@ -561,16 +550,6 @@ impl LibraryService {
         self.chunking_runtime = chunking;
     }
 
-    /// The translation service of this scope.
-    ///
-    /// A scoped library carries the pinned budget in its translation service,
-    /// so a caller that must observe the budget this library publishes under
-    /// reads it here instead of the process-wide one.
-    #[cfg(any(test, feature = "integration-test-helpers"))]
-    pub(crate) fn translation(&self) -> &TranslationService {
-        &self.translation
-    }
-
     /// A clone of this service that chunks under one pinned budget.
     ///
     /// A task item that pinned its budget before execution uses this for the
@@ -607,34 +586,6 @@ impl LibraryService {
     #[must_use]
     pub fn with_registry_publication(mut self) -> Self {
         self.registry_caps = Some(RegistryQuotaOverride::none());
-        self
-    }
-
-    /// Test-only setup of the registry admission caps.
-    ///
-    /// The caps only narrow the persisted policy: a test can lower the
-    /// registry capacity, never raise it.
-    #[cfg(any(test, feature = "integration-test-helpers"))]
-    #[must_use]
-    pub fn with_registry_caps_for_test(mut self, caps: [i64; 3]) -> Self {
-        self.registry_caps = Some(RegistryQuotaOverride::exact(caps));
-        self
-    }
-
-    /// Test-only setup of the HTTP transport a remote download goes through.
-    ///
-    /// The injected transport replaces the HTTP call only. Every guard around
-    /// it — the URL normalization, the public-address check, the redirect
-    /// check, the peer check, and the size and type guards — stays in
-    /// production code, so a scripted transport is refused exactly like a real
-    /// one when it names a private peer.
-    #[cfg(feature = "integration-test-helpers")]
-    #[must_use]
-    pub fn with_remote_transport_for_test(
-        mut self,
-        transport: Arc<dyn remote_proxy::RemoteHttpTransport>,
-    ) -> Self {
-        self.remote_transport = Some(transport);
         self
     }
 

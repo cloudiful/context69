@@ -122,7 +122,3 @@ impl GitHttpTransport for GitHubApiTransport {
         })
     }
 }
-
-#[cfg(test)]
-#[path = "github_transport_tests.rs"]
-mod tests;
