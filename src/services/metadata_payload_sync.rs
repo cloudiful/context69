@@ -205,6 +205,18 @@ impl MetadataPayloadSyncWorker {
         let Some(snapshot) = &state.snapshot else {
             anyhow::bail!("vector runtime has no published pair");
         };
+        if self.db.read_search_registry_unavailable().await? {
+            anyhow::bail!("the derived original index is unavailable; the job stays pending");
+        }
+        let Some(active) = self.db.read_active_vector_index_state().await? else {
+            anyhow::bail!("the deployment has no active vector index");
+        };
+        if active.collection_name != snapshot.collection {
+            anyhow::bail!(
+                "the published vector pair does not match the active vector index; the job stays \
+                 pending"
+            );
+        }
         let Some(points) = self
             .db
             .metadata_payload_sync_points(job.document_id)
@@ -248,6 +260,17 @@ impl MetadataPayloadSyncWorker {
                 "retire extraction payload",
             )
             .await?;
+        if !self.generation_is(state) {
+            anyhow::bail!("vector runtime generation changed before the payload completion");
+        }
+        let current_active = self.db.read_active_vector_index_state().await?;
+        if current_active.map(|active| active.collection_name) != Some(snapshot.collection.clone())
+        {
+            anyhow::bail!(
+                "the active vector index changed before the payload completion; the job stays \
+                 pending"
+            );
+        }
         info!(
             job_id = job.id,
             document_id = job.document_id,

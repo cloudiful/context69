@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Install exactly one staged original page into the live chunk table.\n--\n-- The page is selected from the immutable staging keyset, never from a\n-- `RETURNING` clause or a join that could add rows. A repeated page is\n-- idempotent: the staging chunk id is the live primary key.\nINSERT INTO context69.document_chunks (\n    id,\n    document_id,\n    chunk_index,\n    chunk_text,\n    record_hash\n)\nSELECT\n    s.chunk_id,\n    s.document_id,\n    s.chunk_index,\n    s.chunk_text,\n    s.record_hash\nFROM context69.document_chunk_rebuild_staging s\nWHERE s.target_collection = $1\n  AND (\n      $2::bigint IS NULL\n      OR s.document_id > $2\n      OR (s.document_id = $2 AND s.chunk_index > $3)\n  )\n  AND (\n      s.document_id < $4\n      OR (s.document_id = $4 AND s.chunk_index <= $5)\n  )\nON CONFLICT (id) DO NOTHING\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4c1ead5c8d21e7195d1b8571c4c0a4ac350e37671ea2b113d129d31d017f2028"
+}

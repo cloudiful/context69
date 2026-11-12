@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "-- The persistent rebuild barrier of the registry epoch row.\n--\n-- The barrier is read under the epoch row lock, so a caller that locked the\n-- epoch before it reads the barrier sees the state of the same instant as\n-- every other writer.\nSELECT\n    rebuild_state,\n    rebuild_owner_item,\n    rebuild_owner_token,\n    rebuild_fingerprint,\n    rebuild_collection,\n    rebuild_started_at,\n    rebuild_error,\n    rebuild_pause_requested,\n    rebuild_cursor_document_id,\n    rebuild_cursor_chunk_index,\n    rebuild_processed_chunks,\n    rebuild_total_chunks,\n    rebuild_target_created\nFROM context69.search_registry_epoch\nWHERE id = 1\n",
+  "query": "-- The persistent rebuild barrier and install state of the registry epoch row.\n--\n-- The barrier is read under the epoch row lock, so a caller that locked the\n-- epoch before it reads the barrier sees the state of the same instant as\n-- every other writer. `document_index_invalid` is the durable derived-index\n-- validity and the install columns are the committed bounded-install position.\nSELECT\n    rebuild_state,\n    rebuild_owner_item,\n    rebuild_owner_token,\n    rebuild_fingerprint,\n    rebuild_collection,\n    rebuild_started_at,\n    rebuild_error,\n    rebuild_pause_requested,\n    rebuild_cursor_document_id,\n    rebuild_cursor_chunk_index,\n    rebuild_processed_chunks,\n    rebuild_total_chunks,\n    rebuild_target_created,\n    document_index_invalid,\n    rebuild_install_started,\n    rebuild_install_cursor_document_id,\n    rebuild_install_cursor_chunk_index,\n    rebuild_installed_chunks,\n    rebuild_install_total_chunks\nFROM context69.search_registry_epoch\nWHERE id = 1\n",
   "describe": {
     "columns": [
       {
@@ -145,6 +145,72 @@
             "name": "rebuild_target_created"
           }
         }
+      },
+      {
+        "ordinal": 13,
+        "name": "document_index_invalid",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "document_index_invalid"
+          }
+        }
+      },
+      {
+        "ordinal": 14,
+        "name": "rebuild_install_started",
+        "type_info": "Bool",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_install_started"
+          }
+        }
+      },
+      {
+        "ordinal": 15,
+        "name": "rebuild_install_cursor_document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_install_cursor_document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 16,
+        "name": "rebuild_install_cursor_chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_install_cursor_chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 17,
+        "name": "rebuild_installed_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_installed_chunks"
+          }
+        }
+      },
+      {
+        "ordinal": 18,
+        "name": "rebuild_install_total_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_install_total_chunks"
+          }
+        }
       }
     ],
     "parameters": {
@@ -163,8 +229,14 @@
       true,
       false,
       false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      false,
       false
     ]
   },
-  "hash": "510a9bd4f8f5ad32530819d360e059e3fa69168e6574a499d4a7d97ea71de97d"
+  "hash": "2711c88fe25a86da4881d1484c018958dea6f60a621a626050c59fe080a09fa1"
 }

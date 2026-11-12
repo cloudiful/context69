@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Begin the one-time bounded installation of a verified staged snapshot.\n--\n-- Runs after the old original chunks were cleaned and truncated, under the\n-- exact owner fence. The total is pinned from the staged original source, so a\n-- later publish compares against the same number the installation commits.\n-- The reset is only admitted once: a resumed attempt keeps its committed\n-- install checkpoints.\nUPDATE context69.search_registry_epoch\nSET rebuild_install_started = TRUE,\n    rebuild_install_cursor_document_id = NULL,\n    rebuild_install_cursor_chunk_index = NULL,\n    rebuild_installed_chunks = 0,\n    rebuild_install_total_chunks = (\n        SELECT count(*)::bigint\n        FROM context69.document_chunk_rebuild_staging staging\n        WHERE staging.target_collection = $4\n    ),\n    epoch = context69.search_registry_epoch.epoch + 1,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\n  AND rebuild_staging_complete\n  AND NOT rebuild_install_started\nRETURNING rebuild_install_total_chunks\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rebuild_install_total_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_install_total_chunks"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "f5d52374ad3180494d0328ed363debbdd2957fa56e3deb0c20c1d95fdb69122c"
+}

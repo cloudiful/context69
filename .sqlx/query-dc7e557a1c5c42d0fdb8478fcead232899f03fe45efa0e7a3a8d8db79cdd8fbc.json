@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Delete one bounded batch of a queued target's staged document metadata.\n--\n-- Only reached once the staged original and translation children are empty, so\n-- the metadata rows cannot disappear ahead of the rows that describe them.\nDELETE FROM context69.document_rebuild_staging_documents\nWHERE target_collection = $1\n  AND ctid IN (\n      SELECT staged.ctid\n      FROM context69.document_rebuild_staging_documents staged\n      WHERE staged.target_collection = $1\n      LIMIT $2\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.document_chunk_rebuild_staging original\n      WHERE original.target_collection = $1\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.document_translation_rebuild_staging translated\n      WHERE translated.target_collection = $1\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dc7e557a1c5c42d0fdb8478fcead232899f03fe45efa0e7a3a8d8db79cdd8fbc"
+}

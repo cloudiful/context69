@@ -110,6 +110,17 @@ pub(crate) struct RerankContext<'a> {
     pub fetch_limit: usize,
 }
 
+/// Result of the post-attempt registry epoch re-read.
+///
+/// A moved epoch names the observed value so the retry log carries both sides
+/// of the change; the caller discards the attempt and loops through the
+/// availability check before it may answer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RegistryEpochCheck {
+    Current,
+    Moved { observed: i64 },
+}
+
 #[derive(Clone)]
 pub struct SearchService {
     repository: Arc<dyn SearchRepository>,
@@ -537,6 +548,22 @@ impl SearchService {
         Ok((rerank_outcome, rerank_applied))
     }
 
+    /// Whether an attempt's registry snapshot is still the live epoch.
+    ///
+    /// Both relevance return paths — a cached page and a freshly assembled
+    /// page — re-read the epoch as their last check. A cache key carries the
+    /// search generation but not the registry epoch, so the read is the only
+    /// proof that no rebuild or invalidation intervened while the attempt was
+    /// in flight.
+    async fn check_registry_epoch(&self, snapshot_epoch: i64) -> Result<RegistryEpochCheck> {
+        let observed = self.repository.read_search_registry_epoch().await?;
+        if observed == snapshot_epoch {
+            Ok(RegistryEpochCheck::Current)
+        } else {
+            Ok(RegistryEpochCheck::Moved { observed })
+        }
+    }
+
     pub async fn search(
         &self,
         user_id: Option<i64>,
@@ -554,12 +581,15 @@ impl SearchService {
 
         // Optimistic registry-epoch coherence (issue #1138 P3): every attempt
         // snapshots the registry before any contributing read and re-checks
-        // the epoch after the response is assembled. A moved epoch discards the
-        // attempt — including its cache write — and the search repeats before
-        // returning. No fixed retry count exists: the loop answers only from a
-        // pass whose epoch stayed stable, so any bound would fake consistency.
+        // the epoch before either return path. A moved epoch discards the
+        // attempt — including its cache write — and the search repeats through
+        // the availability check before returning, so a cached page cannot
+        // outlive the epoch that produced it. No fixed retry count exists: the
+        // loop answers only from a pass whose epoch stayed stable, so any bound
+        // would fake consistency.
         loop {
             let registry = self.repository.read_search_registry_state().await?;
+            registry.ensure_available()?;
             let exclusions = registry.search_exclusions();
             let mut probe = SearchProbe::new();
             let scope = self
@@ -601,15 +631,26 @@ impl SearchService {
             // The response cache stores pages of the ordering that produced them;
             // a cursor pins the request to a specific ordering epoch, so cursor
             // requests always run the pipeline and validate their ordering instead
-            // of trusting a cached payload. A cached page is coherent from its own
-            // epoch (its key already carries the search generation), so no registry
-            // re-check is needed on a hit.
+            // of trusting a cached payload. The key carries the search generation,
+            // but not the registry epoch, so a hit is still rechecked against the
+            // attempt's registry snapshot before it may return: a rebuild or
+            // invalidation that intervened must fail the cached page closed.
             if let Some(response) = self
                 .cache
                 .get_search_response(generation, &request_hash, &settings_hash)
                 .await
                 .filter(|_| request.cursor.is_none())
             {
+                if let RegistryEpochCheck::Moved { observed } =
+                    self.check_registry_epoch(registry.epoch).await?
+                {
+                    info!(
+                        snapshot_epoch = registry.epoch,
+                        observed_epoch = observed,
+                        "search registry epoch changed; discarding cached response and retrying"
+                    );
+                    continue;
+                }
                 probe.response_cache_hit = true;
                 probe.fetch_limit = fetch_limit;
                 probe.offset = offset;
@@ -676,26 +717,28 @@ impl SearchService {
             // The re-check is the last read before the response returns, so it
             // covers the candidate fetch, the keyword fetch, hydration, and the
             // rerank reads of this attempt.
-            let epoch = self.repository.read_search_registry_epoch().await?;
-            if epoch == registry.epoch {
-                if request.cursor.is_none() {
-                    self.cache
-                        .set_search_response(generation, &request_hash, &settings_hash, &response)
-                        .await;
-                }
-                probe.fetch_limit = fetch_limit;
-                probe.offset = offset;
-                probe.limit = request.limit;
-                probe.has_more = response.pagination.has_more;
-                probe.result_count = response.items.len();
-                probe.log();
-                return Ok(response);
+            if let RegistryEpochCheck::Moved { observed } =
+                self.check_registry_epoch(registry.epoch).await?
+            {
+                info!(
+                    snapshot_epoch = registry.epoch,
+                    observed_epoch = observed,
+                    "search registry epoch changed; discarding attempt and retrying"
+                );
+                continue;
             }
-            info!(
-                snapshot_epoch = registry.epoch,
-                observed_epoch = epoch,
-                "search registry epoch changed; discarding attempt and retrying"
-            );
+            if request.cursor.is_none() {
+                self.cache
+                    .set_search_response(generation, &request_hash, &settings_hash, &response)
+                    .await;
+            }
+            probe.fetch_limit = fetch_limit;
+            probe.offset = offset;
+            probe.limit = request.limit;
+            probe.has_more = response.pagination.has_more;
+            probe.result_count = response.items.len();
+            probe.log();
+            return Ok(response);
         }
     }
 
@@ -718,6 +761,7 @@ impl SearchService {
     ) -> Result<SearchResponse> {
         loop {
             let registry = self.repository.read_search_registry_state().await?;
+            registry.ensure_available()?;
             let exclusions = registry.search_exclusions();
             let response = run_date_search(
                 &*self.repository,

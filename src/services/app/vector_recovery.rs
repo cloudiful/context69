@@ -200,6 +200,15 @@ impl VectorConnector for AppVectorConnector {
         let embedding = build_provider(&config.embedding)?;
         let identity = EmbeddingIdentity::from_config(&config.embedding);
         let configured_fingerprint = vector_identity::fingerprint(&config);
+        // A durably invalid derived index (a failed, cancelled or superseded
+        // installation) must not be advertised as a healthy cached vector pair
+        // after a restart. Existing rebuild-required semantics apply.
+        if self.db.read_search_registry_unavailable().await? {
+            return Err(anyhow::anyhow!(
+                "configuration: the derived original index is invalid; an explicit rebuild must \
+                 install and activate a matching collection"
+            ));
+        }
         // The active pointer is the only collection this deployment may serve.
         // Without it there are no vectors to read at all, and an active row
         // whose logical identity or dimension differs from the configured one

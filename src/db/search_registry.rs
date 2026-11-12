@@ -84,6 +84,20 @@ pub struct RebuildBarrier {
     /// attached, while a recorded target without it is absent or ambiguous
     /// and is never adopted.
     pub rebuild_target_created: bool,
+    /// Durable derived-index validity. It is set before the first destructive
+    /// original-registry mutation and cleared only by a successful publish, so
+    /// a paused, failed, cancelled or superseded rebuild can never make a
+    /// partially installed chunk table searchable.
+    pub document_index_invalid: bool,
+    /// Whether the one-time bounded installation already resets the live chunk
+    /// table and pinned its total.
+    pub install_started: bool,
+    /// The last committed installation page, or `None` while none committed.
+    pub install_cursor: Option<RebuildCursor>,
+    /// Original chunks installed by the bounded installation.
+    pub installed_chunks: i64,
+    /// Original chunks pinned from the staged source when installation began.
+    pub install_total_chunks: i64,
 }
 
 /// The document-rechunk staging state of the registry epoch row.
@@ -130,6 +144,28 @@ pub struct RebuildCheckpoint {
     pub total_chunks: i64,
 }
 
+/// One committed bounded original-installation page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RebuildInstallAdvance {
+    /// The last installed key of the page.
+    pub cursor: RebuildCursor,
+    /// Source rows the page installed.
+    pub installed: i64,
+    /// The installed count the page observed before it committed.
+    pub expected_installed: i64,
+}
+
+/// The deterministic original reservation of one target file.
+#[derive(Debug, Clone, Copy)]
+pub struct OriginalRebuildReservation<'a> {
+    pub run_id: Uuid,
+    pub file_id: Option<Uuid>,
+    pub generation: i64,
+    pub count: i64,
+    pub fingerprint: &'a str,
+    pub collection: &'a str,
+}
+
 impl RebuildBarrier {
     /// Whether `item` still owns this running barrier with `token`.
     pub fn is_owned_by(&self, item: Uuid, token: Uuid) -> bool {
@@ -174,7 +210,7 @@ pub enum RebuildRefusalReason {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RebuildStartOutcome {
     /// The barrier is now owned by the caller.
-    Started(RebuildBarrier),
+    Started(Box<RebuildBarrier>),
     /// The barrier was not taken.
     Refused(RebuildRefusalReason),
 }
@@ -253,6 +289,7 @@ fn validate_phase(label: &str, phase: &str) -> Result<()> {
 #[derive(Debug, sqlx::FromRow)]
 struct SearchRegistryStateRow {
     epoch: i64,
+    unavailable: bool,
     entries: serde_json::Value,
     deleted_file_ids: Vec<Uuid>,
     deleted_document_ids: Vec<i64>,
@@ -320,6 +357,12 @@ struct RebuildBarrierRow {
     rebuild_processed_chunks: i64,
     rebuild_total_chunks: i64,
     rebuild_target_created: bool,
+    document_index_invalid: bool,
+    rebuild_install_started: bool,
+    rebuild_install_cursor_document_id: Option<i64>,
+    rebuild_install_cursor_chunk_index: Option<i32>,
+    rebuild_installed_chunks: i64,
+    rebuild_install_total_chunks: i64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -644,6 +687,21 @@ impl Database {
                 ));
             }
         };
+        let install_cursor = match (
+            row.rebuild_install_cursor_document_id,
+            row.rebuild_install_cursor_chunk_index,
+        ) {
+            (Some(document_id), Some(chunk_index)) => Some(RebuildCursor {
+                document_id,
+                chunk_index,
+            }),
+            (None, None) => None,
+            _ => {
+                return Err(anyhow::anyhow!(
+                    "the rebuild barrier records an unpaired install cursor"
+                ));
+            }
+        };
         Ok(RebuildBarrier {
             state,
             owner_item_id: row.rebuild_owner_item,
@@ -657,6 +715,11 @@ impl Database {
             processed_chunks: row.rebuild_processed_chunks,
             total_chunks: row.rebuild_total_chunks,
             rebuild_target_created: row.rebuild_target_created,
+            document_index_invalid: row.document_index_invalid,
+            install_started: row.rebuild_install_started,
+            install_cursor,
+            installed_chunks: row.rebuild_installed_chunks,
+            install_total_chunks: row.rebuild_install_total_chunks,
         })
     }
 
@@ -950,7 +1013,7 @@ impl Database {
         .await
         .context("claim the rebuild barrier")?;
         Ok((
-            RebuildStartOutcome::Started(self.read_rebuild_barrier_in(connection).await?),
+            RebuildStartOutcome::Started(Box::new(self.read_rebuild_barrier_in(connection).await?)),
             resumed,
         ))
     }
@@ -1083,24 +1146,29 @@ impl Database {
         Ok(())
     }
 
-    /// Verify and install the staged document-rechunk snapshot of a P2 rebuild.
+    /// Verify the staged snapshot and the installed original chunks of a
+    /// published rebuild.
     ///
     /// The caller already holds the epoch lock and verified barrier ownership.
-    /// Every step runs in the activation transaction, so a hash, count or quota
-    /// mismatch rolls the whole activation back and leaves the old collection
-    /// serving.
+    /// The installation already installed every staged original in bounded
+    /// batches, so publish only proves the counters, the exact staged
+    /// membership/hashes and the read-only quota. It never deletes, inserts or
+    /// reserves original chunks, so no library-sized mutation runs here.
     async fn finish_document_rebuild_staging_in(
         &self,
         connection: &mut PgConnection,
         barrier: &RebuildBarrier,
         staging: &RebuildStagingState,
-        state: &VectorIndexState<'_>,
+        _state: &VectorIndexState<'_>,
     ) -> Result<()> {
         let target = barrier.collection.as_deref().ok_or_else(|| {
             anyhow::anyhow!("a document rebuild barrier records no target collection")
         })?;
         if !staging.staging_complete {
             bail!("the document rebuild staging is not complete");
+        }
+        if !barrier.install_started {
+            bail!("the document rebuild holds no bounded installation");
         }
         let verification = self
             .verify_rebuild_staging_in(connection, target)
@@ -1121,37 +1189,28 @@ impl Database {
                 verification.document_membership_mismatch
             );
         }
-        // Old resolved original entries are replaced wholesale; delete them
-        // while document_chunks still holds the old ids so translation entries
-        // (whose ids never live in document_chunks) survive.
-        self.delete_replaced_original_registry_entries_in(connection)
-            .await?;
-        self.swap_rebuild_chunks_in(connection, target).await?;
-
-        let generation = staging.generation.unwrap_or(0);
-        let fingerprint = barrier.fingerprint.as_deref().unwrap_or_default();
-        let groups = self
-            .rebuild_original_counts_by_file(connection, target)
-            .await?;
-        for group in groups {
-            sqlx::query_file!(
-                "src/sql/db/search_registry/admit_reserved_entry.sql",
-                Uuid::new_v4(),
-                group.file_id,
-                &Vec::<i64>::new(),
-                &Vec::<Uuid>::new(),
-                &Vec::<Uuid>::new(),
-                Option::<&str>::None,
-                Option::<&str>::None,
-                generation,
-                "switched",
-                group.count,
-                fingerprint,
-                state.collection_name,
-            )
-            .execute(&mut *connection)
-            .await?;
+        let installed = self
+            .verify_rebuild_install_in(connection, target)
+            .await
+            .context("verify the installed original chunks")?;
+        if barrier.installed_chunks != barrier.install_total_chunks
+            || installed.live_chunks != barrier.install_total_chunks
+            || installed.staged_chunks != barrier.install_total_chunks
+            || installed.mismatch != 0
+        {
+            bail!(
+                "the bounded original installation does not match the staged snapshot \
+                 (installed {}, pinned total {}, live chunks {}, staged chunks {}, mismatched \
+                 rows {})",
+                barrier.installed_chunks,
+                barrier.install_total_chunks,
+                installed.live_chunks,
+                installed.staged_chunks,
+                installed.mismatch
+            );
         }
+        // Quota is read-only at publish: the reservations were written with
+        // each installed page, so the projection already carries them.
         let quota = self.read_usable_registry_quota_in(connection).await?;
         let projected = self
             .read_projected_registry_usage_in(connection, target)
@@ -1172,8 +1231,134 @@ impl Database {
                 quota.max_ids_per_run
             );
         }
-        self.delete_rebuild_staging_in(connection, target).await?;
         Ok(())
+    }
+
+    /// Marks the durable derived original index invalid before its first
+    /// destructive reset.
+    ///
+    /// The owner fence is part of the predicate and the epoch bump commits with
+    /// the flag. An already invalid index returns `Ok(false)`: it is still
+    /// invalid, so the caller continues with the cleanup.
+    pub async fn mark_document_index_invalid_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+    ) -> Result<bool> {
+        let epoch = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/mark_index_invalid.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("mark the derived index invalid")?;
+        Ok(epoch.is_some())
+    }
+
+    /// Delete at most `limit` provably disposable old original registry
+    /// entries.
+    pub async fn delete_original_registry_entries_batch_in(
+        &self,
+        connection: &mut PgConnection,
+        limit: i64,
+    ) -> Result<u64> {
+        Ok(sqlx::query_file!(
+            "src/sql/db/search_registry/delete_original_entries_batch.sql",
+            limit,
+        )
+        .execute(&mut *connection)
+        .await
+        .context("delete a batch of old original registry entries")?
+        .rows_affected())
+    }
+
+    /// Begin the one-time bounded installation and pin its staged total.
+    ///
+    /// Returns the pinned total, or `None` when the owner fence no longer
+    /// matches or the installation already began.
+    pub async fn begin_rebuild_install_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+    ) -> Result<Option<i64>> {
+        sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/begin_rebuild_install.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("begin the bounded rebuild installation")
+    }
+
+    /// Commit one installed page and report the new installed count.
+    pub async fn advance_rebuild_install_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+        fingerprint: &str,
+        collection: &str,
+        advance: RebuildInstallAdvance,
+    ) -> Result<Option<i64>> {
+        sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/advance_rebuild_install.sql",
+            owner_item_id,
+            owner_token,
+            fingerprint,
+            collection,
+            advance.cursor.document_id,
+            advance.cursor.chunk_index,
+            advance.installed,
+            advance.expected_installed,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("advance the bounded rebuild installation")
+    }
+
+    /// Create or increment the deterministic original reservation of one file.
+    ///
+    /// Returns `false` when an existing row at that run id does not carry the
+    /// exact producer shape, so the caller aborts the batch instead of double
+    /// counting.
+    pub async fn upsert_original_reservation_in(
+        &self,
+        connection: &mut PgConnection,
+        reservation: OriginalRebuildReservation<'_>,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/upsert_original_reservation.sql",
+            reservation.run_id,
+            reservation.file_id,
+            reservation.generation,
+            reservation.count,
+            reservation.fingerprint,
+            reservation.collection,
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("upsert the original rebuild reservation")?;
+        Ok(updated.is_some())
+    }
+
+    /// Whether the durable derived index is unavailable right now.
+    pub async fn read_search_registry_unavailable(&self) -> Result<bool> {
+        sqlx::query_file_scalar!("src/sql/db/search_registry/read_unavailable.sql")
+            .fetch_one(&self.pool)
+            .await
+            .context("read the derived index readiness")
     }
 
     /// Records the committed cursor of one owned rebuild page.
@@ -1432,11 +1617,37 @@ impl Database {
         Ok(epoch)
     }
 
+    /// Release the barrier of a rebuild that never installed anything.
+    ///
+    /// The durable invalidity is preserved: a resumed attempt that fails before
+    /// its target is prepared may already describe a partial installation.
+    pub async fn release_rebuild_in(
+        &self,
+        connection: &mut PgConnection,
+        owner_item_id: Uuid,
+        owner_token: Uuid,
+    ) -> Result<Option<i64>> {
+        let epoch = sqlx::query_file_scalar!(
+            "src/sql/db/search_registry/release_rebuild.sql",
+            owner_item_id,
+            owner_token
+        )
+        .fetch_optional(&mut *connection)
+        .await
+        .context("release the rebuild barrier")?;
+        Ok(epoch)
+    }
+
     /// Refuse a mutation while a rebuild owns the barrier.
     ///
     /// The epoch row is locked first, so the check and the mutation it
     /// guards are one atomic decision against every other registry writer.
-    pub async fn require_rebuild_idle_in(&self, connection: &mut PgConnection) -> Result<()> {
+    /// The read barrier is returned so a caller that needs more than the idle
+    /// state uses the same locked snapshot.
+    pub async fn require_rebuild_idle_in(
+        &self,
+        connection: &mut PgConnection,
+    ) -> Result<RebuildBarrier> {
         self.lock_search_registry_epoch_in(connection).await?;
         let barrier = self.read_rebuild_barrier_in(connection).await?;
         if barrier.state != RebuildBarrierState::Idle {
@@ -1445,7 +1656,7 @@ impl Database {
             )
             .into());
         }
-        Ok(())
+        Ok(barrier)
     }
 
     /// Refuse an ordinary write unless the barrier is idle and the captured
@@ -1461,7 +1672,16 @@ impl Database {
         connection: &mut PgConnection,
         identity: Option<&RegistryVectorIdentity>,
     ) -> Result<()> {
-        self.require_rebuild_idle_in(connection).await?;
+        let barrier = self.require_rebuild_idle_in(connection).await?;
+        // A durably invalid derived index left by a failed, cancelled or
+        // superseded installation is not a vector space a writer may add to.
+        // Settings correction and the rebuild begin keep their own paths.
+        if barrier.document_index_invalid {
+            return Err(crate::domain_errors::DomainError::unavailable(
+                "the derived original index is being rebuilt; retry after it completes",
+            )
+            .into());
+        }
         let Some(identity) = identity else {
             if self
                 .read_persisted_vector_identity_in(connection)
@@ -1640,6 +1860,7 @@ impl Database {
         .context("read search registry state")?;
         Ok(SearchRegistryState {
             epoch: row.epoch,
+            unavailable: row.unavailable,
             entries: parse_entries(row.entries)?,
             deleted_file_ids: row.deleted_file_ids,
             deleted_document_ids: row.deleted_document_ids,

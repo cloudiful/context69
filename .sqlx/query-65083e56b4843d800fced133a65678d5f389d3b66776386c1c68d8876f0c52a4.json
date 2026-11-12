@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Bound how long the one-time derived-index reset waits for a table lock.\n--\n-- The setting is transaction-local, so it disappears with the reset\n-- transaction and never narrows the timeout of an unrelated statement.\nSELECT set_config('lock_timeout', $1, true)\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "set_config",
+        "type_info": "Text",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "65083e56b4843d800fced133a65678d5f389d3b66776386c1c68d8876f0c52a4"
+}

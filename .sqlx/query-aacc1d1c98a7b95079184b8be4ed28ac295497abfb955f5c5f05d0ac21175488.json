@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Create or increment the deterministic original reservation of one file.\n--\n-- The run id is derived from the target and the optional file, so every page\n-- of the same build increments one reservation row. An existing row may only\n-- be incremented when it still carries the exact producer shape and the same\n-- file, target, fingerprint and pinned generation; any other row at that id\n-- matches no update and the batch transaction aborts instead of double\n-- counting.\nINSERT INTO context69.search_registry_entries (\n    run_id, file_id, document_ids, staged_ids, retired_ids,\n    baseline_record_hash, staged_record_hash, generation, phase, reserved_ids,\n    embedding_fingerprint, collection_name\n) VALUES (\n    $1, $2, '{}', '{}', '{}', NULL, NULL, $3, 'switched', $4, $5, $6\n)\nON CONFLICT (run_id) DO UPDATE\nSET reserved_ids = context69.search_registry_entries.reserved_ids\n        + EXCLUDED.reserved_ids\nWHERE context69.search_registry_entries.phase = 'switched'\n  AND cardinality(context69.search_registry_entries.staged_ids) = 0\n  AND cardinality(context69.search_registry_entries.retired_ids) = 0\n  AND cardinality(context69.search_registry_entries.document_ids) = 0\n  AND context69.search_registry_entries.file_id\n        IS NOT DISTINCT FROM EXCLUDED.file_id\n  AND context69.search_registry_entries.generation = EXCLUDED.generation\n  AND context69.search_registry_entries.embedding_fingerprint\n        = EXCLUDED.embedding_fingerprint\n  AND context69.search_registry_entries.collection_name\n        = EXCLUDED.collection_name\nRETURNING run_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "run_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_entries",
+            "name": "run_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Int8",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "aacc1d1c98a7b95079184b8be4ed28ac295497abfb955f5c5f05d0ac21175488"
+}

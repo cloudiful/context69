@@ -1,0 +1,12 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Drop the derived original chunks before a bounded installation refills them.\n--\n-- Only `document_chunks` is reset: canonical `document_versions`, `documents`,\n-- files, business metadata, translations and task history are untouched.\n-- `RESTRICT` is the explicit non-cascading form: if any table ever gained an\n-- inbound foreign key, this statement fails and rolls the reset transaction\n-- back instead of silently widening the deletion scope.\nTRUNCATE context69.document_chunks RESTRICT\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": []
+  },
+  "hash": "4cc375a5fc0a9eb703823f4bfed173c7449d829469d8f68d56865c3839f83f4c"
+}

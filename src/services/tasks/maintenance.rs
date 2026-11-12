@@ -118,6 +118,7 @@ async fn run_docling_recovery(
         tracing::warn!("docling cleanup pass failed; pending claims will expire");
     }
     drain_vector_collection_retirement_once(service).await;
+    drain_rebuild_staging_cleanup_once(service).await;
     let mut tick = tokio::time::interval(DOCLING_RECOVERY_INTERVAL);
     tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     // The first interval tick completes immediately. Consume it so the first
@@ -132,8 +133,23 @@ async fn run_docling_recovery(
                     tracing::warn!("docling cleanup pass failed; pending claims will expire");
                 }
                 drain_vector_collection_retirement_once(service).await;
+                drain_rebuild_staging_cleanup_once(service).await;
             },
         }
+    }
+}
+
+/// Drain at most one queued rebuild staging target on this existing tick.
+///
+/// Completion and cancellation enqueue their own target atomically with the
+/// barrier change; remaining staging rows are the progress, so no timer or
+/// job kind is added for them.
+async fn drain_rebuild_staging_cleanup_once(service: &TaskService) {
+    if let Err(error) = crate::services::rebuild_staging_cleanup::run_once(service.db()).await {
+        tracing::warn!(
+            "rebuild staging cleanup pass failed; the target stays queued: {}",
+            crate::services::metadata_payload_sync::sanitize_failure_reason(&error)
+        );
     }
 }
 

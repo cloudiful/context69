@@ -193,7 +193,7 @@ export const settings = {
     vectorRebuildPhase: {
       processing_documents: "Processing documents",
       embedding: "Embedding staged chunks",
-      verifying: "Verifying the target index",
+      verifying: "Finalizing the target index (verification, installation, and switchover)",
     },
     vectorRebuildDocumentsProgress: "{staged} / {total} documents staged",
     vectorRebuildDocumentsStaged: "{staged} documents staged",

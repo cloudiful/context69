@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One queued staging target to drain, under the epoch lock.\n--\n-- The recorded target of the running or failed barrier is never drained: its\n-- staged rows are the recoverable progress of an attempt that may resume.\nSELECT cleanup.target_collection\nFROM context69.document_rebuild_staging_cleanup cleanup\nWHERE cleanup.target_collection IS DISTINCT FROM (\n    SELECT CASE\n        WHEN epoch.rebuild_state IN ('running', 'failed') THEN epoch.rebuild_collection\n        ELSE NULL\n    END\n    FROM context69.search_registry_epoch epoch\n    WHERE epoch.id = 1\n)\nORDER BY cleanup.target_collection\nLIMIT 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_collection",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.document_rebuild_staging_cleanup",
+            "name": "target_collection"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "acc87a4e42a1c386b71dcffe6997e7c297576e1def1c569ff5651f29ae23d763"
+}

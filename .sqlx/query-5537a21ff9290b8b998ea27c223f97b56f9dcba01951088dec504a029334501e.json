@@ -1,0 +1,54 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The coherent search snapshot in one statement.\n--\n-- The epoch, the registry entries and the deleted entity sets are read by one\n-- statement, so a search attempt can never pair an epoch with a different set\n-- of entries, deleted files or deleted documents.\n--\n-- The registry entries of a permanently tombstoned file are omitted: the file\n-- entity exclusion of the same snapshot dominates every point of that file,\n-- including a point a late write adds, so such an entry never contributes to\n-- the visible result. The rows themselves stay in the registry as history.\nSELECT\n    e.epoch AS epoch,\n    (e.rebuild_state <> 'idle' OR e.document_index_invalid) AS \"unavailable!\",\n    COALESCE(\n        (\n            SELECT jsonb_agg(\n                jsonb_build_object(\n                    'run_id', r.run_id,\n                    'file_id', r.file_id,\n                    'document_ids', r.document_ids,\n                    'staged_ids', r.staged_ids,\n                    'retired_ids', r.retired_ids,\n                    'baseline_record_hash', r.baseline_record_hash,\n                    'staged_record_hash', r.staged_record_hash,\n                    'generation', r.generation,\n                    'phase', r.phase\n                ) ORDER BY r.created_at, r.run_id\n            )\n            FROM context69.search_registry_entries r\n            WHERE NOT EXISTS (\n                SELECT 1\n                FROM context69.library_deleted_entities d\n                WHERE d.file_id = r.file_id\n            )\n        ),\n        '[]'::jsonb\n    ) AS entries,\n    COALESCE(\n        (\n            SELECT array_agg(d.file_id)\n            FROM context69.library_deleted_entities d\n            WHERE d.file_id IS NOT NULL\n        ),\n        ARRAY[]::uuid[]\n    ) AS \"deleted_file_ids!\",\n    COALESCE(\n        (\n            SELECT array_agg(d.document_id)\n            FROM context69.library_deleted_entities d\n            WHERE d.document_id IS NOT NULL\n        ),\n        ARRAY[]::bigint[]\n    ) AS \"deleted_document_ids!\"\nFROM context69.search_registry_epoch e\nWHERE e.id = 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "unavailable!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 2,
+        "name": "entries",
+        "type_info": "Jsonb",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 3,
+        "name": "deleted_file_ids!",
+        "type_info": "UuidArray",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 4,
+        "name": "deleted_document_ids!",
+        "type_info": "Int8Array",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      null,
+      null,
+      null,
+      null
+    ]
+  },
+  "hash": "5537a21ff9290b8b998ea27c223f97b56f9dcba01951088dec504a029334501e"
+}

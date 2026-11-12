@@ -1,0 +1,31 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Mark the derived original index invalid before its first destructive reset.\n--\n-- The epoch bump commits with the flag, so every search attempt that snapshotted\n-- the previous epoch retries and then observes the barrier or the invalidity.\n-- The predicate is the exact owner fence: a superseded or cancelled attempt\n-- marks nothing. An already invalid index returns no row, which the caller\n-- treats as \"still invalid\".\nUPDATE context69.search_registry_epoch\nSET document_index_invalid = TRUE,\n    epoch = context69.search_registry_epoch.epoch + 1,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\n  AND NOT document_index_invalid\nRETURNING epoch\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "e04f515f5f4e8d8bf3e56e578bb835a3aa7325ef04cf8ea4cf28815c404cfdbf"
+}

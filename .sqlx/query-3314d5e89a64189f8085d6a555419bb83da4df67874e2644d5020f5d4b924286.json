@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The durable derived-index readiness flag of the registry epoch row.\n--\n-- It is exactly the readiness predicate the search snapshot carries: a\n-- non-idle rebuild barrier or a durably invalid document index. Maintenance\n-- writers use it to defer without reading the whole registry.\nSELECT (rebuild_state <> 'idle' OR document_index_invalid) AS \"unavailable!\"\nFROM context69.search_registry_epoch\nWHERE id = 1\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "unavailable!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "3314d5e89a64189f8085d6a555419bb83da4df67874e2644d5020f5d4b924286"
+}

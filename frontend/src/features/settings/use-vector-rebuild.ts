@@ -8,8 +8,8 @@ import type { VectorIndexRebuildState, VectorIndexRebuildStatus } from "@/servic
 
 import { errorMessage } from "./settings-error";
 
-const POLL_INTERVAL_MS = 1500;
-const SLOW_POLL_INTERVAL_MS = 5000;
+const POLL_INTERVAL_MS = 5000;
+const SLOW_POLL_INTERVAL_MS = 15000;
 /** Bounded retries after a transient status read failure (five attempts). */
 const MAX_POLL_RETRIES = 5;
 

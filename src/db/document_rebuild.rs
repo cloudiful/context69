@@ -119,6 +119,26 @@ pub struct RebuildOriginalCountRow {
     pub count: i64,
 }
 
+/// One staged original chunk key of the immutable installation keyset.
+#[derive(Debug, Clone, Copy, sqlx::FromRow)]
+pub struct RebuildInstallChunkKey {
+    pub document_id: i64,
+    pub chunk_index: i32,
+    pub chunk_id: Uuid,
+}
+
+/// The fail-closed proof that the live chunk table is exactly the staged
+/// original snapshot.
+#[derive(Debug, Clone, Copy, sqlx::FromRow)]
+pub struct RebuildInstallVerification {
+    #[sqlx(rename = "live_chunks")]
+    pub live_chunks: i64,
+    #[sqlx(rename = "staged_chunks")]
+    pub staged_chunks: i64,
+    #[sqlx(rename = "mismatch")]
+    pub mismatch: i64,
+}
+
 /// The projected registry usage after rebuild delta entries are written.
 #[derive(Debug, Clone, Copy, sqlx::FromRow)]
 pub struct RebuildProjectedUsage {
@@ -397,21 +417,6 @@ impl Database {
         .context("verify the staged rebuild snapshot")?)
     }
 
-    pub async fn rebuild_original_counts_by_file(
-        &self,
-        connection: &mut PgConnection,
-        target_collection: &str,
-    ) -> Result<Vec<RebuildOriginalCountRow>> {
-        Ok(sqlx::query_file_as!(
-            RebuildOriginalCountRow,
-            "src/sql/db/documents/rebuild_original_counts_by_file.sql",
-            target_collection,
-        )
-        .fetch_all(connection)
-        .await
-        .context("count fresh original chunks by file")?)
-    }
-
     pub async fn read_projected_registry_usage_in(
         &self,
         connection: &mut PgConnection,
@@ -427,49 +432,128 @@ impl Database {
         .context("read the projected registry usage")?)
     }
 
-    /// Swap the staged chunks into the live table on the activation connection.
-    pub async fn swap_rebuild_chunks_in(
+    /// Bound how long the one-time reset waits for the chunk table lock.
+    pub async fn set_rebuild_install_lock_timeout_in(
         &self,
         connection: &mut PgConnection,
-        target_collection: &str,
+        timeout: &str,
     ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/documents/delete_document_chunks_for_rebuild.sql",
-            target_collection,
-        )
-        .execute(&mut *connection)
-        .await?;
-        sqlx::query_file!(
-            "src/sql/db/documents/insert_chunks_from_rebuild_staging.sql",
-            target_collection,
-        )
-        .execute(&mut *connection)
-        .await?;
+        sqlx::query_file_scalar!("src/sql/db/documents/set_local_lock_timeout.sql", timeout)
+            .fetch_one(&mut *connection)
+            .await
+            .context("set the reset lock timeout")?;
         Ok(())
     }
 
-    /// Delete every staged row of one target on the caller's connection.
-    pub async fn delete_rebuild_staging_in(
-        &self,
-        connection: &mut PgConnection,
-        target_collection: &str,
-    ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/documents/delete_rebuild_staging.sql",
-            target_collection,
-        )
-        .execute(&mut *connection)
-        .await?;
-        Ok(())
-    }
-
-    pub async fn delete_replaced_original_registry_entries_in(
-        &self,
-        connection: &mut PgConnection,
-    ) -> Result<()> {
-        sqlx::query_file!("src/sql/db/search_registry/delete_replaced_original_entries.sql")
+    /// Drop only the derived original chunk rows; canonical data is untouched.
+    pub async fn truncate_document_chunks_in(&self, connection: &mut PgConnection) -> Result<()> {
+        sqlx::query_file!("src/sql/db/documents/truncate_document_chunks.sql")
             .execute(&mut *connection)
-            .await?;
+            .await
+            .context("truncate the derived original chunks")?;
         Ok(())
+    }
+
+    /// One immutable keyset page of staged original chunks to install.
+    pub async fn list_rebuild_install_chunk_page_in(
+        &self,
+        connection: &mut PgConnection,
+        target_collection: &str,
+        after: Option<&super::RebuildCursor>,
+        limit: i64,
+    ) -> Result<Vec<RebuildInstallChunkKey>> {
+        sqlx::query_file_as!(
+            RebuildInstallChunkKey,
+            "src/sql/db/documents/list_rebuild_install_chunk_page.sql",
+            target_collection,
+            after.map(|cursor| cursor.document_id),
+            after.map(|cursor| cursor.chunk_index).unwrap_or(-1),
+            limit,
+        )
+        .fetch_all(connection)
+        .await
+        .context("list the rebuild install chunk page")
+    }
+
+    /// Install exactly one keyset page of staged original chunks.
+    pub async fn insert_rebuild_install_chunk_page_in(
+        &self,
+        connection: &mut PgConnection,
+        target_collection: &str,
+        after: Option<&super::RebuildCursor>,
+        up_to: &super::RebuildCursor,
+    ) -> Result<()> {
+        sqlx::query_file!(
+            "src/sql/db/documents/insert_rebuild_install_chunk_page.sql",
+            target_collection,
+            after.map(|cursor| cursor.document_id),
+            after.map(|cursor| cursor.chunk_index).unwrap_or(-1),
+            up_to.document_id,
+            up_to.chunk_index,
+        )
+        .execute(&mut *connection)
+        .await
+        .context("install the rebuild chunk page")?;
+        Ok(())
+    }
+
+    /// Count the rows of one installed page that do not match their source.
+    pub async fn prove_rebuild_install_chunk_page_in(
+        &self,
+        connection: &mut PgConnection,
+        target_collection: &str,
+        after: Option<&super::RebuildCursor>,
+        up_to: &super::RebuildCursor,
+    ) -> Result<i64> {
+        Ok(sqlx::query_file!(
+            "src/sql/db/documents/prove_rebuild_install_chunk_page.sql",
+            target_collection,
+            after.map(|cursor| cursor.document_id),
+            after.map(|cursor| cursor.chunk_index).unwrap_or(-1),
+            up_to.document_id,
+            up_to.chunk_index,
+        )
+        .fetch_one(connection)
+        .await
+        .context("prove the installed rebuild chunk page")?
+        .mismatch)
+    }
+
+    /// Per-file original counts of one installed page only.
+    pub async fn rebuild_install_page_file_counts_in(
+        &self,
+        connection: &mut PgConnection,
+        target_collection: &str,
+        after: Option<&super::RebuildCursor>,
+        up_to: &super::RebuildCursor,
+    ) -> Result<Vec<RebuildOriginalCountRow>> {
+        sqlx::query_file_as!(
+            RebuildOriginalCountRow,
+            "src/sql/db/documents/rebuild_install_page_file_counts.sql",
+            target_collection,
+            after.map(|cursor| cursor.document_id),
+            after.map(|cursor| cursor.chunk_index).unwrap_or(-1),
+            up_to.document_id,
+            up_to.chunk_index,
+        )
+        .fetch_all(connection)
+        .await
+        .context("count the installed rebuild page by file")
+    }
+
+    /// The fail-closed proof that the live chunk table is the staged snapshot.
+    pub async fn verify_rebuild_install_in(
+        &self,
+        connection: &mut PgConnection,
+        target_collection: &str,
+    ) -> Result<RebuildInstallVerification> {
+        sqlx::query_file_as!(
+            RebuildInstallVerification,
+            "src/sql/db/documents/verify_rebuild_install.sql",
+            target_collection,
+        )
+        .fetch_one(connection)
+        .await
+        .context("verify the installed rebuild chunks")
     }
 }
