@@ -567,6 +567,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cloudiful-secret-crypto"
+version = "0.1.0"
+source = "git+https://forgejo.cloud1ful.com/crates/secret-crypto?rev=2763fc1288d196b2fcec0d23dee6d1da71bb05a6#2763fc1288d196b2fcec0d23dee6d1da71bb05a6"
+dependencies = [
+ "base64 0.23.1",
+ "chacha20poly1305",
+ "zeroize",
+]
+
+[[package]]
 name = "cloudiful-server"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -703,6 +713,7 @@ dependencies = [
  "cloudiful-db-init",
  "cloudiful-rate-limiter",
  "cloudiful-scheduler",
+ "cloudiful-secret-crypto",
  "cloudiful-server",
  "cloudiful-tasks",
  "context69-contracts",
@@ -713,7 +724,6 @@ dependencies = [
  "context69-namespace-http",
  "context69-search",
  "context69-search-http",
- "context69-secret-crypto",
  "context69-secret-store",
  "context69-settings-http",
  "context69-translation",
@@ -1043,20 +1053,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "context69-secret-crypto"
-version = "0.1.0"
-dependencies = [
- "base64 0.23.1",
- "chacha20poly1305",
- "zeroize",
-]
-
-[[package]]
 name = "context69-secret-store"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "context69-secret-crypto",
+ "cloudiful-secret-crypto",
  "sqlx",
  "tracing",
 ]
