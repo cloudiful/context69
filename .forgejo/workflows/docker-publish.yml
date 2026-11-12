@@ -29,7 +29,7 @@ jobs:
         run: rm -rf ci-image-input
 
       - name: Build Rust artifacts
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/build-rust-artifacts@v0.4.1
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/build-rust-artifacts@v0.4.3
         with:
           build_command: cargo build --release --bin context69
           binary_mappings: >-
@@ -54,7 +54,7 @@ jobs:
           cp -R dist/. ../ci-image-input/frontend-dist/
 
       - name: Build and push Docker image
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-targets@v0.4.1
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-targets@v0.4.3
         with:
           context: .
           dockerfile: ./forgejo.Dockerfile
@@ -69,7 +69,7 @@ jobs:
           password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Publish Docker manifest
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-manifests@v0.4.1
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-manifests@v0.4.3
         with:
           architectures: amd64
           targets: >-
