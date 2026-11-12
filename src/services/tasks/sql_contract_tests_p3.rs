@@ -238,3 +238,202 @@ fn items_sql_serves_both_orderings_and_the_ordinal_first_page() {
         "both orderings must tie-break by ordinal"
     );
 }
+
+#[test]
+fn a_runnable_rebuild_gates_admission_to_one_oldest_rebuild() {
+    // Issue 51 P1: the rebuild's priority is admission order, not a rewritten
+    // creation time. While a due rebuild exists it either drains running
+    // ordinary attempts (admitting nothing) or admits only the one selected
+    // rebuild; the ordinary policy stays the existing one.
+    let code = sql_code(include_str!("../../sql/db/tasks/claim_candidates.sql"));
+    assert!(code.contains("runnable_rebuild AS"));
+    assert!(
+        code.contains("item.kind = 'vector_rebuild'")
+            && code.contains("item.execution_task_id IS NOT NULL"),
+        "a runnable rebuild needs the rebuild kind and a captured execution link"
+    );
+    assert!(
+        code.contains("ORDER BY item.task_created_at, item.task_id") && code.contains("LIMIT 1"),
+        "exactly one oldest rebuild is selected"
+    );
+    assert!(
+        code.contains("THEN 'drain'") && code.contains("THEN 'rebuild'"),
+        "a due rebuild drains running ordinary attempts and then owns admission"
+    );
+    assert!(
+        code.contains("EXISTS (SELECT 1 FROM live_running WHERE kind <> 'vector_rebuild')"),
+        "ordinary running is a live attempt, not a task status"
+    );
+    assert!(
+        code.contains("WHERE kind = 'vector_rebuild'"),
+        "a running rebuild is detected from live running attempts"
+    );
+    assert!(
+        code.matches("gate.mode = 'normal'").count() >= 3,
+        "the gate must apply to work, admitted_work and chosen"
+    );
+    for predicate in [
+        "(ti.attempt_count - ti.paused_attempts) < 5",
+        "parent.pause_state = 'unpaused'",
+        "ti.status = 'waiting'",
+        "COALESCE(ti.waiting_reason, '') = 'docling'",
+        "ti.dependency_key = 'vector_rebuild_paused'",
+    ] {
+        assert!(
+            code.contains(predicate),
+            "the existing eligibility predicate must survive: {predicate}"
+        );
+    }
+}
+
+#[test]
+fn idle_ordinary_lease_release_is_narrow_and_uses_the_same_gate() {
+    let claim = sql_code(include_str!("../../sql/db/tasks/claim_candidates.sql"));
+    let release = sql_code(include_str!(
+        "../../sql/db/tasks/release_gated_ordinary_leases.sql"
+    ));
+
+    // Only the admission authority of an idle parent is cleared.
+    assert!(
+        release.contains("SET lease_token = NULL") && release.contains("lease_until = NULL"),
+        "the release must clear the slot, never an attempt"
+    );
+    assert!(
+        release.contains("task.kind <> 'vector_rebuild'")
+            && release.contains("task.kind = 'vector_rebuild'")
+            && release.contains("task.status IN ('queued', 'running', 'waiting')")
+            && release.contains("task.deleted_at IS NULL"),
+        "the release is limited to active parents in both scopes"
+    );
+    assert!(
+        release.contains("item.status = 'running'") && release.contains("item.lease_until > now()"),
+        "a parent with a live attempt is never released"
+    );
+    for owned in ["task_items item", "task_attempts"] {
+        assert!(
+            !release.contains(&format!("UPDATE context69.{owned}")),
+            "the release must not mutate {owned}"
+        );
+    }
+
+    // The gate that justifies releasing capacity is the rebuild gate, with the
+    // same eligibility predicate the claim statement uses.
+    assert!(release.contains("runnable_rebuild AS"));
+    for predicate in [
+        "(item.attempt_count - item.paused_attempts) < 5",
+        "item.execution_task_id IS NOT NULL",
+        "item.pause_state = 'unpaused'",
+        "item.task_status IN ('queued', 'running', 'waiting')",
+        "COALESCE(item.waiting_reason, '') = 'docling'",
+        "item.dependency_key = 'vector_rebuild_paused'",
+    ] {
+        assert!(
+            release.contains(predicate),
+            "the release gate must match the claim eligibility: {predicate}"
+        );
+    }
+    for predicate in [
+        "(ti.attempt_count - ti.paused_attempts) < 5",
+        "COALESCE(ti.waiting_reason, '') = 'docling'",
+        "ti.dependency_key = 'vector_rebuild_paused'",
+    ] {
+        assert!(
+            claim.contains(predicate),
+            "the claim eligibility must stay pinned to the release gate: {predicate}"
+        );
+    }
+}
+
+#[test]
+fn a_parked_rebuild_releases_its_slot_but_the_selected_and_live_ones_do_not() {
+    // Issue 51 P2 R1: a rebuild that parks for pause, dependency, retry backoff,
+    // a missing execution link or an exhausted budget is not runnable, so its
+    // idle parent lease must not hold capacity until the TTL. The selected
+    // runnable rebuild and every live attempt stay protected.
+    let claim = sql_code(include_str!("../../sql/db/tasks/claim_candidates.sql"));
+    let release = sql_code(include_str!(
+        "../../sql/db/tasks/release_gated_ordinary_leases.sql"
+    ));
+
+    assert!(
+        release.contains("release_scope AS")
+            && release.contains(
+                "task.kind = 'vector_rebuild'\n              AND task.id IS DISTINCT FROM gate.selected_rebuild_task_id"
+            ),
+        "an unselected rebuild parent must release its idle slot"
+    );
+    assert!(
+        release.contains("(SELECT task_id FROM runnable_rebuild) AS selected_rebuild_task_id"),
+        "the selected runnable rebuild must be named from the runnable selection"
+    );
+    assert!(
+        release.contains("task.kind <> 'vector_rebuild' AND gate.rebuild_gates"),
+        "ordinary idle leases must still be released only while a rebuild gates admission"
+    );
+    assert!(
+        !release.contains("task.kind = 'vector_rebuild' AND gate.rebuild_gates"),
+        "the parked rebuild scope must not depend on a runnable/live rebuild gate"
+    );
+
+    // The release must keep exactly the claim's oldest selection, and its
+    // live-attempt fence must remain the same nonterminal attempt predicate.
+    for source in [&claim, &release] {
+        assert!(
+            source.contains("ORDER BY item.task_created_at, item.task_id")
+                && source.contains("LIMIT 1"),
+            "the oldest runnable rebuild selection must stay identical"
+        );
+    }
+    assert!(
+        release.contains("item.status = 'running'") && release.contains("item.lease_until > now()"),
+        "a live attempt must keep its parent slot"
+    );
+
+    // Slot bookkeeping only: the release never changes item/attempt/task state.
+    for forbidden in [
+        "UPDATE context69.task_items",
+        "UPDATE context69.task_attempts",
+        "SET status",
+        "SET pause_state",
+        "SET finished_at",
+    ] {
+        assert!(
+            !release.contains(forbidden),
+            "the release must not perform {forbidden}"
+        );
+    }
+}
+
+#[test]
+fn the_idle_release_runs_inside_the_admission_lock_before_selection() {
+    // The release frees capacity, so it must observe the same serialized
+    // snapshot as admission and precede the candidate statement. Both root
+    // entrypoints must run it.
+    let claims = include_str!("../../db/tasks/claims.rs");
+    let lock = "lock_task_admission(&mut tx).await?;";
+    let release = "release_gated_ordinary_leases(&mut tx).await?;";
+    let select = "claim_candidates(&mut tx, capacity).await?;";
+
+    assert_eq!(
+        claims.matches(release).count(),
+        2,
+        "both claim entrypoints must release idle ordinary leases"
+    );
+    let mut cursor = 0;
+    for _ in 0..2 {
+        let lock_at = claims[cursor..]
+            .find(lock)
+            .map(|offset| cursor + offset)
+            .expect("admission lock");
+        let release_at = claims[lock_at..]
+            .find(release)
+            .map(|offset| lock_at + offset)
+            .expect("release after the admission lock");
+        let select_at = claims[release_at..]
+            .find(select)
+            .map(|offset| release_at + offset)
+            .expect("selection after the release");
+        assert!(lock_at < release_at && release_at < select_at);
+        cursor = select_at + select.len();
+    }
+}

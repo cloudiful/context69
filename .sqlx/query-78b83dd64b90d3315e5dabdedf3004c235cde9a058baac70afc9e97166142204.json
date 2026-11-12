@@ -1,0 +1,126 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The items the dispatcher may claim now (issue 1020 P2).\n--\n-- The selection is the domain policy and nothing else: the lowest ordinal\n-- non-terminal item of a parent, the global parent capacity, the created\n-- ordering, the retry time, the Docling exclusion and the domain attempt\n-- budget. The statement selects the candidates and locks their rows; it never\n-- mints a lease, because the lease of an item is the fencing token of the\n-- library attempt that holds it.\n--\n-- `$1` is the global parent-task capacity (`scheduler.max_concurrency`). Every\n-- replica passes the same configured capacity and `held` counts the durable\n-- lease rows, so the global number of admitted parents stays bounded no matter\n-- how many dispatchers run. The cross-replica serialization that makes this\n-- broadcast-safe lives in `lock_task_admission.sql`, which the claim\n-- transaction runs as its own statement immediately before this one.\n--\n-- An item whose library segment is still running is not a candidate: the\n-- library owns the recovery of an expired segment, and the domain projection\n-- of that recovery reopens the item. A candidate whose segment already ended\n-- is claimed through a fresh segment, which the claim path produces.\n--\n-- The returned rows are the pre-claim state of the candidates. `needs_slot`\n-- says that the parent takes a new global slot, `parent_lease_until` carries\n-- the deadline of the slot the parent already holds.\n--\n-- A runnable vector rebuild owns admission priority (issue 51 P1). While one\n-- is due, no ordinary parent is admitted: an ordinary attempt that is already\n-- running finishes first (`drain`), and once it has drained only the single\n-- oldest due rebuild may claim. A rebuild that is already running keeps that\n-- exclusivity while its live attempt exists, so its own next item and no\n-- ordinary item is claimable. A paused, dependency-waiting or backoff rebuild\n-- is not runnable and never gates ordinary work.\nWITH current_items AS (\n    -- The one item of each parent that must finish before any later item of\n    -- the same parent can start.\n    SELECT DISTINCT ON (item.task_id) item.id, item.task_id, item.ordinal\n    FROM context69.task_items item\n    WHERE item.status IN ('queued', 'running', 'waiting')\n    ORDER BY item.task_id, item.ordinal\n),\neligible_items AS (\n    SELECT item.id,\n           item.task_id,\n           item.ordinal,\n           ti.execution_task_id,\n           parent.kind,\n           parent.status AS task_status,\n           parent.next_attempt_at AS task_next_attempt_at,\n           parent.created_at AS task_created_at,\n           parent.deleted_at AS task_deleted_at\n    FROM current_items item\n    JOIN context69.task_items ti ON ti.id = item.id\n    JOIN context69.tasks parent ON parent.id = item.task_id\n    WHERE ti.status IN ('queued', 'waiting')\n      -- The effective failure usage is attempt_count - paused_attempts < 5;\n      -- a parked pause consumes no budget.\n      AND (ti.attempt_count - ti.paused_attempts) < 5\n      AND parent.pause_state = 'unpaused'\n      AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())\n      -- Active remote references survive handoff: the newly leased worker\n      -- adopts the recorded identity rather than submitting a replacement.\n      -- NULL-safe: only waiting/docling rows are excluded. A plain\n      -- `waiting_reason = 'docling'` comparison yields NULL (not true) for\n      -- ordinary waiting rows with a NULL reason, and `NOT NULL` would\n      -- wrongly filter them out of the dispatcher.\n      AND NOT (\n            ti.status = 'waiting'\n            AND COALESCE(ti.waiting_reason, '') = 'docling'\n        )\n      -- A paused vector rebuild is awoken by an explicit resume, never by the\n      -- dispatcher: the exact dependency key stays unclaimable across a\n      -- restart, so a pause cannot turn into an automatic claim loop.\n      AND NOT (\n            ti.status = 'waiting'\n            AND COALESCE(ti.waiting_reason, '') = 'dependency'\n            AND ti.dependency_key = 'vector_rebuild_paused'\n        )\n),\nlive_running AS (\n    -- A parent executes only while one of its items holds a live attempt\n    -- lease. The task row status is not enough: a retrying, paused or\n    -- dependency-waiting parent keeps its status with no attempt running.\n    SELECT item.task_id, parent.kind\n    FROM context69.task_items item\n    JOIN context69.tasks parent ON parent.id = item.task_id\n    WHERE item.status = 'running'\n      AND item.lease_until > now()\n),\nrunnable_rebuild AS (\n    -- One rebuild eligibility definition shared by every gate below: the\n    -- existing candidate policy plus the item execution link the claim path\n    -- needs. The oldest due rebuild is the only rebuild a claim may admit.\n    SELECT item.task_id\n    FROM eligible_items item\n    WHERE item.kind = 'vector_rebuild'\n      AND item.execution_task_id IS NOT NULL\n      AND item.task_status IN ('queued', 'running', 'waiting')\n      AND item.task_deleted_at IS NULL\n      AND (item.task_next_attempt_at IS NULL OR item.task_next_attempt_at <= now())\n    ORDER BY item.task_created_at, item.task_id\n    LIMIT 1\n),\ngate AS (\n    -- `normal` keeps the pre-rebuild admission policy. `drain` admits nothing\n    -- while a due rebuild waits for the ordinary attempts that are already\n    -- running. `rebuild` admits only the one rebuild parent: either the\n    -- running rebuild (its next item may still be claimable) or the selected\n    -- runnable rebuild.\n    SELECT\n        CASE\n            WHEN running_rebuild_task_id IS NOT NULL THEN 'rebuild'\n            WHEN runnable_rebuild_task_id IS NOT NULL AND ordinary_running THEN 'drain'\n            WHEN runnable_rebuild_task_id IS NOT NULL THEN 'rebuild'\n            ELSE 'normal'\n        END AS mode,\n        COALESCE(running_rebuild_task_id, runnable_rebuild_task_id) AS rebuild_task_id\n    FROM (\n        SELECT\n            (SELECT task_id\n               FROM live_running\n              WHERE kind = 'vector_rebuild'\n              ORDER BY task_id\n              LIMIT 1) AS running_rebuild_task_id,\n            EXISTS (SELECT 1 FROM live_running WHERE kind <> 'vector_rebuild')\n                AS ordinary_running,\n            (SELECT task_id FROM runnable_rebuild) AS runnable_rebuild_task_id\n    ) facts\n),\nwork AS (\n    -- Parents that need the dispatcher now (a due item) or are already running\n    -- one (a live worker item lease). An admitted parent with neither has\n    -- nothing to claim and must not have its lease extended. A gated rebuild\n    -- narrows both arms to the one rebuild parent; a draining gate admits\n    -- nothing at all.\n    SELECT item.task_id\n    FROM eligible_items item\n    CROSS JOIN gate\n    WHERE gate.mode = 'normal'\n       OR (gate.mode = 'rebuild' AND item.task_id = gate.rebuild_task_id)\n    UNION\n    SELECT item.task_id\n    FROM context69.task_items item\n    CROSS JOIN gate\n    WHERE item.status = 'running'\n      AND item.lease_until > now()\n      AND (\n          gate.mode = 'normal'\n          OR (gate.mode = 'rebuild' AND item.task_id = gate.rebuild_task_id)\n      )\n),\nheld AS (\n    SELECT count(*)::bigint AS held_count\n    FROM context69.tasks task\n    WHERE task.lease_token IS NOT NULL\n      AND task.lease_until > now()\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n),\nslot_candidates AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE (task.lease_token IS NULL OR task.lease_until IS NULL OR task.lease_until <= now())\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n      AND task.pause_state = 'unpaused'\n      AND (task.next_attempt_at IS NULL OR task.next_attempt_at <= now())\n      AND task.id IN (SELECT task_id FROM work)\n    ORDER BY task.created_at, task.id\n    LIMIT GREATEST($1 - (SELECT held_count FROM held), 0)\n    FOR UPDATE OF task SKIP LOCKED\n),\nadmitted_work AS (\n    -- Parents that already hold a slot and have an item to claim. They are not\n    -- limited by capacity and not re-admitted; the slot simply continues. A\n    -- gated rebuild narrows this arm to the rebuild parent, and a draining gate\n    -- admits nothing.\n    SELECT task.id, task.lease_token, task.lease_until\n    FROM context69.tasks task\n    CROSS JOIN gate\n    WHERE task.lease_token IS NOT NULL\n      AND task.lease_until > now()\n      AND task.status IN ('queued', 'running', 'waiting')\n      AND task.deleted_at IS NULL\n      AND task.pause_state = 'unpaused'\n      AND task.id IN (SELECT task_id FROM eligible_items)\n      AND (\n          gate.mode = 'normal'\n          OR (gate.mode = 'rebuild' AND task.id = gate.rebuild_task_id)\n      )\n),\nclaim_targets AS (\n    SELECT id FROM slot_candidates\n    UNION\n    SELECT id FROM admitted_work\n),\nchosen AS (\n    -- One item per claimable parent; `eligible_items` already narrows each\n    -- parent to its current item, so the claim advances strictly in order. The\n    -- gate is repeated here so a drain or a rebuild-only admission cannot leak\n    -- an ordinary item through a target the earlier arms produced.\n    SELECT item.id, item.task_id\n    FROM eligible_items item\n    JOIN claim_targets target ON target.id = item.task_id\n    CROSS JOIN gate\n    WHERE gate.mode = 'normal'\n       OR (gate.mode = 'rebuild' AND item.task_id = gate.rebuild_task_id)\n),\nlocked AS (\n    -- The candidate row is locked here, so the claim path holds it until the\n    -- transaction ends and no other claimer can take the same item.\n    SELECT item.id,\n           item.task_id,\n           item.execution_task_id,\n           item.execution_generation\n    FROM context69.task_items item\n    JOIN chosen ON chosen.id = item.id\n    FOR UPDATE OF item SKIP LOCKED\n)\nSELECT locked.id,\n       locked.task_id,\n       locked.execution_task_id,\n       locked.execution_generation,\n       task.kind,\n       task.group_id,\n       task.group_path,\n       task.source_key,\n       EXISTS (SELECT 1 FROM slot_candidates candidate WHERE candidate.id = locked.task_id)\n           AS \"needs_slot!\",\n       (SELECT admitted.lease_until\n          FROM admitted_work admitted\n         WHERE admitted.id = locked.task_id) AS parent_lease_until\nFROM locked\nJOIN context69.tasks task ON task.id = locked.task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "execution_task_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "execution_generation",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_generation"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "kind",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "group_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_id"
+          }
+        }
+      },
+      {
+        "ordinal": 6,
+        "name": "group_path",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "group_path"
+          }
+        }
+      },
+      {
+        "ordinal": 7,
+        "name": "source_key",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "source_key"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
+        "name": "needs_slot!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 9,
+        "name": "parent_lease_until",
+        "type_info": "Timestamptz",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      null,
+      null
+    ]
+  },
+  "hash": "78b83dd64b90d3315e5dabdedf3004c235cde9a058baac70afc9e97166142204"
+}
