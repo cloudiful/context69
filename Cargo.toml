@@ -21,7 +21,6 @@ members = [
     "crates/context69-search",
     "crates/context69-search-http",
     "crates/context69-sdk",
-    "crates/context69-secret-crypto",
     "crates/context69-secret-store",
     "crates/context69-settings-http",
     "crates/context69-translation",
@@ -65,7 +64,7 @@ context69-namespace-http = { path = "crates/context69-namespace-http", version =
 context69-search = { path = "crates/context69-search", version = "0.1.0" }
 context69-search-http = { path = "crates/context69-search-http", version = "0.1.0" }
 context69-sdk = { path = "crates/context69-sdk", version = "0.25.10" }
-context69-secret-crypto = { path = "crates/context69-secret-crypto", version = "0.1.0" }
+context69-secret-crypto = { package = "cloudiful-secret-crypto", git = "https://forgejo.cloud1ful.com/crates/secret-crypto", rev = "2763fc1288d196b2fcec0d23dee6d1da71bb05a6" }
 context69-secret-store = { path = "crates/context69-secret-store", version = "0.1.0" }
 context69-settings-http = { path = "crates/context69-settings-http", version = "0.1.0" }
 context69-translation = { path = "crates/context69-translation", version = "0.1.0" }
