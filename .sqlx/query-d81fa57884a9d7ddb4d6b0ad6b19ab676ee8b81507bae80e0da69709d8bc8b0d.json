@@ -1,0 +1,55 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- One immutable keyset page of the staged original chunks to install.\n--\n-- The keyset is `(document_id, chunk_index)`, the exact primary key of the\n-- staging table, so a page is stable while the installation drains it. `$2`/\n-- `$3` are the exclusive lower bound (the committed install cursor); the\n-- returned last key bounds the same page for the write and the proofs.\nSELECT\n    s.document_id,\n    s.chunk_index,\n    s.chunk_id\nFROM context69.document_chunk_rebuild_staging s\nWHERE s.target_collection = $1\n  AND (\n      $2::bigint IS NULL\n      OR s.document_id > $2\n      OR (s.document_id = $2 AND s.chunk_index > $3)\n  )\nORDER BY s.document_id, s.chunk_index\nLIMIT $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "document_id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunk_rebuild_staging",
+            "name": "document_id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "chunk_index",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunk_rebuild_staging",
+            "name": "chunk_index"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "chunk_id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.document_chunk_rebuild_staging",
+            "name": "chunk_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "d81fa57884a9d7ddb4d6b0ad6b19ab676ee8b81507bae80e0da69709d8bc8b0d"
+}

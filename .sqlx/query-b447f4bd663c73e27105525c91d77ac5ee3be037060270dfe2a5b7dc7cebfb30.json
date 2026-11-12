@@ -1,0 +1,35 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Commit one installed page: cursor, installed count and epoch move together.\n--\n-- The expected installed count is part of the predicate, so a replayed or\n-- duplicated batch that did not observe the committed cursor increments\n-- nothing. The upper bound of the pinned total is enforced both by the\n-- predicate and by the epoch row constraint.\nUPDATE context69.search_registry_epoch\nSET rebuild_install_cursor_document_id = $5::bigint,\n    rebuild_install_cursor_chunk_index = $6::integer,\n    rebuild_installed_chunks = rebuild_installed_chunks + $7::bigint,\n    epoch = context69.search_registry_epoch.epoch + 1,\n    updated_at = now()\nWHERE id = 1\n  AND rebuild_state = 'running'\n  AND rebuild_owner_item = $1\n  AND rebuild_owner_token = $2\n  AND rebuild_fingerprint = $3\n  AND rebuild_collection = $4\n  AND rebuild_install_started\n  AND $7::bigint > 0\n  AND rebuild_installed_chunks = $8::bigint\n  AND rebuild_installed_chunks + $7::bigint <= rebuild_install_total_chunks\nRETURNING rebuild_installed_chunks\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "rebuild_installed_chunks",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "rebuild_installed_chunks"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b447f4bd663c73e27105525c91d77ac5ee3be037060270dfe2a5b7dc7cebfb30"
+}

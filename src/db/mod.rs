@@ -26,6 +26,7 @@ mod metadata_indexes;
 mod metadata_payload_sync;
 mod namespaces;
 mod personal_access_tokens;
+mod rebuild_staging_cleanup;
 mod rows;
 mod runtime_settings;
 mod search_cache;
@@ -45,7 +46,8 @@ mod vector_index_state;
 pub use context69_db_schema::MIGRATOR;
 pub use deleted_entities::DeletedEntity;
 pub use document_rebuild::{
-    RebuildDocumentRow, RebuildOriginalCountRow, RebuildProjectedUsage, RebuildStagingCounts,
+    RebuildDocumentRow, RebuildInstallChunkKey, RebuildInstallVerification,
+    RebuildOriginalCountRow, RebuildProjectedUsage, RebuildStagingCounts,
     RebuildStagingVerification, StagedRebuildChunkRow, StagedRebuildTranslationRow,
     staged_original_payload, staged_translation_payload,
 };
@@ -76,9 +78,9 @@ pub use metadata_payload_sync::{ClaimedMetadataPayloadSyncJob, MetadataPayloadSy
 pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
 use rows::*;
 pub use search_registry::{
-    AdmissionOutcome, RebuildBarrier, RebuildBarrierState, RebuildCheckpoint, RebuildCursor,
-    RebuildRefusalReason, RebuildStagingState, RebuildStartOutcome, RebuildTranslationCursor,
-    RegistryVectorIdentity,
+    AdmissionOutcome, OriginalRebuildReservation, RebuildBarrier, RebuildBarrierState,
+    RebuildCheckpoint, RebuildCursor, RebuildInstallAdvance, RebuildRefusalReason,
+    RebuildStagingState, RebuildStartOutcome, RebuildTranslationCursor, RegistryVectorIdentity,
 };
 pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,

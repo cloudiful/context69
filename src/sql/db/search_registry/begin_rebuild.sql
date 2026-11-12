@@ -79,6 +79,31 @@ SET rebuild_state = 'running',
         WHEN rebuild_state = 'idle' THEN 0
         ELSE rebuild_translation_processed_chunks
     END,
+    -- A fresh idle admission also starts a fresh bounded installation. A
+    -- same-identity takeover preserves the committed install checkpoints so a
+    -- retry resumes after its last installed page. The durable derived-index
+    -- invalidity is deliberately untouched: only a successful publish clears
+    -- it, so a cancelled or failed rebuild keeps search unavailable.
+    rebuild_install_started = CASE
+        WHEN rebuild_state = 'idle' THEN FALSE
+        ELSE rebuild_install_started
+    END,
+    rebuild_install_cursor_document_id = CASE
+        WHEN rebuild_state = 'idle' THEN NULL
+        ELSE rebuild_install_cursor_document_id
+    END,
+    rebuild_install_cursor_chunk_index = CASE
+        WHEN rebuild_state = 'idle' THEN NULL
+        ELSE rebuild_install_cursor_chunk_index
+    END,
+    rebuild_installed_chunks = CASE
+        WHEN rebuild_state = 'idle' THEN 0
+        ELSE rebuild_installed_chunks
+    END,
+    rebuild_install_total_chunks = CASE
+        WHEN rebuild_state = 'idle' THEN 0
+        ELSE rebuild_install_total_chunks
+    END,
     updated_at = now()
 WHERE id = 1
 RETURNING epoch

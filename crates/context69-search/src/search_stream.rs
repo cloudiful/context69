@@ -97,6 +97,7 @@ impl SearchService {
                 _ = abort.wait() => return Ok(()),
                 result = self.repository.read_search_registry_state() => result?,
             };
+            registry.ensure_available()?;
             let exclusions = registry.search_exclusions();
             let scope = self
                 .scope_resolver
@@ -509,6 +510,7 @@ impl SearchService {
                 _ = abort.wait() => return Ok(()),
                 result = self.repository.read_search_registry_state() => result?,
             };
+            registry.ensure_available()?;
             let exclusions = registry.search_exclusions();
             let outcome = tokio::select! {
                 biased;

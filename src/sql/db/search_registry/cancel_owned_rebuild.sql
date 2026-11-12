@@ -1,14 +1,16 @@
--- Frees the rebuild barrier of a cancelled owner (issue 1212 P3).
+-- Frees the rebuild barrier of a cancelled owner (issue 1212 P3, issue 44 P3).
 --
 -- Cancellation is not a failure: the cancelled work must never complete, and a
 -- late page or completion of it must write nothing. Clearing the owner, the
--- cursor and the pause flag while bumping the epoch invalidates every stale
+-- cursors and the pause flag while bumping the epoch invalidates every stale
 -- attempt at once. Both running and failed barriers are cleared, because a
 -- failed barrier still blocks target editing.
 --
--- The staging rows of the released target are deleted in the same statement,
--- so a later rebuild of the same identity never inherits the cancelled
--- attempt's partial snapshot.
+-- The derived-index invalidity is deliberately NOT cleared: a cancelled
+-- installation left a partially replaced chunk table behind, so search stays
+-- unavailable until a fresh successful rebuild publishes. The staged rows of
+-- the released target are enqueued for the bounded staging-cleanup drain in
+-- this same transaction; they are never deleted inline here.
 --
 -- `$1` narrows the clear to the items of one cancelled task. `NULL` is the bulk
 -- cancellation: every barrier whose recorded owner can no longer write is
@@ -45,6 +47,11 @@ cleared AS (
         rebuild_translation_cursor_translation_id = NULL,
         rebuild_translation_cursor_chunk_index = NULL,
         rebuild_translation_processed_chunks = 0,
+        rebuild_install_started = FALSE,
+        rebuild_install_cursor_document_id = NULL,
+        rebuild_install_cursor_chunk_index = NULL,
+        rebuild_installed_chunks = 0,
+        rebuild_install_total_chunks = 0,
         -- The recorded target is released, so no attempt may treat it as a
         -- collection it created any more.
         rebuild_target_created = FALSE,
@@ -86,20 +93,13 @@ cleared AS (
         )
     RETURNING epoch
 ),
-deleted_original_chunks AS (
-    DELETE FROM context69.document_chunk_rebuild_staging staging
-    USING target, cleared
-    WHERE staging.target_collection = target.collection
-),
-deleted_translations AS (
-    DELETE FROM context69.document_translation_rebuild_staging staging
-    USING target, cleared
-    WHERE staging.target_collection = target.collection
-),
-deleted_documents AS (
-    DELETE FROM context69.document_rebuild_staging_documents staging
-    USING target, cleared
-    WHERE staging.target_collection = target.collection
+enqueued AS (
+    INSERT INTO context69.document_rebuild_staging_cleanup (target_collection)
+    SELECT target.collection
+    FROM target
+    CROSS JOIN cleared
+    WHERE target.collection IS NOT NULL
+    ON CONFLICT (target_collection) DO NOTHING
 )
 SELECT epoch
 FROM cleared

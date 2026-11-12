@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Release the barrier of a rebuild that never installed anything.\n--\n-- Unlike a successful publish, this path must not touch the durable\n-- derived-index invalidity: a resumed attempt that fails before its target is\n-- prepared may already describe a partially installed index, and clearing the\n-- flag here would make that partial table searchable. The committed staging and\n-- install checkpoints are kept for the retry; only the ownership and the\n-- recorded target are released, and the released target is enqueued for the\n-- bounded staging drain.\nWITH target AS (\n    SELECT rebuild_collection AS collection\n    FROM context69.search_registry_epoch\n    WHERE id = 1\n),\ncleared AS (\n    UPDATE context69.search_registry_epoch\n    SET rebuild_state = 'idle',\n        rebuild_owner_item = NULL,\n        rebuild_owner_token = NULL,\n        rebuild_fingerprint = NULL,\n        rebuild_collection = NULL,\n        rebuild_started_at = NULL,\n        rebuild_error = NULL,\n        rebuild_pause_requested = FALSE,\n        rebuild_target_created = FALSE,\n        epoch = context69.search_registry_epoch.epoch + 1,\n        updated_at = now()\n    WHERE id = 1\n      AND rebuild_state = 'running'\n      AND rebuild_owner_item = $1\n      AND rebuild_owner_token = $2\n    RETURNING epoch\n),\nenqueued AS (\n    INSERT INTO context69.document_rebuild_staging_cleanup (target_collection)\n    SELECT target.collection\n    FROM target\n    CROSS JOIN cleared\n    WHERE target.collection IS NOT NULL\n    ON CONFLICT (target_collection) DO NOTHING\n)\nSELECT epoch\nFROM cleared\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "921d59f84c3164b00e0596d9582bb97a507bdd035bd8c10343d60655a7488c13"
+}

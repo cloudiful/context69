@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Per-file original counts of one installed page only.\n--\n-- The aggregation is bounded by the page keyset, so a batch never scans the\n-- whole staged snapshot. A document without a unique library file forms the\n-- NULL-file group, exactly like the replaced per-file accounting.\nSELECT\n    associated.file_id,\n    count(*)::bigint AS \"count!\"\nFROM (\n    SELECT (\n        SELECT f.file_id\n        FROM context69.library_file_documents f\n        WHERE f.document_id = s.document_id\n        ORDER BY f.file_id\n        LIMIT 1\n    ) AS file_id\n    FROM context69.document_chunk_rebuild_staging s\n    WHERE s.target_collection = $1\n      AND (\n          $2::bigint IS NULL\n          OR s.document_id > $2\n          OR (s.document_id = $2 AND s.chunk_index > $3)\n      )\n      AND (\n          s.document_id < $4\n          OR (s.document_id = $4 AND s.chunk_index <= $5)\n      )\n) AS associated\nGROUP BY associated.file_id\nORDER BY associated.file_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "file_id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "count!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "b45d15c47e904f5338b3c01d1c67a9e3d46fd9e7ae589c07fa76bead5b2468f9"
+}

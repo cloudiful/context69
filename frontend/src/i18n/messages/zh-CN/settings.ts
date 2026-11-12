@@ -191,7 +191,7 @@ export const settings = {
     vectorRebuildPhase: {
       processing_documents: "正在处理文档",
       embedding: "正在嵌入已暂存分块",
-      verifying: "正在校验目标索引",
+      verifying: "正在完成目标索引（校验、安装与切换）",
     },
     vectorRebuildDocumentsProgress: "已暂存 {staged} / {total} 个文档",
     vectorRebuildDocumentsStaged: "已暂存 {staged} 个文档",

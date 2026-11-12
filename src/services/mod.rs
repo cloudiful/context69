@@ -10,6 +10,7 @@ pub mod metadata_payload_sync;
 pub mod namespace;
 pub mod personal_access_tokens;
 pub mod query;
+pub mod rebuild_staging_cleanup;
 pub mod scheduler;
 pub mod secret_store;
 pub mod settings;

@@ -19,6 +19,38 @@ use crate::library_store::TaskWriteFence;
 use crate::vector_runtime::RebuildAdmissionError;
 use uuid::Uuid;
 
+/// Source rows installed per bounded original-installation batch.
+const REBUILD_INSTALL_BATCH_SIZE: i64 = 2000;
+
+/// Old original registry entries removed per bounded cleanup batch.
+const REBUILD_ORIGINAL_CLEANUP_BATCH_SIZE: i64 = 2000;
+
+/// The deterministic run id of the original reservation of one target file.
+///
+/// Every installation page of the same build increments this one row, and a
+/// repeated installation of the same target derives the same id instead of
+/// creating another reservation.
+fn original_reservation_run_id(collection: &str, file_id: Option<Uuid>) -> Uuid {
+    let file = file_id.map(|id| id.to_string()).unwrap_or_default();
+    let name = format!("context69-rebuild-original:{collection}:{file}");
+    Uuid::new_v5(&Uuid::NAMESPACE_URL, name.as_bytes())
+}
+
+/// Whether an exhausted staged source completes the bounded installation.
+///
+/// Completion requires both the exhausted source and an installed count equal
+/// to the pinned total, so a zero-total build settles explicitly and a short
+/// source aborts instead of publishing.
+fn install_completion(installed: i64, total: i64, source_exhausted: bool) -> Result<bool> {
+    if !source_exhausted {
+        return Ok(false);
+    }
+    if installed != total {
+        anyhow::bail!("the staged original source ended after {installed} of {total} chunks");
+    }
+    Ok(true)
+}
+
 /// Holds the single rebuild start slot until an attempt actually begins.
 ///
 /// The reservation is armed while the attempt resolves, proves the provider
@@ -718,6 +750,305 @@ impl SyncService {
         }
     }
 
+    /// Installs the verified staged originals into the live chunk table.
+    ///
+    /// The first call marks the durable derived index invalid, removes the
+    /// provably disposable old original registry entries in bounded batches,
+    /// then resets only `document_chunks` and pins the source total. Every
+    /// later page commits its inserted rows, its per-file reservation
+    /// increments, the install cursor, the installed count and the epoch in
+    /// one owner-fenced transaction. A resumed attempt continues from its
+    /// committed install cursor without re-embedding.
+    async fn install_rebuilt_originals(
+        &self,
+        attempt: &RebuildAttempt,
+        fence: TaskWriteFence,
+    ) -> Result<RebuildInstallOutcome> {
+        let target = attempt.snapshot.collection.as_str();
+        let barrier = self.db.read_rebuild_barrier().await?;
+        if !rebuild_is_owned(attempt, &fence, &barrier) {
+            return Ok(RebuildInstallOutcome::Cancelled);
+        }
+        if barrier.pause_requested {
+            return Ok(RebuildInstallOutcome::Paused);
+        }
+        if !barrier.install_started {
+            // The invalidity must be durable before the first destructive
+            // mutation, so a cancellation after it keeps search unavailable.
+            let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+            self.db
+                .lock_search_registry_epoch_in(write.connection())
+                .await?;
+            let barrier = self.db.read_rebuild_barrier_in(write.connection()).await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Cancelled);
+            }
+            if barrier.pause_requested {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Paused);
+            }
+            self.db
+                .mark_document_index_invalid_in(
+                    write.connection(),
+                    fence.item_id(),
+                    fence.token(),
+                    &attempt.fingerprint,
+                    target,
+                )
+                .await?;
+            if !write.commit().await? {
+                return Ok(RebuildInstallOutcome::Cancelled);
+            }
+            // Old original entries are only provable while the old chunk rows
+            // still exist, so this loop runs before the reset.
+            loop {
+                let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+                self.db
+                    .lock_search_registry_epoch_in(write.connection())
+                    .await?;
+                let barrier = self.db.read_rebuild_barrier_in(write.connection()).await?;
+                if !rebuild_is_owned(attempt, &fence, &barrier) {
+                    write.rollback().await;
+                    return Ok(RebuildInstallOutcome::Cancelled);
+                }
+                if barrier.pause_requested {
+                    write.rollback().await;
+                    return Ok(RebuildInstallOutcome::Paused);
+                }
+                let deleted = self
+                    .db
+                    .delete_original_registry_entries_batch_in(
+                        write.connection(),
+                        REBUILD_ORIGINAL_CLEANUP_BATCH_SIZE,
+                    )
+                    .await?;
+                if deleted > 0 {
+                    self.db
+                        .bump_search_registry_epoch_in(write.connection())
+                        .await?;
+                }
+                if !write.commit().await? {
+                    return Ok(RebuildInstallOutcome::Cancelled);
+                }
+                if deleted
+                    < u64::try_from(REBUILD_ORIGINAL_CLEANUP_BATCH_SIZE)
+                        .context("the cleanup batch size must fit in u64")?
+                {
+                    break;
+                }
+            }
+            // One-time reset of the derived originals, under a short lock
+            // timeout. A timeout rolls this transaction back; there is no
+            // cascading or broad-delete fallback.
+            let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+            self.db
+                .lock_search_registry_epoch_in(write.connection())
+                .await?;
+            let barrier = self.db.read_rebuild_barrier_in(write.connection()).await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Cancelled);
+            }
+            if barrier.pause_requested {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Paused);
+            }
+            if barrier.install_started {
+                write.rollback().await;
+            } else {
+                let staging = self
+                    .db
+                    .read_rebuild_staging_state_in(write.connection())
+                    .await?;
+                if !staging.staging_complete {
+                    anyhow::bail!(
+                        "the bounded original installation requires a complete staged snapshot"
+                    );
+                }
+                let verification = self
+                    .db
+                    .verify_rebuild_staging_in(write.connection(), target)
+                    .await?;
+                if verification.document_hash_mismatch != 0
+                    || verification.chunk_count_mismatch != 0
+                    || verification.chunk_hash_mismatch != 0
+                    || verification.document_membership_mismatch != 0
+                {
+                    anyhow::bail!(
+                        "the staged original snapshot changed before the reset; retry the rebuild"
+                    );
+                }
+                self.db
+                    .set_rebuild_install_lock_timeout_in(write.connection(), "1s")
+                    .await?;
+                self.db
+                    .truncate_document_chunks_in(write.connection())
+                    .await?;
+                let total = self
+                    .db
+                    .begin_rebuild_install_in(
+                        write.connection(),
+                        fence.item_id(),
+                        fence.token(),
+                        &attempt.fingerprint,
+                        target,
+                    )
+                    .await?;
+                if total.is_none() {
+                    write.rollback().await;
+                    return Ok(RebuildInstallOutcome::Cancelled);
+                }
+                if !write.commit().await? {
+                    return Ok(RebuildInstallOutcome::Cancelled);
+                }
+            }
+        }
+        self.run_install_batches(attempt, fence).await
+    }
+
+    /// Commits the staged originals in bounded owner-fenced batches.
+    async fn run_install_batches(
+        &self,
+        attempt: &RebuildAttempt,
+        fence: TaskWriteFence,
+    ) -> Result<RebuildInstallOutcome> {
+        let target = attempt.snapshot.collection.as_str();
+        loop {
+            let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+            self.db
+                .lock_search_registry_epoch_in(write.connection())
+                .await?;
+            let barrier = self.db.read_rebuild_barrier_in(write.connection()).await?;
+            if !rebuild_is_owned(attempt, &fence, &barrier) {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Cancelled);
+            }
+            if barrier.pause_requested {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Paused);
+            }
+            if !barrier.install_started {
+                anyhow::bail!("the bounded original installation has not started");
+            }
+            let rows = self
+                .db
+                .list_rebuild_install_chunk_page_in(
+                    write.connection(),
+                    target,
+                    barrier.install_cursor.as_ref(),
+                    REBUILD_INSTALL_BATCH_SIZE,
+                )
+                .await?;
+            if rows.is_empty() {
+                install_completion(barrier.installed_chunks, barrier.install_total_chunks, true)?;
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Installed);
+            }
+            let count = i64::try_from(rows.len()).context("the installed page must fit i64")?;
+            let expected = barrier
+                .installed_chunks
+                .checked_add(count)
+                .context("the installed count overflowed")?;
+            if expected > barrier.install_total_chunks {
+                anyhow::bail!(
+                    "the staged original source exceeds its pinned total of {}",
+                    barrier.install_total_chunks
+                );
+            }
+            let last = rows.last().expect("a non-empty install page");
+            let up_to = crate::db::RebuildCursor {
+                document_id: last.document_id,
+                chunk_index: last.chunk_index,
+            };
+            self.db
+                .insert_rebuild_install_chunk_page_in(
+                    write.connection(),
+                    target,
+                    barrier.install_cursor.as_ref(),
+                    &up_to,
+                )
+                .await?;
+            let mismatch = self
+                .db
+                .prove_rebuild_install_chunk_page_in(
+                    write.connection(),
+                    target,
+                    barrier.install_cursor.as_ref(),
+                    &up_to,
+                )
+                .await?;
+            if mismatch != 0 {
+                anyhow::bail!(
+                    "the installed original page does not match its staged source ({mismatch} rows)"
+                );
+            }
+            let groups = self
+                .db
+                .rebuild_install_page_file_counts_in(
+                    write.connection(),
+                    target,
+                    barrier.install_cursor.as_ref(),
+                    &up_to,
+                )
+                .await?;
+            let grouped = groups.iter().try_fold(0_i64, |total, group| {
+                total
+                    .checked_add(group.count)
+                    .context("a file count overflowed")
+            })?;
+            if grouped != count {
+                anyhow::bail!(
+                    "the per-file page counts {grouped} do not equal the installed page {count}"
+                );
+            }
+            for group in groups {
+                let run_id = original_reservation_run_id(target, group.file_id);
+                let reserved = self
+                    .db
+                    .upsert_original_reservation_in(
+                        write.connection(),
+                        crate::db::OriginalRebuildReservation {
+                            run_id,
+                            file_id: group.file_id,
+                            generation: attempt.rebuild_generation,
+                            count: group.count,
+                            fingerprint: &attempt.fingerprint,
+                            collection: target,
+                        },
+                    )
+                    .await?;
+                if !reserved {
+                    anyhow::bail!(
+                        "the original reservation of the installed page has an unexpected shape"
+                    );
+                }
+            }
+            let advanced = self
+                .db
+                .advance_rebuild_install_in(
+                    write.connection(),
+                    fence.item_id(),
+                    fence.token(),
+                    &attempt.fingerprint,
+                    target,
+                    crate::db::RebuildInstallAdvance {
+                        cursor: up_to,
+                        installed: count,
+                        expected_installed: barrier.installed_chunks,
+                    },
+                )
+                .await?;
+            if advanced.is_none() {
+                write.rollback().await;
+                return Ok(RebuildInstallOutcome::Cancelled);
+            }
+            if !write.commit().await? {
+                return Ok(RebuildInstallOutcome::Cancelled);
+            }
+        }
+    }
+
     /// Chunks one canonical body off the async worker threads.
     ///
     /// The closure only computes: it owns the normalized document, the pinned
@@ -834,6 +1165,57 @@ impl SyncService {
                 // exist, declare the configured dimension, and hold exactly the
                 // chunks this build committed. An unverified target is never
                 // activated, and the old active collection keeps serving.
+                if let Err(error) = self.verify_rebuild_target(&attempt, rebuilt).await {
+                    self.fail_rebuild_barrier(fence, &error).await;
+                    attempt_guard.disarm();
+                    fail_rebuild_attempt(
+                        &self.vector,
+                        &self.vector_rebuild_status,
+                        &attempt,
+                        error,
+                    )
+                    .await?;
+                    unreachable!("a failed rebuild attempt returns its error");
+                }
+                // The verified target now receives the verified staged
+                // originals in bounded batches. A pause or cancellation keeps
+                // the committed install cursor and the durable invalidity, so
+                // the resumed attempt continues without re-embedding and the
+                // partially replaced chunk table never becomes searchable.
+                match self.install_rebuilt_originals(&attempt, fence).await {
+                    Ok(RebuildInstallOutcome::Installed) => {}
+                    Ok(RebuildInstallOutcome::Paused) => {
+                        self.vector.abandon_rebuild(attempt.generation);
+                        self.vector_rebuild_status
+                            .fail(attempt.generation, "paused".to_string());
+                        attempt_guard.disarm();
+                        return Ok(super::RebuildRunOutcome::Paused);
+                    }
+                    Ok(RebuildInstallOutcome::Cancelled) => {
+                        self.vector.abandon_rebuild(attempt.generation);
+                        self.vector_rebuild_status
+                            .fail(attempt.generation, "cancelled".to_string());
+                        attempt_guard.disarm();
+                        return Ok(super::RebuildRunOutcome::Cancelled);
+                    }
+                    Err(error) => {
+                        self.fail_rebuild_barrier(fence, &error).await;
+                        attempt_guard.disarm();
+                        fail_rebuild_attempt(
+                            &self.vector,
+                            &self.vector_rebuild_status,
+                            &attempt,
+                            error,
+                        )
+                        .await?;
+                        unreachable!("a failed rebuild attempt returns its error");
+                    }
+                }
+                // The installation can pause, cancel, or fail, but a completed
+                // installation must still be proven before publication: the
+                // target is re-inspected after the last install write, so a
+                // count or dimension drift during installation blocks the
+                // transaction with the invalidity and old active untouched.
                 if let Err(error) = self.verify_rebuild_target(&attempt, rebuilt).await {
                     self.fail_rebuild_barrier(fence, &error).await;
                     attempt_guard.disarm();
@@ -973,7 +1355,7 @@ impl SyncService {
             ));
         }
         let barrier = match outcome {
-            crate::db::RebuildStartOutcome::Started(barrier) => barrier,
+            crate::db::RebuildStartOutcome::Started(barrier) => *barrier,
             crate::db::RebuildStartOutcome::Refused(reason) => {
                 return Err(rebuild_refusal_error(reason));
             }
@@ -1299,7 +1681,7 @@ impl SyncService {
         }
         if let Err(error) = self
             .db
-            .complete_rebuild_in(&mut connection, fence.item_id(), fence.token())
+            .release_rebuild_in(&mut connection, fence.item_id(), fence.token())
             .await
         {
             tracing::warn!(%error, "failed to release the rebuild barrier");
@@ -1358,6 +1740,13 @@ impl SyncService {
 /// Where one rebuild attempt stopped.
 enum RebuildProgress {
     Completed(usize),
+    Paused,
+    Cancelled,
+}
+
+/// Where the bounded original installation stopped.
+enum RebuildInstallOutcome {
+    Installed,
     Paused,
     Cancelled,
 }
@@ -1849,8 +2238,8 @@ mod tests {
 
     use super::{
         RebuildAttempt, RebuildStartReservation, RebuiltIdentity, VectorRebuildTracker,
-        discard_superseded_rebuild, fail_rebuild_attempt, fresh_target_name,
-        settle_successful_rebuild,
+        discard_superseded_rebuild, fail_rebuild_attempt, fresh_target_name, install_completion,
+        original_reservation_run_id, settle_successful_rebuild,
     };
     use crate::{
         config::QdrantConfig,
@@ -1948,6 +2337,47 @@ mod tests {
     }
 
     #[test]
+    fn the_original_reservation_run_id_is_deterministic_per_target_file() {
+        let file = uuid::Uuid::from_u128(1);
+        let without_file = original_reservation_run_id("target-a", None);
+        assert_eq!(
+            without_file,
+            original_reservation_run_id("target-a", None),
+            "the same target and file derive one reservation id"
+        );
+        let with_file = original_reservation_run_id("target-a", Some(file));
+        assert_ne!(without_file, with_file);
+        assert_ne!(
+            with_file,
+            original_reservation_run_id("target-b", Some(file))
+        );
+        assert_ne!(
+            with_file,
+            original_reservation_run_id("target-a", Some(uuid::Uuid::from_u128(2)))
+        );
+    }
+
+    #[test]
+    fn the_installation_completes_only_on_an_exhausted_matching_source() {
+        assert!(
+            install_completion(0, 0, true).expect("a zero-total build settles"),
+            "an empty source with a zero total is a complete installation"
+        );
+        assert!(
+            install_completion(7, 7, true).expect("a matching source completes"),
+            "an exhausted source with the pinned total completes"
+        );
+        assert!(
+            !install_completion(3, 7, false).expect("a page in flight is not complete"),
+            "a source that still has rows never completes"
+        );
+        assert!(
+            install_completion(3, 7, true).is_err(),
+            "a source that ended short must abort instead of publishing"
+        );
+    }
+
+    #[test]
     fn a_reclaimed_paused_owner_parks_instead_of_retrying_qdrant() {
         let item = uuid::Uuid::new_v4();
         let mut barrier = crate::db::RebuildBarrier {
@@ -1963,6 +2393,11 @@ mod tests {
             processed_chunks: 2,
             total_chunks: 8,
             rebuild_target_created: false,
+            document_index_invalid: false,
+            install_started: false,
+            install_cursor: None,
+            installed_chunks: 0,
+            install_total_chunks: 0,
         };
         assert!(
             super::paused_rebuild_owned_by(&barrier, item),

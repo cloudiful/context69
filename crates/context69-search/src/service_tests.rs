@@ -11,6 +11,7 @@ use context69_contracts_search::search::SearchStreamEvent;
 use context69_contracts_search::{DocumentResponse, SearchHit, SearchMode, SearchRequest};
 use uuid::Uuid;
 
+use super::RegistryEpochCheck;
 use super::search_cursor::{CursorContext, encode_cursor};
 use crate::{
     AccessScope, DateBound, RerankClient, RerankDocument, RerankHit, SearchCache,
@@ -269,6 +270,7 @@ impl SearchRepository for MockRepo {
     async fn read_search_registry_state(&self) -> anyhow::Result<crate::SearchRegistryState> {
         Ok(crate::SearchRegistryState {
             epoch: self.next_scripted_epoch(),
+            unavailable: false,
             entries: Vec::new(),
             deleted_file_ids: Vec::new(),
             deleted_document_ids: Vec::new(),
@@ -3039,6 +3041,120 @@ fn hydration_map(hits: Vec<SearchHit>) -> HashMap<Uuid, SearchHit> {
 }
 
 #[test]
+fn registry_epoch_guard_accepts_a_stable_snapshot() {
+    let index = Arc::new(MockIndex {
+        hits: Vec::new(),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: HashMap::new(),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![7]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let service = epoch_service(vector_settings(), index, repo);
+
+    assert_eq!(
+        block_on(service.check_registry_epoch(7)).expect("epoch check"),
+        RegistryEpochCheck::Current,
+        "an unchanged epoch accepts the attempt's response"
+    );
+}
+
+#[test]
+fn registry_epoch_guard_reports_the_moved_epoch() {
+    let index = Arc::new(MockIndex {
+        hits: Vec::new(),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let repo = MockRepo {
+        settings: vector_settings(),
+        hydrated: HashMap::new(),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![9]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let service = epoch_service(vector_settings(), index, repo);
+
+    assert_eq!(
+        block_on(service.check_registry_epoch(7)).expect("epoch check"),
+        RegistryEpochCheck::Moved { observed: 9 },
+        "a moved epoch discards the attempt before either response path returns"
+    );
+}
+
+#[test]
+fn a_moved_epoch_retry_reaches_the_availability_check() {
+    let hits: Vec<SearchHit> = (1..=3)
+        .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
+        .collect();
+    let index = Arc::new(MockIndex {
+        hits: vector_hits(&hits),
+        seen_limit: Arc::new(Mutex::new(None)),
+        date_hits: Vec::new(),
+        seen_date_bounds: Arc::new(Mutex::new(Vec::new())),
+        fetch_limit_override: None,
+        search_calls: Arc::new(Mutex::new(0)),
+        scripted_pages: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: hydration_map(hits),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        // The attempt snapshot is 0; the post-attempt re-read observes 1 and
+        // discards the attempt, so the loop continues into the next state read.
+        registry_epoch_script: MockRepo::with_epoch_script(vec![1]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    // The retry's availability read finds the derived index unavailable.
+    let repo = RegistryEntriesRepo::new(
+        inner,
+        vec![registry_state(0, Vec::new()), unavailable_registry_state()],
+    );
+    let service = block_on(SearchService::new(
+        Arc::new(repo),
+        Arc::new(MockScope),
+        Arc::new(MockEmbedding),
+        Arc::clone(&index) as Arc<dyn SearchIndex>,
+        None,
+        "test-model".to_string(),
+    ))
+    .expect("service");
+
+    let error = block_on(service.search(None, test_request(1, 8)))
+        .expect_err("the retry must fail closed when the registry becomes unavailable");
+    assert!(
+        error.to_string().contains("derived search index"),
+        "the retry's availability refusal is the reported error: {error}"
+    );
+    assert_eq!(
+        mock_index_calls(&index),
+        1,
+        "only the discarded attempt reaches the vector index; the retry stops at availability"
+    );
+}
+
+#[test]
 fn a_stable_epoch_answers_without_a_retry() {
     let hits: Vec<SearchHit> = (1..=5)
         .map(|doc| test_hit(doc, 0, &format!("meaningful body text {doc}")))
@@ -3536,10 +3652,95 @@ fn registry_entry(phase: &str, staged: &[Uuid], retired: &[Uuid]) -> SearchRegis
 fn registry_state(epoch: i64, entries: Vec<SearchRegistryEntry>) -> SearchRegistryState {
     SearchRegistryState {
         epoch,
+        unavailable: false,
         entries,
         deleted_file_ids: Vec::new(),
         deleted_document_ids: Vec::new(),
     }
+}
+
+fn unavailable_registry_state() -> SearchRegistryState {
+    SearchRegistryState {
+        epoch: 7,
+        unavailable: true,
+        entries: Vec::new(),
+        deleted_file_ids: Vec::new(),
+        deleted_document_ids: Vec::new(),
+    }
+}
+
+fn unavailable_service() -> (SearchService, Arc<RecordingExclusionIndex>) {
+    let index = Arc::new(RecordingExclusionIndex {
+        hits: Vec::new(),
+        seen_relevance: Arc::new(Mutex::new(Vec::new())),
+        seen_date: Arc::new(Mutex::new(Vec::new())),
+    });
+    let inner = MockRepo {
+        settings: vector_settings(),
+        hydrated: HashMap::new(),
+        keyword_hits: Vec::new(),
+        seen_keyword_limit: Arc::new(Mutex::new(None)),
+        upper_bound: None,
+        registry_epoch_script: MockRepo::with_epoch_script(vec![7]),
+        registry_epoch_never_stable: false,
+        scripted_hydration: Arc::new(Mutex::new(Vec::new())),
+    };
+    let repo = RegistryEntriesRepo::new(inner, vec![unavailable_registry_state()]);
+    (exclusion_service(repo, Arc::clone(&index)), index)
+}
+
+#[test]
+fn an_unavailable_registry_rejects_relevance_search_before_the_index() {
+    let (service, index) = unavailable_service();
+    let error = block_on(service.search(None, test_request(1, 8)))
+        .expect_err("an unavailable registry must reject the search");
+    assert!(
+        error.to_string().contains("derived search index"),
+        "the refusal names the derived index: {error}"
+    );
+    assert!(
+        index
+            .seen_relevance
+            .lock()
+            .expect("relevance lock")
+            .is_empty(),
+        "the vector index is never queried for an unavailable registry"
+    );
+}
+
+#[test]
+fn an_unavailable_registry_rejects_date_search_before_the_index() {
+    let (service, index) = unavailable_service();
+    assert!(
+        block_on(service.search(None, date_request(5))).is_err(),
+        "an unavailable registry must reject the date pipeline"
+    );
+    assert!(
+        index.seen_date.lock().expect("date lock").is_empty(),
+        "the date index is never queried for an unavailable registry"
+    );
+}
+
+#[test]
+fn an_unavailable_registry_rejects_a_stream_before_any_frame() {
+    let (service, index) = unavailable_service();
+    let frames = collect_stream_frames(&service, test_request(1, 8));
+    assert_eq!(frames.len(), 1, "only the error frame is emitted");
+    match &frames[0] {
+        SearchStreamEvent::Error { message } => assert!(
+            message.contains("derived search index"),
+            "the stream error names the derived index: {message}"
+        ),
+        other => panic!("expected only an error frame, got {other:?}"),
+    }
+    assert!(
+        index
+            .seen_relevance
+            .lock()
+            .expect("relevance lock")
+            .is_empty(),
+        "no vector candidate page is fetched for an unavailable registry"
+    );
 }
 
 /// A registry snapshot that also carries the deleted entity sets of the same
@@ -3552,6 +3753,7 @@ fn registry_state_with_deleted_entities(
 ) -> SearchRegistryState {
     SearchRegistryState {
         epoch,
+        unavailable: false,
         entries,
         deleted_file_ids,
         deleted_document_ids,

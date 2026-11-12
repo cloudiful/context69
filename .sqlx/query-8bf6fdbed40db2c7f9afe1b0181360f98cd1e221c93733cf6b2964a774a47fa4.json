@@ -1,0 +1,33 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Claim the rebuild barrier for one fenced owner.\n--\n-- The epoch row is locked by the caller before this statement runs, so the\n-- compare-and-set never races another writer: the row it updates is the row\n-- the caller already holds.\nUPDATE context69.search_registry_epoch\nSET rebuild_state = 'running',\n    rebuild_owner_item = $1,\n    rebuild_owner_token = $2,\n    rebuild_fingerprint = $3,\n    rebuild_collection = $4,\n    rebuild_started_at = COALESCE(rebuild_started_at, now()),\n    rebuild_error = NULL,\n    -- A fresh idle admission starts from the beginning. A same-identity\n    -- takeover of a running or failed barrier keeps the committed cursor,\n    -- so a resumed rebuild continues after its last written page.\n    rebuild_pause_requested = CASE\n        WHEN rebuild_state = 'idle' THEN FALSE\n        ELSE rebuild_pause_requested\n    END,\n    rebuild_cursor_document_id = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_cursor_document_id\n    END,\n    rebuild_cursor_chunk_index = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_cursor_chunk_index\n    END,\n    rebuild_processed_chunks = CASE\n        WHEN rebuild_state = 'idle' THEN 0\n        ELSE rebuild_processed_chunks\n    END,\n    rebuild_total_chunks = CASE\n        WHEN rebuild_state = 'idle' THEN 0\n        ELSE rebuild_total_chunks\n    END,\n    -- The ownership marker of the recorded target. A fresh idle admission\n    -- names a target that no attempt has created yet, so the marker starts\n    -- false. A same-identity takeover keeps the marker of the recorded\n    -- target: it still describes the very collection that attempt created.\n    rebuild_target_created = CASE\n        WHEN rebuild_state = 'idle' THEN FALSE\n        ELSE rebuild_target_created\n    END,\n    -- The pinned chunk budget and the chunk-id seed of a fresh build. A\n    -- same-identity takeover keeps both, so a resume never re-chunks under\n    -- settings published after the build started.\n    rebuild_chunk_budget = CASE\n        WHEN rebuild_state = 'idle' THEN $5::jsonb\n        ELSE rebuild_chunk_budget\n    END,\n    rebuild_generation = CASE\n        WHEN rebuild_state = 'idle' THEN $6::bigint\n        ELSE rebuild_generation\n    END,\n    -- Staging progress is preserved on a takeover and starts empty on a fresh\n    -- idle admission.\n    rebuild_staging_complete = CASE\n        WHEN rebuild_state = 'idle' THEN FALSE\n        ELSE rebuild_staging_complete\n    END,\n    rebuild_staged_document_id = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_staged_document_id\n    END,\n    rebuild_translation_cursor_document_id = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_translation_cursor_document_id\n    END,\n    rebuild_translation_cursor_translation_id = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_translation_cursor_translation_id\n    END,\n    rebuild_translation_cursor_chunk_index = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_translation_cursor_chunk_index\n    END,\n    rebuild_translation_processed_chunks = CASE\n        WHEN rebuild_state = 'idle' THEN 0\n        ELSE rebuild_translation_processed_chunks\n    END,\n    -- A fresh idle admission also starts a fresh bounded installation. A\n    -- same-identity takeover preserves the committed install checkpoints so a\n    -- retry resumes after its last installed page. The durable derived-index\n    -- invalidity is deliberately untouched: only a successful publish clears\n    -- it, so a cancelled or failed rebuild keeps search unavailable.\n    rebuild_install_started = CASE\n        WHEN rebuild_state = 'idle' THEN FALSE\n        ELSE rebuild_install_started\n    END,\n    rebuild_install_cursor_document_id = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_install_cursor_document_id\n    END,\n    rebuild_install_cursor_chunk_index = CASE\n        WHEN rebuild_state = 'idle' THEN NULL\n        ELSE rebuild_install_cursor_chunk_index\n    END,\n    rebuild_installed_chunks = CASE\n        WHEN rebuild_state = 'idle' THEN 0\n        ELSE rebuild_installed_chunks\n    END,\n    rebuild_install_total_chunks = CASE\n        WHEN rebuild_state = 'idle' THEN 0\n        ELSE rebuild_install_total_chunks\n    END,\n    updated_at = now()\nWHERE id = 1\nRETURNING epoch\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "epoch",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.search_registry_epoch",
+            "name": "epoch"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Jsonb",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8bf6fdbed40db2c7f9afe1b0181360f98cd1e221c93733cf6b2964a774a47fa4"
+}

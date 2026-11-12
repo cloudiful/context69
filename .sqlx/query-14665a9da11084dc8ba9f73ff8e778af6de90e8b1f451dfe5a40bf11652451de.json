@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Delete one bounded batch of a queued target's staged original chunks.\nDELETE FROM context69.document_chunk_rebuild_staging\nWHERE target_collection = $1\n  AND ctid IN (\n      SELECT staged.ctid\n      FROM context69.document_chunk_rebuild_staging staged\n      WHERE staged.target_collection = $1\n      LIMIT $2\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "14665a9da11084dc8ba9f73ff8e778af6de90e8b1f451dfe5a40bf11652451de"
+}

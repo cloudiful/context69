@@ -203,9 +203,11 @@ impl TaskService {
         } else {
             Some(self.db.read_rebuild_staging_state().await?)
         };
-        // The document counts are only needed while a rebuild is active. A
-        // completed or idle deployment reports no fabricated zero.
-        let documents = if barrier.state == RebuildBarrierState::Running {
+        let staging_complete = staging
+            .as_ref()
+            .is_some_and(|staging| staging.staging_complete);
+        // Avoid polling full-table counts after staging completes.
+        let documents = if barrier.state == RebuildBarrierState::Running && !staging_complete {
             match barrier.collection.as_deref() {
                 Some(target) => Some(self.db.read_rebuild_document_progress(target).await?),
                 None => None,
@@ -224,9 +226,7 @@ impl TaskService {
             desired_dimensions: desired
                 .as_ref()
                 .map(|settings| settings.embedding.dimensions),
-            staging_complete: staging
-                .as_ref()
-                .is_some_and(|staging| staging.staging_complete),
+            staging_complete,
             translation_processed_chunks: staging
                 .as_ref()
                 .map_or(0, |staging| staging.translation_processed_chunks),
@@ -446,7 +446,12 @@ fn rebuild_documents(
     } else {
         VectorIndexRebuildPhase::Verifying
     };
-    (Some(phase), inputs.documents_staged, inputs.documents_total)
+    let documents = if inputs.staging_complete {
+        (None, None)
+    } else {
+        (inputs.documents_staged, inputs.documents_total)
+    };
+    (Some(phase), documents.0, documents.1)
 }
 
 /// The durable status of the vector index rebuild.
@@ -530,6 +535,11 @@ mod tests {
             processed_chunks: 12,
             total_chunks: 40,
             rebuild_target_created: false,
+            document_index_invalid: false,
+            install_started: false,
+            install_cursor: None,
+            installed_chunks: 0,
+            install_total_chunks: 0,
         }
     }
 
@@ -810,5 +820,22 @@ mod tests {
             "every known chunk is embedded, so the target is being verified"
         );
         assert_eq!(status.processed_chunks, status.total_chunks);
+    }
+
+    #[test]
+    fn a_staging_complete_rebuild_reports_no_document_counts() {
+        let owner_item = Uuid::new_v4();
+        let owner_task = Uuid::new_v4();
+        let mut inputs = running_inputs(owner_item, owner_task);
+        inputs.staging_complete = true;
+        inputs.documents_staged = Some(3);
+        inputs.documents_total = Some(5);
+        let status = project_rebuild_status(&inputs);
+        assert_eq!(
+            status.documents_staged, None,
+            "staging is complete, so the document counts are no longer read"
+        );
+        assert_eq!(status.documents_total, None);
+        assert_eq!(status.phase, Some(VectorIndexRebuildPhase::Embedding));
     }
 }

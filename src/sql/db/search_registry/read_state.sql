@@ -10,6 +10,7 @@
 -- the visible result. The rows themselves stay in the registry as history.
 SELECT
     e.epoch AS epoch,
+    (e.rebuild_state <> 'idle' OR e.document_index_invalid) AS "unavailable!",
     COALESCE(
         (
             SELECT jsonb_agg(

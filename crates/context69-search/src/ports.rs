@@ -131,6 +131,10 @@ impl SearchExclusions {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct SearchRegistryState {
     pub epoch: i64,
+    /// The durable readiness of the derived original index: a non-idle rebuild
+    /// barrier or a durably invalid index. A healthy mock or keyword-only state
+    /// keeps the default `false`.
+    pub unavailable: bool,
     pub entries: Vec<SearchRegistryEntry>,
     /// The library files that were explicitly deleted. Their points stay
     /// excluded from every search path.
@@ -141,6 +145,18 @@ pub struct SearchRegistryState {
 }
 
 impl SearchRegistryState {
+    /// Reject a search before any cache hit, response or stream frame while the
+    /// derived original index is unavailable.
+    pub fn ensure_available(&self) -> Result<()> {
+        if self.unavailable {
+            return Err(context69_contracts_core::errors::DomainError::unavailable(
+                "the derived search index is being rebuilt; retry after it completes",
+            )
+            .into());
+        }
+        Ok(())
+    }
+
     /// The deduplicated point ids one search attempt must exclude from every
     /// vector candidate path. A staging run hides its staged ids; a switched
     /// or retired entry hides its retired ids, the ids of the version that is

@@ -155,6 +155,12 @@ impl MetadataPayloadSyncWorker {
                 reason: "vector runtime is not ready",
             });
         };
+        if self.db.read_search_registry_unavailable().await? {
+            return Ok(MirrorOutcome::Backoff {
+                marker,
+                reason: "the derived original index is unavailable",
+            });
+        }
         let Some(snapshot) = ready.snapshot.as_ref() else {
             return Ok(MirrorOutcome::Backoff {
                 marker,
@@ -213,6 +219,12 @@ impl MetadataPayloadSyncWorker {
             return Ok(MirrorOutcome::Backoff {
                 marker,
                 reason: "the vector runtime generation changed during the payload send",
+            });
+        }
+        if self.db.read_search_registry_unavailable().await? {
+            return Ok(MirrorOutcome::Backoff {
+                marker,
+                reason: "the derived original index became unavailable during the payload send",
             });
         }
 

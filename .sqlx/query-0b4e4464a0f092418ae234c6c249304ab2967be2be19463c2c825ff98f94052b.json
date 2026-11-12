@@ -1,0 +1,27 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Fail-closed proof of one installed original page.\n--\n-- The expected rows come from the staging source of the same immutable\n-- keyset, and every field the live row must carry is compared. A nonzero\n-- result aborts the batch transaction before its cursor commits.\nSELECT count(*)::bigint AS \"mismatch!\"\nFROM context69.document_chunk_rebuild_staging s\nLEFT JOIN context69.document_chunks c ON c.id = s.chunk_id\nWHERE s.target_collection = $1\n  AND (\n      $2::bigint IS NULL\n      OR s.document_id > $2\n      OR (s.document_id = $2 AND s.chunk_index > $3)\n  )\n  AND (\n      s.document_id < $4\n      OR (s.document_id = $4 AND s.chunk_index <= $5)\n  )\n  AND (\n      c.id IS NULL\n      OR c.document_id <> s.document_id\n      OR c.chunk_index <> s.chunk_index\n      OR c.chunk_text <> s.chunk_text\n      OR c.record_hash <> s.record_hash\n  )\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "mismatch!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Int4",
+        "Int8",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0b4e4464a0f092418ae234c6c249304ab2967be2be19463c2c825ff98f94052b"
+}

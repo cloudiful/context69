@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Drop the address row only when every staging row family of its target is\n-- empty, so remaining rows stay the progress of a later tick.\nDELETE FROM context69.document_rebuild_staging_cleanup cleanup\nWHERE cleanup.target_collection = $1\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.document_chunk_rebuild_staging original\n      WHERE original.target_collection = $1\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.document_translation_rebuild_staging translated\n      WHERE translated.target_collection = $1\n  )\n  AND NOT EXISTS (\n      SELECT 1\n      FROM context69.document_rebuild_staging_documents document\n      WHERE document.target_collection = $1\n  )\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5ec5faf28626cbcaa81a7b613d00dfc5e287aefaa5f6693f0150fb7a85b24319"
+}

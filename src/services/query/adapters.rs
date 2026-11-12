@@ -238,7 +238,27 @@ impl SearchRepository for DbSearchRepository {
     }
 
     async fn read_search_registry_state(&self) -> Result<SearchRegistryState> {
-        self.db.read_search_registry_state().await
+        let mut state = self.db.read_search_registry_state().await?;
+        if !state.unavailable {
+            let current = self.vector.current();
+            if current.ready
+                && let Some(snapshot) = current.snapshot
+            {
+                // A published ready pair whose physical collection is not the DB
+                // active collection is stale after a publish on another node.
+                // Existing runtime recovery refreshes it; until then the derived
+                // index is unavailable instead of mixing two collections.
+                let active = self.db.read_active_vector_index_state().await?;
+                if active
+                    .as_ref()
+                    .map(|active| active.collection_name.as_str())
+                    != Some(snapshot.collection.as_str())
+                {
+                    state.unavailable = true;
+                }
+            }
+        }
+        Ok(state)
     }
 
     async fn read_search_registry_epoch(&self) -> Result<i64> {
