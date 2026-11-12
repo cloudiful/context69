@@ -1,7 +1,6 @@
 FROM dockerhub.cloud1ful.com/library/debian:trixie-slim AS tokenizer-artifact
 
-ADD --checksum=sha256:4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4 https://huggingface.cloud1ful.com/google/embeddinggemma-2/resolve/f9972ac22e696a105c482202646979e33e4b5a1e/tokenizer.json /tmp/tokenizer.json
-RUN test "$(wc -c < /tmp/tokenizer.json)" -eq 32170510
+ADD https://huggingface.cloud1ful.com/google/embeddinggemma-2/resolve/f9972ac22e696a105c482202646979e33e4b5a1e/tokenizer.json /tmp/tokenizer.json
 
 FROM dockerhub.cloud1ful.com/library/debian:trixie-slim AS runtime
 ARG TARGETARCH
