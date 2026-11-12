@@ -1,14 +1,16 @@
 INSERT INTO context69.vector_index_state (
     collection_name,
     fingerprint,
+    qdrant_url,
     embedding_base_url,
     embedding_model,
     dimensions,
     rebuilt_chunks
 )
-VALUES ($1, $2, $3, $4, $5, $6)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (collection_name) DO UPDATE
 SET fingerprint = EXCLUDED.fingerprint,
+    qdrant_url = EXCLUDED.qdrant_url,
     embedding_base_url = EXCLUDED.embedding_base_url,
     embedding_model = EXCLUDED.embedding_model,
     dimensions = EXCLUDED.dimensions,

@@ -7,6 +7,7 @@ use uuid::Uuid;
 mod cleanup;
 pub(crate) mod code_vectors;
 mod collection;
+pub(crate) mod collection_retirement;
 mod date_window;
 mod errors;
 pub mod metadata_retirement;

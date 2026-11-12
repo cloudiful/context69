@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Claim at most one due retirement row with a fenced lease.\n--\n-- An expired lease is claimable again, so a crashed worker never strands a\n-- pending collection. Only the token returned here may settle the row.\nWITH due AS (\n    SELECT id\n    FROM context69.vector_collection_retirement\n    WHERE next_attempt_at <= NOW()\n      AND (lease_expires_at IS NULL OR lease_expires_at <= NOW())\n    ORDER BY next_attempt_at, id\n    LIMIT 1\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE context69.vector_collection_retirement retirement\nSET lease_token = $1,\n    lease_expires_at = NOW() + make_interval(secs => ($2)::int),\n    updated_at = NOW()\nFROM due\nWHERE retirement.id = due.id\nRETURNING retirement.id,\n          retirement.endpoint,\n          retirement.collection_name,\n          retirement.attempts,\n          retirement.lease_token\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_collection_retirement",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "endpoint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_collection_retirement",
+            "name": "endpoint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_collection_retirement",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "attempts",
+        "type_info": "Int4",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_collection_retirement",
+            "name": "attempts"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "lease_token",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_collection_retirement",
+            "name": "lease_token"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "006b09490ca77d6f06665d706f86c1982ddc3d36de5d4d543df0ea1dff553eec"
+}

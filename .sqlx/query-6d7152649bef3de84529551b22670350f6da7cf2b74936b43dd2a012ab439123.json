@@ -1,0 +1,86 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The previous active identity, read in the activation transaction before the\n-- replacement is published.\n--\n-- The embedding fields and the optional pinned endpoint are needed to prove\n-- which endpoint owns the physical collection that is about to be retired. The\n-- physical name is never used to reconstruct a legacy fingerprint.\nSELECT\n    collection_name,\n    fingerprint,\n    embedding_base_url,\n    embedding_model,\n    dimensions,\n    qdrant_url\nFROM context69.vector_index_state\nWHERE active\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "collection_name",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "collection_name"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "fingerprint",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "fingerprint"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "embedding_base_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "embedding_base_url"
+          }
+        }
+      },
+      {
+        "ordinal": 3,
+        "name": "embedding_model",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "embedding_model"
+          }
+        }
+      },
+      {
+        "ordinal": 4,
+        "name": "dimensions",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "dimensions"
+          }
+        }
+      },
+      {
+        "ordinal": 5,
+        "name": "qdrant_url",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.vector_index_state",
+            "name": "qdrant_url"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "6d7152649bef3de84529551b22670350f6da7cf2b74936b43dd2a012ab439123"
+}

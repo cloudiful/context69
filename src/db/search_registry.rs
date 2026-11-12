@@ -1020,10 +1020,19 @@ impl Database {
         }
         self.finish_document_rebuild_staging_in(connection, &barrier, &staging, state)
             .await?;
+        // The previous active identity is read before it is deactivated, so the
+        // replacement transaction knows exactly which physical collection it
+        // replaces. Its endpoint is proven below; an unprovable legacy identity
+        // is reported and left in place instead of guessed.
+        let replaced = self
+            .read_active_vector_index_for_retirement_in(connection)
+            .await?;
         self.save_vector_index_state_in(connection, state).await?;
         self.deactivate_active_vector_index_state_in(connection)
             .await?;
         self.activate_vector_index_state_in(connection, state.collection_name)
+            .await?;
+        self.enqueue_replaced_collection_retirement_in(connection, replaced.as_ref(), state)
             .await?;
         let epoch = self
             .complete_rebuild_in(connection, owner_item_id, owner_token)
@@ -1033,6 +1042,45 @@ impl Database {
         }
         self.bump_search_generation_in(connection).await?;
         Ok(epoch)
+    }
+
+    /// Enqueue the collection this activation replaced, in the same
+    /// transaction.
+    ///
+    /// A legacy identity whose endpoint cannot be proven is never guessed: the
+    /// activation still succeeds, the old collection stays untouched, and the
+    /// reason is logged without the private endpoint.
+    async fn enqueue_replaced_collection_retirement_in(
+        &self,
+        connection: &mut PgConnection,
+        replaced: Option<&super::ActiveRetirementCandidate>,
+        state: &VectorIndexState<'_>,
+    ) -> Result<()> {
+        let Some(replaced) = replaced else {
+            return Ok(());
+        };
+        let Some(endpoint) =
+            super::prove_retirement_endpoint(replaced, state.qdrant_url, state.base_collection)
+        else {
+            tracing::warn!(
+                collection = %replaced.collection_name,
+                "the replaced vector collection has no proven endpoint; it is not scheduled for \
+                 retirement"
+            );
+            return Ok(());
+        };
+        let Some(target) = super::retirement_target(replaced, &endpoint, state.collection_name)
+        else {
+            return Ok(());
+        };
+        self.enqueue_vector_collection_retirement_in(
+            connection,
+            &target.endpoint,
+            &target.collection_name,
+            super::RETIREMENT_GRACE_SECONDS,
+        )
+        .await?;
+        Ok(())
     }
 
     /// Verify and install the staged document-rechunk snapshot of a P2 rebuild.

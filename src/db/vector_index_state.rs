@@ -114,6 +114,7 @@ impl Database {
             "src/sql/db/vector_index_state/save.sql",
             state.collection_name,
             state.fingerprint,
+            state.qdrant_url,
             state.embedding_base_url,
             state.embedding_model,
             dimensions,
@@ -128,6 +129,10 @@ impl Database {
 pub struct VectorIndexState<'a> {
     pub collection_name: &'a str,
     pub fingerprint: &'a str,
+    /// The Qdrant endpoint this identity was saved with.
+    pub qdrant_url: &'a str,
+    /// The logical collection name of the identity, never the physical target.
+    pub base_collection: &'a str,
     pub embedding_base_url: &'a str,
     pub embedding_model: &'a str,
     pub dimensions: usize,
