@@ -70,6 +70,7 @@ impl Database {
         let mut tx = self.pool().begin().await?;
         self.maintain_claim_state_in(&mut tx).await?;
         lock_task_admission(&mut tx).await?;
+        self.release_gated_ordinary_leases(&mut tx).await?;
         let items = self.claim_candidates(&mut tx, capacity).await?;
         tx.commit().await?;
         Ok(items)
@@ -93,9 +94,30 @@ impl Database {
         self.recover_expired_executions(&mut tx, RECOVERY_LIMIT)
             .await?;
         lock_task_admission(&mut tx).await?;
+        self.release_gated_ordinary_leases(&mut tx).await?;
         let items = self.claim_candidates(&mut tx, capacity).await?;
         tx.commit().await?;
         Ok(items)
+    }
+
+    /// Releases the idle parent admission leases that a rebuild gate or a
+    /// parked rebuild makes pure capacity pressure.
+    ///
+    /// Runs inside the caller's admission lock, immediately before candidate
+    /// selection, so the slots it frees are counted by the same snapshot that
+    /// admits the rebuild. It only clears the lease authority of parents with no
+    /// live attempt: ordinary parents only while a rebuild gates admission, and
+    /// an unselected rebuild parent regardless of whether any rebuild is
+    /// runnable. The selected runnable rebuild and every live attempt keep their
+    /// slot.
+    async fn release_gated_ordinary_leases(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<()> {
+        sqlx::query_file!("src/sql/db/tasks/release_gated_ordinary_leases.sql")
+            .fetch_one(&mut **tx)
+            .await?;
+        Ok(())
     }
 
     /// Claims the items the domain policy selected.
