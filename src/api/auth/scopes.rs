@@ -80,7 +80,9 @@ async fn require_scope_middleware(
 
     match admit_personal_access_token(&authenticated.kind, required_scope) {
         ScopeAdmission::Allowed(token_id) => {
-            state.app.personal_access_tokens.record_last_used(token_id);
+            if authenticated.telemetry_due {
+                state.app.personal_access_tokens.record_last_used(token_id);
+            }
         }
         ScopeAdmission::MissingScope => {
             return (

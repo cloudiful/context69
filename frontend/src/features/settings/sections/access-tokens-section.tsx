@@ -18,7 +18,8 @@ import {
   PERSONAL_ACCESS_TOKEN_EXPIRY_DAYS,
   PERSONAL_ACCESS_TOKEN_SCOPES,
 } from "@/features/settings/use-personal-access-tokens";
-import { formatTimestamp } from "@/lib/format";
+import { formatDate, formatTimestamp } from "@/lib/format";
+import { UTC_TIME_ZONE } from "@/lib/time-zone";
 import type { PersonalAccessTokenResponse, PersonalAccessTokenScope } from "@/services/api";
 
 const SCOPE_HELPER_KEYS: Record<PersonalAccessTokenScope, string> = {
@@ -184,7 +185,7 @@ export function AccessTokensSection() {
                       <TableCell className="whitespace-nowrap">{formatTimestamp(token.expires_at)}</TableCell>
                       <TableCell className="whitespace-nowrap">
                         {token.last_used_at
-                          ? formatTimestamp(token.last_used_at)
+                          ? formatDate(token.last_used_at, UTC_TIME_ZONE)
                           : t("settings.personalAccessTokens.neverUsed")}
                       </TableCell>
                       <TableCell>

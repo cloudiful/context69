@@ -42,6 +42,7 @@ pub(crate) type BrowserAuthSession = AxumAuthSession<AuthService>;
 #[derive(Clone)]
 pub(crate) struct AuthenticatedRequest {
     pub session: AuthSession,
+    pub telemetry_due: bool,
     pub kind: AuthKind,
 }
 
@@ -191,7 +192,9 @@ pub(crate) async fn touch_personal_access_token_middleware(
             .extensions()
             .get::<RequestAuth>()
             .and_then(|auth| match &auth.0 {
-                Some(authenticated) => personal_access_token_id(&authenticated.kind),
+                Some(authenticated) => {
+                    usage_observation(&authenticated.kind, authenticated.telemetry_due)
+                }
                 None => None,
             })
     {
@@ -208,6 +211,15 @@ fn personal_access_token_id(kind: &AuthKind) -> Option<Uuid> {
     match kind {
         AuthKind::PersonalAccessToken { token_id, .. } => Some(*token_id),
         AuthKind::BrowserSession => None,
+    }
+}
+
+/// The token whose usage this request should record, when telemetry is due.
+fn usage_observation(kind: &AuthKind, telemetry_due: bool) -> Option<Uuid> {
+    if telemetry_due {
+        personal_access_token_id(kind)
+    } else {
+        None
     }
 }
 
@@ -247,6 +259,7 @@ async fn authenticate_request(
             .map_err(|error| error.to_string())?;
         return Ok(Some(AuthenticatedRequest {
             session: verified.session,
+            telemetry_due: verified.telemetry_due,
             kind: AuthKind::PersonalAccessToken {
                 token_id: verified.token_id,
                 scopes: verified.scopes,
@@ -255,6 +268,7 @@ async fn authenticate_request(
     }
     Ok(browser_session.map(|session| AuthenticatedRequest {
         session,
+        telemetry_due: false,
         kind: AuthKind::BrowserSession,
     }))
 }
@@ -266,7 +280,7 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
     use uuid::Uuid;
 
-    use super::{AuthKind, extract_bearer_token, personal_access_token_id};
+    use super::{AuthKind, extract_bearer_token, personal_access_token_id, usage_observation};
     use crate::contracts::PersonalAccessTokenScope;
 
     #[test]
@@ -298,6 +312,27 @@ mod tests {
             personal_access_token_id(&AuthKind::BrowserSession),
             None,
             "a browser session has no token whose usage could be observed"
+        );
+    }
+
+    #[test]
+    fn only_a_due_personal_access_token_request_observes_usage() {
+        let token_id = Uuid::new_v4();
+        let token = AuthKind::PersonalAccessToken {
+            token_id,
+            scopes: BTreeSet::from([PersonalAccessTokenScope::Search]),
+        };
+
+        assert_eq!(usage_observation(&token, true), Some(token_id));
+        assert_eq!(
+            usage_observation(&token, false),
+            None,
+            "a token already observed today enqueues nothing"
+        );
+        assert_eq!(
+            usage_observation(&AuthKind::BrowserSession, true),
+            None,
+            "a browser session never observes token usage"
         );
     }
 }

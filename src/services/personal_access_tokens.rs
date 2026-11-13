@@ -50,6 +50,7 @@ pub struct CreatedPersonalAccessToken {
 pub struct VerifiedPersonalAccessToken {
     pub token_id: Uuid,
     pub scopes: BTreeSet<PersonalAccessTokenScope>,
+    pub telemetry_due: bool,
     pub session: crate::services::auth::AuthSession,
 }
 
@@ -167,10 +168,12 @@ impl PersonalAccessTokenService {
             .iter()
             .map(|scope| parse_scope(scope))
             .collect::<Result<BTreeSet<_>>>()?;
+        let telemetry_due = last_used_due(record.last_used_at, Utc::now());
         let session = self.auth.session_for_user_id(record.user_id).await?;
         Ok(VerifiedPersonalAccessToken {
             token_id: record.id,
             scopes,
+            telemetry_due,
             session,
         })
     }
@@ -230,6 +233,13 @@ fn token_view_from_record(record: PersonalAccessTokenRecord) -> Result<PersonalA
     })
 }
 
+fn last_used_due(last_used_at: Option<chrono::DateTime<Utc>>, now: chrono::DateTime<Utc>) -> bool {
+    match last_used_at {
+        Some(last_used_at) => last_used_at.date_naive() < now.date_naive(),
+        None => true,
+    }
+}
+
 fn validate_personal_access_token_record(record: &PersonalAccessTokenRecord) -> Result<()> {
     if record.revoked_at.is_some() {
         return Err(DomainError::unauthorized("personal access token has been revoked").into());
@@ -254,12 +264,49 @@ pub fn is_personal_access_token(token: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{ALLOWED_EXPIRY_DAYS, is_personal_access_token, scope_to_string};
+    use super::{ALLOWED_EXPIRY_DAYS, is_personal_access_token, last_used_due, scope_to_string};
     use crate::contracts::PersonalAccessTokenScope;
+    use chrono::{TimeZone, Utc};
 
     #[test]
     fn allowed_expiry_days_are_stable() {
         assert_eq!(ALLOWED_EXPIRY_DAYS, [7, 30, 90, 365]);
+    }
+
+    #[test]
+    fn usage_is_due_once_per_utc_day() {
+        let now = Utc.with_ymd_and_hms(2024, 3, 10, 12, 0, 0).unwrap();
+
+        assert!(last_used_due(None, now));
+        assert!(!last_used_due(
+            Some(Utc.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap()),
+            now
+        ));
+        assert!(last_used_due(
+            Some(Utc.with_ymd_and_hms(2024, 3, 9, 23, 59, 59).unwrap()),
+            now
+        ));
+        assert!(
+            !last_used_due(
+                Some(Utc.with_ymd_and_hms(2024, 3, 11, 0, 0, 0).unwrap()),
+                now
+            ),
+            "a future recorded timestamp must not repeatedly enqueue"
+        );
+    }
+
+    #[test]
+    fn usage_due_compares_the_utc_date_boundary() {
+        let just_after_midnight = Utc.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap();
+
+        assert!(last_used_due(
+            Some(Utc.with_ymd_and_hms(2024, 3, 9, 23, 59, 59).unwrap()),
+            just_after_midnight
+        ));
+        assert!(!last_used_due(
+            Some(Utc.with_ymd_and_hms(2024, 3, 10, 0, 0, 0).unwrap()),
+            just_after_midnight
+        ));
     }
 
     #[test]

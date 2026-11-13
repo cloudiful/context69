@@ -4030,7 +4030,13 @@ export interface components {
             display_prefix: string;
             /** Format: date-time */
             expires_at: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description First recorded use instant of the token's most recent UTC day.
+             *
+             *     Usage telemetry is recorded at most once per UTC day, so display the UTC
+             *     calendar date rather than treating this as the exact last request time.
+             */
             last_used_at?: string | null;
             name: string;
             /** Format: date-time */
