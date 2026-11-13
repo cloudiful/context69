@@ -12988,7 +12988,8 @@
               "string",
               "null"
             ],
-            "format": "date-time"
+            "format": "date-time",
+            "description": "First recorded use instant of the token's most recent UTC day.\n\nUsage telemetry is recorded at most once per UTC day, so display the UTC\ncalendar date rather than treating this as the exact last request time."
           },
           "name": {
             "type": "string"

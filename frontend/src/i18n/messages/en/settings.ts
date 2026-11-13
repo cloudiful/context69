@@ -47,7 +47,7 @@ export const settings = {
     expiry365Days: "365 days",
     createdAt: "Created",
     expiresAt: "Expires",
-    lastUsedAt: "Last Used",
+    lastUsedAt: "Last Used (UTC day)",
     neverUsed: "Never",
     status: "Status",
     actions: "Actions",

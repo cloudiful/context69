@@ -47,7 +47,7 @@ export const settings = {
     expiry365Days: "365天",
     createdAt: "创建时间",
     expiresAt: "到期时间",
-    lastUsedAt: "最后使用",
+    lastUsedAt: "最后使用（UTC 日期）",
     neverUsed: "从未使用",
     status: "状态",
     actions: "操作",
