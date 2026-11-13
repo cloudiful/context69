@@ -228,10 +228,6 @@ fn code_embedding_request(request: &UpdateCodeEmbeddingSettings) -> Result<()> {
 fn registry_capacity_request(file_library: &UpdateRuntimeFileLibrarySettings) -> Result<()> {
     let caps = [
         (
-            "registry_max_ids_total",
-            file_library.registry_max_ids_total,
-        ),
-        (
             "registry_max_ids_per_file",
             file_library.registry_max_ids_per_file,
         ),
@@ -250,29 +246,16 @@ fn registry_capacity_request(file_library: &UpdateRuntimeFileLibrarySettings) ->
             .into());
         }
     }
-    let ordering = [
-        (
-            "registry_max_ids_per_run",
-            file_library.registry_max_ids_per_run,
-            "registry_max_ids_per_file",
-            file_library.registry_max_ids_per_file,
-        ),
-        (
-            "registry_max_ids_per_file",
-            file_library.registry_max_ids_per_file,
-            "registry_max_ids_total",
-            file_library.registry_max_ids_total,
-        ),
-    ];
-    for (smaller_name, smaller, larger_name, larger) in ordering {
-        if let (Some(smaller), Some(larger)) = (smaller, larger)
-            && smaller > larger
-        {
-            return Err(DomainError::invalid_argument(format!(
-                "runtime.file_library.{smaller_name} must not exceed runtime.file_library.{larger_name}"
-            ))
-            .into());
-        }
+    if let (Some(run), Some(file)) = (
+        file_library.registry_max_ids_per_run,
+        file_library.registry_max_ids_per_file,
+    ) && run > file
+    {
+        return Err(DomainError::invalid_argument(
+            "runtime.file_library.registry_max_ids_per_run must not exceed \
+             runtime.file_library.registry_max_ids_per_file",
+        )
+        .into());
     }
     Ok(())
 }
@@ -421,10 +404,25 @@ fn validate_fusion_weights(vector_weight: f32, keyword_weight: f32) -> Result<()
 }
 
 #[cfg(test)]
-mod code_embedding_validation_tests {
-    use super::code_embedding_request;
+mod validation_tests {
+    use super::{code_embedding_request, registry_capacity_request};
+    use crate::contracts::UpdateRuntimeFileLibrarySettings;
     use context69_contracts::settings::SecretPatch;
     use context69_contracts::settings::UpdateCodeEmbeddingSettings;
+
+    fn file_library(
+        per_file: Option<i64>,
+        per_run: Option<i64>,
+    ) -> UpdateRuntimeFileLibrarySettings {
+        UpdateRuntimeFileLibrarySettings {
+            storage_root: "/tmp/library".to_string(),
+            max_upload_size_mb: 16,
+            trusted_proxy_enabled: false,
+            registry_max_ids_per_file: per_file,
+            registry_max_ids_per_run: per_run,
+            s3: None,
+        }
+    }
 
     fn code(enabled: bool) -> UpdateCodeEmbeddingSettings {
         UpdateCodeEmbeddingSettings {
@@ -466,5 +464,27 @@ mod code_embedding_validation_tests {
         request.timeout_secs = 0;
         assert!(code_embedding_request(&request).is_err());
         code_embedding_request(&code(true)).expect("a complete block is valid");
+    }
+
+    #[test]
+    fn omitted_registry_caps_keep_the_stored_policy() {
+        registry_capacity_request(&file_library(None, None))
+            .expect("an omitted cap is not a validation error");
+        registry_capacity_request(&file_library(Some(8), None))
+            .expect("a partial policy is resolved against the stored one");
+        registry_capacity_request(&file_library(None, Some(8)))
+            .expect("a partial policy is resolved against the stored one");
+    }
+
+    #[test]
+    fn registry_caps_must_be_positive_and_ordered() {
+        registry_capacity_request(&file_library(Some(8), Some(8)))
+            .expect("the run cap may equal the file cap");
+        assert!(registry_capacity_request(&file_library(Some(0), Some(8))).is_err());
+        assert!(registry_capacity_request(&file_library(Some(8), Some(0))).is_err());
+        assert!(
+            registry_capacity_request(&file_library(Some(8), Some(9))).is_err(),
+            "the run cap may not exceed the file cap"
+        );
     }
 }

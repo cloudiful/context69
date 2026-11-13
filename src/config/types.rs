@@ -12,9 +12,8 @@ use super::{
     defaults::{
         DEFAULT_MCP_BIND_ADDR, default_chunking_max_tokens, default_chunking_overlap_tokens,
         default_registry_max_ids_per_file, default_registry_max_ids_per_run,
-        default_registry_max_ids_total, default_scheduler_execution_guard_renew_interval,
-        default_scheduler_execution_guard_ttl, default_secret_store_key_version,
-        default_session_idle_ttl, default_tokenizer_download_dir,
+        default_scheduler_execution_guard_renew_interval, default_scheduler_execution_guard_ttl,
+        default_secret_store_key_version, default_session_idle_ttl, default_tokenizer_download_dir,
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
@@ -222,16 +221,13 @@ pub struct FileLibraryConfig {
 
 /// The registry capacity policy of the file library.
 ///
-/// The three caps bound how many vector point ids the search registry admits.
-/// They are independent of the upload size: a cap counts the retained registry
-/// entries of the deployment, of one file, and of one ingestion run, never the
-/// bytes of a document. The policy is cumulative, so lowering a cap keeps the
-/// entries that already exist and refuses new admissions until they fit.
+/// The two caps bound how many vector point ids the search registry admits for
+/// one file and one ingestion run. They are independent of the upload size: a
+/// cap counts the retained registry entries, never the bytes of a document. The
+/// policy is cumulative, so lowering a cap keeps the entries that already exist
+/// and refuses new admissions until they fit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RegistryQuotaConfig {
-    /// The number of point ids the whole deployment may retain.
-    #[serde(default = "default_registry_max_ids_total")]
-    pub registry_max_ids_total: i64,
     /// The number of point ids one file may retain.
     #[serde(default = "default_registry_max_ids_per_file")]
     pub registry_max_ids_per_file: i64,
@@ -243,7 +239,6 @@ pub struct RegistryQuotaConfig {
 impl Default for RegistryQuotaConfig {
     fn default() -> Self {
         Self {
-            registry_max_ids_total: default_registry_max_ids_total(),
             registry_max_ids_per_file: default_registry_max_ids_per_file(),
             registry_max_ids_per_run: default_registry_max_ids_per_run(),
         }

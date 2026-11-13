@@ -23,9 +23,6 @@ pub const DEFAULT_SESSION_VALKEY_URL: &str = "redis://127.0.0.1:6379";
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
 pub const DEFAULT_SECRET_STORE_KEY_VERSION: u32 = 1;
-/// The default number of vector point ids the search registry admits for the
-/// whole deployment.
-pub const DEFAULT_REGISTRY_MAX_IDS_TOTAL: i64 = 32768;
 /// The default number of vector point ids the search registry admits for one
 /// file.
 pub const DEFAULT_REGISTRY_MAX_IDS_PER_FILE: i64 = 16384;
@@ -46,10 +43,6 @@ pub(super) fn default_scheduler_execution_guard_renew_interval() -> Duration {
 
 pub(super) fn default_secret_store_key_version() -> u32 {
     DEFAULT_SECRET_STORE_KEY_VERSION
-}
-
-pub(super) fn default_registry_max_ids_total() -> i64 {
-    DEFAULT_REGISTRY_MAX_IDS_TOTAL
 }
 
 pub(super) fn default_registry_max_ids_per_file() -> i64 {

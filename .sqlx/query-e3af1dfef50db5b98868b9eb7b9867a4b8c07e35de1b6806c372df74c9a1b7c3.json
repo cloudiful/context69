@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The S3 access key stays in the settings row because it is an identifier, not a\n-- credential. The secret key is never written here: the store is its only\n-- representation, so a settings save cannot leave a plaintext duplicate behind.\n--\n-- The registry capacity caps are written with the resolved policy: the save\n-- resolved them inside this transaction, so a request that did not send a cap\n-- keeps the stored one.\nINSERT INTO context69.runtime_file_library_settings (\n    singleton,\n    storage_root,\n    max_upload_size_mb,\n    trusted_proxy_enabled,\n    s3_endpoint,\n    s3_region,\n    s3_bucket,\n    s3_prefix,\n    s3_path_style,\n    s3_access_key,\n    registry_max_ids_per_file,\n    registry_max_ids_per_run,\n    updated_at\n)\nVALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())\nON CONFLICT (singleton) DO UPDATE\nSET storage_root = EXCLUDED.storage_root,\n    max_upload_size_mb = EXCLUDED.max_upload_size_mb,\n    trusted_proxy_enabled = EXCLUDED.trusted_proxy_enabled,\n    s3_endpoint = EXCLUDED.s3_endpoint,\n    s3_region = EXCLUDED.s3_region,\n    s3_bucket = EXCLUDED.s3_bucket,\n    s3_prefix = EXCLUDED.s3_prefix,\n    s3_path_style = EXCLUDED.s3_path_style,\n    s3_access_key = EXCLUDED.s3_access_key,\n    registry_max_ids_per_file = EXCLUDED.registry_max_ids_per_file,\n    registry_max_ids_per_run = EXCLUDED.registry_max_ids_per_run,\n    updated_at = now()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Int8",
+        "Bool",
+        "Text",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Text",
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "e3af1dfef50db5b98868b9eb7b9867a4b8c07e35de1b6806c372df74c9a1b7c3"
+}

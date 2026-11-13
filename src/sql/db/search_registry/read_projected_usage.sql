@@ -44,6 +44,5 @@ per_file AS (
     GROUP BY file_id
 )
 SELECT
-    COALESCE((SELECT sum(reserved) FROM per_entry), 0)::bigint AS "total!",
     COALESCE((SELECT max(reserved) FROM per_file), 0)::bigint AS "max_file!",
     COALESCE((SELECT max(reserved) FROM per_entry), 0)::bigint AS "max_run!"

@@ -16,12 +16,11 @@ INSERT INTO context69.runtime_file_library_settings (
     s3_prefix,
     s3_path_style,
     s3_access_key,
-    registry_max_ids_total,
     registry_max_ids_per_file,
     registry_max_ids_per_run,
     updated_at
 )
-VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, now())
+VALUES (TRUE, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, now())
 ON CONFLICT (singleton) DO UPDATE
 SET storage_root = EXCLUDED.storage_root,
     max_upload_size_mb = EXCLUDED.max_upload_size_mb,
@@ -32,7 +31,6 @@ SET storage_root = EXCLUDED.storage_root,
     s3_prefix = EXCLUDED.s3_prefix,
     s3_path_style = EXCLUDED.s3_path_style,
     s3_access_key = EXCLUDED.s3_access_key,
-    registry_max_ids_total = EXCLUDED.registry_max_ids_total,
     registry_max_ids_per_file = EXCLUDED.registry_max_ids_per_file,
     registry_max_ids_per_run = EXCLUDED.registry_max_ids_per_run,
     updated_at = now()

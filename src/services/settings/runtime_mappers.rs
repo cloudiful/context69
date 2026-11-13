@@ -165,9 +165,8 @@ pub(super) fn runtime_settings_from_request(
             storage_root: request.file_library.storage_root.trim().to_string(),
             max_upload_size_mb: request.file_library.max_upload_size_mb,
             trusted_proxy_enabled: request.file_library.trusted_proxy_enabled,
-            // An absent cap keeps the stored one: an older client that does
-            // not know the setting never resets the policy.
-            registry_max_ids_total: request.file_library.registry_max_ids_total,
+            // An absent cap keeps the stored one: a client that does not know
+            // the setting never resets the policy.
             registry_max_ids_per_file: request.file_library.registry_max_ids_per_file,
             registry_max_ids_per_run: request.file_library.registry_max_ids_per_run,
             s3: request
@@ -288,7 +287,6 @@ pub(super) fn runtime_settings_response_with_code(
             trusted_proxy_enabled: settings.file_library.trusted_proxy_enabled,
             // The response reports the policy that is in effect, not the one
             // the request asked for.
-            registry_max_ids_total: quota.max_ids_total,
             registry_max_ids_per_file: quota.max_ids_per_file,
             registry_max_ids_per_run: quota.max_ids_per_run,
             s3: settings
@@ -346,7 +344,6 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
             storage_root: defaults.file_library.storage_root.display().to_string(),
             max_upload_size_mb: defaults.file_library.max_upload_size_mb,
             trusted_proxy_enabled: defaults.file_library.trusted_proxy_enabled,
-            registry_max_ids_total: defaults.registry_quota.registry_max_ids_total,
             registry_max_ids_per_file: defaults.registry_quota.registry_max_ids_per_file,
             registry_max_ids_per_run: defaults.registry_quota.registry_max_ids_per_run,
             s3: defaults
