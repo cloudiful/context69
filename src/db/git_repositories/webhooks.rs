@@ -43,6 +43,40 @@ struct GitWebhookRegistrationByHookRow {
     updated_at: DateTime<Utc>,
 }
 
+pub(super) fn webhook_secret_query(
+    group_id: i64,
+    repository_key: Uuid,
+    secret_key: &str,
+) -> sea_orm::UpdateMany<crate::db::entity::git_webhook_registrations::Entity> {
+    use crate::db::entity::git_webhook_registrations::{Column, Entity};
+    use sea_orm::{
+        ColumnTrait, EntityTrait, QueryFilter,
+        sea_query::{Alias, Expr, ExprTrait, Query},
+    };
+    let owned_repository = Query::select()
+        .expr(Expr::value(1))
+        .from((
+            Alias::new("context69"),
+            Alias::new("git_repository_sources"),
+        ))
+        .and_where(
+            Expr::col((
+                Alias::new("git_repository_sources"),
+                Alias::new("repository_key"),
+            ))
+            .equals((Entity, Column::RepositoryKey)),
+        )
+        .and_where(
+            Expr::col((Alias::new("git_repository_sources"), Alias::new("group_id"))).eq(group_id),
+        )
+        .to_owned();
+    Entity::update_many()
+        .col_expr(Column::SigningSecretKey, Expr::value(secret_key))
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::RepositoryKey.eq(repository_key))
+        .filter(Expr::exists(owned_repository))
+}
+
 impl Database {
     /// Begins the transaction that serializes registration creation for one
     /// repository of `group_id`.
@@ -126,14 +160,59 @@ impl Database {
         provider: GitProviderKind,
         external_hook_id: &str,
     ) -> Result<Option<(i64, StoredGitWebhookRegistration)>> {
-        let row = sqlx::query_file_as!(
-            GitWebhookRegistrationByHookRow,
-            "src/sql/db/git_repositories/get_git_webhook_registration_by_hook.sql",
-            provider.as_str(),
-            external_hook_id
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        use sea_orm::{
+            ConnectionTrait,
+            sea_query::{Alias, Expr, ExprTrait, JoinType, Query},
+        };
+        let registration = Alias::new("git_webhook_registrations");
+        let source = Alias::new("git_repository_sources");
+        let mut query = Query::select();
+        query.column((source.clone(), Alias::new("group_id")));
+        for column in [
+            "repository_key",
+            "provider_kind",
+            "external_hook_id",
+            "ownership",
+            "active",
+            "signing_secret_key",
+            "created_at",
+            "updated_at",
+        ] {
+            query.column((registration.clone(), Alias::new(column)));
+        }
+        query
+            .from((Alias::new("context69"), registration.clone()))
+            .join(
+                JoinType::InnerJoin,
+                (Alias::new("context69"), source.clone()),
+                Expr::col((source, Alias::new("repository_key")))
+                    .equals((registration.clone(), Alias::new("repository_key"))),
+            )
+            .and_where(
+                Expr::col((registration.clone(), Alias::new("provider_kind")))
+                    .eq(provider.as_str()),
+            )
+            .and_where(
+                Expr::col((registration, Alias::new("external_hook_id"))).eq(external_hook_id),
+            );
+        let row = self
+            .orm
+            .query_one(&query)
+            .await?
+            .map(|row| -> Result<GitWebhookRegistrationByHookRow> {
+                Ok(GitWebhookRegistrationByHookRow {
+                    group_id: row.try_get("", "group_id")?,
+                    repository_key: row.try_get("", "repository_key")?,
+                    provider_kind: row.try_get("", "provider_kind")?,
+                    external_hook_id: row.try_get("", "external_hook_id")?,
+                    ownership: row.try_get("", "ownership")?,
+                    active: row.try_get("", "active")?,
+                    signing_secret_key: row.try_get("", "signing_secret_key")?,
+                    created_at: row.try_get("", "created_at")?,
+                    updated_at: row.try_get("", "updated_at")?,
+                })
+            })
+            .transpose()?;
         row.map(|row| {
             let registration = StoredGitWebhookRegistration::from_row(GitWebhookRegistrationRow {
                 repository_key: row.repository_key,
@@ -162,15 +241,10 @@ impl Database {
         repository_key: Uuid,
         secret_key: &str,
     ) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/db/git_repositories/set_git_webhook_signing_secret_key.sql",
-            group_id,
-            repository_key,
-            secret_key
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected() > 0)
+        let result = webhook_secret_query(group_id, repository_key, secret_key)
+            .exec(&self.orm)
+            .await?;
+        Ok(result.rows_affected > 0)
     }
 
     /// Records a provider delivery, returning the stored row. A redelivery of
@@ -182,19 +256,63 @@ impl Database {
         &self,
         delivery: &NewGitWebhookDelivery,
     ) -> Result<StoredGitWebhookDelivery> {
-        let row = sqlx::query_file_as!(
-            GitWebhookDeliveryRow,
-            "src/sql/db/git_repositories/record_git_webhook_delivery.sql",
-            delivery.delivery_id,
-            delivery.external_hook_id,
-            delivery.provider.as_str(),
-            delivery.repository_key,
-            delivery.status.as_str(),
-            delivery.target_commit_sha
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        StoredGitWebhookDelivery::from_row(row)
+        use sea_orm::{
+            ConnectionTrait,
+            sea_query::{Alias, Expr, OnConflict, Query},
+        };
+        let table = Alias::new("git_webhook_deliveries");
+        let columns = [
+            "delivery_id",
+            "external_hook_id",
+            "provider_kind",
+            "repository_key",
+            "status",
+            "target_commit_sha",
+        ]
+        .map(Alias::new);
+        let conflict = [
+            "provider_kind",
+            "external_hook_id",
+            "repository_key",
+            "delivery_id",
+        ]
+        .map(Alias::new);
+        let query = Query::insert()
+            .into_table((Alias::new("context69"), table.clone()))
+            .columns(columns)
+            .values_panic([
+                delivery.delivery_id.clone().into(),
+                delivery.external_hook_id.clone().into(),
+                delivery.provider.as_str().into(),
+                delivery.repository_key.into(),
+                delivery.status.as_str().into(),
+                delivery.target_commit_sha.clone().into(),
+            ])
+            .on_conflict(
+                OnConflict::columns(conflict)
+                    .value(
+                        Alias::new("delivery_id"),
+                        Expr::col((table, Alias::new("delivery_id"))),
+                    )
+                    .to_owned(),
+            )
+            .returning_all()
+            .to_owned();
+        let row = self
+            .orm
+            .query_one(&query)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        StoredGitWebhookDelivery::from_row(GitWebhookDeliveryRow {
+            delivery_id: row.try_get("", "delivery_id")?,
+            external_hook_id: row.try_get("", "external_hook_id")?,
+            provider_kind: row.try_get("", "provider_kind")?,
+            repository_key: row.try_get("", "repository_key")?,
+            status: row.try_get("", "status")?,
+            target_commit_sha: row.try_get("", "target_commit_sha")?,
+            received_at: row.try_get("", "received_at")?,
+            processed_at: row.try_get("", "processed_at")?,
+        })
     }
 
     pub async fn mark_git_webhook_delivery_processed(
@@ -206,18 +324,30 @@ impl Database {
         status: GitWebhookDeliveryStatus,
         target_commit_sha: Option<&str>,
     ) -> Result<bool> {
-        let row = sqlx::query_file!(
-            "src/sql/db/git_repositories/mark_git_webhook_delivery_processed.sql",
-            provider.as_str(),
-            external_hook_id,
-            repository_key,
-            delivery_id,
-            status.as_str(),
-            target_commit_sha
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row.is_some())
+        use sea_orm::{
+            ConnectionTrait,
+            sea_query::{Alias, Expr, ExprTrait, Func, Query},
+        };
+        let query = Query::update()
+            .table((
+                Alias::new("context69"),
+                Alias::new("git_webhook_deliveries"),
+            ))
+            .value(Alias::new("status"), status.as_str())
+            .value(
+                Alias::new("target_commit_sha"),
+                Func::coalesce([
+                    Expr::value(target_commit_sha),
+                    Expr::col(Alias::new("target_commit_sha")),
+                ]),
+            )
+            .value(Alias::new("processed_at"), Expr::current_timestamp())
+            .and_where(Expr::col(Alias::new("provider_kind")).eq(provider.as_str()))
+            .and_where(Expr::col(Alias::new("external_hook_id")).eq(external_hook_id))
+            .and_where(Expr::col(Alias::new("repository_key")).eq(repository_key))
+            .and_where(Expr::col(Alias::new("delivery_id")).eq(delivery_id))
+            .to_owned();
+        Ok(self.orm.execute(&query).await?.rows_affected() > 0)
     }
 }
 

@@ -6,13 +6,15 @@
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use sqlx::{FromRow, PgConnection};
 use uuid::Uuid;
 
 use super::LibraryStore;
+use crate::db::entity::library_files;
 
 /// Source-file lifecycle state of one `library_files` row.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 pub struct FileSourceLifecycleRow {
     pub id: Uuid,
     pub group_id: i64,
@@ -28,7 +30,7 @@ pub struct FileSourceLifecycleRow {
 }
 
 /// One opted-in succeeded file whose source has not been released yet.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 pub struct PendingAutoReleaseFile {
     pub id: Uuid,
     pub group_id: i64,
@@ -39,13 +41,23 @@ impl LibraryStore {
         &self,
         file_id: Uuid,
     ) -> Result<Option<FileSourceLifecycleRow>> {
-        Ok(sqlx::query_file_as!(
-            FileSourceLifecycleRow,
-            "src/sql/library_store/source_release/get_file_source_lifecycle.sql",
-            file_id
-        )
-        .fetch_optional(self.db.pool())
-        .await?)
+        let row = library_files::Entity::find_by_id(file_id)
+            .select_only()
+            .column(library_files::Column::Id)
+            .column(library_files::Column::GroupId)
+            .column(library_files::Column::Filename)
+            .column(library_files::Column::ExternalId)
+            .column(library_files::Column::IngestStatus)
+            .column(library_files::Column::StorageRelPath)
+            .column(library_files::Column::StorageObjectId)
+            .column(library_files::Column::Sha256)
+            .column(library_files::Column::SizeBytes)
+            .column(library_files::Column::DeleteSourceAfterProcessing)
+            .column(library_files::Column::SourceReleasedAt)
+            .into_model::<FileSourceLifecycleRow>()
+            .one(self.db.orm())
+            .await?;
+        Ok(row)
     }
 
     pub async fn lock_file_source_lifecycle(
@@ -110,12 +122,30 @@ impl LibraryStore {
         &self,
         limit: i64,
     ) -> Result<Vec<PendingAutoReleaseFile>> {
-        Ok(sqlx::query_file_as!(
-            PendingAutoReleaseFile,
-            "src/sql/library_store/source_release/list_pending_auto_release_files.sql",
-            limit
-        )
-        .fetch_all(self.db.pool())
-        .await?)
+        let managed_source = Condition::any()
+            .add(library_files::Column::ExternalId.is_null())
+            .add(sea_orm::sea_query::Expr::cust(
+                "external_id NOT LIKE 'source-folder:%'",
+            ));
+        let rows = library_files::Entity::find()
+            .select_only()
+            .column(library_files::Column::Id)
+            .column(library_files::Column::GroupId)
+            .filter(library_files::Column::DeleteSourceAfterProcessing.eq(true))
+            .filter(library_files::Column::SourceReleasedAt.is_null())
+            .filter(library_files::Column::IngestStatus.eq("succeeded"))
+            .filter(sea_orm::sea_query::Expr::cust(
+                "lower(filename) <> 'source.json'",
+            ))
+            .filter(managed_source)
+            .order_by_asc(library_files::Column::Id)
+            .limit(
+                u64::try_from(limit)
+                    .map_err(|_| anyhow::anyhow!("the page size must not be negative"))?,
+            )
+            .into_model::<PendingAutoReleaseFile>()
+            .all(self.db.orm())
+            .await?;
+        Ok(rows)
     }
 }

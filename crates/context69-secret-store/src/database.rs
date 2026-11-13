@@ -1,25 +1,31 @@
 //! The SQL boundary of the secret store.
 //!
-//! This module owns every statement the store issues and the row shapes they
-//! project, and nothing else: it holds a pool, runs one file-backed query per
-//! operation, and returns either a row shape or a `sqlx::Error`. Interpreting a
-//! row — deciding whether it is legacy, who owns it, whether it may be opened —
-//! belongs to the store above, and error mapping belongs to the caller of the
-//! store.
-//!
-//! The statements live beside this module under `src/sql/internal_secrets/` and
-//! are referenced with `query_file!` / `query_file_as!`, so each one is
-//! type-checked against the live schema at compile time. The startup sealing
-//! backfill's three statements live in the [`backfill`] child module for the
-//! same reason: they are still this boundary's statements, and keeping them
-//! beside it leaves this module a list of operations rather than a transaction
-//! protocol.
+//! This module owns secret persistence and its row projections. Native queries
+//! share the existing pool; the startup backfill uses borrowed SQLx transactions.
+//! Interpretation and error mapping belong to the store above.
 
 pub(crate) mod backfill;
 
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 use sqlx::PgPool;
 
+use crate::entity::internal_secrets::{Column, Entity};
 use crate::rows::{StoredSecret, StoredSecretBytes, StoredSecretMetadata};
+
+fn database_error(error: sea_orm::DbErr) -> sqlx::Error {
+    use sea_orm::{DbErr, RuntimeErr};
+    let error = match error {
+        DbErr::Exec(RuntimeErr::SqlxError(error))
+        | DbErr::Query(RuntimeErr::SqlxError(error))
+        | DbErr::Conn(RuntimeErr::SqlxError(error)) => error,
+        error => return sqlx::Error::Protocol(error.to_string()),
+    };
+    match std::sync::Arc::try_unwrap(error) {
+        Ok(error) => error,
+        Err(error) => sqlx::Error::Protocol(error.to_string()),
+    }
+}
 
 /// The pool the secret store reads and writes through.
 ///
@@ -29,6 +35,7 @@ use crate::rows::{StoredSecret, StoredSecretBytes, StoredSecretMetadata};
 #[derive(Clone)]
 pub struct SecretDatabase {
     pool: PgPool,
+    orm: sea_orm::DatabaseConnection,
 }
 
 impl std::fmt::Debug for SecretDatabase {
@@ -44,7 +51,10 @@ impl SecretDatabase {
     /// Wraps an existing pool. No migration, connection or write happens here.
     #[must_use]
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            orm: pool.clone().into(),
+            pool,
+        }
     }
 
     /// The pool, for a caller that needs to compose a transaction around the
@@ -59,14 +69,26 @@ impl SecretDatabase {
     /// This is the only statement that selects `value`, so it is the only path
     /// that can move a secret's bytes.
     pub async fn get_secret(&self, key_name: &str) -> Result<Option<StoredSecret>, sqlx::Error> {
-        let row = sqlx::query_file_as!(
-            StoredSecret,
-            "src/sql/internal_secrets/get_internal_secret.sql",
-            key_name
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row)
+        let row = Entity::find_by_id(key_name.to_owned())
+            .select_only()
+            .columns([
+                Column::Value,
+                Column::Purpose,
+                Column::KeyVersion,
+                Column::CiphertextVersion,
+            ])
+            .into_tuple::<(Vec<u8>, Option<String>, i32, i32)>()
+            .one(&self.orm)
+            .await
+            .map_err(database_error)?;
+        Ok(row.map(
+            |(value, purpose, key_version, ciphertext_version)| StoredSecret {
+                value,
+                purpose,
+                key_version,
+                ciphertext_version,
+            },
+        ))
     }
 
     /// Reads one secret row's metadata, without its value.
@@ -78,14 +100,19 @@ impl SecretDatabase {
         &self,
         key_name: &str,
     ) -> Result<Option<StoredSecretMetadata>, sqlx::Error> {
-        let row = sqlx::query_file_as!(
-            StoredSecretMetadata,
-            "src/sql/internal_secrets/has_internal_secret.sql",
-            key_name
+        let row = Entity::find_by_id(key_name.to_owned())
+            .select_only()
+            .columns([Column::Purpose, Column::CiphertextVersion])
+            .into_tuple::<(Option<String>, i32)>()
+            .one(&self.orm)
+            .await
+            .map_err(database_error)?;
+        Ok(
+            row.map(|(purpose, ciphertext_version)| StoredSecretMetadata {
+                purpose,
+                ciphertext_version,
+            }),
         )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(row)
     }
 
     /// Creates a secret row and reports whether this call created it.
@@ -97,17 +124,30 @@ impl SecretDatabase {
         key_name: &str,
         stored: &StoredWrite<'_>,
     ) -> Result<bool, sqlx::Error> {
-        let key = sqlx::query_file_scalar!(
-            "src/sql/internal_secrets/put_internal_secret.sql",
-            key_name,
-            stored.value,
-            stored.purpose,
-            stored.key_version,
-            stored.ciphertext_version
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(key.is_some())
+        use sea_orm::ConnectionTrait;
+        use sea_orm::sea_query::{Alias, Query};
+        let statement = Query::insert()
+            .into_table((Alias::new("context69"), Entity))
+            .columns([
+                Column::Key,
+                Column::Value,
+                Column::Purpose,
+                Column::KeyVersion,
+                Column::CiphertextVersion,
+                Column::UpdatedAt,
+            ])
+            .values_panic([
+                key_name.into(),
+                stored.value.to_vec().into(),
+                stored.purpose.map(str::to_owned).into(),
+                stored.key_version.into(),
+                stored.ciphertext_version.into(),
+                Expr::current_timestamp(),
+            ])
+            .on_conflict(OnConflict::column(Column::Key).do_nothing().to_owned())
+            .to_owned();
+        let result = self.orm.execute(&statement).await.map_err(database_error)?;
+        Ok(result.rows_affected() > 0)
     }
 
     /// Replaces the stored representation of an existing secret.
@@ -118,28 +158,32 @@ impl SecretDatabase {
         key_name: &str,
         stored: &StoredWrite<'_>,
     ) -> Result<bool, sqlx::Error> {
-        let key = sqlx::query_file_scalar!(
-            "src/sql/internal_secrets/rotate_internal_secret.sql",
-            key_name,
-            stored.value,
-            stored.purpose,
-            stored.key_version,
-            stored.ciphertext_version
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(key.is_some())
+        let result = Entity::update_many()
+            .col_expr(Column::Value, Expr::value(stored.value.to_vec()))
+            .col_expr(
+                Column::Purpose,
+                Expr::value(stored.purpose.map(str::to_owned)),
+            )
+            .col_expr(Column::KeyVersion, Expr::value(stored.key_version))
+            .col_expr(
+                Column::CiphertextVersion,
+                Expr::value(stored.ciphertext_version),
+            )
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Key.eq(key_name))
+            .exec(&self.orm)
+            .await
+            .map_err(database_error)?;
+        Ok(result.rows_affected > 0)
     }
 
     /// Deletes a secret row and reports whether this call deleted it.
     pub async fn delete_secret(&self, key_name: &str) -> Result<bool, sqlx::Error> {
-        let key = sqlx::query_file_scalar!(
-            "src/sql/internal_secrets/delete_internal_secret.sql",
-            key_name
-        )
-        .fetch_optional(&self.pool)
-        .await?;
-        Ok(key.is_some())
+        let result = Entity::delete_by_id(key_name.to_owned())
+            .exec(&self.orm)
+            .await
+            .map_err(database_error)?;
+        Ok(result.rows_affected > 0)
     }
 
     /// Lists the sealed keys one purpose owns at one master-key version.
@@ -153,20 +197,21 @@ impl SecretDatabase {
         purpose: &str,
         key_version: i32,
     ) -> Result<Vec<String>, sqlx::Error> {
-        let keys = sqlx::query_file_scalar!(
-            "src/sql/internal_secrets/list_sealed_internal_secrets.sql",
-            purpose,
-            key_version
-        )
-        .fetch_all(&self.pool)
-        .await?;
-        Ok(keys)
+        Entity::find()
+            .select_only()
+            .column(Column::Key)
+            .filter(Column::Purpose.eq(purpose))
+            .filter(Column::KeyVersion.eq(key_version))
+            .filter(Column::CiphertextVersion.eq(1))
+            .order_by_asc(Column::Key)
+            .into_tuple::<String>()
+            .all(&self.orm)
+            .await
+            .map_err(database_error)
     }
 }
 
-/// Borrowed form of the columns a write needs, so a caller can hand a
-/// [`crate::rows::StoredSecretBytes`] straight to a write without cloning the
-/// sealed bytes.
+/// Borrowed form of the columns a secret write needs.
 pub struct StoredWrite<'a> {
     /// The stored representation bytes.
     pub value: &'a [u8],
@@ -186,5 +231,25 @@ impl<'a> From<&'a StoredSecretBytes> for StoredWrite<'a> {
             key_version: bytes.key_version,
             ciphertext_version: bytes.ciphertext_version,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::database_error;
+    use sea_orm::{DbErr, RuntimeErr};
+    use std::sync::Arc;
+
+    #[test]
+    fn extracts_owned_driver_error() {
+        let error = DbErr::Query(RuntimeErr::SqlxError(Arc::new(sqlx::Error::RowNotFound)));
+        assert!(matches!(database_error(error), sqlx::Error::RowNotFound));
+    }
+
+    #[test]
+    fn shared_driver_error_uses_protocol_fallback() {
+        let shared = Arc::new(sqlx::Error::RowNotFound);
+        let error = DbErr::Query(RuntimeErr::SqlxError(Arc::clone(&shared)));
+        assert!(matches!(database_error(error), sqlx::Error::Protocol(_)));
     }
 }

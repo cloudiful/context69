@@ -9,8 +9,21 @@
 //! without the DSN ever being written here.
 
 use anyhow::Result;
+use sea_orm::sea_query::{Expr, OnConflict};
+use sea_orm::{ActiveValue::Set, EntityTrait, QueryOrder};
 
+use super::entity::runtime_source_connections;
 use super::{Database, NewSourceConnection, SourceConnectionRow, StoredSourceConnection};
+
+impl From<runtime_source_connections::Model> for StoredSourceConnection {
+    fn from(row: runtime_source_connections::Model) -> Self {
+        Self {
+            name: row.name,
+            connection_key: row.connection_key,
+            database_url_secret_key: row.database_url_secret_key,
+        }
+    }
+}
 
 impl From<SourceConnectionRow> for StoredSourceConnection {
     fn from(row: SourceConnectionRow) -> Self {
@@ -22,15 +35,48 @@ impl From<SourceConnectionRow> for StoredSourceConnection {
     }
 }
 
+fn connection_upsert(
+    connection: &NewSourceConnection,
+) -> sea_orm::Insert<runtime_source_connections::ActiveModel> {
+    runtime_source_connections::Entity::insert(runtime_source_connections::ActiveModel {
+        name: Set(connection.name.clone()),
+        connection_key: Set(connection.connection_key),
+        database_url_secret_key: Set(Some(connection.database_url_secret_key.clone())),
+        ..Default::default()
+    })
+    .on_conflict(
+        OnConflict::column(runtime_source_connections::Column::Name)
+            .update_column(runtime_source_connections::Column::DatabaseUrlSecretKey)
+            .value(
+                runtime_source_connections::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .to_owned(),
+    )
+}
+
+fn connection_database_error(error: sea_orm::DbErr) -> anyhow::Error {
+    use sea_orm::{DbErr, RuntimeErr};
+    let (error, wrap): (_, fn(RuntimeErr) -> DbErr) = match error {
+        DbErr::Exec(RuntimeErr::SqlxError(error)) => (error, DbErr::Exec),
+        DbErr::Query(RuntimeErr::SqlxError(error)) => (error, DbErr::Query),
+        DbErr::Conn(RuntimeErr::SqlxError(error)) => (error, DbErr::Conn),
+        error => return error.into(),
+    };
+    match std::sync::Arc::try_unwrap(error) {
+        Ok(error) => error.into(),
+        Err(error) => wrap(RuntimeErr::SqlxError(error)).into(),
+    }
+}
+
 impl Database {
     /// Every stored connection, without opening any sealed value.
     pub async fn list_source_connections(&self) -> Result<Vec<StoredSourceConnection>> {
-        let rows = sqlx::query_file_as!(
-            SourceConnectionRow,
-            "src/sql/db/source_connections/list_source_connections.sql"
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = runtime_source_connections::Entity::find()
+            .order_by_asc(runtime_source_connections::Column::Name)
+            .all(&self.orm)
+            .await
+            .map_err(connection_database_error)?;
 
         Ok(rows.into_iter().map(StoredSourceConnection::from).collect())
     }
@@ -40,13 +86,10 @@ impl Database {
         &self,
         name: &str,
     ) -> Result<Option<StoredSourceConnection>> {
-        let row = sqlx::query_file_as!(
-            SourceConnectionRow,
-            "src/sql/db/source_connections/get_source_connection.sql",
-            name
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let row = runtime_source_connections::Entity::find_by_id(name.to_owned())
+            .one(&self.orm)
+            .await
+            .map_err(connection_database_error)?;
 
         Ok(row.map(StoredSourceConnection::from))
     }
@@ -62,15 +105,10 @@ impl Database {
         &self,
         connection: &NewSourceConnection,
     ) -> Result<StoredSourceConnection> {
-        let row = sqlx::query_file_as!(
-            SourceConnectionRow,
-            "src/sql/db/source_connections/save_source_connection.sql",
-            connection.connection_key,
-            connection.name,
-            connection.database_url_secret_key
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let row = connection_upsert(connection)
+            .exec_with_returning(&self.orm)
+            .await
+            .map_err(connection_database_error)?;
 
         Ok(StoredSourceConnection::from(row))
     }
@@ -105,31 +143,27 @@ impl Database {
     /// happens before this call, so a store row is never orphaned by a delete
     /// that then fails.
     pub async fn delete_source_connection(&self, name: &str) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/db/source_connections/delete_source_connection.sql",
-            name
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected() > 0)
+        let result = runtime_source_connections::Entity::delete_by_id(name.to_owned())
+            .exec(&self.orm)
+            .await
+            .map_err(connection_database_error)?;
+        Ok(result.rows_affected > 0)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::SourceConnectionRow;
-    use crate::db::StoredSourceConnection;
+    use super::{SourceConnectionRow, connection_upsert};
+    use crate::db::entity::runtime_source_connections;
+    use crate::db::{NewSourceConnection, StoredSourceConnection};
+    use sea_orm::{DbBackend, EntityTrait, QueryOrder, QueryTrait};
     use uuid::Uuid;
 
     const GET_MIGRATION_SQL: &str =
         include_str!("../../migrations/20261002010450_source_connection_secret_key.sql");
     const DROP_MIGRATION_SQL: &str =
         include_str!("../../migrations/20261002094933_drop_legacy_reversible_secret_columns.sql");
-    const GET_SQL: &str = include_str!("../sql/db/source_connections/get_source_connection.sql");
-    const LIST_SQL: &str = include_str!("../sql/db/source_connections/list_source_connections.sql");
     const SAVE_SQL: &str = include_str!("../sql/db/source_connections/save_source_connection.sql");
-    const DELETE_SQL: &str =
-        include_str!("../sql/db/source_connections/delete_source_connection.sql");
 
     fn row() -> SourceConnectionRow {
         SourceConnectionRow {
@@ -207,20 +241,16 @@ mod tests {
 
     #[test]
     fn every_read_projects_the_identity_and_the_store_reference() {
-        for query in [GET_SQL, LIST_SQL] {
-            assert!(
-                query.contains("SELECT name, connection_key, database_url_secret_key"),
-                "a read must project the name, the stable identity, and the store reference: \
-                 {query}"
-            );
-            assert!(
-                !query.contains("database_url,"),
-                "a read must never project the database URL: {query}"
-            );
-        }
+        let query = runtime_source_connections::Entity::find()
+            .order_by_asc(runtime_source_connections::Column::Name)
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(query.contains("\"connection_key\""), "{query}");
+        assert!(query.contains("\"database_url_secret_key\""), "{query}");
+        assert!(!query.contains("\"database_url\""), "{query}");
         assert!(
-            LIST_SQL.contains("ORDER BY name"),
-            "listing stays ordered by the user-facing identifier"
+            query.contains("ORDER BY \"runtime_source_connections\".\"name\" ASC"),
+            "{query}"
         );
     }
 
@@ -247,17 +277,35 @@ mod tests {
     }
 
     #[test]
+    fn native_upsert_preserves_stable_identity() {
+        let connection = NewSourceConnection {
+            name: "primary".into(),
+            connection_key: Uuid::nil(),
+            database_url_secret_key: "secret".into(),
+        };
+        let query = connection_upsert(&connection)
+            .build(DbBackend::Postgres)
+            .to_string();
+        let update = query
+            .split("DO UPDATE SET")
+            .nth(1)
+            .expect("conflict update");
+        assert!(update.contains("\"database_url_secret_key\""), "{query}");
+        assert!(!update.contains("\"connection_key\""), "{query}");
+        assert!(!query.contains("\"database_url\""), "{query}");
+    }
+
+    #[test]
     fn deleting_a_connection_removes_only_its_own_record() {
+        let query = runtime_source_connections::Entity::delete_by_id("primary".to_string())
+            .build(DbBackend::Postgres)
+            .to_string();
         assert!(
-            DELETE_SQL.contains("DELETE FROM context69.runtime_source_connections")
-                && DELETE_SQL.contains("WHERE name = $1"),
-            "the statement removes one named connection and nothing else: {DELETE_SQL}"
+            query.contains("DELETE FROM \"context69\".\"runtime_source_connections\""),
+            "{query}"
         );
-        let lower = DELETE_SQL.to_ascii_lowercase();
-        assert!(
-            !lower.contains("internal_secrets"),
-            "the store row is cleared by the owner, not by this statement"
-        );
+        assert!(query.contains("\"name\" = 'primary'"), "{query}");
+        assert!(!query.contains("internal_secrets"), "{query}");
     }
 
     #[test]

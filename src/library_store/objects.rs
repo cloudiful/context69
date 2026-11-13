@@ -1,11 +1,29 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::{Alias, ColumnRef, Expr, ExprTrait, OnConflict};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::LibraryStore;
+use crate::db::entity::{library_files, library_legacy_object_cleanup, library_storage_objects};
 
-#[derive(Debug, Clone, FromRow)]
+/// The cleanup eligibility of one legacy cleanup record.
+///
+/// The comparison runs against the server clock, so the column is compared as
+/// an expression instead of a bound value.
+fn cleanup_eligible_now() -> Expr {
+    Expr::col(ColumnRef::from((
+        Alias::new("library_legacy_object_cleanup"),
+        Alias::new("cleanup_eligible_at"),
+    )))
+    .lte(Expr::current_timestamp())
+}
+
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 pub struct StorageObjectRecord {
     pub id: Uuid,
     pub group_id: i64,
@@ -25,7 +43,7 @@ pub struct DeletedStorageObject {
 /// One open legacy old-key cleanup record selected by the cleanup phase.
 /// `old_storage_backend` is `None` for rows recorded before migration 0024;
 /// such rows have an unknown backend and must never be physically deleted.
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 pub struct LegacyCleanupRow {
     pub id: i64,
     pub group_id: i64,
@@ -119,14 +137,16 @@ impl LibraryStore {
         object_id: Uuid,
         object_key: &str,
     ) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/library_store/objects/link_file_storage_object.sql",
-            file_id,
-            object_id,
-            object_key
-        )
-        .execute(self.db.pool())
-        .await?;
+        library_files::Entity::update_many()
+            .col_expr(library_files::Column::StorageObjectId, Expr::val(object_id))
+            .col_expr(
+                library_files::Column::StorageRelPath,
+                Expr::val(object_key.to_owned()),
+            )
+            .col_expr(library_files::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(library_files::Column::Id.eq(file_id))
+            .exec(self.db.orm())
+            .await?;
         Ok(())
     }
 
@@ -135,27 +155,40 @@ impl LibraryStore {
         group_id: i64,
         sha256: &str,
     ) -> Result<Option<StorageObjectRecord>> {
-        Ok(sqlx::query_file_as!(
-            StorageObjectRecord,
-            "src/sql/library_store/objects/get_storage_object.sql",
-            group_id,
-            sha256
-        )
-        .fetch_optional(self.db.pool())
-        .await?)
+        let row = library_storage_objects::Entity::find()
+            .select_only()
+            .column(library_storage_objects::Column::Id)
+            .column(library_storage_objects::Column::GroupId)
+            .column(library_storage_objects::Column::Sha256)
+            .column(library_storage_objects::Column::SizeBytes)
+            .column(library_storage_objects::Column::StorageBackend)
+            .column(library_storage_objects::Column::ObjectKey)
+            .column(library_storage_objects::Column::StagingLeaseUntil)
+            .filter(library_storage_objects::Column::GroupId.eq(group_id))
+            .filter(library_storage_objects::Column::Sha256.eq(sha256))
+            .into_model::<StorageObjectRecord>()
+            .one(self.db.orm())
+            .await?;
+        Ok(row)
     }
 
     pub async fn get_storage_object_by_id(
         &self,
         object_id: Uuid,
     ) -> Result<Option<StorageObjectRecord>> {
-        Ok(sqlx::query_file_as!(
-            StorageObjectRecord,
-            "src/sql/library_store/objects/get_storage_object_by_id.sql",
-            object_id
-        )
-        .fetch_optional(self.db.pool())
-        .await?)
+        let row = library_storage_objects::Entity::find_by_id(object_id)
+            .select_only()
+            .column(library_storage_objects::Column::Id)
+            .column(library_storage_objects::Column::GroupId)
+            .column(library_storage_objects::Column::Sha256)
+            .column(library_storage_objects::Column::SizeBytes)
+            .column(library_storage_objects::Column::StorageBackend)
+            .column(library_storage_objects::Column::ObjectKey)
+            .column(library_storage_objects::Column::StagingLeaseUntil)
+            .into_model::<StorageObjectRecord>()
+            .one(self.db.orm())
+            .await?;
+        Ok(row)
     }
 
     /// Live reference count for a storage object (library_files rows plus
@@ -252,18 +285,41 @@ impl LibraryStore {
         storage_backend: &str,
         object_key: &str,
     ) -> Result<StorageObjectRecord> {
-        Ok(sqlx::query_file_as!(
-            StorageObjectRecord,
-            "src/sql/library_store/objects/upsert_storage_object.sql",
-            id,
-            group_id,
-            sha256,
-            size_bytes,
-            storage_backend,
-            object_key
-        )
-        .fetch_one(self.db.pool())
-        .await?)
+        let model = library_storage_objects::ActiveModel {
+            id: Set(id),
+            group_id: Set(group_id),
+            sha256: Set(sha256.to_owned()),
+            size_bytes: Set(size_bytes),
+            storage_backend: Set(storage_backend.to_owned()),
+            object_key: Set(object_key.to_owned()),
+            staging_lease_until: sea_orm::ActiveValue::NotSet,
+            created_at: sea_orm::ActiveValue::NotSet,
+            updated_at: sea_orm::ActiveValue::NotSet,
+        };
+        let conflict = OnConflict::columns([
+            library_storage_objects::Column::GroupId,
+            library_storage_objects::Column::Sha256,
+        ])
+        .update_columns([
+            library_storage_objects::Column::SizeBytes,
+            library_storage_objects::Column::StorageBackend,
+            library_storage_objects::Column::ObjectKey,
+            library_storage_objects::Column::UpdatedAt,
+        ])
+        .to_owned();
+        let row = library_storage_objects::Entity::insert(model)
+            .on_conflict(conflict)
+            .exec_with_returning(self.db.orm())
+            .await?;
+        Ok(StorageObjectRecord {
+            id: row.id,
+            group_id: row.group_id,
+            sha256: row.sha256,
+            size_bytes: row.size_bytes,
+            storage_backend: row.storage_backend,
+            object_key: row.object_key,
+            staging_lease_until: row.staging_lease_until,
+        })
     }
 
     pub async fn delete_unreferenced_storage_object(
@@ -485,56 +541,139 @@ impl LibraryStore {
         after_id: Option<i64>,
         limit: i64,
     ) -> Result<Vec<LegacyCleanupRow>> {
-        Ok(sqlx::query_file_as!(
-            LegacyCleanupRow,
-            "src/sql/library_store/objects/list_eligible_legacy_cleanup.sql",
-            limit,
-            after_id
-        )
-        .fetch_all(self.db.pool())
-        .await?)
+        let mut query = library_legacy_object_cleanup::Entity::find()
+            .select_only()
+            .column(library_legacy_object_cleanup::Column::Id)
+            .column(library_legacy_object_cleanup::Column::GroupId)
+            .column(library_legacy_object_cleanup::Column::FileId)
+            .column(library_legacy_object_cleanup::Column::OldKey)
+            .column(library_legacy_object_cleanup::Column::OldStorageBackend)
+            .filter(library_legacy_object_cleanup::Column::DeletedAt.is_null())
+            .filter(cleanup_eligible_now());
+        if let Some(after_id) = after_id {
+            query = query.filter(library_legacy_object_cleanup::Column::Id.gt(after_id));
+        }
+        let rows = query
+            .order_by_asc(library_legacy_object_cleanup::Column::Id)
+            .limit(
+                u64::try_from(limit)
+                    .map_err(|_| anyhow::anyhow!("the page size must not be negative"))?,
+            )
+            .into_model::<LegacyCleanupRow>()
+            .all(self.db.orm())
+            .await?;
+        Ok(rows)
     }
 
     /// Live check: how many library_files rows still point at this old key.
     /// Any nonzero result blocks physical deletion.
     pub async fn count_files_referencing_old_key(&self, old_key: &str) -> Result<i64> {
-        #[derive(sqlx::FromRow)]
-        struct ReferenceCountRow {
-            references: i64,
-        }
-        let row = sqlx::query_file_as!(
-            ReferenceCountRow,
-            "src/sql/library_store/objects/count_files_referencing_old_key.sql",
-            old_key
-        )
-        .fetch_one(self.db.pool())
-        .await?;
-        Ok(row.references)
+        let references = library_files::Entity::find()
+            .select_only()
+            .column(library_files::Column::Id)
+            .filter(library_files::Column::StorageRelPath.eq(old_key))
+            .into_tuple::<Uuid>()
+            .count(self.db.orm())
+            .await?;
+        Ok(i64::try_from(references).unwrap_or(i64::MAX))
     }
 
     /// Conditionally close a cleanup record after its physical delete (or an
     /// already-missing observation). Returns `false` when the record was
     /// closed concurrently; the caller must not retry the write.
     pub async fn mark_legacy_cleanup_deleted(&self, id: i64) -> Result<bool> {
-        Ok(sqlx::query_file!(
-            "src/sql/library_store/objects/mark_legacy_cleanup_deleted.sql",
-            id
-        )
-        .fetch_optional(self.db.pool())
-        .await?
-        .is_some())
+        let result = library_legacy_object_cleanup::Entity::update_many()
+            .col_expr(
+                library_legacy_object_cleanup::Column::DeletedAt,
+                Expr::current_timestamp(),
+            )
+            .col_expr(
+                library_legacy_object_cleanup::Column::DeleteError,
+                Expr::val(None::<String>),
+            )
+            .filter(library_legacy_object_cleanup::Column::Id.eq(id))
+            .filter(library_legacy_object_cleanup::Column::DeletedAt.is_null())
+            .exec(self.db.orm())
+            .await?;
+        Ok(result.rows_affected > 0)
     }
 
     /// Persist a physical-delete failure on an open cleanup record so a later
     /// run retries it. Never marks the record deleted.
     pub async fn record_legacy_cleanup_error(&self, id: i64, error: &str) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/library_store/objects/record_legacy_cleanup_error.sql",
-            id,
-            error
-        )
-        .execute(self.db.pool())
-        .await?;
+        library_legacy_object_cleanup::Entity::update_many()
+            .col_expr(
+                library_legacy_object_cleanup::Column::DeleteError,
+                Expr::val(error.to_owned()),
+            )
+            .filter(library_legacy_object_cleanup::Column::Id.eq(id))
+            .filter(library_legacy_object_cleanup::Column::DeletedAt.is_null())
+            .exec(self.db.orm())
+            .await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod native_query_tests {
+    use super::*;
+    use sea_orm::DbBackend;
+    use sea_orm::QueryTrait;
+
+    #[test]
+    fn legacy_cleanup_scan_compares_against_the_server_clock() {
+        let sql = library_legacy_object_cleanup::Entity::find()
+            .select_only()
+            .column(library_legacy_object_cleanup::Column::Id)
+            .filter(library_legacy_object_cleanup::Column::DeletedAt.is_null())
+            .filter(cleanup_eligible_now())
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert!(
+            sql.contains("\"cleanup_eligible_at\" <= CURRENT_TIMESTAMP"),
+            "{sql}"
+        );
+        assert!(sql.contains("\"deleted_at\" IS NULL"), "{sql}");
+    }
+
+    #[test]
+    fn storage_object_upsert_conflicts_on_the_group_content_pair() {
+        let model = library_storage_objects::ActiveModel {
+            id: Set(uuid::Uuid::nil()),
+            group_id: Set(1),
+            sha256: Set("a".to_owned()),
+            size_bytes: Set(1),
+            storage_backend: Set("local".to_owned()),
+            object_key: Set("k".to_owned()),
+            staging_lease_until: sea_orm::ActiveValue::NotSet,
+            created_at: sea_orm::ActiveValue::NotSet,
+            updated_at: sea_orm::ActiveValue::NotSet,
+        };
+        let conflict = OnConflict::columns([
+            library_storage_objects::Column::GroupId,
+            library_storage_objects::Column::Sha256,
+        ])
+        .update_columns([
+            library_storage_objects::Column::SizeBytes,
+            library_storage_objects::Column::StorageBackend,
+            library_storage_objects::Column::ObjectKey,
+            library_storage_objects::Column::UpdatedAt,
+        ])
+        .to_owned();
+        let sql = library_storage_objects::Entity::insert(model)
+            .on_conflict(conflict)
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert!(
+            sql.contains("ON CONFLICT (\"group_id\", \"sha256\")"),
+            "{sql}"
+        );
+        assert!(sql.contains("DO UPDATE SET"), "{sql}");
+        assert!(
+            sql.contains("\"updated_at\" = \"excluded\".\"updated_at\""),
+            "{sql}"
+        );
     }
 }

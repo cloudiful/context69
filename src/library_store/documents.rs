@@ -1,4 +1,6 @@
 use anyhow::Result;
+use sea_orm::sea_query::Expr;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Value};
 use sqlx::FromRow;
 use uuid::Uuid;
 
@@ -7,6 +9,7 @@ use super::{
     TaskWriteFence,
 };
 use crate::chunk_payload::{RowPayload, from_row};
+use crate::db::entity::{library_file_documents, library_files};
 use crate::domain::ChunkPayload;
 use crate::domain::LibraryFileDocumentRecord;
 
@@ -22,7 +25,7 @@ pub struct DeleteDocumentRow {
     pub external_id: String,
 }
 
-#[derive(Debug)]
+#[derive(Debug, sea_orm::FromQueryResult)]
 pub struct StoragePathRow {
     pub id: Uuid,
     pub storage_rel_path: String,
@@ -30,6 +33,26 @@ pub struct StoragePathRow {
     /// Set when the source was deliberately released; the physical bytes are
     /// then owned by the storage-object/ref-count path, never by this row.
     pub source_released_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+/// The record of one linked document section.
+fn file_document_record(row: FileDocumentRow) -> LibraryFileDocumentRecord {
+    LibraryFileDocumentRecord {
+        file_id: row.file_id,
+        document_id: row.document_id,
+        group_id: row.group_id,
+        visibility: row
+            .visibility
+            .parse()
+            .unwrap_or(crate::contracts::Visibility::Private),
+        section_key: row.section_key,
+        section_label: row.section_label,
+        section_external_id: row.section_external_id,
+        section_source_uri: row.section_source_uri,
+        section_published_at: row.section_published_at,
+        section_metadata_json: row.section_metadata_json,
+        sort_order: row.sort_order,
+    }
 }
 
 impl LibraryStore {
@@ -178,8 +201,27 @@ impl LibraryStore {
         &self,
         file_id: Uuid,
     ) -> Result<Vec<LibraryFileDocumentRecord>> {
-        let mut connection = self.db.pool().acquire().await?;
-        self.list_file_documents_on(&mut connection, file_id).await
+        let rows = library_file_documents::Entity::find()
+            .select_only()
+            .column(library_file_documents::Column::FileId)
+            .column(library_file_documents::Column::DocumentId)
+            .column(library_file_documents::Column::GroupId)
+            .column(library_file_documents::Column::Visibility)
+            .column(library_file_documents::Column::SectionKey)
+            .column(library_file_documents::Column::SectionLabel)
+            .column(library_file_documents::Column::SectionExternalId)
+            .column(library_file_documents::Column::SectionSourceUri)
+            .column(library_file_documents::Column::SectionPublishedAt)
+            .column(library_file_documents::Column::SectionMetadataJson)
+            .column(library_file_documents::Column::SortOrder)
+            .filter(library_file_documents::Column::FileId.eq(file_id))
+            .order_by_asc(library_file_documents::Column::SortOrder)
+            .order_by_asc(library_file_documents::Column::SectionKey)
+            .into_model::<FileDocumentRow>()
+            .all(self.db.orm())
+            .await?;
+
+        Ok(rows.into_iter().map(file_document_record).collect())
     }
 
     pub async fn list_file_documents_on(
@@ -195,25 +237,7 @@ impl LibraryStore {
         .fetch_all(connection)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|row| LibraryFileDocumentRecord {
-                file_id: row.file_id,
-                document_id: row.document_id,
-                group_id: row.group_id,
-                visibility: row
-                    .visibility
-                    .parse()
-                    .unwrap_or(crate::contracts::Visibility::Private),
-                section_key: row.section_key,
-                section_label: row.section_label,
-                section_external_id: row.section_external_id,
-                section_source_uri: row.section_source_uri,
-                section_published_at: row.section_published_at,
-                section_metadata_json: row.section_metadata_json,
-                sort_order: row.sort_order,
-            })
-            .collect())
+        Ok(rows.into_iter().map(file_document_record).collect())
     }
 
     pub async fn list_chunk_ids_for_files(&self, file_ids: &[Uuid]) -> Result<Vec<Uuid>> {
@@ -329,13 +353,21 @@ impl LibraryStore {
             return Ok(Vec::new());
         }
 
-        let rows = sqlx::query_file_as!(
-            StoragePathRow,
-            "src/sql/library_store/documents/list_storage_paths_for_files.sql",
-            file_ids
-        )
-        .fetch_all(self.db.pool())
-        .await?;
+        let rows = library_files::Entity::find()
+            .select_only()
+            .column(library_files::Column::Id)
+            .column(library_files::Column::StorageRelPath)
+            .column(library_files::Column::StorageObjectId)
+            .column(library_files::Column::SourceReleasedAt)
+            .filter(Expr::cust_with_values(
+                "id = ANY($1)",
+                [Value::from(file_ids.to_vec())],
+            ))
+            .order_by_asc(library_files::Column::Filename)
+            .order_by_asc(library_files::Column::Id)
+            .into_model::<StoragePathRow>()
+            .all(self.db.orm())
+            .await?;
 
         Ok(rows)
     }

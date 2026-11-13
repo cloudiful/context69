@@ -1,14 +1,15 @@
 use std::collections::HashMap;
 
 use anyhow::{Context, Result};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
 use uuid::Uuid;
 
 use super::{
-    Database, DocumentKeyLookupRow, DocumentRow, ExistingDocumentRow, KeywordSearchHitRow,
-    ReadDocumentChunkBatchRow, ReadDocumentChunkRow, ReindexChunkRow, SearchHitRow,
-    TranslationChunkBatchRow, TranslationStatusBatchRow, TranslationVersionBatchRow,
-    UpsertedDocument, is_library_file, keyword_terms, library_file_id, library_path,
-    library_section_label, search_hit_from_keyword_row, translation_status,
+    Database, DocumentRow, ExistingDocumentRow, KeywordSearchHitRow, ReadDocumentChunkBatchRow,
+    ReadDocumentChunkRow, ReindexChunkRow, SearchHitRow, TranslationChunkBatchRow,
+    TranslationStatusBatchRow, TranslationVersionBatchRow, UpsertedDocument, is_library_file,
+    keyword_terms, library_file_id, library_path, library_section_label,
+    search_hit_from_keyword_row, translation_status,
 };
 use crate::chunk_payload::{RowPayload, from_row};
 use crate::contracts::{
@@ -148,14 +149,16 @@ impl Database {
         source_key: &str,
         external_id: &str,
     ) -> Result<Option<i64>> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/db/documents/find_id_by_key.sql",
-            group_id,
-            source_key,
-            external_id
-        )
-        .fetch_optional(&self.pool)
-        .await?)
+        use super::entity::documents::{Column, Entity};
+        Ok(Entity::find()
+            .select_only()
+            .column(Column::Id)
+            .filter(Column::GroupId.eq(group_id))
+            .filter(Column::SourceKey.eq(source_key))
+            .filter(Column::ExternalId.eq(external_id))
+            .into_tuple::<i64>()
+            .one(&self.orm)
+            .await?)
     }
 
     /// The one library file that links this document, or `None`.
@@ -167,12 +170,16 @@ impl Database {
         &self,
         document_id: i64,
     ) -> Result<Option<Uuid>> {
-        let mut file_ids = sqlx::query_file_scalar!(
-            "src/sql/db/documents/find_unique_file_id_for_document.sql",
-            document_id
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        use super::entity::library_file_documents::{Column, Entity};
+        let mut file_ids = Entity::find()
+            .select_only()
+            .column(Column::FileId)
+            .distinct()
+            .filter(Column::DocumentId.eq(document_id))
+            .limit(2)
+            .into_tuple::<Uuid>()
+            .all(&self.orm)
+            .await?;
         if file_ids.len() != 1 {
             return Ok(None);
         }
@@ -194,22 +201,60 @@ impl Database {
             ));
         }
 
-        let rows = sqlx::query_file_as!(
-            DocumentKeyLookupRow,
-            "src/sql/db/documents/get_document_ids_by_keys.sql",
-            group_id,
-            source_keys,
-            external_ids
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        use sea_orm::{
+            ConnectionTrait,
+            sea_query::{Alias, Expr, ExprTrait, Func, JoinType, Order, Query},
+        };
+        let requested = Query::select()
+            .expr_as(
+                Func::cust(Alias::new("unnest")).arg(source_keys.to_vec()),
+                Alias::new("source_key"),
+            )
+            .expr_as(
+                Func::cust(Alias::new("unnest")).arg(external_ids.to_vec()),
+                Alias::new("external_id"),
+            )
+            .expr_as(
+                Func::cust(Alias::new("generate_subscripts"))
+                    .arg(source_keys.to_vec())
+                    .arg(1),
+                Alias::new("ordinal"),
+            )
+            .to_owned();
+        let requested_name = Alias::new("requested");
+        let documents = Alias::new("documents");
+        let query = Query::select()
+            .column((requested_name.clone(), Alias::new("ordinal")))
+            .expr_as(
+                Expr::col((documents.clone(), Alias::new("id"))),
+                Alias::new("document_id"),
+            )
+            .from_subquery(requested, requested_name.clone())
+            .join(
+                JoinType::LeftJoin,
+                (Alias::new("context69"), documents.clone()),
+                Expr::col((documents.clone(), Alias::new("group_id")))
+                    .eq(group_id)
+                    .and(
+                        Expr::col((documents.clone(), Alias::new("source_key")))
+                            .equals((requested_name.clone(), Alias::new("source_key"))),
+                    )
+                    .and(
+                        Expr::col((documents.clone(), Alias::new("external_id")))
+                            .equals((requested_name.clone(), Alias::new("external_id"))),
+                    ),
+            )
+            .order_by((requested_name, Alias::new("ordinal")), Order::Asc)
+            .to_owned();
+        let rows = self.orm.query_all(&query).await?;
 
         let mut result = vec![None; source_keys.len()];
         for row in rows {
-            let position = usize::try_from(row.ordinal.saturating_sub(1))
+            let ordinal: i32 = row.try_get("", "ordinal")?;
+            let position = usize::try_from(ordinal.saturating_sub(1))
                 .context("document key ordinal is out of range")?;
             if let Some(slot) = result.get_mut(position) {
-                *slot = row.document_id;
+                *slot = row.try_get("", "document_id")?;
             }
         }
         Ok(result)
@@ -369,16 +414,12 @@ impl Database {
     }
 
     pub async fn document_chunk_ids(&self, document_id: i64) -> Result<Vec<Uuid>> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/documents/list_chunk_ids.sql", document_id)
-                .fetch_all(&self.pool)
-                .await?,
-        )
+        self.list_chunk_ids_for_document(document_id).await
     }
 
     pub async fn delete_document_by_id(&self, document_id: i64) -> Result<()> {
-        sqlx::query_file!("src/sql/db/documents/delete_by_id.sql", document_id)
-            .execute(&self.pool)
+        super::entity::documents::Entity::delete_by_id(document_id)
+            .exec(&self.orm)
             .await?;
         Ok(())
     }
@@ -538,7 +579,7 @@ impl Database {
             payload,
         )
         .await?;
-        if !apply_business_fields_on(&mut *tx, document_id, payload, &expected).await? {
+        if !apply_business_fields_on(&mut tx, document_id, payload, &expected).await? {
             anyhow::bail!(
                 "document {document_id} changed while its business fields were published"
             );
@@ -644,12 +685,11 @@ impl Database {
     }
 
     pub async fn delete_document_chunks(&self, document_id: i64) -> Result<()> {
-        sqlx::query_file!(
-            "src/sql/db/documents/delete_document_chunks.sql",
-            document_id
-        )
-        .execute(&self.pool)
-        .await?;
+        use super::entity::document_chunks::{Column, Entity};
+        Entity::delete_many()
+            .filter(Column::DocumentId.eq(document_id))
+            .exec(&self.orm)
+            .await?;
         Ok(())
     }
 
@@ -747,12 +787,30 @@ impl Database {
     }
 
     pub async fn list_chunk_ids_for_document(&self, document_id: i64) -> Result<Vec<Uuid>> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/db/documents/list_chunk_ids_for_document.sql",
-            document_id
-        )
-        .fetch_all(&self.pool)
-        .await?)
+        use sea_orm::{
+            ConnectionTrait,
+            sea_query::{Alias, Expr, ExprTrait, Query, UnionType},
+        };
+        let translation = Query::select()
+            .column(Alias::new("id"))
+            .from((
+                Alias::new("context69"),
+                Alias::new("document_translation_chunks"),
+            ))
+            .and_where(Expr::col(Alias::new("document_id")).eq(document_id))
+            .to_owned();
+        let query = Query::select()
+            .column(Alias::new("id"))
+            .from((Alias::new("context69"), Alias::new("document_chunks")))
+            .and_where(Expr::col(Alias::new("document_id")).eq(document_id))
+            .union(UnionType::All, translation)
+            .to_owned();
+        self.orm
+            .query_all(&query)
+            .await?
+            .into_iter()
+            .map(|row| row.try_get("", "id").map_err(Into::into))
+            .collect()
     }
 
     pub async fn fetch_search_hits_by_chunk_ids(

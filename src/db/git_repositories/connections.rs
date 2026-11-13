@@ -5,11 +5,56 @@
 //! take over another group's connection.
 
 use anyhow::Result;
+use sea_orm::sea_query::{Expr, Func};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use sqlx::{Postgres, Transaction};
+
+use crate::db::entity::git_provider_connections::{Column, Entity};
 
 use super::rows::GitProviderConnectionRow;
 use super::types::{NewGitProviderConnection, StoredGitProviderConnection};
 use crate::db::Database;
+
+pub(super) fn list_connections_query(
+    group_id: i64,
+) -> sea_orm::SelectTwo<Entity, crate::db::entity::groups::Entity> {
+    use crate::db::entity::groups;
+    Entity::find()
+        .find_also_related(groups::Entity)
+        .filter(Column::GroupId.eq(group_id))
+        .filter(groups::Column::Id.is_not_null())
+        .order_by_asc(Column::ConnectionKey)
+}
+
+pub(super) fn connection_secret_query(
+    group_id: i64,
+    connection_key: &str,
+    secret_key: &str,
+    column: Column,
+) -> sea_orm::UpdateMany<Entity> {
+    Entity::update_many()
+        .col_expr(column, Expr::value(secret_key))
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::GroupId.eq(group_id))
+        .filter(Column::ConnectionKey.eq(connection_key))
+}
+
+pub(super) fn connection_lifecycle_query(
+    group_id: i64,
+    connection_key: &str,
+    enabled: bool,
+) -> sea_orm::UpdateMany<Entity> {
+    let disabled = if enabled {
+        Expr::value(None::<chrono::DateTime<chrono::Utc>>)
+    } else {
+        Func::coalesce([Expr::col(Column::DisabledAt), Expr::current_timestamp()]).into()
+    };
+    Entity::update_many()
+        .col_expr(Column::DisabledAt, disabled)
+        .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+        .filter(Column::GroupId.eq(group_id))
+        .filter(Column::ConnectionKey.eq(connection_key))
+}
 
 impl Database {
     /// Registers or updates a provider connection owned by `group_id`.
@@ -102,14 +147,27 @@ impl Database {
         &self,
         group_id: i64,
     ) -> Result<Vec<StoredGitProviderConnection>> {
-        let rows = sqlx::query_file_as!(
-            GitProviderConnectionRow,
-            "src/sql/db/git_repositories/list_git_provider_connections.sql",
-            group_id
-        )
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = list_connections_query(group_id).all(&self.orm).await?;
         rows.into_iter()
+            .filter_map(|(row, group)| {
+                group.map(|group| GitProviderConnectionRow {
+                    group_id: row.group_id,
+                    group_key: group.group_key,
+                    group_path: group.full_path,
+                    group_visibility: group.visibility,
+                    connection_key: row.connection_key,
+                    provider_kind: row.provider_kind,
+                    connection_mode: row.connection_mode,
+                    display_name: row.display_name,
+                    base_url: row.base_url,
+                    credential_secret_key: row.credential_secret_key,
+                    webhook_secret_key: row.webhook_secret_key,
+                    app_private_key_secret_key: row.app_private_key_secret_key,
+                    disabled_at: row.disabled_at,
+                    created_at: row.created_at,
+                    updated_at: row.updated_at,
+                })
+            })
             .map(StoredGitProviderConnection::from_row)
             .collect()
     }
@@ -126,15 +184,15 @@ impl Database {
         connection_key: &str,
         secret_key: &str,
     ) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/db/git_repositories/set_git_connection_credential_secret_key.sql",
+        let result = connection_secret_query(
             group_id,
             connection_key,
-            secret_key
+            secret_key,
+            Column::CredentialSecretKey,
         )
-        .execute(&self.pool)
+        .exec(&self.orm)
         .await?;
-        Ok(result.rows_affected() > 0)
+        Ok(result.rows_affected > 0)
     }
 
     /// Narrows the GitHub App private-key reference of one connection owned by
@@ -149,15 +207,15 @@ impl Database {
         connection_key: &str,
         secret_key: &str,
     ) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/db/git_repositories/set_git_connection_app_private_key_secret_key.sql",
+        let result = connection_secret_query(
             group_id,
             connection_key,
-            secret_key
+            secret_key,
+            Column::AppPrivateKeySecretKey,
         )
-        .execute(&self.pool)
+        .exec(&self.orm)
         .await?;
-        Ok(result.rows_affected() > 0)
+        Ok(result.rows_affected > 0)
     }
 
     /// Restores a connection owned by `group_id` to service, reporting whether a
@@ -174,14 +232,10 @@ impl Database {
         group_id: i64,
         connection_key: &str,
     ) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/db/git_repositories/enable_git_provider_connection.sql",
-            group_id,
-            connection_key
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected() > 0)
+        let result = connection_lifecycle_query(group_id, connection_key, true)
+            .exec(&self.orm)
+            .await?;
+        Ok(result.rows_affected > 0)
     }
 
     /// Disables a connection owned by `group_id`, reporting whether a row
@@ -191,14 +245,10 @@ impl Database {
         group_id: i64,
         connection_key: &str,
     ) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/db/git_repositories/disable_git_provider_connection.sql",
-            group_id,
-            connection_key
-        )
-        .execute(&self.pool)
-        .await?;
-        Ok(result.rows_affected() > 0)
+        let result = connection_lifecycle_query(group_id, connection_key, false)
+            .exec(&self.orm)
+            .await?;
+        Ok(result.rows_affected > 0)
     }
 }
 

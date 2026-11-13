@@ -1,4 +1,9 @@
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::{
+    Alias, ColumnRef, CommonTableExpression, Expr as QueryExpr, ExprTrait as QueryExprTrait,
+    Query as QuerySelectBuilder, SelectStatement, SubQueryStatement, TableRef, UpdateStatement,
+    WithClause,
+};
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
@@ -8,6 +13,7 @@ use crate::contracts::{
     LibraryIngestStatus, LibraryPreviewContentFormat,
 };
 use crate::db::Database;
+use crate::db::entity::groups;
 use crate::domain::{LibraryFileRecord, LibraryFolderRecord};
 
 mod dependency_gates;
@@ -67,7 +73,7 @@ pub struct UpdateLibraryFileContent {
     pub storage_object_id: Option<Uuid>,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 struct FolderRow {
     group_id: i64,
     group_key: String,
@@ -80,7 +86,7 @@ struct FolderRow {
     updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 struct FileRow {
     group_id: i64,
     group_key: String,
@@ -126,7 +132,7 @@ struct ResourceRow {
     updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 struct FileDocumentRow {
     file_id: Uuid,
     document_id: i64,
@@ -195,4 +201,47 @@ impl LibraryStore {
     pub fn new(db: Database) -> Self {
         Self { db }
     }
+}
+
+/// The derived group projection of one library row.
+///
+/// The group key and the group path are not stored on the library rows: they
+/// are read from `context69.groups`, which keeps its own owner. The
+/// projection is a correlated scalar subquery over the owning group, so the
+/// native reads return exactly the same two columns as the previous
+/// statements.
+///
+/// The projected column is a typed group column, so the projection can only
+/// name a column the group table really has. The group path is the
+/// `full_path` of the group, and the caller keeps the `group_path` name of
+/// the response.
+fn group_projection(column: groups::Column, owner_group_id: ColumnRef) -> QueryExpr {
+    let groups = TableRef::from((Alias::new("context69"), Alias::new("groups")));
+    let inner = QuerySelectBuilder::select()
+        .column(ColumnRef::from((Alias::new("groups"), column)))
+        .and_where(
+            QueryExpr::col(ColumnRef::from((Alias::new("groups"), groups::Column::Id)))
+                .eq(QueryExpr::col(owner_group_id)),
+        )
+        .from(groups)
+        .to_owned();
+    QueryExpr::from(SubQueryStatement::from(inner))
+}
+
+/// The statement that updates library rows and projects the rows it updated.
+///
+/// The update and the projection of the updated rows are one statement, so
+/// the projected row is the row of the update statement's own snapshot: no
+/// later statement can observe a newer group path than the update did.
+pub(crate) fn update_with_projection(
+    update: UpdateStatement,
+    cte_name: &str,
+    projection: SelectStatement,
+) -> sea_orm::sea_query::WithQuery {
+    let mut cte = CommonTableExpression::new();
+    cte.table_name(Alias::new(cte_name));
+    cte.query(update);
+    let mut with = WithClause::new();
+    with.cte(cte);
+    with.query(projection)
 }
