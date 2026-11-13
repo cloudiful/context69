@@ -278,7 +278,7 @@ export function SearchPage() {
   const showPanel = loading || refining || page !== null;
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-x-hidden overflow-y-auto">
       <SearchForm
         filters={draft}
         sources={sourcesQuery.data?.items ?? []}
