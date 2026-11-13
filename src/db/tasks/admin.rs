@@ -41,7 +41,7 @@ impl Database {
         let queue = self.execution_queue().await?;
         for segment in segments {
             let _ = queue
-                .request_cancel_in(tx, TaskId::from_uuid(segment))
+                .request_cancel_in(&mut *tx, TaskId::from_uuid(segment))
                 .await;
         }
         Ok(())

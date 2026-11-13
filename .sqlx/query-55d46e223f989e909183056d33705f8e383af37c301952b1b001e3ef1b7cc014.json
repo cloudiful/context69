@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Live execution lease of the domain mirror (issue 1020 P4A).\n--\n-- The handover refuses to touch rows while a worker still holds a live lease on\n-- an item this database owns. This statement reads only the domain mirror; the\n-- library half is evaluated by the queue capability in the caller's transaction,\n-- so no task-table SQL remains here.\nSELECT (EXISTS (\n           SELECT 1\n           FROM context69.task_items\n           WHERE status = 'running'\n             AND lease_until > clock_timestamp()\n       )) AS \"domain_live!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain_live!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "55d46e223f989e909183056d33705f8e383af37c301952b1b001e3ef1b7cc014"
+}

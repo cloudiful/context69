@@ -58,18 +58,20 @@ impl Database {
     /// library grants the lease, and the domain mirrors the fencing token and
     /// the deadline of that lease in the same transaction.
     ///
-    /// This is the compatibility entrypoint: it runs `maintain_claim_state` and
-    /// the admission claim in one PostgreSQL transaction, so existing callers
-    /// and lease/retry tests observe every maintenance effect on each claim.
-    /// Dispatcher code that wants to skip the maintenance UPDATE/RETURNING
-    /// work on notification-driven wakes calls `claim_items_fast` and pairs it
-    /// with `maintain_claim_state` on the recovery tick. Safe to call from multiple
-    /// dispatcher instances: admission is serialized by the admission lock and
-    /// items are locked with SKIP LOCKED.
+    /// This is the compatibility entrypoint: it takes the admission lock,
+    /// runs `maintain_claim_state`, and then claims in one PostgreSQL
+    /// transaction, so existing callers and lease/retry tests observe every
+    /// maintenance effect on each claim. Dispatcher code that wants to skip the
+    /// maintenance UPDATE/RETURNING work on notification-driven wakes calls
+    /// `claim_items_fast` and pairs it with `maintain_claim_state` on the
+    /// recovery tick. Safe to call from multiple dispatcher instances: admission
+    /// is serialized by the admission lock and items are locked with SKIP
+    /// LOCKED.
     pub async fn claim_items(&self, capacity: i64) -> Result<Vec<ClaimedItem>> {
+        self.execution_queue().await?;
         let mut tx = self.pool().begin().await?;
-        self.maintain_claim_state_in(&mut tx).await?;
         lock_task_admission(&mut tx).await?;
+        self.maintain_claim_state_in(&mut tx).await?;
         self.release_gated_ordinary_leases(&mut tx).await?;
         let items = self.claim_candidates(&mut tx, capacity).await?;
         tx.commit().await?;
@@ -86,14 +88,15 @@ impl Database {
     /// snapshot, so admitting inside the locking statement could fill the same
     /// free slot twice.
     pub async fn claim_items_fast(&self, capacity: i64) -> Result<Vec<ClaimedItem>> {
+        self.execution_queue().await?;
         let mut tx = self.pool().begin().await?;
-        // The expired segments are sealed before the admission, so a crashed
+        lock_task_admission(&mut tx).await?;
+        // The expired segments are sealed after the admission, so a crashed
         // item is reclaimable in the same transaction as the claim that takes
         // it. The recovery is bounded: the fast path never runs the unbounded
         // maintenance, it only seals the segments the library reports.
         self.recover_expired_executions(&mut tx, RECOVERY_LIMIT)
             .await?;
-        lock_task_admission(&mut tx).await?;
         self.release_gated_ordinary_leases(&mut tx).await?;
         let items = self.claim_candidates(&mut tx, capacity).await?;
         tx.commit().await?;
@@ -182,7 +185,7 @@ impl Database {
         let worker_id = execution::worker_id();
 
         let (claim, generation) = match queue
-            .claim_by_id_in(tx, TaskId::from_uuid(current_segment), worker_id)
+            .claim_by_id_in(&mut *tx, TaskId::from_uuid(current_segment), worker_id)
             .await?
         {
             Some(claim) => (claim, candidate.execution_generation),
@@ -199,7 +202,7 @@ impl Database {
                 )
                 .await?;
                 let claim = queue
-                    .claim_by_id_in(tx, segment, worker_id)
+                    .claim_by_id_in(&mut *tx, segment, worker_id)
                     .await?
                     .ok_or_else(|| anyhow!("the fresh segment of the item could not be claimed"))?;
                 (claim, generation)
@@ -285,7 +288,9 @@ impl Database {
     /// claimable, and so admitted parent slots stay alive (or are reclaimed)
     /// even when the local worker pool is full.
     pub async fn maintain_claim_state(&self) -> Result<ClaimMaintenanceOutcome> {
+        self.execution_queue().await?;
         let mut tx = self.pool().begin().await?;
+        lock_task_admission(&mut tx).await?;
         let outcome = self.maintain_claim_state_in(&mut tx).await?;
         tx.commit().await?;
         Ok(outcome)
@@ -316,8 +321,8 @@ impl Database {
 }
 
 /// Takes the transaction-scoped lock that serializes parent-task slot
-/// admission across replicas. Must be the statement immediately before the
-/// admission claim in the same transaction; the lock is released when that
+/// admission across replicas. Every claim and maintenance entrypoint takes it
+/// as the first statement after `BEGIN`; the lock is released when that
 /// transaction commits or rolls back.
 ///
 /// The durable queue-control write takes the same lock, so a pause serializes

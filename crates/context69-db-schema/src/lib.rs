@@ -29,5 +29,5 @@ pub use cloudiful_tasks::Error as LibraryError;
 /// Returns the library's own error when the schema cannot be created, when it
 /// belongs to something else, or when the migration engine fails.
 pub async fn bootstrap_library_schema(pool: &PgPool) -> Result<MigrationOutcome, LibraryError> {
-    cloudiful_tasks::migrate(pool).await
+    cloudiful_tasks::migrate(&pool.clone().into()).await
 }

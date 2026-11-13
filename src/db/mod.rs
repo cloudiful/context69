@@ -549,7 +549,7 @@ impl Database {
             .execution
             .get_or_try_init(|| async {
                 cloudiful_tasks::Queue::open(
-                    self.pool.clone(),
+                    self.pool.clone().into(),
                     tasks::execution::EXECUTION_NAMESPACE,
                     tasks::execution::EXECUTION_QUEUE,
                     &tasks::execution::execution_config(),
