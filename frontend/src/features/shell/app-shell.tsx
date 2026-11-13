@@ -14,7 +14,7 @@ export function AppShell() {
   return (
     <SidebarProvider style={SHELL_SIDEBAR_STYLE}>
       <AppSidebar />
-      <SidebarInset className="min-w-0 overflow-hidden">
+      <SidebarInset className="h-svh min-w-0 overflow-hidden">
         <ShellHeader />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-x-hidden px-3 py-3">
           <Outlet />
