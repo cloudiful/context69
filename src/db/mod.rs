@@ -86,7 +86,7 @@ pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,
     ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow, DoclingRecoverySummary,
-    ExecutionContext, FinishTaskItemRequest, RemainingArtifactReferences,
+    ExecutionContext, FinishTaskItemRequest, LeaseRenewalProof, RemainingArtifactReferences,
     RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
     StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
     TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,
@@ -271,11 +271,6 @@ pub struct StoredRuntimeFileLibrarySettings {
     pub storage_root: String,
     pub max_upload_size_mb: usize,
     pub trusted_proxy_enabled: bool,
-    /// The registry capacity cap of the whole deployment.
-    ///
-    /// `None` keeps the stored cap: a client that does not send the setting
-    /// never resets the policy.
-    pub registry_max_ids_total: Option<i64>,
     /// The registry capacity cap of one file.
     pub registry_max_ids_per_file: Option<i64>,
     /// The registry capacity cap of one ingestion run.
@@ -290,9 +285,6 @@ impl StoredRuntimeFileLibrarySettings {
     /// policy the configuration seeds and the upgrade migration installs.
     pub fn registry_quota(&self) -> RegistryQuotaPolicy {
         RegistryQuotaPolicy {
-            max_ids_total: self
-                .registry_max_ids_total
-                .unwrap_or(RegistryQuotaPolicy::DEFAULT.max_ids_total),
             max_ids_per_file: self
                 .registry_max_ids_per_file
                 .unwrap_or(RegistryQuotaPolicy::DEFAULT.max_ids_per_file),
@@ -305,14 +297,13 @@ impl StoredRuntimeFileLibrarySettings {
 
 /// The registry capacity policy, as the database records it.
 ///
-/// The three caps bound how many vector point ids the search registry admits.
-/// The policy is cumulative: the usage it is compared with counts every
-/// retained entry, including the tombstones of permanently deleted entities,
-/// so the caps bound the retained work rather than the live documents.
+/// The two caps bound how many vector point ids the search registry admits for
+/// one file and one ingestion run. The policy is cumulative: the usage it is
+/// compared with counts every retained entry, including the tombstones of
+/// permanently deleted entities, so the caps bound the retained work rather
+/// than the live documents.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct RegistryQuotaPolicy {
-    /// The number of point ids the whole deployment may retain.
-    pub max_ids_total: i64,
     /// The number of point ids one file may retain.
     pub max_ids_per_file: i64,
     /// The number of point ids one ingestion run may admit.
@@ -322,18 +313,13 @@ pub struct RegistryQuotaPolicy {
 impl RegistryQuotaPolicy {
     /// The policy a deployment starts with.
     pub const DEFAULT: Self = Self {
-        max_ids_total: crate::config::DEFAULT_REGISTRY_MAX_IDS_TOTAL,
         max_ids_per_file: crate::config::DEFAULT_REGISTRY_MAX_IDS_PER_FILE,
         max_ids_per_run: crate::config::DEFAULT_REGISTRY_MAX_IDS_PER_RUN,
     };
 
-    /// The three caps as the `[total, per_file, per_run]` triple.
-    pub fn caps(&self) -> [i64; 3] {
-        [
-            self.max_ids_total,
-            self.max_ids_per_file,
-            self.max_ids_per_run,
-        ]
+    /// The two caps as the `[per_file, per_run]` pair.
+    pub fn caps(&self) -> [i64; 2] {
+        [self.max_ids_per_file, self.max_ids_per_run]
     }
 
     /// The policy that applies under `override`.
@@ -343,22 +329,19 @@ impl RegistryQuotaPolicy {
     /// never raise a cap the deployment did not grant.
     pub fn narrowed(&self, override_caps: &RegistryQuotaOverride) -> Self {
         Self {
-            max_ids_total: narrower(self.max_ids_total, override_caps.max_ids_total),
             max_ids_per_file: narrower(self.max_ids_per_file, override_caps.max_ids_per_file),
             max_ids_per_run: narrower(self.max_ids_per_run, override_caps.max_ids_per_run),
         }
     }
 
-    /// Whether the three caps form a usable policy.
+    /// Whether the two caps form a usable policy.
     ///
     /// Every cap must be positive, and the run cap must not exceed the file
-    /// cap, which must not exceed the total cap. The ordering is compared
-    /// with checked arithmetic, so an absurd cap cannot wrap into a
-    /// valid-looking comparison.
+    /// cap. The ordering is compared with checked arithmetic, so an absurd cap
+    /// cannot wrap into a valid-looking comparison.
     pub fn validate(&self) -> Result<(), crate::domain_errors::DomainError> {
         use crate::domain_errors::DomainError;
         for (name, value) in [
-            ("registry_max_ids_total", self.max_ids_total),
             ("registry_max_ids_per_file", self.max_ids_per_file),
             ("registry_max_ids_per_run", self.max_ids_per_run),
         ] {
@@ -368,13 +351,11 @@ impl RegistryQuotaPolicy {
                 )));
             }
         }
-        let run_within_file = self.max_ids_per_file.checked_sub(self.max_ids_per_run);
-        let file_within_total = self.max_ids_total.checked_sub(self.max_ids_per_file);
-        match (run_within_file, file_within_total) {
-            (Some(run), Some(file)) if run >= 0 && file >= 0 => Ok(()),
+        match self.max_ids_per_file.checked_sub(self.max_ids_per_run) {
+            Some(run) if run >= 0 => Ok(()),
             _ => Err(DomainError::invalid_argument(
                 "the registry capacity policy must satisfy registry_max_ids_per_run <= \
-                 registry_max_ids_per_file <= registry_max_ids_total",
+                 registry_max_ids_per_file",
             )),
         }
     }
@@ -386,7 +367,6 @@ impl RegistryQuotaPolicy {
 /// it: the effective cap is the smaller of the persisted one and this one.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RegistryQuotaOverride {
-    pub max_ids_total: Option<i64>,
     pub max_ids_per_file: Option<i64>,
     pub max_ids_per_run: Option<i64>,
 }
@@ -395,18 +375,16 @@ impl RegistryQuotaOverride {
     /// An override that keeps every persisted cap.
     pub const fn none() -> Self {
         Self {
-            max_ids_total: None,
             max_ids_per_file: None,
             max_ids_per_run: None,
         }
     }
 
     /// An override that caps every dimension explicitly.
-    pub const fn exact(caps: [i64; 3]) -> Self {
+    pub const fn exact(caps: [i64; 2]) -> Self {
         Self {
-            max_ids_total: Some(caps[0]),
-            max_ids_per_file: Some(caps[1]),
-            max_ids_per_run: Some(caps[2]),
+            max_ids_per_file: Some(caps[0]),
+            max_ids_per_run: Some(caps[1]),
         }
     }
 
@@ -418,7 +396,6 @@ impl RegistryQuotaOverride {
     pub fn validate(&self) -> Result<(), crate::domain_errors::DomainError> {
         use crate::domain_errors::DomainError;
         for (name, value) in [
-            ("max_ids_total", self.max_ids_total),
             ("max_ids_per_file", self.max_ids_per_file),
             ("max_ids_per_run", self.max_ids_per_run),
         ] {

@@ -77,14 +77,28 @@ eligible_items AS (
         )
 ),
 live_running AS (
-    -- A parent executes only while one of its items holds a live attempt
-    -- lease. The task row status is not enough: a retrying, paused or
-    -- dependency-waiting parent keeps its status with no attempt running.
+    -- A parent executes only while one of its items is still owned by a live
+    -- library attempt. The item's mirrored deadline can lag behind a long page,
+    -- so the attempt row is the authority here. The token, task and generation
+    -- link keep the attempt tied to this exact segment and namespace/queue
+    -- isolate it from any other library producer.
     SELECT item.task_id, parent.kind
     FROM context69.task_items item
     JOIN context69.tasks parent ON parent.id = item.task_id
     WHERE item.status = 'running'
-      AND item.lease_until > now()
+      AND EXISTS (
+          SELECT 1
+          FROM cloudiful_tasks.attempts attempt
+          JOIN cloudiful_tasks.tasks library_task
+            ON library_task.id = attempt.task_id
+          WHERE attempt.task_id = item.execution_task_id
+            AND attempt.fencing_token = item.lease_token
+            AND attempt.status = 'running'
+            AND attempt.lease_expires_at > clock_timestamp()
+            AND library_task.namespace = 'context69'
+            AND library_task.queue = 'items'
+            AND library_task.kind = 'context69.item'
+      )
 ),
 runnable_rebuild AS (
     -- One rebuild eligibility definition shared by every gate below: the
@@ -142,7 +156,19 @@ work AS (
     FROM context69.task_items item
     CROSS JOIN gate
     WHERE item.status = 'running'
-      AND item.lease_until > now()
+      AND EXISTS (
+          SELECT 1
+          FROM cloudiful_tasks.attempts attempt
+          JOIN cloudiful_tasks.tasks library_task
+            ON library_task.id = attempt.task_id
+          WHERE attempt.task_id = item.execution_task_id
+            AND attempt.fencing_token = item.lease_token
+            AND attempt.status = 'running'
+            AND attempt.lease_expires_at > clock_timestamp()
+            AND library_task.namespace = 'context69'
+            AND library_task.queue = 'items'
+            AND library_task.kind = 'context69.item'
+      )
       AND (
           gate.mode = 'normal'
           OR (gate.mode = 'rebuild' AND item.task_id = gate.rebuild_task_id)

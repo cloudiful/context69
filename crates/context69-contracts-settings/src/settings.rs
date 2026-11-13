@@ -567,8 +567,6 @@ pub struct RuntimeFileLibrarySettings {
     pub storage_root: String,
     pub max_upload_size_mb: usize,
     pub trusted_proxy_enabled: bool,
-    /// The number of point ids the whole deployment may retain.
-    pub registry_max_ids_total: i64,
     /// The number of point ids one file may retain.
     pub registry_max_ids_per_file: i64,
     /// The number of point ids one ingestion run may admit.
@@ -583,13 +581,9 @@ pub struct UpdateRuntimeFileLibrarySettings {
     pub max_upload_size_mb: usize,
     #[serde(default)]
     pub trusted_proxy_enabled: bool,
-    /// The number of point ids the whole deployment may retain.
-    ///
-    /// A client that omits the setting keeps the stored cap, so an older
-    /// client never resets the policy.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub registry_max_ids_total: Option<i64>,
     /// The number of point ids one file may retain.
+    ///
+    /// A client that omits the setting keeps the stored cap.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub registry_max_ids_per_file: Option<i64>,
     /// The number of point ids one ingestion run may admit.

@@ -56,6 +56,10 @@ pub struct PersonalAccessTokenResponse {
     pub display_prefix: String,
     pub scopes: Vec<PersonalAccessTokenScope>,
     pub expires_at: DateTime<Utc>,
+    /// First recorded use instant of the token's most recent UTC day.
+    ///
+    /// Usage telemetry is recorded at most once per UTC day, so display the UTC
+    /// calendar date rather than treating this as the exact last request time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

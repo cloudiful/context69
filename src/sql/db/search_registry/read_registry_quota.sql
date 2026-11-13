@@ -6,7 +6,6 @@
 -- persisted policy yet; the admission then uses the documented defaults, which
 -- are the values the configuration seeds and the upgrade migration installs.
 SELECT
-    registry_max_ids_total,
     registry_max_ids_per_file,
     registry_max_ids_per_run
 FROM context69.runtime_file_library_settings

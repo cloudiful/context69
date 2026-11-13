@@ -49,7 +49,19 @@ SET pause_state = 'paused',
             WHERE other.task_id = task.id
               AND other.id <> $1
               AND other.status = 'running'
-              AND other.lease_until > clock_timestamp()
+              AND EXISTS (
+                  SELECT 1
+                  FROM cloudiful_tasks.attempts attempt
+                  JOIN cloudiful_tasks.tasks library_task
+                    ON library_task.id = attempt.task_id
+                  WHERE attempt.task_id = other.execution_task_id
+                    AND attempt.fencing_token = other.lease_token
+                    AND attempt.status = 'running'
+                    AND attempt.lease_expires_at > clock_timestamp()
+                    AND library_task.namespace = 'context69'
+                    AND library_task.queue = 'items'
+                    AND library_task.kind = 'context69.item'
+              )
         ) THEN NULL
         ELSE task.lease_token
     END,
@@ -60,7 +72,19 @@ SET pause_state = 'paused',
             WHERE other.task_id = task.id
               AND other.id <> $1
               AND other.status = 'running'
-              AND other.lease_until > clock_timestamp()
+              AND EXISTS (
+                  SELECT 1
+                  FROM cloudiful_tasks.attempts attempt
+                  JOIN cloudiful_tasks.tasks library_task
+                    ON library_task.id = attempt.task_id
+                  WHERE attempt.task_id = other.execution_task_id
+                    AND attempt.fencing_token = other.lease_token
+                    AND attempt.status = 'running'
+                    AND attempt.lease_expires_at > clock_timestamp()
+                    AND library_task.namespace = 'context69'
+                    AND library_task.queue = 'items'
+                    AND library_task.kind = 'context69.item'
+              )
         ) THEN NULL
         ELSE task.lease_until
     END,

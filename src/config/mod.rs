@@ -6,7 +6,7 @@ mod validate;
 
 pub use defaults::{
     DATABASE_URL_ENV_VAR, DEFAULT_REGISTRY_MAX_IDS_PER_FILE, DEFAULT_REGISTRY_MAX_IDS_PER_RUN,
-    DEFAULT_REGISTRY_MAX_IDS_TOTAL, DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
+    DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS,
     DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS, DEFAULT_SECRET_STORE_KEY_VERSION,
     DEFAULT_SESSION_VALKEY_URL,
 };
@@ -53,10 +53,6 @@ mod tests {
         let config = FileConfig::default();
 
         assert_eq!(
-            config.registry_quota.registry_max_ids_total,
-            super::DEFAULT_REGISTRY_MAX_IDS_TOTAL
-        );
-        assert_eq!(
             config.registry_quota.registry_max_ids_per_file,
             super::DEFAULT_REGISTRY_MAX_IDS_PER_FILE
         );
@@ -64,7 +60,6 @@ mod tests {
             config.registry_quota.registry_max_ids_per_run,
             super::DEFAULT_REGISTRY_MAX_IDS_PER_RUN
         );
-        assert_eq!(super::DEFAULT_REGISTRY_MAX_IDS_TOTAL, 32768);
         assert_eq!(super::DEFAULT_REGISTRY_MAX_IDS_PER_FILE, 16384);
         assert_eq!(super::DEFAULT_REGISTRY_MAX_IDS_PER_RUN, 8192);
     }
@@ -73,11 +68,9 @@ mod tests {
     #[test]
     fn a_stated_registry_capacity_policy_is_kept() {
         let mut config = FileConfig::default();
-        config.registry_quota.registry_max_ids_total = 4096;
         config.registry_quota.registry_max_ids_per_file = 2048;
         config.registry_quota.registry_max_ids_per_run = 1024;
 
-        assert_eq!(config.registry_quota.registry_max_ids_total, 4096);
         assert_eq!(config.registry_quota.registry_max_ids_per_file, 2048);
         assert_eq!(config.registry_quota.registry_max_ids_per_run, 1024);
     }

@@ -19,15 +19,29 @@
 --
 -- `$1` is the item, `$2` the fencing token of the library attempt, `$3` the
 -- library task of the segment and `$4` the execution generation.
+--
+-- `$5` is an optional authoritative lease deadline returned by a trusted
+-- renewal. When it is present the row is owned only for that still-live
+-- deadline, never for the mirror it is about to refresh; when it is absent the
+-- row keeps the mirror-deadline rule every ordinary writer uses.
 SELECT
     item.status,
     COALESCE(
         item.lease_token = $2
         AND item.status = 'running'
-        AND item.lease_until IS NOT NULL
-        AND item.lease_until > clock_timestamp()
         AND item.execution_task_id = $3
-        AND item.execution_generation = $4,
+        AND item.execution_generation = $4
+        AND (
+            (
+                $5::timestamptz IS NOT NULL
+                AND $5 > clock_timestamp()
+            )
+            OR (
+                $5::timestamptz IS NULL
+                AND item.lease_until IS NOT NULL
+                AND item.lease_until > clock_timestamp()
+            )
+        ),
         FALSE
     ) AS "owned!: bool",
     COALESCE(

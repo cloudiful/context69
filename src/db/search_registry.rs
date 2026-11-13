@@ -487,8 +487,8 @@ impl Database {
         // admission transaction, so a node that still holds an older policy
         // cannot admit more than the deployment currently allows.
         let persisted = self.read_usable_registry_quota_in(connection).await?;
-        let [global_cap, per_file_cap, per_run_cap] = persisted.narrowed(&quota).caps();
-        if global_cap <= 0 || per_file_cap <= 0 || per_run_cap <= 0 {
+        let [per_file_cap, per_run_cap] = persisted.narrowed(&quota).caps();
+        if per_file_cap <= 0 || per_run_cap <= 0 {
             bail!("registry admission requires positive caps");
         }
         let usage = sqlx::query_file!(
@@ -499,19 +499,11 @@ impl Database {
         .fetch_one(&mut *connection)
         .await
         .context("read registry usage")?;
-        let total = usage
-            .total
-            .checked_add(reservation)
-            .context("global usage overflow")?;
         let file_total = usage
             .file_total
             .checked_add(reservation)
             .context("file usage overflow")?;
-        if usage.overlaps
-            || reservation > per_run_cap
-            || total > global_cap
-            || file_total > per_file_cap
-        {
+        if usage.overlaps || reservation > per_run_cap || file_total > per_file_cap {
             return Ok(AdmissionOutcome::CapsRefused);
         }
         sqlx::query_file!(
@@ -585,7 +577,6 @@ impl Database {
             return Ok(RegistryQuotaPolicy::DEFAULT);
         };
         Ok(RegistryQuotaPolicy {
-            max_ids_total: row.registry_max_ids_total,
             max_ids_per_file: row.registry_max_ids_per_file,
             max_ids_per_run: row.registry_max_ids_per_run,
         })
@@ -1216,17 +1207,13 @@ impl Database {
             .read_projected_registry_usage_in(connection, target)
             .await
             .context("read the projected registry usage")?;
-        if projected.total > quota.max_ids_total
-            || projected.max_file > quota.max_ids_per_file
-            || projected.max_run > quota.max_ids_per_run
+        if projected.max_file > quota.max_ids_per_file || projected.max_run > quota.max_ids_per_run
         {
             bail!(
-                "the rebuild would exceed the registry capacity policy (projected total {}, \
-                 per-file {}, per-run {}; caps total {}, per-file {}, per-run {})",
-                projected.total,
+                "the rebuild would exceed the registry capacity policy (projected per-file {}, \
+                 per-run {}; caps per-file {}, per-run {})",
                 projected.max_file,
                 projected.max_run,
-                quota.max_ids_total,
                 quota.max_ids_per_file,
                 quota.max_ids_per_run
             );
@@ -2192,6 +2179,31 @@ mod tests {
             assert_eq!(entries.len(), 1);
             assert_eq!(entries[0].phase, phase);
         }
+    }
+
+    #[test]
+    fn the_registry_policy_bounds_the_file_and_run_caps() {
+        use crate::db::{RegistryQuotaOverride, RegistryQuotaPolicy};
+
+        let policy = |per_file, per_run| RegistryQuotaPolicy {
+            max_ids_per_file: per_file,
+            max_ids_per_run: per_run,
+        };
+        policy(8, 8)
+            .validate()
+            .expect("the run cap may equal the file cap");
+        assert!(policy(0, 8).validate().is_err());
+        assert!(policy(8, 0).validate().is_err());
+        assert!(
+            policy(8, 9).validate().is_err(),
+            "the run cap may not exceed the file cap"
+        );
+
+        RegistryQuotaOverride::exact([8, 8])
+            .validate()
+            .expect("an explicit pair may use equal caps");
+        assert!(RegistryQuotaOverride::exact([0, 8]).validate().is_err());
+        assert!(RegistryQuotaOverride::exact([8, 0]).validate().is_err());
     }
 
     #[test]

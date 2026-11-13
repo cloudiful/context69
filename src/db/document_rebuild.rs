@@ -142,8 +142,6 @@ pub struct RebuildInstallVerification {
 /// The projected registry usage after rebuild delta entries are written.
 #[derive(Debug, Clone, Copy, sqlx::FromRow)]
 pub struct RebuildProjectedUsage {
-    #[sqlx(rename = "total")]
-    pub total: i64,
     #[sqlx(rename = "max_file")]
     pub max_file: i64,
     #[sqlx(rename = "max_run")]

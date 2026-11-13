@@ -10,7 +10,11 @@ interface ZonedDateParts {
   minute: string;
 }
 
-function readZonedDateParts(value: string | null | undefined, includeTime: boolean): ZonedDateParts | null {
+function readZonedDateParts(
+  value: string | null | undefined,
+  includeTime: boolean,
+  timeZone: string = getEffectiveTimeZone(),
+): ZonedDateParts | null {
   if (!value || DATE_ONLY_PATTERN.test(value)) {
     return null;
   }
@@ -21,7 +25,7 @@ function readZonedDateParts(value: string | null | undefined, includeTime: boole
   }
 
   const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: getEffectiveTimeZone(),
+    timeZone,
     calendar: "gregory",
     numberingSystem: "latn",
     hourCycle: "h23",
@@ -59,7 +63,10 @@ export function formatTimestamp(value: string | null | undefined): string {
   return `${parts.year}-${parts.month}-${parts.day} ${parts.hour}:${parts.minute}`;
 }
 
-export function formatDate(value: string | null | undefined): string {
+export function formatDate(
+  value: string | null | undefined,
+  timeZone: string = getEffectiveTimeZone(),
+): string {
   if (!value) {
     return "--";
   }
@@ -68,7 +75,7 @@ export function formatDate(value: string | null | undefined): string {
     return value;
   }
 
-  const parts = readZonedDateParts(value, false);
+  const parts = readZonedDateParts(value, false, timeZone);
   if (!parts) {
     return value;
   }

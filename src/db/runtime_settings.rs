@@ -240,7 +240,6 @@ impl Database {
                 max_upload_size_mb: usize::try_from(file_library.max_upload_size_mb)
                     .context("runtime file_library max_upload_size_mb must be non-negative")?,
                 trusted_proxy_enabled: file_library.trusted_proxy_enabled,
-                registry_max_ids_total: Some(quota.max_ids_total),
                 registry_max_ids_per_file: Some(quota.max_ids_per_file),
                 registry_max_ids_per_run: Some(quota.max_ids_per_run),
                 // The S3 block is projected from the identifiers alone. Its secret
@@ -486,7 +485,6 @@ impl Database {
                 .s3
                 .as_ref()
                 .map(|value| value.access_key.as_str()),
-            registry_quota.max_ids_total,
             registry_quota.max_ids_per_file,
             registry_quota.max_ids_per_run
         )
@@ -543,9 +541,6 @@ impl Database {
     ) -> Result<RegistryQuotaPolicy> {
         let stored = self.read_usable_registry_quota_in(connection).await?;
         let policy = RegistryQuotaPolicy {
-            max_ids_total: file_library
-                .registry_max_ids_total
-                .unwrap_or(stored.max_ids_total),
             max_ids_per_file: file_library
                 .registry_max_ids_per_file
                 .unwrap_or(stored.max_ids_per_file),

@@ -1,4 +1,4 @@
--- The registry admission usage of one file and the whole registry.
+-- The registry admission usage of one file.
 --
 -- The entries of a permanently tombstoned file are excluded: the file entity
 -- exclusion of the same snapshot dominates every point of that file, including
@@ -56,7 +56,6 @@ WITH per_entry AS (
     )
 )
 SELECT
-    COALESCE(sum(reserved), 0)::bigint AS "total!",
     COALESCE(sum(reserved) FILTER (WHERE file_id = $1), 0)::bigint AS "file_total!",
     COALESCE(bool_or(CASE WHEN phase = 'staging' THEN staged_ids && $2::uuid[] ELSE retired_ids && $2::uuid[] END), false) AS "overlaps!"
 FROM per_entry

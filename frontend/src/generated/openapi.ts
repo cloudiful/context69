@@ -4030,7 +4030,13 @@ export interface components {
             display_prefix: string;
             /** Format: date-time */
             expires_at: string;
-            /** Format: date-time */
+            /**
+             * Format: date-time
+             * @description First recorded use instant of the token's most recent UTC day.
+             *
+             *     Usage telemetry is recorded at most once per UTC day, so display the UTC
+             *     calendar date rather than treating this as the exact last request time.
+             */
             last_used_at?: string | null;
             name: string;
             /** Format: date-time */
@@ -4154,11 +4160,6 @@ export interface components {
              * @description The number of point ids one ingestion run may admit.
              */
             registry_max_ids_per_run: number;
-            /**
-             * Format: int64
-             * @description The number of point ids the whole deployment may retain.
-             */
-            registry_max_ids_total: number;
             s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
             storage_root: string;
             trusted_proxy_enabled: boolean;
@@ -5498,6 +5499,8 @@ export interface components {
             /**
              * Format: int64
              * @description The number of point ids one file may retain.
+             *
+             *     A client that omits the setting keeps the stored cap.
              */
             registry_max_ids_per_file?: number | null;
             /**
@@ -5505,14 +5508,6 @@ export interface components {
              * @description The number of point ids one ingestion run may admit.
              */
             registry_max_ids_per_run?: number | null;
-            /**
-             * Format: int64
-             * @description The number of point ids the whole deployment may retain.
-             *
-             *     A client that omits the setting keeps the stored cap, so an older
-             *     client never resets the policy.
-             */
-            registry_max_ids_total?: number | null;
             s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
             storage_root: string;
             trusted_proxy_enabled?: boolean;

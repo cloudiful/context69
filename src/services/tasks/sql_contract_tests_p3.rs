@@ -119,8 +119,9 @@ fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
         "the consistency gauge must use the effective attempt budget"
     );
     assert!(
-        maintain.contains("item.lease_until > now()"),
-        "the live-worker predicate must stay pinned to maintenance"
+        maintain.contains("attempt.fencing_token = item.lease_token")
+            && maintain.contains("attempt.lease_expires_at > clock_timestamp()"),
+        "the live-worker predicate must stay pinned to the library attempt authority"
     );
 }
 
@@ -306,8 +307,10 @@ fn idle_ordinary_lease_release_is_narrow_and_uses_the_same_gate() {
         "the release is limited to active parents in both scopes"
     );
     assert!(
-        release.contains("item.status = 'running'") && release.contains("item.lease_until > now()"),
-        "a parent with a live attempt is never released"
+        release.contains("item.status = 'running'")
+            && release.contains("attempt.fencing_token = item.lease_token")
+            && release.contains("attempt.lease_expires_at > clock_timestamp()"),
+        "a parent with a live library attempt is never released"
     );
     for owned in ["task_items item", "task_attempts"] {
         assert!(
@@ -385,8 +388,10 @@ fn a_parked_rebuild_releases_its_slot_but_the_selected_and_live_ones_do_not() {
         );
     }
     assert!(
-        release.contains("item.status = 'running'") && release.contains("item.lease_until > now()"),
-        "a live attempt must keep its parent slot"
+        release.contains("item.status = 'running'")
+            && release.contains("attempt.fencing_token = item.lease_token")
+            && release.contains("attempt.lease_expires_at > clock_timestamp()"),
+        "a live library attempt must keep its parent slot"
     );
 
     // Slot bookkeeping only: the release never changes item/attempt/task state.
@@ -436,4 +441,208 @@ fn the_idle_release_runs_inside_the_admission_lock_before_selection() {
         assert!(lock_at < release_at && release_at < select_at);
         cursor = select_at + select.len();
     }
+}
+
+#[test]
+fn the_lease_mirror_is_nonblocking_monotonic_and_owner_fenced() {
+    // Issue 55 P1: a page transaction may hold the item row for a long install.
+    // The mirror must skip that lock instead of waiting for it, never move the
+    // authoritative deadline backwards, and only refresh a still-live returned
+    // deadline.
+    let code = sql_code(include_str!(
+        "../../sql/db/tasks/heartbeat_item_skip_locked.sql"
+    ));
+    assert!(
+        code.contains("FOR UPDATE SKIP LOCKED"),
+        "a busy install page must be skipped, not waited for"
+    );
+    assert!(
+        code.contains("GREATEST(COALESCE(item.lease_until, $3), $3)"),
+        "the mirror must keep the authoritative deadline monotonic"
+    );
+    assert!(
+        code.contains("AND $3 > clock_timestamp()"),
+        "only a still-live authoritative deadline may refresh the mirror"
+    );
+    for predicate in [
+        "item.id = $1",
+        "item.lease_token = $2",
+        "item.status = 'running'",
+        "item.execution_task_id = $4",
+        "item.execution_generation = $5",
+    ] {
+        assert!(
+            code.contains(predicate),
+            "the mirror must keep the exact owner predicate: {predicate}"
+        );
+    }
+    assert!(
+        !code.contains("lease_until > clock_timestamp()"),
+        "an expired mirror may be refreshed by its owner's renewed deadline"
+    );
+}
+
+#[test]
+fn the_ownership_probe_takes_no_lock_and_never_writes() {
+    // A skipped mirror update is not a lost lease. The probe reads the last
+    // committed grant without locking the row the install page holds.
+    let code = sql_code(include_str!("../../sql/db/tasks/probe_item_lease.sql"));
+    for forbidden in ["UPDATE", "INSERT", "DELETE", "FOR UPDATE", "FOR SHARE"] {
+        assert!(
+            !code.contains(forbidden),
+            "the ownership probe must not {forbidden}"
+        );
+    }
+    for predicate in [
+        "id = $1",
+        "lease_token = $2",
+        "status = 'running'",
+        "execution_task_id = $3",
+        "execution_generation = $4",
+    ] {
+        assert!(
+            code.contains(predicate),
+            "the probe must keep the exact owner predicate: {predicate}"
+        );
+    }
+}
+
+#[test]
+fn scheduler_live_execution_is_the_live_library_attempt() {
+    // P2 R1 finding 2: the item mirror can expire while a long install page
+    // still owns a renewed library attempt. Every scheduler/accounting path
+    // that decides whether a worker is live must read the attempt authority,
+    // tied to the exact item grant, instead of the mirror deadline.
+    let sources = [
+        include_str!("../../sql/db/tasks/claim_candidates.sql"),
+        include_str!("../../sql/db/tasks/maintain_claim_state.sql"),
+        include_str!("../../sql/db/tasks/release_gated_ordinary_leases.sql"),
+        include_str!("../../sql/db/tasks/recover_expired_item.sql"),
+        include_str!("../../sql/db/tasks/pause/recover_expired_paused_item.sql"),
+    ];
+    for source in sources {
+        let code = sql_code(source);
+        for predicate in [
+            "cloudiful_tasks.attempts",
+            "fencing_token",
+            "lease_token",
+            "attempt.lease_expires_at > clock_timestamp()",
+            "library_task.namespace = 'context69'",
+            "library_task.queue = 'items'",
+            "library_task.kind = 'context69.item'",
+        ] {
+            assert!(
+                code.contains(predicate),
+                "live execution must read the attempt authority: {predicate}"
+            );
+        }
+        assert!(
+            !code.contains("item.lease_until >")
+                && !code.contains("other.lease_until >")
+                && !code.contains("item.lease_until <")
+                && !code.contains("other.lease_until <"),
+            "the scheduler must not use a stale item mirror as live authority"
+        );
+    }
+
+    // The same predicate keeps the item status and the generation link, so an
+    // expired attempt cannot protect a ghost task and another producer's
+    // attempt cannot protect a context69 item.
+    let claim = sql_code(sources[0]);
+    assert!(claim.contains("item.status = 'running'"));
+    assert!(claim.contains("attempt.task_id = item.execution_task_id"));
+    assert!(claim.contains("attempt.fencing_token = item.lease_token"));
+}
+
+#[test]
+fn cutover_quiescence_keeps_the_domain_mirror_and_verifies_every_link() {
+    // C4: the cutover statement is domain-only. The library half is evaluated
+    // by the queue capability on the caller's transaction, so the statement
+    // must not regress into reading the task tables directly.
+    let cutover = sql_code(include_str!(
+        "../../sql/db/tasks/cutover/live_execution_leases.sql"
+    ));
+    for predicate in [
+        "FROM context69.task_items",
+        "status = 'running'",
+        "lease_until > clock_timestamp()",
+    ] {
+        assert!(
+            cutover.contains(predicate),
+            "the cutover domain mirror must stay intact: {predicate}"
+        );
+    }
+    for forbidden in ["cloudiful_tasks", "attempt", "task_attempts"] {
+        assert!(
+            !cutover.contains(forbidden),
+            "no task-table SQL may remain in the cutover statement: {forbidden}"
+        );
+    }
+
+    // Every distinct linked identifier is selected, regardless of item status,
+    // and globally sorted so chunked verification is complete and stable.
+    let linked = sql_code(include_str!(
+        "../../sql/db/tasks/cutover/linked_execution_task_ids.sql"
+    ));
+    for predicate in [
+        "SELECT DISTINCT execution_task_id",
+        "WHERE execution_task_id IS NOT NULL",
+        "ORDER BY execution_task_id",
+    ] {
+        assert!(
+            linked.contains(predicate),
+            "the linked-ID selector must stay complete and ordered: {predicate}"
+        );
+    }
+    for status_filter in ["status", "stage", "retired"] {
+        assert!(
+            !linked.contains(status_filter),
+            "the linked-ID selector must not filter candidates by {status_filter}"
+        );
+    }
+
+    // The helper verifies every batch through the library capability on the
+    // same caller transaction and never short-circuits after a live batch.
+    let helper = sql_code(include_str!("../../db/tasks/cutover.rs"));
+    assert!(helper.contains("has_live_attempts_in(&mut *tx, &task_ids)"));
+    assert!(helper.contains("chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE)"));
+    assert!(helper.contains("library_live = true;"));
+    assert!(
+        !helper.contains("break"),
+        "a later missing or foreign linkage must still fail closed"
+    );
+}
+
+#[test]
+fn page_start_uses_the_trusted_renewal_deadline_within_the_fenced_write() {
+    // P2 R1 finding 1: a busy background mirror is not a fresh page fence. The
+    // page must renew authority first, then open its fenced write with that
+    // exact returned deadline, which the row lock accepts only while it is
+    // live and mirrors before page work. The ordinary lock rule stays for
+    // every caller that passes no override.
+    let lock = sql_code(include_str!("../../sql/db/tasks/lock_task_item.sql"));
+    assert!(lock.contains("$5::timestamptz IS NOT NULL"));
+    assert!(lock.contains("$5 > clock_timestamp()"));
+    assert!(lock.contains("$5::timestamptz IS NULL"));
+    assert!(lock.contains("item.lease_until > clock_timestamp()"));
+
+    let fence = sql_code(include_str!("../../library_store/task_write_fence.rs"));
+    assert!(fence.contains("begin_task_write_with_lease"));
+    assert!(fence.contains("proof.binds("));
+    assert!(fence.contains("Some(authoritative_until)"));
+    assert!(fence.contains("heartbeat_item_skip_locked.sql"));
+
+    let page = sql_code(include_str!("../../services/sync/execution.rs"));
+    assert!(page.contains("renew_task_item_lease"));
+    assert!(page.contains("begin_task_write_with_lease"));
+    assert!(
+        page.contains(
+            "install_completion(barrier.installed_chunks, barrier.install_total_chunks, true)?"
+        ) && page.contains("if !write.commit().await?"),
+        "the empty final page must commit its fresh mirror instead of rolling it back"
+    );
+    assert!(
+        !page.contains("CLAIM_LOST_MESSAGE"),
+        "the claim loss must not travel as a generic message"
+    );
 }

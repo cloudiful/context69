@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The plain ownership probe of one running task item (issue 55 P1).\n--\n-- The mirror update is skipped when a page transaction holds the item row, and\n-- a skipped update is not a lost lease. This read takes no lock, so it reports\n-- the last committed grant even while another transaction holds the row: a\n-- matching row means the mirror is busy under this owner, and a missing row\n-- means the captured execution no longer owns the item.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the library task and `$4` the\n-- execution generation.\nSELECT 1\nFROM context69.task_items\nWHERE id = $1\n  AND lease_token = $2\n  AND status = 'running'\n  AND execution_task_id = $3\n  AND execution_generation = $4\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "?column?",
+        "type_info": "Int4",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "82fd50c7176006462eadbc9b2e7b51901362998b5c3293bf00567faf7ba69594"
+}

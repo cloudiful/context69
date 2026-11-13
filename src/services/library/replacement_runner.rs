@@ -943,7 +943,7 @@ mod tests {
             file_id: Uuid::new_v4(),
             source: crate::db::IngestRunSource::Stored,
             staged_source_object: None,
-            quota: RegistryQuotaOverride::exact([1000, 1000, 1000]),
+            quota: RegistryQuotaOverride::exact([1000, 1000]),
             attributes: None,
             sections,
         }

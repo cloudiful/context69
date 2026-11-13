@@ -216,6 +216,10 @@ pub(super) async fn process_vector_rebuild(
             "the vector rebuild was cancelled or its ownership was superseded",
         )
         .into()),
+        // A page-boundary claim loss is its own outcome: the driver stops the
+        // stale owner without failure bookkeeping and leaves recovery to the
+        // library lease.
+        Ok(crate::services::sync::RebuildRunOutcome::ClaimLost) => Ok(ProcessResult::ClaimLost),
         Err(error)
             if error
                 .downcast_ref::<crate::services::sync::RebuildBusy>()
