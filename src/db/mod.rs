@@ -86,7 +86,7 @@ pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,
     ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow, DoclingRecoverySummary,
-    ExecutionContext, FinishTaskItemRequest, RemainingArtifactReferences,
+    ExecutionContext, FinishTaskItemRequest, LeaseRenewalProof, RemainingArtifactReferences,
     RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
     StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
     TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,

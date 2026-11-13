@@ -28,6 +28,7 @@ pub use artifact_backfill::{
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use execution::{ExecutionContext, SegmentPayload};
+pub use item_lifecycle::LeaseRenewalProof;
 pub use queue_control::TaskQueueState;
 pub use types::{
     AttachTaskItemArtifactRequest, ClaimMaintenanceOutcome, ClaimedItem,

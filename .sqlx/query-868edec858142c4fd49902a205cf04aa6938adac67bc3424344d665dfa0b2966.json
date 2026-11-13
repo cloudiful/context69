@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Live execution leases of the two authorities (issue 1020 P4A).\n--\n-- The handover refuses to touch rows while a worker still holds a live lease on\n-- an item this database owns: the domain mirror and the library attempt are\n-- both read here, read-only, so a --workers-stopped flag is never taken as\n-- proof of quiescence by itself. The library side is joined back to the items\n-- through their captured segment, so only an attempt that still executes a live\n-- item counts; attempts whose item is gone belong to no authority over this\n-- task center. The library tables are read schema-qualified and are never\n-- mutated by this tool.\nSELECT (EXISTS (\n           SELECT 1\n           FROM context69.task_items\n           WHERE status = 'running'\n             AND lease_until > clock_timestamp()\n       )) AS \"domain_live!\",\n       (EXISTS (\n           SELECT 1\n           FROM cloudiful_tasks.attempts attempt\n           JOIN cloudiful_tasks.tasks library_task\n             ON library_task.id = attempt.task_id\n           JOIN context69.task_items item\n             ON item.execution_task_id = attempt.task_id\n            AND item.lease_token = attempt.fencing_token\n            AND item.status = 'running'\n           WHERE attempt.status = 'running'\n             AND attempt.lease_expires_at > clock_timestamp()\n             AND library_task.namespace = 'context69'\n             AND library_task.queue = 'items'\n             AND library_task.kind = 'context69.item'\n       )) AS \"library_live!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "domain_live!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "library_live!",
+        "type_info": "Bool",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "868edec858142c4fd49902a205cf04aa6938adac67bc3424344d665dfa0b2966"
+}

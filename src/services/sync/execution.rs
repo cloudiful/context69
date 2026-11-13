@@ -763,6 +763,7 @@ impl SyncService {
         &self,
         attempt: &RebuildAttempt,
         fence: TaskWriteFence,
+        execution: &crate::db::ExecutionContext,
     ) -> Result<RebuildInstallOutcome> {
         let target = attempt.snapshot.collection.as_str();
         let barrier = self.db.read_rebuild_barrier().await?;
@@ -904,7 +905,7 @@ impl SyncService {
                 }
             }
         }
-        self.run_install_batches(attempt, fence).await
+        self.run_install_batches(attempt, fence, execution).await
     }
 
     /// Commits the staged originals in bounded owner-fenced batches.
@@ -912,10 +913,49 @@ impl SyncService {
         &self,
         attempt: &RebuildAttempt,
         fence: TaskWriteFence,
+        execution: &crate::db::ExecutionContext,
     ) -> Result<RebuildInstallOutcome> {
         let target = attempt.snapshot.collection.as_str();
         loop {
-            let mut write = crate::library_store::begin_task_write(&self.db, fence).await?;
+            // The previous page's item lock is released before this point. The
+            // authority is renewed in its own short transaction, and the page
+            // opens with exactly the opaque proof of that renewal: a busy
+            // background mirror is not reused as a fresh page fence, and no
+            // library lock is taken while the page holds item/epoch locks.
+            let Some(lease_proof) = self.db.renew_task_item_lease(execution).await? else {
+                tracing::warn!(
+                    target: "task_lifecycle",
+                    task_id = %execution.task_id(),
+                    item_id = %execution.item_id,
+                    attempt_id = %execution.attempt_id(),
+                    "task item lease was lost before a rebuild install page"
+                );
+                return Ok(RebuildInstallOutcome::ClaimLost);
+            };
+            let mut write = match crate::library_store::begin_task_write_with_lease(
+                &self.db,
+                fence,
+                lease_proof,
+            )
+            .await
+            {
+                Ok(write) => write,
+                Err(error)
+                    if error
+                        .downcast_ref::<crate::library_store::TaskWriteDenied>()
+                        .is_some() =>
+                {
+                    tracing::warn!(
+                        target: "task_lifecycle",
+                        task_id = %execution.task_id(),
+                        item_id = %execution.item_id,
+                        attempt_id = %execution.attempt_id(),
+                        "task item lease was lost before a rebuild install page"
+                    );
+                    return Ok(RebuildInstallOutcome::ClaimLost);
+                }
+                Err(error) => return Err(error),
+            };
             self.db
                 .lock_search_registry_epoch_in(write.connection())
                 .await?;
@@ -942,7 +982,15 @@ impl SyncService {
                 .await?;
             if rows.is_empty() {
                 install_completion(barrier.installed_chunks, barrier.install_total_chunks, true)?;
-                write.rollback().await;
+                // The empty final page still holds the page's fenced grant and
+                // the fresh mirrored deadline. Commit it like every other page
+                // instead of rolling the renewed mirror back: a page that
+                // releases its lease here would let recovery park an otherwise
+                // finished install. A commit the fence no longer authorizes is
+                // a typed claim loss, not a rolled-back success.
+                if !write.commit().await? {
+                    return Ok(RebuildInstallOutcome::ClaimLost);
+                }
                 return Ok(RebuildInstallOutcome::Installed);
             }
             let count = i64::try_from(rows.len()).context("the installed page must fit i64")?;
@@ -1182,7 +1230,10 @@ impl SyncService {
                 // the committed install cursor and the durable invalidity, so
                 // the resumed attempt continues without re-embedding and the
                 // partially replaced chunk table never becomes searchable.
-                match self.install_rebuilt_originals(&attempt, fence).await {
+                match self
+                    .install_rebuilt_originals(&attempt, fence, &execution)
+                    .await
+                {
                     Ok(RebuildInstallOutcome::Installed) => {}
                     Ok(RebuildInstallOutcome::Paused) => {
                         self.vector.abandon_rebuild(attempt.generation);
@@ -1197,6 +1248,17 @@ impl SyncService {
                             .fail(attempt.generation, "cancelled".to_string());
                         attempt_guard.disarm();
                         return Ok(super::RebuildRunOutcome::Cancelled);
+                    }
+                    // The page boundary found the lease gone. The local attempt
+                    // stops, but the durable barrier is not written through the
+                    // stale owner: the outcome is a typed claim loss the driver
+                    // handles without failure bookkeeping.
+                    Ok(RebuildInstallOutcome::ClaimLost) => {
+                        self.vector.abandon_rebuild(attempt.generation);
+                        self.vector_rebuild_status
+                            .fail(attempt.generation, "claim lost".to_string());
+                        attempt_guard.disarm();
+                        return Ok(super::RebuildRunOutcome::ClaimLost);
                     }
                     Err(error) => {
                         self.fail_rebuild_barrier(fence, &error).await;
@@ -1749,6 +1811,7 @@ enum RebuildInstallOutcome {
     Installed,
     Paused,
     Cancelled,
+    ClaimLost,
 }
 
 /// The committed streaming position of one rebuild attempt.
@@ -2081,7 +2144,8 @@ async fn complete_rebuild_transaction(
         fence.item_id(),
         fence.token(),
         fence.execution_task_id(),
-        fence.generation()
+        fence.generation(),
+        None::<chrono::DateTime<chrono::Utc>>
     )
     .fetch_optional(&mut *tx)
     .await?;

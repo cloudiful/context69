@@ -15,7 +15,7 @@ use anyhow::Result;
 use sqlx::{PgConnection, Postgres, Transaction};
 use uuid::Uuid;
 
-use crate::db::ClaimedItem;
+use crate::db::{ClaimedItem, LeaseRenewalProof};
 
 use super::LibraryStore;
 
@@ -178,6 +178,74 @@ pub async fn begin_task_write(
     .fetch_optional(&mut *transaction)
     .await?;
     if held.is_none() {
+        transaction.rollback().await.ok();
+        return Err(TaskWriteDenied::new(fence).into());
+    }
+    Ok(TaskWriteTx { transaction, fence })
+}
+
+/// The locked grant row of one page-start write.
+#[derive(sqlx::FromRow)]
+struct LockedPageGrant {
+    status: String,
+    owned: bool,
+    matches_execution: bool,
+}
+
+/// Opens one page write with a freshly renewed authoritative lease.
+///
+/// The caller can only pass the opaque proof minted by the trusted library
+/// renewal, and the proof must be bound to exactly this fence. The item row is
+/// locked under the captured grant and accepted solely for the proof's
+/// still-live deadline, then the mirror is moved forward inside the same
+/// transaction before any page work runs. The ordinary precommit recheck still
+/// applies, so a page that outlives the mirrored deadline rolls back. The
+/// library attempt is never locked here: the page holds item/epoch locks, and a
+/// renewal under them would invert the recovery order.
+pub(crate) async fn begin_task_write_with_lease(
+    db: &crate::db::Database,
+    fence: TaskWriteFence,
+    proof: LeaseRenewalProof,
+) -> Result<TaskWriteTx<'_>> {
+    if !proof.binds(
+        fence.item_id,
+        fence.token,
+        fence.execution_task_id,
+        fence.generation,
+    ) {
+        return Err(TaskWriteDenied::new(fence).into());
+    }
+    let authoritative_until = proof.lease_until();
+    let mut transaction = db.pool().begin().await?;
+    let locked = sqlx::query_file_as!(
+        LockedPageGrant,
+        "src/sql/db/tasks/lock_task_item.sql",
+        fence.item_id,
+        fence.token,
+        fence.execution_task_id,
+        fence.generation,
+        Some(authoritative_until)
+    )
+    .fetch_optional(&mut *transaction)
+    .await?;
+    if !locked.is_some_and(|locked| {
+        locked.status == "running" && locked.owned && locked.matches_execution
+    }) {
+        transaction.rollback().await.ok();
+        return Err(TaskWriteDenied::new(fence).into());
+    }
+    let mirrored = sqlx::query_file!(
+        "src/sql/db/tasks/heartbeat_item_skip_locked.sql",
+        fence.item_id,
+        fence.token,
+        authoritative_until,
+        fence.execution_task_id,
+        fence.generation
+    )
+    .execute(&mut *transaction)
+    .await?
+    .rows_affected();
+    if mirrored == 0 {
         transaction.rollback().await.ok();
         return Err(TaskWriteDenied::new(fence).into());
     }

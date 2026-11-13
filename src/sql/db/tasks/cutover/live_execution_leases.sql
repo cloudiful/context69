@@ -17,8 +17,15 @@ SELECT (EXISTS (
        (EXISTS (
            SELECT 1
            FROM cloudiful_tasks.attempts attempt
+           JOIN cloudiful_tasks.tasks library_task
+             ON library_task.id = attempt.task_id
            JOIN context69.task_items item
              ON item.execution_task_id = attempt.task_id
+            AND item.lease_token = attempt.fencing_token
+            AND item.status = 'running'
            WHERE attempt.status = 'running'
-             AND attempt.lease_expires_at > now()
+             AND attempt.lease_expires_at > clock_timestamp()
+             AND library_task.namespace = 'context69'
+             AND library_task.queue = 'items'
+             AND library_task.kind = 'context69.item'
        )) AS "library_live!"

@@ -1,4 +1,5 @@
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use cloudiful_tasks::{Failure, TaskStatus};
 use serde_json::Value;
 use sqlx::{Postgres, Transaction};
@@ -42,6 +43,116 @@ async fn recompute_parent(tx: &mut Transaction<'_, Postgres>, task_id: Uuid) -> 
         .execute(&mut **tx)
         .await?;
     Ok(())
+}
+
+/// The result of one authoritative renewal and its best-effort mirror.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AuthorityRenewal {
+    /// The authority and the domain mirror both carry the renewed deadline.
+    Refreshed(DateTime<Utc>),
+    /// The authority is renewed; the page transaction currently holds the mirror.
+    BusyOwned(DateTime<Utc>),
+    /// The captured grant no longer describes the live item.
+    Lost,
+}
+
+/// The trusted proof of one successful library lease renewal.
+///
+/// The fields and the constructor stay private to this module: the only
+/// production path that can build a proof is the successful renewal below, and
+/// it binds the proof to the exact item, fencing token, library task and
+/// execution generation the library renewed. Consumers can read the bound
+/// identity and deadline but can never mint a future deadline from caller input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LeaseRenewalProof {
+    item_id: Uuid,
+    token: Uuid,
+    execution_task_id: Uuid,
+    generation: i64,
+    lease_until: DateTime<Utc>,
+}
+
+impl LeaseRenewalProof {
+    fn new(execution: &ExecutionContext, lease_until: DateTime<Utc>) -> Self {
+        Self {
+            item_id: execution.item_id,
+            token: execution.fencing_token(),
+            execution_task_id: execution.task_id(),
+            generation: execution.generation,
+            lease_until,
+        }
+    }
+
+    /// The item this renewal belongs to.
+    #[must_use]
+    pub fn item_id(&self) -> Uuid {
+        self.item_id
+    }
+
+    /// The fencing token the library renewed.
+    #[must_use]
+    pub fn token(&self) -> Uuid {
+        self.token
+    }
+
+    /// The library task of the renewed segment.
+    #[must_use]
+    pub fn execution_task_id(&self) -> Uuid {
+        self.execution_task_id
+    }
+
+    /// The execution generation of the renewed segment.
+    #[must_use]
+    pub fn generation(&self) -> i64 {
+        self.generation
+    }
+
+    /// The authoritative deadline the library returned.
+    #[must_use]
+    pub fn lease_until(&self) -> DateTime<Utc> {
+        self.lease_until
+    }
+
+    /// Whether this proof was minted for exactly the given captured grant.
+    ///
+    /// A proof of one segment can never authorize the write of another item, a
+    /// superseded attempt of the same item, or a different execution
+    /// generation.
+    #[must_use]
+    pub(crate) fn binds(
+        &self,
+        item_id: Uuid,
+        token: Uuid,
+        execution_task_id: Uuid,
+        generation: i64,
+    ) -> bool {
+        self.item_id == item_id
+            && self.token == token
+            && self.execution_task_id == execution_task_id
+            && self.generation == generation
+    }
+}
+
+/// The result of one best-effort lease mirror write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LeaseMirror {
+    /// The mirror row was updated with the authoritative deadline.
+    Refreshed,
+    /// The row is held by a transaction of the captured owner.
+    BusyOwned,
+    /// The captured grant no longer describes the row.
+    Lost,
+}
+
+/// Classifies one mirror write and its ownership probe.
+fn classify_lease_mirror(refreshed_rows: u64, ownership_matches: bool) -> LeaseMirror {
+    if refreshed_rows > 0 {
+        LeaseMirror::Refreshed
+    } else if ownership_matches {
+        LeaseMirror::BusyOwned
+    } else {
+        LeaseMirror::Lost
+    }
 }
 
 /// The row of one requeued item.
@@ -116,7 +227,8 @@ pub(crate) async fn lock_task_item_for_worker_in(
         item_id,
         execution.fencing_token(),
         execution.task_id(),
-        execution.generation
+        execution.generation,
+        None::<DateTime<Utc>>
     )
     .fetch_optional(&mut **tx)
     .await?;
@@ -261,34 +373,74 @@ impl Database {
 
     /// Renews the lease of a running item.
     ///
-    /// The library owns the deadline: it renews the attempt and returns the
-    /// new deadline, and the domain mirrors exactly that deadline. A renewal
-    /// the library refuses leaves the domain untouched, so a worker that lost
-    /// its lease learns about it instead of extending a lease it does not hold.
+    /// The library owns the deadline and the authority of the claim, so the
+    /// renewal commits in its own short transaction and never takes the domain
+    /// item lock: a page transaction that holds the item for a long install
+    /// cannot delay the authoritative renewal past its timeout. The domain
+    /// mirror then follows best-effort on its own transaction. A mirror the
+    /// page transaction currently holds is busy, not a lost lease, and a plain
+    /// ownership probe separates that case from a real loss. A renewal the
+    /// library refuses changes nothing, so a worker that lost its lease learns
+    /// about it instead of extending a lease it does not hold.
     pub async fn heartbeat_task_item(&self, execution: &ExecutionContext) -> Result<bool> {
-        let mut tx = self.pool().begin().await?;
-        // The domain item is locked and its grant is checked before the
-        // library segment is renewed, so the worker never extends a lease of
-        // an item it does not own any more.
-        let locked = lock_task_item_for_worker_in(&mut tx, execution.item_id, execution).await?;
-        if !locked.is_some_and(|locked| locked.owned) {
-            tx.rollback().await.ok();
-            return Ok(false);
-        }
-        let queue = self.execution_queue().await?;
-        let lease_until = match queue.renew_in(&mut tx, &execution.attempt).await {
-            Ok(lease_until) => native_utc(lease_until),
-            Err(error) if is_lease_lost(&error) => {
-                // The lease is gone: the renewal changes nothing, so a worker
-                // that lost its claim learns it instead of extending a lease it
-                // does not hold.
-                tx.rollback().await.ok();
-                return Ok(false);
+        Ok(matches!(
+            self.renew_authority(execution).await?,
+            AuthorityRenewal::Refreshed(_) | AuthorityRenewal::BusyOwned(_)
+        ))
+    }
+
+    /// Renews the library authority and returns its trusted proof.
+    ///
+    /// The page-start caller must open its write with exactly this proof; it
+    /// may not reuse the background heartbeat's success boolean, because a busy
+    /// mirror is not a refreshed page fence. `None` means the captured grant is
+    /// gone, so the page must stop without a write. The proof is minted only
+    /// here, after the library accepted the renewal, and it is bound to the
+    /// exact captured item, token, library task and generation.
+    pub async fn renew_task_item_lease(
+        &self,
+        execution: &ExecutionContext,
+    ) -> Result<Option<LeaseRenewalProof>> {
+        Ok(match self.renew_authority(execution).await? {
+            AuthorityRenewal::Refreshed(lease_until) | AuthorityRenewal::BusyOwned(lease_until) => {
+                Some(LeaseRenewalProof::new(execution, lease_until))
             }
+            AuthorityRenewal::Lost => None,
+        })
+    }
+
+    /// The authoritative renewal and its best-effort mirror.
+    async fn renew_authority(&self, execution: &ExecutionContext) -> Result<AuthorityRenewal> {
+        let queue = self.execution_queue().await?;
+        let lease_until = match queue.renew(&execution.attempt).await {
+            Ok(lease_until) => native_utc(lease_until),
+            Err(error) if is_lease_lost(&error) => return Ok(AuthorityRenewal::Lost),
             Err(error) => return Err(error.into()),
         };
-        let renewed = sqlx::query_file!(
-            "src/sql/db/tasks/heartbeat_item.sql",
+        Ok(
+            match self.mirror_task_item_lease(execution, lease_until).await? {
+                LeaseMirror::Refreshed => AuthorityRenewal::Refreshed(lease_until),
+                LeaseMirror::BusyOwned => AuthorityRenewal::BusyOwned(lease_until),
+                LeaseMirror::Lost => AuthorityRenewal::Lost,
+            },
+        )
+    }
+
+    /// Mirrors one authoritative lease deadline into the domain item.
+    ///
+    /// The update never waits for the item lock and never moves the deadline
+    /// backwards. When the item is busy the ownership probe still reports the
+    /// last committed grant, so the caller learns that the mirror is stale but
+    /// still owned: the authoritative lease is renewed and the page-start write
+    /// mirrors the returned deadline inside its own fenced transaction.
+    async fn mirror_task_item_lease(
+        &self,
+        execution: &ExecutionContext,
+        lease_until: DateTime<Utc>,
+    ) -> Result<LeaseMirror> {
+        let mut tx = self.pool().begin().await?;
+        let refreshed = sqlx::query_file!(
+            "src/sql/db/tasks/heartbeat_item_skip_locked.sql",
             execution.item_id,
             execution.fencing_token(),
             lease_until,
@@ -298,12 +450,36 @@ impl Database {
         .execute(&mut *tx)
         .await?
         .rows_affected();
-        if renewed == 0 {
+        let ownership_matches = if refreshed == 0 {
+            sqlx::query_file_scalar!(
+                "src/sql/db/tasks/probe_item_lease.sql",
+                execution.item_id,
+                execution.fencing_token(),
+                execution.task_id(),
+                execution.generation
+            )
+            .fetch_optional(&mut *tx)
+            .await?
+            .is_some()
+        } else {
+            false
+        };
+        let outcome = classify_lease_mirror(refreshed, ownership_matches);
+        if refreshed > 0 {
+            tx.commit().await?;
+        } else {
             tx.rollback().await.ok();
-            return Ok(false);
         }
-        tx.commit().await?;
-        Ok(true)
+        if outcome == LeaseMirror::BusyOwned {
+            tracing::debug!(
+                target: "task_lifecycle",
+                task_id = %execution.task_id(),
+                item_id = %execution.item_id,
+                attempt_id = %execution.attempt_id(),
+                "task item lease mirror is busy under its own owner; the authoritative lease was renewed"
+            );
+        }
+        Ok(outcome)
     }
 
     /// Reports the progress of a running item and requeues it.
@@ -1120,5 +1296,47 @@ impl Database {
         }
         tx.commit().await?;
         Ok((new_task_id, item_ids))
+    }
+}
+
+#[cfg(test)]
+mod heartbeat_mirror_tests {
+    use super::{LeaseMirror, LeaseRenewalProof, classify_lease_mirror};
+    use chrono::{DateTime, Utc};
+    use uuid::Uuid;
+
+    #[test]
+    fn a_refreshed_mirror_is_not_a_lost_lease() {
+        assert_eq!(classify_lease_mirror(1, false), LeaseMirror::Refreshed);
+    }
+
+    #[test]
+    fn a_busy_row_with_a_matching_grant_is_the_own_owner() {
+        assert_eq!(classify_lease_mirror(0, true), LeaseMirror::BusyOwned);
+    }
+
+    #[test]
+    fn a_busy_row_without_a_matching_grant_is_a_lost_lease() {
+        assert_eq!(classify_lease_mirror(0, false), LeaseMirror::Lost);
+    }
+
+    #[test]
+    fn a_renewal_proof_only_binds_its_exact_captured_grant() {
+        let item_id = Uuid::new_v4();
+        let token = Uuid::new_v4();
+        let execution_task_id = Uuid::new_v4();
+        let proof = LeaseRenewalProof {
+            item_id,
+            token,
+            execution_task_id,
+            generation: 3,
+            lease_until: DateTime::<Utc>::MAX_UTC,
+        };
+
+        assert!(proof.binds(item_id, token, execution_task_id, 3));
+        assert!(!proof.binds(item_id, token, execution_task_id, 4));
+        assert!(!proof.binds(Uuid::new_v4(), token, execution_task_id, 3));
+        assert!(!proof.binds(item_id, Uuid::new_v4(), execution_task_id, 3));
+        assert!(!proof.binds(item_id, token, Uuid::new_v4(), 3));
     }
 }

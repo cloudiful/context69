@@ -25,6 +25,7 @@ mod task_write_fence;
 pub use resources::ResourceListQuery;
 pub use source_object_cleanup::SourceObjectCleanupIntent;
 pub use source_release::{FileSourceLifecycleRow, PendingAutoReleaseFile};
+pub(crate) use task_write_fence::begin_task_write_with_lease;
 pub use task_write_fence::{
     TaskWriteDenied, TaskWriteFence, TaskWriteTx, begin_task_write, task_write_granted,
     write_task_item_payload,

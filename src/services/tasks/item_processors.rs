@@ -32,6 +32,10 @@ pub(super) enum ProcessResult {
         message: String,
         retryable: bool,
     },
+    /// The captured lease was lost at a page boundary. The item may still be
+    /// running for the library until recovery; the driver must not report a
+    /// failure through the stale owner.
+    ClaimLost,
     /// The parent task requested a cooperative pause and the current attempt
     /// reached a safe stage boundary.
     Paused,
@@ -638,5 +642,21 @@ mod tests {
         let stale: anyhow::Error =
             crate::domain_errors::DomainError::conflict("stale target").into();
         assert!(is_retryable_failure(&stale));
+    }
+
+    #[test]
+    fn an_unrelated_failure_with_the_old_claim_lost_text_stays_failed() {
+        // The claim-lost outcome is a typed variant now; a provider failure
+        // whose text merely repeats the old sentence must keep its own path.
+        let failed = process_error(
+            "indexing",
+            anyhow::anyhow!("task item lease was lost at a rebuild install page boundary"),
+        );
+        match failed {
+            ProcessResult::Failed { stage, .. } => {
+                assert_eq!(stage, "indexing");
+            }
+            _ => panic!("an unrelated provider failure must stay a failed stage"),
+        }
     }
 }
