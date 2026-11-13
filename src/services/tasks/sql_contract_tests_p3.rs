@@ -519,7 +519,6 @@ fn scheduler_live_execution_is_the_live_library_attempt() {
         include_str!("../../sql/db/tasks/release_gated_ordinary_leases.sql"),
         include_str!("../../sql/db/tasks/recover_expired_item.sql"),
         include_str!("../../sql/db/tasks/pause/recover_expired_paused_item.sql"),
-        include_str!("../../sql/db/tasks/cutover/live_execution_leases.sql"),
     ];
     for source in sources {
         let code = sql_code(source);
@@ -553,6 +552,65 @@ fn scheduler_live_execution_is_the_live_library_attempt() {
     assert!(claim.contains("item.status = 'running'"));
     assert!(claim.contains("attempt.task_id = item.execution_task_id"));
     assert!(claim.contains("attempt.fencing_token = item.lease_token"));
+}
+
+#[test]
+fn cutover_quiescence_keeps_the_domain_mirror_and_verifies_every_link() {
+    // C4: the cutover statement is domain-only. The library half is evaluated
+    // by the queue capability on the caller's transaction, so the statement
+    // must not regress into reading the task tables directly.
+    let cutover = sql_code(include_str!(
+        "../../sql/db/tasks/cutover/live_execution_leases.sql"
+    ));
+    for predicate in [
+        "FROM context69.task_items",
+        "status = 'running'",
+        "lease_until > clock_timestamp()",
+    ] {
+        assert!(
+            cutover.contains(predicate),
+            "the cutover domain mirror must stay intact: {predicate}"
+        );
+    }
+    for forbidden in ["cloudiful_tasks", "attempt", "task_attempts"] {
+        assert!(
+            !cutover.contains(forbidden),
+            "no task-table SQL may remain in the cutover statement: {forbidden}"
+        );
+    }
+
+    // Every distinct linked identifier is selected, regardless of item status,
+    // and globally sorted so chunked verification is complete and stable.
+    let linked = sql_code(include_str!(
+        "../../sql/db/tasks/cutover/linked_execution_task_ids.sql"
+    ));
+    for predicate in [
+        "SELECT DISTINCT execution_task_id",
+        "WHERE execution_task_id IS NOT NULL",
+        "ORDER BY execution_task_id",
+    ] {
+        assert!(
+            linked.contains(predicate),
+            "the linked-ID selector must stay complete and ordered: {predicate}"
+        );
+    }
+    for status_filter in ["status", "stage", "retired"] {
+        assert!(
+            !linked.contains(status_filter),
+            "the linked-ID selector must not filter candidates by {status_filter}"
+        );
+    }
+
+    // The helper verifies every batch through the library capability on the
+    // same caller transaction and never short-circuits after a live batch.
+    let helper = sql_code(include_str!("../../db/tasks/cutover.rs"));
+    assert!(helper.contains("has_live_attempts_in(&mut *tx, &task_ids)"));
+    assert!(helper.contains("chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE)"));
+    assert!(helper.contains("library_live = true;"));
+    assert!(
+        !helper.contains("break"),
+        "a later missing or foreign linkage must still fail closed"
+    );
 }
 
 #[test]

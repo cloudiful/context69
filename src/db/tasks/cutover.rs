@@ -14,10 +14,12 @@
 //!   sorted item locks, one transaction per batch. `adopt` accepts explicit ids
 //!   or one bounded `--all` selection of eligible queued/waiting items.
 //!
-//! Nothing here creates, drops or migrates anything, and the library tables are
-//! only ever read schema-qualified for a quiescence check.
+//! Nothing here creates, drops or migrates anything, and the library
+//! quiescence check goes through the queue capability inside the caller's
+//! transaction.
 
 use anyhow::Result;
+use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
 use crate::db::Database;
@@ -187,7 +189,7 @@ impl Database {
     /// The library verifies its own schema; an unavailable schema is not ready
     /// either, so the decision fails closed.
     pub async fn cutover_library_ready(&self) -> bool {
-        cloudiful_tasks::migrate::check_schema(self.pool())
+        cloudiful_tasks::migrate::check_schema(&self.pool().clone().into())
             .await
             .is_ok()
     }
@@ -261,16 +263,54 @@ impl Database {
 
     /// Whether either authority still holds a live execution lease.
     ///
-    /// Read-only on both sides: the domain mirror of the item and the
-    /// schema-qualified library attempt. No `--workers-stopped` flag replaces
-    /// this check.
+    /// Read-only on both sides: the domain mirror of the item and the library
+    /// attempt, which the queue capability evaluates and locks for share inside
+    /// this short transaction. Every linked identifier is verified, so a
+    /// missing or foreign linkage fails closed. No `--workers-stopped` flag
+    /// replaces this check.
     pub async fn cutover_live_execution_leases(&self) -> Result<LiveExecutionLeases> {
-        Ok(sqlx::query_file_as!(
-            LiveExecutionLeases,
-            "src/sql/db/tasks/cutover/live_execution_leases.sql"
-        )
-        .fetch_one(self.pool())
-        .await?)
+        self.execution_queue().await?;
+        let mut tx = self.pool().begin().await?;
+        let leases = self.live_execution_leases_in(&mut tx).await?;
+        tx.commit().await?;
+        Ok(leases)
+    }
+
+    /// Reads the two live-lease authorities inside the transaction of the
+    /// caller.
+    ///
+    /// The domain half is a mirror read. The library half asks the queue about
+    /// every distinct linked task in complete batches, never truncating the
+    /// population and never short-circuiting after a live batch: a missing or
+    /// foreign linkage is an error even when an earlier batch was already live.
+    async fn live_execution_leases_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+    ) -> Result<LiveExecutionLeases> {
+        let domain_live =
+            sqlx::query_file_scalar!("src/sql/db/tasks/cutover/live_execution_leases.sql")
+                .fetch_one(&mut **tx)
+                .await?;
+        let linked: Vec<Uuid> =
+            sqlx::query_file_scalar!("src/sql/db/tasks/cutover/linked_execution_task_ids.sql")
+                .fetch_all(&mut **tx)
+                .await?;
+        let queue = self.execution_queue().await?;
+        let mut library_live = false;
+        for chunk in linked.chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE) {
+            let task_ids: Vec<cloudiful_tasks::TaskId> = chunk
+                .iter()
+                .copied()
+                .map(cloudiful_tasks::TaskId::from_uuid)
+                .collect();
+            if queue.has_live_attempts_in(&mut *tx, &task_ids).await? {
+                library_live = true;
+            }
+        }
+        Ok(LiveExecutionLeases {
+            domain_live,
+            library_live,
+        })
     }
 
     /// Adopts an explicit, bounded set of unlinked queued or waiting items.
@@ -338,6 +378,7 @@ impl Database {
         limit: i64,
     ) -> Result<CutoverAdoptOutcome> {
         let skip_ineligible = explicit.is_none();
+        let queue = self.execution_queue().await?;
         let mut tx = self.pool().begin().await?;
         sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
             .execute(&mut *tx)
@@ -365,17 +406,11 @@ impl Database {
         sqlx::query_file!("src/sql/db/tasks/cutover/lock_items.sql", &unique)
             .fetch_all(&mut *tx)
             .await?;
-        let leases = sqlx::query_file_as!(
-            LiveExecutionLeases,
-            "src/sql/db/tasks/cutover/live_execution_leases.sql"
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let leases = self.live_execution_leases_in(&mut tx).await?;
         if leases.any() {
             anyhow::bail!("a live execution lease is held; stop the workers first");
         }
 
-        let queue = self.execution_queue().await?;
         let mut outcome = CutoverAdoptOutcome::default();
         for item_id in &unique {
             let current = sqlx::query_file_as!(
@@ -491,6 +526,7 @@ impl Database {
         limit: i64,
     ) -> Result<CutoverFinalizeOutcome> {
         let skip_ineligible = explicit.is_none();
+        self.execution_queue().await?;
         let mut tx = self.pool().begin().await?;
         sqlx::query_file!("src/sql/db/tasks/lock_task_admission.sql")
             .execute(&mut *tx)
@@ -518,12 +554,7 @@ impl Database {
         sqlx::query_file!("src/sql/db/tasks/cutover/lock_items.sql", &unique)
             .fetch_all(&mut *tx)
             .await?;
-        let leases = sqlx::query_file_as!(
-            LiveExecutionLeases,
-            "src/sql/db/tasks/cutover/live_execution_leases.sql"
-        )
-        .fetch_one(&mut *tx)
-        .await?;
+        let leases = self.live_execution_leases_in(&mut tx).await?;
         if leases.any() {
             anyhow::bail!("a live execution lease is held; stop the workers first");
         }

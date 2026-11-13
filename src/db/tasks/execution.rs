@@ -359,7 +359,7 @@ impl Database {
         limit: u32,
     ) -> Result<ExecutionRecoveryOutcome> {
         let queue = self.execution_queue().await?;
-        let sealed = queue.recover_expired_in(tx, limit).await?;
+        let sealed = queue.recover_expired_in(&mut *tx, limit).await?;
         let mut outcome = ExecutionRecoveryOutcome {
             sealed_segments: sealed.len() as u64,
             recovered_items: 0,

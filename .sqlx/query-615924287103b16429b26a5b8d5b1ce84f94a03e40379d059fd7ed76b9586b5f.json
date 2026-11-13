@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Every library task linked to a domain item (issue 1020 P4A).\n--\n-- The handover checks the library half of quiescence through the queue\n-- capability, which refuses a missing or foreign identifier. This narrow read\n-- supplies the complete linked population, deduplicated and globally sorted, so\n-- every identifier is checked in the caller's transaction.\nSELECT DISTINCT execution_task_id AS \"execution_task_id!\"\nFROM context69.task_items\nWHERE execution_task_id IS NOT NULL\nORDER BY execution_task_id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "execution_task_id!",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "execution_task_id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "615924287103b16429b26a5b8d5b1ce84f94a03e40379d059fd7ed76b9586b5f"
+}
