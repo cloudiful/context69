@@ -51,7 +51,6 @@ fn stored_runtime_settings() -> StoredRuntimeSettings {
             storage_root: "/tmp/library".to_string(),
             max_upload_size_mb: 128,
             trusted_proxy_enabled: false,
-            registry_max_ids_total: Some(32768),
             registry_max_ids_per_file: Some(16384),
             registry_max_ids_per_run: Some(8192),
             s3: Some(StoredRuntimeS3Settings {

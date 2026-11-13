@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Projected registry usage after the rebuild delta entries were written.\n--\n-- $1 is the physical collection the rebuild is about to activate. A switched\n-- replacement entry that belongs to another collection discounts exactly its\n-- producer-proven original subset, because the rebuild recreates those\n-- originals under its own live reservation. Translation ids, legacy rows\n-- without provenance and entries that already belong to the target stay fully\n-- counted. No active pointer is consulted here: the explicit target is the\n-- collection that is being installed.\nWITH per_entry AS (\n    SELECT\n        r.file_id,\n        CASE\n            WHEN r.phase = 'switched'\n                AND cardinality(r.retired_original_ids) > 0\n                AND r.collection_name IS NOT NULL\n                AND r.collection_name <> $1::text\n            THEN (\n                SELECT count(*)::bigint\n                FROM (\n                    SELECT retired.id\n                    FROM unnest(r.retired_ids) AS retired(id)\n                    EXCEPT\n                    SELECT origin.id\n                    FROM unnest(r.retired_original_ids) AS origin(id)\n                ) AS remaining\n            )\n            ELSE GREATEST(\n                r.reserved_ids,\n                cardinality(r.staged_ids)::bigint + cardinality(r.retired_ids)::bigint\n            )\n        END AS reserved\n    FROM context69.search_registry_entries r\n    WHERE NOT EXISTS (\n        SELECT 1\n        FROM context69.library_deleted_entities d\n        WHERE d.file_id = r.file_id\n    )\n),\nper_file AS (\n    SELECT sum(reserved) AS reserved\n    FROM per_entry\n    WHERE file_id IS NOT NULL\n    GROUP BY file_id\n)\nSELECT\n    COALESCE((SELECT max(reserved) FROM per_file), 0)::bigint AS \"max_file!\",\n    COALESCE((SELECT max(reserved) FROM per_entry), 0)::bigint AS \"max_run!\"\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "max_file!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      },
+      {
+        "ordinal": 1,
+        "name": "max_run!",
+        "type_info": "Int8",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": [
+      null,
+      null
+    ]
+  },
+  "hash": "e05acc5565da0a0daae1d0e9b091e48932f87fb4d8040439bfea070a903ff81d"
+}

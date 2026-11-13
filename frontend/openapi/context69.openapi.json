@@ -13276,7 +13276,6 @@
           "storage_root",
           "max_upload_size_mb",
           "trusted_proxy_enabled",
-          "registry_max_ids_total",
           "registry_max_ids_per_file",
           "registry_max_ids_per_run"
         ],
@@ -13294,11 +13293,6 @@
             "type": "integer",
             "format": "int64",
             "description": "The number of point ids one ingestion run may admit."
-          },
-          "registry_max_ids_total": {
-            "type": "integer",
-            "format": "int64",
-            "description": "The number of point ids the whole deployment may retain."
           },
           "s3": {
             "oneOf": [
@@ -16928,7 +16922,7 @@
               "null"
             ],
             "format": "int64",
-            "description": "The number of point ids one file may retain."
+            "description": "The number of point ids one file may retain.\n\nA client that omits the setting keeps the stored cap."
           },
           "registry_max_ids_per_run": {
             "type": [
@@ -16937,14 +16931,6 @@
             ],
             "format": "int64",
             "description": "The number of point ids one ingestion run may admit."
-          },
-          "registry_max_ids_total": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "format": "int64",
-            "description": "The number of point ids the whole deployment may retain.\n\nA client that omits the setting keeps the stored cap, so an older\nclient never resets the policy."
           },
           "s3": {
             "oneOf": [
