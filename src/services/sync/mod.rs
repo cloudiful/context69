@@ -88,6 +88,7 @@ pub(crate) enum RebuildRunOutcome {
     Completed,
     Paused,
     Cancelled,
+    ClaimLost,
 }
 
 #[derive(Clone)]

@@ -393,6 +393,18 @@ async fn drive_claimed_item(
                 None => log_waiting(&reason, next_attempt_at, message.as_deref()),
             }
         }
+        Ok(ProcessResult::ClaimLost) => {
+            warn!(
+                target: "task_lifecycle",
+                task_id = %item.task_id,
+                item_id = %item.id,
+                attempt = item.attempt_count,
+                attempt_id = item.attempt_id,
+                status = "claim_lost",
+                "task item lease was lost at a page boundary; stopping without failure bookkeeping through a stale owner"
+            );
+            return Ok(());
+        }
         Ok(ProcessResult::Failed {
             stage,
             message,

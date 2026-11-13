@@ -48,8 +48,12 @@ impl Drop for HeartbeatGuard {
 /// The work the claim started is dropped as soon as the claim is gone: a
 /// worker that lost its lease must not keep running the item it no longer
 /// owns.
-async fn heartbeat_loop<F, Fut>(mut tick: F, interval_duration: Duration, abort_work: AbortHandle)
-where
+async fn heartbeat_loop<F, Fut>(
+    execution: ExecutionContext,
+    mut tick: F,
+    interval_duration: Duration,
+    abort_work: AbortHandle,
+) where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Result<bool>>,
 {
@@ -64,16 +68,48 @@ where
             Ok(Ok(false)) => {
                 // The lease is gone (cancelled, reclaimed or expired): the work
                 // is dropped with it.
+                tracing::warn!(
+                    target: "task_lifecycle",
+                    task_id = %execution.task_id(),
+                    item_id = %execution.item_id,
+                    attempt_id = %execution.attempt_id(),
+                    "task item lease was lost; stopping the heartbeat and dropping its work"
+                );
                 abort_work.abort();
                 break;
             }
-            Ok(Err(_)) | Err(_) => {
+            Ok(Err(error)) => {
                 consecutive_errors += 1;
+                tracing::warn!(
+                    target: "task_lifecycle",
+                    task_id = %execution.task_id(),
+                    item_id = %execution.item_id,
+                    attempt_id = %execution.attempt_id(),
+                    consecutive_errors,
+                    error = %error,
+                    "task item lease renewal failed"
+                );
                 if consecutive_errors >= HEARTBEAT_MAX_CONSECUTIVE_ERRORS {
                     // Database unavailable: stop renewing so the lease expires
                     // and the item becomes recoverable by another worker. The
                     // work is dropped instead of running on a lease that is
                     // about to expire.
+                    abort_work.abort();
+                    break;
+                }
+            }
+            Err(_) => {
+                consecutive_errors += 1;
+                tracing::warn!(
+                    target: "task_lifecycle",
+                    task_id = %execution.task_id(),
+                    item_id = %execution.item_id,
+                    attempt_id = %execution.attempt_id(),
+                    consecutive_errors,
+                    timeout_secs = renew_timeout.as_secs(),
+                    "task item lease renewal timed out"
+                );
+                if consecutive_errors >= HEARTBEAT_MAX_CONSECUTIVE_ERRORS {
                     abort_work.abort();
                     break;
                 }
@@ -88,7 +124,9 @@ pub(super) fn spawn_item_heartbeat(
     abort_work: AbortHandle,
 ) -> HeartbeatGuard {
     let (interval, _) = renewal_timing();
+    let identity = execution.clone();
     HeartbeatGuard(tokio::spawn(heartbeat_loop(
+        identity,
         move || {
             let service = service.clone();
             let execution = execution.clone();

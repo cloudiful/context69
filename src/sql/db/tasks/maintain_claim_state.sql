@@ -6,9 +6,9 @@
 -- that already satisfy the existing exhausted predicates
 -- (attempt_count >= 5 while queued/waiting), which the fast claim's
 -- eligible selection explicitly excludes, and expired-attempt interruption
--- is scoped to abandoned attempts
--- (lease_until IS NULL OR lease_until < now()) so it does not
--- clear active leases. When an expired running item is interrupted, its
+-- is scoped to items whose library attempt is no longer live, so it does not
+-- clear an active attempt or a page whose mirrored deadline has not caught up.
+-- When an expired running item is interrupted, its
 -- item lease (lease_token/lease_until) is atomically revoked in the same
 -- statement so a late worker holding the old token cannot
 -- finish/heartbeat/progress; the item stays running so the fast claim
@@ -128,7 +128,19 @@ WITH to_exhaust AS (
           FROM context69.task_items item
           WHERE item.task_id = task.id
             AND item.status = 'running'
-            AND item.lease_until > now()
+            AND EXISTS (
+                SELECT 1
+                FROM cloudiful_tasks.attempts attempt
+                JOIN cloudiful_tasks.tasks library_task
+                  ON library_task.id = attempt.task_id
+                WHERE attempt.task_id = item.execution_task_id
+                  AND attempt.fencing_token = item.lease_token
+                  AND attempt.status = 'running'
+                  AND attempt.lease_expires_at > clock_timestamp()
+                  AND library_task.namespace = 'context69'
+                  AND library_task.queue = 'items'
+                  AND library_task.kind = 'context69.item'
+            )
       )
     RETURNING task.id
 ), recomputed AS (
@@ -233,7 +245,19 @@ WITH to_exhaust AS (
     JOIN context69.tasks task ON task.id = item.task_id
     WHERE (
             (item.status = 'running'
-                AND (item.lease_until IS NULL OR item.lease_until < now()))
+                AND NOT EXISTS (
+                    SELECT 1
+                    FROM cloudiful_tasks.attempts attempt
+                    JOIN cloudiful_tasks.tasks library_task
+                      ON library_task.id = attempt.task_id
+                    WHERE attempt.task_id = item.execution_task_id
+                      AND attempt.fencing_token = item.lease_token
+                      AND attempt.status = 'running'
+                      AND attempt.lease_expires_at > clock_timestamp()
+                      AND library_task.namespace = 'context69'
+                      AND library_task.queue = 'items'
+                      AND library_task.kind = 'context69.item'
+                ))
             -- A segment the recovery sealed parks the item with this reason:
             -- the worker is gone, so the slot the parent held is released.
             OR (item.status = 'waiting' AND item.waiting_reason = 'lease_expired')
@@ -270,7 +294,19 @@ WITH to_exhaust AS (
           FROM context69.task_items item
           WHERE item.task_id = task.id
             AND item.status = 'running'
-            AND item.lease_until > now()
+            AND EXISTS (
+                SELECT 1
+                FROM cloudiful_tasks.attempts attempt
+                JOIN cloudiful_tasks.tasks library_task
+                  ON library_task.id = attempt.task_id
+                WHERE attempt.task_id = item.execution_task_id
+                  AND attempt.fencing_token = item.lease_token
+                  AND attempt.status = 'running'
+                  AND attempt.lease_expires_at > clock_timestamp()
+                  AND library_task.namespace = 'context69'
+                  AND library_task.queue = 'items'
+                  AND library_task.kind = 'context69.item'
+            )
             AND NOT EXISTS (SELECT 1 FROM expired_workers revoked WHERE revoked.id = item.id)
       )
       AND (

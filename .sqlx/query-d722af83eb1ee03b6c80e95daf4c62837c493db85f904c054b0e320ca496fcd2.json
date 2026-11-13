@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The nonblocking lease mirror of one running task item (issue 55 P1).\n--\n-- The authoritative deadline is the one the library returned for the renewed\n-- attempt. The mirror only ever moves that deadline forward, and it refreshes\n-- an expired mirror as long as the returned deadline is still live and the\n-- captured execution still owns the row. The candidate row lock is skipped\n-- instead of waited for: a long page transaction that holds the item is not a\n-- lost lease.\n--\n-- `$1` is the item, `$2` the fencing token, `$3` the deadline the library\n-- returned, `$4` the library task and `$5` the execution generation.\nWITH candidate AS (\n    SELECT item.id\n    FROM context69.task_items AS item\n    WHERE item.id = $1\n      AND item.lease_token = $2\n      AND item.status = 'running'\n      AND item.execution_task_id = $4\n      AND item.execution_generation = $5\n    FOR UPDATE SKIP LOCKED\n)\nUPDATE context69.task_items AS item\nSET lease_until = GREATEST(COALESCE(item.lease_until, $3), $3),\n    updated_at = now()\nFROM candidate\nWHERE item.id = candidate.id\n  AND $3 > clock_timestamp()\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Timestamptz",
+        "Uuid",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d722af83eb1ee03b6c80e95daf4c62837c493db85f904c054b0e320ca496fcd2"
+}
