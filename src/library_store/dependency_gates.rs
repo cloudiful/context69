@@ -28,27 +28,34 @@ pub struct DependencyGateTransition {
     pub transitioned: bool,
 }
 
+fn dependency_gate_insert(
+    dependency_key: &str,
+) -> sea_orm::TryInsert<library_dependency_gates::ActiveModel> {
+    let model = library_dependency_gates::ActiveModel {
+        dependency_key: Set(dependency_key.to_owned()),
+        state: sea_orm::ActiveValue::NotSet,
+        failure_count: sea_orm::ActiveValue::NotSet,
+        next_probe_at: sea_orm::ActiveValue::NotSet,
+        last_error: sea_orm::ActiveValue::NotSet,
+        configuration_fingerprint: sea_orm::ActiveValue::NotSet,
+        probe_lease_token: sea_orm::ActiveValue::NotSet,
+        probe_lease_expires_at: sea_orm::ActiveValue::NotSet,
+        last_transition_at: sea_orm::ActiveValue::NotSet,
+        last_success_at: sea_orm::ActiveValue::NotSet,
+        updated_at: sea_orm::ActiveValue::NotSet,
+    };
+    library_dependency_gates::Entity::insert(model)
+        .on_conflict(
+            OnConflict::column(library_dependency_gates::Column::DependencyKey)
+                .do_nothing()
+                .to_owned(),
+        )
+        .try_insert()
+}
+
 impl LibraryStore {
     pub async fn ensure_dependency_gate(&self, dependency_key: &str) -> Result<()> {
-        let model = library_dependency_gates::ActiveModel {
-            dependency_key: Set(dependency_key.to_owned()),
-            state: sea_orm::ActiveValue::NotSet,
-            failure_count: sea_orm::ActiveValue::NotSet,
-            next_probe_at: sea_orm::ActiveValue::NotSet,
-            last_error: sea_orm::ActiveValue::NotSet,
-            configuration_fingerprint: sea_orm::ActiveValue::NotSet,
-            probe_lease_token: sea_orm::ActiveValue::NotSet,
-            probe_lease_expires_at: sea_orm::ActiveValue::NotSet,
-            last_transition_at: sea_orm::ActiveValue::NotSet,
-            last_success_at: sea_orm::ActiveValue::NotSet,
-            updated_at: sea_orm::ActiveValue::NotSet,
-        };
-        library_dependency_gates::Entity::insert(model)
-            .on_conflict(
-                OnConflict::column(library_dependency_gates::Column::DependencyKey)
-                    .do_nothing()
-                    .to_owned(),
-            )
+        dependency_gate_insert(dependency_key)
             .exec(self.db.orm())
             .await?;
         Ok(())
@@ -169,5 +176,22 @@ impl LibraryStore {
         )
         .fetch_optional(self.db.pool())
         .await?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{DbBackend, QueryTrait, TryInsert};
+
+    use super::{dependency_gate_insert, library_dependency_gates};
+
+    #[test]
+    fn dependency_gate_insert_tolerates_conflicts_without_updating_state() {
+        let insert: TryInsert<library_dependency_gates::ActiveModel> =
+            dependency_gate_insert("embedding_vector");
+        assert_eq!(
+            insert.build(DbBackend::Postgres).to_string(),
+            r#"INSERT INTO "context69"."library_dependency_gates" ("dependency_key") VALUES ('embedding_vector') ON CONFLICT ("dependency_key") DO NOTHING"#
+        );
     }
 }
