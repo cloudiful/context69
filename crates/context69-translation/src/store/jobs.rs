@@ -1,4 +1,7 @@
+use crate::entity::document_translation_jobs::{Column, Entity};
 use anyhow::{Result, bail};
+use sea_orm::sea_query::{Alias, Expr, ExprTrait, Func, Query};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use sqlx::PgConnection;
 use uuid::Uuid;
 
@@ -25,20 +28,32 @@ pub(crate) struct TranslationAttempt<'a> {
     pub error_message: Option<&'a str>,
 }
 
+fn document_in_group(group_id: i64) -> Expr {
+    Expr::exists(
+        Query::select()
+            .expr(Expr::value(1))
+            .from((Alias::new("context69"), Alias::new("documents")))
+            .and_where(
+                Expr::col((Alias::new("documents"), Alias::new("id")))
+                    .equals((Entity, Column::DocumentId)),
+            )
+            .and_where(Expr::col((Alias::new("documents"), Alias::new("group_id"))).eq(group_id))
+            .to_owned(),
+    )
+}
+
 impl TranslationStore {
     pub async fn job_in_group(
         &self,
         group_id: i64,
         id: Uuid,
     ) -> Result<Option<TranslationJobRecord>> {
-        Ok(sqlx::query_file_as!(
-            TranslationJobRecord,
-            "sql/jobs/get_in_group.sql",
-            id,
-            group_id
-        )
-        .fetch_optional(self.pool())
-        .await?)
+        Ok(Entity::find()
+            .filter(Column::Id.eq(id))
+            .filter(document_in_group(group_id))
+            .one(&self.orm)
+            .await?
+            .map(Into::into))
     }
 
     pub async fn jobs_for_document(
@@ -46,60 +61,103 @@ impl TranslationStore {
         group_id: i64,
         document_id: i64,
     ) -> Result<Vec<TranslationJobRecord>> {
-        Ok(sqlx::query_file_as!(
-            TranslationJobRecord,
-            "sql/jobs/list_for_document.sql",
-            document_id,
-            group_id
-        )
-        .fetch_all(self.pool())
-        .await?)
+        Ok(Entity::find()
+            .filter(Column::DocumentId.eq(document_id))
+            .filter(document_in_group(group_id))
+            .order_by_desc(Column::CreatedAt)
+            .order_by_desc(Column::Id)
+            .all(&self.orm)
+            .await?
+            .into_iter()
+            .map(Into::into)
+            .collect())
     }
 
     pub async fn retry_job(&self, group_id: i64, id: Uuid) -> Result<Option<TranslationJobRecord>> {
-        Ok(
-            sqlx::query_file_as!(TranslationJobRecord, "sql/jobs/retry.sql", id, group_id)
-                .fetch_optional(self.pool())
-                .await?,
-        )
+        let rows = Entity::update_many()
+            .col_expr(Column::Status, Expr::value("queued"))
+            .col_expr(Column::ErrorMessage, Expr::value(None::<String>))
+            .col_expr(
+                Column::FinishedAt,
+                Expr::value(None::<chrono::DateTime<chrono::Utc>>),
+            )
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(id))
+            .filter(Column::Status.is_in(["failed", "quota_exceeded"]))
+            .filter(document_in_group(group_id))
+            .exec_with_returning(&self.orm)
+            .await?;
+        Ok(rows.into_iter().next().map(Into::into))
     }
 
     pub(crate) async fn finish_job(&self, result: FinishJob<'_>) -> Result<TranslationJobRecord> {
-        Ok(sqlx::query_file_as!(
-            TranslationJobRecord,
-            "sql/jobs/finish.sql",
-            result.id,
-            result.status,
-            result.source_locale,
-            result.provider_key,
-            result.provider_config_hash,
-            result.character_count,
-            result.error_message
-        )
-        .fetch_one(self.pool())
-        .await?)
+        let rows = Entity::update_many()
+            .col_expr(Column::Status, Expr::value(result.status))
+            .col_expr(
+                Column::DetectedSourceLocale,
+                Expr::value(result.source_locale),
+            )
+            .col_expr(Column::ProviderKey, Expr::value(result.provider_key))
+            .col_expr(
+                Column::ProviderConfigHash,
+                Expr::value(result.provider_config_hash),
+            )
+            .col_expr(
+                Column::SourceCharacterCount,
+                Expr::value(result.character_count),
+            )
+            .col_expr(Column::ErrorMessage, Expr::value(result.error_message))
+            .col_expr(Column::FinishedAt, Expr::current_timestamp())
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(result.id))
+            .exec_with_returning(&self.orm)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .next()
+            .ok_or(sqlx::Error::RowNotFound)?
+            .into())
     }
 
     pub(crate) async fn release_claimed_job(&self, id: Uuid) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!("sql/jobs/release.sql", id)
-            .fetch_optional(self.pool())
-            .await?
-            .is_some())
+        let result = Entity::update_many()
+            .col_expr(Column::Status, Expr::value("queued"))
+            .col_expr(
+                Column::AttemptCount,
+                Func::greatest([Expr::col(Column::AttemptCount).sub(1), Expr::value(0)]).into(),
+            )
+            .col_expr(
+                Column::StartedAt,
+                Expr::value(None::<chrono::DateTime<chrono::Utc>>),
+            )
+            .col_expr(
+                Column::FinishedAt,
+                Expr::value(None::<chrono::DateTime<chrono::Utc>>),
+            )
+            .col_expr(Column::ErrorMessage, Expr::value(None::<String>))
+            .col_expr(Column::UpdatedAt, Expr::current_timestamp())
+            .filter(Column::Id.eq(id))
+            .filter(Column::Status.eq("running"))
+            .exec(&self.orm)
+            .await?;
+        Ok(result.rows_affected > 0)
     }
 
     pub(crate) async fn insert_attempt(&self, attempt: TranslationAttempt<'_>) -> Result<()> {
-        sqlx::query_file!(
-            "sql/jobs/insert_attempt.sql",
-            attempt.job_id,
-            attempt.provider_key,
-            attempt.provider_config_hash,
-            attempt.attempt_number,
-            attempt.status,
-            attempt.character_count,
-            attempt.latency_ms,
-            attempt.error_message
-        )
-        .execute(self.pool())
+        use crate::entity::document_translation_attempts::{ActiveModel, Entity};
+        use sea_orm::ActiveValue::Set;
+        Entity::insert(ActiveModel {
+            job_id: Set(attempt.job_id),
+            provider_key: Set(attempt.provider_key.to_owned()),
+            provider_config_hash: Set(attempt.provider_config_hash.to_owned()),
+            attempt_number: Set(attempt.attempt_number),
+            status: Set(attempt.status.to_owned()),
+            character_count: Set(attempt.character_count),
+            latency_ms: Set(attempt.latency_ms),
+            error_message: Set(attempt.error_message.map(str::to_owned)),
+            ..Default::default()
+        })
+        .exec(&self.orm)
         .await?;
         Ok(())
     }
@@ -243,5 +301,24 @@ impl TranslationStore {
         }
         tx.commit().await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use sea_orm::{DbBackend, QueryTrait};
+
+    #[test]
+    fn retry_scope_is_correlated_to_the_document() {
+        let query = Entity::update_many()
+            .filter(document_in_group(7))
+            .build(DbBackend::Postgres)
+            .to_string();
+        assert!(
+            query.contains("\"documents\".\"id\" = \"document_translation_jobs\".\"document_id\""),
+            "{query}"
+        );
+        assert!(query.contains("\"documents\".\"group_id\" = 7"), "{query}");
     }
 }

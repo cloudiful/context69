@@ -3,7 +3,7 @@
 //! One application-owned store for every persisted reversible runtime
 //! credential, usable by the root service and by the translation/extraction
 //! crates without a dependency cycle. The crate is a leaf: it depends only on
-//! the [`context69_secret_crypto`] primitive, SQLx, and logging, so a dependent
+//! the [`context69_secret_crypto`] primitive, SeaORM, SQLx, and logging, so a dependent
 //! service can reach the store without depending on the application.
 //!
 //! Three layers, each with one job:
@@ -12,8 +12,8 @@
 //!   a bounded [`SecretKeyName`] for each secret within it. Adding a category
 //!   means adding a variant, so an unowned purpose cannot be invented at a call
 //!   site.
-//! * [`database`] — the SQL boundary. One file-backed statement per operation,
-//!   and the only place that can move a secret's bytes.
+//! * [`database`] — the persistence boundary. Native queries share the existing
+//!   pool; borrowed backfill transactions use SQLx.
 //! * [`store`] — the typed accessor. Purpose binding and explicit lifecycle
 //!   operations for one deployment, plus the transition read and, in its
 //!   `rewrap` child module, the one operation that spans two: re-sealing this
@@ -41,6 +41,7 @@
 //! explicit [`SecretStoreError::MasterKeyNotConfigured`], never a fallback.
 
 mod database;
+pub mod entity;
 mod error;
 mod purpose;
 mod rows;

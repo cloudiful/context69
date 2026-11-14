@@ -9,9 +9,8 @@
 //!
 //! They are split from `schema_tests` because the ownership, generation, and
 //! content invariants there are about a different subject and are already
-//! sizeable. Every statement and migration is read with `include_str!` and
-//! asserted from its own text, so nothing here needs a database, and the
-//! helpers below are deliberately copies rather than shared items: a
+//! sizeable. Migration and SQLx statement text and rendered native statements
+//! are asserted without a database. The helpers remain independent: a
 //! `schema_tests` assertion must not be able to be weakened by an edit here, or
 //! the other way round.
 
@@ -27,14 +26,25 @@ const GET_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_provider_connection.sql");
 const INSERT_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/insert_git_provider_connection.sql");
-const LIST_CONNECTIONS_SQL: &str =
-    include_str!("../../sql/db/git_repositories/list_git_provider_connections.sql");
-const SET_CONNECTION_CREDENTIAL_SQL: &str =
-    include_str!("../../sql/db/git_repositories/set_git_connection_credential_secret_key.sql");
-const SET_CONNECTION_APP_KEY_SQL: &str =
-    include_str!("../../sql/db/git_repositories/set_git_connection_app_private_key_secret_key.sql");
-const SET_WEBHOOK_SIGNING_SECRET_SQL: &str =
-    include_str!("../../sql/db/git_repositories/set_git_webhook_signing_secret_key.sql");
+use crate::db::entity::git_provider_connections::Column;
+use sea_orm::{DbBackend, QueryTrait};
+use uuid::Uuid;
+
+fn list_connections() -> String {
+    super::connections::list_connections_query(42)
+        .build(DbBackend::Postgres)
+        .to_string()
+}
+fn connection_secret(column: Column) -> String {
+    super::connections::connection_secret_query(42, "owned", "secret-reference", column)
+        .build(DbBackend::Postgres)
+        .to_string()
+}
+fn webhook_secret() -> String {
+    super::webhooks::webhook_secret_query(42, Uuid::nil(), "secret-reference")
+        .build(DbBackend::Postgres)
+        .to_string()
+}
 
 /// The executable text of `sql`, with `--` comment lines removed.
 ///
@@ -125,7 +135,6 @@ fn the_app_private_key_reference_is_additive_nullable_and_detaching() {
     for query in [
         UPSERT_CONNECTION_SQL,
         GET_CONNECTION_SQL,
-        LIST_CONNECTIONS_SQL,
         INSERT_CONNECTION_SQL,
     ] {
         assert!(
@@ -134,6 +143,7 @@ fn the_app_private_key_reference_is_additive_nullable_and_detaching() {
             &query[..query.len().min(60)]
         );
     }
+    assert!(list_connections().contains("app_private_key_secret_key"));
 }
 
 #[test]
@@ -142,14 +152,24 @@ fn secret_rotation_moves_one_reference_and_never_a_lifecycle_column() {
     // reach a lifecycle column: a rotation must not re-enable a disabled
     // connection nor re-activate a deactivated hook.
     for (sql, column) in [
-        (SET_CONNECTION_CREDENTIAL_SQL, "credential_secret_key"),
-        (SET_CONNECTION_APP_KEY_SQL, "app_private_key_secret_key"),
-        (SET_WEBHOOK_SIGNING_SECRET_SQL, "signing_secret_key"),
+        (
+            connection_secret(Column::CredentialSecretKey),
+            "credential_secret_key",
+        ),
+        (
+            connection_secret(Column::AppPrivateKeySecretKey),
+            "app_private_key_secret_key",
+        ),
+        (webhook_secret(), "signing_secret_key"),
     ] {
-        let body = executable(sql);
-        assert_eq!(statement_count(sql), 1, "a reference move is one statement");
+        let body = executable(&sql);
+        assert_eq!(
+            statement_count(&sql),
+            1,
+            "a reference move is one statement"
+        );
         assert!(
-            body.contains(&format!("{column} = $3")),
+            body.contains(&format!("\"{column}\" = 'secret-reference'")),
             "the narrow update must set exactly its own column: {column}"
         );
         for forbidden in ["disabled_at", "active", "provider_kind", "DELETE", "INSERT"] {
@@ -159,7 +179,7 @@ fn secret_rotation_moves_one_reference_and_never_a_lifecycle_column() {
             );
         }
         assert!(
-            body.contains("updated_at = now()"),
+            body.contains("\"updated_at\" = CURRENT_TIMESTAMP"),
             "the move still records that the row changed"
         );
     }
@@ -229,9 +249,12 @@ fn the_create_insert_projects_the_app_key_without_assigning_it() {
 #[test]
 fn a_reference_update_is_group_confined_through_its_own_ownership() {
     // Connection references filter on the owning group directly.
-    for sql in [SET_CONNECTION_CREDENTIAL_SQL, SET_CONNECTION_APP_KEY_SQL] {
+    for sql in [
+        connection_secret(Column::CredentialSecretKey),
+        connection_secret(Column::AppPrivateKeySecretKey),
+    ] {
         assert!(
-            sql.contains("WHERE group_id = $1") && sql.contains("connection_key = $2"),
+            sql.contains("\"group_id\" = 42") && sql.contains("\"connection_key\" = 'owned'"),
             "a connection reference update must be confined to its group: {}",
             &sql[sql.len().saturating_sub(120)..]
         );
@@ -240,9 +263,9 @@ fn a_reference_update_is_group_confined_through_its_own_ownership() {
     // from the registration's repository source, as every other webhook
     // operation already does.
     assert!(
-        SET_WEBHOOK_SIGNING_SECRET_SQL.contains("context69.git_repository_sources")
-            && SET_WEBHOOK_SIGNING_SECRET_SQL.contains("s.group_id = $1")
-            && SET_WEBHOOK_SIGNING_SECRET_SQL.contains("s.repository_key = r.repository_key"),
+        webhook_secret().contains("\"context69\".\"git_repository_sources\"")
+            && webhook_secret().contains("\"git_repository_sources\".\"group_id\" = 42")
+            && webhook_secret().contains("\"git_repository_sources\".\"repository_key\" = \"git_webhook_registrations\".\"repository_key\""),
         "a webhook reference update must be scoped through the repository source"
     );
 }

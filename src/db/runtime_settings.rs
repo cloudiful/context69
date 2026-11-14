@@ -1,31 +1,21 @@
 use anyhow::{Context, Result};
+use sea_orm::EntityTrait;
 use sqlx::PgConnection;
 
 use crate::chunking::ChunkBudgetMode;
 use crate::chunking::chunking_token::TokenizerRef;
 use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
-use super::{
-    Database, RegistryQuotaPolicy, RuntimeChunkingSettingsRow, RuntimeEmbeddingSettingsRow,
-    RuntimeFileLibrarySettingsRow, RuntimeQdrantSettingsRow, RuntimeSchedulerSettingsRow,
-    StoredRuntimeChunkingSettings, StoredRuntimeCodeEmbeddingSettings,
-    StoredRuntimeEmbeddingSettings, StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings,
-    StoredRuntimeS3Settings, StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
+use super::entity::{
+    runtime_chunking_settings, runtime_code_embedding_settings, runtime_embedding_settings,
+    runtime_file_library_settings, runtime_qdrant_settings, runtime_scheduler_settings,
 };
-
-/// The persisted code embedding settings row.
-///
-/// The row lives here rather than in the shared row module because every field
-/// except `enabled` is nullable for an explicitly disabled configuration.
-#[derive(Debug, Clone, sqlx::FromRow)]
-struct RuntimeCodeEmbeddingSettingsRow {
-    enabled: bool,
-    base_url: Option<String>,
-    model: Option<String>,
-    query_model: Option<String>,
-    dimensions: Option<i64>,
-    timeout_secs: Option<i64>,
-}
+use super::{
+    Database, RegistryQuotaPolicy, RuntimeChunkingSettingsRow, StoredRuntimeChunkingSettings,
+    StoredRuntimeCodeEmbeddingSettings, StoredRuntimeEmbeddingSettings,
+    StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeS3Settings,
+    StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
+};
 
 /// The persisted name of a chunking unit.
 fn chunking_unit_value(unit: &ChunkBudgetMode) -> &'static str {
@@ -156,50 +146,36 @@ async fn write_runtime_code_embedding_settings_in(
 
 impl Database {
     pub async fn runtime_settings_initialized(&self) -> Result<bool> {
-        Ok(
-            sqlx::query_file_scalar!(
-                "src/sql/db/runtime_settings/runtime_settings_initialized.sql"
-            )
-            .fetch_one(&self.pool)
-            .await?,
-        )
+        Ok(runtime_qdrant_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
+            .is_some())
     }
 
     pub async fn get_runtime_settings(&self) -> Result<Option<StoredRuntimeSettings>> {
-        let qdrant = sqlx::query_file_as!(
-            RuntimeQdrantSettingsRow,
-            "src/sql/db/runtime_settings/get_runtime_qdrant_settings.sql"
-        )
-        .fetch_optional(&self.pool)
-        .await?;
+        let qdrant = runtime_qdrant_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?;
         let Some(qdrant) = qdrant else {
             return Ok(None);
         };
 
-        let embedding = sqlx::query_file_as!(
-            RuntimeEmbeddingSettingsRow,
-            "src/sql/db/runtime_settings/get_runtime_embedding_settings.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let scheduler = sqlx::query_file_as!(
-            RuntimeSchedulerSettingsRow,
-            "src/sql/db/runtime_settings/get_runtime_scheduler_settings.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let chunking = sqlx::query_file_as!(
-            RuntimeChunkingSettingsRow,
-            "src/sql/db/runtime_settings/get_runtime_chunking_settings.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?;
-        let file_library = sqlx::query_file_as!(
-            RuntimeFileLibrarySettingsRow,
-            "src/sql/db/runtime_settings/get_runtime_file_library_settings.sql"
-        )
-        .fetch_one(&self.pool)
-        .await?;
+        let embedding = runtime_embedding_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let scheduler = runtime_scheduler_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let chunking = runtime_chunking_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
+        let file_library = runtime_file_library_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
+            .ok_or(sqlx::Error::RowNotFound)?;
         // The registry capacity policy is read from the row that holds it, so
         // the reported policy is the one the admission enforces.
         let quota = self.read_registry_quota().await?;
@@ -234,7 +210,15 @@ impl Database {
                 job_id: scheduler.job_id,
                 valkey_url: scheduler.valkey_url,
             },
-            chunking: stored_chunking_settings_from_row(chunking)?,
+            chunking: stored_chunking_settings_from_row(RuntimeChunkingSettingsRow {
+                max_chars: chunking.max_chars,
+                overlap_chars: chunking.overlap_chars,
+                unit: chunking.unit,
+                tokenizer: chunking.tokenizer,
+                tokenizer_sha256: chunking.tokenizer_sha256,
+                max_tokens: chunking.max_tokens,
+                overlap_tokens: chunking.overlap_tokens,
+            })?,
             file_library: StoredRuntimeFileLibrarySettings {
                 storage_root: file_library.storage_root,
                 max_upload_size_mb: usize::try_from(file_library.max_upload_size_mb)
@@ -291,12 +275,9 @@ impl Database {
     pub async fn get_runtime_code_embedding_settings(
         &self,
     ) -> Result<Option<StoredRuntimeCodeEmbeddingSettings>> {
-        let Some(row) = sqlx::query_file_as!(
-            RuntimeCodeEmbeddingSettingsRow,
-            "src/sql/db/runtime_settings/get_runtime_code_embedding_settings.sql"
-        )
-        .fetch_optional(&self.pool)
-        .await?
+        let Some(row) = runtime_code_embedding_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
         else {
             return Ok(None);
         };

@@ -19,6 +19,7 @@ mod document_rebuild;
 mod document_results;
 mod document_versions;
 mod documents;
+pub mod entity;
 mod git_repositories;
 mod library_ingest_runs;
 mod library_metadata_mirror;
@@ -105,6 +106,7 @@ pub use vector_index_state::{ActiveVectorIndexState, VectorIndexState};
 #[derive(Clone)]
 pub struct Database {
     pool: PgPool,
+    orm: sea_orm::DatabaseConnection,
     /// Set only when startup must recover persisted work before the pinned
     /// retirement migration may run. A database in this state has deliberately
     /// not been migrated.
@@ -507,6 +509,7 @@ impl Database {
             UpgradeAdmission::Recovery { guards, .. } => Some(guards),
         };
         Ok(Self {
+            orm: pool.clone().into(),
             pool,
             pending_upgrade,
             execution: Arc::new(OnceCell::new()),
@@ -556,6 +559,7 @@ impl Database {
             .await
             .context("failed to connect read-only audit pool")?;
         Ok(Self {
+            orm: pool.clone().into(),
             pool,
             pending_upgrade: None,
             execution: Arc::new(OnceCell::new()),
@@ -581,6 +585,7 @@ impl Database {
             .await
             .context("failed to connect the operator database pool")?;
         Ok(Self {
+            orm: pool.clone().into(),
             pool,
             pending_upgrade: None,
             execution: Arc::new(OnceCell::new()),
@@ -589,6 +594,14 @@ impl Database {
 
     pub fn pool(&self) -> &PgPool {
         &self.pool
+    }
+
+    /// The SeaORM connection of the same pool.
+    ///
+    /// The native entity store reads and writes through this connection, so
+    /// it shares the pool, its limits and its lifetime with the SQLx side.
+    pub(crate) fn orm(&self) -> &sea_orm::DatabaseConnection {
+        &self.orm
     }
 
     pub async fn ping(&self) -> Result<()> {

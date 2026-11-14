@@ -14,6 +14,7 @@ context69-contracts-translation.workspace = true
 context69-llm-support.workspace = true
 context69-secret-store.workspace = true
 reqwest = { workspace = true, features = ["json", "rustls"] }
+sea-orm.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true

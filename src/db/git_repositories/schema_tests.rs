@@ -1,7 +1,7 @@
 //! Schema invariants the Git persistence layer depends on (issue #681 work unit
 //! 3B1).
 //!
-//! These assert the migration and query-file guarantees this module is built
+//! These assert the migration and persistence-query guarantees this module is built
 //! on: mandatory group ownership, per-group repository/ref identity, visibility
 //! read only from `context69.groups`, generations carrying metadata without
 //! content, and generation completion plus activation being one atomic
@@ -28,12 +28,6 @@ const GET_ACTIVE_GENERATION_SQL: &str =
     include_str!("../../sql/db/git_repository_generations/get_git_active_generation.sql");
 const UPSERT_SOURCE_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_repository_source.sql");
-const GET_SOURCE_SQL: &str =
-    include_str!("../../sql/db/git_repositories/get_git_repository_source.sql");
-const LIST_SOURCE_SQL: &str =
-    include_str!("../../sql/db/git_repositories/list_git_repository_sources.sql");
-const CHECKPOINT_SQL: &str =
-    include_str!("../../sql/db/git_repositories/update_git_repository_checkpoint.sql");
 const UPSERT_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_provider_connection.sql");
 const INSERT_CONNECTION_SQL: &str =
@@ -42,12 +36,6 @@ const ACQUIRE_CREATION_LOCK_SQL: &str =
     include_str!("../../sql/db/git_repositories/acquire_git_connection_creation_lock.sql");
 const GET_CONNECTION_SQL: &str =
     include_str!("../../sql/db/git_repositories/get_git_provider_connection.sql");
-const LIST_CONNECTIONS_SQL: &str =
-    include_str!("../../sql/db/git_repositories/list_git_provider_connections.sql");
-const DISABLE_CONNECTION_SQL: &str =
-    include_str!("../../sql/db/git_repositories/disable_git_provider_connection.sql");
-const ENABLE_CONNECTION_SQL: &str =
-    include_str!("../../sql/db/git_repositories/enable_git_provider_connection.sql");
 const WEBHOOK_REGISTRATION_SQL: &str =
     include_str!("../../sql/db/git_repositories/upsert_git_webhook_registration.sql");
 const GET_WEBHOOK_REGISTRATION_SQL: &str =
@@ -57,6 +45,37 @@ const INSERT_WEBHOOK_REGISTRATION_SQL: &str =
 const ACQUIRE_WEBHOOK_CREATION_LOCK_SQL: &str = include_str!(
     "../../sql/db/git_repositories/acquire_git_webhook_registration_creation_lock.sql"
 );
+
+use sea_orm::{DbBackend, QueryTrait, sea_query::PostgresQueryBuilder};
+use uuid::Uuid;
+
+fn source_query(key: Option<Uuid>) -> String {
+    super::repositories::repository_lookup_query(42, key).to_string(PostgresQueryBuilder)
+}
+
+fn checkpoint() -> String {
+    let value = super::types::GitCheckpointUpdate {
+        target_commit_sha: None,
+        indexed_commit_sha: None,
+        index_status: crate::contracts::sources::GitIndexStatus::Ready,
+        pipeline_version: None,
+        config_fingerprint: None,
+        skip_summary: None,
+    };
+    super::repositories::checkpoint_query(42, Uuid::nil(), &value).to_string(PostgresQueryBuilder)
+}
+
+fn connections_query() -> String {
+    super::connections::list_connections_query(42)
+        .build(DbBackend::Postgres)
+        .to_string()
+}
+
+fn lifecycle(enabled: bool) -> String {
+    super::connections::connection_lifecycle_query(42, "owned", enabled)
+        .build(DbBackend::Postgres)
+        .to_string()
+}
 
 /// Body of a `CREATE TABLE IF NOT EXISTS` in `sql`, without the closing paren.
 fn table_body<'a>(sql: &'a str, table: &str) -> &'a str {
@@ -175,14 +194,23 @@ fn visibility_is_read_from_the_authoritative_groups_join_only() {
         UPSERT_SOURCE_SQL,
         UPSERT_CONNECTION_SQL,
         INSERT_CONNECTION_SQL,
-        CHECKPOINT_SQL,
-        GET_SOURCE_SQL,
     ] {
         assert!(
             query.contains("JOIN context69.groups g ON g.id =")
                 && query.contains("g.visibility AS group_visibility"),
             "group identity and current visibility come from the groups row: {}",
             &query[..query.len().min(60)]
+        );
+    }
+    for query in [
+        source_query(Some(Uuid::nil())),
+        source_query(None),
+        checkpoint(),
+    ] {
+        assert!(
+            query.contains("JOIN \"context69\".\"groups\" AS \"g\"")
+                && query.contains("\"g\".\"visibility\" AS \"group_visibility\""),
+            "{query}"
         );
     }
     // Generations are repository-scoped and project no group copy.
@@ -207,9 +235,6 @@ fn visibility_is_read_from_the_authoritative_groups_join_only() {
 fn every_group_scoped_operation_cannot_reach_another_group() {
     // Reads and updates filter on the owning group.
     for query in [
-        GET_SOURCE_SQL,
-        LIST_SOURCE_SQL,
-        CHECKPOINT_SQL,
         ACTIVATE_GENERATION_SQL,
         FAIL_GENERATION_SQL,
         START_GENERATION_SQL,
@@ -217,9 +242,6 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
         LIST_GENERATIONS_SQL,
         GET_ACTIVE_GENERATION_SQL,
         GET_CONNECTION_SQL,
-        LIST_CONNECTIONS_SQL,
-        DISABLE_CONNECTION_SQL,
-        ENABLE_CONNECTION_SQL,
     ] {
         assert!(
             query.contains("group_id = $1") || query.contains("group_id = $2"),
@@ -227,6 +249,27 @@ fn every_group_scoped_operation_cannot_reach_another_group() {
             &query[..query.len().min(60)]
         );
     }
+    for query in [
+        source_query(Some(Uuid::nil())),
+        source_query(None),
+        checkpoint(),
+        connections_query(),
+        lifecycle(false),
+        lifecycle(true),
+    ] {
+        assert!(query.contains("\"group_id\" = 42"), "{query}");
+    }
+    let query = checkpoint();
+    assert!(
+        query.starts_with("WITH \"updated\" AS (UPDATE")
+            && query.contains("RETURNING *")
+            && query.contains("FROM \"updated\" AS \"s\""),
+        "{query}"
+    );
+    assert!(
+        query.contains("\"repository_key\"") && query.contains("\"group_id\" = 42"),
+        "{query}"
+    );
     // Upserts take the owner as the value they insert and key the conflict on it.
     assert!(
         UPSERT_SOURCE_SQL.contains("ON CONFLICT (group_id, canonical_url, target_ref)"),
@@ -319,20 +362,22 @@ fn webhook_registration_creation_takes_a_transaction_scoped_advisory_lock() {
 #[test]
 fn connection_enable_clears_only_the_lifecycle_column_and_never_reads_a_secret() {
     // One statement, scoped to the owning group and the key.
+    let statement = lifecycle(true);
     assert_eq!(
-        statement_count(ENABLE_CONNECTION_SQL),
+        statement_count(&statement),
         1,
         "enabling a connection is one atomic statement"
     );
-    let statement = code(ENABLE_CONNECTION_SQL);
     assert!(
-        statement.contains("group_id = $1") && statement.contains("connection_key = $2"),
+        statement.contains("\"group_id\" = 42")
+            && statement.contains("\"connection_key\" = 'owned'"),
         "the enable must match the owning group and the key"
     );
     // Only the lifecycle column moves. A secret column here would let a repeated
     // enable rotate or drop a credential, so its absence is the invariant.
     assert!(
-        statement.contains("disabled_at = NULL") && statement.contains("updated_at = now()"),
+        statement.contains("\"disabled_at\" = NULL")
+            && statement.contains("\"updated_at\" = CURRENT_TIMESTAMP"),
         "enabling clears the disabled marker and stamps freshness, nothing else"
     );
     for forbidden in [

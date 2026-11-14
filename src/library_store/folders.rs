@@ -1,9 +1,21 @@
 use anyhow::Result;
+use sea_orm::sea_query::{
+    Alias, ColumnRef, Expr, Query as QuerySelectBuilder, ReturningClause, SelectStatement, TableRef,
+};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait,
+};
 use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::mappers::folder_from_row;
-use super::{FolderRow, LibraryFolderRecord, LibraryStore, TaskWriteDenied, TaskWriteFence};
+use super::{
+    FolderRow, LibraryFolderRecord, LibraryStore, TaskWriteDenied, TaskWriteFence,
+    group_projection, update_with_projection,
+};
+use crate::db::entity::groups;
+use crate::db::entity::library_folders;
 
 /// The library folder row a delete locks.
 ///
@@ -16,10 +28,74 @@ pub struct DeleteFolderRow {
     pub parent_id: Option<Uuid>,
 }
 
+/// The group id of the library folder row.
+fn library_folders_group_id() -> ColumnRef {
+    ColumnRef::from((
+        Alias::new("library_folders"),
+        library_folders::Column::GroupId,
+    ))
+}
+
+/// The folder rows with the derived group key and group path.
+fn folder_select() -> sea_orm::Select<library_folders::Entity> {
+    library_folders::Entity::find()
+        .select_only()
+        .column(library_folders::Column::GroupId)
+        .expr_as(
+            group_projection(groups::Column::GroupKey, library_folders_group_id()),
+            "group_key",
+        )
+        .expr_as(
+            group_projection(groups::Column::FullPath, library_folders_group_id()),
+            "group_path",
+        )
+        .column(library_folders::Column::Visibility)
+        .column(library_folders::Column::Id)
+        .column(library_folders::Column::ParentId)
+        .column(library_folders::Column::Name)
+        .column(library_folders::Column::CreatedAt)
+        .column(library_folders::Column::UpdatedAt)
+}
+
+/// The projection of the folder rows an update returned.
+///
+/// The columns are the projection fields of the plain folder read, in the same
+/// order, and the group key and the group path are derived from the owning
+/// group exactly like the plain read derives them.
+fn folder_update_projection(cte_name: &str) -> SelectStatement {
+    let cte = Alias::new(cte_name);
+    let column = |name: &str| Expr::col(ColumnRef::from((cte.clone(), Alias::new(name))));
+    let owner_group_id = ColumnRef::from((cte.clone(), Alias::new("group_id")));
+    QuerySelectBuilder::select()
+        .expr_as(column("group_id"), "group_id")
+        .expr_as(
+            group_projection(groups::Column::GroupKey, owner_group_id.clone()),
+            "group_key",
+        )
+        .expr_as(
+            group_projection(groups::Column::FullPath, owner_group_id),
+            "group_path",
+        )
+        .expr_as(column("visibility"), "visibility")
+        .expr_as(column("id"), "id")
+        .expr_as(column("parent_id"), "parent_id")
+        .expr_as(column("name"), "name")
+        .expr_as(column("created_at"), "created_at")
+        .expr_as(column("updated_at"), "updated_at")
+        .from(TableRef::from(cte))
+        .to_owned()
+}
+
 impl LibraryStore {
     pub async fn list_folders(&self) -> Result<Vec<LibraryFolderRecord>> {
-        let mut connection = self.db.pool().acquire().await?;
-        self.list_folders_on(&mut connection).await
+        let rows = folder_select()
+            .order_by_asc(library_folders::Column::Name)
+            .order_by_asc(library_folders::Column::Id)
+            .into_model::<FolderRow>()
+            .all(self.db.orm())
+            .await?;
+
+        rows.into_iter().map(folder_from_row).collect()
     }
 
     /// The folder rows on a caller transaction.
@@ -40,13 +116,11 @@ impl LibraryStore {
     }
 
     pub async fn get_folder(&self, folder_id: Uuid) -> Result<Option<LibraryFolderRecord>> {
-        let row = sqlx::query_file_as!(
-            FolderRow,
-            "src/sql/library_store/folders/get_folder.sql",
-            folder_id
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
+        let row = folder_select()
+            .filter(library_folders::Column::Id.eq(folder_id))
+            .into_model::<FolderRow>()
+            .one(self.db.orm())
+            .await?;
 
         row.map(folder_from_row).transpose()
     }
@@ -55,13 +129,13 @@ impl LibraryStore {
         &self,
         project_id: i64,
     ) -> Result<Vec<LibraryFolderRecord>> {
-        let rows = sqlx::query_file_as!(
-            FolderRow,
-            "src/sql/library_store/folders/list_folders_in_project.sql",
-            project_id
-        )
-        .fetch_all(self.db.pool())
-        .await?;
+        let rows = folder_select()
+            .filter(library_folders::Column::GroupId.eq(project_id))
+            .order_by_asc(library_folders::Column::Name)
+            .order_by_asc(library_folders::Column::Id)
+            .into_model::<FolderRow>()
+            .all(self.db.orm())
+            .await?;
 
         rows.into_iter().map(folder_from_row).collect()
     }
@@ -71,14 +145,12 @@ impl LibraryStore {
         project_id: i64,
         folder_id: Uuid,
     ) -> Result<Option<LibraryFolderRecord>> {
-        let row = sqlx::query_file_as!(
-            FolderRow,
-            "src/sql/library_store/folders/get_folder_in_project.sql",
-            project_id,
-            folder_id
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
+        let row = folder_select()
+            .filter(library_folders::Column::GroupId.eq(project_id))
+            .filter(library_folders::Column::Id.eq(folder_id))
+            .into_model::<FolderRow>()
+            .one(self.db.orm())
+            .await?;
 
         row.map(folder_from_row).transpose()
     }
@@ -128,16 +200,8 @@ impl LibraryStore {
         folder_id: Uuid,
         target_folder_id: Option<Uuid>,
     ) -> Result<Option<LibraryFolderRecord>> {
-        let row = sqlx::query_file_as!(
-            FolderRow,
-            "src/sql/library_store/folders/move_folder.sql",
-            folder_id,
-            target_folder_id
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        row.map(folder_from_row).transpose()
+        self.move_folder_native(None, folder_id, target_folder_id)
+            .await
     }
 
     pub async fn move_folder_in_project(
@@ -146,17 +210,8 @@ impl LibraryStore {
         folder_id: Uuid,
         target_folder_id: Option<Uuid>,
     ) -> Result<Option<LibraryFolderRecord>> {
-        let row = sqlx::query_file_as!(
-            FolderRow,
-            "src/sql/library_store/folders/move_folder_in_project.sql",
-            project_id,
-            folder_id,
-            target_folder_id
-        )
-        .fetch_optional(self.db.pool())
-        .await?;
-
-        row.map(folder_from_row).transpose()
+        self.move_folder_native(Some(project_id), folder_id, target_folder_id)
+            .await
     }
 
     /// The folder move on a caller transaction.
@@ -197,6 +252,49 @@ impl LibraryStore {
         .await?;
 
         row.map(folder_from_row).transpose()
+    }
+
+    /// The native folder move.
+    ///
+    /// The move and the projection of the moved row are one statement, so the
+    /// returned row is the row of the move statement's own snapshot. A move
+    /// that matched no row returns no row at all.
+    async fn move_folder_native(
+        &self,
+        project_id: Option<i64>,
+        folder_id: Uuid,
+        target_folder_id: Option<Uuid>,
+    ) -> Result<Option<LibraryFolderRecord>> {
+        let mut update = library_folders::Entity::update_many()
+            .col_expr(
+                library_folders::Column::ParentId,
+                Expr::val(target_folder_id),
+            )
+            .col_expr(
+                library_folders::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .filter(library_folders::Column::Id.eq(folder_id));
+        if let Some(project_id) = project_id {
+            update = update.filter(library_folders::Column::GroupId.eq(project_id));
+        }
+        let mut statement = update.into_query();
+        statement.returning(ReturningClause::All);
+        let rows = self
+            .db
+            .orm()
+            .query_all(&update_with_projection(
+                statement,
+                "updated_library_folders",
+                folder_update_projection("updated_library_folders"),
+            ))
+            .await?;
+        let Some(row) = rows.into_iter().next() else {
+            return Ok(None);
+        };
+        Ok(Some(folder_from_row(FolderRow::from_query_result(
+            &row, "",
+        )?)?))
     }
 
     /// Every file under a folder subtree, selected on the caller connection.
@@ -265,13 +363,11 @@ impl LibraryStore {
     }
 
     pub async fn delete_folder_record(&self, folder_id: Uuid) -> Result<bool> {
-        let result = sqlx::query_file!(
-            "src/sql/library_store/folders/delete_folder_record.sql",
-            folder_id
-        )
-        .execute(self.db.pool())
-        .await?;
-        Ok(result.rows_affected() > 0)
+        let result = library_folders::Entity::delete_many()
+            .filter(library_folders::Column::Id.eq(folder_id))
+            .exec(self.db.orm())
+            .await?;
+        Ok(result.rows_affected > 0)
     }
 
     /// Read and lock one folder row for a delete.
@@ -392,5 +488,75 @@ impl LibraryStore {
         )
         .fetch_all(connection)
         .await?)
+    }
+}
+
+#[cfg(test)]
+mod native_query_tests {
+    use super::*;
+    use sea_orm::DbBackend;
+    use sea_orm::QueryTrait;
+    use sea_orm::StatementBuilder;
+
+    #[test]
+    fn native_reads_project_the_derived_group_columns() {
+        let sql = folder_select()
+            .filter(library_folders::Column::Id.eq(Uuid::nil()))
+            .build(DbBackend::Postgres)
+            .to_string();
+
+        assert!(
+            sql.contains(
+                "(SELECT \"groups\".\"group_key\" FROM \"context69\".\"groups\" WHERE \"groups\".\"id\" = \"library_folders\".\"group_id\") AS \"group_key\""
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "(SELECT \"groups\".\"full_path\" FROM \"context69\".\"groups\" WHERE \"groups\".\"id\" = \"library_folders\".\"group_id\") AS \"group_path\""
+            ),
+            "{sql}"
+        );
+        assert!(
+            sql.contains("FROM \"context69\".\"library_folders\""),
+            "{sql}"
+        );
+    }
+
+    #[test]
+    fn native_move_projects_the_moved_row_in_one_statement() {
+        let mut statement = library_folders::Entity::update_many()
+            .col_expr(
+                library_folders::Column::ParentId,
+                Expr::val(Option::<Uuid>::None),
+            )
+            .col_expr(
+                library_folders::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .filter(library_folders::Column::Id.eq(Uuid::nil()))
+            .into_query();
+        statement.returning(ReturningClause::All);
+        let statement = update_with_projection(
+            statement,
+            "updated_library_folders",
+            folder_update_projection("updated_library_folders"),
+        );
+        let sql = StatementBuilder::build(&statement, &DbBackend::Postgres).sql;
+
+        assert!(
+            sql.contains(
+                "WITH \"updated_library_folders\" AS (UPDATE \"context69\".\"library_folders\" SET"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("RETURNING *)"), "{sql}");
+        assert!(
+            sql.contains(
+                "(SELECT \"groups\".\"full_path\" FROM \"context69\".\"groups\" WHERE \"groups\".\"id\" = \"updated_library_folders\".\"group_id\") AS \"group_path\""
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("FROM \"updated_library_folders\""), "{sql}");
     }
 }

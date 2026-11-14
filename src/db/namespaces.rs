@@ -5,9 +5,17 @@ use context69_namespace::{
     NamespaceMemberRecord, Page, PageRequest, PersonalGroupRecord, UpdateGroupInput,
     UpsertMembershipInput,
 };
+use sea_orm::sea_query::{
+    Alias, Asterisk, Condition, Expr, ExprTrait, Func, InsertStatement, JoinType, OnConflict,
+    Order, Query, SelectStatement, extension::postgres::PgExpr,
+};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, TransactionTrait,
+};
 use sqlx::FromRow;
 
 use super::Database;
+use super::entity::{group_memberships, groups, users};
 use crate::{
     contracts::{GroupKind, MembershipRole, Pagination, Visibility},
     domain::UserRecord,
@@ -43,11 +51,104 @@ struct PrivateGroupIdRow {
     group_id: i64,
 }
 
-#[derive(Debug, Clone, FromRow)]
-struct PersonalGroupRow {
-    group_id: i64,
-    group_path: String,
-    role: String,
+fn member_query(group_path: &str, query: &str) -> SelectStatement {
+    let gm = Alias::new("gm");
+    let u = Alias::new("u");
+    let g = Alias::new("g");
+    let mut select = Query::select();
+    select
+        .from_as(
+            (Alias::new("context69"), group_memberships::Entity),
+            gm.clone(),
+        )
+        .join_as(
+            JoinType::InnerJoin,
+            (Alias::new("context69"), users::Entity),
+            u.clone(),
+            Expr::col((u.clone(), users::Column::Id))
+                .equals((gm.clone(), group_memberships::Column::UserId)),
+        )
+        .join_as(
+            JoinType::InnerJoin,
+            (Alias::new("context69"), groups::Entity),
+            g.clone(),
+            Expr::col((g.clone(), groups::Column::Id))
+                .equals((gm, group_memberships::Column::GroupId)),
+        )
+        .and_where(Expr::col((g, groups::Column::FullPath)).eq(group_path));
+    let trimmed = query.trim_matches(' ');
+    if !trimmed.is_empty() {
+        let pattern = format!("%{trimmed}%");
+        select.cond_where(
+            Condition::any()
+                .add(Expr::col((u.clone(), users::Column::LoginName)).ilike(pattern.clone()))
+                .add(Expr::col((u, users::Column::DisplayName)).ilike(pattern)),
+        );
+    }
+    select.to_owned()
+}
+
+fn group_insert_query(
+    parent_id: Option<i64>,
+    group_key: &str,
+    name: &str,
+    visibility: Visibility,
+    kind: GroupKind,
+    user_id: i64,
+) -> Result<InsertStatement> {
+    let path = if let Some(parent_id) = parent_id {
+        Expr::from(
+            Query::select()
+                .expr(
+                    Expr::col(groups::Column::FullPath)
+                        .concatenate(Expr::value(format!("/{group_key}"))),
+                )
+                .from((Alias::new("context69"), groups::Entity))
+                .and_where(Expr::col(groups::Column::Id).eq(parent_id))
+                .to_owned(),
+        )
+    } else {
+        Expr::value(group_key.to_owned())
+    };
+    let select = Query::select()
+        .expr(Expr::value(parent_id))
+        .expr(Expr::value(group_key.to_owned()))
+        .expr(path)
+        .expr(Expr::value(name.to_owned()))
+        .expr(Expr::value(visibility.as_str().to_owned()))
+        .expr(Expr::value(kind.as_str().to_owned()))
+        .expr(Expr::value(user_id))
+        .expr(Expr::value(user_id))
+        .to_owned();
+    Ok(Query::insert()
+        .into_table((Alias::new("context69"), groups::Entity))
+        .columns([
+            groups::Column::ParentGroupId,
+            groups::Column::GroupKey,
+            groups::Column::FullPath,
+            groups::Column::Name,
+            groups::Column::Visibility,
+            groups::Column::Kind,
+            groups::Column::OwnerUserId,
+            groups::Column::CreatedByUserId,
+        ])
+        .select_from(select)?
+        .returning_col(groups::Column::Id)
+        .to_owned())
+}
+
+fn namespace_database_error(error: sea_orm::DbErr) -> anyhow::Error {
+    use sea_orm::{DbErr, RuntimeErr};
+    let (error, wrap): (_, fn(RuntimeErr) -> DbErr) = match error {
+        DbErr::Exec(RuntimeErr::SqlxError(error)) => (error, DbErr::Exec),
+        DbErr::Query(RuntimeErr::SqlxError(error)) => (error, DbErr::Query),
+        DbErr::Conn(RuntimeErr::SqlxError(error)) => (error, DbErr::Conn),
+        error => return error.into(),
+    };
+    match std::sync::Arc::try_unwrap(error) {
+        Ok(error) => error.into(),
+        Err(error) => wrap(RuntimeErr::SqlxError(error)).into(),
+    }
 }
 
 impl Database {
@@ -60,23 +161,44 @@ impl Database {
         }
 
         let group_key = format!("personal-{}", user.login_name);
-        let mut tx = self.pool().begin().await?;
-        let group_id = sqlx::query_file_scalar!(
-            "src/sql/db/namespaces/create_personal_group.sql",
-            &group_key,
-            &user.display_name,
-            user.id
+        let tx = self.orm.begin().await.map_err(namespace_database_error)?;
+        let group = groups::Entity::insert(groups::ActiveModel {
+            parent_group_id: Set(None),
+            group_key: Set(group_key.clone()),
+            full_path: Set(group_key.clone()),
+            name: Set(user.display_name.clone()),
+            visibility: Set("private".to_owned()),
+            kind: Set("personal".to_owned()),
+            owner_user_id: Set(Some(user.id)),
+            created_by_user_id: Set(Some(user.id)),
+            ..Default::default()
+        })
+        .exec_with_returning(&tx)
+        .await
+        .map_err(namespace_database_error)?;
+        let group_id = group.id;
+        group_memberships::Entity::insert(group_memberships::ActiveModel {
+            group_id: Set(group_id),
+            user_id: Set(user.id),
+            role: Set("owner".to_owned()),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::columns([
+                group_memberships::Column::GroupId,
+                group_memberships::Column::UserId,
+            ])
+            .update_column(group_memberships::Column::Role)
+            .value(
+                group_memberships::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .to_owned(),
         )
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query_file!(
-            "src/sql/db/namespaces/upsert_personal_group_owner_membership.sql",
-            group_id,
-            user.id
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
+        .exec(&tx)
+        .await
+        .map_err(namespace_database_error)?;
+        tx.commit().await.map_err(namespace_database_error)?;
 
         Ok(PersonalGroupRecord {
             group_id,
@@ -89,18 +211,47 @@ impl Database {
         &self,
         user_id: i64,
     ) -> Result<Option<PersonalGroupRecord>> {
-        let row = sqlx::query_file_as!(
-            PersonalGroupRow,
-            "src/sql/db/namespaces/get_personal_group_for_user.sql",
-            user_id
-        )
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(row.map(|row| PersonalGroupRecord {
-            group_id: row.group_id,
-            group_path: row.group_path,
-            role: row.role.parse().unwrap_or(MembershipRole::Owner),
-        }))
+        let g = Alias::new("g");
+        let gm = Alias::new("gm");
+        let statement = Query::select()
+            .expr_as(
+                Expr::col((g.clone(), groups::Column::Id)),
+                Alias::new("group_id"),
+            )
+            .expr_as(
+                Expr::col((g.clone(), groups::Column::FullPath)),
+                Alias::new("group_path"),
+            )
+            .column((gm.clone(), group_memberships::Column::Role))
+            .from_as((Alias::new("context69"), groups::Entity), g.clone())
+            .join_as(
+                JoinType::InnerJoin,
+                (Alias::new("context69"), group_memberships::Entity),
+                gm.clone(),
+                Expr::col((gm.clone(), group_memberships::Column::GroupId))
+                    .equals((g.clone(), groups::Column::Id))
+                    .and(Expr::col((gm, group_memberships::Column::UserId)).eq(user_id)),
+            )
+            .and_where(Expr::col((g.clone(), groups::Column::Kind)).eq("personal"))
+            .and_where(Expr::col((g.clone(), groups::Column::OwnerUserId)).eq(user_id))
+            .order_by((g, groups::Column::Id), Order::Asc)
+            .limit(1)
+            .to_owned();
+        self.orm
+            .query_one(&statement)
+            .await
+            .map_err(namespace_database_error)?
+            .map(|row| {
+                Ok(PersonalGroupRecord {
+                    group_id: row.try_get("", "group_id")?,
+                    group_path: row.try_get("", "group_path")?,
+                    role: row
+                        .try_get::<String>("", "role")?
+                        .parse()
+                        .unwrap_or(MembershipRole::Owner),
+                })
+            })
+            .transpose()
     }
 
     pub async fn list_groups_for_user(
@@ -176,15 +327,59 @@ impl Database {
     }
 
     pub async fn get_group_by_id(&self, group_id: i64) -> Result<Option<GroupRecord>> {
-        sqlx::query_file_as!(
-            GroupRow,
-            "src/sql/db/namespaces/get_group_by_id.sql",
-            group_id
-        )
-        .fetch_optional(self.pool())
-        .await?
-        .map(group_from_row)
-        .transpose()
+        let g = Alias::new("g");
+        let parent = Alias::new("parent");
+        let statement = Query::select()
+            .columns([
+                (g.clone(), groups::Column::Id),
+                (g.clone(), groups::Column::ParentGroupId),
+                (g.clone(), groups::Column::GroupKey),
+                (g.clone(), groups::Column::Name),
+                (g.clone(), groups::Column::Visibility),
+                (g.clone(), groups::Column::Kind),
+                (g.clone(), groups::Column::OwnerUserId),
+                (g.clone(), groups::Column::CreatedAt),
+                (g.clone(), groups::Column::UpdatedAt),
+            ])
+            .expr_as(
+                Expr::col((g.clone(), groups::Column::FullPath)),
+                Alias::new("group_path"),
+            )
+            .expr_as(
+                Expr::col((parent.clone(), groups::Column::FullPath)),
+                Alias::new("parent_group_path"),
+            )
+            .from_as((Alias::new("context69"), groups::Entity), g.clone())
+            .join_as(
+                JoinType::LeftJoin,
+                (Alias::new("context69"), groups::Entity),
+                parent.clone(),
+                Expr::col((parent, groups::Column::Id))
+                    .equals((g.clone(), groups::Column::ParentGroupId)),
+            )
+            .and_where(Expr::col((g, groups::Column::Id)).eq(group_id))
+            .to_owned();
+        self.orm
+            .query_one(&statement)
+            .await
+            .map_err(namespace_database_error)?
+            .map(|row| {
+                group_from_row(GroupRow {
+                    id: row.try_get("", "id")?,
+                    parent_group_id: row.try_get("", "parent_group_id")?,
+                    group_path: row.try_get("", "group_path")?,
+                    parent_group_path: row.try_get("", "parent_group_path")?,
+                    group_key: row.try_get("", "group_key")?,
+                    name: row.try_get("", "name")?,
+                    visibility: row.try_get("", "visibility")?,
+                    kind: row.try_get("", "kind")?,
+                    owner_user_id: row.try_get("", "owner_user_id")?,
+                    created_at: row.try_get("", "created_at")?,
+                    updated_at: row.try_get("", "updated_at")?,
+                    current_role_rank: None,
+                })
+            })
+            .transpose()
     }
 
     pub async fn create_group(
@@ -225,26 +420,32 @@ impl Database {
             None
         };
 
-        let mut tx = self.pool().begin().await?;
-        let group_id = sqlx::query_file_scalar!(
-            "src/sql/db/namespaces/create_group.sql",
-            parent_group.as_ref().map(|group| group.id),
+        let tx = self.orm.begin().await.map_err(namespace_database_error)?;
+        let parent_id = parent_group.as_ref().map(|group| group.id);
+        let statement = group_insert_query(
+            parent_id,
             group_key,
             name,
-            request.visibility.as_str(),
-            kind.as_str(),
-            actor.user_id
-        )
-        .fetch_one(&mut *tx)
-        .await?;
-        sqlx::query_file!(
-            "src/sql/db/namespaces/insert_group_owner_membership.sql",
-            group_id,
-            actor.user_id
-        )
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
+            request.visibility,
+            kind,
+            actor.user_id,
+        )?;
+        let group_id = tx
+            .query_one(&statement)
+            .await
+            .map_err(namespace_database_error)?
+            .ok_or(sqlx::Error::RowNotFound)?
+            .try_get::<i64>("", "id")?;
+        group_memberships::Entity::insert(group_memberships::ActiveModel {
+            group_id: Set(group_id),
+            user_id: Set(actor.user_id),
+            role: Set("owner".to_owned()),
+            ..Default::default()
+        })
+        .exec(&tx)
+        .await
+        .map_err(namespace_database_error)?;
+        tx.commit().await.map_err(namespace_database_error)?;
 
         let group_path = if let Some(parent_group) = parent_group {
             format!("{}/{}", parent_group.group_path, group_key)
@@ -300,14 +501,17 @@ impl Database {
             }
         }
 
-        sqlx::query_file!(
-            "src/sql/db/namespaces/update_group.sql",
-            group_path,
-            next_name,
-            next_visibility.as_str()
-        )
-        .execute(self.pool())
-        .await?;
+        groups::Entity::update_many()
+            .col_expr(groups::Column::Name, Expr::value(next_name.to_owned()))
+            .col_expr(
+                groups::Column::Visibility,
+                Expr::value(next_visibility.as_str().to_owned()),
+            )
+            .col_expr(groups::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(groups::Column::FullPath.eq(group_path))
+            .exec(&self.orm)
+            .await
+            .map_err(namespace_database_error)?;
 
         self.get_group_for_user(actor.user_id, group_path)
             .await?
@@ -453,25 +657,76 @@ impl Database {
         if group.visibility == Visibility::Private && group.current_role.is_none() {
             return Err(anyhow!("unknown group"));
         }
-        let total = sqlx::query_file_scalar!(
-            "src/sql/db/namespaces/count_group_members.sql",
-            group_path,
-            &request.query
-        )
-        .fetch_one(self.pool())
-        .await?;
-        let rows = sqlx::query_file_as!(
-            MemberRow,
-            "src/sql/db/namespaces/list_group_members.sql",
-            group_path,
-            &request.query,
-            i64::from(request.page_size),
-            page_offset(request)?,
-            request.sort.map(|sort| sort.column),
-            request.sort.map(|sort| sort.direction.as_str())
-        )
-        .fetch_all(self.pool())
-        .await?;
+        let mut count = member_query(group_path, &request.query);
+        count.expr_as(Func::count(Expr::col(Asterisk)), Alias::new("count"));
+        let total: i64 = self
+            .orm
+            .query_one(&count)
+            .await
+            .map_err(namespace_database_error)?
+            .ok_or(sqlx::Error::RowNotFound)?
+            .try_get("", "count")?;
+        let mut select = member_query(group_path, &request.query);
+        let u = Alias::new("u");
+        let gm = Alias::new("gm");
+        select
+            .expr_as(
+                Expr::col((u.clone(), users::Column::Id)),
+                Alias::new("user_id"),
+            )
+            .columns([
+                (u.clone(), users::Column::LoginName),
+                (u.clone(), users::Column::DisplayName),
+            ])
+            .column((gm.clone(), group_memberships::Column::Role));
+        if let Some(sort) = request.sort {
+            let order = match sort.direction.as_str() {
+                "asc" => Some(Order::Asc),
+                "desc" => Some(Order::Desc),
+                _ => None,
+            };
+            if let Some(order) = order {
+                match sort.column {
+                    "login_name" => {
+                        select.order_by((u.clone(), users::Column::LoginName), order);
+                    }
+                    "display_name" => {
+                        select.order_by((u.clone(), users::Column::DisplayName), order);
+                    }
+                    "role" => {
+                        let role = Expr::col((gm, group_memberships::Column::Role));
+                        select.order_by_expr(
+                            Expr::case(role.clone().eq("owner"), 3)
+                                .case(role.eq("maintainer"), 2)
+                                .finally(1)
+                                .into(),
+                            order,
+                        );
+                    }
+                    _ => {}
+                }
+            }
+        }
+        select
+            .order_by((u.clone(), users::Column::LoginName), Order::Asc)
+            .order_by((u, users::Column::Id), Order::Asc)
+            .limit(u64::from(request.page_size))
+            .offset(u64::try_from(page_offset(request)?)?);
+        let rows = self
+            .orm
+            .query_all(&select)
+            .await
+            .map_err(namespace_database_error)?
+            .into_iter()
+            .map(|row| {
+                Ok(MemberRow {
+                    user_id: row.try_get("", "user_id")?,
+                    login_name: row.try_get("", "login_name")?,
+                    display_name: row.try_get("", "display_name")?,
+                    role: row.try_get("", "role")?,
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
         page_result(
             rows.into_iter()
                 .map(member_from_row)
@@ -499,14 +754,27 @@ impl Database {
         if user.disabled_at.is_some() {
             return Err(anyhow!("user account is disabled"));
         }
-        sqlx::query_file!(
-            "src/sql/db/namespaces/upsert_group_member.sql",
-            group.id,
-            user.id,
-            request.role.as_str()
+        group_memberships::Entity::insert(group_memberships::ActiveModel {
+            group_id: Set(group.id),
+            user_id: Set(user.id),
+            role: Set(request.role.as_str().to_owned()),
+            ..Default::default()
+        })
+        .on_conflict(
+            OnConflict::columns([
+                group_memberships::Column::GroupId,
+                group_memberships::Column::UserId,
+            ])
+            .update_column(group_memberships::Column::Role)
+            .value(
+                group_memberships::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .to_owned(),
         )
-        .execute(self.pool())
-        .await?;
+        .exec(&self.orm)
+        .await
+        .map_err(namespace_database_error)?;
         Ok(())
     }
 
@@ -525,13 +793,10 @@ impl Database {
             .get_user_by_login_name(login_name)
             .await?
             .context("unknown user")?;
-        sqlx::query_file!(
-            "src/sql/db/namespaces/delete_group_member.sql",
-            group.id,
-            user.id
-        )
-        .execute(self.pool())
-        .await?;
+        group_memberships::Entity::delete_by_id((group.id, user.id))
+            .exec(&self.orm)
+            .await
+            .map_err(namespace_database_error)?;
         Ok(())
     }
 
@@ -613,13 +878,12 @@ impl Database {
         let Some(group_path) = group_path.map(str::trim).filter(|value| !value.is_empty()) else {
             return Ok(None);
         };
-        Ok(sqlx::query_file!(
-            "src/sql/db/namespaces/resolve_group_id_by_path.sql",
-            group_path
-        )
-        .fetch_optional(self.pool())
-        .await?
-        .map(|row| row.id))
+        Ok(groups::Entity::find()
+            .filter(groups::Column::FullPath.eq(group_path))
+            .one(&self.orm)
+            .await
+            .map_err(namespace_database_error)?
+            .map(|row| row.id))
     }
 }
 
@@ -679,5 +943,44 @@ fn role_from_rank(rank: Option<i16>) -> Option<MembershipRole> {
         Some(2) => Some(MembershipRole::Maintainer),
         Some(1) => Some(MembershipRole::Viewer),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{GroupKind, Visibility, group_insert_query, member_query};
+    use sea_orm::sea_query::PostgresQueryBuilder;
+
+    #[test]
+    fn child_group_path_is_resolved_in_insert_statement() {
+        let sql = group_insert_query(
+            Some(7),
+            "child",
+            "Child",
+            Visibility::Private,
+            GroupKind::Shared,
+            4,
+        )
+        .unwrap()
+        .to_string(PostgresQueryBuilder);
+        assert!(
+            sql.contains("INSERT INTO \"context69\".\"groups\""),
+            "{sql}"
+        );
+        assert!(
+            sql.contains(
+                "SELECT \"full_path\" || '/child' FROM \"context69\".\"groups\" WHERE \"id\" = 7"
+            ),
+            "{sql}"
+        );
+        assert!(sql.contains("RETURNING \"id\""), "{sql}");
+    }
+
+    #[test]
+    fn member_query_keeps_group_scope_and_search() {
+        let sql = member_query("team", " a ").to_string(PostgresQueryBuilder);
+        assert!(sql.contains("\"g\".\"full_path\" = 'team'"), "{sql}");
+        assert!(sql.contains("\"u\".\"login_name\" ILIKE '%a%'"), "{sql}");
+        assert!(sql.contains("\"u\".\"display_name\" ILIKE '%a%'"), "{sql}");
     }
 }

@@ -1,20 +1,9 @@
-use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use sqlx::FromRow;
 use uuid::Uuid;
 
-use crate::{
-    contracts::{SearchHit, SearchMode},
-    db::StoredSearchSettings,
-    normalize::is_meaningful_text,
-};
-
-#[derive(Debug, Clone, FromRow)]
-pub(super) struct CheckpointRow {
-    pub(super) cursor_updated_at: Option<DateTime<Utc>>,
-    pub(super) cursor_external_id: Option<String>,
-}
+use crate::{contracts::SearchHit, normalize::is_meaningful_text};
 
 #[derive(Debug, Clone, FromRow)]
 pub(super) struct DocumentRow {
@@ -82,12 +71,6 @@ pub(super) struct TranslationStatusBatchRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(super) struct DocumentKeyLookupRow {
-    pub(super) ordinal: i64,
-    pub(super) document_id: Option<i64>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub(super) struct SearchHitRow {
     pub(super) chunk_id: Uuid,
     pub(super) document_id: i64,
@@ -129,42 +112,6 @@ pub(super) struct ReindexChunkRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(super) struct DoclingSettingsRow {
-    pub(super) base_url: String,
-    pub(super) timeout_secs: i64,
-    pub(super) poll_interval_secs: i64,
-    pub(super) task_timeout_secs: i64,
-    pub(super) max_inflight: i64,
-    pub(super) pdf_backend: Option<String>,
-    pub(super) images_scale: Option<f64>,
-    pub(super) image_export_mode: Option<String>,
-    pub(super) do_ocr: bool,
-    pub(super) force_ocr: bool,
-    pub(super) ocr_engine: Option<String>,
-    pub(super) ocr_lang: Vec<String>,
-    pub(super) do_code_enrichment: bool,
-    pub(super) do_formula_enrichment: bool,
-    pub(super) do_picture_description: bool,
-    pub(super) openai_base_url: Option<String>,
-    pub(super) vlm_pipeline_model: Option<String>,
-    pub(super) picture_description_model: Option<String>,
-    pub(super) code_formula_model: Option<String>,
-    pub(super) picture_description_preset: Option<String>,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub(super) struct SearchSettingsRow {
-    pub(super) mode: String,
-    pub(super) rerank_enabled: bool,
-    pub(super) rerank_base_url: String,
-    pub(super) rerank_model: String,
-    pub(super) candidate_limit: i64,
-    pub(super) timeout_secs: i64,
-    pub(super) vector_weight: f32,
-    pub(super) keyword_weight: f32,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub(super) struct KeywordSearchHitRow {
     pub(super) chunk_id: Uuid,
     pub(super) document_id: i64,
@@ -187,31 +134,6 @@ pub(super) struct KeywordSearchHitRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(super) struct RuntimeQdrantSettingsRow {
-    pub(super) url: String,
-    pub(super) collection_name: String,
-    pub(super) recreate_on_dimension_mismatch: bool,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub(super) struct RuntimeEmbeddingSettingsRow {
-    pub(super) base_url: String,
-    pub(super) model: String,
-    pub(super) query_model: Option<String>,
-    pub(super) dimensions: i64,
-    pub(super) timeout_secs: i64,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub(super) struct RuntimeSchedulerSettingsRow {
-    pub(super) interval_secs: i64,
-    pub(super) run_on_start: bool,
-    pub(super) max_concurrency: i64,
-    pub(super) job_id: String,
-    pub(super) valkey_url: Option<String>,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub(super) struct RuntimeChunkingSettingsRow {
     pub(super) max_chars: i64,
     pub(super) overlap_chars: i64,
@@ -220,19 +142,6 @@ pub(super) struct RuntimeChunkingSettingsRow {
     pub(super) tokenizer_sha256: Option<String>,
     pub(super) max_tokens: i64,
     pub(super) overlap_tokens: i64,
-}
-
-#[derive(Debug, Clone, FromRow)]
-pub(super) struct RuntimeFileLibrarySettingsRow {
-    pub(super) storage_root: String,
-    pub(super) max_upload_size_mb: i64,
-    pub(super) trusted_proxy_enabled: bool,
-    pub(super) s3_endpoint: Option<String>,
-    pub(super) s3_region: Option<String>,
-    pub(super) s3_bucket: Option<String>,
-    pub(super) s3_prefix: Option<String>,
-    pub(super) s3_path_style: bool,
-    pub(super) s3_access_key: Option<String>,
 }
 
 /// One stored source connection.
@@ -249,42 +158,9 @@ pub(super) struct SourceConnectionRow {
 }
 
 #[derive(Debug, Clone, FromRow)]
-pub(super) struct RerankItemScoreRow {
-    pub(super) rerank_model: String,
-    pub(super) query_hash: String,
-    pub(super) query_text_trimmed: String,
-    pub(super) chunk_id: Uuid,
-    pub(super) score: f32,
-}
-
-#[derive(Debug, Clone, FromRow)]
 pub(super) struct ExistingDocumentRow {
     pub(super) id: i64,
     pub(super) record_hash: String,
-}
-
-pub(super) fn search_settings_from_row(row: SearchSettingsRow) -> Result<StoredSearchSettings> {
-    let mode = match row.mode.as_str() {
-        "vector" => SearchMode::Vector,
-        "hybrid" => SearchMode::Hybrid,
-        other => return Err(anyhow::anyhow!("unsupported search mode: {other}")),
-    };
-
-    Ok(StoredSearchSettings {
-        mode,
-        rerank_enabled: row.rerank_enabled,
-        rerank_base_url: row.rerank_base_url,
-        rerank_model: row.rerank_model,
-        candidate_limit: usize::try_from(row.candidate_limit)
-            .context("search candidate_limit must be non-negative")?,
-        timeout_secs: u64::try_from(row.timeout_secs)
-            .context("search timeout_secs must be non-negative")?,
-        // The rerank key is not stored with the settings; the store owns it and
-        // the service resolves it when a caller needs the value.
-        api_key: None,
-        vector_weight: row.vector_weight,
-        keyword_weight: row.keyword_weight,
-    })
 }
 
 pub(super) fn is_library_file(metadata_json: &Value) -> bool {

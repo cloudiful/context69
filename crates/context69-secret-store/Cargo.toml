@@ -8,5 +8,6 @@ publish = false
 [dependencies]
 anyhow.workspace = true
 context69-secret-crypto.workspace = true
+sea-orm.workspace = true
 sqlx = { workspace = true, features = ["macros", "postgres", "runtime-tokio"] }
 tracing.workspace = true

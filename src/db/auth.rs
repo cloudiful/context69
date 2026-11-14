@@ -1,8 +1,14 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::{Expr, ExprTrait, Func};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, Condition, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use sqlx::FromRow;
 
 use super::Database;
+use super::entity::users;
 use crate::domain::UserRecord;
 
 #[derive(Debug, Clone, FromRow)]
@@ -17,23 +23,36 @@ struct UserRow {
     updated_at: DateTime<Utc>,
 }
 
+fn auth_database_error(error: sea_orm::DbErr) -> anyhow::Error {
+    use sea_orm::{DbErr, RuntimeErr};
+    let (error, wrap): (_, fn(RuntimeErr) -> DbErr) = match error {
+        DbErr::Exec(RuntimeErr::SqlxError(error)) => (error, DbErr::Exec),
+        DbErr::Query(RuntimeErr::SqlxError(error)) => (error, DbErr::Query),
+        DbErr::Conn(RuntimeErr::SqlxError(error)) => (error, DbErr::Conn),
+        error => return error.into(),
+    };
+    match std::sync::Arc::try_unwrap(error) {
+        Ok(error) => error.into(),
+        Err(error) => wrap(RuntimeErr::SqlxError(error)).into(),
+    }
+}
+
 impl Database {
     pub async fn get_user_by_login_name(&self, login_name: &str) -> Result<Option<UserRecord>> {
-        let row = sqlx::query_file_as!(
-            UserRow,
-            "src/sql/db/auth/get_user_by_login_name.sql",
-            login_name
-        )
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(row.map(user_from_row))
+        let row = users::Entity::find()
+            .filter(users::Column::LoginName.eq(login_name))
+            .one(&self.orm)
+            .await
+            .map_err(auth_database_error)?;
+        Ok(row.map(user_from_model))
     }
 
     pub async fn get_user_by_id(&self, user_id: i64) -> Result<Option<UserRecord>> {
-        let row = sqlx::query_file_as!(UserRow, "src/sql/db/auth/get_user_by_id.sql", user_id)
-            .fetch_optional(self.pool())
-            .await?;
-        Ok(row.map(user_from_row))
+        let row = users::Entity::find_by_id(user_id)
+            .one(&self.orm)
+            .await
+            .map_err(auth_database_error)?;
+        Ok(row.map(user_from_model))
     }
 
     pub async fn create_user(
@@ -43,25 +62,36 @@ impl Database {
         password_hash: &str,
         is_admin: bool,
     ) -> Result<UserRecord> {
-        let row = sqlx::query_file_as!(
-            UserRow,
-            "src/sql/db/auth/create_user.sql",
-            login_name,
-            display_name,
-            password_hash,
-            is_admin
-        )
-        .fetch_one(self.pool())
-        .await?;
-        Ok(user_from_row(row))
+        let row = users::Entity::insert(users::ActiveModel {
+            login_name: Set(login_name.to_owned()),
+            display_name: Set(display_name.to_owned()),
+            password_hash: Set(password_hash.to_owned()),
+            is_admin: Set(is_admin),
+            ..Default::default()
+        })
+        .exec_with_returning(&self.orm)
+        .await
+        .map_err(auth_database_error)?;
+        Ok(user_from_model(row))
     }
 
     pub async fn count_users(&self, query: &str) -> Result<i64> {
-        Ok(
-            sqlx::query_file_scalar!("src/sql/db/auth/count_users.sql", query)
-                .fetch_one(self.pool())
-                .await?,
-        )
+        let trimmed = query.trim_matches(' ');
+        let mut selection = users::Entity::find();
+        if !trimmed.is_empty() {
+            let pattern = format!("%{trimmed}%");
+            selection = selection.filter(
+                Condition::any()
+                    .add(users::Column::LoginName.ilike(pattern.clone()))
+                    .add(users::Column::DisplayName.ilike(pattern)),
+            );
+        }
+        Ok(i64::try_from(
+            selection
+                .count(&self.orm)
+                .await
+                .map_err(auth_database_error)?,
+        )?)
     }
 
     pub async fn list_users(
@@ -72,18 +102,52 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<UserRecord>> {
-        let rows = sqlx::query_file_as!(
-            UserRow,
-            "src/sql/db/auth/list_users.sql",
-            query,
-            sort_by,
-            sort_direction,
-            limit,
-            offset
-        )
-        .fetch_all(self.pool())
-        .await?;
-        Ok(rows.into_iter().map(user_from_row).collect())
+        let (Ok(limit), Ok(offset)) = (u64::try_from(limit), u64::try_from(offset)) else {
+            let rows = sqlx::query_file_as!(
+                UserRow,
+                "src/sql/db/auth/list_users.sql",
+                query,
+                sort_by,
+                sort_direction,
+                limit,
+                offset
+            )
+            .fetch_all(self.pool())
+            .await?;
+            return Ok(rows.into_iter().map(user_from_row).collect());
+        };
+        let mut selection = users::Entity::find();
+        let trimmed = query.trim_matches(' ');
+        if !trimmed.is_empty() {
+            let pattern = format!("%{trimmed}%");
+            selection = selection.filter(
+                Condition::any()
+                    .add(users::Column::LoginName.ilike(pattern.clone()))
+                    .add(users::Column::DisplayName.ilike(pattern)),
+            );
+        }
+        let column = match sort_by {
+            Some("login_name") => Some(users::Column::LoginName),
+            Some("display_name") => Some(users::Column::DisplayName),
+            Some("created_at") => Some(users::Column::CreatedAt),
+            _ => None,
+        };
+        if let Some(column) = column {
+            selection = match sort_direction {
+                Some("asc") => selection.order_by_asc(column),
+                Some("desc") => selection.order_by_desc(column),
+                _ => selection,
+            };
+        }
+        let rows = selection
+            .order_by_asc(users::Column::LoginName)
+            .order_by_asc(users::Column::Id)
+            .limit(limit)
+            .offset(offset)
+            .all(&self.orm)
+            .await
+            .map_err(auth_database_error)?;
+        Ok(rows.into_iter().map(user_from_model).collect())
     }
 
     pub async fn update_user(
@@ -139,28 +203,51 @@ impl Database {
         login_name: &str,
         password_hash: &str,
     ) -> Result<Option<UserRecord>> {
-        let row = sqlx::query_file_as!(
-            UserRow,
-            "src/sql/db/auth/update_user_password_hash.sql",
-            login_name,
-            password_hash
-        )
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(row.map(user_from_row))
+        let rows = users::Entity::update_many()
+            .col_expr(
+                users::Column::PasswordHash,
+                Expr::value(password_hash.to_owned()),
+            )
+            .col_expr(users::Column::UpdatedAt, Expr::current_timestamp())
+            .filter(users::Column::LoginName.eq(login_name))
+            .exec_with_returning(&self.orm)
+            .await
+            .map_err(auth_database_error)?;
+        Ok(rows.into_iter().next().map(user_from_model))
     }
 
     pub async fn search_user_directory(&self, query: &str, limit: i64) -> Result<Vec<UserRecord>> {
         let normalized_query = format!("%{}%", query.trim().to_lowercase());
-        let rows = sqlx::query_file_as!(
-            UserRow,
-            "src/sql/db/auth/search_user_directory.sql",
-            normalized_query,
-            limit
-        )
-        .fetch_all(self.pool())
-        .await?;
-        Ok(rows.into_iter().map(user_from_row).collect())
+        let Ok(limit) = u64::try_from(limit) else {
+            let rows = sqlx::query_file_as!(
+                UserRow,
+                "src/sql/db/auth/search_user_directory.sql",
+                normalized_query,
+                limit
+            )
+            .fetch_all(self.pool())
+            .await?;
+            return Ok(rows.into_iter().map(user_from_row).collect());
+        };
+        let rows = users::Entity::find()
+            .filter(users::Column::DisabledAt.is_null())
+            .filter(
+                Condition::any()
+                    .add(
+                        Expr::expr(Func::lower(Expr::col(users::Column::LoginName)))
+                            .like(normalized_query.clone()),
+                    )
+                    .add(
+                        Expr::expr(Func::lower(Expr::col(users::Column::DisplayName)))
+                            .like(normalized_query),
+                    ),
+            )
+            .order_by_asc(users::Column::LoginName)
+            .limit(limit)
+            .all(&self.orm)
+            .await
+            .map_err(auth_database_error)?;
+        Ok(rows.into_iter().map(user_from_model).collect())
     }
 
     pub async fn set_user_disabled_at(
@@ -204,6 +291,19 @@ impl Database {
 
         tx.commit().await?;
         Ok(Some(user_from_row(row)))
+    }
+}
+
+fn user_from_model(row: users::Model) -> UserRecord {
+    UserRecord {
+        id: row.id,
+        login_name: row.login_name,
+        display_name: row.display_name,
+        password_hash: row.password_hash,
+        is_admin: row.is_admin,
+        disabled_at: row.disabled_at,
+        created_at: row.created_at,
+        updated_at: row.updated_at,
     }
 }
 

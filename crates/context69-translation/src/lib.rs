@@ -1,3 +1,4 @@
+pub mod entity;
 mod providers;
 mod segmenter;
 mod store;

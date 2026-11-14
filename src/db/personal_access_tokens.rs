@@ -1,9 +1,14 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use sqlx::FromRow;
+use sea_orm::sea_query::{Expr, Value};
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
+    QuerySelect,
+};
 use uuid::Uuid;
 
 use super::Database;
+use super::entity::personal_access_tokens;
 
 #[derive(Debug, Clone)]
 pub struct PersonalAccessTokenRecord {
@@ -30,66 +35,48 @@ pub struct NewPersonalAccessToken {
     pub expires_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, FromRow)]
-struct PersonalAccessTokenRow {
-    id: Uuid,
-    user_id: i64,
-    name: String,
-    token_hash: String,
-    display_prefix: String,
-    scopes: Vec<String>,
-    expires_at: DateTime<Utc>,
-    last_used_at: Option<DateTime<Utc>>,
-    revoked_at: Option<DateTime<Utc>>,
-    created_at: DateTime<Utc>,
-    updated_at: DateTime<Utc>,
-}
-
 impl Database {
     pub async fn insert_personal_access_token(
         &self,
         command: &NewPersonalAccessToken,
     ) -> Result<PersonalAccessTokenRecord> {
-        let row = sqlx::query_file_as!(
-            PersonalAccessTokenRow,
-            "src/sql/db/personal_access_tokens/insert_personal_access_token.sql",
-            command.id,
-            command.user_id,
-            command.name,
-            command.token_hash,
-            command.display_prefix,
-            &command.scopes,
-            command.expires_at
-        )
-        .fetch_one(self.pool())
+        let row = personal_access_tokens::Entity::insert(personal_access_tokens::ActiveModel {
+            id: Set(command.id),
+            user_id: Set(command.user_id),
+            name: Set(command.name.clone()),
+            token_hash: Set(command.token_hash.clone()),
+            display_prefix: Set(command.display_prefix.clone()),
+            scopes: Set(command.scopes.clone()),
+            expires_at: Set(command.expires_at),
+            ..Default::default()
+        })
+        .exec_with_returning(&self.orm)
         .await?;
-        Ok(personal_access_token_from_row(row))
+        Ok(personal_access_token_from_model(row))
     }
 
     pub async fn list_personal_access_tokens(
         &self,
         user_id: i64,
     ) -> Result<Vec<PersonalAccessTokenRecord>> {
-        let rows = sqlx::query_file_as!(
-            PersonalAccessTokenRow,
-            "src/sql/db/personal_access_tokens/list_personal_access_tokens.sql",
-            user_id
-        )
-        .fetch_all(self.pool())
-        .await?;
+        let rows = personal_access_tokens::Entity::find()
+            .filter(personal_access_tokens::Column::UserId.eq(user_id))
+            .order_by_desc(personal_access_tokens::Column::CreatedAt)
+            .order_by_desc(personal_access_tokens::Column::Id)
+            .all(&self.orm)
+            .await?;
         Ok(rows
             .into_iter()
-            .map(personal_access_token_from_row)
+            .map(personal_access_token_from_model)
             .collect())
     }
 
     pub async fn count_personal_access_tokens(&self, user_id: i64) -> Result<i64> {
-        Ok(sqlx::query_file_scalar!(
-            "src/sql/db/personal_access_tokens/count_personal_access_tokens.sql",
-            user_id
-        )
-        .fetch_one(self.pool())
-        .await?)
+        let count = personal_access_tokens::Entity::find()
+            .filter(personal_access_tokens::Column::UserId.eq(user_id))
+            .count(&self.orm)
+            .await?;
+        i64::try_from(count).context("personal access token count out of range")
     }
 
     pub async fn list_personal_access_tokens_page(
@@ -98,18 +85,21 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Result<Vec<PersonalAccessTokenRecord>> {
-        let rows = sqlx::query_file_as!(
-            PersonalAccessTokenRow,
-            "src/sql/db/personal_access_tokens/list_personal_access_tokens_page.sql",
-            user_id,
-            limit,
-            offset
-        )
-        .fetch_all(self.pool())
-        .await?;
+        let limit = u64::try_from(limit)
+            .context("personal access token page limit must be non-negative")?;
+        let offset = u64::try_from(offset)
+            .context("personal access token page offset must be non-negative")?;
+        let rows = personal_access_tokens::Entity::find()
+            .filter(personal_access_tokens::Column::UserId.eq(user_id))
+            .order_by_desc(personal_access_tokens::Column::CreatedAt)
+            .order_by_desc(personal_access_tokens::Column::Id)
+            .limit(limit)
+            .offset(offset)
+            .all(&self.orm)
+            .await?;
         Ok(rows
             .into_iter()
-            .map(personal_access_token_from_row)
+            .map(personal_access_token_from_model)
             .collect())
     }
 
@@ -117,14 +107,11 @@ impl Database {
         &self,
         token_hash: &str,
     ) -> Result<Option<PersonalAccessTokenRecord>> {
-        let row = sqlx::query_file_as!(
-            PersonalAccessTokenRow,
-            "src/sql/db/personal_access_tokens/get_personal_access_token_by_hash.sql",
-            token_hash
-        )
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(row.map(personal_access_token_from_row))
+        let row = personal_access_tokens::Entity::find()
+            .filter(personal_access_tokens::Column::TokenHash.eq(token_hash))
+            .one(&self.orm)
+            .await?;
+        Ok(row.map(personal_access_token_from_model))
     }
 
     pub async fn revoke_personal_access_token(
@@ -132,15 +119,23 @@ impl Database {
         token_id: Uuid,
         user_id: i64,
     ) -> Result<Option<PersonalAccessTokenRecord>> {
-        let row = sqlx::query_file_as!(
-            PersonalAccessTokenRow,
-            "src/sql/db/personal_access_tokens/revoke_personal_access_token.sql",
-            token_id,
-            user_id
-        )
-        .fetch_optional(self.pool())
-        .await?;
-        Ok(row.map(personal_access_token_from_row))
+        let rows = personal_access_tokens::Entity::update_many()
+            .col_expr(
+                personal_access_tokens::Column::RevokedAt,
+                Expr::cust("COALESCE(revoked_at, now())"),
+            )
+            .col_expr(
+                personal_access_tokens::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            )
+            .filter(personal_access_tokens::Column::Id.eq(token_id))
+            .filter(personal_access_tokens::Column::UserId.eq(user_id))
+            .exec_with_returning(&self.orm)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .next()
+            .map(personal_access_token_from_model))
     }
 
     /// Record approximate usage for a batch of tokens.
@@ -153,17 +148,28 @@ impl Database {
         if token_ids.is_empty() {
             return Ok(0);
         }
-        let result = sqlx::query_file!(
-            "src/sql/db/personal_access_tokens/touch_personal_access_tokens_last_used.sql",
-            token_ids
-        )
-        .execute(self.pool())
-        .await?;
-        Ok(result.rows_affected())
+        let result = personal_access_tokens::Entity::update_many()
+            .col_expr(
+                personal_access_tokens::Column::LastUsedAt,
+                Expr::cust("statement_timestamp()"),
+            )
+            .filter(Expr::cust_with_values(
+                "id = ANY($1::uuid[]) \
+                 AND revoked_at IS NULL \
+                 AND (expires_at IS NULL OR expires_at > statement_timestamp()) \
+                 AND (last_used_at IS NULL OR last_used_at < date_trunc('day', \
+                 statement_timestamp() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')",
+                [Value::from(token_ids.to_vec())],
+            ))
+            .exec(&self.orm)
+            .await?;
+        Ok(result.rows_affected)
     }
 }
 
-fn personal_access_token_from_row(row: PersonalAccessTokenRow) -> PersonalAccessTokenRecord {
+fn personal_access_token_from_model(
+    row: personal_access_tokens::Model,
+) -> PersonalAccessTokenRecord {
     PersonalAccessTokenRecord {
         id: row.id,
         user_id: row.user_id,

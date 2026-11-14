@@ -1,11 +1,14 @@
 use anyhow::Result;
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::OnConflict;
+use sea_orm::{ActiveValue::Set, EntityTrait, QueryOrder, QuerySelect};
 use sqlx::FromRow;
 use uuid::Uuid;
 
 use super::LibraryStore;
+use crate::db::entity::library_dependency_gates;
 
-#[derive(Debug, Clone, FromRow)]
+#[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]
 pub struct DependencyGateRecord {
     pub dependency_key: String,
     pub state: String,
@@ -27,22 +30,47 @@ pub struct DependencyGateTransition {
 
 impl LibraryStore {
     pub async fn ensure_dependency_gate(&self, dependency_key: &str) -> Result<()> {
-        sqlx::query(
-            "INSERT INTO context69.library_dependency_gates (dependency_key, state, failure_count) VALUES ($1, 'closed', 0) ON CONFLICT (dependency_key) DO NOTHING",
-        )
-        .bind(dependency_key)
-        .execute(self.db.pool())
-        .await?;
+        let model = library_dependency_gates::ActiveModel {
+            dependency_key: Set(dependency_key.to_owned()),
+            state: sea_orm::ActiveValue::NotSet,
+            failure_count: sea_orm::ActiveValue::NotSet,
+            next_probe_at: sea_orm::ActiveValue::NotSet,
+            last_error: sea_orm::ActiveValue::NotSet,
+            configuration_fingerprint: sea_orm::ActiveValue::NotSet,
+            probe_lease_token: sea_orm::ActiveValue::NotSet,
+            probe_lease_expires_at: sea_orm::ActiveValue::NotSet,
+            last_transition_at: sea_orm::ActiveValue::NotSet,
+            last_success_at: sea_orm::ActiveValue::NotSet,
+            updated_at: sea_orm::ActiveValue::NotSet,
+        };
+        library_dependency_gates::Entity::insert(model)
+            .on_conflict(
+                OnConflict::column(library_dependency_gates::Column::DependencyKey)
+                    .do_nothing()
+                    .to_owned(),
+            )
+            .exec(self.db.orm())
+            .await?;
         Ok(())
     }
 
     pub async fn list_dependency_gates(&self) -> Result<Vec<DependencyGateRecord>> {
-        Ok(sqlx::query_file_as!(
-            DependencyGateRecord,
-            "src/sql/library_store/dependency_gates/get.sql"
-        )
-        .fetch_all(self.db.pool())
-        .await?)
+        let rows = library_dependency_gates::Entity::find()
+            .select_only()
+            .column(library_dependency_gates::Column::DependencyKey)
+            .column(library_dependency_gates::Column::State)
+            .column(library_dependency_gates::Column::FailureCount)
+            .column(library_dependency_gates::Column::NextProbeAt)
+            .column(library_dependency_gates::Column::ProbeLeaseExpiresAt)
+            .column(library_dependency_gates::Column::LastError)
+            .column(library_dependency_gates::Column::ProbeLeaseToken)
+            .column(library_dependency_gates::Column::LastTransitionAt)
+            .column(library_dependency_gates::Column::LastSuccessAt)
+            .order_by_asc(library_dependency_gates::Column::DependencyKey)
+            .into_model::<DependencyGateRecord>()
+            .all(self.db.orm())
+            .await?;
+        Ok(rows)
     }
 
     pub async fn configure_dependency_gate(

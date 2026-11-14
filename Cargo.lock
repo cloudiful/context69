@@ -986,6 +986,7 @@ dependencies = [
  "reqwest",
  "rmcp",
  "schemars",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -1308,6 +1309,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cloudiful-secret-crypto",
+ "sea-orm",
  "sqlx",
  "tracing",
 ]
@@ -1337,6 +1339,7 @@ dependencies = [
  "context69-llm-support",
  "context69-secret-store",
  "reqwest",
+ "sea-orm",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4569,6 +4572,7 @@ version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "546040c653a705e60ec65ecd3191a809603734bebbc225775916dea9ae409b31"
 dependencies = [
+ "chrono",
  "ordered-float",
  "sea-query-derive",
  "serde_json",
