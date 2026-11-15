@@ -21,7 +21,9 @@ SELECT
     task.cancelled_count,
     task.failure_stage,
     task.error_summary,
-    task.stage,
+    -- The effective stage is what the queue actually shows: the focus item's
+    -- attempt-valid pipeline stage when it has one, else the persisted stage.
+    COALESCE(context.focus_progress ->> 'stage', task.stage) AS stage,
     task.waiting_reason,
     task.dependency_key,
     task.next_attempt_at,
@@ -33,7 +35,8 @@ SELECT
     task.finished_at,
     task.updated_at,
     context.file_name,
-    context.document_title
+    context.document_title,
+    context.focus_progress
 FROM context69.tasks task
 LEFT JOIN LATERAL (
     SELECT
@@ -58,8 +61,31 @@ LEFT JOIN LATERAL (
             NULLIF(item.payload ->> 'title', ''),
             NULLIF(doc.title, ''),
             NULLIF(file.metadata_json ->> 'title', '')
-        ) AS document_title
+        ) AS document_title,
+        -- Only the bounded progress record of this same focus item, and only
+        -- for the item's current attempt. Stage identity is the minimal
+        -- envelope -- version 1, an integral current-attempt identity and a
+        -- recognized stage -- so malformed optional metadata never erases a
+        -- valid stage. A queued or waiting item suppresses old progress even
+        -- before the attempt counter increments; the Rust codec stays the sole
+        -- authority for rejecting rich optional fields.
+        CASE
+            WHEN item.status IN ('running', 'failed', 'cancelled', 'succeeded')
+              AND jsonb_typeof(progress.pp) = 'object'
+              AND progress.pp ->> 'v' = '1'
+              AND jsonb_typeof(progress.pp -> 'v') = 'number'
+              AND jsonb_typeof(progress.pp -> 'attempt') = 'number'
+              AND (progress.pp ->> 'attempt') ~ '^[0-9]+$'
+              AND item.attempt_count::text = progress.pp ->> 'attempt'
+              AND jsonb_typeof(progress.pp -> 'stage') = 'string'
+              AND progress.pp ->> 'stage' IN ('storage', 'parsing', 'docling', 'chunking', 'indexing', 'finalizing')
+                THEN progress.pp
+            ELSE NULL
+        END AS focus_progress
     FROM context69.task_items item
+    CROSS JOIN LATERAL (
+        SELECT item.payload -> 'pipeline_progress' AS pp
+    ) progress
     LEFT JOIN context69.library_files file ON file.id = item.file_id
     -- The document a file produced is recorded per section, so a plain join
     -- would fan the row out. One LATERAL row picks the first section in

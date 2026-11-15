@@ -35,7 +35,34 @@ WHERE (
   )
   AND ($3::text IS NULL OR task.kind = $3)
   AND ($4::text IS NULL OR task.status = $4)
-  AND ($5::text IS NULL OR task.stage = $5)
+  -- The effective stage of `list.sql`: the focus item's attempt-valid pipeline
+  -- stage when it has one, else the persisted stage. Stage identity is the
+  -- minimal envelope only, so optional metadata never changes which tasks a
+  -- stage filter matches. Count and list therefore filter the same set.
+  AND (
+      $5::text IS NULL
+      OR COALESCE(
+          (
+              SELECT CASE
+                  WHEN focus.status IN ('running', 'failed', 'cancelled', 'succeeded')
+                    AND jsonb_typeof((focus.payload -> 'pipeline_progress')) = 'object'
+                    AND (focus.payload -> 'pipeline_progress') ->> 'v' = '1'
+                    AND jsonb_typeof((focus.payload -> 'pipeline_progress') -> 'v') = 'number'
+                    AND jsonb_typeof((focus.payload -> 'pipeline_progress') -> 'attempt') = 'number'
+                    AND ((focus.payload -> 'pipeline_progress') ->> 'attempt') ~ '^[0-9]+$'
+                    AND focus.attempt_count::text = (focus.payload -> 'pipeline_progress') ->> 'attempt'
+                    AND jsonb_typeof((focus.payload -> 'pipeline_progress') -> 'stage') = 'string'
+                    AND (focus.payload -> 'pipeline_progress') ->> 'stage' IN ('storage', 'parsing', 'docling', 'chunking', 'indexing', 'finalizing')
+                      THEN (focus.payload -> 'pipeline_progress') ->> 'stage'
+              END
+              FROM context69.task_items focus
+              WHERE focus.task_id = task.id
+              ORDER BY focus.status = 'succeeded', focus.ordinal
+              LIMIT 1
+          ),
+          task.stage
+      ) = $5
+  )
   AND ($6::text IS NULL OR task.waiting_reason = $6)
   AND ($7::text IS NULL OR task.dependency_key = $7)
   AND (

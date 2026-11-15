@@ -9,6 +9,7 @@ import type {
   TaskStatus,
 } from "@/services/api";
 import type { components } from "@/generated/openapi";
+import { formatElapsedDuration } from "@/lib/format";
 
 type Schemas = components["schemas"];
 
@@ -100,7 +101,15 @@ export function queueStageLabel(t: Translate, stage: string | null | undefined):
   if (!stage) {
     return t("processingQueue.unknownStage");
   }
-  return QUEUE_STAGE_SET.has(stage) ? t(`processingQueue.stages.${stage}`) : t("processingQueue.unknownStage");
+  if (QUEUE_STAGE_SET.has(stage)) {
+    return t(`processingQueue.stages.${stage}`);
+  }
+  // Item stages use the pipeline vocabulary, so a localized label must resolve
+  // those too instead of falling back to Unknown.
+  if (PROGRESS_STAGE_SET.has(stage)) {
+    return t(`processingQueue.progressStageLabels.${stage}`);
+  }
+  return t("processingQueue.unknownStage");
 }
 
 /**
@@ -728,6 +737,21 @@ export const PIPELINE_PROGRESS_STAGES = [
 
 const PROGRESS_STAGE_SET: ReadonlySet<string> = new Set(PIPELINE_PROGRESS_STAGES);
 
+/**
+ * The stage filter offers both vocabularies: a task's effective stage is the
+ * focus item's pipeline stage when it has one, and the persisted task stage
+ * otherwise. The server filters on that same effective stage.
+ */
+export const QUEUE_STAGE_FILTER_VALUES: readonly (
+  | (typeof QUEUE_STAGE_VALUES)[number]
+  | (typeof PIPELINE_PROGRESS_STAGES)[number]
+)[] = Array.from(
+  new Set<string>([...QUEUE_STAGE_VALUES, ...PIPELINE_PROGRESS_STAGES]),
+) as readonly (
+  | (typeof QUEUE_STAGE_VALUES)[number]
+  | (typeof PIPELINE_PROGRESS_STAGES)[number]
+)[];
+
 export function pipelineProgressStageLabel(
   t: Translate,
   stage: string | null | undefined,
@@ -736,6 +760,61 @@ export function pipelineProgressStageLabel(
     return t("processingQueue.unknownStage");
   }
   return t(`processingQueue.progressStageLabels.${stage}`);
+}
+
+/**
+ * The stage a task really shows comes from the server's effective-stage
+ * projection: it already resolved the focus item's pipeline stage and fell back
+ * to the persisted stage. Rich `focus_progress` supplies counters only and must
+ * never override that identity.
+ */
+export function taskEffectiveStage(task: TaskResponse): string | null {
+  return task.stage ?? null;
+}
+
+/** The localized label of the effective stage, keeping the two vocabularies distinct. */
+export function taskStageLabel(t: Translate, task: TaskResponse): string {
+  if (task.stage && PROGRESS_STAGE_SET.has(task.stage)) {
+    return pipelineProgressStageLabel(t, task.stage);
+  }
+  return queueStageLabel(t, task.stage);
+}
+
+/**
+ * A failure stage is never hidden behind a vocabulary allowlist: a known stage
+ * is localized, and an unknown nonempty stage stays visible verbatim so a real
+ * terminal failure can always explain itself.
+ */
+export function failureStageLabel(
+  t: Translate,
+  stage: string | null | undefined,
+): string | null {
+  if (!stage) {
+    return null;
+  }
+  if (PROGRESS_STAGE_SET.has(stage)) {
+    return pipelineProgressStageLabel(t, stage);
+  }
+  if (QUEUE_STAGE_SET.has(stage)) {
+    return t(`processingQueue.stages.${stage}`);
+  }
+  return stage;
+}
+
+/**
+ * Task elapsed follows the task's own status: an unfinished task advances with
+ * wall time, while a terminal task without a valid finish stays unavailable.
+ * The table and the focused card share this rule.
+ */
+export function taskElapsedDuration(task: TaskResponse, now: number): string {
+  return formatElapsedDuration(task.started_at, task.finished_at, now, {
+    unfinished: !isTerminalTask(task),
+  });
+}
+
+/** The table clock runs for every started nonterminal row, paused/waiting included. */
+export function taskElapsedTicks(task: TaskResponse): boolean {
+  return Boolean(task.started_at) && !isTerminalTask(task);
 }
 
 export interface ProgressFraction {

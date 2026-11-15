@@ -23,6 +23,106 @@ WITH page AS (
         SELECT child.id
         FROM context69.groups child
         JOIN accessible_groups ON child.parent_group_id = accessible_groups.group_id
+    ),
+    matched AS (
+        SELECT
+            task.id,
+            task.user_id,
+            task.group_id,
+            task.kind,
+            task.status,
+            task.origin,
+            task.group_path,
+            task.source_key,
+            task.total_count,
+            task.queued_count,
+            task.running_count,
+            task.waiting_count,
+            task.succeeded_count,
+            task.failed_count,
+            task.cancelled_count,
+            task.failure_stage,
+            task.error_summary,
+            task.stage,
+            task.waiting_reason,
+            task.dependency_key,
+            task.next_attempt_at,
+            task.pause_state,
+            task.paused_at,
+            task.deleted_at,
+            task.created_at,
+            task.started_at,
+            task.finished_at,
+            task.updated_at,
+            -- The effective stage is the stage the queue actually shows: the
+            -- focus item's attempt-valid pipeline stage when it has one, else
+            -- the task's persisted stage. The filter and the sort read this
+            -- same expression, so a filtered page can never disagree with the
+            -- stage it displays. The focus lookup runs only when a stage
+            -- filter or a stage sort needs it, so the default page order stays
+            -- page-first like the filename lookup below.
+            CASE
+                WHEN $5::text IS NOT NULL OR $8::text = 'stage' THEN COALESCE(
+                    (
+                        SELECT CASE
+                            -- Minimal stage envelope: version 1, an integral
+                            -- current-attempt identity and a recognized stage.
+                            -- Optional counters/remote/timestamps are never part
+                            -- of stage identity; the Rust codec stays the sole
+                            -- authority for rich progress.
+                            WHEN focus.status IN ('running', 'failed', 'cancelled', 'succeeded')
+                              AND jsonb_typeof(progress.pp) = 'object'
+                              AND progress.pp ->> 'v' = '1'
+                              AND jsonb_typeof(progress.pp -> 'v') = 'number'
+                              AND jsonb_typeof(progress.pp -> 'attempt') = 'number'
+                              AND (progress.pp ->> 'attempt') ~ '^[0-9]+$'
+                              AND focus.attempt_count::text = progress.pp ->> 'attempt'
+                              AND jsonb_typeof(progress.pp -> 'stage') = 'string'
+                              AND progress.pp ->> 'stage' IN ('storage', 'parsing', 'docling', 'chunking', 'indexing', 'finalizing')
+                                THEN progress.pp ->> 'stage'
+                        END
+                        FROM context69.task_items focus
+                        CROSS JOIN LATERAL (
+                            SELECT focus.payload -> 'pipeline_progress' AS pp
+                        ) progress
+                        WHERE focus.task_id = task.id
+                        ORDER BY focus.status = 'succeeded', focus.ordinal
+                        LIMIT 1
+                    ),
+                    task.stage
+                )
+                ELSE task.stage
+            END AS effective_stage
+        FROM context69.tasks task
+        WHERE (
+              task.user_id = $1
+              OR EXISTS (
+                  SELECT 1
+                  FROM accessible_groups ag
+                  WHERE ag.group_id = task.group_id
+              )
+          )
+          AND (
+              $2::text IS NULL
+              OR task.group_path ILIKE '%' || $2 || '%'
+              OR task.source_key ILIKE '%' || $2 || '%'
+              OR task.error_summary ILIKE '%' || $2 || '%'
+              OR EXISTS (
+                  SELECT 1
+                  FROM context69.task_items item
+                  WHERE item.task_id = task.id
+                    AND item.payload::text ILIKE '%' || $2 || '%'
+              )
+          )
+          AND ($3::text IS NULL OR task.kind = $3)
+          AND ($4::text IS NULL OR task.status = $4)
+          AND ($6::text IS NULL OR task.waiting_reason = $6)
+          AND ($7::text IS NULL OR task.dependency_key = $7)
+          AND (
+              ($12::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
+              OR ($12::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
+              OR ($12::text = 'trash' AND task.deleted_at IS NOT NULL)
+          )
     )
     SELECT
         task.id,
@@ -52,46 +152,18 @@ WITH page AS (
         task.created_at,
         task.started_at,
         task.finished_at,
-        task.updated_at
-    FROM context69.tasks task
-    WHERE (
-          task.user_id = $1
-          OR EXISTS (
-              SELECT 1
-              FROM accessible_groups ag
-              WHERE ag.group_id = task.group_id
-          )
-      )
-      AND (
-          $2::text IS NULL
-          OR task.group_path ILIKE '%' || $2 || '%'
-          OR task.source_key ILIKE '%' || $2 || '%'
-          OR task.error_summary ILIKE '%' || $2 || '%'
-          OR EXISTS (
-              SELECT 1
-              FROM context69.task_items item
-              WHERE item.task_id = task.id
-                AND item.payload::text ILIKE '%' || $2 || '%'
-          )
-      )
-      AND ($3::text IS NULL OR task.kind = $3)
-      AND ($4::text IS NULL OR task.status = $4)
-      AND ($5::text IS NULL OR task.stage = $5)
-      AND ($6::text IS NULL OR task.waiting_reason = $6)
-      AND ($7::text IS NULL OR task.dependency_key = $7)
-      AND (
-          ($12::text = 'processing' AND task.deleted_at IS NULL AND task.status <> 'succeeded')
-          OR ($12::text = 'completed' AND task.deleted_at IS NULL AND task.status = 'succeeded')
-          OR ($12::text = 'trash' AND task.deleted_at IS NOT NULL)
-      )
+        task.updated_at,
+        task.effective_stage
+    FROM matched task
+    WHERE ($5::text IS NULL OR task.effective_stage = $5)
     ORDER BY
         CASE WHEN ($8::TEXT = 'running_first' OR $8::TEXT IS NULL) AND $12::TEXT = 'processing' THEN task.status = 'running' END DESC NULLS LAST,
         CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'asc' THEN task.status END ASC NULLS LAST,
         CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
         CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'asc' THEN task.kind END ASC NULLS LAST,
         CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'desc' THEN task.kind END DESC NULLS LAST,
-        CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'asc' THEN COALESCE(task.stage, '') END ASC NULLS LAST,
-        CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'desc' THEN COALESCE(task.stage, '') END DESC NULLS LAST,
+        CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'asc' THEN COALESCE(task.effective_stage, '') END ASC NULLS LAST,
+        CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'desc' THEN COALESCE(task.effective_stage, '') END DESC NULLS LAST,
         CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'asc' THEN COALESCE(task.group_path, '') END ASC NULLS LAST,
         CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'desc' THEN COALESCE(task.group_path, '') END DESC NULLS LAST,
         CASE WHEN $8::TEXT = 'created_at' AND $9::TEXT = 'asc' THEN task.created_at END ASC NULLS LAST,
@@ -120,7 +192,11 @@ SELECT
     task.cancelled_count,
     task.failure_stage,
     task.error_summary,
-    task.stage,
+    -- The API stage comes from the page's own valid focus record, so the
+    -- default running_first page shows the same effective stage a filtered page
+    -- and the single-task reads show. Deriving it here keeps the focus work
+    -- page-bounded; no filter or stage sort is required to populate it.
+    COALESCE(context.focus_progress ->> 'stage', task.stage) AS stage,
     task.waiting_reason,
     task.dependency_key,
     task.next_attempt_at,
@@ -132,7 +208,8 @@ SELECT
     task.finished_at,
     task.updated_at,
     context.file_name,
-    context.document_title
+    context.document_title,
+    context.focus_progress
 FROM page task
 LEFT JOIN LATERAL (
     SELECT
@@ -157,8 +234,28 @@ LEFT JOIN LATERAL (
             NULLIF(item.payload ->> 'title', ''),
             NULLIF(doc.title, ''),
             NULLIF(file.metadata_json ->> 'title', '')
-        ) AS document_title
+        ) AS document_title,
+        -- The same minimal stage envelope the stage/sort expression above
+        -- reads. The raw record is exposed only when its stage identity is
+        -- valid; the Rust codec remains the authority that rejects malformed
+        -- optional metadata without erasing that stage.
+        CASE
+            WHEN item.status IN ('running', 'failed', 'cancelled', 'succeeded')
+              AND jsonb_typeof(progress.pp) = 'object'
+              AND progress.pp ->> 'v' = '1'
+              AND jsonb_typeof(progress.pp -> 'v') = 'number'
+              AND jsonb_typeof(progress.pp -> 'attempt') = 'number'
+              AND (progress.pp ->> 'attempt') ~ '^[0-9]+$'
+              AND item.attempt_count::text = progress.pp ->> 'attempt'
+              AND jsonb_typeof(progress.pp -> 'stage') = 'string'
+              AND progress.pp ->> 'stage' IN ('storage', 'parsing', 'docling', 'chunking', 'indexing', 'finalizing')
+                THEN progress.pp
+            ELSE NULL
+        END AS focus_progress
     FROM context69.task_items item
+    CROSS JOIN LATERAL (
+        SELECT item.payload -> 'pipeline_progress' AS pp
+    ) progress
     LEFT JOIN context69.library_files file ON file.id = item.file_id
     -- The document a file produced is recorded per section, so a plain join
     -- would fan the row out. One LATERAL row picks the first section in
@@ -188,8 +285,8 @@ ORDER BY
     CASE WHEN $8::TEXT = 'status' AND $9::TEXT = 'desc' THEN task.status END DESC NULLS LAST,
     CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'asc' THEN task.kind END ASC NULLS LAST,
     CASE WHEN $8::TEXT = 'kind' AND $9::TEXT = 'desc' THEN task.kind END DESC NULLS LAST,
-    CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'asc' THEN COALESCE(task.stage, '') END ASC NULLS LAST,
-    CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'desc' THEN COALESCE(task.stage, '') END DESC NULLS LAST,
+    CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'asc' THEN COALESCE(task.effective_stage, '') END ASC NULLS LAST,
+    CASE WHEN $8::TEXT = 'stage' AND $9::TEXT = 'desc' THEN COALESCE(task.effective_stage, '') END DESC NULLS LAST,
     CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'asc' THEN COALESCE(task.group_path, '') END ASC NULLS LAST,
     CASE WHEN $8::TEXT = 'group_path' AND $9::TEXT = 'desc' THEN COALESCE(task.group_path, '') END DESC NULLS LAST,
     CASE WHEN $8::TEXT = 'created_at' AND $9::TEXT = 'asc' THEN task.created_at END ASC NULLS LAST,

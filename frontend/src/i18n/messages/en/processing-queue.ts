@@ -37,10 +37,13 @@ export const processingQueue = {
   stage: "Stage",
   waiting: "Waiting",
   progress: "Progress",
+  filesProgress: "{succeeded} / {total} files",
   error: "Error",
   createdAt: "Created",
   updatedAt: "Updated",
   completedAt: "Completed",
+  elapsed: "Elapsed",
+  elapsedHint: "Wall-clock time from the first start to completion or now; pauses and retry waits are included.",
   sortBy: "Sort by {column}",
   sortedAscending: "sorted ascending",
   sortedDescending: "sorted descending",
@@ -191,10 +194,10 @@ export const processingQueue = {
   },
   unknownStage: "Unknown",
   // Progress stages (issue 52) are the stages an item actually performs,
-  // reported in `TaskItemProgress.stage`. They are deliberately a separate
-  // vocabulary from `stages` above, which lists the persisted stage-column
-  // values the queue's stage filter queries: adding these there would make the
-  // filter offer options no stored task stage ever holds.
+  // reported in `TaskItemProgress.stage`. The stage filter follows the
+  // effective stage, so `stages` above offers both the persisted and the
+  // pipeline vocabulary; these labels keep the item-progress wording (for
+  // example "Storing" rather than the persisted "Storage").
   progressStageLabels: {
     storage: "Storing",
     parsing: "Parsing",
@@ -285,8 +288,12 @@ export const processingQueue = {
     sync: "Sync",
     delete: "Delete",
     translation: "Translation",
+    parsing: "Parsing",
+    docling: "Remote conversion",
+    chunking: "Chunking",
     indexing: "Indexing",
     processing: "Processing",
     finalize: "Finalize",
+    finalizing: "Finalizing",
   },
 } as const;

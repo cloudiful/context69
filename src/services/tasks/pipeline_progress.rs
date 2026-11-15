@@ -145,6 +145,31 @@ mod tests {
     }
 
     #[test]
+    fn projection_rejects_malformed_rich_metadata_without_touching_stage_identity() {
+        // The stage envelope itself is valid in every case: version 1, an
+        // integral current attempt and a recognized stage. Only the optional
+        // rich fields are malformed, so the Rust codec must reject the whole
+        // progress projection while the SQL effective stage stays `indexing`.
+        for malformed in [
+            json!({"v": 1, "stage": "indexing", "attempt": 1,
+                "completed_chunks": 900, "total_chunks": 10}),
+            json!({"v": 1, "stage": "indexing", "attempt": 1,
+                "completed_chunks": -1}),
+            json!({"v": 1, "stage": "indexing", "attempt": 1,
+                "completed_chunks": 4_294_967_296u64}),
+            json!({"v": 1, "stage": "indexing", "attempt": 1,
+                "last_progress_at": "not-a-date"}),
+            json!({"v": 1, "stage": "indexing", "attempt": 1,
+                "remote_status": "x".repeat(65)}),
+        ] {
+            assert!(
+                task_item_progress(Some(malformed.clone())).is_none(),
+                "malformed optional metadata must reject rich progress: {malformed}"
+            );
+        }
+    }
+
+    #[test]
     fn projection_maps_a_valid_record_onto_the_api_type() {
         let progress = PipelineProgress::new(2, PipelineProgressStage::Indexing)
             .with_batch_counters(70, 512, 3, 16)

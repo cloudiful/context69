@@ -15412,6 +15412,17 @@
             ],
             "format": "date-time"
           },
+          "focus_progress": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskItemProgress",
+                "description": "Attempt-valid pipeline progress of the same focus item that supplies\n`file_name` and `document_title`. `stage` already carries the effective\nstage, so this record supplies only the rich counters, remote status and\ntimestamp. `None` when the focus item has no valid progress for its\ncurrent attempt; malformed optional metadata drops the record without\nchanging `stage`."
+              }
+            ]
+          },
           "group_path": {
             "type": [
               "string",
@@ -15456,7 +15467,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The stage the queue actually shows: the focus item's attempt-valid\npipeline stage when it has one, otherwise the persisted task stage.\nFiltering, sorting and counting use this same effective stage."
           },
           "started_at": {
             "type": [

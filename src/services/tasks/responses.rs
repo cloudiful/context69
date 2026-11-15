@@ -68,6 +68,9 @@ pub(super) fn task_response(task: crate::db::StoredTask) -> TaskResponse {
         // fallback instead of rendering a blank cell.
         file_name: task.file_name,
         document_title: task.document_title,
+        // The same projection the items endpoint uses, so a collapsed row can
+        // never render a counter the items projection would drop.
+        focus_progress: task_item_progress(task.focus_progress),
     }
 }
 

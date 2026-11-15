@@ -6,7 +6,7 @@ import { PERSONAL_ACCESS_TOKEN_EXPIRY_DAYS } from "../features/settings/use-pers
 import {
   PIPELINE_PROGRESS_STAGES,
   QUEUE_DEPENDENCY_VALUES,
-  QUEUE_STAGE_VALUES,
+  QUEUE_STAGE_FILTER_VALUES,
   QUEUE_WAITING_REASON_VALUES,
   PROCESSING_STATUS_FILTERS,
   TASK_KIND_VALUES,
@@ -80,10 +80,10 @@ describe("i18n message catalogs", () => {
   });
 
   it("covers every queue stage filter value in both locales without drift", () => {
-    const expected = [...QUEUE_STAGE_VALUES].sort();
+    const expected = [...QUEUE_STAGE_FILTER_VALUES].sort();
     expect(Object.keys(messages.en.processingQueue.stages).sort()).toEqual(expected);
     expect(Object.keys(messages["zh-CN"].processingQueue.stages).sort()).toEqual(expected);
-    for (const stage of QUEUE_STAGE_VALUES) {
+    for (const stage of QUEUE_STAGE_FILTER_VALUES) {
       expect(messages.en.processingQueue.stages[stage]).toBeTruthy();
       expect(messages["zh-CN"].processingQueue.stages[stage]).toBeTruthy();
     }
@@ -102,15 +102,14 @@ describe("i18n message catalogs", () => {
     }
   });
 
-  it("keeps the stage filter vocabulary free of progress-only stages", () => {
+  it("offers the effective stage vocabulary in the filter", () => {
+    // The filter follows the effective stage: a task's focus pipeline stage when
+    // it has one, the persisted stage otherwise. Both vocabularies are offered.
     const filterStages = new Set<string>(Object.keys(messages.en.processingQueue.stages));
     for (const stage of PIPELINE_PROGRESS_STAGES) {
-      // `storage` and `indexing` legitimately exist in both vocabularies; the
-      // progress-only stages must never leak into the persisted filter list.
-      if (stage === "storage" || stage === "indexing") continue;
-      expect(filterStages.has(stage)).toBe(false);
+      expect(filterStages.has(stage)).toBe(true);
     }
-    expect([...QUEUE_STAGE_VALUES].sort()).toEqual(
+    expect([...QUEUE_STAGE_FILTER_VALUES].sort()).toEqual(
       Object.keys(messages.en.processingQueue.stages).sort(),
     );
   });
@@ -161,7 +160,7 @@ describe("i18n message catalogs", () => {
       ...PROCESSING_STATUS_FILTERS.map((status) => `processingQueue.statuses.${status}`),
       ...["succeeded"].map((status) => `processingQueue.statuses.${status}`),
       ...TASK_KIND_VALUES.map((kind) => `processingQueue.kinds.${kind}`),
-      ...QUEUE_STAGE_VALUES.map((stage) => `processingQueue.stages.${stage}`),
+      ...QUEUE_STAGE_FILTER_VALUES.map((stage) => `processingQueue.stages.${stage}`),
       ...QUEUE_WAITING_REASON_VALUES.map((reason) => `processingQueue.waitingReasons.${reason}`),
       ...QUEUE_DEPENDENCY_VALUES.map((dependency) => `processingQueue.dependencies.${dependency}`),
       ...["open", "half_open", "closed"].map((state) => `processingQueue.diagnose.gateStates.${state}`),

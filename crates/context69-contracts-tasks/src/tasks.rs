@@ -185,6 +185,9 @@ pub struct TaskResponse {
     pub origin: TaskOrigin,
     pub group_path: Option<String>,
     pub source_key: Option<String>,
+    /// The stage the queue actually shows: the focus item's attempt-valid
+    /// pipeline stage when it has one, otherwise the persisted task stage.
+    /// Filtering, sorting and counting use this same effective stage.
     pub stage: Option<String>,
     pub waiting_reason: Option<String>,
     pub dependency_key: Option<String>,
@@ -212,6 +215,13 @@ pub struct TaskResponse {
     /// Document title of the same focus item, `None` when the item and its
     /// file carry no title.
     pub document_title: Option<String>,
+    /// Attempt-valid pipeline progress of the same focus item that supplies
+    /// `file_name` and `document_title`. `stage` already carries the effective
+    /// stage, so this record supplies only the rich counters, remote status and
+    /// timestamp. `None` when the focus item has no valid progress for its
+    /// current attempt; malformed optional metadata drops the record without
+    /// changing `stage`.
+    pub focus_progress: Option<TaskItemProgress>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
