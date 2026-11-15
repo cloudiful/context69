@@ -156,7 +156,9 @@ export function QueueExpandedRow({
                     {item.progress ? <QueueItemProgress progress={item.progress} /> : null}
                     <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
                       <span>{t("processingQueue.attempts", { count: item.attempt_count })}</span>
-                      {item.stage ? <span>{queueStageLabel(t, item.stage)}</span> : null}
+                      {/* The progress block owns the real stage while the item
+                          has one; the persisted marker would contradict it. */}
+                      {item.stage && !item.progress ? <span>{queueStageLabel(t, item.stage)}</span> : null}
                       {item.next_attempt_at
                         ? <span>{t("processingQueue.diagnose.nextRetry", { time: formatTimestamp(item.next_attempt_at) })}</span>
                         : null}

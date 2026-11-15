@@ -37,10 +37,13 @@ export const processingQueue = {
   stage: "阶段",
   waiting: "等待",
   progress: "进度",
+  filesProgress: "{succeeded} / {total} 个文件",
   error: "错误信息",
   createdAt: "创建时间",
   updatedAt: "更新时间",
   completedAt: "完成时间",
+  elapsed: "耗时",
+  elapsedHint: "从首次开始到完成（或当前）的实际耗时；包含暂停与重试等待时间。",
   sortBy: "按{column}排序",
   sortedAscending: "升序",
   sortedDescending: "降序",
@@ -187,9 +190,9 @@ export const processingQueue = {
   },
   unknownStage: "未知",
   // 处理进度阶段（问题 52）是任务项实际执行的阶段，取自
-  // `TaskItemProgress.stage`。它与上方的 `stages` 刻意分开：后者是队列阶段
-  // 过滤器所查询的持久化阶段字段取值，若把新阶段加进去，过滤器会提供出根本
-  // 不存在的选项。
+  // `TaskItemProgress.stage`。阶段过滤器跟随有效阶段，因此上方的 `stages`
+  // 同时提供持久化阶段与流水线阶段文案；此处保留任务项进度的措辞
+  // （例如“存储中”而非持久化阶段的“存储”）。
   progressStageLabels: {
     storage: "存储中",
     parsing: "解析中",
@@ -277,8 +280,12 @@ export const processingQueue = {
     sync: "同步",
     delete: "删除",
     translation: "翻译",
+    parsing: "解析中",
+    docling: "远端转换中",
+    chunking: "分块中",
     indexing: "索引",
     processing: "处理中",
     finalize: "收尾",
+    finalizing: "收尾中",
   },
 } as const;

@@ -83,6 +83,67 @@ export function formatDate(
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
+export interface ElapsedOptions {
+  /**
+   * True only for a nonterminal task that has not finished yet. A terminal task
+   * with a missing or invalid finish timestamp must stay unavailable instead of
+   * fabricating a total that keeps moving.
+   */
+  unfinished: boolean;
+}
+
+/**
+ * Wall-clock elapsed time between task start and finish, or between start and
+ * `now` while the task is still unfinished. Pauses and retry waits are real
+ * wall time, so they are included; a missing start, an unparsable start, or a
+ * terminal task without a valid finish stays `--` instead of a guessed
+ * duration. A negative span clamps to zero.
+ */
+export function formatElapsedDuration(
+  startedAt: string | null | undefined,
+  finishedAt: string | null | undefined,
+  now: Date | number = Date.now(),
+  options: ElapsedOptions = { unfinished: false },
+): string {
+  if (!startedAt) {
+    return "--";
+  }
+
+  const startMs = Date.parse(startedAt);
+  if (Number.isNaN(startMs)) {
+    return "--";
+  }
+
+  const finishedMs = finishedAt ? Date.parse(finishedAt) : Number.NaN;
+  let endMs = finishedMs;
+  if (Number.isNaN(finishedMs)) {
+    if (!options.unfinished) {
+      return "--";
+    }
+    endMs = typeof now === "number" ? now : now.getTime();
+  }
+  if (Number.isNaN(endMs)) {
+    return "--";
+  }
+
+  const totalSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+
+  if (days > 0) {
+    return `${days}d ${hours}h ${minutes}m`;
+  }
+  if (hours > 0) {
+    return `${hours}h ${minutes}m ${seconds}s`;
+  }
+  if (minutes > 0) {
+    return `${minutes}m ${seconds}s`;
+  }
+  return `${seconds}s`;
+}
+
 export function formatBytes(value: number | null | undefined): string {
   if (value == null) {
     return "--";

@@ -16,25 +16,30 @@ import { QueueHeaderFilter, type QueueFilterOption } from "./queue-filters";
 import {
   ACTIVE_STATUSES,
   QUEUE_DEPENDENCY_VALUES,
-  QUEUE_STAGE_VALUES,
+  QUEUE_STAGE_FILTER_VALUES,
   QUEUE_WAITING_REASON_VALUES,
   TASK_KIND_VALUES,
   canPauseTask,
   canResumeTask,
+  failureStageLabel,
   isPauseRequested,
   isRecoverableTask,
   isSourceRerunnableTask,
+  itemProgressView,
   libraryDependencyLabel,
-  queueStageLabel,
+  progressCountText,
+  taskElapsedDuration,
+  taskElapsedTicks,
   taskFileName,
+  taskStageLabel,
   taskSubject,
   PROCESSING_STATUS_FILTERS,
 } from "./queue-helpers";
 import type { QueueScope } from "./queue-updates";
+import { useElapsedNow } from "./use-elapsed";
 
 const SORTABLE_FIELDS: readonly TaskSortBy[] = ["kind", "group_path", "status", "stage", "created_at", "updated_at"];
 const TIME_SORT_FIELDS: readonly TaskSortBy[] = ["created_at", "updated_at"];
-const KNOWN_STAGES: ReadonlySet<string> = new Set(QUEUE_STAGE_VALUES);
 
 export interface QueueTableProps {
   items: TaskResponse[];
@@ -242,7 +247,8 @@ export function QueueTable({
     : trash
       ? t("processingQueue.tabs.noTrashedTasks")
       : t("processingQueue.noTasks");
-  const columnCount = completed ? 12 : trash ? 12 : 13;
+  const columnCount = trash ? 12 : 13;
+  const elapsedNow = useElapsedNow(items.some(taskElapsedTicks));
   const selectedOnPage = items.filter((task) => isSelected(task.task_id)).length;
   const pageSelected = items.length > 0 && selectedOnPage === items.length;
   const pagePartiallySelected = selectedOnPage > 0 && !pageSelected;
@@ -290,11 +296,11 @@ export function QueueTable({
                   <>
                     {sortableHead("stage", t("processingQueue.stage"), {
                       label: t("processingQueue.filterBy", { column: t("processingQueue.stage") }),
-                      options: [allOption(t("processingQueue.allStages")), ...options(QUEUE_STAGE_VALUES, "processingQueue.stages")],
+                      options: [allOption(t("processingQueue.allStages")), ...options(QUEUE_STAGE_FILTER_VALUES, "processingQueue.stages")],
                       selected: scope.stage,
                       onSelect: onStageFilter,
                     })}
-                    {filterHead(t("processingQueue.waiting"), {
+                    {filterHead(t("processingQueue.progress"), {
                       label: t("processingQueue.filterBy", { column: t("processingQueue.waitingReasonFilter") }),
                       options: waitingOptions,
                       selected: scope.waitingReason,
@@ -310,13 +316,15 @@ export function QueueTable({
                         }
                       },
                     })}
-                    {plainHead(t("processingQueue.progress"))}
                   </>
                 )}
             {plainHead(t("processingQueue.error"))}
             {sortableHead("created_at", t("processingQueue.createdAt"))}
             {sortableHead("updated_at", t("processingQueue.updatedAt"))}
             {completed ? plainHead(t("processingQueue.completedAt")) : null}
+            <TableHead title={t("processingQueue.elapsedHint")}>
+              <TableColumnHeader label={t("processingQueue.elapsed")} />
+            </TableHead>
             {plainHead(t("processingQueue.actions"))}
           </TableRow>
         </TableHeader>
@@ -342,6 +350,7 @@ export function QueueTable({
                     action={action}
                     completed={completed}
                     trash={trash}
+                    elapsedNow={elapsedNow}
                     selected={isSelected(task.task_id)}
                     selectionDisabled={selectionDisabled}
                     onToggleSelect={onToggleSelect}
@@ -368,6 +377,7 @@ function TaskRow({
   action,
   completed,
   trash,
+  elapsedNow,
   selected,
   selectionDisabled,
   onToggleSelect,
@@ -385,6 +395,7 @@ function TaskRow({
   action: ReturnType<typeof primaryAction>;
   completed: boolean;
   trash: boolean;
+  elapsedNow: number;
   selected: boolean;
   selectionDisabled: boolean;
   onToggleSelect: (task: TaskResponse) => void;
@@ -400,15 +411,13 @@ function TaskRow({
   const subject = taskSubject(task);
   const fileName = taskFileName(task);
 
-  const waiting = task.waiting_reason
-    ? `${t(`processingQueue.waitingReasons.${task.waiting_reason}`, { defaultValue: task.waiting_reason })}${
-        task.dependency_key ? `: ${libraryDependencyLabel(t, task.dependency_key)}` : ""
-      }`
-    : "--";
-  const errorStage = task.failure_stage && KNOWN_STAGES.has(task.failure_stage)
-    ? queueStageLabel(t, task.failure_stage)
+  const errorStage = failureStageLabel(t, task.failure_stage);
+  const columnCount = trash ? 12 : 13;
+  const focusProgress = itemProgressView(t, task.focus_progress);
+  const focusCountText = focusProgress
+    ? progressCountText(t, focusProgress.chunks, "chunks")
+      ?? progressCountText(t, focusProgress.batches, "batches")
     : null;
-  const columnCount = completed ? 12 : trash ? 12 : 13;
 
   return (
     <>
@@ -475,13 +484,15 @@ function TaskRow({
             )
           : (
               <>
-                <TableCell><span className="whitespace-nowrap text-muted-foreground">{queueStageLabel(t, task.stage)}</span></TableCell>
-                <TableCell>
-                  <span className="block max-w-48 truncate text-muted-foreground" title={waiting}>{waiting}</span>
-                </TableCell>
+                <TableCell><span className="whitespace-nowrap text-muted-foreground">{taskStageLabel(t, task)}</span></TableCell>
                 <TableCell>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground" data-testid="queue-progress">
-                    <span className="whitespace-nowrap font-mono">{task.progress.succeeded}/{task.progress.total}</span>
+                    <span className="whitespace-nowrap font-mono">
+                      {t("processingQueue.filesProgress", {
+                        succeeded: task.progress.succeeded,
+                        total: task.progress.total,
+                      })}
+                    </span>
                     {task.progress.running
                       ? <span className="whitespace-nowrap">{t("processingQueue.statuses.running")} {task.progress.running}</span>
                       : null}
@@ -493,6 +504,12 @@ function TaskRow({
                       : null}
                     {task.progress.failed
                       ? <span className="whitespace-nowrap text-destructive">{t("processingQueue.statuses.failed")} {task.progress.failed}</span>
+                      : null}
+                    {focusCountText
+                      ? <span className="whitespace-nowrap" data-testid="queue-focus-progress">{focusCountText}</span>
+                      : null}
+                    {focusProgress?.remoteStatus
+                      ? <span className="whitespace-nowrap">{t("processingQueue.itemProgress.remoteStatus", { status: focusProgress.remoteStatus })}</span>
                       : null}
                   </div>
                 </TableCell>
@@ -522,6 +539,15 @@ function TaskRow({
               </TableCell>
             )
           : null}
+        <TableCell>
+          <span
+            className="whitespace-nowrap font-mono text-muted-foreground"
+            title={t("processingQueue.elapsedHint")}
+            data-testid="queue-elapsed"
+          >
+            {taskElapsedDuration(task, elapsedNow)}
+          </span>
+        </TableCell>
         <TableCell>
           {trash
             ? (

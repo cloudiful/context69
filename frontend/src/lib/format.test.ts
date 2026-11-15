@@ -70,6 +70,31 @@ describe("neutral time zone and formatting foundation", () => {
     expect(formatTimestamp("not-a-date")).toBe("not-a-date");
   });
 
+  it("formats wall-clock elapsed time and keeps unstarted or invalid values honest", async () => {
+    const { formatElapsedDuration } = await import("./format");
+    const start = "2026-01-01T00:00:00Z";
+
+    const unfinished = { unfinished: true };
+    expect(formatElapsedDuration(null, null, 0, unfinished)).toBe("--");
+    expect(formatElapsedDuration("not-a-date", null, 0, unfinished)).toBe("--");
+    expect(formatElapsedDuration(start, null, Date.parse(start) + 45_000, unfinished)).toBe("45s");
+    expect(formatElapsedDuration(start, null, Date.parse(start) + 90_000, unfinished)).toBe("1m 30s");
+    expect(formatElapsedDuration(start, null, Date.parse(start) + 3_665_000, unfinished)).toBe("1h 1m 5s");
+    expect(formatElapsedDuration(start, null, Date.parse(start) + 93_780_000, unfinished)).toBe("1d 2h 3m");
+    // A finished task keeps its final wall-clock span instead of ticking on.
+    expect(
+      formatElapsedDuration(start, "2026-01-01T00:02:00Z", Date.parse(start) + 3_600_000, unfinished),
+    ).toBe("2m 0s");
+    // A terminal task without a valid finish stays unavailable; it never
+    // borrows the current time as a moving total.
+    expect(formatElapsedDuration(start, null, Date.parse(start) + 90_000)).toBe("--");
+    expect(formatElapsedDuration(start, "not-a-date", Date.parse(start) + 90_000)).toBe("--");
+    // An unfinished task with an invalid finish still advances with wall time.
+    expect(formatElapsedDuration(start, "not-a-date", Date.parse(start) + 45_000, unfinished)).toBe("45s");
+    // A clock skew can never produce a negative duration.
+    expect(formatElapsedDuration(start, null, Date.parse(start) - 5_000, unfinished)).toBe("0s");
+  });
+
   it("formats byte sizes and scores with the existing precision", async () => {
     const { formatBytes, formatScore, formatJson } = await import("./format");
 

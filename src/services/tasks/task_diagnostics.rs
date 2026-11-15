@@ -179,6 +179,7 @@ mod tests {
             deleted_at: None,
             file_name: Some("report.pdf".to_string()),
             document_title: Some("Quarterly report".to_string()),
+            focus_progress: None,
         }
     }
 

@@ -4987,6 +4987,7 @@ export interface components {
             file_name?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
+            focus_progress?: null | components["schemas"]["TaskItemProgress"];
             group_path?: string | null;
             kind: components["schemas"]["TaskKind"];
             origin: components["schemas"]["TaskOrigin"];
@@ -4998,6 +4999,11 @@ export interface components {
             paused_at?: string | null;
             progress: components["schemas"]["TaskProgress"];
             source_key?: string | null;
+            /**
+             * @description The stage the queue actually shows: the focus item's attempt-valid
+             *     pipeline stage when it has one, otherwise the persisted task stage.
+             *     Filtering, sorting and counting use this same effective stage.
+             */
             stage?: string | null;
             /** Format: date-time */
             started_at?: string | null;

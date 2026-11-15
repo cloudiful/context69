@@ -8,7 +8,17 @@ import { Button } from "@/components/ui/button";
 import type { TaskResponse, TaskStatus } from "@/services/api";
 
 import { QueueExpandedRow } from "./queue-expanded-row";
-import { canPauseTask, canResumeTask, isActiveTask, isPauseRequested, queueStageLabel, taskSubject } from "./queue-helpers";
+import {
+  canPauseTask,
+  canResumeTask,
+  isActiveTask,
+  isPauseRequested,
+  taskElapsedDuration,
+  taskElapsedTicks,
+  taskStageLabel,
+  taskSubject,
+} from "./queue-helpers";
+import { useElapsedNow } from "./use-elapsed";
 import { isValidTaskFocusId } from "./use-queue";
 
 function statusTone(status: TaskStatus): StatusTone {
@@ -56,6 +66,7 @@ export function QueueFocusedTask({
   const { t } = useTranslation();
   const valid = isValidTaskFocusId(taskId);
   const sectionRef = useRef<HTMLElement>(null);
+  const elapsedNow = useElapsedNow(task ? taskElapsedTicks(task) : false);
 
   useEffect(() => {
     sectionRef.current?.focus();
@@ -94,7 +105,11 @@ export function QueueFocusedTask({
                           </Badge>
                         )
                       : null}
-                    <span>{queueStageLabel(t, task.stage)}</span>
+                    <span>{taskStageLabel(t, task)}</span>
+                    <span title={t("processingQueue.elapsedHint")}>
+                      {t("processingQueue.elapsed")}:{" "}
+                      {taskElapsedDuration(task, elapsedNow)}
+                    </span>
                   </div>
                 </>
               )

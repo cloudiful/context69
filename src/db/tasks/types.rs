@@ -63,6 +63,10 @@ pub struct StoredTask {
     /// `title` or the library file's `metadata_json.title`. `None` when neither
     /// carries one.
     pub document_title: Option<String>,
+    /// Bounded `pipeline_progress` record of the same focus item, already
+    /// narrowed to the item's current attempt. `None` when the focus item has
+    /// published no progress for that attempt.
+    pub focus_progress: Option<Value>,
 }
 
 /// A task item listed for inspection.

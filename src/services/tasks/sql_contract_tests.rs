@@ -80,7 +80,9 @@ fn task_selection_shares_the_list_and_count_membership_predicate() {
         "FROM context69.task_items item",
         "$3::text IS NULL OR task.kind = $3",
         "$4::text IS NULL OR task.status = $4",
-        "$5::text IS NULL OR task.stage = $5",
+        "$5::text IS NULL",
+        "focus.attempt_count::text = ",
+        "task.stage",
         "$6::text IS NULL OR task.waiting_reason = $6",
         "$7::text IS NULL OR task.dependency_key = $7",
     ] {
@@ -108,12 +110,24 @@ fn task_selection_shares_the_list_and_count_membership_predicate() {
         );
     }
 
-    // The snapshot is one read of ids and statuses: no metadata lookup, no
-    // page shape, and a bounded row count.
+    // The snapshot is one read of ids and statuses: no file/document metadata,
+    // no page shape, and a bounded row count. The effective-stage filter reads
+    // the focus item's bounded progress record, never the file metadata.
     assert!(
-        !selection.contains("LATERAL"),
+        !selection.contains("LEFT JOIN LATERAL"),
         "the selection snapshot must not resolve file or document metadata"
     );
+    for forbidden in [
+        "file_name",
+        "document_title",
+        "library_files",
+        "library_file_documents",
+    ] {
+        assert!(
+            !selection.contains(forbidden),
+            "the selection snapshot must not carry {forbidden}"
+        );
+    }
     assert!(
         !selection.contains("library_files") && !selection.contains("library_file_documents"),
         "the selection snapshot must stay metadata-free"
@@ -133,6 +147,149 @@ fn task_selection_shares_the_list_and_count_membership_predicate() {
     assert!(
         !selection.contains(';'),
         "the selection snapshot must be a single statement"
+    );
+}
+
+/// The stage filter, count, selection snapshot and stage sort all read the
+/// effective focus stage, never the raw persisted stage alone: a filtered page,
+/// its count, the captured selection and the displayed stage must agree.
+#[test]
+fn task_stage_filter_and_sort_share_the_effective_focus_stage() {
+    let list = include_str!("../../sql/db/tasks/list.sql");
+    let count = include_str!("../../sql/db/tasks/count.sql");
+    let selection = include_str!("../../sql/db/tasks/list_selection.sql");
+
+    // The three queries spell the same minimal stage envelope with different
+    // aliases, so each shared semantic fragment is asserted by its stable
+    // suffix. Only version, integral current-attempt identity and a recognized
+    // stage define the effective stage; rich optional metadata can never
+    // change it, so this SQL can never disagree with the Rust codec's reading
+    // of a valid stage.
+    let effective_stage = [
+        "focus.status IN ('running', 'failed', 'cancelled', 'succeeded')",
+        "->> 'v' = '1'",
+        "-> 'attempt') = 'number'",
+        "~ '^[0-9]+$'",
+        "focus.attempt_count::text = ",
+        "->> 'stage' IN ('storage', 'parsing', 'docling', 'chunking', 'indexing', 'finalizing')",
+        "ORDER BY focus.status = 'succeeded', focus.ordinal",
+    ];
+    for fragment in effective_stage {
+        for (name, sql) in [
+            ("list.sql", list),
+            ("count.sql", count),
+            ("list_selection.sql", selection),
+        ] {
+            assert!(
+                sql.contains(fragment),
+                "{name} must resolve the effective focus stage with `{fragment}`"
+            );
+        }
+    }
+    assert!(
+        list.contains("CROSS JOIN LATERAL (") && list.contains("progress.pp"),
+        "list.sql must share one validated progress alias between the filter and projection"
+    );
+    for (name, sql) in [("count.sql", count), ("list_selection.sql", selection)] {
+        assert!(
+            sql.contains("(focus.payload -> 'pipeline_progress')"),
+            "{name} must read the focus progress without a LATERAL join"
+        );
+        assert!(
+            !sql.contains("LATERAL"),
+            "{name} must stay metadata-free and LATERAL-free"
+        );
+    }
+    assert!(
+        list.contains("task.effective_stage = $5"),
+        "list.sql must filter on the effective stage column"
+    );
+    assert!(
+        list.contains("$5::text IS NULL OR task.effective_stage = $5"),
+        "list.sql must keep the stage filter optional"
+    );
+    assert!(
+        list.contains("COALESCE(task.effective_stage, '')"),
+        "list.sql must sort by the effective stage"
+    );
+    // The page projection applies the same minimal stage envelope as the
+    // filter, so a record that filters as a pipeline stage always carries that
+    // stage into the API; malformed optional metadata only drops the rich
+    // counters, never the stage identity.
+    assert_eq!(
+        list.matches("jsonb_typeof(progress.pp) = 'object'").count(),
+        2,
+        "list.sql must validate both the effective-stage filter and the page projection"
+    );
+    for (name, sql) in [
+        ("get.sql", include_str!("../../sql/db/tasks/get.sql")),
+        (
+            "get_internal.sql",
+            include_str!("../../sql/db/tasks/get_internal.sql"),
+        ),
+    ] {
+        assert_eq!(
+            sql.matches("jsonb_typeof(progress.pp) = 'object'").count(),
+            1,
+            "{name} must validate the projected focus progress"
+        );
+    }
+    for sql in [list, count, selection] {
+        assert!(
+            sql.contains("->> 'stage'"),
+            "stage queries must read the validated progress stage"
+        );
+        for optional in [
+            "completed_chunks",
+            "total_chunks",
+            "completed_batches",
+            "total_batches",
+            "remote_status",
+            "last_progress_at",
+            "pg_input_is_valid",
+        ] {
+            assert!(
+                !sql.contains(optional),
+                "the effective stage must ignore optional metadata `{optional}`"
+            );
+        }
+    }
+    // The API stage follows the same minimal envelope: list derives the
+    // effective stage from each page row's own valid focus record, exactly as
+    // the single-task reads do, and independently of the filter/sort
+    // optimization. A default running_first page must therefore show the same
+    // stage as the focused card and a stage-filtered page.
+    assert!(
+        list.contains("COALESCE(context.focus_progress ->> 'stage', task.stage) AS stage"),
+        "list.sql must project the effective stage from the page's focus record"
+    );
+    assert!(
+        !list.contains("task.effective_stage AS stage"),
+        "list.sql must not send the pre-page filter stage as the API stage"
+    );
+    for (name, sql) in [
+        ("get.sql", include_str!("../../sql/db/tasks/get.sql")),
+        (
+            "get_internal.sql",
+            include_str!("../../sql/db/tasks/get_internal.sql"),
+        ),
+    ] {
+        assert!(
+            sql.contains("COALESCE(context.focus_progress ->> 'stage', task.stage) AS stage"),
+            "{name} must project the effective stage as the API stage"
+        );
+        assert!(
+            !sql.contains("pg_input_is_valid"),
+            "{name} must not depend on PostgreSQL version-specific input validation"
+        );
+    }
+    assert!(
+        count.contains(") = $5"),
+        "count.sql must filter on the effective stage expression"
+    );
+    assert!(
+        selection.contains(") = $5"),
+        "list_selection.sql must filter on the effective stage expression"
     );
 }
 
@@ -383,18 +540,19 @@ fn the_file_and_title_projection_is_identical_for_a_task_and_its_items() {
             "{name} must select the focus item through a LATERAL join"
         );
     }
-    for name in ["get.sql", "list.sql", "get_internal.sql"] {
+    for (name, expected) in [("get.sql", 2), ("list.sql", 3), ("get_internal.sql", 2)] {
         let sql = statements
             .iter()
             .find(|(file, _)| *file == name)
             .map(|(_, sql)| *sql)
             .expect("statement");
-        // Two bounded selections: the linked document of the item's file and the
-        // task's focus item.
+        // Two bounded projections: the linked document of the item's file and
+        // the task's focus item. The list also bounds the effective-stage focus
+        // lookup it reuses for the stage filter and stage sort.
         assert_eq!(
             sql.matches("LIMIT 1").count(),
-            2,
-            "{name} must bound both the linked document and the focus item to one row"
+            expected,
+            "{name} must bound every focus/document lookup to one row"
         );
     }
 }
@@ -455,8 +613,8 @@ fn task_list_selects_page_before_metadata_lookups() {
     // stay bounded to one row each.
     assert_eq!(
         list.matches("LIMIT 1").count(),
-        2,
-        "list.sql must bound both the linked document and the focus item to one row"
+        3,
+        "list.sql must bound both the linked document, the focus item, and the effective-stage lookup to one row"
     );
 }
 
@@ -474,7 +632,7 @@ fn task_count_remains_metadata_free() {
         "library_files",
         "library_file_documents",
         "metadata_json",
-        "LATERAL",
+        "LEFT JOIN LATERAL",
         "doc.title",
     ] {
         assert!(
