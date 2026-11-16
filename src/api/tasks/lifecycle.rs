@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use super::{ApiState, CurrentUser, task_error};
 
-#[utoipa::path(get, path = "/v1/tasks/{task_id}", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/tasks/{task_id}", params(("task_id" = Uuid, Path)), responses((status = 200, description = "Task owned by or shared with the caller", body = crate::contracts::TaskResponse), (status = 404, description = "Task not found", body = ApiErrorResponse)))]
 pub(crate) async fn get_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -30,7 +30,7 @@ pub(crate) async fn get_task(
     }
 }
 
-#[utoipa::path(get, path = "/v1/tasks", params(CanonicalTaskListQuery), responses((status = 200, body = crate::contracts::TaskPageResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/tasks", params(CanonicalTaskListQuery), responses((status = 200, description = "Page of tasks visible to the caller", body = crate::contracts::TaskPageResponse), (status = 400, description = "Invalid task list query", body = ApiErrorResponse)))]
 pub(crate) async fn list_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -51,7 +51,7 @@ pub(crate) async fn list_tasks(
     }
 }
 
-#[utoipa::path(get, path = "/v1/tasks/selection", params(TaskSelectionQuery), responses((status = 200, body = crate::contracts::tasks::TaskSelectionResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/tasks/selection", params(TaskSelectionQuery), responses((status = 200, description = "Snapshot of task ids matching the current filters", body = crate::contracts::tasks::TaskSelectionResponse), (status = 400, description = "Invalid task selection query", body = ApiErrorResponse)))]
 pub(crate) async fn list_task_selection(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -66,7 +66,7 @@ pub(crate) async fn list_task_selection(
     }
 }
 
-#[utoipa::path(get, path = "/v1/tasks/{task_id}/items", params(("task_id" = Uuid, Path), TaskItemsQuery), responses((status = 200, body = crate::contracts::TaskItemsResponse)))]
+#[utoipa::path(get, path = "/v1/tasks/{task_id}/items", params(("task_id" = Uuid, Path), TaskItemsQuery), responses((status = 200, description = "Page of task items", body = crate::contracts::TaskItemsResponse)))]
 pub(crate) async fn list_task_items(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -103,7 +103,7 @@ pub(crate) async fn list_task_items(
     }
 }
 
-#[utoipa::path(get, path = "/v1/tasks/{task_id}/diagnose", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskDiagnoseResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/tasks/{task_id}/diagnose", params(("task_id" = Uuid, Path)), responses((status = 200, description = "Task diagnosis report", body = crate::contracts::TaskDiagnoseResponse), (status = 404, description = "Task not found", body = ApiErrorResponse)))]
 pub(crate) async fn diagnose_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -117,7 +117,7 @@ pub(crate) async fn diagnose_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/retry", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::TaskRetryResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/retry", params(("task_id" = Uuid, Path)), responses((status = 202, description = "Task retry accepted", body = crate::contracts::TaskRetryResponse), (status = 409, description = "Task cannot be retried in its current state", body = ApiErrorResponse)))]
 pub(crate) async fn retry_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -129,7 +129,7 @@ pub(crate) async fn retry_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/retry", request_body = TaskBatchRetryRequest, responses((status = 200, body = crate::contracts::TaskBatchRetryResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/retry", request_body = TaskBatchRetryRequest, responses((status = 200, description = "Ordered per-task retry outcomes", body = crate::contracts::TaskBatchRetryResponse), (status = 400, description = "Invalid batch retry request", body = ApiErrorResponse)))]
 pub(crate) async fn batch_retry_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -143,7 +143,7 @@ pub(crate) async fn batch_retry_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", params(("task_id" = Uuid, Path)), responses((status = 202, body = crate::contracts::RerunTaskResponse), (status = 400, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/rerun", params(("task_id" = Uuid, Path)), responses((status = 202, description = "Task rerun accepted", body = crate::contracts::RerunTaskResponse), (status = 400, description = "Invalid rerun request", body = ApiErrorResponse), (status = 404, description = "Task not found", body = ApiErrorResponse), (status = 409, description = "Task cannot be rerun in its current state", body = ApiErrorResponse)))]
 pub(crate) async fn rerun_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -158,7 +158,7 @@ pub(crate) async fn rerun_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/rerun", request_body = TaskBatchRerunRequest, responses((status = 200, body = crate::contracts::TaskBatchRerunResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/rerun", request_body = TaskBatchRerunRequest, responses((status = 200, description = "Ordered per-task rerun outcomes", body = crate::contracts::TaskBatchRerunResponse), (status = 400, description = "Invalid batch rerun request", body = ApiErrorResponse)))]
 pub(crate) async fn batch_rerun_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -172,7 +172,7 @@ pub(crate) async fn batch_rerun_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/pause", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/pause", params(("task_id" = Uuid, Path)), responses((status = 200, description = "Paused task", body = crate::contracts::TaskResponse), (status = 403, description = "Insufficient permissions", body = ApiErrorResponse), (status = 404, description = "Task not found", body = ApiErrorResponse), (status = 409, description = "Task cannot be paused in its current state", body = ApiErrorResponse)))]
 pub(crate) async fn pause_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -184,7 +184,7 @@ pub(crate) async fn pause_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/resume", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/resume", params(("task_id" = Uuid, Path)), responses((status = 200, description = "Resumed task", body = crate::contracts::TaskResponse), (status = 403, description = "Insufficient permissions", body = ApiErrorResponse), (status = 404, description = "Task not found", body = ApiErrorResponse), (status = 409, description = "Task cannot be resumed in its current state", body = ApiErrorResponse)))]
 pub(crate) async fn resume_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -196,7 +196,7 @@ pub(crate) async fn resume_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/cancel", params(("task_id" = Uuid, Path)), responses((status = 204), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/cancel", params(("task_id" = Uuid, Path)), responses((status = 204, description = "Task cancellation accepted"), (status = 404, description = "Task not found", body = ApiErrorResponse)))]
 pub(crate) async fn cancel_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -208,7 +208,7 @@ pub(crate) async fn cancel_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/trash", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/trash", params(("task_id" = Uuid, Path)), responses((status = 200, description = "Trashed task", body = crate::contracts::TaskResponse), (status = 403, description = "Insufficient permissions", body = ApiErrorResponse), (status = 404, description = "Task not found", body = ApiErrorResponse), (status = 409, description = "Task cannot be trashed in its current state", body = ApiErrorResponse)))]
 pub(crate) async fn trash_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -220,7 +220,7 @@ pub(crate) async fn trash_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/{task_id}/restore", params(("task_id" = Uuid, Path)), responses((status = 200, body = crate::contracts::TaskResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/{task_id}/restore", params(("task_id" = Uuid, Path)), responses((status = 200, description = "Restored task", body = crate::contracts::TaskResponse), (status = 403, description = "Insufficient permissions", body = ApiErrorResponse), (status = 404, description = "Task not found", body = ApiErrorResponse)))]
 pub(crate) async fn restore_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -232,7 +232,7 @@ pub(crate) async fn restore_task(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/cancel", request_body = TaskBatchLifecycleRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/cancel", request_body = TaskBatchLifecycleRequest, responses((status = 200, description = "Ordered per-task cancel outcomes", body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, description = "Invalid batch cancel request", body = ApiErrorResponse)))]
 pub(crate) async fn batch_cancel_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -251,7 +251,7 @@ pub(crate) async fn batch_cancel_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/trash", request_body = TaskBatchTrashRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/trash", request_body = TaskBatchTrashRequest, responses((status = 200, description = "Ordered per-task trash outcomes", body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, description = "Invalid batch trash request", body = ApiErrorResponse)))]
 pub(crate) async fn batch_trash_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -266,7 +266,7 @@ pub(crate) async fn batch_trash_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/restore", request_body = TaskBatchLifecycleRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/restore", request_body = TaskBatchLifecycleRequest, responses((status = 200, description = "Ordered per-task restore outcomes", body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, description = "Invalid batch restore request", body = ApiErrorResponse)))]
 pub(crate) async fn batch_restore_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -283,7 +283,7 @@ pub(crate) async fn batch_restore_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/batch/purge", request_body = TaskBatchLifecycleRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/batch/purge", request_body = TaskBatchLifecycleRequest, responses((status = 200, description = "Ordered per-task purge outcomes", body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, description = "Invalid batch purge request", body = ApiErrorResponse)))]
 pub(crate) async fn batch_purge_tasks(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -297,7 +297,7 @@ pub(crate) async fn batch_purge_tasks(
     }
 }
 
-#[utoipa::path(post, path = "/v1/tasks/clear", request_body = ClearTaskHistoryRequest, responses((status = 200, body = crate::contracts::ClearTaskHistoryResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks/clear", request_body = ClearTaskHistoryRequest, responses((status = 200, description = "Cleared task history view", body = crate::contracts::ClearTaskHistoryResponse), (status = 400, description = "Invalid task history clear request", body = ApiErrorResponse)))]
 pub(crate) async fn clear_task_history(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -314,7 +314,7 @@ pub(crate) async fn clear_task_history(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/tasks/{task_id}", params(("task_id" = Uuid, Path)), responses((status = 204), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(delete, path = "/v1/tasks/{task_id}", params(("task_id" = Uuid, Path)), responses((status = 204, description = "Task permanently removed"), (status = 403, description = "Insufficient permissions", body = ApiErrorResponse), (status = 404, description = "Task not found", body = ApiErrorResponse), (status = 409, description = "Task cannot be deleted in its current state", body = ApiErrorResponse)))]
 pub(crate) async fn delete_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,

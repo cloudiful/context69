@@ -16,7 +16,7 @@ use crate::contracts::{
     UpdateGroupLibrarySettingsRequest,
 };
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/library-settings", params(("group_path" = String, Path)), responses((status = 200, body = GroupLibrarySettingsResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/library-settings", params(("group_path" = String, Path)), responses((status = 200, description = "Library settings for the group", body = GroupLibrarySettingsResponse), (status = 404, description = "Group not found", body = ApiErrorResponse)))]
 pub(crate) async fn get_group_library_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -32,7 +32,7 @@ pub(crate) async fn get_group_library_settings(
     }
 }
 
-#[utoipa::path(put, path = "/v1/groups/by-path/{group_path}/library-settings", params(("group_path" = String, Path)), request_body = UpdateGroupLibrarySettingsRequest, responses((status = 200, body = GroupLibrarySettingsResponse), (status = 403, body = ApiErrorResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/groups/by-path/{group_path}/library-settings", params(("group_path" = String, Path)), request_body = UpdateGroupLibrarySettingsRequest, responses((status = 200, description = "Updated library settings for the group", body = GroupLibrarySettingsResponse), (status = 403, description = "Insufficient group role", body = ApiErrorResponse), (status = 404, description = "Group not found", body = ApiErrorResponse)))]
 pub(crate) async fn update_group_library_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,

@@ -93,13 +93,13 @@ pub fn openapi_document() -> utoipa::openapi::OpenApi {
     path = "/v1/search",
     request_body = SearchRequest,
     responses(
-        (status = 200, body = SearchResponse),
+        (status = 200, description = "Ranked search hits for the requested window", body = SearchResponse),
         (
             status = 400,
             body = ApiErrorResponse,
             description = "Malformed or cross-ordering cursor, `page > 1` with `sort=date` (date mode is forward-only keyset pagination; pass the cursor returned in `next_cursor` to fetch the next page), or a blank query with `sort=date` (date mode matches the query against hydrated hits and never serves a 'latest N' browse)."
         ),
-        (status = 500, body = ApiErrorResponse)
+        (status = 500, description = "The search service failed", body = ApiErrorResponse)
     )
 )]
 async fn search(
@@ -331,9 +331,9 @@ fn named_json<T: serde::Serialize>(name: &str, value: &T) -> Event {
     path = "/v1/documents/{document_id}",
     params(("document_id" = i64, Path)),
     responses(
-        (status = 200, body = DocumentResponse),
-        (status = 404, body = ApiErrorResponse),
-        (status = 500, body = ApiErrorResponse)
+        (status = 200, description = "Document projected for the caller", body = DocumentResponse),
+        (status = 404, description = "Document not found or not visible", body = ApiErrorResponse),
+        (status = 500, description = "Document lookup failed", body = ApiErrorResponse)
     )
 )]
 async fn get_document(

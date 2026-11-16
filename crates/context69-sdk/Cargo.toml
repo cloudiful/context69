@@ -6,7 +6,6 @@ license.workspace = true
 description = "Async Rust SDK for the Context69 HTTP API."
 readme = "README.md"
 repository = "https://github.com/cloudiful/context69"
-homepage = "https://github.com/cloudiful/context69"
 documentation = "https://docs.rs/context69-sdk"
 keywords = ["context69", "sdk", "api", "search"]
 categories = ["api-bindings", "web-programming::http-client"]

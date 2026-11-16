@@ -162,7 +162,7 @@ pub fn openapi_document() -> utoipa::openapi::OpenApi {
     SettingsApiDoc::openapi()
 }
 
-#[utoipa::path(get, path = "/v1/settings/runtime", responses((status = 200, body = RuntimeSettingsResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/settings/runtime", responses((status = 200, description = "Current runtime settings", body = RuntimeSettingsResponse), (status = 500, description = "Runtime settings could not be read", body = ApiErrorResponse)))]
 async fn get_runtime_settings(State(state): State<SettingsHttpState>) -> impl IntoResponse {
     match state.settings.get_runtime_settings().await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
@@ -170,7 +170,7 @@ async fn get_runtime_settings(State(state): State<SettingsHttpState>) -> impl In
     }
 }
 
-#[utoipa::path(put, path = "/v1/settings/runtime", request_body = UpdateRuntimeSettingsRequest, responses((status = 200, body = RuntimeSettingsResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/settings/runtime", request_body = UpdateRuntimeSettingsRequest, responses((status = 200, description = "Updated runtime settings", body = RuntimeSettingsResponse), (status = 400, description = "Invalid runtime settings", body = ApiErrorResponse), (status = 500, description = "Runtime settings could not be updated", body = ApiErrorResponse)))]
 async fn update_runtime_settings(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<UpdateRuntimeSettingsRequest>,
@@ -181,7 +181,7 @@ async fn update_runtime_settings(
     }
 }
 
-#[utoipa::path(post, path = "/v1/settings/runtime/s3/test", request_body = UpdateRuntimeS3Settings, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/runtime/s3/test", request_body = UpdateRuntimeS3Settings, responses((status = 204, description = "S3 storage endpoint is reachable"), (status = 400, description = "Invalid S3 connection settings", body = ApiErrorResponse), (status = 500, description = "S3 connection check failed", body = ApiErrorResponse)))]
 async fn test_s3_connection(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<UpdateRuntimeS3Settings>,
@@ -192,7 +192,7 @@ async fn test_s3_connection(
     }
 }
 
-#[utoipa::path(post, path = "/v1/settings/runtime/valkey/test", request_body = TestRuntimeValkeyRequest, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/runtime/valkey/test", request_body = TestRuntimeValkeyRequest, responses((status = 204, description = "Valkey endpoint is reachable"), (status = 400, description = "Invalid Valkey connection settings", body = ApiErrorResponse), (status = 500, description = "Valkey connection check failed", body = ApiErrorResponse)))]
 async fn test_valkey_connection(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<TestRuntimeValkeyRequest>,
@@ -203,7 +203,7 @@ async fn test_valkey_connection(
     }
 }
 
-#[utoipa::path(post, path = "/v1/settings/runtime/embedding/test", request_body = TestRuntimeEmbeddingRequest, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/runtime/embedding/test", request_body = TestRuntimeEmbeddingRequest, responses((status = 204, description = "Embedding endpoint is reachable"), (status = 400, description = "Invalid embedding connection settings", body = ApiErrorResponse), (status = 500, description = "Embedding connection check failed", body = ApiErrorResponse)))]
 async fn test_embedding_connection(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<TestRuntimeEmbeddingRequest>,
@@ -223,7 +223,7 @@ async fn test_embedding_connection(
 /// Admin-only like the translation settings admin routes: the settings scope
 /// admits any authenticated identity, so the handler rejects non-admins before
 /// any outbound request is built.
-#[utoipa::path(post, path = "/v1/settings/runtime/qdrant/test", request_body = TestRuntimeQdrantRequest, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/runtime/qdrant/test", request_body = TestRuntimeQdrantRequest, responses((status = 204, description = "Qdrant endpoint is reachable"), (status = 400, description = "Invalid Qdrant connection settings", body = ApiErrorResponse), (status = 403, description = "Administrator access required", body = ApiErrorResponse), (status = 500, description = "Qdrant connection check failed", body = ApiErrorResponse)))]
 async fn test_qdrant_connection(
     State(state): State<SettingsHttpState>,
     CurrentUser(user): CurrentUser,
@@ -249,7 +249,7 @@ fn admin_required() -> axum::response::Response {
         .into_response()
 }
 
-#[utoipa::path(get, path = "/v1/settings/docling", responses((status = 200, body = DoclingSettingsResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/settings/docling", responses((status = 200, description = "Current Docling settings", body = DoclingSettingsResponse), (status = 500, description = "Docling settings could not be read", body = ApiErrorResponse)))]
 async fn get_docling_settings(State(state): State<SettingsHttpState>) -> impl IntoResponse {
     match state.settings.get_docling_settings().await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
@@ -257,7 +257,7 @@ async fn get_docling_settings(State(state): State<SettingsHttpState>) -> impl In
     }
 }
 
-#[utoipa::path(put, path = "/v1/settings/docling", request_body = UpdateDoclingSettingsRequest, responses((status = 200, body = DoclingSettingsResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/settings/docling", request_body = UpdateDoclingSettingsRequest, responses((status = 200, description = "Updated Docling settings", body = DoclingSettingsResponse), (status = 400, description = "Invalid Docling settings", body = ApiErrorResponse), (status = 500, description = "Docling settings could not be updated", body = ApiErrorResponse)))]
 async fn update_docling_settings(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<UpdateDoclingSettingsRequest>,
@@ -273,7 +273,7 @@ async fn update_docling_settings(
 /// It reuses the connection settings block as its body, so the checked values
 /// are exactly the ones a save would store, and it never returns them: a
 /// reachable endpoint answers 204 and nothing else.
-#[utoipa::path(post, path = "/v1/settings/docling/test", request_body = UpdateDoclingConnectionSettings, responses((status = 204), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/docling/test", request_body = UpdateDoclingConnectionSettings, responses((status = 204, description = "Docling endpoint is reachable"), (status = 400, description = "Invalid Docling connection settings", body = ApiErrorResponse), (status = 500, description = "Docling connection check failed", body = ApiErrorResponse)))]
 async fn test_docling_connection(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<UpdateDoclingConnectionSettings>,
@@ -294,7 +294,7 @@ async fn test_docling_connection(
 /// Admin-only like the Qdrant probe: the settings scope admits any
 /// authenticated identity, so the handler rejects non-admins before any
 /// outbound request is built.
-#[utoipa::path(post, path = "/v1/settings/translation/providers/llm/test", request_body = TestLlmProviderRequest, responses((status = 200, body = TestLlmProviderResponse), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/translation/providers/llm/test", request_body = TestLlmProviderRequest, responses((status = 200, description = "Typed outcome of the LLM provider probe", body = TestLlmProviderResponse), (status = 400, description = "Invalid LLM provider draft", body = ApiErrorResponse), (status = 403, description = "Administrator access required", body = ApiErrorResponse), (status = 500, description = "The LLM provider probe could not run", body = ApiErrorResponse)))]
 async fn test_llm_provider_connection(
     State(state): State<SettingsHttpState>,
     CurrentUser(user): CurrentUser,
@@ -309,7 +309,7 @@ async fn test_llm_provider_connection(
     }
 }
 
-#[utoipa::path(get, path = "/v1/settings/search", responses((status = 200, body = SearchSettingsResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/settings/search", responses((status = 200, description = "Current search settings", body = SearchSettingsResponse), (status = 500, description = "Search settings could not be read", body = ApiErrorResponse)))]
 async fn get_search_settings(State(state): State<SettingsHttpState>) -> impl IntoResponse {
     match state.settings.get_search_settings().await {
         Ok(settings) => (StatusCode::OK, axum::Json(settings)).into_response(),
@@ -317,7 +317,7 @@ async fn get_search_settings(State(state): State<SettingsHttpState>) -> impl Int
     }
 }
 
-#[utoipa::path(put, path = "/v1/settings/search", request_body = CanonicalUpdateSearchSettingsRequest, responses((status = 200, body = SearchSettingsResponse), (status = 400, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/settings/search", request_body = CanonicalUpdateSearchSettingsRequest, responses((status = 200, description = "Updated search settings", body = SearchSettingsResponse), (status = 400, description = "Invalid search settings", body = ApiErrorResponse), (status = 500, description = "Search settings could not be updated", body = ApiErrorResponse)))]
 async fn update_search_settings(
     State(state): State<SettingsHttpState>,
     axum::Json(request): axum::Json<CanonicalUpdateSearchSettingsRequest>,
@@ -337,7 +337,7 @@ async fn update_search_settings(
 /// Admin-only like the runtime probes: the settings scope admits any
 /// authenticated identity, so the handler rejects non-admins before any
 /// outbound request is built.
-#[utoipa::path(post, path = "/v1/settings/runtime/tokenizer-artifacts/provision", request_body = TokenizerProvisionRequest, responses((status = 200, body = TokenizerProvisionResponse), (status = 400, body = ApiErrorResponse), (status = 403, body = ApiErrorResponse), (status = 409, body = ApiErrorResponse), (status = 500, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/settings/runtime/tokenizer-artifacts/provision", request_body = TokenizerProvisionRequest, responses((status = 200, description = "The tokenizer preset is activated", body = TokenizerProvisionResponse), (status = 400, description = "Unknown or invalid tokenizer preset", body = ApiErrorResponse), (status = 403, description = "Administrator access required", body = ApiErrorResponse), (status = 409, description = "Tokenizer preset provisioning is already running", body = ApiErrorResponse), (status = 500, description = "The tokenizer preset could not be provisioned", body = ApiErrorResponse)))]
 async fn provision_tokenizer_preset(
     State(state): State<SettingsHttpState>,
     CurrentUser(user): CurrentUser,
@@ -407,8 +407,14 @@ mod tests {
         let body = operation
             .request_body
             .as_ref()
-            .and_then(|request| request.content.get("application/json"))
-            .and_then(|media| media.schema.as_ref())
+            .and_then(|request| match request {
+                utoipa::openapi::RefOr::T(request) => request.content.get("application/json"),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
+            .and_then(|media| match media {
+                utoipa::openapi::RefOr::T(content) => content.schema.as_ref(),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
             .expect("the probe must publish a request body");
         let reference = match body {
             utoipa::openapi::RefOr::Ref(reference) => reference.ref_location.as_str(),
@@ -458,8 +464,14 @@ mod tests {
         let body = operation
             .request_body
             .as_ref()
-            .and_then(|request| request.content.get("application/json"))
-            .and_then(|media| media.schema.as_ref())
+            .and_then(|request| match request {
+                utoipa::openapi::RefOr::T(request) => request.content.get("application/json"),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
+            .and_then(|media| match media {
+                utoipa::openapi::RefOr::T(content) => content.schema.as_ref(),
+                utoipa::openapi::RefOr::Ref(_) => None,
+            })
             .expect("the probe must publish a request body");
         let reference = match body {
             utoipa::openapi::RefOr::Ref(reference) => reference.ref_location.as_str(),

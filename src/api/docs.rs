@@ -1476,4 +1476,52 @@ mod tests {
             "the obsolete mutually-exclusive refresh policy is gone from the contract"
         );
     }
+
+    #[test]
+    fn openapi_responses_have_nonempty_descriptions() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let paths = json
+            .get("paths")
+            .and_then(Value::as_object)
+            .expect("paths to exist");
+        let response_components = json
+            .pointer("/components/responses")
+            .and_then(Value::as_object);
+        for (path, item) in paths {
+            let Some(item) = item.as_object() else {
+                continue;
+            };
+            for method in [
+                "get", "put", "post", "delete", "patch", "head", "options", "trace",
+            ] {
+                let Some(operation) = item.get(method).and_then(Value::as_object) else {
+                    continue;
+                };
+                let responses = operation
+                    .get("responses")
+                    .and_then(Value::as_object)
+                    .expect("an operation must document its responses");
+                for (status, response) in responses {
+                    let description = match response.get("$ref").and_then(Value::as_str) {
+                        Some(reference) => {
+                            let name = reference
+                                .rsplit('/')
+                                .next()
+                                .expect("a response reference must name its component");
+                            response_components
+                                .and_then(|components| components.get(name))
+                                .and_then(|response| response.get("description"))
+                        }
+                        None => response.get("description"),
+                    };
+                    assert!(
+                        description
+                            .and_then(Value::as_str)
+                            .is_some_and(|text| !text.trim().is_empty()),
+                        "{method} {path} response {status} must have a nonempty description"
+                    );
+                }
+            }
+        }
+    }
 }

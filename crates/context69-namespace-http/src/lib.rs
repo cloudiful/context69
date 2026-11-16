@@ -214,7 +214,7 @@ async fn search_user_directory(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups", params(NamespacePageQuery), responses((status = 200, body = GroupPageResponse)))]
+#[utoipa::path(get, path = "/v1/groups", params(NamespacePageQuery), responses((status = 200, description = "Page of groups visible to the caller", body = GroupPageResponse)))]
 async fn list_groups(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -230,7 +230,7 @@ async fn list_groups(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/search", params(GroupSearchQuery), responses((status = 200, body = [GroupResponse])))]
+#[utoipa::path(get, path = "/v1/groups/search", params(GroupSearchQuery), responses((status = 200, description = "Groups matching the search query", body = [GroupResponse])))]
 async fn search_groups(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -246,7 +246,7 @@ async fn search_groups(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups", request_body = CreateGroupRequest, responses((status = 201, body = GroupResponse), (status = 400, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/groups", request_body = CreateGroupRequest, responses((status = 201, description = "Group created", body = GroupResponse), (status = 400, description = "Invalid group definition", body = ApiErrorResponse)))]
 async fn create_group(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -258,7 +258,7 @@ async fn create_group(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}", params(("group_path" = String, Path)), responses((status = 200, body = GroupResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}", params(("group_path" = String, Path)), responses((status = 200, description = "Group for the requested path", body = GroupResponse), (status = 404, description = "Group not found", body = ApiErrorResponse)))]
 async fn get_group(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -275,7 +275,7 @@ async fn get_group(
     }
 }
 
-#[utoipa::path(patch, path = "/v1/groups/by-path/{group_path}", params(("group_path" = String, Path)), request_body = UpdateGroupRequest, responses((status = 200, body = GroupResponse), (status = 404, body = ApiErrorResponse)))]
+#[utoipa::path(patch, path = "/v1/groups/by-path/{group_path}", params(("group_path" = String, Path)), request_body = UpdateGroupRequest, responses((status = 200, description = "Updated group", body = GroupResponse), (status = 404, description = "Group not found", body = ApiErrorResponse)))]
 async fn update_group(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -292,7 +292,7 @@ async fn update_group(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/move", params(("group_path" = String, Path)), request_body = MoveGroupRequest, responses((status = 200, body = GroupResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/move", params(("group_path" = String, Path)), request_body = MoveGroupRequest, responses((status = 200, description = "Moved group", body = GroupResponse)))]
 async fn move_group(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -309,7 +309,7 @@ async fn move_group(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}", params(("group_path" = String, Path)), responses((status = 204)))]
+#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}", params(("group_path" = String, Path)), responses((status = 204, description = "Group deleted")))]
 async fn delete_group(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -324,7 +324,7 @@ async fn delete_group(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/children", params(("group_path" = String, Path), NamespacePageQuery), responses((status = 200, body = GroupPageResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/children", params(("group_path" = String, Path), NamespacePageQuery), responses((status = 200, description = "Page of child groups", body = GroupPageResponse)))]
 async fn list_child_groups(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -341,7 +341,7 @@ async fn list_child_groups(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path), MemberPageQuery), responses((status = 200, body = GroupMemberPageResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path), MemberPageQuery), responses((status = 200, description = "Page of group members", body = GroupMemberPageResponse)))]
 async fn list_group_members(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -358,7 +358,7 @@ async fn list_group_members(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path)), request_body = UpsertMembershipRequest, responses((status = 204)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/members", params(("group_path" = String, Path)), request_body = UpsertMembershipRequest, responses((status = 204, description = "Membership created or updated")))]
 async fn upsert_group_member(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
@@ -375,7 +375,7 @@ async fn upsert_group_member(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/members/{login_name}", params(("group_path" = String, Path), ("login_name" = String, Path)), responses((status = 204)))]
+#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/members/{login_name}", params(("group_path" = String, Path), ("login_name" = String, Path)), responses((status = 204, description = "Membership removed")))]
 async fn delete_group_member(
     State(state): State<NamespaceHttpState>,
     CurrentUser(user): CurrentUser,
