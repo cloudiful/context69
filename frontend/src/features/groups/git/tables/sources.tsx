@@ -1,4 +1,4 @@
-import { getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
+import { useTable, type ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -8,7 +8,7 @@ import type { GitRepositorySource } from "@/services/api";
 import { formatTimestamp } from "@/lib/format";
 
 import { GitIndexStatusBadge, gitSkipTotal, shortSha } from "../presentation";
-import { renderTable } from "./table";
+import { gitTableFeatures, renderTable } from "./table";
 
 export function SourcesTable({
   sources,
@@ -35,8 +35,8 @@ export function SourcesTable({
 }) {
   const { t } = useTranslation();
 
-  const columns = useMemo<ColumnDef<GitRepositorySource>[]>(() => {
-    const base: ColumnDef<GitRepositorySource>[] = [
+  const columns = useMemo<ColumnDef<typeof gitTableFeatures, GitRepositorySource>[]>(() => {
+    const base: ColumnDef<typeof gitTableFeatures, GitRepositorySource>[] = [
       {
         id: "repository",
         header: t("groups.gitSources.repository"),
@@ -194,10 +194,10 @@ export function SourcesTable({
     return base;
   }, [busyKey, canManage, onDelete, onEdit, onRebuild, onSelect, onSync, onToggleEnabled, onWebhook, t]);
 
-  const table = useReactTable({
+  const table = useTable({
+    features: gitTableFeatures,
     data: sources,
     columns,
-    getCoreRowModel: getCoreRowModel(),
   });
 
   return <div className="min-w-0 overflow-x-auto" data-testid="git-sources-table">{renderTable(table, t("groups.gitSources.empty"), "git-source-row")}</div>;

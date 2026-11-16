@@ -1,6 +1,10 @@
 import {
+  columnVisibilityFeature,
   flexRender,
-  useReactTable,
+  rowSelectionFeature,
+  tableFeatures,
+  type ReactTable,
+  type RowData,
 } from "@tanstack/react-table";
 
 import {
@@ -12,8 +16,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 
-export function renderTable<T>(
-  table: ReturnType<typeof useReactTable<T>>,
+/**
+ * The git tables render every column and expose the selected state of a row,
+ * so they register exactly the two optional features they read.
+ */
+export const gitTableFeatures = tableFeatures({
+  columnVisibilityFeature,
+  rowSelectionFeature,
+});
+
+export function renderTable<TData extends RowData>(
+  table: ReactTable<typeof gitTableFeatures, TData>,
   emptyLabel: string,
   rowTestId: string,
 ) {

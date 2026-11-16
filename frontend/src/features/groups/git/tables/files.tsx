@@ -1,10 +1,10 @@
-import { getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
+import { useTable, type ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { GitRepositoryFile } from "@/services/api";
 
-import { renderTable } from "./table";
+import { gitTableFeatures, renderTable } from "./table";
 
 export function FilesTable({
   files,
@@ -17,7 +17,7 @@ export function FilesTable({
 }) {
   const { t } = useTranslation();
 
-  const columns = useMemo<ColumnDef<GitRepositoryFile>[]>(() => [
+  const columns = useMemo<ColumnDef<typeof gitTableFeatures, GitRepositoryFile>[]>(() => [
     {
       accessorKey: "path",
       header: t("groups.gitSources.filePath"),
@@ -48,10 +48,10 @@ export function FilesTable({
     },
   ], [onSelect, t]);
 
-  const table = useReactTable({
+  const table = useTable({
+    features: gitTableFeatures,
     data: files,
     columns,
-    getCoreRowModel: getCoreRowModel(),
   });
 
   return (
