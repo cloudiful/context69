@@ -830,6 +830,83 @@ pub struct TaskBatchRerunResponse {
     pub results: Vec<TaskBatchRerunItem>,
 }
 
+/// Maximum number of task ids one `POST /v1/tasks/batch/*` lifecycle call
+/// accepts.
+pub const TASK_BATCH_LIFECYCLE_MAX: usize = 100;
+
+/// One bounded batch lifecycle request (cancel, trash, restore, or purge).
+///
+/// Every requested id is handled independently and keeps its position in the
+/// response. Missing and unmanageable ids are both reported as `not_found`, so
+/// a batch never reveals whether an unreadable id exists.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchLifecycleRequest {
+    pub task_ids: Vec<Uuid>,
+}
+
+/// One bounded batch trash request.
+///
+/// `cancel_active` defaults to `false`, so a caller that does not opt in gets
+/// the terminal-only trash contract: an active task is refused with an
+/// ineligible outcome and its work keeps running. The queue's bulk and row
+/// actions explicitly opt in, which cancels the active rows in the same
+/// transaction before they are recycled.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchTrashRequest {
+    pub task_ids: Vec<Uuid>,
+    #[serde(default)]
+    pub cancel_active: bool,
+}
+
+/// The per-id result vocabulary of a batch lifecycle call.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchLifecycleOutcome {
+    /// The action applied to this id, or was already a no-op in that state.
+    Accepted,
+    /// The task was readable but the action does not apply to its state.
+    Skipped,
+    /// The action could not be processed for this id; the other ids still run.
+    Failed,
+}
+
+/// Machine-readable, non-sensitive reason attached to a skipped or failed id.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TaskBatchLifecycleReason {
+    /// Missing or not manageable by the caller; the two are deliberately
+    /// indistinguishable so existence never leaks.
+    NotFound,
+    /// The task's current state does not accept this lifecycle action.
+    IneligibleStatus,
+    /// An unexpected internal failure while applying this id.
+    InternalError,
+}
+
+impl TaskBatchLifecycleReason {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::NotFound => "not_found",
+            Self::IneligibleStatus => "ineligible_status",
+            Self::InternalError => "internal_error",
+        }
+    }
+}
+
+/// One ordered outcome of a batch lifecycle call.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchLifecycleItem {
+    pub task_id: Uuid,
+    pub outcome: TaskBatchLifecycleOutcome,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<TaskBatchLifecycleReason>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
+pub struct TaskBatchLifecycleResponse {
+    pub results: Vec<TaskBatchLifecycleItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, JsonSchema)]
 pub struct CancelActiveTasksResponse {
     pub cancelled_tasks: i64,

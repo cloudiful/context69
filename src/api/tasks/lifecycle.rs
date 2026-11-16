@@ -10,8 +10,9 @@ use axum::{
 };
 use context69_contracts::tasks::TaskSelectionQuery;
 use context69_contracts::{
-    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskBatchRerunRequest,
-    TaskBatchRetryRequest, TaskItemsQuery, TaskListQuery,
+    ApiErrorResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest, TaskBatchLifecycleRequest,
+    TaskBatchRerunRequest, TaskBatchRetryRequest, TaskBatchTrashRequest, TaskItemsQuery,
+    TaskListQuery,
 };
 use uuid::Uuid;
 
@@ -227,6 +228,71 @@ pub(crate) async fn restore_task(
 ) -> Response {
     match state.app.tasks.restore(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/batch/cancel", request_body = TaskBatchLifecycleRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_cancel_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchLifecycleRequest>,
+) -> Response {
+    // One ordered outcome per requested id; the set is authorized and mutated
+    // by bounded batch statements, never by a per-id transaction.
+    match state
+        .app
+        .tasks
+        .batch_cancel(session.user.id, &request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/batch/trash", request_body = TaskBatchTrashRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_trash_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchTrashRequest>,
+) -> Response {
+    // A caller that opts into `cancel_active` cancels the active rows in the
+    // same transaction before their rows are recycled; the default keeps the
+    // terminal-only contract and refuses an active row unmoved.
+    match state.app.tasks.batch_trash(session.user.id, &request).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/batch/restore", request_body = TaskBatchLifecycleRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_restore_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchLifecycleRequest>,
+) -> Response {
+    match state
+        .app
+        .tasks
+        .batch_restore(session.user.id, &request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => task_error(error),
+    }
+}
+
+#[utoipa::path(post, path = "/v1/tasks/batch/purge", request_body = TaskBatchLifecycleRequest, responses((status = 200, body = crate::contracts::TaskBatchLifecycleResponse), (status = 400, body = ApiErrorResponse)))]
+pub(crate) async fn batch_purge_tasks(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Json(request): Json<TaskBatchLifecycleRequest>,
+) -> Response {
+    // Only trashed rows are removed; the recycle bin stays the only path to
+    // permanent deletion.
+    match state.app.tasks.batch_purge(session.user.id, &request).await {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => task_error(error),
     }
 }

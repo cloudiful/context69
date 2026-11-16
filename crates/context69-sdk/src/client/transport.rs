@@ -39,14 +39,6 @@ impl Context69Client {
         self.read_json_response(request.send().await?).await
     }
 
-    pub(crate) async fn execute_empty(&self, request: RequestBuilder) -> Result<(), Error> {
-        let response = request.send().await?;
-        if response.status().is_success() {
-            return Ok(());
-        }
-        Err(self.build_http_error(response).await)
-    }
-
     pub(crate) async fn read_json_response<T: serde::de::DeserializeOwned>(
         &self,
         response: Response,

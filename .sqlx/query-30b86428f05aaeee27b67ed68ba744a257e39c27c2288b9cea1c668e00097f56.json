@@ -1,0 +1,53 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The manageable subset of one bounded batch lifecycle request.\n--\n-- `$1` is the calling user and `$2` the requested task ids. The same\n-- ownership rule as the single-route cancellation applies: a personal task\n-- belongs to its owner, a group task to an inherited membership with at least\n-- maintainer rank. Ids outside that subset are never returned, so the caller\n-- reports them as `not_found` and never reveals whether they exist.\n--\n-- The status and trash flag are read here only to report a per-id outcome; the\n-- mutation statements keep their own eligibility predicates so a task that\n-- changes state in between is still refused instead of forced.\nWITH RECURSIVE inherited_groups AS (\n    SELECT gm.group_id,\n           CASE gm.role WHEN 'owner' THEN 3 WHEN 'maintainer' THEN 2 ELSE 1 END AS role_rank\n    FROM context69.group_memberships gm\n    WHERE gm.user_id = $1\n    UNION ALL\n    SELECT child.id, inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.group_id\n)\nSELECT task.id,\n       task.status,\n       task.deleted_at\nFROM context69.tasks task\nWHERE task.id = ANY($2::uuid[])\n  AND (\n      (task.group_id IS NULL AND task.user_id = $1)\n      OR EXISTS (\n          SELECT 1\n          FROM inherited_groups\n          WHERE inherited_groups.group_id = task.group_id\n            AND inherited_groups.role_rank >= 2\n      )\n  )\nORDER BY task.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "ordinal": 1,
+        "name": "status",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "status"
+          }
+        }
+      },
+      {
+        "ordinal": 2,
+        "name": "deleted_at",
+        "type_info": "Timestamptz",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "deleted_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true
+    ]
+  },
+  "hash": "30b86428f05aaeee27b67ed68ba744a257e39c27c2288b9cea1c668e00097f56"
+}

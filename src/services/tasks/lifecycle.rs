@@ -236,11 +236,7 @@ impl TaskService {
         if !self.db.can_manage_task(task_id, user_id).await? {
             return Err(DomainError::forbidden("task management permission denied").into());
         }
-        if self.db.cancel_task(task_id, user_id).await? {
-            Ok(())
-        } else {
-            Err(DomainError::conflict("task is already terminal or not found").into())
-        }
+        self.cancel_active_task(user_id, task_id).await
     }
 }
 
