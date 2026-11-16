@@ -1736,6 +1736,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/batch/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_cancel_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/batch/purge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_purge_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/batch/rerun": {
         parameters: {
             query?: never;
@@ -1752,6 +1784,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/tasks/batch/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_restore_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/tasks/batch/retry": {
         parameters: {
             query?: never;
@@ -1762,6 +1810,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["batch_retry_tasks"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/tasks/batch/trash": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["batch_trash_tasks"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4529,6 +4593,36 @@ export interface components {
             started_at: string;
             status: string;
         };
+        /** @description One ordered outcome of a batch lifecycle call. */
+        TaskBatchLifecycleItem: {
+            outcome: components["schemas"]["TaskBatchLifecycleOutcome"];
+            reason?: null | components["schemas"]["TaskBatchLifecycleReason"];
+            /** Format: uuid */
+            task_id: string;
+        };
+        /**
+         * @description The per-id result vocabulary of a batch lifecycle call.
+         * @enum {string}
+         */
+        TaskBatchLifecycleOutcome: "accepted" | "skipped" | "failed";
+        /**
+         * @description Machine-readable, non-sensitive reason attached to a skipped or failed id.
+         * @enum {string}
+         */
+        TaskBatchLifecycleReason: "not_found" | "ineligible_status" | "internal_error";
+        /**
+         * @description One bounded batch lifecycle request (cancel, trash, restore, or purge).
+         *
+         *     Every requested id is handled independently and keeps its position in the
+         *     response. Missing and unmanageable ids are both reported as `not_found`, so
+         *     a batch never reveals whether an unreadable id exists.
+         */
+        TaskBatchLifecycleRequest: {
+            task_ids: string[];
+        };
+        TaskBatchLifecycleResponse: {
+            results: components["schemas"]["TaskBatchLifecycleItem"][];
+        };
         /** @description One ordered outcome of a batch source-rerun call. */
         TaskBatchRerunItem: {
             outcome: components["schemas"]["TaskBatchRerunOutcome"];
@@ -4603,6 +4697,19 @@ export interface components {
         };
         TaskBatchRetryResponse: {
             results: components["schemas"]["TaskBatchRetryItem"][];
+        };
+        /**
+         * @description One bounded batch trash request.
+         *
+         *     `cancel_active` defaults to `false`, so a caller that does not opt in gets
+         *     the terminal-only trash contract: an active task is refused with an
+         *     ineligible outcome and its work keeps running. The queue's bulk and row
+         *     actions explicitly opt in, which cancels the active rows in the same
+         *     transaction before they are recycled.
+         */
+        TaskBatchTrashRequest: {
+            cancel_active?: boolean;
+            task_ids: string[];
         };
         /**
          * @description Parent-versus-item consistency verdict for one task.
@@ -11091,6 +11198,68 @@ export interface operations {
             };
         };
     };
+    batch_cancel_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchLifecycleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    batch_purge_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchLifecycleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     batch_rerun_tasks: {
         parameters: {
             query?: never;
@@ -11122,6 +11291,37 @@ export interface operations {
             };
         };
     };
+    batch_restore_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchLifecycleRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     batch_retry_tasks: {
         parameters: {
             query?: never;
@@ -11141,6 +11341,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TaskBatchRetryResponse"];
+                };
+            };
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    batch_trash_tasks: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskBatchTrashRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
                 };
             };
             400: {

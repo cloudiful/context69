@@ -7184,6 +7184,82 @@
         }
       }
     },
+    "/v1/tasks/batch/cancel": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_cancel_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchLifecycleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/batch/purge": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_purge_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchLifecycleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/batch/rerun": {
       "post": {
         "tags": [],
@@ -7222,6 +7298,44 @@
         }
       }
     },
+    "/v1/tasks/batch/restore": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_restore_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchLifecycleRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchLifecycleResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/tasks/batch/retry": {
       "post": {
         "tags": [],
@@ -7243,6 +7357,44 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/TaskBatchRetryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/tasks/batch/trash": {
+      "post": {
+        "tags": [],
+        "operationId": "batch_trash_tasks",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TaskBatchTrashRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskBatchLifecycleResponse"
                 }
               }
             }
@@ -14329,6 +14481,81 @@
           }
         }
       },
+      "TaskBatchLifecycleItem": {
+        "type": "object",
+        "description": "One ordered outcome of a batch lifecycle call.",
+        "required": [
+          "task_id",
+          "outcome"
+        ],
+        "properties": {
+          "outcome": {
+            "$ref": "#/components/schemas/TaskBatchLifecycleOutcome"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/TaskBatchLifecycleReason"
+              }
+            ]
+          },
+          "task_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TaskBatchLifecycleOutcome": {
+        "type": "string",
+        "description": "The per-id result vocabulary of a batch lifecycle call.",
+        "enum": [
+          "accepted",
+          "skipped",
+          "failed"
+        ]
+      },
+      "TaskBatchLifecycleReason": {
+        "type": "string",
+        "description": "Machine-readable, non-sensitive reason attached to a skipped or failed id.",
+        "enum": [
+          "not_found",
+          "ineligible_status",
+          "internal_error"
+        ]
+      },
+      "TaskBatchLifecycleRequest": {
+        "type": "object",
+        "description": "One bounded batch lifecycle request (cancel, trash, restore, or purge).\n\nEvery requested id is handled independently and keeps its position in the\nresponse. Missing and unmanageable ids are both reported as `not_found`, so\na batch never reveals whether an unreadable id exists.",
+        "required": [
+          "task_ids"
+        ],
+        "properties": {
+          "task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        }
+      },
+      "TaskBatchLifecycleResponse": {
+        "type": "object",
+        "required": [
+          "results"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TaskBatchLifecycleItem"
+            }
+          }
+        }
+      },
       "TaskBatchRerunItem": {
         "type": "object",
         "description": "One ordered outcome of a batch source-rerun call.",
@@ -14494,6 +14721,25 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/TaskBatchRetryItem"
+            }
+          }
+        }
+      },
+      "TaskBatchTrashRequest": {
+        "type": "object",
+        "description": "One bounded batch trash request.\n\n`cancel_active` defaults to `false`, so a caller that does not opt in gets\nthe terminal-only trash contract: an active task is refused with an\nineligible outcome and its work keeps running. The queue's bulk and row\nactions explicitly opt in, which cancels the active rows in the same\ntransaction before they are recycled.",
+        "required": [
+          "task_ids"
+        ],
+        "properties": {
+          "cancel_active": {
+            "type": "boolean"
+          },
+          "task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         }

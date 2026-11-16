@@ -90,8 +90,8 @@ pub use tasks::{
     ExecutionContext, FinishTaskItemRequest, LeaseRenewalProof, RemainingArtifactReferences,
     RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
     StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
-    TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder, TaskListFilter,
-    TaskQueueState, WaitTaskItemRequest,
+    TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder,
+    TaskLifecycleMutation, TaskListFilter, TaskQueueState, WaitTaskItemRequest,
 };
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,

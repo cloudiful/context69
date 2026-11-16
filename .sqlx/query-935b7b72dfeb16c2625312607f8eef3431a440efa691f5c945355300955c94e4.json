@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Clear the trash marker of a bounded set of task rows.\n--\n-- `$1` is the requested task id set. The rows are locked in id order before\n-- they are updated, so two overlapping batch restore calls take the same row\n-- locks in one deterministic order. The UPDATE keeps the trashed predicate,\n-- so restoring an active row stays the documented no-op.\nWITH targets AS (\n    SELECT task.id\n    FROM context69.tasks task\n    WHERE task.id = ANY($1::uuid[])\n      AND task.deleted_at IS NOT NULL\n    ORDER BY task.id\n    FOR UPDATE\n)\nUPDATE context69.tasks task\nSET deleted_at = NULL,\n    updated_at = now()\nFROM targets\nWHERE task.id = targets.id\nRETURNING task.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "935b7b72dfeb16c2625312607f8eef3431a440efa691f5c945355300955c94e4"
+}

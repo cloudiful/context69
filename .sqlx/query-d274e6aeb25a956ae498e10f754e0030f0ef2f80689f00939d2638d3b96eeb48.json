@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lock the still-trashed subset of a bounded purge request.\n--\n-- `$1` is the requested task id set. The rows are locked in id order, so a\n-- concurrent restore either commits before this statement (and the row is not\n-- returned) or waits for the purge transaction. Eligibility, cleanup targets\n-- and the reported success are all derived from this locked result, never from\n-- an earlier unlocked snapshot.\nSELECT task.id\nFROM context69.tasks task\nWHERE task.id = ANY($1::uuid[])\n  AND task.deleted_at IS NOT NULL\nORDER BY task.id\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d274e6aeb25a956ae498e10f754e0030f0ef2f80689f00939d2638d3b96eeb48"
+}

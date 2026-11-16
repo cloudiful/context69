@@ -5,6 +5,7 @@ import type {
   RequestOptions,
   RerunTaskResponse,
   TaskBatchRetryResponse,
+  TaskBatchLifecycleResponse,
   TaskItemsResponse,
   TaskItemStatus,
   TaskDiagnoseResponse,
@@ -136,6 +137,30 @@ export function createTasksApi({ openapiClient, unwrapResponse }: Deps) {
         body: { task_ids: taskIds },
         signal: options?.signal,
       })) as Promise<TaskBatchRerunResponse>;
+    },
+    batchCancelTasks(taskIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/cancel", {
+        body: { task_ids: taskIds },
+        signal: options?.signal,
+      })) as Promise<TaskBatchLifecycleResponse>;
+    },
+    batchTrashTasks(taskIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/trash", {
+        body: { task_ids: taskIds, cancel_active: true },
+        signal: options?.signal,
+      })) as Promise<TaskBatchLifecycleResponse>;
+    },
+    batchRestoreTasks(taskIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/restore", {
+        body: { task_ids: taskIds },
+        signal: options?.signal,
+      })) as Promise<TaskBatchLifecycleResponse>;
+    },
+    batchPurgeTasks(taskIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/tasks/batch/purge", {
+        body: { task_ids: taskIds },
+        signal: options?.signal,
+      })) as Promise<TaskBatchLifecycleResponse>;
     },
     rerunTask(taskId: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.POST("/v1/tasks/{task_id}/rerun", {

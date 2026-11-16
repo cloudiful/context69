@@ -1,5 +1,6 @@
 import type {
   SortDirection,
+  TaskBatchLifecycleResponse,
   TaskBatchRetryResponse,
   TaskItemResponse,
   TaskKind,
@@ -23,9 +24,13 @@ export type TaskBatchRerunResponse = Schemas["TaskBatchRerunResponse"];
  */
 export type QueueBatchResultItem =
   | Schemas["TaskBatchRetryItem"]
-  | Schemas["TaskBatchRerunItem"];
+  | Schemas["TaskBatchRerunItem"]
+  | Schemas["TaskBatchLifecycleItem"];
 
-export type QueueBatchResponse = TaskBatchRetryResponse | TaskBatchRerunResponse;
+export type QueueBatchResponse =
+  | TaskBatchRetryResponse
+  | TaskBatchRerunResponse
+  | TaskBatchLifecycleResponse;
 
 /** The DOM id of the persistent bulk report, used to offer its details. */
 export const QUEUE_BULK_REPORT_ID = "queue-bulk-report";
@@ -606,6 +611,39 @@ export async function runQueueBatchRerun(
   onProgress?: (completed: number, total: number) => void,
 ): Promise<QueueBulkOutcome[]> {
   return runQueueBatchTasks(targets, submit, onProgress, "fork");
+}
+
+/**
+ * Cancel, trash, restore or purge selected tasks through the bounded batch
+ * lifecycle API. The batching, ordering, and per-id mapping are the same as
+ * the recovery calls; the action never forks, so an accepted id targets the
+ * original task. A single-row action submits one id to the same endpoint.
+ */
+export async function runQueueBatchLifecycle(
+  targets: readonly QueueBulkTarget[],
+  submit: (taskIds: readonly string[]) => Promise<TaskBatchLifecycleResponse>,
+  onProgress?: (completed: number, total: number) => void,
+): Promise<QueueBulkOutcome[]> {
+  return runQueueBatchTasks(targets, submit, onProgress);
+}
+
+/**
+ * Submit one row action to the same batch endpoint a selection uses.
+ *
+ * The server answers with an ordered outcome; anything but `accepted` is a
+ * refusal that must not be shown as a success, so it surfaces the server's
+ * non-sensitive reason.
+ */
+export async function submitQueueLifecycleTask(
+  taskId: string,
+  submit: (taskIds: readonly string[]) => Promise<TaskBatchLifecycleResponse>,
+  translateReason: (reason: string) => string,
+): Promise<void> {
+  const response = await submit([taskId]);
+  const item = response.results.find((result) => result.task_id === taskId);
+  if (!item || item.outcome !== "accepted") {
+    throw new QueueTaskSkippedError(translateReason(item?.reason ?? "internal_error"));
+  }
 }
 
 export function summarizeQueueBulkOutcomes(

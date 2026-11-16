@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Cancels every active Docling remote job for a bounded task set.\n--\n-- Called when the owning tasks are cancelled: the sweep must stop polling even\n-- though no poll lease is held. Terminal history is preserved; in-flight\n-- leases are revoked so late poll writes cannot resurrect the jobs.\nUPDATE context69.task_docling_remote_jobs\nSET status = 'cancelled',\n    remote_status = COALESCE(remote_status, status),\n    last_error = COALESCE(last_error, $2, 'remote job cancelled with owning task'),\n    last_polled_at = COALESCE(last_polled_at, now()),\n    finished_at = now(),\n    lease_token = NULL,\n    lease_until = NULL,\n    updated_at = now()\nWHERE task_id = ANY($1::uuid[])\n  AND status IN ('pending', 'running')\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "1b20465e0c9df96bd0442c3cf706d7bd9632ebf65275fd72bd66d5657e46e4b6"
+}

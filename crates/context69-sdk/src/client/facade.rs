@@ -1,31 +1,64 @@
 use std::time::{Duration, Instant};
 
 pub use context69_contracts::{
-    AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest, BatchGetDocumentsResponse,
-    CancelActiveTasksResponse, CanonicalSearchRequest, CanonicalTaskListQuery,
-    CanonicalUpdateSearchSettingsRequest, CanonicalUploadMetadata, CreateDocumentResultRequest,
-    CreateMetadataIndexRequest, CursorPageQuery, CursorPagination, DeleteBatchRequest,
-    DoclingRemoteTasksQuery, DoclingRemoteTasksResponse, DocumentChunkResponse, DocumentKey,
-    DocumentResponse, DocumentResultProvenance, DocumentResultResponse, EnsureScopeResponse,
-    FileBatchItem, FileBatchRequest, GroupKind, GroupResponse, HealthResponse,
+    ApiErrorCode, AuthMeResponse, AuthUserResponse, BatchGetDocumentsRequest,
+    BatchGetDocumentsResponse, CancelActiveTasksResponse, CanonicalApiErrorResponse,
+    CanonicalSearchRequest, CanonicalTaskListQuery, CanonicalUpdateSearchSettingsRequest,
+    CanonicalUploadMetadata, CreateDocumentResultRequest, CreateMetadataIndexRequest,
+    CursorPageQuery, CursorPagination, DeleteBatchRequest, DoclingRemoteTasksQuery,
+    DoclingRemoteTasksResponse, DocumentChunkResponse, DocumentKey, DocumentResponse,
+    DocumentResultProvenance, DocumentResultResponse, EnsureScopeResponse, FileBatchItem,
+    FileBatchRequest, GroupKind, GroupResponse, HealthResponse,
     ImportLibraryFileFromUrlRequest as UrlBatchItem, IngestOptions, LibraryFileDetailResponse,
     LibraryTextContentFormat as TextContentFormat, ListDocumentResultsQuery,
     ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
     MetadataValueKind, OffsetPageQuery, OffsetPagination, RebuildControlRequest, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort,
-    SecretPatch, SortDirection, SourcePolicy, TaskBatchRerunRequest, TaskBatchRerunResponse,
-    TaskBatchRetryRequest, TaskBatchRetryResponse, TaskDiagnoseResponse, TaskItemResponse,
-    TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
-    TaskPageResponse, TaskProgress, TaskQueueStateResponse, TaskRef, TaskResponse,
-    TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest, TextBatchRequest,
-    TranslationDirective, TranslationStatus, UpdateTaskQueueStateRequest,
+    SecretPatch, SortDirection, SourcePolicy, TaskBatchLifecycleOutcome, TaskBatchLifecycleReason,
+    TaskBatchLifecycleRequest, TaskBatchLifecycleResponse, TaskBatchRerunRequest,
+    TaskBatchRerunResponse, TaskBatchRetryRequest, TaskBatchRetryResponse, TaskBatchTrashRequest,
+    TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse,
+    TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress, TaskQueueStateResponse,
+    TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
+    TextBatchRequest, TranslationDirective, TranslationStatus, UpdateTaskQueueStateRequest,
     UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, VectorIndexRebuildStatus,
     Visibility,
 };
-use reqwest::Method;
+use reqwest::{Method, StatusCode};
 use uuid::Uuid;
 
 pub use context69_contracts::search::SearchPagination;
+
+/// Build the HTTP-status error the legacy single-task call returned for one
+/// refusal, including the canonical `ApiErrorResponse` JSON body. The batch
+/// endpoint has no response body per item, so the status class and message are
+/// reconstructed from the legacy contract.
+fn canonical_refusal(status: StatusCode, message: &str) -> Error {
+    let code = ApiErrorCode::code_for_status(status.as_u16());
+    let body = serde_json::to_string(&CanonicalApiErrorResponse::new(code, message.to_string()))
+        .unwrap_or_default();
+    Error::HttpStatus {
+        status,
+        api_error: Some(message.to_string()),
+        body,
+    }
+}
+
+/// Classify a masked lifecycle refusal after re-reading the task.
+///
+/// A readable task that the batch masked as unavailable is readable but not
+/// manageable, which the legacy route reported as `403`. A read that is itself
+/// `404` keeps the legacy `404`. Any other read failure propagates unchanged;
+/// the read never falls back to a mutating call.
+fn classify_masked_read<T>(result: Result<T, Error>) -> Error {
+    match result {
+        Ok(_) => canonical_refusal(StatusCode::FORBIDDEN, "task management permission denied"),
+        Err(Error::HttpStatus { status, .. }) if status == StatusCode::NOT_FOUND => {
+            canonical_refusal(StatusCode::NOT_FOUND, "task not found")
+        }
+        Err(error) => error,
+    }
+}
 
 use super::{Context69Client, transport::group_path};
 use crate::Error;
@@ -420,41 +453,177 @@ impl Context69Client {
         .await
     }
 
+    /// Cancel up to 100 tasks in one bounded call. Active ids are cancelled and
+    /// every other id keeps its requested position with a per-id reason.
+    pub async fn batch_cancel_tasks(
+        &self,
+        request: &TaskBatchLifecycleRequest,
+    ) -> Result<TaskBatchLifecycleResponse, Error> {
+        self.post_batch_lifecycle("/v1/tasks/batch/cancel", request)
+            .await
+    }
+
+    /// Move up to 100 tasks to the recycle bin in one bounded call. The
+    /// request opts into cancelling active rows first; the default keeps the
+    /// terminal-only contract.
+    pub async fn batch_trash_tasks(
+        &self,
+        request: &TaskBatchTrashRequest,
+    ) -> Result<TaskBatchLifecycleResponse, Error> {
+        self.post_batch_lifecycle("/v1/tasks/batch/trash", request)
+            .await
+    }
+
+    /// Restore up to 100 trashed tasks in one bounded call.
+    pub async fn batch_restore_tasks(
+        &self,
+        request: &TaskBatchLifecycleRequest,
+    ) -> Result<TaskBatchLifecycleResponse, Error> {
+        self.post_batch_lifecycle("/v1/tasks/batch/restore", request)
+            .await
+    }
+
+    /// Permanently delete up to 100 trashed tasks in one bounded call.
+    pub async fn batch_purge_tasks(
+        &self,
+        request: &TaskBatchLifecycleRequest,
+    ) -> Result<TaskBatchLifecycleResponse, Error> {
+        self.post_batch_lifecycle("/v1/tasks/batch/purge", request)
+            .await
+    }
+
+    async fn post_batch_lifecycle<T: serde::Serialize>(
+        &self,
+        path: &str,
+        request: &T,
+    ) -> Result<TaskBatchLifecycleResponse, Error> {
+        self.execute_json(
+            self.authorized_request(Method::POST, path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    /// Submit one id to a batch lifecycle endpoint and turn a per-item refusal
+    /// into the HTTP-status error the single-task contract reports.
+    ///
+    /// `ineligible_message` is the legacy conflict message for this operation.
+    async fn batch_lifecycle_one<T: serde::Serialize>(
+        &self,
+        path: &str,
+        request: &T,
+        task_id: Uuid,
+        ineligible_message: &str,
+    ) -> Result<(), Error> {
+        let response = self.post_batch_lifecycle(path, request).await?;
+        match response.results.iter().find(|item| item.task_id == task_id) {
+            Some(item) if item.outcome == TaskBatchLifecycleOutcome::Accepted => Ok(()),
+            Some(item) => Err(self
+                .lifecycle_refusal(task_id, item.reason, ineligible_message)
+                .await),
+            None => Err(Error::InvalidResponse(format!(
+                "the batch response omitted task {task_id}"
+            ))),
+        }
+    }
+
+    /// Map one batch refusal reason onto the legacy single-task error.
+    ///
+    /// Batch existence masking reports an unmanageable readable task as
+    /// `not_found`; a read-only `get_task` distinguishes that `403` from a
+    /// genuinely missing `404`. The read is never a fallback mutating call.
+    async fn lifecycle_refusal(
+        &self,
+        task_id: Uuid,
+        reason: Option<TaskBatchLifecycleReason>,
+        ineligible_message: &str,
+    ) -> Error {
+        match reason {
+            Some(TaskBatchLifecycleReason::NotFound) => {
+                classify_masked_read(self.get_task(task_id).await)
+            }
+            Some(TaskBatchLifecycleReason::IneligibleStatus) => {
+                canonical_refusal(StatusCode::CONFLICT, ineligible_message)
+            }
+            Some(TaskBatchLifecycleReason::InternalError) | None => canonical_refusal(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "task lifecycle action failed",
+            ),
+        }
+    }
+
     pub async fn rerun_task(&self, task_id: Uuid) -> Result<RerunTaskResponse, Error> {
         let path = format!("/v1/tasks/{task_id}/rerun");
         self.execute_json(self.authorized_request(Method::POST, &path).await?)
             .await
     }
 
+    /// Cancel one task through the bounded batch endpoint. A missing task is
+    /// reported as `404`, a readable-but-unmanageable task as `403`, and a
+    /// terminal task as `409`, as the single route did.
     pub async fn cancel_task(&self, task_id: Uuid) -> Result<(), Error> {
-        let path = format!("/v1/tasks/{task_id}/cancel");
-        self.execute_empty(self.authorized_request(Method::POST, &path).await?)
-            .await
+        let request = TaskBatchLifecycleRequest {
+            task_ids: vec![task_id],
+        };
+        self.batch_lifecycle_one(
+            "/v1/tasks/batch/cancel",
+            &request,
+            task_id,
+            "task is already terminal or not found",
+        )
+        .await
     }
 
-    /// Move a terminal task's history into the recycle bin. Idempotent and
-    /// rejected while the task is still active. Files and processed results
-    /// are never affected.
+    /// Move a terminal task's history into the recycle bin through the bounded
+    /// batch endpoint. Terminal-only: an active task is reported as `409` and
+    /// its work keeps running, exactly like the single route. Files and
+    /// processed results are never affected.
     pub async fn trash_task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
-        let path = format!("/v1/tasks/{task_id}/trash");
-        self.execute_json(self.authorized_request(Method::POST, &path).await?)
-            .await
+        let request = TaskBatchTrashRequest {
+            task_ids: vec![task_id],
+            cancel_active: false,
+        };
+        self.batch_lifecycle_one(
+            "/v1/tasks/batch/trash",
+            &request,
+            task_id,
+            "active task cannot be trashed until it reaches a terminal state",
+        )
+        .await?;
+        self.get_task(task_id).await
     }
 
-    /// Restore a trashed task's history. Idempotent.
+    /// Restore a trashed task's history through the bounded batch endpoint.
+    /// Idempotent.
     pub async fn restore_task(&self, task_id: Uuid) -> Result<TaskResponse, Error> {
-        let path = format!("/v1/tasks/{task_id}/restore");
-        self.execute_json(self.authorized_request(Method::POST, &path).await?)
-            .await
+        let request = TaskBatchLifecycleRequest {
+            task_ids: vec![task_id],
+        };
+        self.batch_lifecycle_one(
+            "/v1/tasks/batch/restore",
+            &request,
+            task_id,
+            "task cannot be restored",
+        )
+        .await?;
+        self.get_task(task_id).await
     }
 
-    /// Permanently delete a trashed task's history (`DELETE /v1/tasks/{task_id}`).
-    /// Only trashed rows qualify; the call is idempotent for an already-purged id
-    /// from the caller's perspective (server returns 404 when nothing remains).
+    /// Permanently delete a trashed task's history through the bounded batch
+    /// endpoint. Only trashed rows qualify; a non-trashed task is reported as
+    /// `409`.
     pub async fn purge_trashed_task(&self, task_id: Uuid) -> Result<(), Error> {
-        let path = format!("/v1/tasks/{task_id}");
-        self.execute_empty(self.authorized_request(Method::DELETE, &path).await?)
-            .await
+        let request = TaskBatchLifecycleRequest {
+            task_ids: vec![task_id],
+        };
+        self.batch_lifecycle_one(
+            "/v1/tasks/batch/purge",
+            &request,
+            task_id,
+            "task must be trashed before permanent deletion",
+        )
+        .await
     }
 
     pub async fn cancel_active_tasks(&self) -> Result<CancelActiveTasksResponse, Error> {
@@ -782,7 +951,75 @@ fn idempotency_key<T: serde::Serialize>(path: &str, body: &T) -> Result<String, 
 
 #[cfg(test)]
 mod tests {
-    use super::idempotency_key;
+    use reqwest::StatusCode;
+
+    use super::{canonical_refusal, classify_masked_read, idempotency_key};
+    use crate::Error;
+
+    fn assert_refusal(error: Error, status: StatusCode, code: &str, message: &str) {
+        match error {
+            Error::HttpStatus {
+                status: actual,
+                api_error,
+                body,
+            } => {
+                assert_eq!(actual, status);
+                assert_eq!(api_error.as_deref(), Some(message));
+                let parsed: serde_json::Value =
+                    serde_json::from_str(&body).expect("canonical error body");
+                assert_eq!(parsed["code"], code);
+                assert_eq!(parsed["message"], message);
+            }
+            other => panic!("expected an HTTP-status refusal, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn singleton_refusals_reproduce_the_legacy_error_contract() {
+        // Readable but unmanageable: the batch masks it as not found, the
+        // read-only follow-up distinguishes the legacy 403.
+        assert_refusal(
+            classify_masked_read(Ok(())),
+            StatusCode::FORBIDDEN,
+            "forbidden",
+            "task management permission denied",
+        );
+        // Genuinely missing: the follow-up read is also 404.
+        assert_refusal(
+            classify_masked_read::<()>(Err(Error::HttpStatus {
+                status: StatusCode::NOT_FOUND,
+                api_error: Some("task not found".to_string()),
+                body: String::new(),
+            })),
+            StatusCode::NOT_FOUND,
+            "not_found",
+            "task not found",
+        );
+        // Non-404 read failures propagate unchanged.
+        match classify_masked_read::<()>(Err(Error::InvalidResponse("boom".to_string()))) {
+            Error::InvalidResponse(message) => assert_eq!(message, "boom"),
+            other => panic!("expected the read error to propagate, got {other:?}"),
+        }
+
+        assert_refusal(
+            canonical_refusal(
+                StatusCode::CONFLICT,
+                "active task cannot be trashed until it reaches a terminal state",
+            ),
+            StatusCode::CONFLICT,
+            "conflict",
+            "active task cannot be trashed until it reaches a terminal state",
+        );
+        assert_refusal(
+            canonical_refusal(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "task lifecycle action failed",
+            ),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "task lifecycle action failed",
+        );
+    }
 
     #[test]
     fn batch_idempotency_key_is_stable_for_the_same_request() {

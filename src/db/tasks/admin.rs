@@ -1,5 +1,4 @@
 use anyhow::Result;
-use cloudiful_tasks::TaskId;
 use sqlx::{Postgres, Transaction};
 use uuid::Uuid;
 
@@ -17,10 +16,12 @@ impl Database {
     ///
     /// Only the items the cancellation actually cancelled are considered: the
     /// caller passes exactly those ids, so a task that arrived after the
-    /// captured item set keeps its segments. The segments are requested in the
-    /// order of their library task id, so two cancellations that cover the
-    /// same items take the same segment locks in one deterministic order.
-    async fn request_segment_cancellations(
+    /// captured item set keeps its segments. The distinct segments are
+    /// cancelled by one set-based statement ordered by their library task id,
+    /// so two cancellations that cover the same items take the same segment
+    /// locks in one deterministic order and the batch issues no per-segment
+    /// round trip.
+    pub(crate) async fn request_segment_cancellations(
         &self,
         tx: &mut Transaction<'_, Postgres>,
         item_ids: &[Uuid],
@@ -38,12 +39,14 @@ impl Database {
         if segments.is_empty() {
             return Ok(());
         }
-        let queue = self.execution_queue().await?;
-        for segment in segments {
-            let _ = queue
-                .request_cancel_in(&mut *tx, TaskId::from_uuid(segment))
-                .await;
-        }
+        sqlx::query_file_scalar!(
+            "src/sql/db/tasks/cancel_segments.sql",
+            &segments,
+            super::execution::EXECUTION_NAMESPACE,
+            super::execution::EXECUTION_QUEUE,
+        )
+        .fetch_all(&mut **tx)
+        .await?;
         Ok(())
     }
 
@@ -104,45 +107,6 @@ impl Database {
             .await?;
         tx.commit().await?;
         Ok(true)
-    }
-
-    /// Soft-delete a terminal task into the recycle bin. No-op for an active
-    /// task and for an already-trashed row, so callers can treat the boolean
-    /// as "this call moved the row". Never touches task items or files.
-    pub async fn trash_task(&self, task_id: Uuid) -> Result<bool> {
-        Ok(sqlx::query_file!("src/sql/db/tasks/trash.sql", task_id)
-            .fetch_optional(self.pool())
-            .await?
-            .is_some())
-    }
-
-    /// Clear the trash marker. No-op for an active row.
-    pub async fn restore_task(&self, task_id: Uuid) -> Result<bool> {
-        Ok(sqlx::query_file!("src/sql/db/tasks/restore.sql", task_id)
-            .fetch_optional(self.pool())
-            .await?
-            .is_some())
-    }
-
-    /// Permanently delete a task row and its cascading history. The SQL only
-    /// matches trashed rows; a non-trashed task is never removed here.
-    /// P2: captures any still-active remote into the non-cascading cleanup
-    /// outbox before the cascade so purged jobs are still terminated.
-    pub async fn delete_trashed_task(&self, task_id: Uuid) -> Result<bool> {
-        let mut tx = self.pool().begin().await?;
-        sqlx::query_file_scalar!(
-            "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_task.sql",
-            task_id,
-            "purge",
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        let deleted = sqlx::query_file!("src/sql/db/tasks/delete_trashed.sql", task_id)
-            .fetch_optional(&mut *tx)
-            .await?
-            .is_some();
-        tx.commit().await?;
-        Ok(deleted)
     }
 
     /// Bulk-clear the calling user's history for one view in a single

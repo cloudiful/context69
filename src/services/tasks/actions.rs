@@ -8,6 +8,7 @@ use context69_contracts::{
 use futures::StreamExt;
 use uuid::Uuid;
 
+use crate::db::TaskLifecycleMutation;
 use crate::domain_errors::DomainError;
 
 use super::{TaskService, responses::task_response};
@@ -63,7 +64,7 @@ const TASK_BATCH_RERUN_CONCURRENCY: usize = 4;
 
 /// Refuse an empty, duplicate-bearing or oversized batch before any task is
 /// read or mutated, so a bad request never produces partial recovery.
-fn validate_batch_task_ids(task_ids: &[Uuid], max: usize) -> Result<()> {
+pub(super) fn validate_batch_task_ids(task_ids: &[Uuid], max: usize) -> Result<()> {
     if task_ids.is_empty() {
         return Err(
             DomainError::invalid_argument("task_ids must contain at least one task id").into(),
@@ -350,7 +351,9 @@ impl TaskService {
             return Err(DomainError::forbidden("task management permission denied").into());
         }
         if task.deleted_at.is_none() {
-            self.db.trash_task(task_id).await?;
+            self.db
+                .run_task_lifecycle_batch(user_id, &[task_id], TaskLifecycleMutation::Trash, false)
+                .await?;
         }
         let task = self
             .db
@@ -376,7 +379,9 @@ impl TaskService {
         if !self.db.can_manage_task(task_id, user_id).await? {
             return Err(DomainError::forbidden("task management permission denied").into());
         }
-        self.db.restore_task(task_id).await?;
+        self.db
+            .run_task_lifecycle_batch(user_id, &[task_id], TaskLifecycleMutation::Restore, false)
+            .await?;
         let task = self
             .db
             .get_task(task_id, user_id)
@@ -402,7 +407,11 @@ impl TaskService {
                 DomainError::conflict("task must be trashed before permanent deletion").into(),
             );
         }
-        if !self.db.delete_trashed_task(task_id).await? {
+        let outcome = self
+            .db
+            .run_task_lifecycle_batch(user_id, &[task_id], TaskLifecycleMutation::Purge, false)
+            .await?;
+        if !outcome.mutated.contains(&task_id) {
             return Err(
                 DomainError::conflict("task must be trashed before permanent deletion").into(),
             );

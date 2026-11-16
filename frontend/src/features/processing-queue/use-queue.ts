@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { apiClient } from "@/services/api";
 import type {
   SortDirection,
+  TaskBatchLifecycleResponse,
   TaskKind,
   TaskListView,
   TaskPageResponse,
@@ -17,26 +18,24 @@ import type {
 import {
   ACTIVE_STATUSES,
   DEFAULT_QUEUE_SORT_BY_VIEW,
-  QueuePartialFailureError,
   QueueTaskSkippedError,
   buildQueueBulkReport,
   captureQueueBulkTargets,
-  isActiveStatus,
   isActiveTask,
   isQueueBulkActionApplicable,
   isRecoverableTask,
   isSourceRerunnableTask,
   isTerminalTask,
   queueBulkActionOptions,
+  runQueueBatchLifecycle,
   runQueueBatchRerun,
   runQueueBatchRetry,
-  runQueueBulkTasks,
+  submitQueueLifecycleTask,
   summarizeQueueBulkOutcomes,
   taskSubject,
   type QueueBulkAction,
   type QueueBulkActionOption,
   type QueueBulkReport,
-  type QueueBulkTarget,
 } from "./queue-helpers";
 import { applyTaskPatches, type QueueScope } from "./queue-updates";
 import { useQueueLive } from "./use-queue-live";
@@ -266,11 +265,6 @@ function initialScope(): QueueScope {
     dependencyKey: null,
     sort: { ...DEFAULT_QUEUE_SORT_BY_VIEW.processing },
   };
-}
-
-/** A conflict answer: the task is no longer in the state the action needs. */
-function isConflict(error: unknown): boolean {
-  return (error as { status?: unknown } | null)?.status === 409;
 }
 
 /**
@@ -778,17 +772,38 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     })();
   }, [actionIds, beginAction, endAction, refetchFocusedTask, reload, t]);
 
+  /**
+   * Every row lifecycle action submits one id to the same bounded batch
+   * endpoint a selection uses, so the single route and the selection path
+   * share one server contract. A non-accepted outcome is a refusal and is
+   * surfaced with its non-sensitive reason instead of a success toast.
+   */
+  const submitLifecycleTask = useCallback(
+    (
+      taskId: string,
+      submit: (taskIds: readonly string[]) => Promise<TaskBatchLifecycleResponse>,
+    ) => submitQueueLifecycleTask(
+      taskId,
+      submit,
+      (reason) => t(`processingQueue.bulkReasons.${reason}`, { defaultValue: reason }),
+    ),
+    [t],
+  );
+
   const cancelTask = useCallback((task: TaskResponse) => {
     if (!ACTIVE_STATUSES.includes(task.status) || actionIds.includes(task.task_id)) {
       return;
     }
     void runTaskAction(
       task,
-      () => apiClient.cancelTask(task.task_id),
+      () => submitLifecycleTask(
+        task.task_id,
+        (taskIds) => apiClient.batchCancelTasks([...taskIds]),
+      ),
       "processingQueue.cancelAccepted",
       "processingQueue.cancelFailed",
     );
-  }, [actionIds, runTaskAction]);
+  }, [actionIds, runTaskAction, submitLifecycleTask]);
 
   const restoreTask = useCallback((task: TaskResponse) => {
     if (actionIds.includes(task.task_id)) {
@@ -796,11 +811,14 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
     }
     void runTaskAction(
       task,
-      () => apiClient.restoreTask(task.task_id),
+      () => submitLifecycleTask(
+        task.task_id,
+        (taskIds) => apiClient.batchRestoreTasks([...taskIds]),
+      ),
       "processingQueue.restoreAccepted",
       "processingQueue.restoreFailed",
     );
-  }, [actionIds, runTaskAction]);
+  }, [actionIds, runTaskAction, submitLifecycleTask]);
 
   const confirmTrashTask = useCallback((task: TaskResponse) => {
     // Only a terminal task can be trashed: an active one must be cancelled first.
@@ -815,13 +833,16 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         setConfirm(null);
         void runTaskAction(
           task,
-          () => apiClient.trashTask(task.task_id),
+          () => submitLifecycleTask(
+            task.task_id,
+            (taskIds) => apiClient.batchTrashTasks([...taskIds]),
+          ),
           "processingQueue.trashAccepted",
           "processingQueue.trashFailed",
         );
       },
     });
-  }, [actionIds, runTaskAction, t]);
+  }, [actionIds, runTaskAction, submitLifecycleTask, t]);
 
   const confirmDeleteTask = useCallback((task: TaskResponse) => {
     if (actionIds.includes(task.task_id)) {
@@ -835,14 +856,17 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
         setConfirm(null);
         void runTaskAction(
           task,
-          () => apiClient.deleteTask(task.task_id),
+          () => submitLifecycleTask(
+            task.task_id,
+            (taskIds) => apiClient.batchPurgeTasks([...taskIds]),
+          ),
           "processingQueue.deleteAccepted",
           "processingQueue.deleteFailed",
           { viewTarget: null },
         );
       },
     });
-  }, [actionIds, runTaskAction, t]);
+  }, [actionIds, runTaskAction, submitLifecycleTask, t]);
 
   const isSelected = useCallback(
     (taskId: string) => selection.ids.includes(taskId),
@@ -955,50 +979,30 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
   }, [t]);
 
   /**
-   * Move a selected task to the trash. An active task is cancelled first and
-   * only trashed after the cancellation succeeded; a task that turns terminal
-   * in between is re-read and trashed when the re-read confirms it.
+   * Route one selected lifecycle action to its bounded batch endpoint. The
+   * captured ids are chunked by the shared batch runner; the server applies
+   * the action set-based, cancelling active tasks before a trash in the same
+   * transaction, and reports one ordered outcome per id.
    */
-  const submitTrashTarget = useCallback(async (target: QueueBulkTarget) => {
-    let cancelled = false;
-    if (isActiveStatus(target.status)) {
-      try {
-        await apiClient.cancelTask(target.taskId);
-        cancelled = true;
-      } catch (error) {
-        if (!isConflict(error)) {
-          throw error;
-        }
-        const current = await apiClient.getTask(target.taskId);
-        if (isActiveStatus(current.status)) {
-          throw error;
-        }
+  const submitLifecycleBulk = useCallback(
+    (action: QueueBulkAction, taskIds: readonly string[]) => {
+      switch (action) {
+        case "cancel":
+          return apiClient.batchCancelTasks([...taskIds]);
+        case "trash":
+          return apiClient.batchTrashTasks([...taskIds]);
+        case "restore":
+          return apiClient.batchRestoreTasks([...taskIds]);
+        case "delete":
+          return apiClient.batchPurgeTasks([...taskIds]);
+        default:
+          return Promise.reject(
+            new QueueTaskSkippedError(t("processingQueue.bulkSkippedNotCancelled")),
+          );
       }
-    }
-    try {
-      return await apiClient.trashTask(target.taskId);
-    } catch (error) {
-      if (cancelled) {
-        throw new QueuePartialFailureError(t("processingQueue.bulkPartialFailure"));
-      }
-      throw error;
-    }
-  }, [t]);
-
-  const submitBulkTarget = useCallback(async (target: QueueBulkTarget) => {
-    switch (target.action) {
-      case "cancel":
-        return apiClient.cancelTask(target.taskId);
-      case "trash":
-        return submitTrashTarget(target);
-      case "restore":
-        return apiClient.restoreTask(target.taskId);
-      case "delete":
-        return apiClient.deleteTask(target.taskId);
-      default:
-        throw new QueueTaskSkippedError(t("processingQueue.bulkSkippedNotCancelled"));
-    }
-  }, [submitTrashTarget, t]);
+    },
+    [t],
+  );
 
   const runBulkAction = useCallback(async (action: QueueBulkAction) => {
     if (bulkAction || bulkRunningRef.current) {
@@ -1031,9 +1035,9 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
               (taskIds) => apiClient.batchRerunTasks([...taskIds]),
               onProgress,
             )
-          : await runQueueBulkTasks(
+          : await runQueueBatchLifecycle(
               targets,
-              submitBulkTarget,
+              (taskIds) => submitLifecycleBulk(action, taskIds),
               onProgress,
             );
       const summary = summarizeQueueBulkOutcomes(outcomes);
@@ -1098,7 +1102,7 @@ export function useQueue(options: UseQueueOptions = {}): QueueState {
       setBulkAction(null);
       setBulkProgress(null);
     }
-  }, [bulkAction, reload, selection.ids, selectionStatuses, subjects, submitBulkTarget, refetchFocusedTask, t]);
+  }, [bulkAction, reload, selection.ids, selectionStatuses, subjects, submitLifecycleBulk, refetchFocusedTask, t]);
 
   const requestBulkAction = useCallback((action: QueueBulkAction) => {
     if (bulkAction || selection.ids.length === 0) {

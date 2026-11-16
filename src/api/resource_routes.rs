@@ -5,7 +5,10 @@ use axum::{
     routing::{get, post, put},
 };
 
-use super::tasks::{batch_rerun_tasks, pause_task, resume_task};
+use super::tasks::{
+    batch_cancel_tasks, batch_purge_tasks, batch_rerun_tasks, batch_restore_tasks,
+    batch_trash_tasks, pause_task, resume_task,
+};
 use super::{
     ApiState, batch_get_group_documents, batch_retry_tasks, cancel_task, clear_task_history,
     create_document_result, create_group_library_folder, create_group_library_text,
@@ -36,6 +39,10 @@ pub(super) fn task_routes(api_state: ApiState) -> Router<ApiState> {
         .route("/v1/tasks", get(list_tasks).post(submit_task))
         .route("/v1/tasks/batch/retry", post(batch_retry_tasks))
         .route("/v1/tasks/batch/rerun", post(batch_rerun_tasks))
+        .route("/v1/tasks/batch/cancel", post(batch_cancel_tasks))
+        .route("/v1/tasks/batch/trash", post(batch_trash_tasks))
+        .route("/v1/tasks/batch/restore", post(batch_restore_tasks))
+        .route("/v1/tasks/batch/purge", post(batch_purge_tasks))
         .route("/v1/tasks/{task_id}", get(get_task).delete(delete_task))
         .route("/v1/tasks/{task_id}/items", get(list_task_items))
         .route("/v1/tasks/{task_id}/retry", post(retry_task))

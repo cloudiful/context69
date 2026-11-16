@@ -23,6 +23,7 @@ use crate::{
 };
 
 mod actions;
+mod batch_lifecycle;
 pub mod cutover;
 mod dispatcher;
 mod docling_cleanup;
