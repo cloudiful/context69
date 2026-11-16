@@ -1,4 +1,4 @@
-import { getCoreRowModel, useReactTable, type ColumnDef } from "@tanstack/react-table";
+import { useTable, type ColumnDef } from "@tanstack/react-table";
 import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
 
@@ -6,7 +6,7 @@ import { StatusBadge } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import type { GitProviderConnection } from "@/services/api";
 
-import { renderTable } from "./table";
+import { gitTableFeatures, renderTable } from "./table";
 
 export function ConnectionsTable({
   connections,
@@ -21,7 +21,7 @@ export function ConnectionsTable({
 }) {
   const { t } = useTranslation();
 
-  const columns = useMemo<ColumnDef<GitProviderConnection>[]>(() => [
+  const columns = useMemo<ColumnDef<typeof gitTableFeatures, GitProviderConnection>[]>(() => [
     {
       accessorKey: "display_name",
       header: t("groups.gitSources.connectionName"),
@@ -88,10 +88,10 @@ export function ConnectionsTable({
     },
   ], [busyKey, canManage, onToggle, t]);
 
-  const table = useReactTable({
+  const table = useTable({
+    features: gitTableFeatures,
     data: connections,
     columns,
-    getCoreRowModel: getCoreRowModel(),
   });
 
   return <div className="min-w-0 overflow-x-auto" data-testid="git-connections-table">{renderTable(table, t("groups.gitSources.emptyConnections"), "git-connection-row")}</div>;

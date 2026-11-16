@@ -1,9 +1,11 @@
-import i18next from "i18next";
+import i18next, { type TFunction } from "i18next";
 import { initReactI18next } from "react-i18next";
 
 import { DEFAULT_LOCALE, resolveInitialLocale, type AppLocale } from "../i18n/locale";
 import { en } from "../i18n/messages/en";
 import { zhCN } from "../i18n/messages/zh-CN";
+
+export type Translate = TFunction | ((key: string, params?: Record<string, unknown>) => string);
 
 /**
  * The shared catalog objects stay the single source for the English and

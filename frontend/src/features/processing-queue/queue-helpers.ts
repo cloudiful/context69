@@ -1,3 +1,4 @@
+import type { Translate } from "@/lib/i18n";
 import type {
   SortDirection,
   TaskBatchLifecycleResponse,
@@ -98,8 +99,6 @@ export const TASK_KIND_VALUES: TaskKind[] = [
 ];
 
 const QUEUE_STAGE_SET: ReadonlySet<string> = new Set(QUEUE_STAGE_VALUES);
-
-type Translate = (key: string, params?: Record<string, unknown>) => string;
 
 /** Unknown or missing stages render the Unknown label, never a raw key. */
 export function queueStageLabel(t: Translate, stage: string | null | undefined): string {

@@ -1,6 +1,5 @@
 import type { GroupKind, MembershipRole } from "@/services/api";
-
-type Translate = (key: string, params?: Record<string, unknown>) => string;
+import type { Translate } from "@/lib/i18n";
 
 const GROUP_KIND_VALUES: readonly GroupKind[] = ["personal", "shared"];
 const MEMBERSHIP_ROLE_VALUES: readonly MembershipRole[] = ["owner", "maintainer", "viewer"];

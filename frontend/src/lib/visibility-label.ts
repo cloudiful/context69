@@ -1,6 +1,5 @@
 import type { Visibility } from "@/services/api";
-
-type Translate = (key: string, params?: Record<string, unknown>) => string;
+import type { Translate } from "@/lib/i18n";
 
 const VISIBILITY_VALUES: readonly Visibility[] = ["private", "public"];
 

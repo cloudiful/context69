@@ -13,7 +13,6 @@ context69-contracts-core.workspace = true
 context69-contracts-library.workspace = true
 context69-contracts-namespace.workspace = true
 context69-contracts-search.workspace = true
-context69-contracts-translation.workspace = true
 schemars = { workspace = true, features = ["chrono04", "uuid1"] }
 serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true

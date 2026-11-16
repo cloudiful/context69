@@ -565,11 +565,13 @@ fn hf_tokenizer_removing_nul() -> Arc<tokenizers::Tokenizer> {
         .build()
         .expect("the test word-level model is valid");
     let mut tokenizer = tokenizers::Tokenizer::new(model);
-    tokenizer.with_normalizer(Some(
-        tokenizers::normalizers::NormalizerWrapper::BertNormalizer(
-            tokenizers::normalizers::bert::BertNormalizer::new(true, false, None, false),
-        ),
-    ));
+    tokenizer
+        .with_normalizer(Some(
+            tokenizers::normalizers::NormalizerWrapper::BertNormalizer(
+                tokenizers::normalizers::bert::BertNormalizer::new(true, false, None, false),
+            ),
+        ))
+        .expect("the normalizer is accepted");
     Arc::new(tokenizer)
 }
 
