@@ -2092,8 +2092,8 @@ export interface components {
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
-            sort_by?: null | components["schemas"]["AdminUserSortBy"];
-            sort_direction?: null | components["schemas"]["SortDirection"];
+            sort_by?: components["schemas"]["AdminUserSortBy"] | null;
+            sort_direction?: components["schemas"]["SortDirection"] | null;
         };
         AdminUserPageResponse: {
             items: components["schemas"]["AdminUserResponse"][];
@@ -2145,12 +2145,12 @@ export interface components {
             is_admin: boolean;
             login_name: string;
             personal_group_path: string;
-            personal_group_role?: null | components["schemas"]["MembershipRole"];
+            personal_group_role?: components["schemas"]["MembershipRole"] | null;
             /** Format: int64 */
             user_id: number;
         };
         BatchDocumentItem: {
-            document?: null | components["schemas"]["DocumentResponse"];
+            document?: components["schemas"]["DocumentResponse"] | null;
             key: components["schemas"]["DocumentKey"];
         };
         BatchGetDocumentsRequest: {
@@ -2197,16 +2197,16 @@ export interface components {
          */
         CanonicalTaskListQuery: {
             dependency_key?: string | null;
-            kind?: null | components["schemas"]["TaskKind"];
+            kind?: components["schemas"]["TaskKind"] | null;
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
-            sort_by?: null | components["schemas"]["TaskSortBy"];
-            sort_direction?: null | components["schemas"]["SortDirection"];
+            sort_by?: components["schemas"]["TaskSortBy"] | null;
+            sort_direction?: components["schemas"]["SortDirection"] | null;
             stage?: string | null;
-            status?: null | components["schemas"]["TaskStatus"];
+            status?: components["schemas"]["TaskStatus"] | null;
             view: components["schemas"]["TaskListView"];
             waiting_reason?: string | null;
         };
@@ -2292,7 +2292,7 @@ export interface components {
             idempotency_key: string;
             /** @description Bounded opaque producer identifier, e.g. `stock.news`. */
             producer: string;
-            provenance?: null | components["schemas"]["DocumentResultProvenance"];
+            provenance?: components["schemas"]["DocumentResultProvenance"] | null;
             /** @description The opaque result payload; must be a JSON object. */
             result: {
                 [key: string]: unknown;
@@ -2314,7 +2314,7 @@ export interface components {
         };
         CreateGroupRequest: {
             group_key: string;
-            kind?: null | components["schemas"]["GroupKind"];
+            kind?: components["schemas"]["GroupKind"] | null;
             name: string;
             parent_group_path?: string | null;
             visibility: components["schemas"]["Visibility"];
@@ -2349,7 +2349,7 @@ export interface components {
             source_uri?: string | null;
             summary?: string | null;
             title: string;
-            translation?: null | components["schemas"]["TranslationDirective"];
+            translation?: components["schemas"]["TranslationDirective"] | null;
         };
         CursorPageQuery: {
             cursor?: string | null;
@@ -2385,13 +2385,13 @@ export interface components {
          *     fails instead of silently changing meaning.
          */
         DoclingCleanupQuery: {
-            outcome?: null | components["schemas"]["DoclingCleanupOutcome"];
+            outcome?: components["schemas"]["DoclingCleanupOutcome"] | null;
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
             page_size?: number;
             remote_task_id?: string | null;
-            status?: null | components["schemas"]["DoclingCleanupStatus"];
+            status?: components["schemas"]["DoclingCleanupStatus"] | null;
         };
         /**
          * @description Closed backend-owned cause for a cleanup row that needs an explanation.
@@ -2432,7 +2432,7 @@ export interface components {
             /** Format: date-time */
             next_attempt_at: string;
             outcome?: string | null;
-            reason_code?: null | components["schemas"]["DoclingCleanupReasonCode"];
+            reason_code?: components["schemas"]["DoclingCleanupReasonCode"] | null;
             remote_task_id: string;
             status: string;
             /** Format: uuid */
@@ -2580,7 +2580,7 @@ export interface components {
             source_uri: string;
             summary?: string | null;
             title: string;
-            translation_status?: null | components["schemas"]["TranslationStatus"];
+            translation_status?: components["schemas"]["TranslationStatus"] | null;
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
@@ -2611,7 +2611,7 @@ export interface components {
             id: number;
             idempotency_key: string;
             producer: string;
-            provenance?: null | components["schemas"]["DocumentResultProvenance"];
+            provenance?: components["schemas"]["DocumentResultProvenance"] | null;
             result: {
                 [key: string]: unknown;
             };
@@ -2791,7 +2791,7 @@ export interface components {
             total_bytes: number;
             /** @description Whether more matching hits existed than this response returns. */
             truncated: boolean;
-            vector_unavailable?: null | components["schemas"]["GitCodeVectorUnavailableReason"];
+            vector_unavailable?: components["schemas"]["GitCodeVectorUnavailableReason"] | null;
         };
         /**
          * @description Why a requested semantic code channel answered with lexical results only.
@@ -3179,8 +3179,8 @@ export interface components {
          *     kind says which side is missing, so the optional sides are not ambiguous.
          */
         GitRepositoryFileDiff: {
-            after?: null | components["schemas"]["GitRepositoryFileDiffFile"];
-            before?: null | components["schemas"]["GitRepositoryFileDiffFile"];
+            after?: components["schemas"]["GitRepositoryFileDiffFile"] | null;
+            before?: components["schemas"]["GitRepositoryFileDiffFile"] | null;
             change_kind: components["schemas"]["GitFileChangeKind"];
             /** @description Repository-relative path that changed. */
             path: string;
@@ -3471,7 +3471,7 @@ export interface components {
             enabled?: boolean;
             exclude_patterns?: string[];
             include_patterns?: string[];
-            index_profile?: null | components["schemas"]["GitIndexProfile"];
+            index_profile?: components["schemas"]["GitIndexProfile"] | null;
             /** Format: int64 */
             interval_seconds?: number | null;
             /** @description Pin edit; omission keeps the current pin and `clear` removes it. */
@@ -3653,7 +3653,7 @@ export interface components {
         GroupResponse: {
             /** Format: date-time */
             created_at: string;
-            current_role?: null | components["schemas"]["MembershipRole"];
+            current_role?: components["schemas"]["MembershipRole"] | null;
             /** Format: int64 */
             group_id: number;
             group_key: string;
@@ -3691,7 +3691,7 @@ export interface components {
             /** Format: int64 */
             indexed_chunks?: number | null;
             library_dependency_gates?: components["schemas"]["LibraryDependencyGateResponse"][] | null;
-            library_processing_queue?: null | components["schemas"]["LibraryProcessingQueueHealth"];
+            library_processing_queue?: components["schemas"]["LibraryProcessingQueueHealth"] | null;
             library_processing_ready?: boolean | null;
             qdrant_ok?: boolean | null;
             status: components["schemas"]["HealthStatus"];
@@ -3720,7 +3720,7 @@ export interface components {
         IngestOptions: {
             metadata?: components["schemas"]["CanonicalUploadMetadata"];
             source_policy?: components["schemas"]["SourcePolicy"];
-            translation?: null | components["schemas"]["TranslationDirective"];
+            translation?: components["schemas"]["TranslationDirective"] | null;
         };
         LibraryDependencyGateResponse: {
             dependency_key: string;
@@ -3851,7 +3851,7 @@ export interface components {
             oldest_queued_age_seconds?: number | null;
             /** Format: int64 */
             oldest_waiting_age_seconds?: number | null;
-            parent_consistency?: null | components["schemas"]["TaskQueueConsistencyHealth"];
+            parent_consistency?: components["schemas"]["TaskQueueConsistencyHealth"] | null;
             /** Format: int64 */
             pending_count: number;
             /** Format: int64 */
@@ -3880,7 +3880,7 @@ export interface components {
             group_path: string;
             /** Format: uuid */
             id: string;
-            ingest_status?: null | components["schemas"]["LibraryIngestStatus"];
+            ingest_status?: components["schemas"]["LibraryIngestStatus"] | null;
             is_source_folder: boolean;
             is_source_records_folder: boolean;
             kind: components["schemas"]["LibraryResourceKind"];
@@ -3953,8 +3953,8 @@ export interface components {
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
-            sort_by?: null | components["schemas"]["MemberSortBy"];
-            sort_direction?: null | components["schemas"]["SortDirection"];
+            sort_by?: components["schemas"]["MemberSortBy"] | null;
+            sort_direction?: components["schemas"]["SortDirection"] | null;
         };
         /** @enum {string} */
         MemberSortBy: "login_name" | "display_name" | "role";
@@ -4018,15 +4018,15 @@ export interface components {
             target_parent_group_path?: string | null;
         };
         NamespacePageQuery: {
-            kind?: null | components["schemas"]["GroupKind"];
+            kind?: components["schemas"]["GroupKind"] | null;
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
-            sort_by?: null | components["schemas"]["GroupSortBy"];
-            sort_direction?: null | components["schemas"]["SortDirection"];
-            visibility?: null | components["schemas"]["Visibility"];
+            sort_by?: components["schemas"]["GroupSortBy"] | null;
+            sort_direction?: components["schemas"]["SortDirection"] | null;
+            visibility?: components["schemas"]["Visibility"] | null;
         };
         OffsetPageQuery: {
             /** Format: int32 */
@@ -4130,8 +4130,8 @@ export interface components {
             size_bytes: number;
         };
         PrepareLibraryUploadResponse: {
-            file?: null | components["schemas"]["LibraryFileSummary"];
-            task?: null | components["schemas"]["TaskRef"];
+            file?: components["schemas"]["LibraryFileSummary"] | null;
+            task?: components["schemas"]["TaskRef"] | null;
             upload_required: boolean;
         };
         /**
@@ -4224,7 +4224,7 @@ export interface components {
              * @description The number of point ids one ingestion run may admit.
              */
             registry_max_ids_per_run: number;
-            s3?: null | components["schemas"]["RuntimeS3SettingsResponse"];
+            s3?: components["schemas"]["RuntimeS3SettingsResponse"] | null;
             storage_root: string;
             trusted_proxy_enabled: boolean;
         };
@@ -4252,7 +4252,7 @@ export interface components {
         };
         RuntimeSettingsResponse: {
             chunking: components["schemas"]["RuntimeChunkingSettings"];
-            code_embedding?: null | components["schemas"]["RuntimeCodeEmbeddingSettings"];
+            code_embedding?: components["schemas"]["RuntimeCodeEmbeddingSettings"] | null;
             embedding: components["schemas"]["RuntimeEmbeddingSettings"];
             file_library: components["schemas"]["RuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
@@ -4278,7 +4278,7 @@ export interface components {
         };
         ScopeSpec: {
             group_path: string;
-            kind?: null | components["schemas"]["GroupKind"];
+            kind?: components["schemas"]["GroupKind"] | null;
             metadata_indexes?: components["schemas"]["ScopeMetadataIndex"][];
             name: string;
             visibility: components["schemas"]["Visibility"];
@@ -4316,7 +4316,7 @@ export interface components {
             source_uri: string;
             summary?: string | null;
             title: string;
-            translation_status?: null | components["schemas"]["TranslationStatus"];
+            translation_status?: components["schemas"]["TranslationStatus"] | null;
             /** Format: float */
             vector_score?: number | null;
             visibility: components["schemas"]["Visibility"];
@@ -4509,7 +4509,7 @@ export interface components {
             source_id?: string | null;
             source_key: string;
             sync_strategy: components["schemas"]["SourceSyncStrategy"];
-            visibility?: null | components["schemas"]["Visibility"];
+            visibility?: components["schemas"]["Visibility"] | null;
         };
         SourceConnectionResponse: {
             has_database_url: boolean;
@@ -4596,7 +4596,7 @@ export interface components {
         /** @description One ordered outcome of a batch lifecycle call. */
         TaskBatchLifecycleItem: {
             outcome: components["schemas"]["TaskBatchLifecycleOutcome"];
-            reason?: null | components["schemas"]["TaskBatchLifecycleReason"];
+            reason?: components["schemas"]["TaskBatchLifecycleReason"] | null;
             /** Format: uuid */
             task_id: string;
         };
@@ -4626,7 +4626,7 @@ export interface components {
         /** @description One ordered outcome of a batch source-rerun call. */
         TaskBatchRerunItem: {
             outcome: components["schemas"]["TaskBatchRerunOutcome"];
-            reason?: null | components["schemas"]["TaskBatchRerunReason"];
+            reason?: components["schemas"]["TaskBatchRerunReason"] | null;
             /**
              * Format: uuid
              * @description The created child task's own id. A source rerun forks a child, so it
@@ -4663,7 +4663,7 @@ export interface components {
         /** @description One ordered outcome of a batch recovery call. */
         TaskBatchRetryItem: {
             outcome: components["schemas"]["TaskBatchRetryOutcome"];
-            reason?: null | components["schemas"]["TaskBatchRetryReason"];
+            reason?: components["schemas"]["TaskBatchRetryReason"] | null;
             /**
              * Format: uuid
              * @description The recovered task's own id. Recovery never forks, so it equals
@@ -4737,7 +4737,7 @@ export interface components {
          *     not re-expose item input.
          */
         TaskDiagnoseItem: {
-            active_attempt?: null | components["schemas"]["TaskAttemptView"];
+            active_attempt?: components["schemas"]["TaskAttemptView"] | null;
             /** Format: int32 */
             attempt_count: number;
             /** Format: date-time */
@@ -4749,7 +4749,7 @@ export interface components {
             finished_at?: string | null;
             /** Format: uuid */
             item_id: string;
-            latest_attempt?: null | components["schemas"]["TaskAttemptView"];
+            latest_attempt?: components["schemas"]["TaskAttemptView"] | null;
             /**
              * Format: date-time
              * @description Item lease deadline; absent for an item that holds no lease.
@@ -4903,7 +4903,7 @@ export interface components {
             next_attempt_at?: string | null;
             /** Format: int32 */
             ordinal: number;
-            progress?: null | components["schemas"]["TaskItemProgress"];
+            progress?: components["schemas"]["TaskItemProgress"] | null;
             resource_id?: string | null;
             retryable: boolean;
             stage?: string | null;
@@ -4928,7 +4928,7 @@ export interface components {
             cursor?: string | null;
             /** Format: int32 */
             limit?: number;
-            status?: null | components["schemas"]["TaskItemStatus"];
+            status?: components["schemas"]["TaskItemStatus"] | null;
         };
         TaskItemsResponse: {
             items: components["schemas"]["TaskItemResponse"][];
@@ -4945,17 +4945,17 @@ export interface components {
          */
         TaskListQuery: {
             dependency_key?: string | null;
-            kind?: null | components["schemas"]["TaskKind"];
+            kind?: components["schemas"]["TaskKind"] | null;
             /** Format: int32 */
             page?: number;
             /** Format: int32 */
             page_size?: number;
             query?: string | null;
-            sort_by?: null | components["schemas"]["TaskSortBy"];
-            sort_direction?: null | components["schemas"]["SortDirection"];
+            sort_by?: components["schemas"]["TaskSortBy"] | null;
+            sort_direction?: components["schemas"]["SortDirection"] | null;
             stage?: string | null;
-            status?: null | components["schemas"]["TaskStatus"];
-            view?: null | components["schemas"]["TaskListView"];
+            status?: components["schemas"]["TaskStatus"] | null;
+            view?: components["schemas"]["TaskListView"] | null;
             waiting_reason?: string | null;
         };
         /** @enum {string} */
@@ -5094,11 +5094,11 @@ export interface components {
             file_name?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
-            focus_progress?: null | components["schemas"]["TaskItemProgress"];
+            focus_progress?: components["schemas"]["TaskItemProgress"] | null;
             group_path?: string | null;
             kind: components["schemas"]["TaskKind"];
             origin: components["schemas"]["TaskOrigin"];
-            pause_state?: null | components["schemas"]["TaskPauseState"];
+            pause_state?: components["schemas"]["TaskPauseState"] | null;
             /**
              * Format: date-time
              * @description When the pause last became effective; `None` while unpaused.
@@ -5146,10 +5146,10 @@ export interface components {
          */
         TaskSelectionQuery: {
             dependency_key?: string | null;
-            kind?: null | components["schemas"]["TaskKind"];
+            kind?: components["schemas"]["TaskKind"] | null;
             query?: string | null;
             stage?: string | null;
-            status?: null | components["schemas"]["TaskStatus"];
+            status?: components["schemas"]["TaskStatus"] | null;
             /**
              * @description Typed list view, exactly as in the task list: the view owns the trash
              *     predicate and a user-supplied `status` only narrows it.
@@ -5444,7 +5444,7 @@ export interface components {
             finished_at?: string | null;
             /** Format: uuid */
             job_id: string;
-            provider?: null | components["schemas"]["TranslationProviderKind"];
+            provider?: components["schemas"]["TranslationProviderKind"] | null;
             /** Format: int64 */
             source_character_count: number;
             source_locale?: string | null;
@@ -5462,10 +5462,10 @@ export interface components {
         TranslationLlmApiKind: "openai_responses" | "openai_chat_completions" | "anthropic_messages";
         TranslationProviderInput: {
             api_key?: string | null;
-            deepl_plan?: null | components["schemas"]["DeeplPlan"];
+            deepl_plan?: components["schemas"]["DeeplPlan"] | null;
             enabled?: boolean;
             endpoint?: string | null;
-            llm_api_kind?: null | components["schemas"]["TranslationLlmApiKind"];
+            llm_api_kind?: components["schemas"]["TranslationLlmApiKind"] | null;
             model?: string | null;
             /** Format: int64 */
             monthly_character_limit?: number | null;
@@ -5488,11 +5488,11 @@ export interface components {
         TranslationProviderResponse: {
             /** Format: int64 */
             current_month_characters: number;
-            deepl_plan?: null | components["schemas"]["DeeplPlan"];
+            deepl_plan?: components["schemas"]["DeeplPlan"] | null;
             enabled: boolean;
             endpoint?: string | null;
             has_api_key: boolean;
-            llm_api_kind?: null | components["schemas"]["TranslationLlmApiKind"];
+            llm_api_kind?: components["schemas"]["TranslationLlmApiKind"] | null;
             model?: string | null;
             /** Format: int64 */
             monthly_character_limit?: number | null;
@@ -5573,7 +5573,7 @@ export interface components {
         };
         UpdateGroupRequest: {
             name?: string | null;
-            visibility?: null | components["schemas"]["Visibility"];
+            visibility?: components["schemas"]["Visibility"] | null;
         };
         UpdateGroupTranslationSettingsRequest: {
             default_target_locales?: string[];
@@ -5621,7 +5621,7 @@ export interface components {
              * @description The number of point ids one ingestion run may admit.
              */
             registry_max_ids_per_run?: number | null;
-            s3?: null | components["schemas"]["UpdateRuntimeS3Settings"];
+            s3?: components["schemas"]["UpdateRuntimeS3Settings"] | null;
             storage_root: string;
             trusted_proxy_enabled?: boolean;
         };
@@ -5636,7 +5636,7 @@ export interface components {
         };
         UpdateRuntimeSettingsRequest: {
             chunking: components["schemas"]["RuntimeChunkingSettings"];
-            code_embedding?: null | components["schemas"]["UpdateCodeEmbeddingSettings"];
+            code_embedding?: components["schemas"]["UpdateCodeEmbeddingSettings"] | null;
             embedding: components["schemas"]["UpdateRuntimeEmbeddingSettings"];
             file_library: components["schemas"]["UpdateRuntimeFileLibrarySettings"];
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
@@ -5665,7 +5665,7 @@ export interface components {
             source_uri?: string | null;
             summary?: string | null;
             title: string;
-            translation?: null | components["schemas"]["TranslationDirective"];
+            translation?: components["schemas"]["TranslationDirective"] | null;
         };
         UpsertMembershipRequest: {
             login_name: string;
@@ -5736,7 +5736,7 @@ export interface components {
             error_message?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
-            phase?: null | components["schemas"]["VectorIndexRebuildPhase"];
+            phase?: components["schemas"]["VectorIndexRebuildPhase"] | null;
             /** @description The physical collection ordinary writers use today. */
             physical_collection?: string | null;
             processed_chunks: number;
@@ -6570,6 +6570,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Document projected for the caller */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6578,6 +6579,7 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentResponse"];
                 };
             };
+            /** @description Document not found or not visible */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6586,6 +6588,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Document lookup failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -6613,6 +6616,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of groups visible to the caller */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6636,6 +6640,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Group created */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -6644,6 +6649,7 @@ export interface operations {
                     "application/json": components["schemas"]["GroupResponse"];
                 };
             };
+            /** @description Invalid group definition */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -6665,6 +6671,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Group for the requested path */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6673,6 +6680,7 @@ export interface operations {
                     "application/json": components["schemas"]["GroupResponse"];
                 };
             };
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6694,6 +6702,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Group deleted */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -6717,6 +6726,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated group */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6725,6 +6735,7 @@ export interface operations {
                     "application/json": components["schemas"]["GroupResponse"];
                 };
             };
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6750,6 +6761,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Document delete task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6758,6 +6770,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Idempotency key reuse conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6783,6 +6796,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description File ingestion task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6791,6 +6805,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Idempotency key reuse conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6816,6 +6831,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Text ingestion task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6824,6 +6840,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Idempotency key reuse conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6849,6 +6866,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description URL ingestion task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6857,6 +6875,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Idempotency key reuse conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -6886,6 +6905,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of child groups */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6911,6 +6931,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Documents found for the requested keys */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6936,6 +6957,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Document identified by source key and external id */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -6944,6 +6966,7 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentResponse"];
                 };
             };
+            /** @description Document or group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -6969,6 +6992,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Document delete task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -6977,12 +7001,14 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Insufficient group role */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Document or group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7006,6 +7032,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Documents matching the query within the group scope */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7014,6 +7041,7 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentQueryResponse"];
                 };
             };
+            /** @description Invalid document query */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7052,6 +7080,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of document results for the caller */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7060,6 +7089,7 @@ export interface operations {
                     "application/json": components["schemas"]["ListDocumentResultsResponse"];
                 };
             };
+            /** @description Invalid result list query */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7068,6 +7098,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Document or group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7094,6 +7125,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Document result appended to the caller's results */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7102,6 +7134,7 @@ export interface operations {
                     "application/json": components["schemas"]["DocumentResultResponse"];
                 };
             };
+            /** @description Invalid result payload */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -7110,6 +7143,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Insufficient group role */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -7118,6 +7152,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Document or group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -7126,6 +7161,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Document result conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -7148,6 +7184,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Translation jobs for the document */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -7174,6 +7211,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Document translation rebuild task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -7182,12 +7220,14 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Insufficient group role */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Document or group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8104,7 +8144,7 @@ export interface operations {
         };
         requestBody?: {
             content: {
-                "application/json": null | components["schemas"]["GitIndexRequest"];
+                "application/json": components["schemas"]["GitIndexRequest"] | null;
             };
         };
         responses: {
@@ -8262,6 +8302,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Library settings for the group */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8270,6 +8311,7 @@ export interface operations {
                     "application/json": components["schemas"]["GroupLibrarySettingsResponse"];
                 };
             };
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8295,6 +8337,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated library settings for the group */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8303,6 +8346,7 @@ export interface operations {
                     "application/json": components["schemas"]["GroupLibrarySettingsResponse"];
                 };
             };
+            /** @description Insufficient group role */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -8311,6 +8355,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -8336,6 +8381,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description URL import task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8344,18 +8390,21 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Invalid URL import request */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -8390,6 +8439,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Direct upload targets prepared; an upload is still required */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -8398,6 +8448,7 @@ export interface operations {
                     "application/json": components["schemas"]["PrepareLibraryUploadResponse"];
                 };
             };
+            /** @description Upload prepared and file ingestion task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -8406,18 +8457,21 @@ export interface operations {
                     "application/json": components["schemas"]["PrepareLibraryUploadResponse"];
                 };
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Group not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Upload preparation conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -8426,6 +8480,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Invalid upload request */
             422: {
                 headers: {
                     [name: string]: unknown;
@@ -8982,6 +9037,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of group members */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9007,6 +9063,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Membership created or updated */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -9027,6 +9084,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Membership removed */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -9050,6 +9108,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of metadata indexes for the source */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9077,6 +9136,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Metadata index created */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -9103,6 +9163,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated metadata index */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9125,6 +9186,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Metadata index removed */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -9145,6 +9207,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Metadata index retry attempt started */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9170,6 +9233,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Moved group */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9314,6 +9378,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Translation settings for the group */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9339,6 +9404,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated translation settings for the group */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9361,6 +9427,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Groups matching the search query */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9840,6 +9907,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Scope ensured and its identifiers returned */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9848,6 +9916,7 @@ export interface operations {
                     "application/json": components["schemas"]["EnsureScopeResponse"];
                 };
             };
+            /** @description Scope definition conflicts with existing state */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -9871,6 +9940,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ranked search hits for the requested window */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9888,6 +9958,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description The search service failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -9950,6 +10021,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Current Docling settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9958,6 +10030,7 @@ export interface operations {
                     "application/json": components["schemas"]["DoclingSettingsResponse"];
                 };
             };
+            /** @description Docling settings could not be read */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -9981,6 +10054,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated Docling settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -9989,6 +10063,7 @@ export interface operations {
                     "application/json": components["schemas"]["DoclingSettingsResponse"];
                 };
             };
+            /** @description Invalid Docling settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -9997,6 +10072,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Docling settings could not be updated */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10020,12 +10096,14 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Docling endpoint is reachable */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Invalid Docling connection settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10034,6 +10112,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Docling connection check failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10053,6 +10132,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Current runtime settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10061,6 +10141,7 @@ export interface operations {
                     "application/json": components["schemas"]["RuntimeSettingsResponse"];
                 };
             };
+            /** @description Runtime settings could not be read */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10084,6 +10165,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated runtime settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10092,6 +10174,7 @@ export interface operations {
                     "application/json": components["schemas"]["RuntimeSettingsResponse"];
                 };
             };
+            /** @description Invalid runtime settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10100,6 +10183,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Runtime settings could not be updated */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10123,12 +10207,14 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Embedding endpoint is reachable */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Invalid embedding connection settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10137,6 +10223,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Embedding connection check failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10160,12 +10247,14 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Qdrant endpoint is reachable */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Invalid Qdrant connection settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10174,6 +10263,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10182,6 +10272,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Qdrant connection check failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10205,12 +10296,14 @@ export interface operations {
             };
         };
         responses: {
+            /** @description S3 storage endpoint is reachable */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Invalid S3 connection settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10219,6 +10312,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description S3 connection check failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10242,6 +10336,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description The tokenizer preset is activated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10250,6 +10345,7 @@ export interface operations {
                     "application/json": components["schemas"]["TokenizerProvisionResponse"];
                 };
             };
+            /** @description Unknown or invalid tokenizer preset */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10258,6 +10354,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10266,6 +10363,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Tokenizer preset provisioning is already running */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10274,6 +10372,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description The tokenizer preset could not be provisioned */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10297,12 +10396,14 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Valkey endpoint is reachable */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Invalid Valkey connection settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10311,6 +10412,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Valkey connection check failed */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10368,6 +10470,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Vector index rebuild task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -10376,6 +10479,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Idempotency key reuse conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -10548,6 +10652,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Current search settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10556,6 +10661,7 @@ export interface operations {
                     "application/json": components["schemas"]["SearchSettingsResponse"];
                 };
             };
+            /** @description Search settings could not be read */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10579,6 +10685,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated search settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10587,6 +10694,7 @@ export interface operations {
                     "application/json": components["schemas"]["SearchSettingsResponse"];
                 };
             };
+            /** @description Invalid search settings */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10595,6 +10703,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Search settings could not be updated */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -10614,6 +10723,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Current translation provider settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10622,6 +10732,7 @@ export interface operations {
                     "application/json": components["schemas"]["TranslationSettingsResponse"];
                 };
             };
+            /** @description Administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10645,6 +10756,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Updated translation provider settings */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10653,6 +10765,7 @@ export interface operations {
                     "application/json": components["schemas"]["TranslationSettingsResponse"];
                 };
             };
+            /** @description Administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10675,6 +10788,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of configured translation providers */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10683,6 +10797,7 @@ export interface operations {
                     "application/json": components["schemas"]["TranslationProviderPageResponse"];
                 };
             };
+            /** @description Administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10706,6 +10821,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Typed outcome of the LLM provider probe */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -10714,6 +10830,7 @@ export interface operations {
                     "application/json": components["schemas"]["TestLlmProviderResponse"];
                 };
             };
+            /** @description Invalid LLM provider draft */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -10722,6 +10839,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Administrator access required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -10730,6 +10848,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description The LLM provider probe could not run */
             500: {
                 headers: {
                     [name: string]: unknown;
@@ -11149,6 +11268,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of tasks visible to the caller */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11157,6 +11277,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskPageResponse"];
                 };
             };
+            /** @description Invalid task list query */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11180,6 +11301,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Submitted task accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11188,6 +11310,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRef"];
                 };
             };
+            /** @description Idempotency key reuse conflict */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11211,6 +11334,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ordered per-task cancel outcomes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11219,6 +11343,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
                 };
             };
+            /** @description Invalid batch cancel request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11242,6 +11367,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ordered per-task purge outcomes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11250,6 +11376,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
                 };
             };
+            /** @description Invalid batch purge request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11273,6 +11400,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ordered per-task rerun outcomes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11281,6 +11409,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskBatchRerunResponse"];
                 };
             };
+            /** @description Invalid batch rerun request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11304,6 +11433,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ordered per-task restore outcomes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11312,6 +11442,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
                 };
             };
+            /** @description Invalid batch restore request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11335,6 +11466,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ordered per-task retry outcomes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11343,6 +11475,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskBatchRetryResponse"];
                 };
             };
+            /** @description Invalid batch retry request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11366,6 +11499,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Ordered per-task trash outcomes */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11374,6 +11508,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskBatchLifecycleResponse"];
                 };
             };
+            /** @description Invalid batch trash request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11397,6 +11532,7 @@ export interface operations {
             };
         };
         responses: {
+            /** @description Cleared task history view */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11405,6 +11541,7 @@ export interface operations {
                     "application/json": components["schemas"]["ClearTaskHistoryResponse"];
                 };
             };
+            /** @description Invalid task history clear request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11436,6 +11573,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Snapshot of task ids matching the current filters */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11444,6 +11582,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskSelectionResponse"];
                 };
             };
+            /** @description Invalid task selection query */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11494,6 +11633,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Task owned by or shared with the caller */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11502,6 +11642,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11523,12 +11664,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Task permanently removed */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11537,6 +11680,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11545,6 +11689,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task cannot be deleted in its current state */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11566,12 +11711,14 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Task cancellation accepted */
             204: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11593,6 +11740,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Task diagnosis report */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11601,6 +11749,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskDiagnoseResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11630,6 +11779,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Page of task items */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11651,6 +11801,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Paused task */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11659,6 +11810,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskResponse"];
                 };
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11667,6 +11819,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11675,6 +11828,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task cannot be paused in its current state */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11696,6 +11850,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Task rerun accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11704,6 +11859,7 @@ export interface operations {
                     "application/json": components["schemas"]["RerunTaskResponse"];
                 };
             };
+            /** @description Invalid rerun request */
             400: {
                 headers: {
                     [name: string]: unknown;
@@ -11712,6 +11868,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11720,6 +11877,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task cannot be rerun in its current state */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11741,6 +11899,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Restored task */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11749,6 +11908,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskResponse"];
                 };
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11757,6 +11917,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11778,6 +11939,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Resumed task */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11786,6 +11948,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskResponse"];
                 };
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11794,6 +11957,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11802,6 +11966,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task cannot be resumed in its current state */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11823,6 +11988,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Task retry accepted */
             202: {
                 headers: {
                     [name: string]: unknown;
@@ -11831,6 +11997,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskRetryResponse"];
                 };
             };
+            /** @description Task cannot be retried in its current state */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -11852,6 +12019,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description Trashed task */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11860,6 +12028,7 @@ export interface operations {
                     "application/json": components["schemas"]["TaskResponse"];
                 };
             };
+            /** @description Insufficient permissions */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -11868,6 +12037,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task not found */
             404: {
                 headers: {
                     [name: string]: unknown;
@@ -11876,6 +12046,7 @@ export interface operations {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
             };
+            /** @description Task cannot be trashed in its current state */
             409: {
                 headers: {
                     [name: string]: unknown;

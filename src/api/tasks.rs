@@ -31,7 +31,7 @@ pub(crate) use submit::*;
     post,
     path = "/v1/scopes/ensure",
     request_body = ScopeSpec,
-    responses((status = 200, body = crate::contracts::EnsureScopeResponse), (status = 409, body = ApiErrorResponse))
+    responses((status = 200, description = "Scope ensured and its identifiers returned", body = crate::contracts::EnsureScopeResponse), (status = 409, description = "Scope definition conflicts with existing state", body = ApiErrorResponse))
 )]
 pub(crate) async fn ensure_scope(
     State(state): State<ApiState>,

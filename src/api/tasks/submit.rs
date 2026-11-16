@@ -18,7 +18,7 @@ use super::{
 };
 use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/text", params(("group_path" = String, Path)), request_body = TextBatchRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/text", params(("group_path" = String, Path)), request_body = TextBatchRequest, responses((status = 202, description = "Text ingestion task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse)))]
 pub(crate) async fn submit_text_batch(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -55,7 +55,7 @@ pub(crate) async fn submit_text_batch(
     .await
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/url", params(("group_path" = String, Path)), request_body = UrlBatchRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/url", params(("group_path" = String, Path)), request_body = UrlBatchRequest, responses((status = 202, description = "URL ingestion task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse)))]
 pub(crate) async fn submit_url_batch(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -92,7 +92,7 @@ pub(crate) async fn submit_url_batch(
     .await
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/file", params(("group_path" = String, Path)), request_body = FileBatchRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/file", params(("group_path" = String, Path)), request_body = FileBatchRequest, responses((status = 202, description = "File ingestion task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse)))]
 pub(crate) async fn submit_file_batch(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -129,7 +129,7 @@ pub(crate) async fn submit_file_batch(
     .await
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/delete", params(("group_path" = String, Path)), request_body = DeleteBatchRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/delete", params(("group_path" = String, Path)), request_body = DeleteBatchRequest, responses((status = 202, description = "Document delete task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse)))]
 pub(crate) async fn submit_delete_batch(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -166,7 +166,7 @@ pub(crate) async fn submit_delete_batch(
     .await
 }
 
-#[utoipa::path(post, path = "/v1/tasks", request_body = TaskSubmitRequest, responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse)))]
+#[utoipa::path(post, path = "/v1/tasks", request_body = TaskSubmitRequest, responses((status = 202, description = "Submitted task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse)))]
 pub(crate) async fn submit_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -266,7 +266,7 @@ pub(crate) async fn submit_task(
 #[utoipa::path(
     post,
     path = "/v1/settings/runtime/vector-index/rebuild",
-    responses((status = 202, body = TaskRef), (status = 409, body = ApiErrorResponse))
+    responses((status = 202, description = "Vector index rebuild task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse))
 )]
 pub(crate) async fn submit_vector_index_rebuild(
     State(state): State<ApiState>,

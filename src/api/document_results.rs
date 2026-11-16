@@ -15,7 +15,7 @@ use crate::contracts::{CreateDocumentResultRequest, ListDocumentResultsQuery, Me
 
 #[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/results", params(("group_path" = String, Path), ("document_id" = i64, Path)),
     request_body = CreateDocumentResultRequest,
-    responses((status = 200, body = crate::contracts::DocumentResultResponse), (status = 400, body = crate::contracts::ApiErrorResponse), (status = 403, body = crate::contracts::ApiErrorResponse), (status = 404, body = crate::contracts::ApiErrorResponse), (status = 409, body = crate::contracts::ApiErrorResponse)))]
+    responses((status = 200, description = "Document result appended to the caller's results", body = crate::contracts::DocumentResultResponse), (status = 400, description = "Invalid result payload", body = crate::contracts::ApiErrorResponse), (status = 403, description = "Insufficient group role", body = crate::contracts::ApiErrorResponse), (status = 404, description = "Document or group not found", body = crate::contracts::ApiErrorResponse), (status = 409, description = "Document result conflict", body = crate::contracts::ApiErrorResponse)))]
 pub(crate) async fn create_document_result(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -62,7 +62,7 @@ pub(crate) async fn create_document_result(
 }
 
 #[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/results", params(("group_path" = String, Path), ("document_id" = i64, Path), ListDocumentResultsQuery),
-    responses((status = 200, body = crate::contracts::ListDocumentResultsResponse), (status = 400, body = crate::contracts::ApiErrorResponse), (status = 404, body = crate::contracts::ApiErrorResponse)))]
+    responses((status = 200, description = "Page of document results for the caller", body = crate::contracts::ListDocumentResultsResponse), (status = 400, description = "Invalid result list query", body = crate::contracts::ApiErrorResponse), (status = 404, description = "Document or group not found", body = crate::contracts::ApiErrorResponse)))]
 pub(crate) async fn list_document_results(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,

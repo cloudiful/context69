@@ -981,7 +981,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Document projected for the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -991,7 +991,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Document not found or not visible",
             "content": {
               "application/json": {
                 "schema": {
@@ -1001,7 +1001,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Document lookup failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -1081,7 +1081,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of groups visible to the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -1107,7 +1107,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Group created",
             "content": {
               "application/json": {
                 "schema": {
@@ -1117,7 +1117,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid group definition",
             "content": {
               "application/json": {
                 "schema": {
@@ -1145,7 +1145,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Group for the requested path",
             "content": {
               "application/json": {
                 "schema": {
@@ -1155,7 +1155,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1181,7 +1181,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Group deleted"
           }
         }
       },
@@ -1210,7 +1210,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated group",
             "content": {
               "application/json": {
                 "schema": {
@@ -1220,7 +1220,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1258,7 +1258,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Document delete task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -1268,7 +1268,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Idempotency key reuse conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -1306,7 +1306,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "File ingestion task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -1316,7 +1316,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Idempotency key reuse conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -1354,7 +1354,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Text ingestion task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -1364,7 +1364,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Idempotency key reuse conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -1402,7 +1402,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "URL ingestion task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -1412,7 +1412,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Idempotency key reuse conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -1500,7 +1500,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of child groups",
             "content": {
               "application/json": {
                 "schema": {
@@ -1538,7 +1538,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Documents found for the requested keys",
             "content": {
               "application/json": {
                 "schema": {
@@ -1593,7 +1593,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Document identified by source key and external id",
             "content": {
               "application/json": {
                 "schema": {
@@ -1603,7 +1603,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Document or group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1656,7 +1656,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Document delete task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -1666,10 +1666,10 @@
             }
           },
           "403": {
-            "description": ""
+            "description": "Insufficient group role"
           },
           "404": {
-            "description": ""
+            "description": "Document or group not found"
           }
         }
       }
@@ -1700,7 +1700,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Documents matching the query within the group scope",
             "content": {
               "application/json": {
                 "schema": {
@@ -1710,7 +1710,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid document query",
             "content": {
               "application/json": {
                 "schema": {
@@ -1801,7 +1801,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of document results for the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -1811,7 +1811,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid result list query",
             "content": {
               "application/json": {
                 "schema": {
@@ -1821,7 +1821,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Document or group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1866,7 +1866,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Document result appended to the caller's results",
             "content": {
               "application/json": {
                 "schema": {
@@ -1876,7 +1876,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid result payload",
             "content": {
               "application/json": {
                 "schema": {
@@ -1886,7 +1886,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Insufficient group role",
             "content": {
               "application/json": {
                 "schema": {
@@ -1896,7 +1896,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Document or group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -1906,7 +1906,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Document result conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -1943,7 +1943,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Translation jobs for the document",
             "content": {
               "application/json": {
                 "schema": {
@@ -1990,7 +1990,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Document translation rebuild task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -2000,10 +2000,10 @@
             }
           },
           "403": {
-            "description": ""
+            "description": "Insufficient group role"
           },
           "404": {
-            "description": ""
+            "description": "Document or group not found"
           }
         }
       }
@@ -3146,10 +3146,10 @@
               "schema": {
                 "oneOf": [
                   {
-                    "type": "null"
+                    "$ref": "#/components/schemas/GitIndexRequest"
                   },
                   {
-                    "$ref": "#/components/schemas/GitIndexRequest"
+                    "type": "null"
                   }
                 ]
               }
@@ -3330,7 +3330,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Library settings for the group",
             "content": {
               "application/json": {
                 "schema": {
@@ -3340,7 +3340,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -3376,7 +3376,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated library settings for the group",
             "content": {
               "application/json": {
                 "schema": {
@@ -3386,7 +3386,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Insufficient group role",
             "content": {
               "application/json": {
                 "schema": {
@@ -3396,7 +3396,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -3434,7 +3434,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "URL import task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -3444,13 +3444,13 @@
             }
           },
           "403": {
-            "description": ""
+            "description": "Insufficient permissions"
           },
           "404": {
-            "description": ""
+            "description": "Group not found"
           },
           "422": {
-            "description": "",
+            "description": "Invalid URL import request",
             "content": {
               "application/json": {
                 "schema": {
@@ -3498,7 +3498,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Direct upload targets prepared; an upload is still required",
             "content": {
               "application/json": {
                 "schema": {
@@ -3508,7 +3508,7 @@
             }
           },
           "202": {
-            "description": "",
+            "description": "Upload prepared and file ingestion task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -3518,13 +3518,13 @@
             }
           },
           "403": {
-            "description": ""
+            "description": "Insufficient permissions"
           },
           "404": {
-            "description": ""
+            "description": "Group not found"
           },
           "409": {
-            "description": "",
+            "description": "Upload preparation conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -3534,7 +3534,7 @@
             }
           },
           "422": {
-            "description": "",
+            "description": "Invalid upload request",
             "content": {
               "application/json": {
                 "schema": {
@@ -4265,7 +4265,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of group members",
             "content": {
               "application/json": {
                 "schema": {
@@ -4301,7 +4301,7 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Membership created or updated"
           }
         }
       }
@@ -4330,7 +4330,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Membership removed"
           }
         }
       }
@@ -4379,7 +4379,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of metadata indexes for the source",
             "content": {
               "application/json": {
                 "schema": {
@@ -4423,7 +4423,7 @@
         },
         "responses": {
           "201": {
-            "description": "",
+            "description": "Metadata index created",
             "content": {
               "application/json": {
                 "schema": {
@@ -4470,7 +4470,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated metadata index",
             "content": {
               "application/json": {
                 "schema": {
@@ -4505,7 +4505,7 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Metadata index removed"
           }
         }
       }
@@ -4535,7 +4535,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Metadata index retry attempt started",
             "content": {
               "application/json": {
                 "schema": {
@@ -4573,7 +4573,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Moved group",
             "content": {
               "application/json": {
                 "schema": {
@@ -4746,7 +4746,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Translation settings for the group",
             "content": {
               "application/json": {
                 "schema": {
@@ -4782,7 +4782,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated translation settings for the group",
             "content": {
               "application/json": {
                 "schema": {
@@ -4820,7 +4820,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Groups matching the search query",
             "content": {
               "application/json": {
                 "schema": {
@@ -5466,7 +5466,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Scope ensured and its identifiers returned",
             "content": {
               "application/json": {
                 "schema": {
@@ -5476,7 +5476,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Scope definition conflicts with existing state",
             "content": {
               "application/json": {
                 "schema": {
@@ -5504,7 +5504,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ranked search hits for the requested window",
             "content": {
               "application/json": {
                 "schema": {
@@ -5524,7 +5524,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "The search service failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5648,7 +5648,7 @@
         "operationId": "get_docling_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Current Docling settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5658,7 +5658,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Docling settings could not be read",
             "content": {
               "application/json": {
                 "schema": {
@@ -5684,7 +5684,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated Docling settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5694,7 +5694,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid Docling settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5704,7 +5704,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Docling settings could not be updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -5734,10 +5734,10 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Docling endpoint is reachable"
           },
           "400": {
-            "description": "",
+            "description": "Invalid Docling connection settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5747,7 +5747,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Docling connection check failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5765,7 +5765,7 @@
         "operationId": "get_runtime_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Current runtime settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5775,7 +5775,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Runtime settings could not be read",
             "content": {
               "application/json": {
                 "schema": {
@@ -5801,7 +5801,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated runtime settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5811,7 +5811,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid runtime settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5821,7 +5821,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Runtime settings could not be updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -5849,10 +5849,10 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Embedding endpoint is reachable"
           },
           "400": {
-            "description": "",
+            "description": "Invalid embedding connection settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5862,7 +5862,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Embedding connection check failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5892,10 +5892,10 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Qdrant endpoint is reachable"
           },
           "400": {
-            "description": "",
+            "description": "Invalid Qdrant connection settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5905,7 +5905,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Administrator access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -5915,7 +5915,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Qdrant connection check failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5943,10 +5943,10 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "S3 storage endpoint is reachable"
           },
           "400": {
-            "description": "",
+            "description": "Invalid S3 connection settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -5956,7 +5956,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "S3 connection check failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -5986,7 +5986,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "The tokenizer preset is activated",
             "content": {
               "application/json": {
                 "schema": {
@@ -5996,7 +5996,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Unknown or invalid tokenizer preset",
             "content": {
               "application/json": {
                 "schema": {
@@ -6006,7 +6006,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Administrator access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -6016,7 +6016,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Tokenizer preset provisioning is already running",
             "content": {
               "application/json": {
                 "schema": {
@@ -6026,7 +6026,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "The tokenizer preset could not be provisioned",
             "content": {
               "application/json": {
                 "schema": {
@@ -6054,10 +6054,10 @@
         },
         "responses": {
           "204": {
-            "description": ""
+            "description": "Valkey endpoint is reachable"
           },
           "400": {
-            "description": "",
+            "description": "Invalid Valkey connection settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -6067,7 +6067,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Valkey connection check failed",
             "content": {
               "application/json": {
                 "schema": {
@@ -6121,7 +6121,7 @@
         "operationId": "submit_vector_index_rebuild",
         "responses": {
           "202": {
-            "description": "",
+            "description": "Vector index rebuild task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -6131,7 +6131,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Idempotency key reuse conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -6323,7 +6323,7 @@
         "operationId": "get_search_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Current search settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -6333,7 +6333,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Search settings could not be read",
             "content": {
               "application/json": {
                 "schema": {
@@ -6359,7 +6359,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated search settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -6369,7 +6369,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid search settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -6379,7 +6379,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "Search settings could not be updated",
             "content": {
               "application/json": {
                 "schema": {
@@ -6398,7 +6398,7 @@
         "operationId": "get_translation_settings",
         "responses": {
           "200": {
-            "description": "",
+            "description": "Current translation provider settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -6408,7 +6408,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Administrator access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -6435,7 +6435,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Updated translation provider settings",
             "content": {
               "application/json": {
                 "schema": {
@@ -6445,7 +6445,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Administrator access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -6485,7 +6485,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of configured translation providers",
             "content": {
               "application/json": {
                 "schema": {
@@ -6495,7 +6495,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Administrator access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -6525,7 +6525,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Typed outcome of the LLM provider probe",
             "content": {
               "application/json": {
                 "schema": {
@@ -6535,7 +6535,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid LLM provider draft",
             "content": {
               "application/json": {
                 "schema": {
@@ -6545,7 +6545,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Administrator access required",
             "content": {
               "application/json": {
                 "schema": {
@@ -6555,7 +6555,7 @@
             }
           },
           "500": {
-            "description": "",
+            "description": "The LLM provider probe could not run",
             "content": {
               "application/json": {
                 "schema": {
@@ -7126,7 +7126,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of tasks visible to the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -7136,7 +7136,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid task list query",
             "content": {
               "application/json": {
                 "schema": {
@@ -7162,7 +7162,7 @@
         },
         "responses": {
           "202": {
-            "description": "",
+            "description": "Submitted task accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -7172,7 +7172,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Idempotency key reuse conflict",
             "content": {
               "application/json": {
                 "schema": {
@@ -7200,7 +7200,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ordered per-task cancel outcomes",
             "content": {
               "application/json": {
                 "schema": {
@@ -7210,7 +7210,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid batch cancel request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7238,7 +7238,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ordered per-task purge outcomes",
             "content": {
               "application/json": {
                 "schema": {
@@ -7248,7 +7248,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid batch purge request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7276,7 +7276,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ordered per-task rerun outcomes",
             "content": {
               "application/json": {
                 "schema": {
@@ -7286,7 +7286,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid batch rerun request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7314,7 +7314,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ordered per-task restore outcomes",
             "content": {
               "application/json": {
                 "schema": {
@@ -7324,7 +7324,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid batch restore request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7352,7 +7352,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ordered per-task retry outcomes",
             "content": {
               "application/json": {
                 "schema": {
@@ -7362,7 +7362,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid batch retry request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7390,7 +7390,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Ordered per-task trash outcomes",
             "content": {
               "application/json": {
                 "schema": {
@@ -7400,7 +7400,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid batch trash request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7428,7 +7428,7 @@
         },
         "responses": {
           "200": {
-            "description": "",
+            "description": "Cleared task history view",
             "content": {
               "application/json": {
                 "schema": {
@@ -7438,7 +7438,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid task history clear request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7515,7 +7515,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Snapshot of task ids matching the current filters",
             "content": {
               "application/json": {
                 "schema": {
@@ -7525,7 +7525,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid task selection query",
             "content": {
               "application/json": {
                 "schema": {
@@ -7587,7 +7587,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Task owned by or shared with the caller",
             "content": {
               "application/json": {
                 "schema": {
@@ -7597,7 +7597,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7624,10 +7624,10 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Task permanently removed"
           },
           "403": {
-            "description": "",
+            "description": "Insufficient permissions",
             "content": {
               "application/json": {
                 "schema": {
@@ -7637,7 +7637,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7647,7 +7647,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Task cannot be deleted in its current state",
             "content": {
               "application/json": {
                 "schema": {
@@ -7676,10 +7676,10 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Task cancellation accepted"
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7708,7 +7708,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Task diagnosis report",
             "content": {
               "application/json": {
                 "schema": {
@@ -7718,7 +7718,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7774,7 +7774,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Page of task items",
             "content": {
               "application/json": {
                 "schema": {
@@ -7803,7 +7803,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Paused task",
             "content": {
               "application/json": {
                 "schema": {
@@ -7813,7 +7813,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Insufficient permissions",
             "content": {
               "application/json": {
                 "schema": {
@@ -7823,7 +7823,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7833,7 +7833,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Task cannot be paused in its current state",
             "content": {
               "application/json": {
                 "schema": {
@@ -7862,7 +7862,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Task rerun accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -7872,7 +7872,7 @@
             }
           },
           "400": {
-            "description": "",
+            "description": "Invalid rerun request",
             "content": {
               "application/json": {
                 "schema": {
@@ -7882,7 +7882,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7892,7 +7892,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Task cannot be rerun in its current state",
             "content": {
               "application/json": {
                 "schema": {
@@ -7921,7 +7921,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Restored task",
             "content": {
               "application/json": {
                 "schema": {
@@ -7931,7 +7931,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Insufficient permissions",
             "content": {
               "application/json": {
                 "schema": {
@@ -7941,7 +7941,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -7970,7 +7970,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Resumed task",
             "content": {
               "application/json": {
                 "schema": {
@@ -7980,7 +7980,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Insufficient permissions",
             "content": {
               "application/json": {
                 "schema": {
@@ -7990,7 +7990,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -8000,7 +8000,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Task cannot be resumed in its current state",
             "content": {
               "application/json": {
                 "schema": {
@@ -8029,7 +8029,7 @@
         ],
         "responses": {
           "202": {
-            "description": "",
+            "description": "Task retry accepted",
             "content": {
               "application/json": {
                 "schema": {
@@ -8039,7 +8039,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Task cannot be retried in its current state",
             "content": {
               "application/json": {
                 "schema": {
@@ -8068,7 +8068,7 @@
         ],
         "responses": {
           "200": {
-            "description": "",
+            "description": "Trashed task",
             "content": {
               "application/json": {
                 "schema": {
@@ -8078,7 +8078,7 @@
             }
           },
           "403": {
-            "description": "",
+            "description": "Insufficient permissions",
             "content": {
               "application/json": {
                 "schema": {
@@ -8088,7 +8088,7 @@
             }
           },
           "404": {
-            "description": "",
+            "description": "Task not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -8098,7 +8098,7 @@
             }
           },
           "409": {
-            "description": "",
+            "description": "Task cannot be trashed in its current state",
             "content": {
               "application/json": {
                 "schema": {
@@ -8231,20 +8231,20 @@
           "sort_by": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/AdminUserSortBy"
               },
               {
-                "$ref": "#/components/schemas/AdminUserSortBy"
+                "type": "null"
               }
             ]
           },
           "sort_direction": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SortDirection"
               },
               {
-                "$ref": "#/components/schemas/SortDirection"
+                "type": "null"
               }
             ]
           }
@@ -8417,10 +8417,10 @@
           "personal_group_role": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MembershipRole"
               },
               {
-                "$ref": "#/components/schemas/MembershipRole"
+                "type": "null"
               }
             ]
           },
@@ -8439,10 +8439,10 @@
           "document": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DocumentResponse"
               },
               {
-                "$ref": "#/components/schemas/DocumentResponse"
+                "type": "null"
               }
             ]
           },
@@ -8600,10 +8600,10 @@
           "kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskKind"
               },
               {
-                "$ref": "#/components/schemas/TaskKind"
+                "type": "null"
               }
             ]
           },
@@ -8628,20 +8628,20 @@
           "sort_by": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskSortBy"
               },
               {
-                "$ref": "#/components/schemas/TaskSortBy"
+                "type": "null"
               }
             ]
           },
           "sort_direction": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SortDirection"
               },
               {
-                "$ref": "#/components/schemas/SortDirection"
+                "type": "null"
               }
             ]
           },
@@ -8654,10 +8654,10 @@
           "status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskStatus"
               },
               {
-                "$ref": "#/components/schemas/TaskStatus"
+                "type": "null"
               }
             ]
           },
@@ -8845,11 +8845,11 @@
           "provenance": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/DocumentResultProvenance",
                 "description": "Credential-free provenance; omitted when the caller has none."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -8908,10 +8908,10 @@
           "kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/GroupKind"
               },
               {
-                "$ref": "#/components/schemas/GroupKind"
+                "type": "null"
               }
             ]
           },
@@ -9050,10 +9050,10 @@
           "translation": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationDirective"
               },
               {
-                "$ref": "#/components/schemas/TranslationDirective"
+                "type": "null"
               }
             ]
           }
@@ -9152,10 +9152,10 @@
           "outcome": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DoclingCleanupOutcome"
               },
               {
-                "$ref": "#/components/schemas/DoclingCleanupOutcome"
+                "type": "null"
               }
             ]
           },
@@ -9180,10 +9180,10 @@
           "status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DoclingCleanupStatus"
               },
               {
-                "$ref": "#/components/schemas/DoclingCleanupStatus"
+                "type": "null"
               }
             ]
           }
@@ -9279,10 +9279,10 @@
           "reason_code": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DoclingCleanupReasonCode"
               },
               {
-                "$ref": "#/components/schemas/DoclingCleanupReasonCode"
+                "type": "null"
               }
             ]
           },
@@ -9728,10 +9728,10 @@
           "translation_status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationStatus"
               },
               {
-                "$ref": "#/components/schemas/TranslationStatus"
+                "type": "null"
               }
             ]
           },
@@ -9816,10 +9816,10 @@
           "provenance": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DocumentResultProvenance"
               },
               {
-                "$ref": "#/components/schemas/DocumentResultProvenance"
+                "type": "null"
               }
             ]
           },
@@ -10206,11 +10206,11 @@
           "vector_unavailable": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/GitCodeVectorUnavailableReason",
                 "description": "Present only when a semantic channel was requested and could not run."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -10835,22 +10835,22 @@
           "after": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/GitRepositoryFileDiffFile",
                 "description": "Entry of the compared-to generation, absent when the path was deleted."
+              },
+              {
+                "type": "null"
               }
             ]
           },
           "before": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/GitRepositoryFileDiffFile",
                 "description": "Entry of the compared-from generation, absent when the path was added."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -11253,11 +11253,11 @@
           "index_profile": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/GitIndexProfile",
                 "description": "New index profile; omission keeps the current profile."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -11682,10 +11682,10 @@
           "current_role": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MembershipRole"
               },
               {
-                "$ref": "#/components/schemas/MembershipRole"
+                "type": "null"
               }
             ]
           },
@@ -11829,10 +11829,10 @@
           "library_processing_queue": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/LibraryProcessingQueueHealth"
               },
               {
-                "$ref": "#/components/schemas/LibraryProcessingQueueHealth"
+                "type": "null"
               }
             ]
           },
@@ -11915,10 +11915,10 @@
           "translation": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationDirective"
               },
               {
-                "$ref": "#/components/schemas/TranslationDirective"
+                "type": "null"
               }
             ]
           }
@@ -12407,11 +12407,11 @@
           "parent_consistency": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskQueueConsistencyHealth",
                 "description": "Parent-task consistency gauges. Optional and additive: absent when the\nconsistency snapshot could not be read, so an older deployment never\nfails the health probe on this field."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -12515,10 +12515,10 @@
           "ingest_status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/LibraryIngestStatus"
               },
               {
-                "$ref": "#/components/schemas/LibraryIngestStatus"
+                "type": "null"
               }
             ]
           },
@@ -12709,20 +12709,20 @@
           "sort_by": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/MemberSortBy"
               },
               {
-                "$ref": "#/components/schemas/MemberSortBy"
+                "type": "null"
               }
             ]
           },
           "sort_direction": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SortDirection"
               },
               {
-                "$ref": "#/components/schemas/SortDirection"
+                "type": "null"
               }
             ]
           }
@@ -12959,10 +12959,10 @@
           "kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/GroupKind"
               },
               {
-                "$ref": "#/components/schemas/GroupKind"
+                "type": "null"
               }
             ]
           },
@@ -12985,30 +12985,30 @@
           "sort_by": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/GroupSortBy"
               },
               {
-                "$ref": "#/components/schemas/GroupSortBy"
+                "type": "null"
               }
             ]
           },
           "sort_direction": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SortDirection"
               },
               {
-                "$ref": "#/components/schemas/SortDirection"
+                "type": "null"
               }
             ]
           },
           "visibility": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Visibility"
               },
               {
-                "$ref": "#/components/schemas/Visibility"
+                "type": "null"
               }
             ]
           }
@@ -13226,20 +13226,20 @@
           "file": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/LibraryFileSummary"
               },
               {
-                "$ref": "#/components/schemas/LibraryFileSummary"
+                "type": "null"
               }
             ]
           },
           "task": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskRef"
               },
               {
-                "$ref": "#/components/schemas/TaskRef"
+                "type": "null"
               }
             ]
           },
@@ -13449,10 +13449,10 @@
           "s3": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/RuntimeS3SettingsResponse"
               },
               {
-                "$ref": "#/components/schemas/RuntimeS3SettingsResponse"
+                "type": "null"
               }
             ]
           },
@@ -13567,11 +13567,11 @@
           "code_embedding": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/RuntimeCodeEmbeddingSettings",
                 "description": "The optional, independent Git code embedding configuration.\n\nAbsent when the deployment never stored a code row. A present value with\n`enabled = false` is an explicitly disabled configuration that retains\nits non-secret fields."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -13639,10 +13639,10 @@
           "kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/GroupKind"
               },
               {
-                "$ref": "#/components/schemas/GroupKind"
+                "type": "null"
               }
             ]
           },
@@ -13790,10 +13790,10 @@
           "translation_status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationStatus"
               },
               {
-                "$ref": "#/components/schemas/TranslationStatus"
+                "type": "null"
               }
             ]
           },
@@ -14187,10 +14187,10 @@
           "visibility": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Visibility"
               },
               {
-                "$ref": "#/components/schemas/Visibility"
+                "type": "null"
               }
             ]
           }
@@ -14495,10 +14495,10 @@
           "reason": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskBatchLifecycleReason"
               },
               {
-                "$ref": "#/components/schemas/TaskBatchLifecycleReason"
+                "type": "null"
               }
             ]
           },
@@ -14570,10 +14570,10 @@
           "reason": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskBatchRerunReason"
               },
               {
-                "$ref": "#/components/schemas/TaskBatchRerunReason"
+                "type": "null"
               }
             ]
           },
@@ -14655,10 +14655,10 @@
           "reason": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskBatchRetryReason"
               },
               {
-                "$ref": "#/components/schemas/TaskBatchRetryReason"
+                "type": "null"
               }
             ]
           },
@@ -14796,11 +14796,11 @@
           "active_attempt": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskAttemptView",
                 "description": "The open attempt, present exactly while the item is claimed."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -14844,11 +14844,11 @@
           "latest_attempt": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskAttemptView",
                 "description": "The newest attempt row, open or finished."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -15181,11 +15181,11 @@
           "progress": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskItemProgress",
                 "description": "Stage-local progress observed while the item ran. `None` for an item\nthat never reported progress, or whose recorded progress belongs to an\nolder attempt."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -15251,11 +15251,11 @@
           "status": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskItemStatus",
                 "description": "Narrow items to one status; absent lists every status. `cursor` is\nscoped to this filter: reset to no cursor when it changes."
+              },
+              {
+                "type": "null"
               }
             ]
           }
@@ -15307,10 +15307,10 @@
           "kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskKind"
               },
               {
-                "$ref": "#/components/schemas/TaskKind"
+                "type": "null"
               }
             ]
           },
@@ -15333,20 +15333,20 @@
           "sort_by": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskSortBy"
               },
               {
-                "$ref": "#/components/schemas/TaskSortBy"
+                "type": "null"
               }
             ]
           },
           "sort_direction": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/SortDirection"
               },
               {
-                "$ref": "#/components/schemas/SortDirection"
+                "type": "null"
               }
             ]
           },
@@ -15359,21 +15359,21 @@
           "status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskStatus"
               },
               {
-                "$ref": "#/components/schemas/TaskStatus"
+                "type": "null"
               }
             ]
           },
           "view": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskListView",
                 "description": "Typed list view. `processing` lists non-trashed tasks whose status is\nnot `succeeded`; `completed` lists non-trashed `succeeded` tasks;\n`trash` lists trashed tasks. A user-supplied `status` further narrows\nthe view and never widens it (for example `processing` plus\n`status=succeeded` matches nothing). Required at the service layer."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -15661,11 +15661,11 @@
           "focus_progress": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskItemProgress",
                 "description": "Attempt-valid pipeline progress of the same focus item that supplies\n`file_name` and `document_title`. `stage` already carries the effective\nstage, so this record supplies only the rich counters, remote status and\ntimestamp. `None` when the focus item has no valid progress for its\ncurrent attempt; malformed optional metadata drops the record without\nchanging `stage`."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -15684,11 +15684,11 @@
           "pause_state": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/TaskPauseState",
                 "description": "The cooperative pause state of this parent task. Missing means the\nlegacy `unpaused` default."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -15791,10 +15791,10 @@
           "kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskKind"
               },
               {
-                "$ref": "#/components/schemas/TaskKind"
+                "type": "null"
               }
             ]
           },
@@ -15813,10 +15813,10 @@
           "status": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TaskStatus"
               },
               {
-                "$ref": "#/components/schemas/TaskStatus"
+                "type": "null"
               }
             ]
           },
@@ -16615,10 +16615,10 @@
           "provider": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationProviderKind"
               },
               {
-                "$ref": "#/components/schemas/TranslationProviderKind"
+                "type": "null"
               }
             ]
           },
@@ -16689,10 +16689,10 @@
           "deepl_plan": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeeplPlan"
               },
               {
-                "$ref": "#/components/schemas/DeeplPlan"
+                "type": "null"
               }
             ]
           },
@@ -16708,10 +16708,10 @@
           "llm_api_kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationLlmApiKind"
               },
               {
-                "$ref": "#/components/schemas/TranslationLlmApiKind"
+                "type": "null"
               }
             ]
           },
@@ -16795,10 +16795,10 @@
           "deepl_plan": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/DeeplPlan"
               },
               {
-                "$ref": "#/components/schemas/DeeplPlan"
+                "type": "null"
               }
             ]
           },
@@ -16817,10 +16817,10 @@
           "llm_api_kind": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationLlmApiKind"
               },
               {
-                "$ref": "#/components/schemas/TranslationLlmApiKind"
+                "type": "null"
               }
             ]
           },
@@ -17063,10 +17063,10 @@
           "visibility": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/Visibility"
               },
               {
-                "$ref": "#/components/schemas/Visibility"
+                "type": "null"
               }
             ]
           }
@@ -17193,10 +17193,10 @@
           "s3": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/UpdateRuntimeS3Settings"
               },
               {
-                "$ref": "#/components/schemas/UpdateRuntimeS3Settings"
+                "type": "null"
               }
             ]
           },
@@ -17259,11 +17259,11 @@
           "code_embedding": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/UpdateCodeEmbeddingSettings",
                 "description": "The optional code embedding block.\n\nAn absent or `null` field skips every code write, preserving the stored\nrow and credential, so an older client cannot disable code embedding."
+              },
+              {
+                "type": "null"
               }
             ]
           },
@@ -17360,10 +17360,10 @@
           "translation": {
             "oneOf": [
               {
-                "type": "null"
+                "$ref": "#/components/schemas/TranslationDirective"
               },
               {
-                "$ref": "#/components/schemas/TranslationDirective"
+                "type": "null"
               }
             ]
           }
@@ -17535,11 +17535,11 @@
           "phase": {
             "oneOf": [
               {
-                "type": "null"
-              },
-              {
                 "$ref": "#/components/schemas/VectorIndexRebuildPhase",
                 "description": "The phase of a running rebuild, absent whenever no attempt is active."
+              },
+              {
+                "type": "null"
               }
             ]
           },

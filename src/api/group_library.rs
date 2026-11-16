@@ -21,10 +21,10 @@ use crate::contracts::{
     params(("group_path" = String, Path)),
     request_body = ImportLibraryFileFromUrlRequest,
     responses(
-        (status = 202, body = crate::contracts::TaskRef),
-        (status = 403),
-        (status = 404),
-        (status = 422, body = crate::contracts::ApiErrorResponse),
+        (status = 202, description = "URL import task accepted", body = crate::contracts::TaskRef),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Group not found"),
+        (status = 422, description = "Invalid URL import request", body = crate::contracts::ApiErrorResponse),
         (status = 503, description = "Library dependency unavailable", body = crate::contracts::ApiErrorResponse)
     )
 )]
@@ -78,12 +78,12 @@ use crate::services::tasks::TaskSubmission;
     params(("group_path" = String, Path)),
     request_body = PrepareLibraryUploadRequest,
     responses(
-        (status = 200, body = PrepareLibraryUploadResponse),
-        (status = 202, body = PrepareLibraryUploadResponse),
-        (status = 403),
-        (status = 404),
-        (status = 409, body = crate::contracts::ApiErrorResponse),
-        (status = 422, body = crate::contracts::ApiErrorResponse)
+        (status = 200, description = "Direct upload targets prepared; an upload is still required", body = PrepareLibraryUploadResponse),
+        (status = 202, description = "Upload prepared and file ingestion task accepted", body = PrepareLibraryUploadResponse),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Group not found"),
+        (status = 409, description = "Upload preparation conflict", body = crate::contracts::ApiErrorResponse),
+        (status = 422, description = "Invalid upload request", body = crate::contracts::ApiErrorResponse)
     )
 )]
 pub(crate) async fn prepare_group_library_upload(

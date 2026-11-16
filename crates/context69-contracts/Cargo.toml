@@ -6,7 +6,6 @@ license.workspace = true
 description = "Shared request and response types for the Context69 API."
 readme = "README.md"
 repository = "https://github.com/cloudiful/context69"
-homepage = "https://github.com/cloudiful/context69"
 documentation = "https://docs.rs/context69-contracts"
 keywords = ["context69", "api", "contracts", "search"]
 categories = ["api-bindings", "data-structures"]

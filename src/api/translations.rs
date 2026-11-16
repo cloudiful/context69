@@ -21,7 +21,7 @@ use crate::contracts::{
 };
 use crate::services::tasks::TaskSubmission;
 
-#[utoipa::path(get, path = "/v1/settings/translation", description = "Get translation providers for document translation jobs.", responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/settings/translation", description = "Get translation providers for document translation jobs.", responses((status = 200, description = "Current translation provider settings", body = TranslationSettingsResponse), (status = 403, description = "Administrator access required", body = ApiErrorResponse)))]
 pub(crate) async fn get_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -35,7 +35,7 @@ pub(crate) async fn get_translation_settings(
     }
 }
 
-#[utoipa::path(get, path = "/v1/settings/translation/providers", params(TranslationProviderPageQuery), responses((status = 200, body = TranslationProviderPageResponse), (status = 403, body = ApiErrorResponse)))]
+#[utoipa::path(get, path = "/v1/settings/translation/providers", params(TranslationProviderPageQuery), responses((status = 200, description = "Page of configured translation providers", body = TranslationProviderPageResponse), (status = 403, description = "Administrator access required", body = ApiErrorResponse)))]
 pub(crate) async fn list_translation_providers(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -55,7 +55,7 @@ pub(crate) async fn list_translation_providers(
     }
 }
 
-#[utoipa::path(put, path = "/v1/settings/translation", description = "Update translation providers. The LLM provider settings apply to document translation jobs.", request_body = UpdateTranslationSettingsRequest, responses((status = 200, body = TranslationSettingsResponse), (status = 403, body = ApiErrorResponse)))]
+#[utoipa::path(put, path = "/v1/settings/translation", description = "Update translation providers. The LLM provider settings apply to document translation jobs.", request_body = UpdateTranslationSettingsRequest, responses((status = 200, description = "Updated translation provider settings", body = TranslationSettingsResponse), (status = 403, description = "Administrator access required", body = ApiErrorResponse)))]
 pub(crate) async fn update_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -81,7 +81,7 @@ fn admin_required() -> axum::response::Response {
         .into_response()
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/translation-settings", params(("group_path" = String, Path)), responses((status = 200, body = GroupTranslationSettingsResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/translation-settings", params(("group_path" = String, Path)), responses((status = 200, description = "Translation settings for the group", body = GroupTranslationSettingsResponse)))]
 pub(crate) async fn get_group_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -97,7 +97,7 @@ pub(crate) async fn get_group_translation_settings(
     }
 }
 
-#[utoipa::path(put, path = "/v1/groups/by-path/{group_path}/translation-settings", params(("group_path" = String, Path)), request_body = UpdateGroupTranslationSettingsRequest, responses((status = 200, body = GroupTranslationSettingsResponse)))]
+#[utoipa::path(put, path = "/v1/groups/by-path/{group_path}/translation-settings", params(("group_path" = String, Path)), request_body = UpdateGroupTranslationSettingsRequest, responses((status = 200, description = "Updated translation settings for the group", body = GroupTranslationSettingsResponse)))]
 pub(crate) async fn update_group_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -122,7 +122,7 @@ pub(crate) async fn update_group_translation_settings(
     }
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/translations", params(("group_path" = String, Path), ("document_id" = i64, Path)), responses((status = 200, body = TranslationJobsResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/translations", params(("group_path" = String, Path), ("document_id" = i64, Path)), responses((status = 200, description = "Translation jobs for the document", body = TranslationJobsResponse)))]
 pub(crate) async fn list_document_translation_jobs(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -143,7 +143,7 @@ pub(crate) async fn list_document_translation_jobs(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild", params(("group_path" = String, Path), ("document_id" = i64, Path)), request_body = RebuildDocumentTranslationsRequest, responses((status = 202, body = TaskRef), (status = 403), (status = 404)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/{document_id}/translations/rebuild", params(("group_path" = String, Path), ("document_id" = i64, Path)), request_body = RebuildDocumentTranslationsRequest, responses((status = 202, description = "Document translation rebuild task accepted", body = TaskRef), (status = 403, description = "Insufficient group role"), (status = 404, description = "Document or group not found")))]
 pub(crate) async fn rebuild_document_translations(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,

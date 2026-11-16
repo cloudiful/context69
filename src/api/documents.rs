@@ -38,7 +38,7 @@ async fn group_and_scope(
 }
 
 #[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/query", params(("group_path" = String, Path)),
-    request_body = DocumentQueryRequest, responses((status = 200, body = DocumentQueryResponse), (status = 400, body = crate::contracts::ApiErrorResponse)))]
+    request_body = DocumentQueryRequest, responses((status = 200, description = "Documents matching the query within the group scope", body = DocumentQueryResponse), (status = 400, description = "Invalid document query", body = crate::contracts::ApiErrorResponse)))]
 pub(crate) async fn query_group_documents(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -61,7 +61,7 @@ pub(crate) async fn query_group_documents(
 }
 
 #[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/documents/by-external-id", params(("group_path" = String, Path), DocumentLookupQuery),
-    responses((status = 200, body = DocumentResponse), (status = 404, body = crate::contracts::ApiErrorResponse)))]
+    responses((status = 200, description = "Document identified by source key and external id", body = DocumentResponse), (status = 404, description = "Document or group not found", body = crate::contracts::ApiErrorResponse)))]
 pub(crate) async fn get_group_document_by_key(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -88,7 +88,7 @@ pub(crate) async fn get_group_document_by_key(
 }
 
 #[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/documents/batch-get", params(("group_path" = String, Path)),
-    request_body = BatchGetDocumentsRequest, responses((status = 200, body = BatchGetDocumentsResponse)))]
+    request_body = BatchGetDocumentsRequest, responses((status = 200, description = "Documents found for the requested keys", body = BatchGetDocumentsResponse)))]
 pub(crate) async fn batch_get_group_documents(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -110,7 +110,7 @@ pub(crate) async fn batch_get_group_documents(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/documents/by-external-id", params(("group_path" = String, Path), DocumentLookupQuery), responses((status = 202, body = crate::contracts::TaskRef), (status = 403), (status = 404)))]
+#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/documents/by-external-id", params(("group_path" = String, Path), DocumentLookupQuery), responses((status = 202, description = "Document delete task accepted", body = crate::contracts::TaskRef), (status = 403, description = "Insufficient group role"), (status = 404, description = "Document or group not found")))]
 pub(crate) async fn delete_group_document_by_key(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -144,7 +144,7 @@ pub(crate) async fn delete_group_document_by_key(
     .await
 }
 
-#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), MetadataIndexPageQuery), responses((status = 200, body = MetadataIndexPageResponse)))]
+#[utoipa::path(get, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), MetadataIndexPageQuery), responses((status = 200, description = "Page of metadata indexes for the source", body = MetadataIndexPageResponse)))]
 pub(crate) async fn list_metadata_indexes(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -166,7 +166,7 @@ pub(crate) async fn list_metadata_indexes(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), super::error_mapping::SourceKeyQuery), request_body = CreateMetadataIndexRequest, responses((status = 201, body = MetadataIndexResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes", params(("group_path" = String, Path), super::error_mapping::SourceKeyQuery), request_body = CreateMetadataIndexRequest, responses((status = 201, description = "Metadata index created", body = MetadataIndexResponse)))]
 pub(crate) async fn create_metadata_index(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -205,7 +205,7 @@ async fn require_manager(
     Ok(group)
 }
 
-#[utoipa::path(put, path = "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}", params(("group_path" = String, Path), ("index_id" = Uuid, Path)), request_body = UpdateMetadataIndexRequest, responses((status = 200, body = MetadataIndexResponse)))]
+#[utoipa::path(put, path = "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}", params(("group_path" = String, Path), ("index_id" = Uuid, Path)), request_body = UpdateMetadataIndexRequest, responses((status = 200, description = "Updated metadata index", body = MetadataIndexResponse)))]
 pub(crate) async fn update_metadata_index(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -227,7 +227,7 @@ pub(crate) async fn update_metadata_index(
     }
 }
 
-#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry", params(("group_path" = String, Path), ("index_id" = Uuid, Path)), responses((status = 200, body = MetadataIndexResponse)))]
+#[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}/retry", params(("group_path" = String, Path), ("index_id" = Uuid, Path)), responses((status = 200, description = "Metadata index retry attempt started", body = MetadataIndexResponse)))]
 pub(crate) async fn retry_metadata_index(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
@@ -248,7 +248,7 @@ pub(crate) async fn retry_metadata_index(
     }
 }
 
-#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}", params(("group_path" = String, Path), ("index_id" = Uuid, Path)), responses((status = 204)))]
+#[utoipa::path(delete, path = "/v1/groups/by-path/{group_path}/metadata-indexes/{index_id}", params(("group_path" = String, Path), ("index_id" = Uuid, Path)), responses((status = 204, description = "Metadata index removed")))]
 pub(crate) async fn delete_metadata_index(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
