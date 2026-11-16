@@ -17,9 +17,6 @@ jobs:
   build-and-publish:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
     runs-on: aio
-    env:
-      CARGO_TERM_COLOR: always
-      CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "256"
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -29,7 +26,7 @@ jobs:
         run: rm -rf ci-image-input
 
       - name: Build Rust artifacts
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/build-rust-artifacts@v0.4.4
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/build-rust-artifacts@v0.4.5
         with:
           build_command: cargo build --release --bin context69
           binary_mappings: >-
@@ -45,7 +42,6 @@ jobs:
         working-directory: frontend
         shell: bash
         run: |
-          set -euo pipefail
           bun install --no-save --minimum-release-age 604800
           bun run generate:api
           bun run build
@@ -54,7 +50,7 @@ jobs:
           cp -R dist/. ../ci-image-input/frontend-dist/
 
       - name: Build and push Docker image
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-targets@v0.4.4
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-targets@v0.4.5
         with:
           context: .
           dockerfile: ./forgejo.Dockerfile
@@ -69,7 +65,7 @@ jobs:
           password: ${{ secrets.REGISTRY_TOKEN }}
 
       - name: Publish Docker manifest
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-manifests@v0.4.4
+        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker-manifests@v0.4.5
         with:
           architectures: amd64
           targets: >-
