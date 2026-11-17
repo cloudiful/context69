@@ -152,7 +152,11 @@ pub(super) async fn process_url(
                         if item.input_storage_object_id.is_none() {
                             let staged = match service
                                 .library()
-                                .stage_file_for_task_input(group.id, upload.clone())
+                                .stage_file_for_task_input(
+                                    group.id,
+                                    crate::services::library::TaskInputMedia::Document,
+                                    upload.clone(),
+                                )
                                 .await
                             {
                                 Ok(object_id) => object_id,

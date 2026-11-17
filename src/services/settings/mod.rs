@@ -15,12 +15,17 @@ use crate::{
     code_embedding_runtime::{
         CodeEmbeddingRuntime, build_code_provider, code_embedding_fingerprint,
     },
-    db::{StoredRuntimeCodeEmbeddingSettings, StoredRuntimeSettings},
+    db::{
+        StoredRuntimeCodeEmbeddingSettings, StoredRuntimeImageEmbeddingSettings,
+        StoredRuntimeSettings,
+    },
     domain_errors::DomainError,
     embedding::{
         EmbeddingIdentity, EmbeddingProvider, build_provider,
         embedding_runtime::vector_identity_fingerprint,
     },
+    image_embedding::build_image_provider,
+    image_embedding_runtime::{ImageEmbeddingRuntime, image_fingerprint},
     vector_runtime::VectorIdentityAck,
 };
 
@@ -34,7 +39,9 @@ pub(crate) mod secrets;
 pub mod tokenizer_provisioning;
 mod validate;
 
-pub(crate) use runtime_mappers::{code_embedding_config, stored_chunk_budget};
+pub(crate) use runtime_mappers::{
+    code_embedding_config, image_embedding_config, stored_chunk_budget,
+};
 
 use self::{
     mappers::{
@@ -46,6 +53,7 @@ use self::{
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request,
         runtime_settings_response_with_code, s3_secret_patch, stored_code_embedding_from_request,
+        stored_image_embedding_from_request, with_image_embedding,
     },
     secrets::{
         SettingsSecrets, docling_hidden_vlm_patch, docling_mode_vlm_patch, docling_vlm_patch,
@@ -183,12 +191,16 @@ pub struct SettingsService {
     search_secrets: SettingsSecrets,
     embedding_secrets: SettingsSecrets,
     code_embedding_secrets: SettingsSecrets,
+    image_embedding_secrets: SettingsSecrets,
     docling_secrets: SettingsSecrets,
     s3_secrets: SettingsSecrets,
     llm_provider_secrets: SettingsSecrets,
     /// The optional Git code embedding runtime. It is independent of the
     /// document embedding runtime and is read only by code consumers.
     code_embedding: CodeEmbeddingRuntime,
+    /// The optional image embedding runtime. It has its own configuration,
+    /// credential, fingerprint, and physical collection.
+    image_embedding: ImageEmbeddingRuntime,
     docling_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     runtime_settings_observer: Option<Arc<dyn Fn() + Send + Sync>>,
     /// Rejects an embedding update that cannot be applied to the live runtime
@@ -246,6 +258,7 @@ impl SettingsService {
             search_secrets: SettingsSecrets::search(store.clone()),
             embedding_secrets: SettingsSecrets::embedding(store.clone()),
             code_embedding_secrets: SettingsSecrets::code_embedding(store.clone()),
+            image_embedding_secrets: SettingsSecrets::image_embedding(store.clone()),
             docling_secrets: SettingsSecrets::docling(store.clone()),
             s3_secrets: SettingsSecrets::runtime_s3(store.clone()),
             llm_provider_secrets: SettingsSecrets::new(
@@ -254,6 +267,7 @@ impl SettingsService {
                 crate::services::secret_store::key_names::TRANSLATION_PROVIDER_API_KEY,
             ),
             code_embedding: CodeEmbeddingRuntime::new(),
+            image_embedding: ImageEmbeddingRuntime::new(),
             docling_settings_observer: None,
             runtime_settings_observer: None,
             runtime_embedding_guard: None,
@@ -292,6 +306,16 @@ impl SettingsService {
         self.code_embedding.snapshot()
     }
 
+    /// The image embedding snapshot currently installed, if any.
+    ///
+    /// A task item reads this once when it starts embedding, so a later
+    /// settings save cannot relabel the vectors that item produces.
+    pub fn image_embedding_snapshot(
+        &self,
+    ) -> Option<Arc<crate::image_embedding_runtime::ImageEmbeddingSnapshot>> {
+        self.image_embedding.snapshot()
+    }
+
     /// The Qdrant endpoint the runtime settings currently name, if any.
     ///
     /// A Git code generation captures this once with the code snapshot; the
@@ -302,6 +326,20 @@ impl SettingsService {
             .get_runtime_settings()
             .await?
             .map(|runtime| runtime.qdrant.url))
+    }
+
+    /// The Qdrant endpoint and document collection the runtime settings name.
+    ///
+    /// An image writer captures both once so it can reject a collection alias
+    /// and derive its own fingerprint-scoped physical collection.
+    pub async fn runtime_qdrant_target(
+        &self,
+    ) -> Result<Option<crate::db::StoredRuntimeQdrantSettings>> {
+        Ok(self
+            .db
+            .get_runtime_settings()
+            .await?
+            .map(|runtime| runtime.qdrant))
     }
 
     /// Installs one complete code provider snapshot, or disables the channel.
@@ -331,6 +369,58 @@ impl SettingsService {
         self.code_embedding
             .install(provider, config.clone(), code_embedding_fingerprint(config));
         Ok(())
+    }
+
+    /// Installs one complete image provider snapshot, or disables the channel.
+    ///
+    /// A disabled or absent configuration removes the current snapshot without
+    /// changing the stored settings or credential.
+    pub(crate) async fn apply_image_embedding_settings(
+        &self,
+        image: Option<&StoredRuntimeImageEmbeddingSettings>,
+        qdrant: &crate::config::QdrantConfig,
+    ) -> Result<()> {
+        let Some(image) = image.filter(|image| image.enabled) else {
+            self.image_embedding.disable().await;
+            return Ok(());
+        };
+        self.install_image_embedding_config(
+            &runtime_mappers::image_embedding_config(image, image.api_key.clone()),
+            qdrant,
+        )
+        .await
+    }
+
+    /// Builds and atomically installs one image provider configuration and its
+    /// complete physical destination.
+    pub(crate) async fn install_image_embedding_config(
+        &self,
+        config: &crate::config::ImageEmbeddingConfig,
+        qdrant: &crate::config::QdrantConfig,
+    ) -> Result<()> {
+        let provider = build_image_provider(config)?;
+        let destination = crate::image_embedding_vectors::ImageVectorTarget::from_config(
+            &qdrant.url,
+            config,
+            &qdrant.collection_name,
+        )?;
+        self.image_embedding
+            .install(
+                provider,
+                config.clone(),
+                image_fingerprint(config),
+                Some(destination),
+            )
+            .await;
+        Ok(())
+    }
+
+    /// The read side of the image publication guard.
+    ///
+    /// A final image write holds it across its short Qdrant call and
+    /// acknowledgement so a committed install/disable linearizes against it.
+    pub async fn image_embedding_publication_read(&self) -> tokio::sync::RwLockReadGuard<'_, ()> {
+        self.image_embedding.publication_read().await
     }
 
     /// Register a guard that rejects an embedding update the live runtime cannot
@@ -454,14 +544,23 @@ impl SettingsService {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
+        let image = self.db.get_runtime_image_embedding_settings().await?;
+        let has_image_api_key = match image {
+            Some(_) => self.image_embedding_secrets.is_present().await?,
+            None => false,
+        };
         let requires_rebuild = self.requires_rebuild(&stored).await?;
-        Ok(runtime_settings_response_with_code(
-            stored,
-            has,
-            has_s3_secret_key,
-            requires_rebuild,
-            code,
-            has_code_api_key,
+        Ok(with_image_embedding(
+            runtime_settings_response_with_code(
+                stored,
+                has,
+                has_s3_secret_key,
+                requires_rebuild,
+                code,
+                has_code_api_key,
+            ),
+            image,
+            has_image_api_key,
         ))
     }
 
@@ -632,6 +731,66 @@ impl SettingsService {
             _ => None,
         };
 
+        // The image block follows the same independent contract: an absent block
+        // skips every image write and never opens the image credential, while a
+        // present block resolves its own key and builds its own provider before
+        // anything commits.
+        let stored_image = request
+            .image_embedding
+            .as_ref()
+            .map(stored_image_embedding_from_request);
+        let image_patch = request
+            .image_embedding
+            .as_ref()
+            .map(|image| image.api_key.clone());
+        let image_disabled = stored_image.as_ref().is_some_and(|image| !image.enabled);
+        let image_api_key = match &image_patch {
+            Some(patch) if image_disabled && keeps_code_secret(patch) => None,
+            Some(patch) => {
+                self.image_embedding_secrets
+                    .resolve_and_merge(patch)
+                    .await?
+            }
+            None => None,
+        };
+        let image_candidate = match &stored_image {
+            Some(image) if image.enabled => {
+                let config = runtime_mappers::image_embedding_config(image, image_api_key.clone());
+                Some((build_image_provider(&config)?, config))
+            }
+            _ => None,
+        };
+        let qdrant_destination_changed = existing.as_ref().is_some_and(|existing| {
+            normalize_endpoint(&request.qdrant.url) != normalize_endpoint(&existing.qdrant.url)
+                || request.qdrant.collection_name.trim() != existing.qdrant.collection_name.trim()
+        });
+        // The destination is derived once from the immutable candidate (or the
+        // current snapshot for an omitted image block) together with this
+        // request's Qdrant target. It is installed under the publication guard;
+        // a final publisher never combines a pre-guard endpoint with a
+        // post-guard collection.
+        let image_destination = match (&image_candidate, request.image_embedding.is_some()) {
+            (Some((_, config)), _) => Some(
+                crate::image_embedding_vectors::ImageVectorTarget::from_config(
+                    &request.qdrant.url,
+                    config,
+                    &request.qdrant.collection_name,
+                )?,
+            ),
+            (None, false) => self
+                .image_embedding
+                .snapshot()
+                .map(|snapshot| {
+                    crate::image_embedding_vectors::ImageVectorTarget::from_config(
+                        &request.qdrant.url,
+                        &snapshot.config,
+                        &request.qdrant.collection_name,
+                    )
+                })
+                .transpose()?,
+            (None, true) => None,
+        };
+
         let stored = runtime_settings_from_request(request);
         if stored.file_library.s3.is_some() && s3_secret_key.is_none() {
             return Err(DomainError::invalid_argument(
@@ -670,19 +829,37 @@ impl SettingsService {
         if let Some(patch) = &code_patch {
             self.code_embedding_secrets.commit(patch).await?;
         }
+        if let Some(patch) = &image_patch {
+            self.image_embedding_secrets.commit(patch).await?;
+        }
+        // A committed image settings update takes the publication write side
+        // before the settings transaction, so a final image write admitted
+        // after the commit observes the installed or disabled snapshot.
+        let mut image_publication =
+            if request.image_embedding.is_some() || qdrant_destination_changed {
+                Some(self.image_embedding.publication_write().await)
+            } else {
+                None
+            };
         let saved = match &planned_ack {
             Some(ack) => {
                 self.db
-                    .save_runtime_settings_with_code(
+                    .save_runtime_settings_with_code_and_image(
                         &stored,
                         stored_code.as_ref(),
+                        stored_image.as_ref(),
                         Some(ack.as_ack()),
                     )
                     .await?
             }
             None => {
                 self.db
-                    .save_runtime_settings_with_code(&stored, stored_code.as_ref(), None)
+                    .save_runtime_settings_with_code_and_image(
+                        &stored,
+                        stored_code.as_ref(),
+                        stored_image.as_ref(),
+                        None,
+                    )
                     .await?
             }
         };
@@ -698,6 +875,36 @@ impl SettingsService {
                     code_embedding_fingerprint(&config),
                 ),
                 None => self.code_embedding.disable(),
+            }
+        }
+
+        // A committed image update becomes the live snapshot before the save
+        // reports success; an omitted block leaves it alone.
+        if let Some(_guard) = image_publication.take() {
+            if request.image_embedding.is_some() {
+                match image_candidate {
+                    Some((provider, config)) => self.image_embedding.install_locked(
+                        provider,
+                        config.clone(),
+                        image_fingerprint(&config),
+                        image_destination,
+                    ),
+                    None => self.image_embedding.disable_locked(),
+                }
+            } else if qdrant_destination_changed
+                && let Some(snapshot) = self.image_embedding.snapshot()
+            {
+                // A Qdrant endpoint or document-collection change moves the
+                // image destination even when the image block is omitted. The
+                // provider and embedding fingerprint stay, but the complete
+                // target is reinstalled so a publisher admitted after this save
+                // can never succeed into the old endpoint or collection.
+                self.image_embedding.install_locked(
+                    snapshot.provider.clone(),
+                    snapshot.config.clone(),
+                    snapshot.fingerprint.clone(),
+                    image_destination,
+                );
             }
         }
 
@@ -743,14 +950,23 @@ impl SettingsService {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
+        let image = self.db.get_runtime_image_embedding_settings().await?;
+        let has_image_api_key = match image {
+            Some(_) => self.image_embedding_secrets.is_present().await?,
+            None => false,
+        };
         let requires_rebuild = self.requires_rebuild(&saved).await?;
-        Ok(runtime_settings_response_with_code(
-            saved,
-            has,
-            has_s3_secret_key,
-            requires_rebuild,
-            code,
-            has_code_api_key,
+        Ok(with_image_embedding(
+            runtime_settings_response_with_code(
+                saved,
+                has,
+                has_s3_secret_key,
+                requires_rebuild,
+                code,
+                has_code_api_key,
+            ),
+            image,
+            has_image_api_key,
         ))
     }
 
@@ -1316,6 +1532,7 @@ mod tests {
                 confirm_vector_space_unchanged: false,
             },
             code_embedding: None,
+            image_embedding: None,
             scheduler: RuntimeSchedulerSettings {
                 interval_secs: 300,
                 run_on_start: true,

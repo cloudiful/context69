@@ -29,6 +29,7 @@ pub enum TaskKind {
     Translation,
     VectorRebuild,
     GitIndex,
+    ImageBatch,
 }
 
 impl TaskKind {
@@ -42,6 +43,7 @@ impl TaskKind {
             Self::Translation => "translation",
             Self::VectorRebuild => "vector_rebuild",
             Self::GitIndex => "git_index",
+            Self::ImageBatch => "image_batch",
         }
     }
 }
@@ -617,6 +619,49 @@ pub struct FileBatchRequest {
     pub items: Vec<FileBatchItem>,
 }
 
+/// One bounded image ingestion item.
+///
+/// Exactly one source is supplied: inline image bytes or an http(s) URL. A
+/// `parent` names the group-scoped document the occurrence belongs to; a
+/// missing parent fails that item and never creates a placeholder. The link
+/// fields describe the occurrence, not the shared image bytes.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImageBatchItem {
+    pub filename: String,
+    pub media_type: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub content_base64: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub declared_sha256: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder_id: Option<Uuid>,
+    /// The parent document key. Absent keeps the image standalone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<context69_contracts_search::DocumentKey>,
+    /// `cover` or `body`; defaults to `body`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub role: Option<context69_contracts_search::ImageOccurrenceRole>,
+    #[serde(default)]
+    pub ordinal: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context: Option<String>,
+    /// The page that displayed the image. Falls back to `url`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_uri: Option<String>,
+    #[serde(default)]
+    pub options: context69_contracts_library::IngestOptions,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ImageBatchRequest {
+    pub items: Vec<ImageBatchItem>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum TaskSubmitRequest {
@@ -631,6 +676,12 @@ pub enum TaskSubmitRequest {
         #[serde(default)]
         group_path: Option<String>,
         items: Vec<FileBatchItem>,
+    },
+    /// Ingest image contents with optional parent-document occurrences.
+    ImageBatch {
+        #[serde(default)]
+        group_path: Option<String>,
+        items: Vec<ImageBatchItem>,
     },
     TextBatch {
         #[serde(default)]
@@ -1000,5 +1051,39 @@ impl FileBatchItem {
     /// Canonical [`context69_contracts_library::IngestOptions`] view.
     pub fn ingest_options(&self) -> context69_contracts_library::IngestOptions {
         self.options.clone()
+    }
+}
+
+#[cfg(test)]
+mod task_submit_image_batch_tests {
+    use super::TaskSubmitRequest;
+
+    #[test]
+    fn generic_task_submission_carries_typed_image_items() {
+        let request: TaskSubmitRequest = serde_json::from_value(serde_json::json!({
+            "kind": "image_batch",
+            "group_path": "team/library",
+            "items": [{
+                "filename": "cover.png",
+                "media_type": "image/png",
+                "content_base64": "iVBORw0KGgo=",
+                "parent": { "source_key": "file_library", "external_id": "doc-1" },
+                "role": "cover",
+                "ordinal": 0,
+                "options": {}
+            }]
+        }))
+        .expect("image batch task request");
+        match request {
+            TaskSubmitRequest::ImageBatch { group_path, items } => {
+                assert_eq!(group_path.as_deref(), Some("team/library"));
+                assert_eq!(items.len(), 1);
+                assert_eq!(
+                    items[0].role,
+                    Some(context69_contracts_search::ImageOccurrenceRole::Cover)
+                );
+            }
+            other => panic!("unexpected task request: {other:?}"),
+        }
     }
 }

@@ -181,6 +181,7 @@ fn entry_stage(kind: TaskKind) -> &'static str {
         TaskKind::VectorRebuild => "indexing",
         TaskKind::Translation => "translation",
         TaskKind::GitIndex => "indexing",
+        TaskKind::ImageBatch => "storage",
     }
 }
 
@@ -220,6 +221,9 @@ async fn run_stage(
         }
         TaskKind::GitIndex => {
             super::item_git_index_processor::process_git_index(service, group, item, stage).await
+        }
+        TaskKind::ImageBatch => {
+            super::item_image_processors::process_image(service, group, task, item, stage).await
         }
     }
 }

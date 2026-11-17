@@ -1328,6 +1328,55 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/batch/image": {
+      "post": {
+        "tags": [],
+        "operationId": "submit_image_batch",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageBatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Image ingestion task accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TaskRef"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency key reuse conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/batch/text": {
       "post": {
         "tags": [],
@@ -1674,6 +1723,75 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/documents/images/unlink": {
+      "post": {
+        "tags": [],
+        "operationId": "unlink_document_images",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UnlinkDocumentImagesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Request-ordered per-item unlink outcomes",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnlinkDocumentImagesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empty, oversized, or invalid unlink batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Group not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/documents/query": {
       "post": {
         "tags": [],
@@ -1711,6 +1829,65 @@
           },
           "400": {
             "description": "Invalid document query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/images": {
+      "get": {
+        "tags": [],
+        "operationId": "list_document_images",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "document_id",
+            "in": "path",
+            "description": "Parent document id",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bounded current image occurrences of the document",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DocumentImageListResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Document or group not found",
             "content": {
               "application/json": {
                 "schema": {
@@ -3303,6 +3480,75 @@
           },
           "409": {
             "description": "A webhook is already registered, or the hook identity is claimed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/groups/by-path/{group_path}/images/search": {
+      "post": {
+        "tags": [],
+        "operationId": "search_images",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImageSearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Authorized image search hits; hydration may return fewer than the requested limit",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImageSearchResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid image search request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Image search runtime unavailable",
             "content": {
               "application/json": {
                 "schema": {
@@ -9590,6 +9836,141 @@
           }
         }
       },
+      "DocumentImageListResponse": {
+        "type": "object",
+        "required": [
+          "document_id",
+          "items",
+          "has_more"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "The bounded list stopped before every occurrence was read."
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentImageOccurrence"
+            }
+          }
+        }
+      },
+      "DocumentImageOccurrence": {
+        "type": "object",
+        "description": "One current image occurrence of a document.",
+        "required": [
+          "file_id",
+          "filename",
+          "media_type",
+          "sha256",
+          "role",
+          "ordinal"
+        ],
+        "properties": {
+          "caption": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ImageOccurrenceRole"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      },
+      "DocumentImageOccurrenceWithParent": {
+        "type": "object",
+        "description": "One current parent occurrence of a search-hit image.",
+        "required": [
+          "document_id",
+          "document_key",
+          "title",
+          "document_source_uri",
+          "role",
+          "ordinal"
+        ],
+        "properties": {
+          "caption": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "document_key": {
+            "$ref": "#/components/schemas/DocumentKey"
+          },
+          "document_source_uri": {
+            "type": "string"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ImageOccurrenceRole"
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The page or source that displayed this image occurrence."
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      },
       "DocumentKey": {
         "type": "object",
         "required": [
@@ -11934,6 +12315,213 @@
           "degraded"
         ]
       },
+      "ImageBatchItem": {
+        "type": "object",
+        "description": "One bounded image ingestion item.\n\nExactly one source is supplied: inline image bytes or an http(s) URL. A\n`parent` names the group-scoped document the occurrence belongs to; a\nmissing parent fails that item and never creates a placeholder. The link\nfields describe the occurrence, not the shared image bytes.",
+        "required": [
+          "filename",
+          "media_type"
+        ],
+        "properties": {
+          "caption": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_base64": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "context": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "declared_sha256": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "filename": {
+            "type": "string"
+          },
+          "folder_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "options": {
+            "$ref": "#/components/schemas/IngestOptions"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "parent": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DocumentKey",
+                "description": "The parent document key. Absent keeps the image standalone."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "role": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ImageOccurrenceRole",
+                "description": "`cover` or `body`; defaults to `body`."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "source_uri": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The page that displayed the image. Falls back to `url`."
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false
+      },
+      "ImageBatchRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImageBatchItem"
+            }
+          }
+        }
+      },
+      "ImageOccurrenceRole": {
+        "type": "string",
+        "description": "How one occurrence uses its image.",
+        "enum": [
+          "cover",
+          "body"
+        ]
+      },
+      "ImageSearchHit": {
+        "type": "object",
+        "description": "One hydrated image search hit.\n\n`parents` is empty for a standalone image. `has_more_parents` reports that\nthe bounded parent hydration stopped before every current link was read.",
+        "required": [
+          "score",
+          "file_id",
+          "filename",
+          "media_type",
+          "sha256",
+          "parents",
+          "has_more_parents"
+        ],
+        "properties": {
+          "external_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "file_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "has_more_parents": {
+            "type": "boolean"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "parents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentImageOccurrenceWithParent"
+            }
+          },
+          "score": {
+            "type": "number",
+            "format": "float"
+          },
+          "sha256": {
+            "type": "string"
+          }
+        }
+      },
+      "ImageSearchRequest": {
+        "type": "object",
+        "description": "One visual search request inside a group scope.\n\n`limit` is the number of image points requested. Hydration may return fewer\npoints when a candidate is stale; there is no total or pagination, so a\ncaller starts a new search instead of following a cursor.",
+        "required": [
+          "query"
+        ],
+        "properties": {
+          "limit": {
+            "type": "integer",
+            "maximum": 50,
+            "minimum": 1
+          },
+          "media_type": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Optional supported image media type filter."
+          },
+          "query": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1
+          }
+        }
+      },
+      "ImageSearchResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImageSearchHit"
+            }
+          }
+        }
+      },
+      "ImageUnlinkOutcome": {
+        "type": "string",
+        "description": "The per-item result of one unlink request.\n\nA missing occurrence is idempotent success and reports `not_linked`.",
+        "enum": [
+          "unlinked",
+          "not_linked"
+        ]
+      },
       "ImportLibraryFileFromUrlRequest": {
         "type": "object",
         "description": "v0.18 canonical URL import: ingest behavior is owned entirely by\n`options`. Flattened legacy fields are gone; unknown fields (including\nthose legacy keys) are rejected.",
@@ -13648,6 +14236,54 @@
           }
         }
       },
+      "RuntimeImageEmbeddingSettings": {
+        "type": "object",
+        "description": "The stored optional image embedding settings.\n\nThis block is independent of the document and code embedding blocks: it has\nits own endpoint, model pair, credential and physical Qdrant collection. The\nimage model embeds stored image bytes; the query model embeds text queries\ninto the same space. `has_api_key` is presence metadata only.",
+        "required": [
+          "enabled",
+          "base_url",
+          "model",
+          "dimensions",
+          "timeout_secs",
+          "collection_name",
+          "has_api_key"
+        ],
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "collection_name": {
+            "type": "string",
+            "description": "The independent physical Qdrant collection image vectors live in."
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "has_api_key": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string",
+            "description": "The model image bytes are embedded with."
+          },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model text queries are embedded with. Absent means the image model."
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "RuntimeQdrantSettings": {
         "type": "object",
         "required": [
@@ -13764,6 +14400,17 @@
           },
           "file_library": {
             "$ref": "#/components/schemas/RuntimeFileLibrarySettings"
+          },
+          "image_embedding": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RuntimeImageEmbeddingSettings",
+                "description": "The optional, independent image embedding configuration.\n\nAbsent when the deployment never stored an image row. A present value\nwith `enabled = false` is an explicitly disabled configuration that\nretains its non-secret fields and credential."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "qdrant": {
             "$ref": "#/components/schemas/RuntimeQdrantSettings"
@@ -15475,7 +16122,8 @@
           "delete_batch",
           "translation",
           "vector_rebuild",
-          "git_index"
+          "git_index",
+          "image_batch"
         ]
       },
       "TaskListQuery": {
@@ -16267,6 +16915,34 @@
           },
           {
             "type": "object",
+            "description": "Ingest image contents with optional parent-document occurrences.",
+            "required": [
+              "items",
+              "kind"
+            ],
+            "properties": {
+              "group_path": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/ImageBatchItem"
+                }
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "image_batch"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
             "required": [
               "items",
               "kind"
@@ -16496,7 +17172,8 @@
         "description": "The independent embedding configuration a probe targets.",
         "enum": [
           "document",
-          "code"
+          "code",
+          "image"
         ]
       },
       "TestRuntimeEmbeddingRequest": {
@@ -17074,6 +17751,92 @@
           }
         }
       },
+      "UnlinkDocumentImageItem": {
+        "type": "object",
+        "description": "One occurrence link to remove.",
+        "required": [
+          "file_id",
+          "document_id",
+          "role",
+          "ordinal"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "file_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ImageOccurrenceRole"
+          }
+        }
+      },
+      "UnlinkDocumentImageResult": {
+        "type": "object",
+        "required": [
+          "file_id",
+          "document_id",
+          "role",
+          "ordinal",
+          "outcome"
+        ],
+        "properties": {
+          "document_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "file_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "ordinal": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ImageUnlinkOutcome"
+          },
+          "role": {
+            "$ref": "#/components/schemas/ImageOccurrenceRole"
+          }
+        }
+      },
+      "UnlinkDocumentImagesRequest": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnlinkDocumentImageItem"
+            },
+            "maxItems": 100
+          }
+        }
+      },
+      "UnlinkDocumentImagesResponse": {
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UnlinkDocumentImageResult"
+            }
+          }
+        }
+      },
       "UpdateAdminUserRequest": {
         "type": "object",
         "properties": {
@@ -17304,6 +18067,50 @@
           }
         }
       },
+      "UpdateImageEmbeddingSettings": {
+        "type": "object",
+        "description": "The optional image embedding update.\n\nThe tri-state secret patch follows the settings contract: `keep` retains the\nstored image credential, `set` replaces it, and `clear` removes it.\nDisabling the block keeps every non-secret field and the credential unless\nthe caller explicitly clears the key.",
+        "required": [
+          "enabled",
+          "base_url",
+          "model",
+          "dimensions",
+          "timeout_secs",
+          "collection_name"
+        ],
+        "properties": {
+          "api_key": {
+            "$ref": "#/components/schemas/SecretPatch"
+          },
+          "base_url": {
+            "type": "string"
+          },
+          "collection_name": {
+            "type": "string"
+          },
+          "dimensions": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "model": {
+            "type": "string"
+          },
+          "query_model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "minimum": 0
+          }
+        }
+      },
       "UpdateMetadataIndexRequest": {
         "type": "object",
         "required": [
@@ -17475,6 +18282,17 @@
           },
           "file_library": {
             "$ref": "#/components/schemas/UpdateRuntimeFileLibrarySettings"
+          },
+          "image_embedding": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/UpdateImageEmbeddingSettings",
+                "description": "The optional image embedding block.\n\nAn absent or `null` field skips every image write, preserving the stored\nrow and credential, so an older client cannot disable image embedding."
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "qdrant": {
             "$ref": "#/components/schemas/RuntimeQdrantSettings"

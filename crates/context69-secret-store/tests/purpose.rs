@@ -77,6 +77,7 @@ fn the_catalogue_covers_every_in_scope_category() {
         "browser_session.signing_key",
         "embedding.api_key",
         "code_embedding.api_key",
+        "image_embedding.api_key",
         "search.api_key",
         "docling.vlm_api_key",
         "translation.api_key",

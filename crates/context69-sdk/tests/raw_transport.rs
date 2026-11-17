@@ -92,16 +92,16 @@ fn health_probe_operations_are_registered_as_public_paths() {
 fn registry_is_sorted_unique_and_complete() {
     assert_eq!(
         OPERATIONS.len(),
-        159,
-        "registry must cover all 159 operations"
+        163,
+        "registry must cover all 163 operations"
     );
     let ids = operation_ids();
-    assert_eq!(ids.len(), 159);
+    assert_eq!(ids.len(), 163);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "OPERATIONS must be sorted by operation_id");
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 159, "operation ids must be unique");
+    assert_eq!(unique.len(), 163, "operation ids must be unique");
     for op in OPERATIONS {
         assert!(!op.id.is_empty());
         assert!(["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&op.method));
@@ -116,7 +116,7 @@ fn registry_is_sorted_unique_and_complete() {
 #[test]
 fn registry_matches_openapi_exactly_with_no_omission() {
     let openapi = openapi_operations();
-    assert_eq!(openapi.len(), 159, "OpenAPI must expose 159 operations");
+    assert_eq!(openapi.len(), 163, "OpenAPI must expose 163 operations");
     let registry: Vec<(String, String, String)> = OPERATIONS
         .iter()
         .map(|op| {
@@ -162,6 +162,41 @@ fn registry_matches_openapi_exactly_with_no_omission() {
             "success status mismatch for {}",
             op.id
         );
+    }
+}
+
+#[test]
+fn image_operations_are_registered_exactly() {
+    for (id, method, path, idempotent) in [
+        (
+            "submit_image_batch",
+            "POST",
+            "/v1/groups/by-path/{group_path}/batch/image",
+            true,
+        ),
+        (
+            "search_images",
+            "POST",
+            "/v1/groups/by-path/{group_path}/images/search",
+            false,
+        ),
+        (
+            "list_document_images",
+            "GET",
+            "/v1/groups/by-path/{group_path}/documents/{document_id}/images",
+            false,
+        ),
+        (
+            "unlink_document_images",
+            "POST",
+            "/v1/groups/by-path/{group_path}/documents/images/unlink",
+            false,
+        ),
+    ] {
+        let operation = find_operation(id).unwrap_or_else(|| panic!("{id} must be registered"));
+        assert_eq!(operation.method, method, "{id} method");
+        assert_eq!(operation.path_template, path, "{id} path");
+        assert_eq!(operation.idempotent, idempotent, "{id} idempotency");
     }
 }
 

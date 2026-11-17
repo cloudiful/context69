@@ -6,9 +6,10 @@ pub use context69_contracts::{
     CanonicalSearchRequest, CanonicalTaskListQuery, CanonicalUpdateSearchSettingsRequest,
     CanonicalUploadMetadata, CreateDocumentResultRequest, CreateMetadataIndexRequest,
     CursorPageQuery, CursorPagination, DeleteBatchRequest, DoclingRemoteTasksQuery,
-    DoclingRemoteTasksResponse, DocumentChunkResponse, DocumentKey, DocumentResponse,
-    DocumentResultProvenance, DocumentResultResponse, EnsureScopeResponse, FileBatchItem,
-    FileBatchRequest, GroupKind, GroupResponse, HealthResponse,
+    DoclingRemoteTasksResponse, DocumentChunkResponse, DocumentImageListResponse, DocumentKey,
+    DocumentResponse, DocumentResultProvenance, DocumentResultResponse, EnsureScopeResponse,
+    FileBatchItem, FileBatchRequest, GroupKind, GroupResponse, HealthResponse, ImageBatchItem,
+    ImageBatchRequest, ImageSearchRequest, ImageSearchResponse,
     ImportLibraryFileFromUrlRequest as UrlBatchItem, IngestOptions, LibraryFileDetailResponse,
     LibraryTextContentFormat as TextContentFormat, ListDocumentResultsQuery,
     ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
@@ -21,7 +22,8 @@ pub use context69_contracts::{
     TaskDiagnoseResponse, TaskItemResponse, TaskItemStatus, TaskItemsQuery, TaskItemsResponse,
     TaskKind, TaskListQuery, TaskListView, TaskPageResponse, TaskProgress, TaskQueueStateResponse,
     TaskRef, TaskResponse, TaskRetryResponse, TaskSortBy, TaskStatus, TaskSubmitRequest,
-    TextBatchRequest, TranslationDirective, TranslationStatus, UpdateTaskQueueStateRequest,
+    TextBatchRequest, TranslationDirective, TranslationStatus, UnlinkDocumentImagesRequest,
+    UnlinkDocumentImagesResponse, UpdateTaskQueueStateRequest,
     UpsertLibraryTextRequest as TextBatchItem, UrlBatchRequest, VectorIndexRebuildStatus,
     Visibility,
 };
@@ -262,6 +264,63 @@ impl Context69Client {
     ) -> Result<TaskRef, Error> {
         self.submit_batch(group_path(group_path_value, "/batch/file"), request)
             .await
+    }
+
+    /// Submit a bounded image batch with optional parent occurrences.
+    pub async fn submit_image_batch(
+        &self,
+        group_path_value: &str,
+        request: &ImageBatchRequest,
+    ) -> Result<TaskRef, Error> {
+        self.submit_batch(group_path(group_path_value, "/batch/image"), request)
+            .await
+    }
+
+    /// Search the independent image vector space inside one group.
+    ///
+    /// Hydration may return fewer hits than `limit` when candidates are stale;
+    /// the response intentionally carries no total or pagination.
+    pub async fn search_images(
+        &self,
+        group_path_value: &str,
+        request: &ImageSearchRequest,
+    ) -> Result<ImageSearchResponse, Error> {
+        let path = group_path(group_path_value, "/images/search");
+        self.execute_json(
+            self.authorized_request(Method::POST, &path)
+                .await?
+                .json(request),
+        )
+        .await
+    }
+
+    /// List the bounded current image occurrences of one document.
+    pub async fn list_document_images(
+        &self,
+        group_path_value: &str,
+        document_id: i64,
+    ) -> Result<DocumentImageListResponse, Error> {
+        let path = group_path(
+            group_path_value,
+            &format!("/documents/{document_id}/images"),
+        );
+        self.execute_json(self.authorized_request(Method::GET, &path).await?)
+            .await
+    }
+
+    /// Remove bounded document/image occurrence links only.
+    pub async fn unlink_document_images(
+        &self,
+        group_path_value: &str,
+        request: &UnlinkDocumentImagesRequest,
+    ) -> Result<UnlinkDocumentImagesResponse, Error> {
+        let path = group_path(group_path_value, "/documents/images/unlink");
+        self.execute_json(
+            self.authorized_request(Method::POST, &path)
+                .await?
+                .json(request),
+        )
+        .await
     }
 
     pub async fn submit_delete_batch(

@@ -64,7 +64,11 @@ pub(super) async fn stage_first_insert_source(
     }
     service
         .library()
-        .stage_file_for_task_input(group_id, upload.clone())
+        .stage_file_for_task_input(
+            group_id,
+            crate::services::library::TaskInputMedia::Document,
+            upload.clone(),
+        )
         .await
 }
 

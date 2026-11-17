@@ -38,6 +38,8 @@ pub mod key_names {
     pub const EMBEDDING_API_KEY: &str = "embedding_api_key";
     /// Git code embedding provider API key (singleton).
     pub const CODE_EMBEDDING_API_KEY: &str = "code_embedding_api_key";
+    /// Image embedding provider API key (singleton).
+    pub const IMAGE_EMBEDDING_API_KEY: &str = "image_embedding_api_key";
     /// Search / rerank provider API key (singleton).
     pub const SEARCH_API_KEY: &str = "search_api_key";
     /// Docling VLM provider API key (singleton).
@@ -71,6 +73,8 @@ pub enum SecretPurpose {
     EmbeddingApiKey,
     /// Git code embedding provider API key.
     CodeEmbeddingApiKey,
+    /// Image embedding provider API key.
+    ImageEmbeddingApiKey,
     /// Search and rerank provider API key.
     SearchApiKey,
     /// Docling VLM provider API key.
@@ -91,10 +95,11 @@ pub enum SecretPurpose {
 
 impl SecretPurpose {
     /// Every purpose this build knows, in a stable order.
-    pub const ALL: [SecretPurpose; 11] = [
+    pub const ALL: [SecretPurpose; 12] = [
         Self::BrowserSessionSigningKey,
         Self::EmbeddingApiKey,
         Self::CodeEmbeddingApiKey,
+        Self::ImageEmbeddingApiKey,
         Self::SearchApiKey,
         Self::DoclingVlmApiKey,
         Self::TranslationProviderApiKey,
@@ -114,6 +119,7 @@ impl SecretPurpose {
             Self::BrowserSessionSigningKey => "browser_session.signing_key",
             Self::EmbeddingApiKey => "embedding.api_key",
             Self::CodeEmbeddingApiKey => "code_embedding.api_key",
+            Self::ImageEmbeddingApiKey => "image_embedding.api_key",
             Self::SearchApiKey => "search.api_key",
             Self::DoclingVlmApiKey => "docling.vlm_api_key",
             Self::TranslationProviderApiKey => "translation.api_key",
@@ -134,6 +140,7 @@ impl SecretPurpose {
             Self::BrowserSessionSigningKey => Some(key_names::BROWSER_SESSION_SIGNING_KEY),
             Self::EmbeddingApiKey => Some(key_names::EMBEDDING_API_KEY),
             Self::CodeEmbeddingApiKey => Some(key_names::CODE_EMBEDDING_API_KEY),
+            Self::ImageEmbeddingApiKey => Some(key_names::IMAGE_EMBEDDING_API_KEY),
             Self::SearchApiKey => Some(key_names::SEARCH_API_KEY),
             Self::DoclingVlmApiKey => Some(key_names::DOCLING_VLM_API_KEY),
             Self::TranslationProviderApiKey => Some(key_names::TRANSLATION_PROVIDER_API_KEY),
@@ -174,7 +181,7 @@ impl SecretPurpose {
     /// Resolves a stored key name back to the purpose that owns it.
     ///
     /// This is the exhaustive inverse of the catalogue, and it is what lets a
-    /// stored key be sealed without asking the caller what it owns: the six
+    /// stored key be sealed without asking the caller what it owns: the seven
     /// fixed singleton names match exactly, and the four record-scoped prefixes
     /// match with a record identifier the frame's own bound accepts.
     ///

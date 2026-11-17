@@ -50,6 +50,9 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
     if let Some(code) = &request.code_embedding {
         code_embedding_request(code)?;
     }
+    if let Some(image) = &request.image_embedding {
+        image_embedding_request(image, &request.qdrant.collection_name)?;
+    }
     if request.scheduler.interval_secs == 0 {
         return Err(DomainError::invalid_argument(
             "runtime.scheduler.interval_secs must be greater than 0",
@@ -213,6 +216,75 @@ fn code_embedding_request(request: &UpdateCodeEmbeddingSettings) -> Result<()> {
     if i64::try_from(request.timeout_secs).is_err() {
         return Err(DomainError::invalid_argument(format!(
             "runtime.code_embedding.timeout_secs must be at most {}",
+            i64::MAX
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+fn image_embedding_request(
+    request: &crate::contracts::settings::UpdateImageEmbeddingSettings,
+    document_collection: &str,
+) -> Result<()> {
+    if request.enabled {
+        if request.base_url.trim().is_empty() {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.base_url must not be empty",
+            )
+            .into());
+        }
+        if request.model.trim().is_empty() {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.model must not be empty",
+            )
+            .into());
+        }
+        if request.collection_name.trim().is_empty() {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.collection_name must not be empty",
+            )
+            .into());
+        }
+        if request.dimensions == 0 {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.dimensions must be greater than 0",
+            )
+            .into());
+        }
+        if request.timeout_secs == 0 {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.timeout_secs must be greater than 0",
+            )
+            .into());
+        }
+        if request.collection_name.trim() == document_collection.trim() {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.collection_name must not reuse the document collection",
+            )
+            .into());
+        }
+        if request
+            .collection_name
+            .trim()
+            .starts_with(crate::qdrant_index::code_vectors::CODE_COLLECTION_PREFIX)
+        {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding.collection_name must not reuse a code collection",
+            )
+            .into());
+        }
+    }
+    if i64::try_from(request.dimensions).is_err() {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.image_embedding.dimensions must be at most {}",
+            i64::MAX
+        ))
+        .into());
+    }
+    if i64::try_from(request.timeout_secs).is_err() {
+        return Err(DomainError::invalid_argument(format!(
+            "runtime.image_embedding.timeout_secs must be at most {}",
             i64::MAX
         ))
         .into());
@@ -459,8 +531,9 @@ fn validate_fusion_weights(vector_weight: f32, keyword_weight: f32) -> Result<()
 
 #[cfg(test)]
 mod validation_tests {
-    use super::{code_embedding_request, registry_capacity_request};
+    use super::{code_embedding_request, image_embedding_request, registry_capacity_request};
     use crate::contracts::UpdateRuntimeFileLibrarySettings;
+    use crate::contracts::settings::UpdateImageEmbeddingSettings;
     use context69_contracts::settings::SecretPatch;
     use context69_contracts::settings::UpdateCodeEmbeddingSettings;
 
@@ -475,6 +548,31 @@ mod validation_tests {
             registry_max_ids_per_file: per_file,
             registry_max_ids_per_run: per_run,
             s3: None,
+        }
+    }
+
+    fn image(enabled: bool) -> UpdateImageEmbeddingSettings {
+        UpdateImageEmbeddingSettings {
+            enabled,
+            base_url: if enabled {
+                "https://images.invalid/v1".to_string()
+            } else {
+                String::new()
+            },
+            model: if enabled {
+                "image-model".to_string()
+            } else {
+                String::new()
+            },
+            query_model: None,
+            dimensions: if enabled { 768 } else { 0 },
+            timeout_secs: if enabled { 30 } else { 0 },
+            collection_name: if enabled {
+                "context69_images".to_string()
+            } else {
+                String::new()
+            },
+            api_key: SecretPatch::Keep,
         }
     }
 
@@ -501,6 +599,34 @@ mod validation_tests {
     #[test]
     fn a_disabled_block_needs_no_provider_fields() {
         code_embedding_request(&code(false)).expect("a disabled block may keep blank fields");
+        image_embedding_request(&image(false), "context69")
+            .expect("a disabled image block may keep blanks");
+    }
+
+    #[test]
+    fn an_enabled_image_block_requires_a_collection_and_complete_fields() {
+        image_embedding_request(&image(true), "context69")
+            .expect("a complete image block is valid");
+        let mut request = image(true);
+        request.collection_name.clear();
+        assert!(image_embedding_request(&request, "context69").is_err());
+        let mut request = image(true);
+        request.base_url.clear();
+        assert!(image_embedding_request(&request, "context69").is_err());
+        let mut request = image(true);
+        request.dimensions = 0;
+        assert!(image_embedding_request(&request, "context69").is_err());
+    }
+
+    #[test]
+    fn an_enabled_image_block_cannot_alias_a_document_or_code_collection() {
+        let mut request = image(true);
+        request.collection_name = "context69".to_string();
+        assert!(image_embedding_request(&request, "context69").is_err());
+        let mut request = image(true);
+        request.collection_name =
+            crate::qdrant_index::code_vectors::code_collection_name("fingerprint");
+        assert!(image_embedding_request(&request, "context69").is_err());
     }
 
     #[test]

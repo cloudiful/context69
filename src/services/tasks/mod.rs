@@ -37,6 +37,7 @@ pub mod handover;
 mod inline_waits;
 mod item_file_processors;
 mod item_git_index_processor;
+mod item_image_processors;
 mod item_lifecycle_processors;
 mod item_replacement_processor;
 mod park;

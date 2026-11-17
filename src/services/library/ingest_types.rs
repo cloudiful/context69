@@ -51,6 +51,63 @@ impl LibraryFileKind {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryImageKind {
+    Png,
+    Jpeg,
+    WebP,
+}
+
+impl LibraryImageKind {
+    /// The canonical media type of a supported image kind.
+    pub(crate) const fn media_type(self) -> &'static str {
+        match self {
+            Self::Png => "image/png",
+            Self::Jpeg => "image/jpeg",
+            Self::WebP => "image/webp",
+        }
+    }
+
+    /// The supported kind a declared media type names, jpeg aliases included.
+    pub(crate) fn from_media_type(media_type: &str) -> Option<Self> {
+        match media_type.trim().to_ascii_lowercase().as_str() {
+            "image/png" => Some(Self::Png),
+            "image/jpeg" | "image/jpg" => Some(Self::Jpeg),
+            "image/webp" => Some(Self::WebP),
+            _ => None,
+        }
+    }
+
+    /// The supported kind a filename extension names, jpeg aliases included.
+    pub(crate) fn from_extension(extension: &str) -> Option<Self> {
+        match extension.trim().to_ascii_lowercase().as_str() {
+            "png" => Some(Self::Png),
+            "jpg" | "jpeg" => Some(Self::Jpeg),
+            "webp" => Some(Self::WebP),
+            _ => None,
+        }
+    }
+}
+
+/// What the storage layer classified an upload as, before any ingest stage.
+///
+/// A document kind keeps the existing ingest path unchanged; an image kind is
+/// the additive classification the image model stores and links.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum LibraryMediaKind {
+    Document(LibraryFileKind),
+    Image(LibraryImageKind),
+}
+
+impl LibraryMediaKind {
+    pub(crate) fn image_kind(self) -> Option<LibraryImageKind> {
+        match self {
+            Self::Image(kind) => Some(kind),
+            Self::Document(_) => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub(crate) struct IngestSection {
     pub section_key: String,
@@ -182,7 +239,7 @@ pub(super) struct PreparedIngestSection {
 
 #[cfg(test)]
 mod tests {
-    use super::{LibraryFileKind, TaskSourceRef};
+    use super::{LibraryFileKind, LibraryImageKind, LibraryMediaKind, TaskSourceRef};
 
     #[test]
     fn task_source_selection_preserves_explicit_staged_input() {
@@ -200,6 +257,43 @@ mod tests {
         assert_eq!(LibraryFileKind::Docx.conversion_stage(), "docling");
         assert_eq!(LibraryFileKind::Xlsx.conversion_stage(), "docling");
         assert_eq!(LibraryFileKind::PlainText.conversion_stage(), "embedding");
+    }
+
+    #[test]
+    fn image_kinds_name_their_canonical_media_type() {
+        for (kind, media_type) in [
+            (LibraryImageKind::Png, "image/png"),
+            (LibraryImageKind::Jpeg, "image/jpeg"),
+            (LibraryImageKind::WebP, "image/webp"),
+        ] {
+            assert_eq!(kind.media_type(), media_type);
+            assert_eq!(LibraryImageKind::from_media_type(media_type), Some(kind));
+        }
+    }
+
+    #[test]
+    fn image_kind_parsing_accepts_jpeg_aliases_and_rejects_other_types() {
+        assert_eq!(
+            LibraryImageKind::from_media_type(" IMAGE/JPEG "),
+            Some(LibraryImageKind::Jpeg)
+        );
+        assert_eq!(
+            LibraryImageKind::from_media_type("image/jpg"),
+            Some(LibraryImageKind::Jpeg)
+        );
+        assert_eq!(
+            LibraryImageKind::from_extension("JPG"),
+            Some(LibraryImageKind::Jpeg)
+        );
+        assert_eq!(LibraryImageKind::from_media_type("image/gif"), None);
+        assert_eq!(LibraryImageKind::from_media_type("text/plain"), None);
+        assert_eq!(LibraryImageKind::from_extension("gif"), None);
+        let media = LibraryMediaKind::Image(LibraryImageKind::Png);
+        assert_eq!(media.image_kind(), Some(LibraryImageKind::Png));
+        assert_eq!(
+            LibraryMediaKind::Document(LibraryFileKind::PlainText).image_kind(),
+            None
+        );
     }
 
     /// Issue 639 regression: the embedding/indexing recovery branch (missing

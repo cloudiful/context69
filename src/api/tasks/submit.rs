@@ -192,6 +192,15 @@ pub(crate) async fn submit_task(
                 .map(|item| serde_json::to_value(item).expect("FileBatchItem is serializable"))
                 .collect(),
         ),
+        TaskSubmitRequest::ImageBatch { group_path, items } => (
+            TaskKind::ImageBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("ImageBatchItem is serializable"))
+                .collect(),
+        ),
         TaskSubmitRequest::TextBatch { group_path, items } => (
             TaskKind::TextBatch,
             group_path,

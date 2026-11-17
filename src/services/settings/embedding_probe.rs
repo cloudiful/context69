@@ -13,6 +13,15 @@ use crate::support::normalize::normalize_optional_string;
 /// The synthetic string a probe embeds.
 const PROBE_TEXT: &str = "context69 embedding connection test";
 
+/// A 1x1 transparent PNG sent by the image provider probe.
+const PROBE_IMAGE_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1f, 0x15, 0xc4,
+    0x89, 0x00, 0x00, 0x00, 0x0a, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x63, 0x00, 0x01, 0x00, 0x00,
+    0x05, 0x00, 0x01, 0x0d, 0x0a, 0x2d, 0xb4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae,
+    0x42, 0x60, 0x82,
+];
+
 /// The origin of one base URL.
 ///
 /// Only the scheme and the authority are used, so a base URL that carries a
@@ -68,6 +77,18 @@ impl SettingsService {
                 }
                 self.code_embedding_secrets.resolve().await
             }
+            TestRuntimeEmbeddingPurpose::Image => {
+                // An image probe resolves only the image configuration and image
+                // credential. It never reads or opens the document or code key.
+                let stored = self.db.get_runtime_image_embedding_settings().await?;
+                let stored_origin = stored
+                    .as_ref()
+                    .and_then(|settings| origin(&settings.base_url));
+                if stored_origin.is_none() || stored_origin != origin(base_url) {
+                    return Ok(None);
+                }
+                self.image_embedding_secrets.resolve().await
+            }
         }
     }
 
@@ -81,6 +102,25 @@ impl SettingsService {
         let api_key = self
             .probe_credential(request.purpose, &request.base_url, request.api_key.clone())
             .await?;
+        if request.purpose == TestRuntimeEmbeddingPurpose::Image {
+            // The image probe sends one synthetic 1x1 PNG through the image
+            // input shape and validates the returned count, dimensions, and
+            // finite values. It never writes settings or touches the document
+            // provider.
+            let provider = crate::image_embedding::build_image_provider(
+                &crate::config::ImageEmbeddingConfig {
+                    base_url: request.base_url.trim().to_string(),
+                    api_key,
+                    model: request.model.trim().to_string(),
+                    query_model: None,
+                    dimensions: request.dimensions,
+                    timeout: std::time::Duration::from_secs(request.timeout_secs),
+                    collection_name: "probe".to_string(),
+                },
+            )?;
+            provider.embed_images(&[PROBE_IMAGE_PNG.to_vec()]).await?;
+            return Ok(());
+        }
         // Construction performs no I/O; the probe embeds one synthetic string.
         // Every error path carries endpoint/model only, never the key.
         let provider =

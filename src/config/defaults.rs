@@ -112,6 +112,7 @@ impl Default for FileConfig {
                 timeout: Duration::from_secs(30),
             },
             code_embedding: None,
+            image_embedding: None,
             docling: None,
             auth: AuthConfig {
                 session_valkey_url: None,

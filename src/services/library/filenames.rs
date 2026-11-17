@@ -37,6 +37,19 @@ pub(super) async fn resolve_project_file_filename(
     Ok(next_available_filename(requested, &occupied))
 }
 
+pub(super) async fn resolve_project_file_filename_on(
+    store: &LibraryStore,
+    connection: &mut sqlx::PgConnection,
+    project_id: i64,
+    folder_id: Option<Uuid>,
+    requested: &str,
+) -> Result<String> {
+    let occupied = store
+        .list_filenames_in_project_folder_on(connection, project_id, folder_id)
+        .await?;
+    Ok(next_available_filename(requested, &occupied))
+}
+
 fn next_available_filename(base_filename: &str, occupied: &[String]) -> String {
     let occupied = occupied.iter().cloned().collect::<HashSet<_>>();
     if !occupied.contains(base_filename) {

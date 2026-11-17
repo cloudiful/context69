@@ -19,6 +19,7 @@ pub(super) fn parse_kind(value: &str) -> Result<TaskKind> {
         "translation" => Ok(TaskKind::Translation),
         "vector_rebuild" => Ok(TaskKind::VectorRebuild),
         "git_index" => Ok(TaskKind::GitIndex),
+        "image_batch" => Ok(TaskKind::ImageBatch),
         other => {
             Err(DomainError::invalid_argument(format!("unsupported task kind {other}")).into())
         }
