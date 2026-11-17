@@ -16,50 +16,33 @@ concurrency:
 jobs:
   build-and-publish:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    runs-on: aio
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v7
-
-      - name: Reset Docker build input
-        shell: bash
-        run: rm -rf ci-image-input
-
-      - name: Build Rust artifacts
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/build-rust-artifacts@v0.4.6
-        with:
-          build_command: cargo build --release --bin context69
-          binary_mappings: >-
-            [
-              {"source":"target/release/context69","destination":"context69"}
-            ]
-
-      - name: Export OpenAPI
-        shell: bash
-        run: ci-image-input/context69 export-openapi
-
-      - name: Build frontend
-        working-directory: frontend
-        shell: bash
-        run: |
-          bun install --no-save --minimum-release-age 604800
-          bun run generate:api
-          bun run build
-          test -f dist/index.html
-          mkdir -p ../ci-image-input/frontend-dist
-          cp -R dist/. ../ci-image-input/frontend-dist/
-
-      - name: Build and push Docker image
-        uses: https://forgejo.cloud1ful.com/actions/workflows/actions/publish-docker@v0.5.0
-        with:
-          context: .
-          dockerfile: ./forgejo.Dockerfile
-          platform: linux/amd64
-          targets: >-
-            [{"target":"runtime","image_suffix":""}]
-          publish_latest: ${{ !startsWith(github.ref, 'refs/tags/v') }}
-          builder_name_prefix: context69
-          inline_cache: "true"
-          inline_cache_tag: latest-amd64
-          username: ${{ github.actor }}
-          password: ${{ secrets.REGISTRY_TOKEN }}
+    uses: actions/workflows/.forgejo/workflows/docker-publish.yml@v0.6.0
+    with:
+      builds: >-
+        [{"platform":"linux/amd64","runner":"aio"}]
+      before_build_command: rm -rf ci-image-input
+      build_command: cargo build --release --bin context69
+      binary_mappings: >-
+        [{"source":"target/release/context69","destination":"context69"}]
+      after_build_command: |
+        ci-image-input/context69 export-openapi
+        cd frontend
+        bun install --no-save --minimum-release-age 604800
+        bun run generate:api
+        bun run build
+        test -f dist/index.html
+        mkdir -p ../ci-image-input/frontend-dist
+        cp -R dist/. ../ci-image-input/frontend-dist/
+      restore_source_timestamps: true
+      context: .
+      dockerfile: ./forgejo.Dockerfile
+      targets: >-
+        [{"target":"runtime","image_suffix":""}]
+      publish_latest: "false"
+      builder_name_prefix: context69
+      inline_cache: "true"
+      inline_cache_tag: latest-amd64
+      push: true
+      username: ${{ github.actor }}
+    secrets:
+      registry_token: ${{ secrets.REGISTRY_TOKEN }}
