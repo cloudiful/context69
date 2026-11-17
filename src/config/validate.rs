@@ -82,7 +82,9 @@ pub(super) fn validate_docling_config(config: Option<&DoclingConfig>) -> Result<
     if docling.connection.poll_interval.as_secs() == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
     }
-    resolve_vlm_runtime_config(&docling.vlm)?;
+    if docling.effective_do_picture_description() {
+        resolve_vlm_runtime_config(&docling.vlm)?;
+    }
     Ok(())
 }
 

@@ -103,6 +103,9 @@ export function normalizeDoclingPayload(
       max_inflight: Number(payload.connection.max_inflight),
     },
     ocr_preset: (payload.ocr_preset ?? "").trim(),
+    do_ocr: payload.do_ocr,
+    do_picture_description: payload.do_picture_description,
+    vlm_mode: payload.vlm_mode,
     vlm: {
       openai_base_url: cleanOptional(vlm.openai_base_url),
       api_key: cleanOptional(vlm.api_key),

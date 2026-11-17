@@ -635,13 +635,39 @@ pub struct DoclingSettingsResponse {
     /// The selected Docling OCR preset. A fresh or unconfigured installation
     /// reports the default preset.
     pub ocr_preset: String,
+    /// Whether conversions request OCR. A fresh or unconfigured installation
+    /// reports `true`.
+    pub do_ocr: bool,
+    /// Whether conversions request picture description. A fresh or
+    /// unconfigured installation reports `false`.
+    pub do_picture_description: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateDoclingSettingsRequest {
     pub connection: UpdateDoclingConnectionSettings,
-    #[serde(default)]
-    pub vlm: UpdateDoclingVlmSettings,
+    /// The submitted VLM selection, when the caller sends one.
+    ///
+    /// An absent object means the caller did not touch the VLM branch; a
+    /// disabled picture-description save then keeps the stored configuration.
+    /// A present object — including `{}`, a key-only custom selection, or an
+    /// empty preset — is an explicit branch selection and replaces the stored
+    /// branch instead of merging with it. The generated schema documents the
+    /// property as an optional object and never advertises `null`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub vlm: Option<UpdateDoclingVlmSettings>,
+    /// The selected VLM branch, when the caller states one.
+    ///
+    /// The mode is a request-only discriminator: it is never persisted and the
+    /// response keeps inferring its branch from the stored configuration. It
+    /// separates an explicit empty selection from an omitted one so a disabled
+    /// save can clear an old opposite-branch credential for `preset` or
+    /// `disabled` while keeping it for a secret-only `custom` branch. An absent
+    /// mode keeps the older field-based behaviour.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schema(nullable = false)]
+    pub vlm_mode: Option<DoclingVlmMode>,
     /// The selected Docling OCR preset.
     ///
     /// An absent field keeps the stored selection, so a client that does not
@@ -659,6 +685,20 @@ pub struct UpdateDoclingSettingsRequest {
     )]
     #[schema(nullable = false)]
     pub ocr_preset: Option<Option<String>>,
+    /// Whether conversions request OCR.
+    ///
+    /// An absent field keeps the stored value; a fresh installation defaults
+    /// to `true`. The value is sent to Docling explicitly instead of being
+    /// inferred from the presence of the OCR preset.
+    #[serde(default)]
+    pub do_ocr: Option<bool>,
+    /// Whether conversions request picture description.
+    ///
+    /// An absent field keeps the stored value; a fresh installation defaults
+    /// to `false`. The value is sent to Docling explicitly and is never
+    /// coerced from the presence of a VLM preset or model.
+    #[serde(default)]
+    pub do_picture_description: Option<bool>,
 }
 
 /// Keeps an absent optional field distinguishable from an explicit `null`.
@@ -720,7 +760,7 @@ fn default_docling_max_inflight() -> usize {
 mod tests {
     use super::{
         DOCLING_MAX_INFLIGHT_DEFAULT, DOCLING_OCR_PRESET_DEFAULT, DoclingSettingsResponse,
-        UpdateDoclingSettingsRequest, default_docling_max_inflight,
+        DoclingVlmMode, UpdateDoclingSettingsRequest, default_docling_max_inflight,
     };
     use utoipa::PartialSchema;
 
@@ -823,6 +863,126 @@ mod tests {
         );
     }
 
+    /// Both enrichment toggles are optional updates: an old caller omits them
+    /// and keeps the stored flags, while an explicit `false` stays `false`.
+    #[test]
+    fn the_docling_toggles_are_optional_and_preserve_an_explicit_false() {
+        let absent: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": {
+                "base_url": "http://docling:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            }
+        }))
+        .expect("a request without the toggles");
+        assert_eq!(absent.do_ocr, None);
+        assert_eq!(absent.do_picture_description, None);
+
+        let disabled: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": {
+                "base_url": "http://docling:5001",
+                "timeout_secs": 120,
+                "poll_interval_secs": 2,
+                "task_timeout_secs": 3600
+            },
+            "do_ocr": false,
+            "do_picture_description": false
+        }))
+        .expect("a request with disabled toggles");
+        assert_eq!(disabled.do_ocr, Some(false));
+        assert_eq!(disabled.do_picture_description, Some(false));
+
+        let schema = request_schema();
+        for name in ["do_ocr", "do_picture_description"] {
+            assert!(
+                !required_properties(&schema)
+                    .iter()
+                    .any(|property| property == name),
+                "the {name} update property must stay optional, got: {schema}"
+            );
+        }
+    }
+
+    /// The VLM update object is optional, and its presence is the branch
+    /// signal: an omitted object and an explicitly empty one stay distinct on
+    /// the wire.
+    #[test]
+    fn the_docling_vlm_update_distinguishes_omitted_from_empty() {
+        let connection = serde_json::json!({
+            "base_url": "http://docling:5001",
+            "timeout_secs": 120,
+            "poll_interval_secs": 2,
+            "task_timeout_secs": 3600
+        });
+
+        let omitted: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": connection
+        }))
+        .expect("a request without the vlm object");
+        assert!(omitted.vlm.is_none());
+
+        let empty: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": connection,
+            "vlm": {}
+        }))
+        .expect("a request with an explicitly empty vlm object");
+        assert!(
+            empty.vlm.is_some(),
+            "an explicit empty object must stay present"
+        );
+
+        let key_only: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": connection,
+            "vlm": { "api_key": "rotated" }
+        }))
+        .expect("a key-only vlm selection");
+        assert_eq!(
+            key_only.vlm.and_then(|vlm| vlm.api_key).as_deref(),
+            Some("rotated")
+        );
+
+        let selected: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
+            "connection": connection,
+            "vlm": {},
+            "vlm_mode": "preset"
+        }))
+        .expect("an explicit empty preset selection");
+        assert_eq!(selected.vlm_mode, Some(DoclingVlmMode::Preset));
+        assert_eq!(
+            serde_json::to_value(DoclingVlmMode::Custom).expect("the mode serializes"),
+            serde_json::json!("custom")
+        );
+
+        let schema = request_schema();
+        let mode = &schema["properties"]["vlm_mode"];
+        assert_eq!(
+            mode["$ref"], "#/components/schemas/DoclingVlmMode",
+            "the vlm mode update property must reference the generated enum, got: {mode}"
+        );
+        assert!(
+            mode.get("nullable").is_none(),
+            "the vlm mode update property must not advertise null, got: {mode}"
+        );
+        assert!(
+            !required_properties(&schema)
+                .iter()
+                .any(|name| name == "vlm_mode"),
+            "the vlm mode update property must stay optional, got: {schema}"
+        );
+        let property = &schema["properties"]["vlm"];
+        assert!(
+            property.get("nullable").is_none(),
+            "the vlm update property must not advertise null, got: {property}"
+        );
+        assert!(
+            !required_properties(&schema)
+                .iter()
+                .any(|name| name == "vlm"),
+            "the vlm update property must stay optional, got: {schema}"
+        );
+    }
+
     /// The generated contract must document the response property as the
     /// selected preset, always present.
     #[test]
@@ -857,6 +1017,18 @@ pub struct DoclingVlmSettingsResponse {
     pub code_formula_model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub picture_description_preset: Option<String>,
+}
+
+/// The VLM branch a settings update selects.
+///
+/// The values match the settings UI choices. The mode is request-only: it
+/// selects which secret action an explicit update intends and is never stored.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DoclingVlmMode {
+    Disabled,
+    Preset,
+    Custom,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema, Default)]

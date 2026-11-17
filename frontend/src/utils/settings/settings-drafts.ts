@@ -93,6 +93,8 @@ export function createDoclingDraft(): DraftDoclingSettings {
       max_inflight: 2,
     },
     ocr_preset: DEFAULT_DOCLING_OCR_PRESET,
+    do_ocr: true,
+    do_picture_description: false,
     vlm_mode: "disabled",
     vlm: {
       openai_base_url: "",
@@ -198,6 +200,8 @@ export function doclingResponseToDraft(
       max_inflight: response.connection.max_inflight,
     },
     ocr_preset: response.ocr_preset,
+    do_ocr: response.do_ocr,
+    do_picture_description: response.do_picture_description,
     vlm_mode: inferDoclingVlmMode(vlm),
     vlm: {
       openai_base_url: vlm.openai_base_url ?? "",

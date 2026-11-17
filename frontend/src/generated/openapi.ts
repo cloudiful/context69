@@ -2496,6 +2496,16 @@ export interface components {
             configured: boolean;
             connection: components["schemas"]["DoclingConnectionSettingsResponse"];
             /**
+             * @description Whether conversions request OCR. A fresh or unconfigured installation
+             *     reports `true`.
+             */
+            do_ocr: boolean;
+            /**
+             * @description Whether conversions request picture description. A fresh or
+             *     unconfigured installation reports `false`.
+             */
+            do_picture_description: boolean;
+            /**
              * @description The selected Docling OCR preset. A fresh or unconfigured installation
              *     reports the default preset.
              */
@@ -2505,6 +2515,14 @@ export interface components {
         };
         /** @enum {string} */
         DoclingSettingsSource: "config" | "database" | "unconfigured";
+        /**
+         * @description The VLM branch a settings update selects.
+         *
+         *     The values match the settings UI choices. The mode is request-only: it
+         *     selects which secret action an explicit update intends and is never stored.
+         * @enum {string}
+         */
+        DoclingVlmMode: "disabled" | "preset" | "custom";
         DoclingVlmSettingsResponse: {
             code_formula_model?: string | null;
             has_api_key: boolean;
@@ -5545,6 +5563,22 @@ export interface components {
         UpdateDoclingSettingsRequest: {
             connection: components["schemas"]["UpdateDoclingConnectionSettings"];
             /**
+             * @description Whether conversions request OCR.
+             *
+             *     An absent field keeps the stored value; a fresh installation defaults
+             *     to `true`. The value is sent to Docling explicitly instead of being
+             *     inferred from the presence of the OCR preset.
+             */
+            do_ocr?: boolean | null;
+            /**
+             * @description Whether conversions request picture description.
+             *
+             *     An absent field keeps the stored value; a fresh installation defaults
+             *     to `false`. The value is sent to Docling explicitly and is never
+             *     coerced from the presence of a VLM preset or model.
+             */
+            do_picture_description?: boolean | null;
+            /**
              * @description The selected Docling OCR preset.
              *
              *     An absent field keeps the stored selection, so a client that does not
@@ -5557,7 +5591,28 @@ export interface components {
              *     must not advertise one.
              */
             ocr_preset?: string;
+            /**
+             * @description The submitted VLM selection, when the caller sends one.
+             *
+             *     An absent object means the caller did not touch the VLM branch; a
+             *     disabled picture-description save then keeps the stored configuration.
+             *     A present object — including `{}`, a key-only custom selection, or an
+             *     empty preset — is an explicit branch selection and replaces the stored
+             *     branch instead of merging with it. The generated schema documents the
+             *     property as an optional object and never advertises `null`.
+             */
             vlm?: components["schemas"]["UpdateDoclingVlmSettings"];
+            /**
+             * @description The selected VLM branch, when the caller states one.
+             *
+             *     The mode is a request-only discriminator: it is never persisted and the
+             *     response keeps inferring its branch from the stored configuration. It
+             *     separates an explicit empty selection from an omitted one so a disabled
+             *     save can clear an old opposite-branch credential for `preset` or
+             *     `disabled` while keeping it for a secret-only `custom` branch. An absent
+             *     mode keeps the older field-based behaviour.
+             */
+            vlm_mode?: components["schemas"]["DoclingVlmMode"];
         };
         UpdateDoclingVlmSettings: {
             api_key?: string | null;

@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useDoclingCleanup, DOCLING_CLEANUP_PAGE_SIZES } from "@/features/settings/use-docling-cleanup";
@@ -109,120 +110,156 @@ export function DoclingSection() {
           </div>
         </SettingsBlock>
 
-        <SettingsBlock id="settings-ocr" compact title={t("settings.docling.ocrTitle")}>
-          <div className="grid max-w-2xl gap-3">
-            <TextField
-              id="docling-ocr-preset"
-              label={t("settings.docling.ocrPreset")}
-              placeholder={t("settings.docling.ocrPresetPlaceholder")}
-              value={draft.ocr_preset}
-              onChange={(value) => page.updateDoclingDraft((next) => {
-                next.ocr_preset = value;
+        <SettingsBlock
+          id="settings-ocr"
+          compact
+          title={t("settings.docling.ocrTitle")}
+          actions={
+            <Switch
+              id="docling-ocr-enabled"
+              data-testid="docling-ocr-enabled"
+              aria-label={t("settings.docling.ocrEnabled")}
+              checked={draft.do_ocr}
+              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
+                next.do_ocr = checked;
               })}
             />
-          </div>
-        </SettingsBlock>
-
-        <SettingsBlock id="settings-vlm" compact title={t("settings.docling.vlmTitle")}>
-          <div className="flex max-w-2xl items-end gap-2">
-            <FormField label={t("settings.docling.vlmModeLabel")} htmlFor="docling-vlm-mode" className="flex-1">
-              <Select
-                value={draft.vlm_mode}
-                onValueChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm_mode = value as DraftDoclingVlmMode;
-                })}
-              >
-                <SelectTrigger id="docling-vlm-mode" aria-label={t("settings.docling.vlmModeLabel")}>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="disabled">{t("settings.docling.vlmModeDisabled")}</SelectItem>
-                  <SelectItem value="preset">{t("settings.docling.vlmModePreset")}</SelectItem>
-                  <SelectItem value="custom">{t("settings.docling.vlmModeCustom")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </FormField>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  data-testid="docling-vlm-mode-info"
-                  aria-label={t("settings.docling.vlmModeInfoLabel")}
-                >
-                  <Info aria-hidden="true" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-xs text-xs leading-5">{vlmModeInfo}</TooltipContent>
-            </Tooltip>
-          </div>
-
-          {draft.vlm_mode === "preset" ? (
+          }
+        >
+          {draft.do_ocr ? (
             <div className="grid max-w-2xl gap-3">
               <TextField
-                id="docling-picture-description-preset"
-                label={t("settings.docling.pictureDescriptionPreset")}
-                placeholder={t("settings.docling.pictureDescriptionPresetPlaceholder")}
-                value={draft.vlm.picture_description_preset}
+                id="docling-ocr-preset"
+                label={t("settings.docling.ocrPreset")}
+                placeholder={t("settings.docling.ocrPresetPlaceholder")}
+                value={draft.ocr_preset}
                 onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm.picture_description_preset = value;
+                  next.ocr_preset = value;
                 })}
               />
             </div>
           ) : null}
+        </SettingsBlock>
 
-          {draft.vlm_mode === "custom" ? (
-            <div className="grid max-w-2xl gap-3">
-              <TextField
-                id="docling-openai-base-url"
-                type="url"
-                label={t("settings.docling.openAiBaseUrl")}
-                placeholder="https://openrouter.ai/api/v1"
-                value={draft.vlm.openai_base_url}
-                onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm.openai_base_url = value;
-                })}
-              />
-              <TextField
-                id="docling-api-key"
-                type="password"
-                autoComplete="new-password"
-                label={t("settings.docling.apiKey")}
-                placeholder="sk-..."
-                value={draft.vlm.api_key}
-                onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm.api_key = value;
-                })}
-              />
-              <TextField
-                id="docling-vlm-pipeline-model"
-                label={t("settings.docling.vlmPipelineModel")}
-                placeholder="gemini-3-flash"
-                value={draft.vlm.vlm_pipeline_model}
-                onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm.vlm_pipeline_model = value;
-                })}
-              />
-              <TextField
-                id="docling-picture-description-model"
-                label={t("settings.docling.pictureDescriptionModel")}
-                placeholder="gpt-4o-mini"
-                value={draft.vlm.picture_description_model}
-                onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm.picture_description_model = value;
-                })}
-              />
-              <TextField
-                id="docling-code-formula-model"
-                label={t("settings.docling.codeFormulaModel")}
-                placeholder="gpt-4o-mini"
-                value={draft.vlm.code_formula_model}
-                onChange={(value) => page.updateDoclingDraft((next) => {
-                  next.vlm.code_formula_model = value;
-                })}
-              />
-            </div>
+        <SettingsBlock
+          id="settings-vlm"
+          compact
+          title={t("settings.docling.vlmTitle")}
+          actions={
+            <Switch
+              id="docling-picture-description-enabled"
+              data-testid="docling-picture-description-enabled"
+              aria-label={t("settings.docling.pictureDescriptionEnabled")}
+              checked={draft.do_picture_description}
+              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
+                next.do_picture_description = checked;
+              })}
+            />
+          }
+        >
+          {draft.do_picture_description ? (
+            <>
+              <div className="flex max-w-2xl items-end gap-2">
+                <FormField label={t("settings.docling.vlmModeLabel")} htmlFor="docling-vlm-mode" className="flex-1">
+                  <Select
+                    value={draft.vlm_mode}
+                    onValueChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm_mode = value as DraftDoclingVlmMode;
+                    })}
+                  >
+                    <SelectTrigger id="docling-vlm-mode" aria-label={t("settings.docling.vlmModeLabel")}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="disabled">{t("settings.docling.vlmModeDisabled")}</SelectItem>
+                      <SelectItem value="preset">{t("settings.docling.vlmModePreset")}</SelectItem>
+                      <SelectItem value="custom">{t("settings.docling.vlmModeCustom")}</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </FormField>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      data-testid="docling-vlm-mode-info"
+                      aria-label={t("settings.docling.vlmModeInfoLabel")}
+                    >
+                      <Info aria-hidden="true" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent className="max-w-xs text-xs leading-5">{vlmModeInfo}</TooltipContent>
+                </Tooltip>
+              </div>
+
+              {draft.vlm_mode === "preset" ? (
+                <div className="grid max-w-2xl gap-3">
+                  <TextField
+                    id="docling-picture-description-preset"
+                    label={t("settings.docling.pictureDescriptionPreset")}
+                    placeholder={t("settings.docling.pictureDescriptionPresetPlaceholder")}
+                    value={draft.vlm.picture_description_preset}
+                    onChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm.picture_description_preset = value;
+                    })}
+                  />
+                </div>
+              ) : null}
+
+              {draft.vlm_mode === "custom" ? (
+                <div className="grid max-w-2xl gap-3">
+                  <TextField
+                    id="docling-openai-base-url"
+                    type="url"
+                    label={t("settings.docling.openAiBaseUrl")}
+                    placeholder="https://openrouter.ai/api/v1"
+                    value={draft.vlm.openai_base_url}
+                    onChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm.openai_base_url = value;
+                    })}
+                  />
+                  <TextField
+                    id="docling-api-key"
+                    type="password"
+                    autoComplete="new-password"
+                    label={t("settings.docling.apiKey")}
+                    placeholder="sk-..."
+                    value={draft.vlm.api_key}
+                    onChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm.api_key = value;
+                    })}
+                  />
+                  <TextField
+                    id="docling-vlm-pipeline-model"
+                    label={t("settings.docling.vlmPipelineModel")}
+                    placeholder="gemini-3-flash"
+                    value={draft.vlm.vlm_pipeline_model}
+                    onChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm.vlm_pipeline_model = value;
+                    })}
+                  />
+                  <TextField
+                    id="docling-picture-description-model"
+                    label={t("settings.docling.pictureDescriptionModel")}
+                    placeholder="gpt-4o-mini"
+                    value={draft.vlm.picture_description_model}
+                    onChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm.picture_description_model = value;
+                    })}
+                  />
+                  <TextField
+                    id="docling-code-formula-model"
+                    label={t("settings.docling.codeFormulaModel")}
+                    placeholder="gpt-4o-mini"
+                    value={draft.vlm.code_formula_model}
+                    onChange={(value) => page.updateDoclingDraft((next) => {
+                      next.vlm.code_formula_model = value;
+                    })}
+                  />
+                </div>
+              ) : null}
+            </>
           ) : null}
         </SettingsBlock>
 

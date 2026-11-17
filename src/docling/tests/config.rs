@@ -27,6 +27,8 @@ fn sample_config() -> DoclingConfig {
             picture_description_preset: None,
         },
         ocr_preset: DEFAULT_DOCLING_OCR_PRESET.to_string(),
+        do_ocr: true,
+        do_picture_description: Some(true),
     }
 }
 
@@ -95,6 +97,8 @@ fn a_configuration_without_a_vlm_bundle_resolves_to_no_provider() {
         connection: sample_config().connection,
         vlm: DoclingVlmConfig::default(),
         ocr_preset: DEFAULT_DOCLING_OCR_PRESET.to_string(),
+        do_ocr: true,
+        do_picture_description: None,
     };
     assert!(
         resolve_vlm_runtime_config(&config.vlm)
@@ -220,4 +224,32 @@ fn an_unset_stored_preset_falls_back_to_the_default() {
     assert_eq!(effective_ocr_preset(Some("  ")), DEFAULT_DOCLING_OCR_PRESET);
     assert_eq!(effective_ocr_preset(Some("auto")), "auto");
     assert_eq!(effective_ocr_preset(Some("tesseract")), "tesseract");
+}
+
+/// A legacy file configuration without the toggles keeps OCR enabled and
+/// picture description enabled only when it already configures VLM or a
+/// preset. An explicit toggle always wins.
+#[test]
+fn omitted_file_toggles_keep_the_legacy_behavior() {
+    let config = DoclingConfig::default();
+    assert!(config.do_ocr);
+    assert!(!config.effective_do_picture_description());
+
+    let mut preset_only = config.clone();
+    preset_only.vlm.picture_description_preset = Some("smolvlm".to_string());
+    assert!(preset_only.effective_do_picture_description());
+
+    preset_only.do_picture_description = Some(false);
+    assert!(
+        !preset_only.effective_do_picture_description(),
+        "an explicit off toggle must never be coerced back to true"
+    );
+
+    let mut custom = config;
+    custom.vlm.openai_base_url = Some("https://example.com/v1".to_string());
+    custom.vlm.api_key = Some("secret".to_string());
+    custom.vlm.vlm_pipeline_model = Some("vlm".to_string());
+    custom.vlm.picture_description_model = Some("pic".to_string());
+    custom.vlm.code_formula_model = Some("code".to_string());
+    assert!(custom.effective_do_picture_description());
 }

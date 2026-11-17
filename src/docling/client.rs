@@ -455,15 +455,25 @@ fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingErr
     if request.input_format == InputFormat::Pdf {
         form = form.text("pdf_backend", PDF_BACKEND);
     }
-    if let Some(preset) = request.picture_description_preset {
+    if request.do_picture_description
+        && let Some(preset) = request.picture_description_preset
+    {
         form = form.text("picture_description_preset", preset.to_string());
     }
-    // The OCR preset is a conversion setting of its own: it is named for every
-    // PDF and DOCX submission, with or without a VLM bundle.
+    // The OCR preset and both enrichment toggles are conversion settings of
+    // their own: they are named for every PDF and DOCX submission, with or
+    // without a VLM bundle, so a disabled toggle reaches the remote explicitly.
     if request.input_format.supports_vlm() {
-        form = form.text("ocr_preset", request.ocr_preset.to_string());
+        form = form
+            .text("ocr_preset", request.ocr_preset.to_string())
+            .text("do_ocr", bool_value(request.do_ocr))
+            .text(
+                "do_picture_description",
+                bool_value(request.do_picture_description),
+            );
     }
     if request.input_format.supports_vlm()
+        && request.do_picture_description
         && let Some(vlm) = request.vlm
     {
         form = apply_vlm_config(form, vlm, request.picture_description_preset.is_some())?;
@@ -471,10 +481,17 @@ fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingErr
     Ok(form)
 }
 
+/// The Docling form spelling of one boolean toggle.
+fn bool_value(value: bool) -> &'static str {
+    if value { "true" } else { "false" }
+}
+
 /// Adds the VLM form fields for the configured provider bundle.
 ///
 /// A preset suppresses only the picture-description configuration; the
-/// pipeline and code/formula mappings stay.
+/// pipeline and code/formula mappings stay. The picture-description toggle is
+/// sent by [`build_form`], so a disabled toggle never turns into an accidental
+/// enrichment here.
 fn apply_vlm_config(
     form: multipart::Form,
     vlm: &VlmSettings,
@@ -503,8 +520,7 @@ fn apply_vlm_config(
     Ok(form
         .text("code_formula_custom_config", code_formula)
         .text("do_code_enrichment", "true")
-        .text("do_formula_enrichment", "true")
-        .text("do_picture_description", "true"))
+        .text("do_formula_enrichment", "true"))
 }
 
 /// Turns a non-success answer into a typed failure without reading its body.

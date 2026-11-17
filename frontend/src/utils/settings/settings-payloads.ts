@@ -29,6 +29,9 @@ export function buildDoclingPayload(
       max_inflight: draft.connection.max_inflight,
     },
     ocr_preset: draft.ocr_preset,
+    do_ocr: draft.do_ocr,
+    do_picture_description: draft.do_picture_description,
+    vlm_mode: draft.vlm_mode,
     vlm: projectDoclingVlmForPayload(draft.vlm_mode, draft.vlm),
   });
 }

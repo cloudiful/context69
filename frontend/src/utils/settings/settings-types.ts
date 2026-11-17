@@ -94,6 +94,10 @@ export type DraftDoclingSettings = {
   };
   /** The Docling OCR preset every PDF and DOCX conversion requests. */
   ocr_preset: string;
+  /** Whether PDF and DOCX conversions request OCR. */
+  do_ocr: boolean;
+  /** Whether PDF and DOCX conversions request picture description. */
+  do_picture_description: boolean;
   /** Frontend-only draft mode selector; never persisted to the backend. */
   vlm_mode: DraftDoclingVlmMode;
   vlm: {
