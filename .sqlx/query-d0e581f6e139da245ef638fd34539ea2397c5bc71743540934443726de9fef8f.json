@@ -1,0 +1,21 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH target AS (\n    SELECT item.id, item.task_id\n    FROM context69.task_items item\n    WHERE item.id = $1 AND item.task_id = $2\n      AND item.execution_task_id = $3 AND item.execution_generation = $4\n      AND item.status = 'running' AND item.lease_token = $5\n), sealed AS (\n    UPDATE context69.task_attempts attempt\n    SET status = CASE WHEN $7 = 'cancelled' THEN 'cancelled' ELSE 'released' END,\n        failure_stage = NULL, error_message = NULL, finished_at = now()\n    FROM target\n    WHERE attempt.item_id = target.id AND attempt.finished_at IS NULL\n      AND attempt.execution_attempt_id = $6\n    RETURNING attempt.item_id\n), updated_item AS (\n    UPDATE context69.task_items item\n    SET status = CASE WHEN $7 = 'cancelled' THEN 'cancelled' ELSE 'queued' END,\n        released_attempts = item.released_attempts + CASE WHEN $7 = 'cancelled' THEN 0 ELSE 1 END,\n        waiting_reason = NULL, dependency_key = NULL, waiting_since = NULL,\n        next_attempt_at = NULL, lease_token = NULL, lease_until = NULL,\n        finished_at = CASE WHEN $7 = 'cancelled' THEN now() ELSE NULL END,\n        updated_at = now()\n    FROM target JOIN sealed ON sealed.item_id = target.id\n    WHERE item.id = target.id\n    RETURNING item.task_id\n)\nUPDATE context69.tasks task\nSET pause_state = CASE WHEN $7 = 'cancelled' THEN 'unpaused' ELSE $8 END,\n    paused_at = CASE WHEN $7 = 'cancelled' THEN NULL WHEN $8 = 'paused' THEN COALESCE(task.paused_at, now()) ELSE task.paused_at END,\n    lease_token = CASE WHEN NOT EXISTS (SELECT 1 FROM context69.task_items other WHERE other.task_id = task.id AND other.id <> $1 AND other.status = 'running' AND other.lease_until > clock_timestamp()) THEN NULL ELSE task.lease_token END,\n    lease_until = CASE WHEN NOT EXISTS (SELECT 1 FROM context69.task_items other WHERE other.task_id = task.id AND other.id <> $1 AND other.status = 'running' AND other.lease_until > clock_timestamp()) THEN NULL ELSE task.lease_until END,\n    updated_at = now()\nFROM updated_item WHERE task.id = updated_item.task_id\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Int8",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0e581f6e139da245ef638fd34539ea2397c5bc71743540934443726de9fef8f"
+}

@@ -54,6 +54,7 @@ WITH RECURSIVE inherited_groups AS (
         stage = 'processing',
         attempt_count = 0,
         paused_attempts = 0,
+        released_attempts = 0,
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = now(),

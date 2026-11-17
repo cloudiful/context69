@@ -52,9 +52,9 @@ eligible_items AS (
     JOIN context69.task_items ti ON ti.id = item.id
     JOIN context69.tasks parent ON parent.id = item.task_id
     WHERE ti.status IN ('queued', 'waiting')
-      -- The effective failure usage is attempt_count - paused_attempts < 5;
+      -- The effective failure usage is attempt_count - paused_attempts - released_attempts < 5;
       -- a parked pause consumes no budget.
-      AND (ti.attempt_count - ti.paused_attempts) < 5
+      AND (ti.attempt_count - ti.paused_attempts - ti.released_attempts) < 5
       AND parent.pause_state = 'unpaused'
       AND (ti.next_attempt_at IS NULL OR ti.next_attempt_at <= now())
       -- Active remote references survive handoff: the newly leased worker

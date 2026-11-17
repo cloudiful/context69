@@ -116,7 +116,9 @@ docker run -d \
 
 Open `http://localhost` after the first start. Configure Qdrant, the embedding provider, and any optional services in the Settings page, then restart the container. Port `80` serves the web UI and HTTP API; port `8097` serves MCP over HTTP.
 
-For a destructive upgrade, stop every writer running the old version, then back up PostgreSQL and the Qdrant collections before starting the new version. Do not leave old and new writers running against the same database, because schema and vector-registry changes made by the new version are not safe for the old code to write through.
+Before upgrading, stop every old writer and back up PostgreSQL and the Qdrant collections. Run the new database initialization and migrations, then start the new version; do not mix old and new writers. The task execution protocol upgrade preserves task and attempt history, but older binaries refuse the upgraded schema and cannot be rolled back against it.
+
+During graceful shutdown, a worker waiting on a persisted Docling conversion can yield its own claim after reaching a safe checkpoint. The next worker adopts the existing remote job without consuming a retry. Other stages continue normally within the shutdown budget; if shutdown times out, the database is unavailable, or the process is killed, unfinished leases recover after expiry rather than immediately.
 
 The Runtime settings section has a Qdrant Test Connection button for the unsaved URL. It checks reachability over the same gRPC transport indexing uses (usually port `6334`, not the REST `6333` endpoint) with a 5s timeout, answers success or a redacted failure, and never saves settings, notifies observers, or requires the collection to exist.
 

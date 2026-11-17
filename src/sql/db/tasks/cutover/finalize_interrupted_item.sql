@@ -13,7 +13,7 @@
 --
 -- `$1` is the item and `$2` the cutover error message.
 WITH target AS (
-    SELECT item.id, item.task_id, item.attempt_count
+    SELECT item.id, item.task_id, item.attempt_count, item.paused_attempts, item.released_attempts
     FROM context69.task_items item
     WHERE item.id = $1
       AND item.status = 'running'
@@ -37,7 +37,7 @@ finalized AS (
     SET status = 'failed',
         failure_stage = 'lease',
         error_message = $2,
-        retryable = (target.attempt_count < 5),
+        retryable = (target.attempt_count - target.paused_attempts - target.released_attempts < 5),
         waiting_reason = NULL,
         dependency_key = NULL,
         next_attempt_at = NULL,

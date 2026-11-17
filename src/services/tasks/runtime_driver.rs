@@ -272,7 +272,9 @@ async fn drive_claimed_item(
     let work_item = item.clone();
     let work_task = task.clone();
     let work_group = group.clone();
-    let work = tokio::spawn(async move {
+    let park = super::park::ParkState::new(service.dispatcher_shutdown());
+    let work_park = park.clone();
+    let work = tokio::spawn(super::park::scope(work_park, async move {
         work_body_gate().await;
         drive_with_inline_waits(
             &work_service,
@@ -282,7 +284,7 @@ async fn drive_claimed_item(
             &work_item,
         )
         .await
-    });
+    }));
     // The run owns both handles: a heartbeat that loses the claim aborts the
     // work, and dropping this value (an early return, a shutdown or a cancelled
     // outer future) aborts both instead of detaching them.
@@ -292,14 +294,38 @@ async fn drive_claimed_item(
         work: Some(work),
         heartbeat: spawn_item_heartbeat(service.clone(), execution.clone(), abort_work),
     };
-    let result = match run.work().await {
-        Ok(result) => result,
-        Err(join_error) if join_error.is_cancelled() => {
+    let result = match tokio::select! {
+        result = run.work() => Some(result),
+        () = park.wait_parked() => None,
+    } {
+        None => {
+            run.work_abort.abort();
+            let _ = run.work().await;
+            run.heartbeat.stop().await;
+            match service
+                .db()
+                .release_shutdown_item(&execution, item.task_id)
+                .await
+            {
+                Ok(true) => {
+                    info!(task_id = %item.task_id, item_id = %item.id, "parked task released during shutdown")
+                }
+                Ok(false) => {
+                    warn!(task_id = %item.task_id, item_id = %item.id, "shutdown release refused; lease recovery applies")
+                }
+                Err(error) => {
+                    warn!(task_id = %item.task_id, item_id = %item.id, %error, "shutdown release failed; lease recovery applies")
+                }
+            }
+            return Ok(());
+        }
+        Some(Ok(result)) => result,
+        Some(Err(join_error)) if join_error.is_cancelled() => {
             // The claim was lost while the work ran: the work was dropped with
             // the lease, so there is no outcome to report.
             return Ok(());
         }
-        Err(join_error) => return Err(join_error.into()),
+        Some(Err(join_error)) => return Err(join_error.into()),
     };
     run.heartbeat.abort();
 
