@@ -259,8 +259,37 @@ pub(crate) async fn claim_unfinished_item_file_slots(
     claim_file_processing_slots(connection, group_id, &file_ids).await
 }
 
-/// Resolve which explicitly named files in a submission may create new items.
+/// Active processing task for each requested file in one group.
 ///
+/// This is the same active-sibling check the failed retry and the source rerun
+/// use, exposed for an admission that starts from explicit file ids instead of
+/// a source task. Callers must have locked the files first.
+pub(crate) async fn active_file_task_items(
+    connection: &mut PgConnection,
+    group_id: i64,
+    file_ids: &[Uuid],
+) -> Result<HashMap<Uuid, Uuid>> {
+    if file_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let mut requested = file_ids.to_vec();
+    requested.sort_unstable();
+    requested.dedup();
+    let active = sqlx::query_file_as!(
+        StoredActiveFileItem,
+        "src/sql/db/tasks/find_active_file_items.sql",
+        &requested,
+        group_id
+    )
+    .fetch_all(&mut *connection)
+    .await?;
+    Ok(active
+        .into_iter()
+        .filter_map(|row| row.file_id.map(|file_id| (file_id, row.task_id)))
+        .collect())
+}
+
+/// Resolve which explicitly named files in a submission may create new items.
 /// Files already owned by an active task in the same group are removed from
 /// `retained_indices`; `active_task_ids` reports the covering tasks so the
 /// caller can reuse or reject the batch.

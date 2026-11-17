@@ -3,6 +3,7 @@ import type { QueryState } from "@tanstack/react-query";
 import type {
   GroupLibrarySettingsResponse,
   GroupResponse,
+  LibraryFileReprocessReason,
   LibraryFileSummary,
   LibraryFolderNode,
   LibraryIngestStatus,
@@ -39,6 +40,12 @@ export interface FileExplorerEntry extends ExplorerBaseEntry {
   errorMessage: string | null;
   isSourceConfigFile: boolean;
   isSourceRecordFile: boolean;
+  /**
+   * Advisory reprocessing hint. The paged resource item carries the backend
+   * hint; the folder tree has none, so it falls back to the durable
+   * approximation and the backend admission stays authoritative.
+   */
+  canReprocess: boolean;
   file: LibraryFileSummary;
 }
 
@@ -234,6 +241,43 @@ export function selectedFailedFileIds(
   return [...fileIds];
 }
 
+/** One reprocessing request carries at most this many file ids. */
+export const REPROCESS_CHUNK_SIZE = 100;
+
+/** The page keeps at most this many reprocessing requests in flight. */
+export const REPROCESS_MAX_CONCURRENT_REQUESTS = 4;
+
+const REPROCESS_REASON_KEYS: Record<LibraryFileReprocessReason, string> = {
+  not_found: "library.reprocessReasonNotFound",
+  not_succeeded: "library.reprocessReasonNotSucceeded",
+  source_protected: "library.reprocessReasonProtected",
+  source_unavailable: "library.reprocessReasonUnavailable",
+  active_source_busy: "library.reprocessReasonBusy",
+  admission_failed: "library.reprocessReasonFailed",
+};
+
+export function reprocessReasonLabel(
+  t: (key: string) => string,
+  reason: LibraryFileReprocessReason | null | undefined,
+): string {
+  return reason ? t(REPROCESS_REASON_KEYS[reason]) : t("library.reprocessReasonUnavailable");
+}
+
+/** Reprocessing is only meaningful for a completed, unprotected file. */
+export function canReprocessFile(entry: ExplorerEntry): boolean {
+  return entry.kind === "file" && entry.canReprocess;
+}
+
+export function selectedReprocessFileIds(
+  entries: ExplorerEntry[],
+  selectedKeys: Iterable<string>,
+): string[] {
+  const selected = new Set(selectedKeys);
+  return entries
+    .filter((entry) => entry.kind === "file" && entry.canReprocess && selected.has(entry.key))
+    .map((entry) => (entry as FileExplorerEntry).id);
+}
+
 /** File fields that decide source-release eligibility, from a row or a detail. */
 export interface LibraryFileActionState {
   kind: "file";
@@ -298,6 +342,8 @@ export function buildFileExplorerEntry(
   parentPath: string,
   parentFolder: LibraryFolderNode,
 ): FileExplorerEntry {
+  const isSourceConfigFile = file.filename.toLowerCase() === "source.json" && isSourceFolderNode(parentFolder);
+  const isSourceRecordFile = parentFolder.name === "records";
   return {
     key: `file:${file.file_id}`,
     kind: "file",
@@ -311,8 +357,9 @@ export function buildFileExplorerEntry(
     sizeBytes: file.size_bytes,
     ingestStatus: file.ingest_status,
     errorMessage: file.error_message ?? null,
-    isSourceConfigFile: file.filename.toLowerCase() === "source.json" && isSourceFolderNode(parentFolder),
-    isSourceRecordFile: parentFolder.name === "records",
+    isSourceConfigFile,
+    isSourceRecordFile,
+    canReprocess: file.ingest_status === "succeeded" && !isSourceConfigFile && !isSourceRecordFile,
     file,
   };
 }
@@ -398,6 +445,8 @@ export function fileResourceEntry(
     updated_at: item.updated_at,
     ingested_at: null,
   };
+  const isSourceConfigFile = item.name.toLowerCase() === "source.json";
+  const isSourceRecordFile = parent.name === "records" && !!parent.parent_folder_id;
   return {
     key: `file:${item.id}`,
     kind: "file",
@@ -411,8 +460,10 @@ export function fileResourceEntry(
     sizeBytes: file.size_bytes,
     ingestStatus: file.ingest_status,
     errorMessage: file.error_message ?? null,
-    isSourceConfigFile: item.name.toLowerCase() === "source.json",
-    isSourceRecordFile: parent.name === "records" && !!parent.parent_folder_id,
+    isSourceConfigFile,
+    isSourceRecordFile,
+    canReprocess: item.can_reprocess
+      ?? (file.ingest_status === "succeeded" && !isSourceConfigFile && !isSourceRecordFile),
     file,
   };
 }

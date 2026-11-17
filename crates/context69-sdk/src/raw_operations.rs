@@ -1232,6 +1232,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "reprocess_group_library_files",
+        method: "POST",
+        path_template: "/v1/groups/by-path/{group_path}/library/files/reprocess",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "ReprocessLibraryFilesRequest",
+        response_schema: "ReprocessLibraryFilesResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "rerun_task",
         method: "POST",
         path_template: "/v1/tasks/{task_id}/rerun",

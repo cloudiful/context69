@@ -307,6 +307,11 @@ pub struct LibraryResourceItem {
     pub processing_count: u64,
     pub is_source_folder: bool,
     pub is_source_records_folder: bool,
+    /// Advisory hint: the backend would admit this file into a reprocessing
+    /// task. The hint never carries the source itself, and the backend
+    /// admission stays authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_reprocess: Option<bool>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -358,6 +363,11 @@ pub struct LibraryFileDetailResponse {
     pub sha256: String,
     #[serde(default)]
     pub source_available: bool,
+    /// Advisory hint: the backend would admit this file into a reprocessing
+    /// task. The hint never carries the source itself, and the backend
+    /// admission stays authoritative.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub can_reprocess: Option<bool>,
     pub ingest_status: LibraryIngestStatus,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_message: Option<String>,
@@ -416,6 +426,78 @@ pub struct ImportLibraryFileFromUrlRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub media_type: Option<String>,
     pub options: crate::ingest::IngestOptions,
+}
+
+/// One file of a batch reprocess request.
+///
+/// The request is bounded: an empty list, a duplicate id, or more than
+/// [`MAX_REPROCESS_FILE_IDS`] ids are rejected before any effect, so a
+/// malformed batch never creates a partial task.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ReprocessLibraryFilesRequest {
+    pub file_ids: Vec<Uuid>,
+}
+
+/// The largest batch one reprocess request may carry.
+pub const MAX_REPROCESS_FILE_IDS: usize = 100;
+
+/// The outcome of one requested file.
+///
+/// `accepted` means the file was admitted into a reprocessing task; the task
+/// is queued, not finished. `skipped` means the file was refused for a
+/// stated reason; `failed` means the admission itself could not be completed
+/// for that file.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryFileReprocessOutcome {
+    Accepted,
+    Skipped,
+    Failed,
+}
+
+/// Why one requested file was not admitted.
+///
+/// The reasons are stable strings so a client can localize them without
+/// parsing prose.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum LibraryFileReprocessReason {
+    /// The file does not exist in the group, or belongs to another group.
+    NotFound,
+    /// The file has no succeeded result to replace.
+    NotSucceeded,
+    /// The file is a managed source configuration or record file.
+    SourceProtected,
+    /// The file has neither retained bytes nor an original HTTP(S) source.
+    SourceUnavailable,
+    /// Another active task already processes the file.
+    ActiveSourceBusy,
+    /// The admission could not create the task for this file.
+    AdmissionFailed,
+}
+
+/// The result of one requested file, in request order.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct LibraryFileReprocessResult {
+    pub file_id: Uuid,
+    pub outcome: LibraryFileReprocessOutcome,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<LibraryFileReprocessReason>,
+    /// The reprocessing task the file was admitted into.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub task_id: Option<Uuid>,
+}
+
+/// The result of one batch reprocess request.
+///
+/// The results keep the request order and correlate one to one with the
+/// requested ids. `task_ids` names the reprocessing tasks that were created;
+/// it stays empty when no file was accepted.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ReprocessLibraryFilesResponse {
+    pub results: Vec<LibraryFileReprocessResult>,
+    pub task_ids: Vec<Uuid>,
 }
 
 fn deserialize_optional_title<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>

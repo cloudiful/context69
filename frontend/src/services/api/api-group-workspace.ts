@@ -81,6 +81,13 @@ export function createGroupWorkspaceApi({
   unwrapResponse,
 }: Deps) {
   return {
+    reprocessGroupLibraryFiles(groupPath: string, fileIds: string[], options?: RequestOptions) {
+      return unwrapResponse(openapiClient.POST("/v1/groups/by-path/{group_path}/library/files/reprocess", {
+        params: { path: { group_path: groupPath } },
+        body: { file_ids: fileIds },
+        signal: options?.signal,
+      }));
+    },
     getGroupTranslationSettings(groupPath: string, options?: RequestOptions) {
       return unwrapResponse(openapiClient.GET("/v1/groups/by-path/{group_path}/translation-settings", {
         params: { path: { group_path: groupPath } },

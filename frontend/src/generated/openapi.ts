@@ -756,6 +756,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/library/files/reprocess": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["reprocess_group_library_files"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/library/files/upload": {
         parameters: {
             query?: never;
@@ -3765,6 +3781,12 @@ export interface components {
             title: string;
         };
         LibraryFileDetailResponse: {
+            /**
+             * @description Advisory hint: the backend would admit this file into a reprocessing
+             *     task. The hint never carries the source itself, and the backend
+             *     admission stays authoritative.
+             */
+            can_reprocess?: boolean | null;
             /** Format: date-time */
             created_at: string;
             error_message?: string | null;
@@ -3788,6 +3810,36 @@ export interface components {
             /** Format: date-time */
             updated_at: string;
             visibility: components["schemas"]["Visibility"];
+        };
+        /**
+         * @description The outcome of one requested file.
+         *
+         *     `accepted` means the file was admitted into a reprocessing task; the task
+         *     is queued, not finished. `skipped` means the file was refused for a
+         *     stated reason; `failed` means the admission itself could not be completed
+         *     for that file.
+         * @enum {string}
+         */
+        LibraryFileReprocessOutcome: "accepted" | "skipped" | "failed";
+        /**
+         * @description Why one requested file was not admitted.
+         *
+         *     The reasons are stable strings so a client can localize them without
+         *     parsing prose.
+         * @enum {string}
+         */
+        LibraryFileReprocessReason: "not_found" | "not_succeeded" | "source_protected" | "source_unavailable" | "active_source_busy" | "admission_failed";
+        /** @description The result of one requested file, in request order. */
+        LibraryFileReprocessResult: {
+            /** Format: uuid */
+            file_id: string;
+            outcome: components["schemas"]["LibraryFileReprocessOutcome"];
+            reason?: components["schemas"]["LibraryFileReprocessReason"] | null;
+            /**
+             * Format: uuid
+             * @description The reprocessing task the file was admitted into.
+             */
+            task_id?: string | null;
         };
         LibraryFileSummary: {
             /** Format: date-time */
@@ -3887,6 +3939,12 @@ export interface components {
             waiting_reason_counts: components["schemas"]["LibraryProcessingMetric"][];
         };
         LibraryResourceItem: {
+            /**
+             * @description Advisory hint: the backend would admit this file into a reprocessing
+             *     task. The hint never carries the source itself, and the backend
+             *     admission stays authoritative.
+             */
+            can_reprocess?: boolean | null;
             /** Format: int64 */
             child_folder_count: number;
             /** Format: date-time */
@@ -4164,6 +4222,27 @@ export interface components {
         };
         RebuildDocumentTranslationsRequest: {
             target_locales?: string[];
+        };
+        /**
+         * @description One file of a batch reprocess request.
+         *
+         *     The request is bounded: an empty list, a duplicate id, or more than
+         *     [`MAX_REPROCESS_FILE_IDS`] ids are rejected before any effect, so a
+         *     malformed batch never creates a partial task.
+         */
+        ReprocessLibraryFilesRequest: {
+            file_ids: string[];
+        };
+        /**
+         * @description The result of one batch reprocess request.
+         *
+         *     The results keep the request order and correlate one to one with the
+         *     requested ids. `task_ids` names the reprocessing tasks that were created;
+         *     it stays empty when no file was accepted.
+         */
+        ReprocessLibraryFilesResponse: {
+            results: components["schemas"]["LibraryFileReprocessResult"][];
+            task_ids: string[];
         };
         RerunTaskResponse: {
             task: components["schemas"]["TaskRef"];
@@ -8543,6 +8622,56 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ApiErrorResponse"];
                 };
+            };
+        };
+    };
+    reprocess_group_library_files: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReprocessLibraryFilesRequest"];
+            };
+        };
+        responses: {
+            /** @description Request-ordered per-file reprocessing results */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReprocessLibraryFilesResponse"];
+                };
+            };
+            /** @description Empty, duplicate, or oversized file batch */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

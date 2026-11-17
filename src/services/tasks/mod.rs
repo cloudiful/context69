@@ -26,6 +26,8 @@ mod actions;
 mod batch_lifecycle;
 pub mod cutover;
 mod dispatcher;
+mod file_reprocess;
+pub(crate) use file_reprocess::FileReprocessRequest;
 mod docling_cleanup;
 mod docling_finalize;
 mod docling_poll;

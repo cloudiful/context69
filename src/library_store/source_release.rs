@@ -23,6 +23,7 @@ pub struct FileSourceLifecycleRow {
     pub ingest_status: String,
     pub storage_rel_path: String,
     pub storage_object_id: Option<Uuid>,
+    pub source_uri: Option<String>,
     pub sha256: String,
     pub size_bytes: i64,
     pub delete_source_after_processing: bool,
@@ -50,6 +51,7 @@ impl LibraryStore {
             .column(library_files::Column::IngestStatus)
             .column(library_files::Column::StorageRelPath)
             .column(library_files::Column::StorageObjectId)
+            .column(library_files::Column::SourceUri)
             .column(library_files::Column::Sha256)
             .column(library_files::Column::SizeBytes)
             .column(library_files::Column::DeleteSourceAfterProcessing)

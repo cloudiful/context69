@@ -97,6 +97,98 @@ impl LibraryService {
         self.exists_active_storage(&file.storage_rel_path).await
     }
 
+    /// Whether a file's retained source bytes are still present.
+    ///
+    /// A live rerun reads the stored object only while it is retained and
+    /// physically present; a storage dependency failure is reported instead of
+    /// being mistaken for missing bytes.
+    pub(crate) async fn retained_source_available(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+    ) -> Result<bool> {
+        self.source_available_for_file(file).await
+    }
+
+    /// Read the durable source facts of one page of files in a single query.
+    ///
+    /// The read backs the advisory `can_reprocess` hint; it never performs a
+    /// storage probe per row.
+    pub(crate) async fn source_facts(
+        &self,
+        file_ids: &[Uuid],
+    ) -> Result<Vec<LibraryFileSourceFacts>> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.read_source_facts(None, file_ids).await
+    }
+
+    /// Read the source facts of the requested files that belong to `group_id`.
+    pub(crate) async fn source_facts_for_group(
+        &self,
+        group_id: i64,
+        file_ids: &[Uuid],
+    ) -> Result<Vec<LibraryFileSourceFacts>> {
+        if file_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        self.read_source_facts(Some(group_id), file_ids).await
+    }
+
+    async fn read_source_facts(
+        &self,
+        group_id: Option<i64>,
+        file_ids: &[Uuid],
+    ) -> Result<Vec<LibraryFileSourceFacts>> {
+        use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QuerySelect};
+
+        let mut query = crate::db::entity::library_files::Entity::find()
+            .select_only()
+            .column(crate::db::entity::library_files::Column::Id)
+            .column(crate::db::entity::library_files::Column::Filename)
+            .column(crate::db::entity::library_files::Column::ExternalId)
+            .column(crate::db::entity::library_files::Column::SourceUri)
+            .column(crate::db::entity::library_files::Column::SourceReleasedAt)
+            .column(crate::db::entity::library_files::Column::IngestStatus)
+            .filter(crate::db::entity::library_files::Column::Id.is_in(file_ids.to_vec()));
+        if let Some(group_id) = group_id {
+            query = query.filter(crate::db::entity::library_files::Column::GroupId.eq(group_id));
+        }
+        let rows = query
+            .into_model::<LibraryFileSourceFacts>()
+            .all(self.db.orm())
+            .await?;
+        Ok(rows)
+    }
+
+    /// Lock one file row and read its authoritative source lifecycle facts.
+    pub(crate) async fn lock_file_source_facts(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+    ) -> Result<Option<crate::library_store::FileSourceLifecycleRow>> {
+        self.store
+            .lock_file_source_lifecycle(connection, file_id)
+            .await
+    }
+
+    /// Whether a file's retained source bytes physically exist.
+    ///
+    /// A deliberate release always reports absent even when identical bytes
+    /// still exist for another file that shares the object. A storage
+    /// dependency failure is returned as an error, never as absence, so an
+    /// admission can tell an outage from a missing source.
+    pub(crate) async fn retained_bytes_present(
+        &self,
+        lifecycle: &crate::library_store::FileSourceLifecycleRow,
+    ) -> Result<bool> {
+        if lifecycle.source_released_at.is_some() {
+            return Ok(false);
+        }
+        self.exists_active_storage(&lifecycle.storage_rel_path)
+            .await
+    }
+
     /// Whether a file's source was deliberately released.
     pub(crate) async fn file_source_released(&self, file_id: Uuid) -> Result<bool> {
         Ok(self
@@ -119,6 +211,7 @@ impl LibraryService {
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         detail.source_available = self.source_available_for_file(&file).await?;
+        detail.can_reprocess = Some(self.file_can_reprocess(&file).await?);
         Ok(detail)
     }
 
@@ -139,7 +232,20 @@ impl LibraryService {
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
         detail.source_available = self.source_available_for_file(&file).await?;
+        detail.can_reprocess = Some(self.file_can_reprocess(&file).await?);
         Ok(detail)
+    }
+
+    /// The advisory reprocessing hint for one file detail.
+    async fn file_can_reprocess(&self, file: &crate::domain::LibraryFileRecord) -> Result<bool> {
+        let released = self.file_source_released(file.id).await?;
+        Ok(can_reprocess_source(
+            file.ingest_status.as_str(),
+            &file.filename,
+            file.external_id.as_deref(),
+            released,
+            file.source_uri.as_deref(),
+        ))
     }
 
     pub async fn move_file(
@@ -413,5 +519,32 @@ impl LibraryService {
             )
             .await?;
         Ok(())
+    }
+}
+
+/// Durable source facts of one library file, read page-wide.
+///
+/// The fields are exactly the columns the reprocessing eligibility needs, so
+/// one query answers the whole page without a per-row follow-up.
+#[derive(Debug, Clone, sea_orm::FromQueryResult)]
+pub(crate) struct LibraryFileSourceFacts {
+    pub id: Uuid,
+    pub filename: String,
+    pub external_id: Option<String>,
+    pub source_uri: Option<String>,
+    pub source_released_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub ingest_status: String,
+}
+
+impl LibraryFileSourceFacts {
+    /// Whether the durable facts alone would admit the file.
+    pub(crate) fn can_reprocess(&self) -> bool {
+        crate::services::library::can_reprocess_source(
+            &self.ingest_status,
+            &self.filename,
+            self.external_id.as_deref(),
+            self.source_released_at.is_some(),
+            self.source_uri.as_deref(),
+        )
     }
 }

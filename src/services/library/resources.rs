@@ -55,7 +55,7 @@ impl LibraryService {
                 query.recursive,
             )
             .await?;
-        let items = self
+        let mut items = self
             .store
             .list_resources_in_project_folder(&crate::library_store::ResourceListQuery {
                 project_id,
@@ -69,10 +69,41 @@ impl LibraryService {
                 offset: bounds.offset,
             })
             .await?;
+        self.apply_reprocess_hint(&mut items).await?;
 
         Ok(LibraryResourcePageResponse {
             items,
             pagination: bounds.pagination(total)?,
         })
+    }
+
+    /// Annotate one page of resources with the advisory reprocessing hint.
+    ///
+    /// The hint is computed from one page-wide source-facts read and never
+    /// probes storage per row, so a hot listing stays one extra query.
+    async fn apply_reprocess_hint(
+        &self,
+        items: &mut [crate::contracts::LibraryResourceItem],
+    ) -> Result<()> {
+        let file_ids = items
+            .iter()
+            .filter(|item| item.kind == crate::contracts::LibraryResourceKind::File)
+            .map(|item| item.id)
+            .collect::<Vec<_>>();
+        if file_ids.is_empty() {
+            return Ok(());
+        }
+        let by_id = self
+            .source_facts(&file_ids)
+            .await?
+            .into_iter()
+            .map(|facts| (facts.id, facts))
+            .collect::<std::collections::HashMap<_, _>>();
+        for item in items.iter_mut() {
+            if let Some(facts) = by_id.get(&item.id) {
+                item.can_reprocess = Some(facts.can_reprocess());
+            }
+        }
+        Ok(())
     }
 }

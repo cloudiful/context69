@@ -3546,6 +3546,61 @@
         }
       }
     },
+    "/v1/groups/by-path/{group_path}/library/files/reprocess": {
+      "post": {
+        "tags": [],
+        "operationId": "reprocess_group_library_files",
+        "parameters": [
+          {
+            "name": "group_path",
+            "in": "path",
+            "description": "URL-encoded group path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReprocessLibraryFilesRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Request-ordered per-file reprocessing results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReprocessLibraryFilesResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Empty, duplicate, or oversized file batch",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "404": {
+            "description": "Group not found"
+          }
+        }
+      }
+    },
     "/v1/groups/by-path/{group_path}/library/files/upload": {
       "post": {
         "tags": [],
@@ -12044,6 +12099,13 @@
           "sections"
         ],
         "properties": {
+          "can_reprocess": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Advisory hint: the backend would admit this file into a reprocessing\ntask. The hint never carries the source itself, and the backend\nadmission stays authoritative."
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -12112,6 +12174,62 @@
           },
           "visibility": {
             "$ref": "#/components/schemas/Visibility"
+          }
+        }
+      },
+      "LibraryFileReprocessOutcome": {
+        "type": "string",
+        "description": "The outcome of one requested file.\n\n`accepted` means the file was admitted into a reprocessing task; the task\nis queued, not finished. `skipped` means the file was refused for a\nstated reason; `failed` means the admission itself could not be completed\nfor that file.",
+        "enum": [
+          "accepted",
+          "skipped",
+          "failed"
+        ]
+      },
+      "LibraryFileReprocessReason": {
+        "type": "string",
+        "description": "Why one requested file was not admitted.\n\nThe reasons are stable strings so a client can localize them without\nparsing prose.",
+        "enum": [
+          "not_found",
+          "not_succeeded",
+          "source_protected",
+          "source_unavailable",
+          "active_source_busy",
+          "admission_failed"
+        ]
+      },
+      "LibraryFileReprocessResult": {
+        "type": "object",
+        "description": "The result of one requested file, in request order.",
+        "required": [
+          "file_id",
+          "outcome"
+        ],
+        "properties": {
+          "file_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/LibraryFileReprocessOutcome"
+          },
+          "reason": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/LibraryFileReprocessReason"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The reprocessing task the file was admitted into."
           }
         }
       },
@@ -12501,6 +12619,13 @@
           "updated_at"
         ],
         "properties": {
+          "can_reprocess": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Advisory hint: the backend would admit this file into a reprocessing\ntask. The hint never carries the source itself, and the backend\nadmission stays authoritative."
+          },
           "child_folder_count": {
             "type": "integer",
             "format": "int64",
@@ -13288,6 +13413,46 @@
             "type": "array",
             "items": {
               "type": "string"
+            }
+          }
+        }
+      },
+      "ReprocessLibraryFilesRequest": {
+        "type": "object",
+        "description": "One file of a batch reprocess request.\n\nThe request is bounded: an empty list, a duplicate id, or more than\n[`MAX_REPROCESS_FILE_IDS`] ids are rejected before any effect, so a\nmalformed batch never creates a partial task.",
+        "required": [
+          "file_ids"
+        ],
+        "properties": {
+          "file_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "ReprocessLibraryFilesResponse": {
+        "type": "object",
+        "description": "The result of one batch reprocess request.\n\nThe results keep the request order and correlate one to one with the\nrequested ids. `task_ids` names the reprocessing tasks that were created;\nit stays empty when no file was accepted.",
+        "required": [
+          "results",
+          "task_ids"
+        ],
+        "properties": {
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryFileReprocessResult"
+            }
+          },
+          "task_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         }

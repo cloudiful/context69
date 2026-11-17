@@ -301,10 +301,13 @@ export function PreviewDialog({
   error,
   canRetry,
   retrying,
+  canReprocess,
+  reprocessing,
   canRelease,
   releasing,
   onOpenChange,
   onRetry,
+  onReprocess,
   onRelease,
 }: {
   open: boolean;
@@ -314,10 +317,13 @@ export function PreviewDialog({
   error: unknown;
   canRetry: boolean;
   retrying: boolean;
+  canReprocess: boolean;
+  reprocessing: boolean;
   canRelease: boolean;
   releasing: boolean;
   onOpenChange: (open: boolean) => void;
   onRetry: () => void;
+  onReprocess: () => void;
   onRelease: () => void;
 }) {
   const { t } = useTranslation();
@@ -363,6 +369,17 @@ export function PreviewDialog({
           {canRetry ? (
             <Button type="button" variant="outline" disabled={retrying} aria-busy={retrying} onClick={onRetry}>
               {t("common.retry")}
+            </Button>
+          ) : null}
+          {canReprocess ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={reprocessing}
+              aria-busy={reprocessing}
+              onClick={onReprocess}
+            >
+              {t("library.reprocess")}
             </Button>
           ) : null}
           {canRelease ? (

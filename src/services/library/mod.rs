@@ -152,7 +152,9 @@ use ingest_types::{
 };
 pub(crate) use ingest_types::{IngestSection, LibraryFileKind, TaskSourceRef};
 use metadata_helpers::{compose_library_metadata, library_system_metadata};
-pub(crate) use source_release::is_managed_source_file;
+pub(crate) use source_release::{
+    can_reprocess_source, has_downloadable_source, is_managed_source_file,
+};
 pub use upload_types::{AtomicFirstInsertFile, ReplacementFileAttributes, UploadedLibraryFile};
 use upload_types::{UploadedLibraryFileResult, UploadedLibraryFileRollback};
 

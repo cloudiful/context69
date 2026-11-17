@@ -299,3 +299,36 @@ pub(crate) fn is_managed_source_file(filename: &str, external_id: Option<&str>) 
 pub(crate) fn is_sync_control_file(state: &FileSourceLifecycleRow) -> bool {
     is_managed_source_file(&state.filename, state.external_id.as_deref())
 }
+
+/// Whether an original source URI can be downloaded again.
+///
+/// Only the original HTTP(S) source is retried; any other scheme is treated as
+/// no URL fallback instead of being handed to the downloader.
+pub(crate) fn has_downloadable_source(source_uri: Option<&str>) -> bool {
+    source_uri.is_some_and(|uri| {
+        uri.get(..7)
+            .is_some_and(|prefix| prefix.eq_ignore_ascii_case("http://"))
+            || uri
+                .get(..8)
+                .is_some_and(|prefix| prefix.eq_ignore_ascii_case("https://"))
+    })
+}
+
+/// Whether a succeeded file can be admitted into a reprocessing task.
+///
+/// The rule is the durable one the list hint also uses: the file must carry a
+/// succeeded result, must not be a managed source control file, and must be
+/// able to supply a source again — either its retained bytes (never released)
+/// or its original HTTP(S) source. The check is advisory: admission under the
+/// per-file lock stays authoritative.
+pub(crate) fn can_reprocess_source(
+    ingest_status: &str,
+    filename: &str,
+    external_id: Option<&str>,
+    source_released: bool,
+    source_uri: Option<&str>,
+) -> bool {
+    ingest_status == "succeeded"
+        && !is_managed_source_file(filename, external_id)
+        && (!source_released || has_downloadable_source(source_uri))
+}

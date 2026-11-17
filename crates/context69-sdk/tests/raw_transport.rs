@@ -92,16 +92,16 @@ fn health_probe_operations_are_registered_as_public_paths() {
 fn registry_is_sorted_unique_and_complete() {
     assert_eq!(
         OPERATIONS.len(),
-        158,
-        "registry must cover all 158 operations"
+        159,
+        "registry must cover all 159 operations"
     );
     let ids = operation_ids();
-    assert_eq!(ids.len(), 158);
+    assert_eq!(ids.len(), 159);
     let mut sorted = ids.clone();
     sorted.sort_unstable();
     assert_eq!(ids, sorted, "OPERATIONS must be sorted by operation_id");
     let unique: HashSet<_> = ids.iter().collect();
-    assert_eq!(unique.len(), 158, "operation ids must be unique");
+    assert_eq!(unique.len(), 159, "operation ids must be unique");
     for op in OPERATIONS {
         assert!(!op.id.is_empty());
         assert!(["GET", "POST", "PUT", "PATCH", "DELETE"].contains(&op.method));
@@ -116,7 +116,7 @@ fn registry_is_sorted_unique_and_complete() {
 #[test]
 fn registry_matches_openapi_exactly_with_no_omission() {
     let openapi = openapi_operations();
-    assert_eq!(openapi.len(), 158, "OpenAPI must expose 158 operations");
+    assert_eq!(openapi.len(), 159, "OpenAPI must expose 159 operations");
     let registry: Vec<(String, String, String)> = OPERATIONS
         .iter()
         .map(|op| {

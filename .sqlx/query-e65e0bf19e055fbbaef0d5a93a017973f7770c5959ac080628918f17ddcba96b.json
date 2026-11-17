@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id,\n       group_id,\n       filename,\n       external_id,\n       ingest_status,\n       storage_rel_path,\n       storage_object_id,\n       sha256,\n       size_bytes,\n       delete_source_after_processing,\n       source_released_at\nFROM context69.library_files\nWHERE id = $1\nFOR UPDATE\n",
+  "query": "SELECT id,\n       group_id,\n       filename,\n       external_id,\n       ingest_status,\n       storage_rel_path,\n       storage_object_id,\n       source_uri,\n       sha256,\n       size_bytes,\n       delete_source_after_processing,\n       source_released_at\nFROM context69.library_files\nWHERE id = $1\nFOR UPDATE\n",
   "describe": {
     "columns": [
       {
@@ -82,6 +82,17 @@
       },
       {
         "ordinal": 7,
+        "name": "source_uri",
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "context69.library_files",
+            "name": "source_uri"
+          }
+        }
+      },
+      {
+        "ordinal": 8,
         "name": "sha256",
         "type_info": "Text",
         "origin": {
@@ -92,7 +103,7 @@
         }
       },
       {
-        "ordinal": 8,
+        "ordinal": 9,
         "name": "size_bytes",
         "type_info": "Int8",
         "origin": {
@@ -103,7 +114,7 @@
         }
       },
       {
-        "ordinal": 9,
+        "ordinal": 10,
         "name": "delete_source_after_processing",
         "type_info": "Bool",
         "origin": {
@@ -114,7 +125,7 @@
         }
       },
       {
-        "ordinal": 10,
+        "ordinal": 11,
         "name": "source_released_at",
         "type_info": "Timestamptz",
         "origin": {
@@ -138,11 +149,12 @@
       false,
       false,
       true,
+      true,
       false,
       false,
       false,
       true
     ]
   },
-  "hash": "5be2b9cc7d65ae6d22808272964507bf5c6abbcf6326d7c06c90134ba4f564e6"
+  "hash": "e65e0bf19e055fbbaef0d5a93a017973f7770c5959ac080628918f17ddcba96b"
 }

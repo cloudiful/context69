@@ -12,7 +12,8 @@ pub use context69_contracts::{
     ImportLibraryFileFromUrlRequest as UrlBatchItem, IngestOptions, LibraryFileDetailResponse,
     LibraryTextContentFormat as TextContentFormat, ListDocumentResultsQuery,
     ListDocumentResultsResponse, MetadataDataType, MetadataFilter, MetadataFilterOperator,
-    MetadataValueKind, OffsetPageQuery, OffsetPagination, RebuildControlRequest, RerunTaskResponse,
+    MetadataValueKind, OffsetPageQuery, OffsetPagination, RebuildControlRequest,
+    ReprocessLibraryFilesRequest, ReprocessLibraryFilesResponse, RerunTaskResponse,
     ScopeMetadataIndex, ScopeSpec, SearchMode, SearchRequest, SearchResponse, SearchSort,
     SecretPatch, SortDirection, SourcePolicy, TaskBatchLifecycleOutcome, TaskBatchLifecycleReason,
     TaskBatchLifecycleRequest, TaskBatchLifecycleResponse, TaskBatchRerunRequest,
@@ -285,6 +286,22 @@ impl Context69Client {
         );
         self.execute_json(self.authorized_request(Method::POST, &path).await?)
             .await
+    }
+
+    /// Reprocess succeeded files from their retained source, falling back to
+    /// the original URL when the stored bytes are gone.
+    pub async fn reprocess_library_files(
+        &self,
+        group_path_value: &str,
+        request: &ReprocessLibraryFilesRequest,
+    ) -> Result<ReprocessLibraryFilesResponse, Error> {
+        let path = group_path(group_path_value, "/library/files/reprocess");
+        self.execute_json(
+            self.authorized_request(Method::POST, &path)
+                .await?
+                .json(request),
+        )
+        .await
     }
 
     pub async fn submit_task(&self, request: &TaskSubmitRequest) -> Result<TaskRef, Error> {

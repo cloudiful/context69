@@ -22,12 +22,12 @@ use super::{
     list_metadata_indexes, list_task_items, list_task_selection, list_tasks,
     move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
     prepare_group_library_upload, query_group_documents, rebuild_document_translations,
-    release_group_library_file_source, require_library_scope_middleware,
-    require_workspace_scope_middleware, rerun_task, restore_task, retry_metadata_index, retry_task,
-    stream_tasks, submit_delete_batch, submit_file_batch, submit_task, submit_text_batch,
-    submit_url_batch, trash_task, update_group_library_settings, update_group_translation_settings,
-    update_metadata_index, upload_group_library_files, upload_library_files,
-    upsert_group_library_text,
+    release_group_library_file_source, reprocess_group_library_files,
+    require_library_scope_middleware, require_workspace_scope_middleware, rerun_task, restore_task,
+    retry_metadata_index, retry_task, stream_tasks, submit_delete_batch, submit_file_batch,
+    submit_task, submit_text_batch, submit_url_batch, trash_task, update_group_library_settings,
+    update_group_translation_settings, update_metadata_index, upload_group_library_files,
+    upload_library_files, upsert_group_library_text,
 };
 
 pub(super) fn task_routes(api_state: ApiState) -> Router<ApiState> {
@@ -189,6 +189,10 @@ pub(super) fn library_routes(upload_body_limit: usize, api_state: ApiState) -> R
         .route(
             "/v1/groups/by-path/{group_path}/library/files/import-url",
             post(import_group_library_file_url),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/library/files/reprocess",
+            post(reprocess_group_library_files),
         )
         .route(
             "/v1/groups/by-path/{group_path}/library/files/{file_id}",

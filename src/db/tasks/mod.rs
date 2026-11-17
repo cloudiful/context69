@@ -10,6 +10,7 @@ pub mod cutover;
 mod docling_cleanup;
 mod docling_remote_finalize;
 mod docling_remote_jobs;
+mod file_reprocess;
 mod item_lifecycle;
 mod lifecycle_batch;
 mod pause_control;
@@ -29,6 +30,7 @@ pub use artifact_backfill::{
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
 pub use execution::{ExecutionContext, SegmentPayload};
+pub(crate) use file_reprocess::NewFileReprocessItem;
 pub use item_lifecycle::LeaseRenewalProof;
 pub use lifecycle_batch::TaskLifecycleMutation;
 pub use queue_control::TaskQueueState;
