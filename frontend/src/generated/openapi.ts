@@ -260,6 +260,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/personal-access-tokens/group-catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_personal_access_token_group_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/personal-access-tokens/{token_id}": {
         parameters: {
             query?: never;
@@ -271,6 +287,22 @@ export interface paths {
         put?: never;
         post?: never;
         delete: operations["revoke_personal_access_token"];
+        options?: never;
+        head?: never;
+        patch: operations["update_personal_access_token"];
+        trace?: never;
+    };
+    "/v1/auth/personal-access-tokens/{token_id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rotate_personal_access_token"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -2344,6 +2376,7 @@ export interface components {
         CreatePersonalAccessTokenRequest: {
             /** Format: int32 */
             expires_in_days: number;
+            group_scope?: components["schemas"]["TokenGroupScope"] | null;
             name: string;
             scopes: components["schemas"]["PersonalAccessTokenScope"][];
         };
@@ -4154,6 +4187,11 @@ export interface components {
              */
             total_pages: number;
         };
+        /**
+         * @description How the recorded last-used instant must be interpreted.
+         * @enum {string}
+         */
+        PersonalAccessTokenLastUsedPrecision: "exact" | "legacy_day";
         PersonalAccessTokenPageQuery: {
             /** Format: int32 */
             page?: number;
@@ -4170,17 +4208,26 @@ export interface components {
             display_prefix: string;
             /** Format: date-time */
             expires_at: string;
+            group_scope: components["schemas"]["TokenGroupScope"];
             /**
              * Format: date-time
-             * @description First recorded use instant of the token's most recent UTC day.
+             * @description The most recent recorded successful authorized use.
              *
-             *     Usage telemetry is recorded at most once per UTC day, so display the UTC
-             *     calendar date rather than treating this as the exact last request time.
+             *     Interpret it together with `last_used_precision`: `exact` is a real
+             *     observation instant, while `legacy_day` is the old first-observation-of-
+             *     the-day telemetry and must not be presented as an exact time.
              */
             last_used_at?: string | null;
+            last_used_precision?: components["schemas"]["PersonalAccessTokenLastUsedPrecision"] | null;
             name: string;
             /** Format: date-time */
             revoked_at?: string | null;
+            /**
+             * Format: uuid
+             * @description The token this record replaced through rotation, when it was generated
+             *     from another token.
+             */
+            rotated_from_token_id?: string | null;
             scopes: components["schemas"]["PersonalAccessTokenScope"][];
             /** Format: uuid */
             token_id: string;
@@ -4249,6 +4296,10 @@ export interface components {
         };
         ResetAdminUserPasswordRequest: {
             password: string;
+        };
+        RotatePersonalAccessTokenRequest: {
+            /** Format: int32 */
+            expires_in_days: number;
         };
         /**
          * @description Chunking budget of the runtime settings.
@@ -5447,6 +5498,21 @@ export interface components {
         TextBatchRequest: {
             items: components["schemas"]["UpsertLibraryTextRequest"][];
         };
+        /**
+         * @description The group range a personal access token is limited to.
+         *
+         *     `All` follows the owner's current accessible groups. `Groups` names the
+         *     exact stable group ids the token may use; it never grows implicitly and is
+         *     still intersected with the owner's current access at request time.
+         */
+        TokenGroupScope: {
+            /** @enum {string} */
+            mode: "all";
+        } | {
+            group_ids: number[];
+            /** @enum {string} */
+            mode: "groups";
+        };
         /** @description One verified local tokenizer artifact. */
         TokenizerArtifactDescriptor: {
             /** @description The lowercase SHA256 of the artifact bytes, which is also its file name. */
@@ -5719,6 +5785,11 @@ export interface components {
             data_type: components["schemas"]["MetadataDataType"];
             sortable?: boolean;
             value_kind: components["schemas"]["MetadataValueKind"];
+        };
+        UpdatePersonalAccessTokenRequest: {
+            group_scope?: components["schemas"]["TokenGroupScope"] | null;
+            name?: string | null;
+            scopes?: components["schemas"]["PersonalAccessTokenScope"][] | null;
         };
         UpdateRuntimeEmbeddingSettings: {
             api_key?: string | null;
@@ -6645,6 +6716,61 @@ export interface operations {
             };
         };
     };
+    list_personal_access_token_group_catalog: {
+        parameters: {
+            query?: {
+                page?: number;
+                page_size?: number;
+                query?: string;
+                sort_by?: components["schemas"]["GroupSortBy"];
+                sort_direction?: components["schemas"]["SortDirection"];
+                visibility?: components["schemas"]["Visibility"];
+                kind?: components["schemas"]["GroupKind"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged catalog of every group currently accessible to the token owner */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GroupPageResponse"];
+                };
+            };
+            /** @description Invalid page request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid browser session */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access tokens cannot manage personal access tokens */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     revoke_personal_access_token: {
         parameters: {
             query?: never;
@@ -6684,6 +6810,150 @@ export interface operations {
             };
             /** @description Personal access token not found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    update_personal_access_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Personal access token id */
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePersonalAccessTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated personal access token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PersonalAccessTokenResponse"];
+                };
+            };
+            /** @description Invalid personal access token request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access tokens cannot manage personal access tokens */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access token not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access token changed since it was read */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    rotate_personal_access_token: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Personal access token id */
+                token_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RotatePersonalAccessTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Replacement personal access token */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatePersonalAccessTokenResponse"];
+                };
+            };
+            /** @description Invalid personal access token request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Missing or invalid bearer token */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access tokens cannot manage personal access tokens */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access token not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Personal access token changed since it was read */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -82,7 +82,7 @@ pub(crate) async fn create_git_webhook_registration(
 ) -> Response {
     // The group and its Maintainer floor come first, so a caller without the role
     // learns nothing about the repository and never reaches the secret store.
-    let group = match maintainer_group(&state, session.user.id, &group_path).await {
+    let group = match maintainer_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -248,10 +248,10 @@ async fn seal_signing_secret(
 /// group-scoped helpers, as the connection create path does.
 async fn maintainer_group(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> anyhow::Result<GroupRecord> {
-    let group = group_for_user(state, user_id, group_path).await?;
+    let group = group_for_user(state, session, group_path).await?;
     require_group_role(&group, MembershipRole::Maintainer)?;
     Ok(group)
 }

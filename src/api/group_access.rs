@@ -1,21 +1,26 @@
 use anyhow::Result;
 
-use crate::{contracts::MembershipRole, domain::GroupRecord, domain_errors::DomainError};
+use crate::{
+    contracts::MembershipRole, domain::GroupRecord, domain_errors::DomainError,
+    services::auth::AuthSession,
+};
 
 use super::ApiState;
 
 pub(crate) async fn group_for_user(
     state: &ApiState,
-    user_id: i64,
+    session: &AuthSession,
     group_path: &str,
 ) -> Result<GroupRecord> {
-    state
+    let group = state
         .app
         .namespace
-        .get_group_for_user(user_id, group_path)
+        .get_group_for_user(session.user.id, group_path, None)
         .await?
         .ok_or_else(|| DomainError::not_found("unknown group"))
-        .map_err(anyhow::Error::from)
+        .map_err(anyhow::Error::from)?;
+    crate::authorization::require_group_allowed(session.token_group_scope.as_ref(), group.id)?;
+    Ok(group)
 }
 
 pub(crate) fn require_group_role(group: &GroupRecord, required: MembershipRole) -> Result<()> {

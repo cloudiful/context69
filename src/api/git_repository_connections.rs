@@ -62,7 +62,7 @@ pub(crate) async fn set_git_repository_connection(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Json(request): Json<GitRepositoryConnectionRequest>,
 ) -> Response {
-    let group = match maintainer_group(&state, session.user.id, &group_path).await {
+    let group = match maintainer_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -108,7 +108,7 @@ pub(crate) async fn delete_git_repository_connection(
     CurrentUser(session): CurrentUser,
     Path((group_path, repository_key)): Path<(String, Uuid)>,
 ) -> Response {
-    let group = match maintainer_group(&state, session.user.id, &group_path).await {
+    let group = match maintainer_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -128,10 +128,10 @@ pub(crate) async fn delete_git_repository_connection(
 /// shared forbidden/not-found mapping.
 async fn maintainer_group(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> anyhow::Result<GroupRecord> {
-    let group = group_for_user(state, user_id, group_path).await?;
+    let group = group_for_user(state, session, group_path).await?;
     require_group_role(&group, MembershipRole::Maintainer)?;
     Ok(group)
 }

@@ -29,7 +29,7 @@ use super::search_cursor::{
     CursorContext, PageWindow, cursor_context, decode_cursor, ensure_cursor_ordering,
     finalize_window, validate_cursor_alignment, validate_cursor_context,
 };
-use super::search_date::run_date_search;
+use super::search_date::{DateSearchAuthorization, run_date_search};
 use super::{MAX_SEARCH_CANDIDATE_WINDOW, RerankContext, probe_fetch_limit};
 
 impl SearchService {
@@ -45,8 +45,12 @@ impl SearchService {
         request: SearchRequest,
         tx: mpsc::Sender<SearchStreamEvent>,
         abort: AbortSignal,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<()> {
-        if let Err(error) = self.stream_search_inner(user_id, request, &tx, abort).await {
+        if let Err(error) = self
+            .stream_search_inner(user_id, request, &tx, abort, restriction)
+            .await
+        {
             // Best effort: if the client already disconnected this send fails
             // and there is nothing left to deliver.
             let _ = tx
@@ -64,10 +68,11 @@ impl SearchService {
         request: SearchRequest,
         tx: &mpsc::Sender<SearchStreamEvent>,
         mut abort: AbortSignal,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<()> {
         if request.sort == context69_contracts_search::SearchSort::Date {
             return self
-                .stream_search_by_date(user_id, request, tx, abort)
+                .stream_search_by_date(user_id, request, tx, abort, restriction)
                 .await;
         }
         let mut probe = SearchProbe::new();
@@ -101,7 +106,7 @@ impl SearchService {
             let exclusions = registry.search_exclusions();
             let scope = self
                 .scope_resolver
-                .access_scope(user_id, request.group_path.clone())
+                .access_scope(user_id, request.group_path.clone(), restriction)
                 .await?;
             let settings = self
                 .repository
@@ -494,6 +499,7 @@ impl SearchService {
         request: SearchRequest,
         tx: &mpsc::Sender<SearchStreamEvent>,
         mut abort: AbortSignal,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<()> {
         // F2: validate the cursor's geometry, alignment, and context BEFORE
         // any work begins. An invalid cursor must not produce a `date`
@@ -520,7 +526,10 @@ impl SearchService {
                     &*self.scope_resolver,
                     &*self.embedding,
                     &*self.index,
-                    user_id,
+                    DateSearchAuthorization {
+                        user_id,
+                        restriction,
+                    },
                     request.clone(),
                     &exclusions,
                 ) => result,

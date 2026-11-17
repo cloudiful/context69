@@ -113,7 +113,7 @@ pub(crate) async fn create_library_text(
     CurrentUser(session): CurrentUser,
     Json(request): Json<CreateTextRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, "public").await {
+    let group = match group_for_user(&state, &session, "public").await {
         Ok(group) => group,
         Err(error) => return super::group_access::group_access_error_response(error),
     };
@@ -183,7 +183,7 @@ pub(crate) async fn delete_library_folder(
     CurrentUser(session): CurrentUser,
     Path(folder_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, "public").await {
+    let group = match group_for_user(&state, &session, "public").await {
         Ok(group) => group,
         Err(error) => return super::group_access::group_access_error_response(error),
     };
@@ -241,7 +241,7 @@ pub(crate) async fn upload_library_files(
         Ok(uploads) => uploads,
         Err(response) => return *response,
     };
-    let group = match group_for_user(&state, session.user.id, "public").await {
+    let group = match group_for_user(&state, &session, "public").await {
         Ok(group) => group,
         Err(error) => return super::group_access::group_access_error_response(error),
     };
@@ -335,7 +335,7 @@ pub(crate) async fn delete_library_file(
     CurrentUser(session): CurrentUser,
     Path(file_id): Path<Uuid>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, "public").await {
+    let group = match group_for_user(&state, &session, "public").await {
         Ok(group) => group,
         Err(error) => return super::group_access::group_access_error_response(error),
     };

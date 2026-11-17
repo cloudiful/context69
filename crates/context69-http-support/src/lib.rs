@@ -16,6 +16,8 @@ pub struct AuthenticatedUser {
     pub login_name: String,
     pub display_name: String,
     pub is_admin: bool,
+    /// Set only while the request authenticated with a restricted token.
+    pub token_group_scope: Option<context69_contracts_core::TokenGroupScope>,
 }
 
 #[derive(Debug, Clone)]

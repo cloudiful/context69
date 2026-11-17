@@ -68,7 +68,7 @@ pub(crate) async fn search_git_repository_code(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Query(query): Query<GitCodeSearchQuery>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -87,7 +87,11 @@ pub(crate) async fn search_git_repository_code(
     let scope = match state
         .app
         .auth
-        .access_scope(Some(session.user.id), Some(group_path.clone()))
+        .access_scope(
+            Some(session.user.id),
+            Some(group_path.clone()),
+            session.token_group_scope.as_ref(),
+        )
         .await
     {
         Ok(scope) => scope,

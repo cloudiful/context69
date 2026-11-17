@@ -25,8 +25,11 @@ impl NamespaceRepository for DbNamespaceRepository {
         &self,
         user_id: i64,
         request: &PageRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
-        self.db.list_groups_for_user(user_id, request).await
+        self.db
+            .list_groups_for_user(user_id, request, restriction)
+            .await
     }
 
     async fn search_groups_for_user(
@@ -34,8 +37,11 @@ impl NamespaceRepository for DbNamespaceRepository {
         user_id: i64,
         query: &str,
         limit: u32,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Vec<GroupRecord>> {
-        self.db.search_groups_for_user(user_id, query, limit).await
+        self.db
+            .search_groups_for_user(user_id, query, limit, restriction)
+            .await
     }
 
     async fn get_group_for_user(
@@ -112,9 +118,20 @@ impl NamespaceRepository for DbNamespaceRepository {
         user_id: i64,
         group_path: &str,
         request: &PageRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
         self.db
-            .list_child_groups_for_user(user_id, group_path, request)
+            .list_child_groups_for_user(user_id, group_path, request, restriction)
+            .await
+    }
+
+    async fn list_accessible_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        self.db
+            .list_accessible_groups_for_user(user_id, request)
             .await
     }
 
@@ -122,7 +139,10 @@ impl NamespaceRepository for DbNamespaceRepository {
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<AccessScope> {
-        self.db.resolve_access_scope(user_id, group_path).await
+        self.db
+            .resolve_access_scope(user_id, group_path, restriction)
+            .await
     }
 }

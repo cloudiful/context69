@@ -23,6 +23,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { SettingsGate } from "@/features/settings/settings-gate";
 import { useSettings } from "@/features/settings/settings-context";
 import { useLlmProviderProbe } from "@/features/settings/use-llm-provider-probe";
+import { usePreferences } from "@/hooks/use-preferences";
+import { formatTimestamp } from "@/lib/format";
 import { apiClient } from "@/services/api";
 import type { Pagination, TranslationProviderPageResponse } from "@/services/api";
 
@@ -48,10 +50,20 @@ const DEEPL_PLANS = [
 
 type ProviderDraft = ReturnType<typeof useSettings>["page"]["translationProviders"][number];
 
+/**
+ * The quota window is a UTC calendar month, so its real reset is the next
+ * month's first instant; display only, never a recomputation of the quota.
+ */
+function nextUtcMonthStart(now: Date = new Date()): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+}
+
 export function TranslationSection() {
   const { t } = useTranslation();
   const { page } = useSettings();
+  const { effectiveTimeZone } = usePreferences();
   const providers = page.translationProviders;
+  const quotaReset = formatTimestamp(nextUtcMonthStart().toISOString(), effectiveTimeZone);
 
   const [providerPage, setProviderPage] = useState<TranslationProviderPageResponse | null>(null);
   const [pageNumber, setPageNumber] = useState(1);
@@ -118,7 +130,10 @@ export function TranslationSection() {
   function usageLabel(provider: ProviderDraft) {
     return provider.provider === "deepl"
       ? t("settings.translation.lifetimeUsage", { count: provider.current_month_characters })
-      : t("settings.translation.currentUsage", { count: provider.current_month_characters });
+      : t("settings.translation.currentUsage", {
+          count: provider.current_month_characters,
+          reset: quotaReset,
+        });
   }
 
   function changePage(next: number) {

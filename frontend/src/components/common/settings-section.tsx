@@ -2,21 +2,28 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** One settings section: its heading and content blocks. */
+/**
+ * One settings section: its page actions and content blocks. The navigation
+ * already names the current page, so the section heading is screen-reader only
+ * and only its action row stays visible.
+ */
 export function SettingsSection({
   title,
+  actions,
   children,
   className,
 }: {
   title: string;
+  actions?: ReactNode;
   children: ReactNode;
   className?: string;
 }) {
   return (
     <section aria-label={title} className={cn("grid min-w-0 content-start gap-3", className)}>
-      <div className="grid gap-0.5">
-        <h2 className="text-base font-semibold">{title}</h2>
-      </div>
+      <h2 className="sr-only">{title}</h2>
+      {actions ? (
+        <div className="flex flex-wrap items-center justify-end gap-1.5">{actions}</div>
+      ) : null}
       {children}
     </section>
   );

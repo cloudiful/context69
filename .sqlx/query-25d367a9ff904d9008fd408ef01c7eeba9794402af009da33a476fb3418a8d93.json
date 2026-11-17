@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT\n    d.id,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility,\n    d.source_key,\n    d.external_id,\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    d.updated_at_source,\n    d.record_hash,\n    d.metadata_json\nFROM context69.documents d\nINNER JOIN context69.groups g ON g.id = d.group_id\nWHERE d.id = $1\n  AND (g.visibility = 'public' OR d.group_id = ANY($2))\n  AND ($3::text IS NULL OR g.full_path = $3)\n",
+  "query": "SELECT\n    d.id,\n    g.group_key,\n    g.full_path AS group_path,\n    g.visibility,\n    d.source_key,\n    d.external_id,\n    d.title,\n    d.summary,\n    d.source_uri,\n    d.published_at,\n    d.updated_at_source,\n    d.record_hash,\n    d.metadata_json\nFROM context69.documents d\nINNER JOIN context69.groups g ON g.id = d.group_id\nWHERE d.id = $1\n  AND (g.visibility = 'public' OR d.group_id = ANY($2))\n  AND ($3::text IS NULL OR g.full_path = $3)\n  AND ($4::bigint[] IS NULL OR d.group_id = ANY($4::bigint[]))\n",
   "describe": {
     "columns": [
       {
@@ -151,7 +151,8 @@
       "Left": [
         "Int8",
         "Int8Array",
-        "Text"
+        "Text",
+        "Int8Array"
       ]
     },
     "nullable": [
@@ -170,5 +171,5 @@
       false
     ]
   },
-  "hash": "db78e561411c93474e71d2af0c7509ce64954f0966e18fca8b44108c05a2dc25"
+  "hash": "25d367a9ff904d9008fd408ef01c7eeba9794402af009da33a476fb3418a8d93"
 }

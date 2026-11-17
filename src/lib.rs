@@ -1,4 +1,5 @@
 pub mod api;
+pub mod authorization;
 pub(crate) mod chunk_payload;
 pub mod chunking;
 pub(crate) mod code_embedding_runtime;

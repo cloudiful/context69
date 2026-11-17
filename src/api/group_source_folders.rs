@@ -38,7 +38,7 @@ pub(crate) async fn create_group_source_folder(
     Path(group_path): Path<String>,
     Json(request): Json<CreateSourceFolderRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -76,7 +76,7 @@ pub(crate) async fn update_group_source_folder_config(
     Path((group_path, folder_id)): Path<(String, Uuid)>,
     Json(request): Json<SourceConfigInput>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -112,7 +112,7 @@ pub(crate) async fn sync_group_source_folder(
     CurrentUser(session): CurrentUser,
     Path((group_path, folder_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

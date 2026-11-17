@@ -96,15 +96,20 @@ function SettingsLayoutContent() {
         </nav>
 
         <div className="grid min-w-0 content-start gap-3">
-          <div className="flex flex-wrap items-center justify-between gap-1.5">
-            <h1 className="text-lg font-semibold">{t("nav.settings")}</h1>
-            <div className="flex flex-wrap items-center gap-1.5">
-            {page.hasChanges ? (
-              <Badge variant="secondary">{t("settings.status.pending")}</Badge>
-            ) : null}
+          {/*
+            The navigation already names the settings page and the active
+            section, so the page keeps only a screen-reader heading and the
+            save-state badges here.
+          */}
+          <h1 className="sr-only">{t("nav.settings")}</h1>
+          {page.hasChanges || page.saveMessage ? (
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {page.hasChanges ? (
+                <Badge variant="secondary">{t("settings.status.pending")}</Badge>
+              ) : null}
               {page.saveMessage ? <Badge variant="outline">{page.saveMessage}</Badge> : null}
             </div>
-          </div>
+          ) : null}
 
           <Outlet />
         </div>

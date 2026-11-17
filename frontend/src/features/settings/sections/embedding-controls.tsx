@@ -32,10 +32,12 @@ export function EmbeddingBlock() {
         />
       }
     >
-      <div className="grid max-w-2xl gap-3">
+      <div className="grid max-w-3xl gap-3">
         <TextField
           id="runtime-embedding-base-url"
           type="url"
+          layout="row"
+          controlClassName="max-w-xl"
           label={t("settings.runtime.embeddingBaseUrl")}
           placeholder="https://openrouter.ai/api/v1"
           value={runtimeDraft.embedding.base_url}
@@ -47,6 +49,7 @@ export function EmbeddingBlock() {
           id="runtime-embedding-api-key"
           type="password"
           autoComplete="new-password"
+          layout="row"
           label={t("settings.runtime.embeddingApiKey")}
           placeholder="sk-..."
           value={runtimeDraft.embedding.api_key}
@@ -56,6 +59,7 @@ export function EmbeddingBlock() {
         />
         <TextField
           id="runtime-embedding-model"
+          layout="row"
           label={t("settings.runtime.embeddingDocumentModel")}
           helper={t("settings.runtime.embeddingDocumentModelHelper")}
           value={runtimeDraft.embedding.model}
@@ -65,6 +69,7 @@ export function EmbeddingBlock() {
         />
         <TextField
           id="runtime-embedding-query-model"
+          layout="row"
           label={t("settings.runtime.embeddingQueryModel")}
           helper={t("settings.runtime.embeddingQueryModelHelper")}
           value={runtimeDraft.embedding.query_model}
@@ -74,6 +79,7 @@ export function EmbeddingBlock() {
         />
         <NumberField
           id="runtime-embedding-dimensions"
+          layout="row"
           label={t("settings.runtime.embeddingDimensions")}
           min={1}
           value={runtimeDraft.embedding.dimensions}
@@ -83,6 +89,7 @@ export function EmbeddingBlock() {
         />
         <NumberField
           id="runtime-embedding-timeout"
+          layout="row"
           label={t("settings.runtime.embeddingTimeout")}
           min={1}
           value={runtimeDraft.embedding.timeout_secs}

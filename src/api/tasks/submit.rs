@@ -26,7 +26,7 @@ pub(crate) async fn submit_text_batch(
     headers: HeaderMap,
     Json(request): Json<TextBatchRequest>,
 ) -> Response {
-    let group = match managed_group(&state, session.user.id, &group_path).await {
+    let group = match managed_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -63,7 +63,7 @@ pub(crate) async fn submit_url_batch(
     headers: HeaderMap,
     Json(request): Json<UrlBatchRequest>,
 ) -> Response {
-    let group = match managed_group(&state, session.user.id, &group_path).await {
+    let group = match managed_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -100,7 +100,7 @@ pub(crate) async fn submit_file_batch(
     headers: HeaderMap,
     Json(request): Json<FileBatchRequest>,
 ) -> Response {
-    let group = match managed_group(&state, session.user.id, &group_path).await {
+    let group = match managed_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -137,7 +137,7 @@ pub(crate) async fn submit_delete_batch(
     headers: HeaderMap,
     Json(request): Json<DeleteBatchRequest>,
 ) -> Response {
-    let group = match managed_group(&state, session.user.id, &group_path).await {
+    let group = match managed_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -240,7 +240,7 @@ pub(crate) async fn submit_task(
         TaskSubmitRequest::VectorRebuild => (TaskKind::VectorRebuild, None, None, vec![json!({})]),
     };
     let group = if let Some(path) = group_path.as_deref() {
-        match managed_group(&state, session.user.id, path).await {
+        match managed_group(&state, &session, path).await {
             Ok(group) => Some(group),
             Err(response) => return *response,
         }

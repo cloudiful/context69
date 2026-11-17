@@ -76,7 +76,10 @@ pub use library_metadata_mirror::{LibraryMetadataMirrorLock, LibraryMetadataMirr
 pub(crate) use metadata_indexes::metadata_value_rows;
 pub use metadata_indexes::{NewMetadataIndex, StoredMetadataIndex};
 pub use metadata_payload_sync::{ClaimedMetadataPayloadSyncJob, MetadataPayloadSyncPoints};
-pub use personal_access_tokens::{NewPersonalAccessToken, PersonalAccessTokenRecord};
+pub use personal_access_tokens::{
+    NewPersonalAccessToken, NewPersonalAccessTokenSecret, PersonalAccessTokenMutation,
+    PersonalAccessTokenRecord, PersonalAccessTokenSnapshot, PersonalAccessTokenUpdate,
+};
 use rows::*;
 pub use search_registry::{
     AdmissionOutcome, OriginalRebuildReservation, RebuildBarrier, RebuildBarrierState,

@@ -130,6 +130,7 @@ impl QueryService {
         &self,
         user_id: Option<i64>,
         request: SearchRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<SearchResponse> {
         if !self.vector_index_ready.load(Ordering::Acquire) {
             return Err(DomainError::unavailable(
@@ -138,7 +139,7 @@ impl QueryService {
             .into());
         }
         let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
-        inner.search(user_id, request).await
+        inner.search(user_id, request, restriction).await
     }
 
     pub async fn stream_search(
@@ -147,6 +148,7 @@ impl QueryService {
         request: SearchRequest,
         tx: tokio::sync::mpsc::Sender<SearchStreamEvent>,
         abort: context69_search::AbortSignal,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<()> {
         if !self.vector_index_ready.load(Ordering::Acquire) {
             return Err(DomainError::unavailable(
@@ -155,7 +157,9 @@ impl QueryService {
             .into());
         }
         let inner = self.inner.as_ref().ok_or_else(search_runtime_unavailable)?;
-        inner.stream_search(user_id, request, tx, abort).await
+        inner
+            .stream_search(user_id, request, tx, abort, restriction)
+            .await
     }
 
     pub async fn get_document(

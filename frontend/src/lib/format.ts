@@ -46,7 +46,10 @@ function readZonedDateParts(
   };
 }
 
-export function formatTimestamp(value: string | null | undefined): string {
+export function formatTimestamp(
+  value: string | null | undefined,
+  timeZone: string = getEffectiveTimeZone(),
+): string {
   if (!value) {
     return "--";
   }
@@ -55,7 +58,7 @@ export function formatTimestamp(value: string | null | undefined): string {
     return value;
   }
 
-  const parts = readZonedDateParts(value, true);
+  const parts = readZonedDateParts(value, true, timeZone);
   if (!parts) {
     return value;
   }

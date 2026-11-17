@@ -219,7 +219,7 @@ fn the_maintainer_floor_precedes_every_repository_and_secret_step() {
         );
     }
     assert!(
-        ROUTE_SOURCE.contains("maintainer_group(&state, session.user.id, &group_path)"),
+        ROUTE_SOURCE.contains("maintainer_group(&state, &session, &group_path)"),
         "the handler resolves the group through the shared helper"
     );
     // The order is the guarantee: authorization, then the bounded request, then

@@ -35,7 +35,7 @@ pub(crate) async fn import_group_library_file_url(
     Path(group_path): Path<String>,
     Json(request): Json<ImportLibraryFileFromUrlRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -79,7 +79,7 @@ pub(crate) async fn reprocess_group_library_files(
     Path(group_path): Path<String>,
     Json(request): Json<ReprocessLibraryFilesRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -133,7 +133,7 @@ pub(crate) async fn prepare_group_library_upload(
     Path(group_path): Path<String>,
     Json(request): Json<PrepareLibraryUploadRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -193,7 +193,7 @@ pub(crate) async fn get_group_library_tree(
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -230,7 +230,7 @@ pub(crate) async fn get_group_library_resources(
     Path(group_path): Path<String>,
     Query(query): Query<LibraryResourcePageQuery>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -262,7 +262,7 @@ pub(crate) async fn create_group_library_folder(
     Path(group_path): Path<String>,
     Json(request): Json<CreateFolderRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -299,7 +299,7 @@ pub(crate) async fn create_group_library_text(
     Path(group_path): Path<String>,
     Json(request): Json<CreateTextRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -344,7 +344,7 @@ pub(crate) async fn upsert_group_library_text(
     Path(group_path): Path<String>,
     Json(request): Json<UpsertLibraryTextRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -391,7 +391,7 @@ pub(crate) async fn move_group_library_folder(
     Path((group_path, folder_id)): Path<(String, Uuid)>,
     Json(request): Json<MoveFolderRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -427,7 +427,7 @@ pub(crate) async fn delete_group_library_folder(
     CurrentUser(session): CurrentUser,
     Path((group_path, folder_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -477,7 +477,7 @@ pub(crate) async fn upload_group_library_files(
     Path(group_path): Path<String>,
     multipart: Multipart,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -525,7 +525,7 @@ pub(crate) async fn get_group_library_file(
     CurrentUser(session): CurrentUser,
     Path((group_path, file_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -554,7 +554,7 @@ pub(crate) async fn release_group_library_file_source(
     CurrentUser(session): CurrentUser,
     Path((group_path, file_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -592,7 +592,7 @@ pub(crate) async fn move_group_library_file(
     Path((group_path, file_id)): Path<(String, Uuid)>,
     Json(request): Json<MoveFileRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -628,7 +628,7 @@ pub(crate) async fn delete_group_library_file(
     CurrentUser(session): CurrentUser,
     Path((group_path, file_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

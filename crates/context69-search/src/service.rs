@@ -35,7 +35,7 @@ mod search_stream;
 #[path = "service_tests.rs"]
 mod service_tests;
 
-pub(crate) use search_date::run_date_search;
+pub(crate) use search_date::{DateSearchAuthorization, run_date_search};
 
 use probe::SearchProbe;
 use search_cursor::{
@@ -568,9 +568,10 @@ impl SearchService {
         &self,
         user_id: Option<i64>,
         request: SearchRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<SearchResponse> {
         if request.sort == context69_contracts_search::SearchSort::Date {
-            return self.search_by_date(user_id, request).await;
+            return self.search_by_date(user_id, request, restriction).await;
         }
         let offset = self.resolved_offset(&request)?;
         let requested_limit = offset
@@ -594,7 +595,7 @@ impl SearchService {
             let mut probe = SearchProbe::new();
             let scope = self
                 .scope_resolver
-                .access_scope(user_id, request.group_path.clone())
+                .access_scope(user_id, request.group_path.clone(), restriction)
                 .await?;
             let settings = self
                 .repository
@@ -758,6 +759,7 @@ impl SearchService {
         &self,
         user_id: Option<i64>,
         request: SearchRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<SearchResponse> {
         loop {
             let registry = self.repository.read_search_registry_state().await?;
@@ -768,7 +770,10 @@ impl SearchService {
                 &*self.scope_resolver,
                 &*self.embedding,
                 &*self.index,
-                user_id,
+                DateSearchAuthorization {
+                    user_id,
+                    restriction,
+                },
                 request.clone(),
                 &exclusions,
             )

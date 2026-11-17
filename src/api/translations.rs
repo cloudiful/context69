@@ -87,7 +87,7 @@ pub(crate) async fn get_group_translation_settings(
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -104,7 +104,7 @@ pub(crate) async fn update_group_translation_settings(
     Path(group_path): Path<String>,
     Json(request): Json<UpdateGroupTranslationSettingsRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -128,7 +128,7 @@ pub(crate) async fn list_document_translation_jobs(
     CurrentUser(session): CurrentUser,
     Path((group_path, document_id)): Path<(String, i64)>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -150,7 +150,7 @@ pub(crate) async fn rebuild_document_translations(
     Path((group_path, document_id)): Path<(String, i64)>,
     Json(request): Json<RebuildDocumentTranslationsRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

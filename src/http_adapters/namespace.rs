@@ -23,30 +23,61 @@ impl NamespaceApiAdapter {
     pub fn new(service: NamespaceService) -> Self {
         Self { service }
     }
+
+    async fn require_allowed_group(
+        &self,
+        actor: &AuthenticatedUser,
+        group_path: &str,
+    ) -> anyhow::Result<()> {
+        let Some(restriction) = actor
+            .token_group_scope
+            .as_ref()
+            .filter(|scope| scope.is_restricted())
+        else {
+            return Ok(());
+        };
+        if let Some(group) = self
+            .service
+            .get_group_for_user(actor.user_id, group_path, None)
+            .await?
+        {
+            crate::authorization::require_group_allowed(Some(restriction), group.id)?;
+        }
+        Ok(())
+    }
 }
 
 #[async_trait]
 impl NamespaceApi for NamespaceApiAdapter {
     async fn list_groups_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         query: &NamespacePageQuery,
     ) -> anyhow::Result<GroupPageResponse> {
         let page = self
             .service
-            .list_groups_for_user(user_id, &page_request(query))
+            .list_groups_for_user(
+                actor.user_id,
+                &page_request(query),
+                actor.token_group_scope.as_ref(),
+            )
             .await?;
         Ok(group_page_response(page))
     }
 
     async fn search_groups_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         query: &GroupSearchQuery,
     ) -> anyhow::Result<Vec<GroupResponse>> {
         Ok(self
             .service
-            .search_groups_for_user(user_id, &query.query, query.limit)
+            .search_groups_for_user(
+                actor.user_id,
+                &query.query,
+                query.limit,
+                actor.token_group_scope.as_ref(),
+            )
             .await?
             .into_iter()
             .map(group_response)
@@ -55,25 +86,30 @@ impl NamespaceApi for NamespaceApiAdapter {
 
     async fn list_child_groups_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         group_path: &str,
         query: &NamespacePageQuery,
     ) -> anyhow::Result<GroupPageResponse> {
         let page = self
             .service
-            .list_child_groups_for_user(user_id, group_path, &page_request(query))
+            .list_child_groups_for_user(
+                actor.user_id,
+                group_path,
+                &page_request(query),
+                actor.token_group_scope.as_ref(),
+            )
             .await?;
         Ok(group_page_response(page))
     }
 
     async fn get_group_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         group_path: &str,
     ) -> anyhow::Result<Option<GroupResponse>> {
         Ok(self
             .service
-            .get_group_for_user(user_id, group_path)
+            .get_group_for_user(actor.user_id, group_path, actor.token_group_scope.as_ref())
             .await?
             .map(group_response))
     }
@@ -83,6 +119,7 @@ impl NamespaceApi for NamespaceApiAdapter {
         actor: &AuthenticatedUser,
         request: &CreateGroupRequest,
     ) -> anyhow::Result<GroupResponse> {
+        crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.service
             .create_group(&to_user_record(actor), request)
             .await
@@ -95,6 +132,7 @@ impl NamespaceApi for NamespaceApiAdapter {
         group_path: &str,
         request: &UpdateGroupRequest,
     ) -> anyhow::Result<GroupResponse> {
+        self.require_allowed_group(actor, group_path).await?;
         self.service
             .update_group(&to_user_record(actor), group_path, request)
             .await
@@ -107,6 +145,7 @@ impl NamespaceApi for NamespaceApiAdapter {
         group_path: &str,
         request: &MoveGroupRequest,
     ) -> anyhow::Result<GroupResponse> {
+        crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.service
             .move_group(&to_user_record(actor), group_path, request)
             .await
@@ -118,6 +157,7 @@ impl NamespaceApi for NamespaceApiAdapter {
         actor: &AuthenticatedUser,
         group_path: &str,
     ) -> anyhow::Result<()> {
+        crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.service
             .delete_group(&to_user_record(actor), group_path)
             .await
@@ -129,6 +169,7 @@ impl NamespaceApi for NamespaceApiAdapter {
         group_path: &str,
         query: &MemberPageQuery,
     ) -> anyhow::Result<GroupMemberPageResponse> {
+        self.require_allowed_group(actor, group_path).await?;
         let page = self
             .service
             .list_group_members(
@@ -146,6 +187,10 @@ impl NamespaceApi for NamespaceApiAdapter {
         group_path: &str,
         request: &UpsertMembershipRequest,
     ) -> anyhow::Result<()> {
+        // Membership changes inherit down the subtree, so a group-restricted
+        // token cannot prove the change stays inside its exact group set.
+        crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
+        self.require_allowed_group(actor, group_path).await?;
         self.service
             .upsert_group_member(&to_user_record(actor), group_path, request)
             .await
@@ -157,6 +202,8 @@ impl NamespaceApi for NamespaceApiAdapter {
         group_path: &str,
         login_name: &str,
     ) -> anyhow::Result<()> {
+        crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
+        self.require_allowed_group(actor, group_path).await?;
         self.service
             .delete_group_member(&to_user_record(actor), group_path, login_name)
             .await
@@ -182,6 +229,7 @@ impl UserDirectoryApi for UserDirectoryApiAdapter {
         query: &str,
         limit: usize,
     ) -> anyhow::Result<Vec<UserDirectoryEntryResponse>> {
+        crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         Ok(self
             .auth
             .search_user_directory(&to_user_record(actor), query, limit)
@@ -233,7 +281,7 @@ fn group_member_response(member: NamespaceMemberRecord) -> GroupMemberResponse {
     }
 }
 
-fn page_request(query: &NamespacePageQuery) -> PageRequest {
+pub(crate) fn page_request(query: &NamespacePageQuery) -> PageRequest {
     PageRequest {
         page: query.page,
         page_size: query.page_size,
@@ -261,7 +309,9 @@ fn member_page_request(query: &MemberPageQuery) -> PageRequest {
     }
 }
 
-fn group_page_response(page: context69_namespace::Page<GroupRecord>) -> GroupPageResponse {
+pub(crate) fn group_page_response(
+    page: context69_namespace::Page<GroupRecord>,
+) -> GroupPageResponse {
     GroupPageResponse {
         items: page.items.into_iter().map(group_response).collect(),
         pagination: page.pagination,

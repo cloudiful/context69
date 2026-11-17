@@ -22,7 +22,7 @@ pub(crate) async fn create_document_result(
     Path((group_path, document_id)): Path<(String, i64)>,
     Json(request): Json<CreateDocumentResultRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -37,7 +37,11 @@ pub(crate) async fn create_document_result(
     let scope = match state
         .app
         .auth
-        .access_scope(Some(session.user.id), Some(group_path.clone()))
+        .access_scope(
+            Some(session.user.id),
+            Some(group_path.clone()),
+            session.token_group_scope.as_ref(),
+        )
         .await
     {
         Ok(scope) => scope,
@@ -69,14 +73,18 @@ pub(crate) async fn list_document_results(
     Path((group_path, document_id)): Path<(String, i64)>,
     Query(query): Query<ListDocumentResultsQuery>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
     let scope = match state
         .app
         .auth
-        .access_scope(Some(session.user.id), Some(group_path.clone()))
+        .access_scope(
+            Some(session.user.id),
+            Some(group_path.clone()),
+            session.token_group_scope.as_ref(),
+        )
         .await
     {
         Ok(scope) => scope,

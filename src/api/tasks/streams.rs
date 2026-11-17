@@ -46,6 +46,11 @@ pub(crate) async fn stream_tasks(
     CurrentUser(session): CurrentUser,
     Query(query): Query<TaskStreamQuery>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     let watched = match parse_task_stream_ids(query.task_ids.as_deref()) {
         Ok(ids) => ids,
         Err(error) => return task_error(error),

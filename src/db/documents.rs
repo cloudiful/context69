@@ -276,7 +276,8 @@ impl Database {
             "src/sql/db/documents/get_documents_by_ids.sql",
             &ids,
             &scope.private_group_ids,
-            scope.group_path.as_deref()
+            scope.group_path.as_deref(),
+            scope.allowed_group_ids.as_deref()
         )
         .fetch_all(&self.pool)
         .await?;
@@ -825,7 +826,8 @@ impl Database {
             chunk_ids,
             &scope.private_group_ids,
             scope.group_path.as_deref(),
-            requested_locale
+            requested_locale,
+            scope.allowed_group_ids.as_deref()
         )
         .fetch_all(&self.pool)
         .await?;
@@ -897,7 +899,8 @@ impl Database {
             &scope.private_group_ids,
             keyword_limit,
             request.locale.as_deref(),
-            metadata_filters
+            metadata_filters,
+            scope.allowed_group_ids.as_deref()
         )
         .fetch_all(&self.pool)
         .await?;
@@ -944,7 +947,8 @@ impl Database {
             "src/sql/db/documents/get_document.sql",
             document_id,
             &scope.private_group_ids,
-            scope.group_path.as_deref()
+            scope.group_path.as_deref(),
+            scope.allowed_group_ids.as_deref()
         )
         .fetch_optional(&self.pool)
         .await?;

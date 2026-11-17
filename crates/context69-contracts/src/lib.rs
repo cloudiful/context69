@@ -1,5 +1,7 @@
 pub use context69_contracts_auth::auth;
-pub use context69_contracts_core::{common, errors, pagination};
+pub use context69_contracts_core::{
+    PersonalAccessTokenLastUsedPrecision, TokenGroupScope, common, errors, pagination,
+};
 pub use context69_contracts_library::{ingest, library};
 pub use context69_contracts_mcp::{code, mcp, projections};
 pub use context69_contracts_namespace::namespace;
@@ -15,7 +17,8 @@ pub use context69_contracts_auth::auth::{
     AuthLoginRequest, AuthMeResponse, AuthUserResponse, CreateAdminUserRequest,
     CreatePersonalAccessTokenRequest, CreatePersonalAccessTokenResponse,
     PersonalAccessTokenPageQuery, PersonalAccessTokenPageResponse, PersonalAccessTokenResponse,
-    PersonalAccessTokenScope, ResetAdminUserPasswordRequest, UpdateAdminUserRequest,
+    PersonalAccessTokenScope, ResetAdminUserPasswordRequest, RotatePersonalAccessTokenRequest,
+    UpdateAdminUserRequest, UpdatePersonalAccessTokenRequest,
 };
 pub use context69_contracts_core::common::{
     ApiErrorResponse, HealthResponse, HealthStatus, MetadataObject, Pagination,

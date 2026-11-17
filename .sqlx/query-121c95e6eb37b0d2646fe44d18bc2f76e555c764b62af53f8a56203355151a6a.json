@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE context69.personal_access_tokens AS token\nSET last_used_at = usage.used_at,\n    last_used_precision = 'exact'\nFROM (\n    SELECT DISTINCT ON (observation.id)\n        observation.id,\n        observation.used_at\n    FROM unnest($1::uuid[], $2::timestamptz[]) AS observation(id, used_at)\n    ORDER BY observation.id, observation.used_at DESC\n) AS usage\nWHERE token.id = usage.id\n  AND (token.revoked_at IS NULL OR token.revoked_at > usage.used_at)\n  AND token.expires_at > usage.used_at\n  AND (token.last_used_at IS NULL OR token.last_used_at < usage.used_at)\n",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "TimestamptzArray"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "121c95e6eb37b0d2646fe44d18bc2f76e555c764b62af53f8a56203355151a6a"
+}

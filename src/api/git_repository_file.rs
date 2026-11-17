@@ -59,7 +59,7 @@ pub(crate) async fn get_git_repository_file(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Query(query): Query<GitRepositoryFileQuery>,
 ) -> Response {
-    let group = match readable_group(&state, session.user.id, &group_path).await {
+    let group = match readable_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return response,
     };

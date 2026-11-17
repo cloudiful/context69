@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (154 operations, sorted by `operation_id` for deterministic diffs).
+//! (162 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -946,6 +946,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "list_personal_access_token_group_catalog",
+        method: "GET",
+        path_template: "/v1/auth/personal-access-tokens/group-catalog",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "GroupPageResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "list_personal_access_tokens",
         method: "GET",
         path_template: "/v1/auth/personal-access-tokens",
@@ -1331,6 +1342,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "rotate_personal_access_token",
+        method: "POST",
+        path_template: "/v1/auth/personal-access-tokens/{token_id}/rotate",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "RotatePersonalAccessTokenRequest",
+        response_schema: "CreatePersonalAccessTokenResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "search",
         method: "POST",
         path_template: "/v1/search",
@@ -1657,6 +1679,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Json,
         request_schema: "UpdateMetadataIndexRequest",
         response_schema: "MetadataIndexResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "update_personal_access_token",
+        method: "PATCH",
+        path_template: "/v1/auth/personal-access-tokens/{token_id}",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "UpdatePersonalAccessTokenRequest",
+        response_schema: "PersonalAccessTokenResponse",
         success_status: 200,
         idempotent: false,
     },

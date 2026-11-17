@@ -292,6 +292,7 @@ impl DocumentStoreService {
             private_group_ids: vec![group.id],
             group_path: Some(group.group_path.clone()),
             scoped_group_id: Some(group.id),
+            allowed_group_ids: None,
         };
         let document = self
             .db

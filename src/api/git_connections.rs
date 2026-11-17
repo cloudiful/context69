@@ -46,7 +46,7 @@ pub(crate) async fn list_git_provider_connections(
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -83,7 +83,7 @@ pub(crate) async fn get_git_repository_webhook(
     CurrentUser(session): CurrentUser,
     Path((group_path, repository_key)): Path<(String, Uuid)>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

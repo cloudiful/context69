@@ -30,10 +30,10 @@ use super::{
 /// The caller's group after the shared manifest-read permission floor.
 pub(super) async fn readable_group(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> Result<GroupRecord, Response> {
-    let group = match group_for_user(state, user_id, group_path).await {
+    let group = match group_for_user(state, session, group_path).await {
         Ok(group) => group,
         Err(error) => return Err(group_access_error_response(error)),
     };

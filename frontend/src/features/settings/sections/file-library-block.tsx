@@ -30,9 +30,11 @@ export function FileLibraryBlock() {
         ) : null
       }
     >
-      <div className="grid max-w-2xl gap-3">
+      <div className="grid max-w-3xl gap-3">
         <TextField
           id="runtime-file-library-root"
+          layout="row"
+          controlClassName="max-w-xl"
           label={t("settings.runtime.fileLibraryRoot")}
           value={library.storage_root}
           onChange={(value) => updateRuntimeDraft((draft) => {
@@ -41,6 +43,7 @@ export function FileLibraryBlock() {
         />
         <NumberField
           id="runtime-file-library-max-upload"
+          layout="row"
           label={t("settings.runtime.fileLibraryMaxUploadSize")}
           min={1}
           value={library.max_upload_size_mb}
@@ -50,10 +53,11 @@ export function FileLibraryBlock() {
         />
       </div>
 
-      <div className="grid max-w-2xl gap-3">
+      <div className="grid max-w-3xl gap-3">
         <ToggleField
           id="runtime-file-library-trusted-proxy"
           testId="runtime-file-library-trusted-proxy"
+          layout="row"
           label={t("settings.runtime.trustedProxyEnabled")}
           helper={t("settings.runtime.trustedProxyHelper")}
           checked={library.trusted_proxy_enabled}
@@ -64,6 +68,7 @@ export function FileLibraryBlock() {
         <ToggleField
           id="runtime-file-library-s3-enabled"
           testId="runtime-file-library-s3-enabled"
+          layout="row"
           label={t("settings.runtime.s3Enabled")}
           checked={library.s3_enabled}
           onCheckedChange={(checked) => updateRuntimeDraft((draft) => {
@@ -73,10 +78,12 @@ export function FileLibraryBlock() {
       </div>
 
       {library.s3_enabled ? (
-        <div className="grid max-w-2xl gap-3">
+        <div className="grid max-w-3xl gap-3">
           <TextField
             id="runtime-file-library-s3-endpoint"
             type="url"
+            layout="row"
+            controlClassName="max-w-xl"
             label={t("settings.runtime.s3Endpoint")}
             value={library.s3.endpoint}
             onChange={(value) => updateRuntimeDraft((draft) => {
@@ -85,6 +92,7 @@ export function FileLibraryBlock() {
           />
           <TextField
             id="runtime-file-library-s3-region"
+            layout="row"
             label={t("settings.runtime.s3Region")}
             value={library.s3.region}
             onChange={(value) => updateRuntimeDraft((draft) => {
@@ -93,6 +101,7 @@ export function FileLibraryBlock() {
           />
           <TextField
             id="runtime-file-library-s3-bucket"
+            layout="row"
             label={t("settings.runtime.s3Bucket")}
             value={library.s3.bucket}
             onChange={(value) => updateRuntimeDraft((draft) => {
@@ -101,6 +110,7 @@ export function FileLibraryBlock() {
           />
           <TextField
             id="runtime-file-library-s3-prefix"
+            layout="row"
             label={t("settings.runtime.s3Prefix")}
             value={library.s3.prefix}
             onChange={(value) => updateRuntimeDraft((draft) => {
@@ -109,6 +119,7 @@ export function FileLibraryBlock() {
           />
           <TextField
             id="runtime-file-library-s3-access-key"
+            layout="row"
             label={t("settings.runtime.s3AccessKey")}
             value={library.s3.access_key}
             onChange={(value) => updateRuntimeDraft((draft) => {
@@ -119,6 +130,7 @@ export function FileLibraryBlock() {
             id="runtime-file-library-s3-secret-key"
             type="password"
             autoComplete="new-password"
+            layout="row"
             label={t("settings.runtime.s3SecretKey")}
             value={library.s3.secret_key}
             onChange={(value) => updateRuntimeDraft((draft) => {
@@ -127,6 +139,7 @@ export function FileLibraryBlock() {
           />
           <ToggleField
             id="runtime-file-library-s3-path-style"
+            layout="row"
             label={t("settings.runtime.s3PathStyle")}
             checked={library.s3.path_style}
             onCheckedChange={(checked) => updateRuntimeDraft((draft) => {
