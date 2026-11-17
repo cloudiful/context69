@@ -21,6 +21,8 @@ function makeDoclingResponse(ocrPreset: string): DoclingSettingsResponse {
       max_inflight: 2,
     },
     ocr_preset: ocrPreset,
+    do_ocr: true,
+    do_picture_description: false,
     vlm: {
       has_api_key: false,
       openai_base_url: null,

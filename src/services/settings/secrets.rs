@@ -244,6 +244,36 @@ pub(crate) fn docling_vlm_patch(requested: Option<String>, base_url_present: boo
     }
 }
 
+/// The patch a hidden Docling VLM update maps to.
+///
+/// A disabled section cannot express a credential clear, so a supplied key is
+/// still staged through the same store and an omitted key keeps the stored
+/// value even when the requested branch carries no base URL.
+pub(crate) fn docling_hidden_vlm_patch(requested: Option<String>) -> SecretPatch {
+    match normalize_optional_string(requested) {
+        Some(api_key) => SecretPatch::Set(api_key),
+        None => SecretPatch::Keep,
+    }
+}
+
+/// The patch an explicit VLM mode maps to.
+///
+/// A supplied key is always staged, so a hidden update never discards a typed
+/// credential through a misclassified branch. Without a new key, `custom` keeps
+/// the stored value — including a secret-only branch — while `preset` and
+/// `disabled` clear the old custom credential they replace.
+pub(crate) fn docling_mode_vlm_patch(
+    mode: context69_contracts::settings::DoclingVlmMode,
+    requested: Option<String>,
+) -> SecretPatch {
+    use context69_contracts::settings::DoclingVlmMode;
+    match normalize_optional_string(requested) {
+        Some(api_key) => SecretPatch::Set(api_key),
+        None if mode == DoclingVlmMode::Custom => SecretPatch::Keep,
+        None => SecretPatch::Clear,
+    }
+}
+
 /// Folds a tri-state patch onto the value currently in effect.
 ///
 /// `Keep` preserves it, `Set` replaces it, `Clear` removes it, and a blank `Set`
@@ -273,7 +303,8 @@ pub(crate) fn secret_error(purpose: SecretPurpose, error: SecretStoreError) -> a
 #[cfg(test)]
 mod tests {
     use super::{
-        SettingsSecrets, docling_vlm_patch, merged_api_key, optional_key_patch, secret_error,
+        SettingsSecrets, docling_hidden_vlm_patch, docling_mode_vlm_patch, docling_vlm_patch,
+        merged_api_key, optional_key_patch, secret_error,
     };
     use crate::{
         contracts::SecretPatch,
@@ -367,6 +398,49 @@ mod tests {
         assert_eq!(
             docling_vlm_patch(Some("key".to_string()), false),
             SecretPatch::Set("key".to_string())
+        );
+    }
+
+    /// A hidden section still stages an explicitly supplied key and never
+    /// clears an existing one just because the hidden branch carries no URL.
+    #[test]
+    fn a_hidden_docling_update_stages_a_key_and_keeps_an_absent_one() {
+        assert_eq!(
+            docling_hidden_vlm_patch(Some("rotated".to_string())),
+            SecretPatch::Set("rotated".to_string())
+        );
+        assert_eq!(
+            docling_hidden_vlm_patch(Some("  ".to_string())),
+            SecretPatch::Keep
+        );
+        assert_eq!(docling_hidden_vlm_patch(None), SecretPatch::Keep);
+    }
+
+    /// An explicit mode decides an absent-key action: custom keeps a stored
+    /// credential, while preset and disabled clear the branch they replace. A
+    /// supplied key always wins so it is never discarded by classification.
+    #[test]
+    fn an_explicit_vlm_mode_maps_to_keep_clear_or_set() {
+        use context69_contracts::settings::DoclingVlmMode;
+        assert_eq!(
+            docling_mode_vlm_patch(DoclingVlmMode::Custom, None),
+            SecretPatch::Keep
+        );
+        assert_eq!(
+            docling_mode_vlm_patch(DoclingVlmMode::Preset, None),
+            SecretPatch::Clear
+        );
+        assert_eq!(
+            docling_mode_vlm_patch(DoclingVlmMode::Disabled, None),
+            SecretPatch::Clear
+        );
+        assert_eq!(
+            docling_mode_vlm_patch(DoclingVlmMode::Preset, Some("rotated".to_string())),
+            SecretPatch::Set("rotated".to_string())
+        );
+        assert_eq!(
+            docling_mode_vlm_patch(DoclingVlmMode::Custom, Some("  ".to_string())),
+            SecretPatch::Keep
         );
     }
 

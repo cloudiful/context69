@@ -9420,7 +9420,9 @@
           "source",
           "connection",
           "vlm",
-          "ocr_preset"
+          "ocr_preset",
+          "do_ocr",
+          "do_picture_description"
         ],
         "properties": {
           "configured": {
@@ -9428,6 +9430,14 @@
           },
           "connection": {
             "$ref": "#/components/schemas/DoclingConnectionSettingsResponse"
+          },
+          "do_ocr": {
+            "type": "boolean",
+            "description": "Whether conversions request OCR. A fresh or unconfigured installation\nreports `true`."
+          },
+          "do_picture_description": {
+            "type": "boolean",
+            "description": "Whether conversions request picture description. A fresh or\nunconfigured installation reports `false`."
           },
           "ocr_preset": {
             "type": "string",
@@ -9447,6 +9457,15 @@
           "config",
           "database",
           "unconfigured"
+        ]
+      },
+      "DoclingVlmMode": {
+        "type": "string",
+        "description": "The VLM branch a settings update selects.\n\nThe values match the settings UI choices. The mode is request-only: it\nselects which secret action an explicit update intends and is never stored.",
+        "enum": [
+          "disabled",
+          "preset",
+          "custom"
         ]
       },
       "DoclingVlmSettingsResponse": {
@@ -16989,12 +17008,31 @@
           "connection": {
             "$ref": "#/components/schemas/UpdateDoclingConnectionSettings"
           },
+          "do_ocr": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether conversions request OCR.\n\nAn absent field keeps the stored value; a fresh installation defaults\nto `true`. The value is sent to Docling explicitly instead of being\ninferred from the presence of the OCR preset."
+          },
+          "do_picture_description": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether conversions request picture description.\n\nAn absent field keeps the stored value; a fresh installation defaults\nto `false`. The value is sent to Docling explicitly and is never\ncoerced from the presence of a VLM preset or model."
+          },
           "ocr_preset": {
             "type": "string",
             "description": "The selected Docling OCR preset.\n\nAn absent field keeps the stored selection, so a client that does not\nknow the setting never resets it. An explicit `null` is rejected\ninstead of being read as an absent field.\n\nThe generated schema documents the property as a plain optional string:\nthe wire form keeps an explicit `null` distinguishable so it can be\nrejected, but `null` is not a value the API accepts, and the schema\nmust not advertise one."
           },
           "vlm": {
-            "$ref": "#/components/schemas/UpdateDoclingVlmSettings"
+            "$ref": "#/components/schemas/UpdateDoclingVlmSettings",
+            "description": "The submitted VLM selection, when the caller sends one.\n\nAn absent object means the caller did not touch the VLM branch; a\ndisabled picture-description save then keeps the stored configuration.\nA present object — including `{}`, a key-only custom selection, or an\nempty preset — is an explicit branch selection and replaces the stored\nbranch instead of merging with it. The generated schema documents the\nproperty as an optional object and never advertises `null`."
+          },
+          "vlm_mode": {
+            "$ref": "#/components/schemas/DoclingVlmMode",
+            "description": "The selected VLM branch, when the caller states one.\n\nThe mode is a request-only discriminator: it is never persisted and the\nresponse keeps inferring its branch from the stored configuration. It\nseparates an explicit empty selection from an omitted one so a disabled\nsave can clear an old opposite-branch credential for `preset` or\n`disabled` while keeping it for a secret-only `custom` branch. An absent\nmode keeps the older field-based behaviour."
           }
         }
       },

@@ -39,14 +39,18 @@ pub(crate) use runtime_mappers::{code_embedding_config, stored_chunk_budget};
 use self::{
     mappers::{
         canonical_search_settings_from_request, config_from_stored, docling_settings_from_request,
-        resolved_ocr_preset, response_from_stored, search_response_from_stored,
-        search_settings_from_request, unconfigured_docling_response, validate_docling_vlm_shape,
+        effective_do_ocr, preserve_omitted_hidden_docling_vlm, resolved_ocr_preset,
+        response_from_stored, search_response_from_stored, search_settings_from_request,
+        unconfigured_docling_response, validate_docling_vlm_shape_if_enabled,
     },
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request,
         runtime_settings_response_with_code, s3_secret_patch, stored_code_embedding_from_request,
     },
-    secrets::{SettingsSecrets, docling_vlm_patch, optional_key_patch},
+    secrets::{
+        SettingsSecrets, docling_hidden_vlm_patch, docling_mode_vlm_patch, docling_vlm_patch,
+        optional_key_patch,
+    },
     validate as settings_validate,
 };
 
@@ -982,11 +986,23 @@ impl SettingsService {
         &self,
         request: &UpdateDoclingSettingsRequest,
     ) -> Result<DoclingSettingsResponse> {
-        settings_validate::docling_request(request)?;
-
-        // An old client that omits the OCR preset keeps the stored selection,
-        // so the save reads the stored row before it rebuilds it.
+        // An old client that omits the OCR preset or a toggle keeps the stored
+        // selection, so the save reads the stored row before it validates and
+        // rebuilds it. The effective OCR toggle decides whether a hidden blank
+        // preset may pass through as an untouched field.
         let stored = self.db.get_docling_settings().await?;
+        let do_ocr = effective_do_ocr(request, stored.as_ref());
+        // An old API caller that omits the picture toggle keeps the stored
+        // value, and a fresh installation starts disabled.
+        let do_picture_description = request
+            .do_picture_description
+            .or_else(|| {
+                stored
+                    .as_ref()
+                    .map(|settings| settings.do_picture_description)
+            })
+            .unwrap_or(false);
+        settings_validate::docling_request(request, do_ocr, do_picture_description)?;
         let ocr_preset = resolved_ocr_preset(
             request,
             stored
@@ -994,16 +1010,43 @@ impl SettingsService {
                 .and_then(|settings| settings.ocr_engine.as_deref()),
         );
 
-        let patch = docling_vlm_patch(
-            request.vlm.api_key.clone(),
-            normalize_optional_string(request.vlm.openai_base_url.clone()).is_some(),
-        );
+        // A hidden section still stages an explicitly supplied key through the
+        // shared secret lifecycle, but skips every VLM shape and runtime rule
+        // that only an enabled configuration needs.
+        let requested_vlm = request.vlm.as_ref();
+        let requested_api_key = requested_vlm.and_then(|vlm| vlm.api_key.clone());
+        let patch = if let Some(mode) = request.vlm_mode {
+            docling_mode_vlm_patch(mode, requested_api_key)
+        } else if do_picture_description {
+            docling_vlm_patch(
+                requested_api_key,
+                requested_vlm
+                    .and_then(|vlm| normalize_optional_string(vlm.openai_base_url.clone()))
+                    .is_some(),
+            )
+        } else {
+            docling_hidden_vlm_patch(requested_api_key)
+        };
         let candidate = self
             .docling_secrets
             .stage(
                 &patch,
-                |api_key| docling_settings_from_request(request, api_key, &ocr_preset),
-                validate_docling_vlm_shape,
+                |api_key| {
+                    let mut candidate = docling_settings_from_request(
+                        request,
+                        api_key,
+                        &ocr_preset,
+                        do_ocr,
+                        do_picture_description,
+                    );
+                    if !do_picture_description && let Some(stored) = stored.as_ref() {
+                        preserve_omitted_hidden_docling_vlm(request, &mut candidate, stored);
+                    }
+                    candidate
+                },
+                |candidate| {
+                    validate_docling_vlm_shape_if_enabled(candidate, do_picture_description)
+                },
             )
             .await?;
 
@@ -1028,7 +1071,14 @@ impl SettingsService {
         let Some(settings) = self.db.get_docling_settings().await? else {
             return Ok(None);
         };
-        let api_key = self.docling_secrets.resolve().await?;
+        // A disabled picture-description section never uses the provider
+        // credential, so a sealed or unavailable secret must not block an
+        // otherwise OCR-only conversion.
+        let api_key = if settings.do_picture_description {
+            self.docling_secrets.resolve().await?
+        } else {
+            None
+        };
         Ok(Some(config_from_stored(settings, api_key)))
     }
 
@@ -1168,9 +1218,11 @@ fn keeps_code_secret(patch: &SecretPatch) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
+        mappers::validate_docling_vlm_shape,
         mappers::{
-            config_from_stored, docling_settings_from_request, resolved_ocr_preset,
-            response_from_stored, search_response_from_stored, search_settings_from_request,
+            config_from_stored, docling_settings_from_request, effective_do_ocr,
+            preserve_omitted_hidden_docling_vlm, resolved_ocr_preset, response_from_stored,
+            search_response_from_stored, search_settings_from_request,
         },
         runtime_mappers::{runtime_settings_from_request, runtime_settings_response},
         unconfigured_docling_response,
@@ -1180,7 +1232,7 @@ mod tests {
             search_request as validate_search_request,
             stored_search_settings as validate_stored_search_settings,
         },
-        validate_docling_vlm_shape,
+        validate_docling_vlm_shape_if_enabled,
     };
     use std::sync::{
         Arc,
@@ -1213,8 +1265,11 @@ mod tests {
                 task_timeout_secs: 3600,
                 max_inflight: context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
             },
-            vlm: UpdateDoclingVlmSettings::default(),
+            vlm: Some(UpdateDoclingVlmSettings::default()),
+            vlm_mode: None,
             ocr_preset: None,
+            do_ocr: None,
+            do_picture_description: None,
         }
     }
 
@@ -1316,7 +1371,8 @@ mod tests {
 
     #[test]
     fn request_allows_docling_vlm_to_be_disabled() {
-        validate_docling_request(&sample_request()).expect("request without vlm should be valid");
+        validate_docling_request(&sample_request(), true, true)
+            .expect("request without vlm should be valid");
     }
 
     #[test]
@@ -1324,8 +1380,8 @@ mod tests {
         let mut request = sample_request();
         request.connection.task_timeout_secs = 0;
 
-        let error =
-            validate_docling_request(&request).expect_err("zero task timeout should be rejected");
+        let error = validate_docling_request(&request, true, true)
+            .expect_err("zero task timeout should be rejected");
         assert!(error.to_string().contains("task_timeout_secs"));
     }
 
@@ -1624,12 +1680,12 @@ mod tests {
     #[test]
     fn picture_description_preset_round_trips_through_request_and_stored_config() {
         let mut request = sample_request();
-        request.vlm = UpdateDoclingVlmSettings {
+        request.vlm = Some(UpdateDoclingVlmSettings {
             picture_description_preset: Some("smolvlm".to_string()),
             ..UpdateDoclingVlmSettings::default()
-        };
+        });
 
-        let stored = docling_settings_from_request(&request, None, "rapidocr");
+        let stored = docling_settings_from_request(&request, None, "rapidocr", true, true);
         assert_eq!(
             stored.picture_description_preset.as_deref(),
             Some("smolvlm"),
@@ -1658,11 +1714,205 @@ mod tests {
     #[test]
     fn empty_picture_description_preset_is_normalized_away_in_mapper() {
         let request = sample_request();
-        let stored = docling_settings_from_request(&request, None, "rapidocr");
+        let stored = docling_settings_from_request(&request, None, "rapidocr", true, true);
         assert!(
             stored.picture_description_preset.is_none(),
             "blank picture_description_preset must be normalized away by the mapper"
         );
+    }
+
+    /// A disabled picture-description section retains its stored fields and
+    /// never blocks the save on a hidden partial configuration.
+    #[test]
+    fn docling_toggles_round_trip_and_disabled_vlm_skips_shape_validation() {
+        let mut request = sample_request();
+        request.do_ocr = Some(false);
+        request.do_picture_description = Some(false);
+        request
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        // api_key and the model trio are deliberately missing: the hidden
+        // section must not turn this partial bundle into a save blocker.
+
+        let stored = docling_settings_from_request(&request, None, "rapidocr", false, false);
+        assert!(!stored.do_ocr);
+        assert!(!stored.do_picture_description);
+        validate_docling_vlm_shape_if_enabled(&stored, false)
+            .expect("a hidden partial VLM configuration must not block the save");
+
+        let config = config_from_stored(stored, None);
+        assert!(!config.do_ocr);
+        assert!(
+            !config.effective_do_picture_description(),
+            "the runtime config must carry the explicit disabled toggle"
+        );
+        assert_eq!(
+            config.vlm.openai_base_url.as_deref(),
+            Some("https://openrouter.ai/api/v1"),
+            "the hidden configuration must be retained"
+        );
+
+        let mut omitted = sample_request();
+        omitted.vlm = None;
+        let mut candidate = docling_settings_from_request(&omitted, None, "rapidocr", true, false);
+        let mut previous = sample_stored();
+        previous.picture_description_preset = Some("smolvlm".to_string());
+        preserve_omitted_hidden_docling_vlm(&omitted, &mut candidate, &previous);
+        assert_eq!(
+            candidate.picture_description_preset.as_deref(),
+            Some("smolvlm"),
+            "an omitted hidden field must keep its stored value"
+        );
+    }
+
+    /// A branch selected while the section is off replaces the stored branch;
+    /// the opposite stored branch is never merged back in, even when the
+    /// explicit selection is empty or carries only a key.
+    #[test]
+    fn a_hidden_branch_switch_never_resurrects_the_other_branch() {
+        let mut previous = sample_stored();
+        previous.picture_description_preset = Some("smolvlm".to_string());
+
+        let mut custom_request = sample_request();
+        custom_request
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        let mut candidate =
+            docling_settings_from_request(&custom_request, None, "rapidocr", true, false);
+        preserve_omitted_hidden_docling_vlm(&custom_request, &mut candidate, &previous);
+        assert_eq!(
+            candidate.openai_base_url.as_deref(),
+            Some("https://openrouter.ai/api/v1")
+        );
+        assert!(
+            candidate.picture_description_preset.is_none(),
+            "selecting custom while off must not restore the stored preset"
+        );
+
+        let mut key_only_request = sample_request();
+        key_only_request.vlm = Some(UpdateDoclingVlmSettings {
+            api_key: Some("rotated".to_string()),
+            ..UpdateDoclingVlmSettings::default()
+        });
+        let mut candidate = docling_settings_from_request(
+            &key_only_request,
+            Some("rotated".to_string()),
+            "rapidocr",
+            true,
+            false,
+        );
+        preserve_omitted_hidden_docling_vlm(&key_only_request, &mut candidate, &previous);
+        assert!(
+            candidate.picture_description_preset.is_none(),
+            "a key-only custom selection while off must clear the stored preset"
+        );
+        assert_eq!(candidate.api_key.as_deref(), Some("rotated"));
+
+        let mut previous = sample_stored();
+        previous.openai_base_url = Some("https://old.example/v1".to_string());
+        previous.vlm_pipeline_model = Some("old-model".to_string());
+        previous.picture_description_model = Some("old-picture".to_string());
+        previous.code_formula_model = Some("old-code".to_string());
+        let mut preset_request = sample_request();
+        preset_request
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .picture_description_preset = Some("granite_vision".to_string());
+        let mut candidate =
+            docling_settings_from_request(&preset_request, None, "rapidocr", true, false);
+        preserve_omitted_hidden_docling_vlm(&preset_request, &mut candidate, &previous);
+        assert_eq!(
+            candidate.picture_description_preset.as_deref(),
+            Some("granite_vision")
+        );
+        assert!(
+            candidate.openai_base_url.is_none() && candidate.vlm_pipeline_model.is_none(),
+            "selecting preset while off must not restore the stored custom branch"
+        );
+
+        let mut empty_request = sample_request();
+        empty_request.vlm = Some(UpdateDoclingVlmSettings::default());
+        let mut previous = sample_stored();
+        previous.picture_description_preset = Some("smolvlm".to_string());
+        let mut candidate =
+            docling_settings_from_request(&empty_request, None, "rapidocr", true, false);
+        preserve_omitted_hidden_docling_vlm(&empty_request, &mut candidate, &previous);
+        assert!(
+            candidate.picture_description_preset.is_none(),
+            "an explicitly empty branch while off must not restore the stored preset"
+        );
+
+        let mut mode_only_request = sample_request();
+        mode_only_request.vlm = None;
+        mode_only_request.vlm_mode = Some(context69_contracts::settings::DoclingVlmMode::Preset);
+        let mut candidate =
+            docling_settings_from_request(&mode_only_request, None, "rapidocr", true, false);
+        preserve_omitted_hidden_docling_vlm(&mode_only_request, &mut candidate, &previous);
+        assert!(
+            candidate.picture_description_preset.is_none(),
+            "an explicit mode without a VLM object must not restore the stored preset"
+        );
+    }
+
+    /// An explicit mode is checked against the submitted branch only while the
+    /// section is enabled; a hidden update cannot be blocked by that check.
+    #[test]
+    fn an_explicit_vlm_mode_must_match_the_submitted_branch() {
+        use context69_contracts::settings::DoclingVlmMode;
+
+        let mut custom = sample_request();
+        custom.vlm_mode = Some(DoclingVlmMode::Custom);
+        custom
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .api_key = Some("rotated".to_string());
+        validate_docling_request(&custom, true, true)
+            .expect("a key-only custom selection is consistent");
+
+        let mut preset_with_custom = sample_request();
+        preset_with_custom.vlm_mode = Some(DoclingVlmMode::Preset);
+        preset_with_custom
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
+        let error = validate_docling_request(&preset_with_custom, true, true)
+            .expect_err("a preset mode with custom fields must be rejected");
+        assert!(error.to_string().contains("vlm_mode"), "{error}");
+        validate_docling_request(&preset_with_custom, true, false)
+            .expect("a hidden section must not enforce branch consistency");
+
+        let mut custom_with_preset = sample_request();
+        custom_with_preset.vlm_mode = Some(DoclingVlmMode::Custom);
+        custom_with_preset
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .picture_description_preset = Some("smolvlm".to_string());
+        assert!(
+            validate_docling_request(&custom_with_preset, true, true).is_err(),
+            "a custom mode with a preset must be rejected"
+        );
+
+        let mut disabled_with_key = sample_request();
+        disabled_with_key.vlm_mode = Some(DoclingVlmMode::Disabled);
+        disabled_with_key
+            .vlm
+            .as_mut()
+            .expect("the sample request carries a VLM selection")
+            .api_key = Some("rotated".to_string());
+        assert!(
+            validate_docling_request(&disabled_with_key, true, true).is_err(),
+            "a disabled mode with a key must be rejected while enabled"
+        );
+        validate_docling_request(&disabled_with_key, true, false)
+            .expect("a hidden update keeps a supplied key stageable");
     }
 
     #[test]
@@ -1749,7 +1999,8 @@ mod tests {
             context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX,
         ] {
             request.connection.max_inflight = limit;
-            validate_docling_request(&request).expect("bounded max_inflight should be valid");
+            validate_docling_request(&request, true, true)
+                .expect("bounded max_inflight should be valid");
         }
     }
 
@@ -1757,13 +2008,13 @@ mod tests {
     fn docling_request_rejects_out_of_range_max_inflight() {
         let mut request = sample_request();
         request.connection.max_inflight = 0;
-        let error =
-            validate_docling_request(&request).expect_err("zero max_inflight must be rejected");
+        let error = validate_docling_request(&request, true, true)
+            .expect_err("zero max_inflight must be rejected");
         assert!(error.to_string().contains("max_inflight"));
 
         request.connection.max_inflight =
             context69_contracts::settings::DOCLING_MAX_INFLIGHT_MAX + 1;
-        let error = validate_docling_request(&request)
+        let error = validate_docling_request(&request, true, true)
             .expect_err("over-ceiling max_inflight must be rejected");
         assert!(error.to_string().contains("max_inflight"));
     }
@@ -1772,7 +2023,7 @@ mod tests {
     fn docling_mapper_round_trips_max_inflight() {
         let mut request = sample_request();
         request.connection.max_inflight = 3;
-        let stored = docling_settings_from_request(&request, None, "rapidocr");
+        let stored = docling_settings_from_request(&request, None, "rapidocr", true, true);
         assert_eq!(stored.max_inflight, 3);
 
         let response =
@@ -1801,7 +2052,7 @@ mod tests {
             context69_contracts::settings::DOCLING_MAX_INFLIGHT_DEFAULT,
             "legacy API payloads must default to the single-worker ceiling"
         );
-        validate_docling_request(&request).expect("defaulted request should be valid");
+        validate_docling_request(&request, true, true).expect("defaulted request should be valid");
     }
 
     /// A legacy row without a stored preset reports the default preset, so a
@@ -1861,9 +2112,9 @@ mod tests {
     fn a_selected_ocr_preset_is_persisted() {
         let mut request = sample_request();
         request.ocr_preset = Some(Some("custom.ocr-preset".to_string()));
-        validate_docling_request(&request).expect("a valid preset must be accepted");
+        validate_docling_request(&request, true, true).expect("a valid preset must be accepted");
 
-        let stored = docling_settings_from_request(&request, None, "custom.ocr-preset");
+        let stored = docling_settings_from_request(&request, None, "custom.ocr-preset", true, true);
         assert_eq!(stored.ocr_engine.as_deref(), Some("custom.ocr-preset"));
         assert_eq!(
             resolved_ocr_preset(&request, Some("tesseract")),
@@ -1879,7 +2130,7 @@ mod tests {
     fn an_explicit_null_ocr_preset_is_rejected() {
         let mut request = sample_request();
         request.ocr_preset = Some(None);
-        let error = validate_docling_request(&request)
+        let error = validate_docling_request(&request, true, true)
             .expect_err("an explicit null preset must be rejected");
         let message = error.to_string();
         assert!(message.contains("ocr_preset"), "{message}");
@@ -1892,8 +2143,8 @@ mod tests {
         for preset in ["", "   ", "rapid ocr", "rapid/ocr", "rápidocr"] {
             let mut request = sample_request();
             request.ocr_preset = Some(Some(preset.to_string()));
-            let error =
-                validate_docling_request(&request).expect_err("an invalid preset must be rejected");
+            let error = validate_docling_request(&request, true, true)
+                .expect_err("an invalid preset must be rejected");
             assert!(
                 error.to_string().contains("ocr_preset"),
                 "the error must name the rejected field, got: {error}"
@@ -1904,15 +2155,78 @@ mod tests {
         request.ocr_preset = Some(Some(
             "a".repeat(context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN + 1),
         ));
-        let error =
-            validate_docling_request(&request).expect_err("an overlong preset must be rejected");
+        let error = validate_docling_request(&request, true, true)
+            .expect_err("an overlong preset must be rejected");
         assert!(error.to_string().contains("ocr_preset"), "{error}");
 
         let mut request = sample_request();
         request.ocr_preset = Some(Some(
             "a".repeat(context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN),
         ));
-        validate_docling_request(&request).expect("the longest accepted preset must be valid");
+        validate_docling_request(&request, true, true)
+            .expect("the longest accepted preset must be valid");
+    }
+
+    /// A hidden OCR preset cannot block an off save: a blank submitted value is
+    /// treated as untouched, keeps the stored nonblank choice, and falls back to
+    /// the default when nothing is stored. A nonblank hidden value is preserved.
+    #[test]
+    fn a_blank_hidden_ocr_preset_cannot_block_an_off_save() {
+        let mut request = sample_request();
+        request.ocr_preset = Some(Some("   ".to_string()));
+        request.do_ocr = Some(false);
+        validate_docling_request(&request, false, false)
+            .expect("a blank hidden preset must not block a disabled save");
+        assert_eq!(
+            resolved_ocr_preset(&request, Some("tesseract")),
+            "tesseract",
+            "a blank hidden value must keep the stored preset"
+        );
+        assert_eq!(
+            resolved_ocr_preset(&request, None),
+            context69_contracts::settings::DOCLING_OCR_PRESET_DEFAULT,
+            "a blank hidden value without a stored preset must fall back to the default"
+        );
+
+        let mut nonblank = sample_request();
+        nonblank.ocr_preset = Some(Some("custom.ocr-preset".to_string()));
+        nonblank.do_ocr = Some(false);
+        validate_docling_request(&nonblank, false, false)
+            .expect("a nonblank hidden preset must stay valid");
+        assert_eq!(
+            resolved_ocr_preset(&nonblank, Some("tesseract")),
+            "custom.ocr-preset",
+            "a nonblank hidden selection must be preserved"
+        );
+    }
+
+    /// A caller that omits the OCR flag keeps a stored disabled value, so the
+    /// hidden preset rules apply even when the request never mentions the flag.
+    #[test]
+    fn an_omitted_ocr_toggle_resolves_the_stored_disabled_value() {
+        let stored = {
+            let mut stored = sample_stored();
+            stored.do_ocr = false;
+            stored
+        };
+        let mut request = sample_request();
+        request.ocr_preset = Some(Some(String::new()));
+
+        assert_eq!(request.do_ocr, None);
+        assert!(!effective_do_ocr(&request, Some(&stored)));
+        validate_docling_request(&request, effective_do_ocr(&request, Some(&stored)), false)
+            .expect("a stored disabled toggle must allow a blank hidden preset");
+
+        let enabled = {
+            let mut stored = sample_stored();
+            stored.do_ocr = true;
+            stored
+        };
+        assert!(effective_do_ocr(&request, Some(&enabled)));
+        assert!(
+            validate_docling_request(&request, true, true).is_err(),
+            "an enabled OCR section must still reject a blank preset"
+        );
     }
 
     #[test]

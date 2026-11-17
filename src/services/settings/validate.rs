@@ -9,6 +9,7 @@ use crate::{
         UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
     },
     db::StoredSearchSettings,
+    support::normalize::normalize_optional_string,
 };
 
 use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
@@ -260,7 +261,18 @@ fn registry_capacity_request(file_library: &UpdateRuntimeFileLibrarySettings) ->
     Ok(())
 }
 
-pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<()> {
+/// Validates a Docling save against the effective OCR toggle.
+///
+/// A disabled OCR section hides the preset, so a blank submitted preset is an
+/// untouched hidden field rather than a save blocker; it is resolved back to
+/// the stored selection or the default. An enabled section keeps the strict
+/// preset rules, and a nonblank submitted preset is always validated because it
+/// is what the save persists.
+pub(super) fn docling_request(
+    request: &UpdateDoclingSettingsRequest,
+    do_ocr: bool,
+    do_picture_description: bool,
+) -> Result<()> {
     let base_url = request.connection.base_url.trim();
     if base_url.is_empty() {
         return Err(DomainError::invalid_argument("docling.base_url must not be empty").into());
@@ -303,17 +315,18 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
         Some(Some(preset)) => {
             let preset = preset.trim();
             if preset.is_empty() {
-                return Err(
-                    DomainError::invalid_argument("docling.ocr_preset must not be empty").into(),
-                );
-            }
-            if preset.len() > DOCLING_OCR_PRESET_MAX_LEN {
+                if do_ocr {
+                    return Err(DomainError::invalid_argument(
+                        "docling.ocr_preset must not be empty",
+                    )
+                    .into());
+                }
+            } else if preset.len() > DOCLING_OCR_PRESET_MAX_LEN {
                 return Err(DomainError::invalid_argument(format!(
                     "docling.ocr_preset must be at most {DOCLING_OCR_PRESET_MAX_LEN} characters"
                 ))
                 .into());
-            }
-            if !preset.chars().all(|character| {
+            } else if !preset.chars().all(|character| {
                 character.is_ascii_alphanumeric() || matches!(character, '_' | '-' | '.')
             }) {
                 return Err(DomainError::invalid_argument(
@@ -323,7 +336,48 @@ pub(super) fn docling_request(request: &UpdateDoclingSettingsRequest) -> Result<
             }
         }
     }
+    if do_picture_description {
+        docling_vlm_mode_selection(request)?;
+    }
 
+    Ok(())
+}
+
+/// Rejects an explicit VLM mode that contradicts the fields it submits.
+///
+/// A disabled section skips this check because its hidden branch cannot block
+/// a save; its supplied key is still staged by the service instead of being
+/// discarded.
+fn docling_vlm_mode_selection(request: &UpdateDoclingSettingsRequest) -> Result<()> {
+    use context69_contracts::settings::DoclingVlmMode;
+
+    let Some(mode) = request.vlm_mode else {
+        return Ok(());
+    };
+    let vlm = request.vlm.as_ref();
+    let preset =
+        vlm.and_then(|vlm| normalize_optional_string(vlm.picture_description_preset.clone()));
+    let custom = [
+        vlm.and_then(|vlm| normalize_optional_string(vlm.openai_base_url.clone())),
+        vlm.and_then(|vlm| normalize_optional_string(vlm.api_key.clone())),
+        vlm.and_then(|vlm| normalize_optional_string(vlm.vlm_pipeline_model.clone())),
+        vlm.and_then(|vlm| normalize_optional_string(vlm.picture_description_model.clone())),
+        vlm.and_then(|vlm| normalize_optional_string(vlm.code_formula_model.clone())),
+    ]
+    .into_iter()
+    .any(|value| value.is_some());
+
+    let inconsistent = match mode {
+        DoclingVlmMode::Custom => preset.is_some(),
+        DoclingVlmMode::Preset => custom,
+        DoclingVlmMode::Disabled => preset.is_some() || custom,
+    };
+    if inconsistent {
+        return Err(DomainError::invalid_argument(
+            "docling.vlm_mode must match the submitted VLM branch fields",
+        )
+        .into());
+    }
     Ok(())
 }
 

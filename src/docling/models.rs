@@ -213,6 +213,11 @@ pub(crate) struct SubmitRequest<'a> {
     /// The selected OCR preset. Every PDF and DOCX conversion names it
     /// explicitly, with or without a VLM bundle.
     pub ocr_preset: &'a str,
+    /// Whether the conversion requests OCR.
+    pub do_ocr: bool,
+    /// Whether the conversion requests picture description. VLM form fields are
+    /// only added when this is set.
+    pub do_picture_description: bool,
 }
 
 impl std::fmt::Debug for SubmitRequest<'_> {
@@ -230,6 +235,8 @@ impl std::fmt::Debug for SubmitRequest<'_> {
                 &self.picture_description_preset,
             )
             .field("ocr_preset", &self.ocr_preset)
+            .field("do_ocr", &self.do_ocr)
+            .field("do_picture_description", &self.do_picture_description)
             .finish()
     }
 }

@@ -25,16 +25,38 @@ pub(super) fn resolved_ocr_preset(
     stored: Option<&str>,
 ) -> String {
     match &request.ocr_preset {
-        Some(Some(preset)) => preset.trim().to_string(),
+        // A disabled OCR section hides the preset, so a blank submitted value
+        // is treated as untouched rather than as a selection that would erase
+        // the stored choice. An enabled request can never reach this branch
+        // with a blank value because validation rejects it first.
+        Some(Some(preset)) if !preset.trim().is_empty() => preset.trim().to_string(),
         _ => effective_ocr_preset(stored),
     }
+}
+
+/// The OCR toggle an update resolves to before validation runs.
+///
+/// An absent request flag keeps the stored value, and an unconfigured
+/// installation defaults to OCR enabled. The resolved value decides whether the
+/// hidden preset rules apply and what the save persists.
+pub(super) fn effective_do_ocr(
+    request: &UpdateDoclingSettingsRequest,
+    stored: Option<&StoredDoclingSettings>,
+) -> bool {
+    request
+        .do_ocr
+        .or_else(|| stored.map(|settings| settings.do_ocr))
+        .unwrap_or(true)
 }
 
 pub(super) fn docling_settings_from_request(
     request: &UpdateDoclingSettingsRequest,
     api_key: Option<String>,
     ocr_preset: &str,
+    do_ocr: bool,
+    do_picture_description: bool,
 ) -> StoredDoclingSettings {
+    let vlm = request.vlm.as_ref();
     StoredDoclingSettings {
         base_url: request.connection.base_url.trim().to_string(),
         timeout_secs: request.connection.timeout_secs,
@@ -44,23 +66,23 @@ pub(super) fn docling_settings_from_request(
         pdf_backend: None,
         images_scale: None,
         image_export_mode: Some("placeholder".to_string()),
-        do_ocr: true,
+        do_ocr,
         force_ocr: false,
         ocr_engine: Some(ocr_preset.to_string()),
         ocr_lang: normalize_string_list(Vec::new()),
         do_code_enrichment: true,
         do_formula_enrichment: true,
-        do_picture_description: true,
-        openai_base_url: normalize_optional_string(request.vlm.openai_base_url.clone()),
+        do_picture_description,
+        openai_base_url: vlm.and_then(|vlm| normalize_optional_string(vlm.openai_base_url.clone())),
         api_key,
-        vlm_pipeline_model: normalize_optional_string(request.vlm.vlm_pipeline_model.clone()),
-        picture_description_model: normalize_optional_string(
-            request.vlm.picture_description_model.clone(),
-        ),
-        code_formula_model: normalize_optional_string(request.vlm.code_formula_model.clone()),
-        picture_description_preset: normalize_optional_string(
-            request.vlm.picture_description_preset.clone(),
-        ),
+        vlm_pipeline_model: vlm
+            .and_then(|vlm| normalize_optional_string(vlm.vlm_pipeline_model.clone())),
+        picture_description_model: vlm
+            .and_then(|vlm| normalize_optional_string(vlm.picture_description_model.clone())),
+        code_formula_model: vlm
+            .and_then(|vlm| normalize_optional_string(vlm.code_formula_model.clone())),
+        picture_description_preset: vlm
+            .and_then(|vlm| normalize_optional_string(vlm.picture_description_preset.clone())),
     }
 }
 
@@ -109,6 +131,8 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
             picture_description_preset: None,
         },
         ocr_preset: effective_ocr_preset(None),
+        do_ocr: true,
+        do_picture_description: false,
     }
 }
 
@@ -159,6 +183,8 @@ pub(super) fn response_from_stored(
             picture_description_preset: settings.picture_description_preset,
         },
         ocr_preset: effective_ocr_preset(settings.ocr_engine.as_deref()),
+        do_ocr: settings.do_ocr,
+        do_picture_description: settings.do_picture_description,
     }
 }
 
@@ -186,6 +212,8 @@ pub(super) fn config_from_stored(
             picture_description_preset: settings.picture_description_preset,
         },
         ocr_preset: effective_ocr_preset(settings.ocr_engine.as_deref()),
+        do_ocr: settings.do_ocr,
+        do_picture_description: Some(settings.do_picture_description),
     }
 }
 
@@ -281,4 +309,53 @@ pub(super) fn validate_docling_vlm_shape(settings: &StoredDoclingSettings) -> an
     }
 
     Ok(())
+}
+
+/// Keeps the stored VLM fields a disabled picture-description update omits.
+///
+/// A disabled section cannot be edited through the UI, so an update that omits
+/// the whole VLM object keeps what is stored instead of clearing it. The caller
+/// applies this only when `request.vlm` is absent: a present object is an
+/// explicit branch selection — even when it is empty or carries only a key —
+/// and is never merged with the opposite stored branch.
+pub(super) fn preserve_hidden_docling_vlm(
+    candidate: &mut StoredDoclingSettings,
+    stored: &StoredDoclingSettings,
+) {
+    candidate.openai_base_url = stored.openai_base_url.clone();
+    candidate.vlm_pipeline_model = stored.vlm_pipeline_model.clone();
+    candidate.picture_description_model = stored.picture_description_model.clone();
+    candidate.code_formula_model = stored.code_formula_model.clone();
+    candidate.picture_description_preset = stored.picture_description_preset.clone();
+}
+
+/// Applies the hidden-field retention rule for a disabled picture update.
+///
+/// Only a request that omits both the whole VLM object and the explicit mode
+/// keeps the stored configuration. Either one is the caller's branch selection,
+/// even when the object is empty or carries only a key, so it is never merged.
+pub(super) fn preserve_omitted_hidden_docling_vlm(
+    request: &UpdateDoclingSettingsRequest,
+    candidate: &mut StoredDoclingSettings,
+    stored: &StoredDoclingSettings,
+) {
+    if request.vlm.is_none() && request.vlm_mode.is_none() {
+        preserve_hidden_docling_vlm(candidate, stored);
+    }
+}
+
+/// Skips the VLM shape check while picture description is disabled.
+///
+/// A disabled section keeps its stored fields untouched, so a hidden malformed
+/// or partial VLM configuration must neither block a save nor be used for a
+/// conversion.
+pub(super) fn validate_docling_vlm_shape_if_enabled(
+    settings: &StoredDoclingSettings,
+    enabled: bool,
+) -> anyhow::Result<()> {
+    if enabled {
+        validate_docling_vlm_shape(settings)
+    } else {
+        Ok(())
+    }
 }

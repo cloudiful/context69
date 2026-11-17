@@ -26,6 +26,8 @@ function makeDoclingResponse(
       max_inflight: 2,
     },
     ocr_preset: "rapidocr",
+    do_ocr: true,
+    do_picture_description: false,
     vlm: {
       openai_base_url: null,
       has_api_key: false,

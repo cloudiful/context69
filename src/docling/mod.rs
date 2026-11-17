@@ -154,6 +154,44 @@ pub struct DoclingConfig {
     /// The OCR preset every PDF and DOCX conversion requests explicitly.
     #[serde(default = "default_docling_ocr_preset")]
     pub ocr_preset: String,
+    /// Whether PDF and DOCX conversions request OCR. An omitted file
+    /// configuration keeps the pre-toggle behavior and enables OCR.
+    #[serde(default = "default_docling_do_ocr")]
+    pub do_ocr: bool,
+    /// Whether PDF and DOCX conversions request picture description.
+    ///
+    /// An omitted file configuration keeps the pre-toggle behavior: picture
+    /// description is enabled only when a VLM bundle or preset is configured.
+    /// An explicit value, including `false`, always wins and is never inferred
+    /// again from the presence of those fields.
+    pub do_picture_description: Option<bool>,
+}
+
+fn default_docling_do_ocr() -> bool {
+    true
+}
+
+impl DoclingConfig {
+    /// The picture-description toggle, including the legacy file-config default.
+    pub(crate) fn effective_do_picture_description(&self) -> bool {
+        self.do_picture_description
+            .unwrap_or_else(|| self.has_vlm_configuration())
+    }
+
+    /// Whether any stored or configured VLM field selects picture enrichment.
+    fn has_vlm_configuration(&self) -> bool {
+        [
+            self.vlm.openai_base_url.as_deref(),
+            self.vlm.api_key.as_deref(),
+            self.vlm.vlm_pipeline_model.as_deref(),
+            self.vlm.picture_description_model.as_deref(),
+            self.vlm.code_formula_model.as_deref(),
+            self.vlm.picture_description_preset.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|value| !value.trim().is_empty())
+    }
 }
 
 impl Default for DoclingConfig {
@@ -162,6 +200,8 @@ impl Default for DoclingConfig {
             connection: DoclingConnectionConfig::default(),
             vlm: DoclingVlmConfig::default(),
             ocr_preset: default_docling_ocr_preset(),
+            do_ocr: default_docling_do_ocr(),
+            do_picture_description: None,
         }
     }
 }

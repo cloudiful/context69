@@ -62,8 +62,12 @@ async fn submit_frozen_config(
     })?;
     let client =
         super::ingest_documents::docling_client_for_config(config).map_err(docling_submit_error)?;
-    let vlm =
-        crate::docling::resolve_vlm_runtime_config(&config.vlm).map_err(docling_submit_error)?;
+    let do_picture_description = config.effective_do_picture_description();
+    let vlm = if do_picture_description {
+        crate::docling::resolve_vlm_runtime_config(&config.vlm).map_err(docling_submit_error)?
+    } else {
+        None
+    };
     let output_formats = super::ingest_documents::docling_output_formats_for_kind(kind);
     let request = crate::docling::SubmitRequest {
         filename,
@@ -74,6 +78,8 @@ async fn submit_frozen_config(
         vlm: vlm.as_ref(),
         picture_description_preset: config.vlm.picture_description_preset.as_deref(),
         ocr_preset: &config.ocr_preset,
+        do_ocr: config.do_ocr,
+        do_picture_description,
     };
     let endpoint_base_url = crate::docling::api_base_url(&config.connection.base_url);
     let remote_task_id = client
