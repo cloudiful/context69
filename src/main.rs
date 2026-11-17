@@ -703,8 +703,7 @@ trait ShutdownSteps {
 /// Stop claiming, stop the owned background sources, wait for already-dispatched
 /// items, then let the HTTP drain finish — all under one deadline.
 ///
-/// On deadline expiry the process keeps the unfinished work persisted: no item,
-/// task status, or lease is mutated, and no remote work is cancelled. The
+/// On deadline expiry any remaining unfinished work keeps its lease and the
 /// existing expiry and recovery path reclaims it after exit. A server that had
 /// already finished keeps its recorded outcome as the returned value.
 async fn run_bounded_shutdown<S: ShutdownSteps>(
@@ -724,7 +723,7 @@ async fn run_bounded_shutdown<S: ShutdownSteps>(
         Err(_) => {
             warn!(
                 budget_secs = budget.as_secs(),
-                "shutdown budget expired; exiting without cancelling or releasing unfinished work"
+                "shutdown budget expired; remaining unfinished work will recover after lease expiry"
             );
             steps.abort();
             if server.is_finished() {

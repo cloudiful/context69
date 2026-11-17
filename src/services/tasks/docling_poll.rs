@@ -178,7 +178,7 @@ async fn sleep_owned(db: &Database, item: &crate::db::ClaimedItem, secs: i64) ->
     let mut remaining = secs.max(0);
     while remaining > 0 {
         let chunk = remaining.min(POLL_SLEEP_CHUNK_SECS);
-        tokio::time::sleep(Duration::from_secs(chunk as u64)).await;
+        super::park::interruptible(tokio::time::sleep(Duration::from_secs(chunk as u64))).await;
         remaining -= chunk;
         if !matches!(
             owner_state(db, item.id, item.lease_token).await?,
@@ -213,6 +213,7 @@ pub(super) async fn run_docling_stage_blocking(
     job: StoredDoclingRemoteJob,
     view: Option<&crate::services::library::ReplacementFileAttributes>,
 ) -> Result<ProcessResult> {
+    super::park::park_if_shutdown().await;
     let mut attempt: i32 = 0;
     // The captured root is the endpoint the job was submitted to: a settings
     // change never moves a persisted job to another service.
@@ -247,9 +248,10 @@ pub(super) async fn run_docling_stage_blocking(
                 retryable: false,
             });
         }
-        let status = match ops
-            .poll_remote(endpoint_base_url, &job.remote_task_id)
-            .await
+        let status = match super::park::interruptible(
+            ops.poll_remote(endpoint_base_url, &job.remote_task_id),
+        )
+        .await
         {
             Ok(status) => status,
             Err(error) => {

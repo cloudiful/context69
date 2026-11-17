@@ -64,7 +64,7 @@ WITH to_exhaust AS (
         )
       AND task.pause_state = 'unpaused'
       AND item.status IN ('queued', 'waiting')
-      AND (item.attempt_count - item.paused_attempts) >= 5
+      AND (item.attempt_count - item.paused_attempts - item.released_attempts) >= 5
       AND (item.next_attempt_at IS NULL OR item.next_attempt_at <= now())
     FOR UPDATE OF item
 ), exhausted AS (
@@ -317,7 +317,7 @@ WITH to_exhaust AS (
               FROM context69.task_items item
               WHERE item.task_id = task.id
                 AND item.status IN ('queued', 'running', 'waiting')
-                AND (item.attempt_count - item.paused_attempts) < 5
+                AND (item.attempt_count - item.paused_attempts - item.released_attempts) < 5
           )
       )
     RETURNING task.id

@@ -87,7 +87,7 @@ fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
         "the orphan gauge must require the same reclaim shape P1 applies"
     );
     assert!(
-        code.contains("(candidate.attempt_count - candidate.paused_attempts) < 5"),
+        code.contains("(candidate.attempt_count - candidate.paused_attempts - candidate.released_attempts) < 5"),
         "claimability must match the `claim_candidates.sql` attempt cap, or an \
          exhausted parent would be reported as holding a legitimate slot"
     );
@@ -111,11 +111,12 @@ fn orphan_lease_gauge_matches_the_p1_reclaim_predicate() {
         );
     }
     assert!(
-        maintain.contains("(item.attempt_count - item.paused_attempts) < 5"),
+        maintain
+            .contains("(item.attempt_count - item.paused_attempts - item.released_attempts) < 5"),
         "maintenance must use the effective attempt budget"
     );
     assert!(
-        code.contains("(candidate.attempt_count - candidate.paused_attempts) < 5"),
+        code.contains("(candidate.attempt_count - candidate.paused_attempts - candidate.released_attempts) < 5"),
         "the consistency gauge must use the effective attempt budget"
     );
     assert!(
@@ -274,7 +275,7 @@ fn a_runnable_rebuild_gates_admission_to_one_oldest_rebuild() {
         "the gate must apply to work, admitted_work and chosen"
     );
     for predicate in [
-        "(ti.attempt_count - ti.paused_attempts) < 5",
+        "(ti.attempt_count - ti.paused_attempts - ti.released_attempts) < 5",
         "parent.pause_state = 'unpaused'",
         "ti.status = 'waiting'",
         "COALESCE(ti.waiting_reason, '') = 'docling'",
@@ -323,7 +324,7 @@ fn idle_ordinary_lease_release_is_narrow_and_uses_the_same_gate() {
     // same eligibility predicate the claim statement uses.
     assert!(release.contains("runnable_rebuild AS"));
     for predicate in [
-        "(item.attempt_count - item.paused_attempts) < 5",
+        "(item.attempt_count - item.paused_attempts - item.released_attempts) < 5",
         "item.execution_task_id IS NOT NULL",
         "item.pause_state = 'unpaused'",
         "item.task_status IN ('queued', 'running', 'waiting')",
@@ -336,7 +337,7 @@ fn idle_ordinary_lease_release_is_narrow_and_uses_the_same_gate() {
         );
     }
     for predicate in [
-        "(ti.attempt_count - ti.paused_attempts) < 5",
+        "(ti.attempt_count - ti.paused_attempts - ti.released_attempts) < 5",
         "COALESCE(ti.waiting_reason, '') = 'docling'",
         "ti.dependency_key = 'vector_rebuild_paused'",
     ] {

@@ -28,6 +28,7 @@ WITH current_items AS (
            item.status,
            item.attempt_count,
            item.paused_attempts,
+           item.released_attempts,
            item.next_attempt_at,
            item.waiting_reason,
            item.dependency_key,
@@ -48,7 +49,7 @@ runnable_rebuild AS (
     SELECT item.task_id
     FROM current_items item
     WHERE item.status IN ('queued', 'waiting')
-      AND (item.attempt_count - item.paused_attempts) < 5
+      AND (item.attempt_count - item.paused_attempts - item.released_attempts) < 5
       AND item.pause_state = 'unpaused'
       AND item.task_status IN ('queued', 'running', 'waiting')
       AND item.task_deleted_at IS NULL

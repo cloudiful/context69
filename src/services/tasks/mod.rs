@@ -39,6 +39,7 @@ mod item_file_processors;
 mod item_git_index_processor;
 mod item_lifecycle_processors;
 mod item_replacement_processor;
+mod park;
 mod pause_control;
 
 mod item_processors;

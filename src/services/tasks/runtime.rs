@@ -35,6 +35,11 @@ impl HeartbeatGuard {
     pub(super) fn abort(&self) {
         self.0.abort();
     }
+
+    pub(super) async fn stop(&mut self) {
+        self.0.abort();
+        let _ = (&mut self.0).await;
+    }
 }
 
 impl Drop for HeartbeatGuard {

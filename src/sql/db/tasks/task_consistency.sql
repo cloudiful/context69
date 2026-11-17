@@ -53,7 +53,7 @@ item_counts AS (
            )::bigint AS live_running_count,
            count(*) FILTER (
                WHERE item.status IN ('queued', 'running', 'waiting')
-                 AND (item.attempt_count - item.paused_attempts) >= 4
+                 AND (item.attempt_count - item.paused_attempts - item.released_attempts) >= 4
            )::bigint AS near_exhaustion_count,
            -- Whether any item of this parent could still be served by a claim.
            -- `claim_candidates.sql` excludes `attempt_count >= 5`, so this is
@@ -65,7 +65,7 @@ item_counts AS (
                WHERE candidate.task_id = item.task_id
                  AND candidate.status IN ('queued', 'running', 'waiting')
                  AND parent.pause_state = 'unpaused'
-                 AND (candidate.attempt_count - candidate.paused_attempts) < 5
+                 AND (candidate.attempt_count - candidate.paused_attempts - candidate.released_attempts) < 5
            ) AS claimable_item_exists,
            -- A `running` item whose lease has already lapsed: the durable
            -- evidence that its worker is gone, which is one of the two shapes
