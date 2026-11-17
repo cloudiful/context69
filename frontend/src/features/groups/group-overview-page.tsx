@@ -19,7 +19,7 @@ import {
 } from "@/features/library/library-dialogs";
 import { LibraryTable } from "@/features/library/library-table";
 import { LibraryToolbar } from "@/features/library/library-toolbar";
-import { buildGroupExplorerEntry, canReleaseFileSource, type ExplorerEntry } from "@/features/library/library-model";
+import { buildGroupExplorerEntry, type ExplorerEntry } from "@/features/library/library-model";
 import { useLibraryWorkspace } from "@/features/library/use-library-workspace";
 import { RepositoryDialog } from "@/features/groups/git/dialogs/repository";
 import {
@@ -89,8 +89,8 @@ export function GroupOverviewPage() {
   }
 
   const selectedCount = library.selectedKeys.size;
-  const selectedFile = library.selectedFileEntry;
-  const selectedFileId = selectedFile?.id ?? null;
+  const selectedFileId = library.selectedFileId;
+  const previewFile = library.previewFile;
 
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col gap-2 overflow-hidden" data-testid="group-overview">
@@ -279,27 +279,27 @@ export function GroupOverviewPage() {
       />
       <PreviewDialog
         open={!!selectedFileId}
-        title={selectedFile?.name ?? ""}
+        title={previewFile?.name ?? t("library.preview")}
         detail={library.detail}
         loading={library.detailLoading}
         error={library.detailError}
-        canRetry={!!selectedFile && library.canRetryFile(selectedFile)}
-        retrying={!!selectedFile && library.retryingFileIds.includes(selectedFile.id)}
-        canRelease={!!selectedFile && canReleaseFileSource(selectedFile)}
-        releasing={!!selectedFile && library.releasingFileIds.includes(selectedFile.id)}
+        canRetry={state.canManage && (previewFile?.canRetry ?? false)}
+        retrying={previewFile?.retrying ?? false}
+        canRelease={state.canManage && (previewFile?.canRelease ?? false)}
+        releasing={previewFile?.releasing ?? false}
         onOpenChange={(open) => {
           if (!open) {
             library.closePreview();
           }
         }}
         onRetry={() => {
-          if (selectedFile) {
-            void library.retryFile(selectedFile.id);
+          if (state.canManage && previewFile) {
+            void library.retryFile(previewFile.id);
           }
         }}
         onRelease={() => {
-          if (selectedFile) {
-            library.releaseFileSource(selectedFile.id, selectedFile.name);
+          if (state.canManage && previewFile?.name) {
+            library.releaseFileSource(previewFile.id, previewFile.name);
           }
         }}
       />

@@ -135,28 +135,6 @@ export function flattenFolderOptions(
   return rows;
 }
 
-export interface FileLocation {
-  folder: LibraryFolderNode;
-  file: LibraryFileSummary;
-}
-
-export function findFileLocation(
-  node: LibraryFolderNode,
-  fileId: string,
-): FileLocation | null {
-  const file = node.files.find((entry) => entry.file_id === fileId);
-  if (file) {
-    return { folder: node, file };
-  }
-  for (const child of node.children) {
-    const match = findFileLocation(child, fileId);
-    if (match) {
-      return match;
-    }
-  }
-  return null;
-}
-
 export const LIBRARY_FOLDER_QUERY_KEY = "folder";
 export const LIBRARY_FILE_QUERY_KEY = "file";
 const LEGACY_ROOT_TOKENS = new Set(["null", "__root__"]);
@@ -256,8 +234,16 @@ export function selectedFailedFileIds(
   return [...fileIds];
 }
 
+/** File fields that decide source-release eligibility, from a row or a detail. */
+export interface LibraryFileActionState {
+  kind: "file";
+  ingestStatus: LibraryIngestStatus;
+  isSourceConfigFile: boolean;
+  isSourceRecordFile: boolean;
+}
+
 /** Releasing is only meaningful for a completed, user-owned file. */
-export function canReleaseFileSource(entry: ExplorerEntry): boolean {
+export function canReleaseFileSource(entry: ExplorerEntry | LibraryFileActionState): boolean {
   return entry.kind === "file"
     && entry.ingestStatus === "succeeded"
     && !entry.isSourceConfigFile

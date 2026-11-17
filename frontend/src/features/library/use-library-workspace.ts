@@ -26,7 +26,6 @@ import {
   collectDescendantFolderIds,
   confirmedSourcePolicy,
   fileResourceEntry,
-  findFileLocation,
   findFolderById,
   findFolderTrail,
   flattenFolderOptions,
@@ -251,7 +250,20 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     }, { signal }),
     enabled: !!treeQuery.data,
     retry: false,
-    placeholderData: (previous) => previous,
+    // A previous page may stand in only inside the same group and folder. A
+    // cross-group or cross-folder row would be reinterpreted under the new
+    // parent path, so it must never become preview metadata.
+    placeholderData: (previous, previousQuery) => {
+      const previousKey = previousQuery?.queryKey;
+      if (!previousKey
+        || previousKey[0] !== "library"
+        || previousKey[1] !== "resources"
+        || previousKey[2] !== groupPath
+        || previousKey[3] !== (folderId ?? "root")) {
+        return undefined;
+      }
+      return previous;
+    },
   });
 
   const librarySettingsQuery = useQuery({
@@ -312,11 +324,18 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     return null;
   }, [explorerEntries, folderId, selectedFileId]);
 
-  const selectedFileEntry = selectedFileId
-    ? explorerEntries.find((entry): entry is FileExplorerEntry => (
+  // The URL file id is the authoritative selection: the file may sit on another
+  // resource page, in another folder, or outside the folder-only tree snapshot,
+  // so the current paged window is the best local source of row metadata.
+  const selectedFileEntry = useMemo<FileExplorerEntry | null>(() => {
+    if (!selectedFileId) {
+      return null;
+    }
+    const matches = (entry: ExplorerEntry): entry is FileExplorerEntry => (
       entry.kind === "file" && entry.id === selectedFileId
-    )) ?? null
-    : null;
+    );
+    return entries.find(matches) ?? explorerEntries.find(matches) ?? null;
+  }, [entries, explorerEntries, selectedFileId]);
 
   const selectedFolderSummary = useMemo<FolderSummary | null>(() => {
     if (!selectedFolder) {
@@ -341,6 +360,49 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
   const canGoUp = selectedFolderTrail.length > 1;
 
   const detail: LibraryFileDetailResponse | null = detailQuery.data ?? null;
+
+  // The preview target trusts only a settled, successful group/file detail.
+  // Retained data from a failed refetch or an in-flight refresh must not
+  // authorize Retry or Release, because the current detail state is unknown.
+  const previewFile = useMemo(() => {
+    if (!selectedFileId) {
+      return null;
+    }
+    const detailSettled = detailQuery.status === "success" && detailQuery.fetchStatus === "idle";
+    const folderName = detail?.folder_path.split("/").filter(Boolean).at(-1);
+    const fileState = detail && detailSettled
+      ? {
+        kind: "file" as const,
+        ingestStatus: detail.ingest_status,
+        isSourceConfigFile: detail.filename.toLowerCase() === "source.json",
+        isSourceRecordFile: folderName === "records",
+      }
+      : null;
+    const rowScopeMatches = !!selectedFileEntry
+      && (selectedFileEntry.parentFolderId ?? null) === (folderId ?? null)
+      && !!selectedFolder
+      && (selectedFolder.folder_id ?? null) === (folderId ?? null);
+    const unavailable = unavailableFileIds.includes(selectedFileId);
+    return {
+      id: selectedFileId,
+      name: detail?.filename ?? (rowScopeMatches ? selectedFileEntry?.name : null) ?? null,
+      canRetry: !!fileState && isRetryableFileStatus(fileState.ingestStatus) && !unavailable,
+      canRelease: !!fileState && canReleaseFileSource(fileState) && !unavailable,
+      retrying: retryingFileIds.includes(selectedFileId),
+      releasing: releasingFileIds.includes(selectedFileId),
+    };
+  }, [
+    detail,
+    detailQuery.fetchStatus,
+    detailQuery.status,
+    folderId,
+    releasingFileIds,
+    retryingFileIds,
+    selectedFileEntry,
+    selectedFileId,
+    selectedFolder,
+    unavailableFileIds,
+  ]);
 
   const observeSourceAvailability = useCallback((fileId: string, available: boolean) => {
     setUnavailableFileIds((current) => (
@@ -406,29 +468,17 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     setUrlSelection(folderId, null);
   }, [folderId, setUrlSelection]);
 
-  // Correct an invalid deep link once the tree is available.
+  // Correct an invalid folder link once the tree is available. The selected file
+  // is group-scoped and authoritative, so it stays selected: an off-page or
+  // tree-less file must not be dropped just because the folder link was stale.
   useEffect(() => {
-    if (!root) {
+    if (!root || isValidLibraryFolder(root, folderId)) {
       return;
     }
-    if (!isValidLibraryFolder(root, folderId)) {
-      const params = new URLSearchParams(searchString);
-      params.delete("folder");
-      params.delete("file");
-      setSearchParams(params, { replace: true });
-      return;
-    }
-    if (selectedFileId) {
-      const location = findFileLocation(root, selectedFileId);
-      if (!location) {
-        setUrlSelection(folderId, null);
-        return;
-      }
-      if ((location.folder.folder_id ?? null) !== (folderId ?? null)) {
-        setUrlSelection(location.folder.folder_id ?? null, selectedFileId);
-      }
-    }
-  }, [folderId, root, searchString, selectedFileId, setSearchParams, setUrlSelection]);
+    const params = new URLSearchParams(searchString);
+    params.delete("folder");
+    setSearchParams(params, { replace: true });
+  }, [folderId, root, searchString, setSearchParams]);
 
   // Keep the trail expanded whenever the selected folder changes.
   useEffect(() => {
@@ -449,7 +499,9 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     });
   }, [selectedFolderTrail]);
 
-  // A group switch starts a fresh selection and paging window.
+  // A group switch starts a fresh selection, paging window and file action
+  // state, so a shared file UUID cannot inherit the previous group's
+  // availability, retry or release indicators.
   const previousGroup = useRef(groupPath);
   useEffect(() => {
     if (previousGroup.current === groupPath) {
@@ -459,6 +511,9 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     setQueryState("");
     setStatusFilter(null);
     setExpandedKeys({ [folderKey(null)]: true });
+    setUnavailableFileIds([]);
+    setRetryingFileIds([]);
+    setReleasingFileIds([]);
   }, [groupPath]);
 
   const toggleFolderExpansion = useCallback((id: string | null) => {
@@ -1369,6 +1424,7 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     page,
     pageSize,
     parentFolderId: getParentFolderId(selectedFolderTrail),
+    previewFile,
     query,
     refresh,
     releaseFileSource,
