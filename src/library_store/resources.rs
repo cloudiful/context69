@@ -109,6 +109,7 @@ fn resource_from_row(row: ResourceRow) -> Result<LibraryResourceItem> {
             .context("negative processing count")?,
         is_source_folder: row.is_source_folder,
         is_source_records_folder: row.is_source_records_folder,
+        can_reprocess: None,
         created_at: row.created_at,
         updated_at: row.updated_at,
     })

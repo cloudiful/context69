@@ -154,7 +154,7 @@ pub(crate) use group_library::{
     delete_group_library_folder, get_group_library_file, get_group_library_resources,
     get_group_library_tree, import_group_library_file_url, move_group_library_file,
     move_group_library_folder, prepare_group_library_upload, release_group_library_file_source,
-    upload_group_library_files, upsert_group_library_text,
+    reprocess_group_library_files, upload_group_library_files, upsert_group_library_text,
 };
 pub(crate) use group_library_settings::{
     get_group_library_settings, update_group_library_settings,

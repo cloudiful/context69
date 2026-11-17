@@ -70,6 +70,15 @@ export function GroupOverviewPage() {
   const childSearchActive = state.childSearch.trim() !== "";
   const showChildSearch = childSearchEngaged || childSearchActive || groupEntries.length > 0;
 
+  // Reprocessing is a manager action on every surface. The preview and the
+  // selection toolbar already gate it; the row, context-menu and dropdown
+  // actions take the same predicate so a viewer never sees a control the
+  // server would refuse.
+  const canReprocessEntry = useMemo(
+    () => (entry: ExplorerEntry) => state.canManage && library.canReprocess(entry),
+    [library.canReprocess, state.canManage],
+  );
+
   const trail = useMemo(
     () => library.selectedFolderTrail.map((folder) => ({ id: folder.folder_id ?? null, name: folder.name })),
     [library.selectedFolderTrail],
@@ -124,6 +133,8 @@ export function GroupOverviewPage() {
         selectedCount={selectedCount}
         retryableSelectedCount={library.retryableSelectedCount}
         retrySelectedBusy={library.retrySelectedBusy}
+        reprocessableSelectedCount={library.reprocessableSelectedCount}
+        reprocessSelectedBusy={library.reprocessSelectedBusy}
         onUp={() => library.navigateToFolder(library.parentFolderId)}
         onBreadcrumb={(folderId) => library.navigateToFolder(folderId)}
         onStatusFilter={library.changeStatusFilter}
@@ -138,6 +149,7 @@ export function GroupOverviewPage() {
         onCreateChildGroup={state.openCreateChild}
         onCreateGitRepository={() => setGitRepositoryDialogOpen(true)}
         onRetrySelected={() => void library.retrySelected()}
+        onReprocessSelected={state.canManage ? () => void library.reprocessSelected() : undefined}
         onDeleteSelected={library.deleteSelected}
       />
       <input
@@ -193,6 +205,7 @@ export function GroupOverviewPage() {
           selectedKeys={library.selectedKeys}
           unavailableFileIds={library.unavailableFileIds}
           retryingFileIds={library.retryingFileIds}
+          reprocessingFileIds={library.reprocessingFileIds}
           releasingFileIds={library.releasingFileIds}
           sortBy={library.sortBy}
           sortDirection={library.sortDirection}
@@ -218,6 +231,7 @@ export function GroupOverviewPage() {
           onSyncSource={(folderId) => void library.syncSourceFolder(folderId)}
           onReleaseSource={library.releaseFileSource}
           onRetryFile={(fileId) => void library.retryFile(fileId)}
+          onReprocessFile={(fileId) => void library.reprocessFile(fileId)}
           onRefresh={() => void library.refresh()}
           onSort={library.changeSort}
           onPage={library.changePage}
@@ -230,6 +244,7 @@ export function GroupOverviewPage() {
           onChildPageSize={state.setPageSize}
           canRetryFile={library.canRetryFile}
           canRelease={library.canRelease}
+          canReprocess={canReprocessEntry}
         />
       </div>
 
@@ -285,6 +300,8 @@ export function GroupOverviewPage() {
         error={library.detailError}
         canRetry={state.canManage && (previewFile?.canRetry ?? false)}
         retrying={previewFile?.retrying ?? false}
+        canReprocess={state.canManage && (previewFile?.canReprocess ?? false)}
+        reprocessing={previewFile?.reprocessing ?? false}
         canRelease={state.canManage && (previewFile?.canRelease ?? false)}
         releasing={previewFile?.releasing ?? false}
         onOpenChange={(open) => {
@@ -295,6 +312,11 @@ export function GroupOverviewPage() {
         onRetry={() => {
           if (state.canManage && previewFile) {
             void library.retryFile(previewFile.id);
+          }
+        }}
+        onReprocess={() => {
+          if (state.canManage && previewFile) {
+            void library.reprocessFile(previewFile.id);
           }
         }}
         onRelease={() => {

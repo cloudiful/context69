@@ -12,7 +12,8 @@ use crate::contracts::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryFileDetailResponse, LibraryResourcePageQuery, LibraryResourcePageResponse,
     LibraryTreeResponse, MembershipRole, MoveFileRequest, MoveFolderRequest,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
+    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, ReprocessLibraryFilesRequest,
+    ReprocessLibraryFilesResponse, UpsertLibraryTextRequest,
 };
 
 #[utoipa::path(
@@ -60,6 +61,47 @@ pub(crate) async fn import_group_library_file_url(
     .await
 }
 
+#[utoipa::path(
+    post,
+    path = "/v1/groups/by-path/{group_path}/library/files/reprocess",
+    params(("group_path" = String, Path, description = "URL-encoded group path")),
+    request_body = ReprocessLibraryFilesRequest,
+    responses(
+        (status = 200, description = "Request-ordered per-file reprocessing results", body = ReprocessLibraryFilesResponse),
+        (status = 403, description = "Insufficient permissions"),
+        (status = 404, description = "Group not found"),
+        (status = 400, description = "Empty, duplicate, or oversized file batch", body = crate::contracts::ApiErrorResponse)
+    )
+)]
+pub(crate) async fn reprocess_group_library_files(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+    Path(group_path): Path<String>,
+    Json(request): Json<ReprocessLibraryFilesRequest>,
+) -> impl IntoResponse {
+    let group = match group_for_user(&state, session.user.id, &group_path).await {
+        Ok(group) => group,
+        Err(error) => return group_access_error_response(error),
+    };
+    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+        return group_access_error_response(error);
+    }
+    match state
+        .app
+        .tasks
+        .reprocess_library_files(crate::services::tasks::FileReprocessRequest {
+            user_id: session.user.id,
+            group_id: group.id,
+            group_path: &group_path,
+            file_ids: &request.file_ids,
+        })
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(error) => library_management_error_response(error),
+    }
+}
+
 use super::{
     ApiState,
     auth::CurrentUser,
@@ -71,7 +113,6 @@ use super::{
     submit_task_request,
 };
 use crate::services::tasks::TaskSubmission;
-
 #[utoipa::path(
     post,
     path = "/v1/groups/by-path/{group_path}/library/files/prepare-upload",

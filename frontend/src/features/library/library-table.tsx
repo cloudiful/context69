@@ -3,6 +3,7 @@ import {
   ChevronRight,
   FileText,
   MoreHorizontal,
+  RefreshCcw,
   RefreshCw,
   Unlink,
   Users,
@@ -72,6 +73,7 @@ export interface LibraryTableProps {
   selectedKeys: Set<string>;
   unavailableFileIds: string[];
   retryingFileIds: string[];
+  reprocessingFileIds: string[];
   releasingFileIds: string[];
   sortBy: LibraryResourceSortBy;
   sortDirection: "asc" | "desc";
@@ -90,6 +92,7 @@ export interface LibraryTableProps {
   onSyncSource: (folderId: string | null) => void;
   onReleaseSource: (fileId: string, filename: string) => void;
   onRetryFile: (fileId: string) => void;
+  onReprocessFile: (fileId: string) => void;
   onRefresh: () => void;
   onSort: (field: LibraryResourceSortBy, direction: "asc" | "desc") => void;
   onPage: (page: number) => void;
@@ -102,6 +105,7 @@ export interface LibraryTableProps {
   onChildPageSize: (size: number) => void;
   canRetryFile: (entry: ExplorerEntry) => boolean;
   canRelease: (entry: ExplorerEntry) => boolean;
+  canReprocess: (entry: ExplorerEntry) => boolean;
 }
 
 interface ContextMenuState {
@@ -230,6 +234,19 @@ export function LibraryTable(props: LibraryTableProps) {
               }}
             >
               {t("common.retry")}
+            </button>
+          ) : null}
+          {contextMenu.entry.kind === "file" && props.canReprocess(contextMenu.entry) ? (
+            <button
+              type="button"
+              role="menuitem"
+              className="rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
+              onClick={() => {
+                props.onReprocessFile(contextMenu.entry.id as string);
+                setContextMenu(null);
+              }}
+            >
+              {t("library.reprocess")}
             </button>
           ) : null}
           {contextMenu.entry.kind === "file" && props.canRelease(contextMenu.entry) ? (
@@ -474,6 +491,18 @@ export function LibraryTable(props: LibraryTableProps) {
                               <RefreshCw aria-hidden="true" className={cn(props.retryingFileIds.includes(entry.id) && "animate-spin")} />
                             </Button>
                           ) : null}
+                          {props.canReprocess(entry) ? (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={t("library.reprocess")}
+                              aria-busy={props.reprocessingFileIds.includes(entry.id)}
+                              onClick={() => props.onReprocessFile(entry.id)}
+                            >
+                              <RefreshCcw aria-hidden="true" className={cn(props.reprocessingFileIds.includes(entry.id) && "animate-spin")} />
+                            </Button>
+                          ) : null}
                         </span>
                       )}
                     </TableCell>
@@ -499,6 +528,11 @@ export function LibraryTable(props: LibraryTableProps) {
                           {entry.kind === "folder" && entry.isSourceFolder ? (
                             <DropdownMenuItem onSelect={() => props.onSyncSource(entry.id)}>
                               {t("sources.sync")}
+                            </DropdownMenuItem>
+                          ) : null}
+                          {entry.kind === "file" && props.canReprocess(entry) ? (
+                            <DropdownMenuItem onSelect={() => props.onReprocessFile(entry.id)}>
+                              {t("library.reprocess")}
                             </DropdownMenuItem>
                           ) : null}
                           {entry.kind === "file" && props.canRelease(entry) ? (

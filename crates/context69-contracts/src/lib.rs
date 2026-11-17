@@ -37,12 +37,14 @@ pub use context69_contracts_library::ingest::{
 pub use context69_contracts_library::library::{
     CreateFolderRequest, CreateTextRequest, ImportLibraryFileFromUrlRequest,
     LibraryDependencyGateResponse, LibraryDocumentSectionPreview, LibraryFileDetailResponse,
+    LibraryFileReprocessOutcome, LibraryFileReprocessReason, LibraryFileReprocessResult,
     LibraryFileSummary, LibraryFolderNode, LibraryFolderResponse, LibraryIngestFailureStage,
     LibraryIngestStatus, LibraryPreviewContentFormat, LibraryProcessingMetric,
     LibraryProcessingQueueHealth, LibraryResourceItem, LibraryResourceKind,
     LibraryResourcePageQuery, LibraryResourcePageResponse, LibraryResourceSortBy,
-    LibraryTextContentFormat, LibraryTreeResponse, MoveFileRequest, MoveFolderRequest,
-    PrepareLibraryUploadRequest, PrepareLibraryUploadResponse, UpsertLibraryTextRequest,
+    LibraryTextContentFormat, LibraryTreeResponse, MAX_REPROCESS_FILE_IDS, MoveFileRequest,
+    MoveFolderRequest, PrepareLibraryUploadRequest, PrepareLibraryUploadResponse,
+    ReprocessLibraryFilesRequest, ReprocessLibraryFilesResponse, UpsertLibraryTextRequest,
 };
 pub use context69_contracts_mcp::code::{
     MCP_CODE_GET_CHUNK_LIMIT_DEFAULT, MCP_CODE_GET_CHUNK_LIMIT_MAX, MCP_CODE_GET_CHUNK_LIMIT_MIN,

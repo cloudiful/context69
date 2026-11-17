@@ -567,11 +567,30 @@ pub(super) async fn process_replacement(
             Err(error) => return Ok(terminal("parsing", error.to_string())),
         };
 
-    if kind == TaskKind::UrlBatch && item.input_storage_object_id.is_none() {
-        if let Some(result) =
-            materialize_fresh_url(service, group, item, &file, stored_kind).await?
-        {
-            return Ok(result);
+    // A URL source rerun always reads the current source URI again, even when
+    // cached bytes are still present. A file-level reprocess prefers the
+    // retained original bytes and only falls back to the original URL when
+    // they are actually gone.
+    let source_plan = replacement_source_plan(kind, &item.payload);
+    if source_plan != ReplacementSourcePlan::Stored && item.input_storage_object_id.is_none() {
+        let stored_available = source_plan == ReplacementSourcePlan::StoredThenUrlFallback
+            && match service.library().retained_source_available(&file).await {
+                Ok(available) => available,
+                // A storage dependency failure says nothing about the bytes.
+                Err(error) => return Ok(process_error("storage", error)),
+            };
+        if !stored_available {
+            if !crate::services::library::has_downloadable_source(file.source_uri.as_deref()) {
+                return Ok(terminal(
+                    "download",
+                    "the library file has neither retained bytes nor an original source URL",
+                ));
+            }
+            if let Some(result) =
+                materialize_fresh_url(service, group, item, &file, stored_kind).await?
+            {
+                return Ok(result);
+            }
         }
     }
 
@@ -618,10 +637,12 @@ pub(super) async fn process_replacement(
     let request = ReplacementRunRequest {
         task_id: item.task_id,
         file_id,
-        source: if kind == TaskKind::UrlBatch {
-            IngestRunSource::Url
-        } else {
+        source: if source_plan == ReplacementSourcePlan::Stored
+            || item.input_storage_object_id.is_none()
+        {
             IngestRunSource::Stored
+        } else {
+            IngestRunSource::Url
         },
         staged_source_object: staged_object,
         quota,
@@ -810,6 +831,34 @@ fn item_chunk_budget(
         .map_err(anyhow::Error::from)
 }
 
+/// How one replacement item obtains its source.
+///
+/// The legacy URL task keeps its always-fresh contract; the file-level
+/// reprocess marker only adds a bounded stored-first preference.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum ReplacementSourcePlan {
+    /// Read the retained stored bytes of the file.
+    Stored,
+    /// Fetch the current source URL again, even when cached bytes exist.
+    AlwaysFreshUrl,
+    /// Prefer retained bytes; fall back to the original URL only when absent.
+    StoredThenUrlFallback,
+}
+
+pub(super) fn replacement_source_plan(kind: TaskKind, payload: &Value) -> ReplacementSourcePlan {
+    if kind == TaskKind::UrlBatch {
+        return ReplacementSourcePlan::AlwaysFreshUrl;
+    }
+    if payload
+        .get(super::file_reprocess::SOURCE_FALLBACK_PAYLOAD_KEY)
+        .and_then(Value::as_str)
+        == Some(super::file_reprocess::SOURCE_FALLBACK_URL)
+    {
+        return ReplacementSourcePlan::StoredThenUrlFallback;
+    }
+    ReplacementSourcePlan::Stored
+}
+
 fn terminal(stage: &str, message: impl ToString) -> ProcessResult {
     ProcessResult::Failed {
         stage: stage.to_string(),
@@ -834,5 +883,50 @@ fn ingest_failure_result(
             message: error.message,
             retryable: false,
         }
+    }
+}
+
+#[cfg(test)]
+mod source_plan_tests {
+    use super::{ReplacementSourcePlan, replacement_source_plan};
+    use context69_contracts::TaskKind;
+    use serde_json::json;
+
+    /// The legacy URL task always re-reads its current source, with or without
+    /// the file-level marker. Losing this would silently parse cached bytes.
+    #[test]
+    fn a_legacy_url_rerun_always_fetches_the_current_source() {
+        assert_eq!(
+            replacement_source_plan(TaskKind::UrlBatch, &json!({})),
+            ReplacementSourcePlan::AlwaysFreshUrl
+        );
+        assert_eq!(
+            replacement_source_plan(TaskKind::UrlBatch, &json!({ "source_fallback": "url" })),
+            ReplacementSourcePlan::AlwaysFreshUrl
+        );
+    }
+
+    #[test]
+    fn a_marked_file_reprocess_prefers_retained_bytes() {
+        assert_eq!(
+            replacement_source_plan(TaskKind::FileBatch, &json!({ "source_fallback": "url" })),
+            ReplacementSourcePlan::StoredThenUrlFallback
+        );
+    }
+
+    #[test]
+    fn an_unmarked_rerun_stays_on_the_stored_source() {
+        assert_eq!(
+            replacement_source_plan(TaskKind::FileBatch, &json!({})),
+            ReplacementSourcePlan::Stored
+        );
+        assert_eq!(
+            replacement_source_plan(TaskKind::TextBatch, &json!({})),
+            ReplacementSourcePlan::Stored
+        );
+        assert_eq!(
+            replacement_source_plan(TaskKind::FileBatch, &json!({ "source_fallback": "other" })),
+            ReplacementSourcePlan::Stored
+        );
     }
 }

@@ -1,4 +1,4 @@
-import { ArrowUp, ChevronDown, Plus, RotateCcw, ScanText, Search, Upload } from "lucide-react";
+import { ArrowUp, ChevronDown, Plus, RefreshCcw, RotateCcw, ScanText, Search, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
@@ -29,6 +29,8 @@ export function LibraryToolbar({
   selectedCount,
   retryableSelectedCount,
   retrySelectedBusy,
+  reprocessableSelectedCount,
+  reprocessSelectedBusy,
   onUp,
   onBreadcrumb,
   onStatusFilter,
@@ -43,6 +45,7 @@ export function LibraryToolbar({
   onCreateChildGroup,
   onCreateGitRepository,
   onRetrySelected,
+  onReprocessSelected,
   onDeleteSelected,
 }: {
   trail: Array<{ id: string | null; name: string }>;
@@ -58,6 +61,8 @@ export function LibraryToolbar({
   selectedCount: number;
   retryableSelectedCount: number;
   retrySelectedBusy: boolean;
+  reprocessableSelectedCount: number;
+  reprocessSelectedBusy: boolean;
   onUp: () => void;
   onBreadcrumb: (folderId: string | null) => void;
   onStatusFilter: (status: LibraryIngestStatus | null) => void;
@@ -72,6 +77,7 @@ export function LibraryToolbar({
   onCreateChildGroup: () => void;
   onCreateGitRepository: () => void;
   onRetrySelected: () => void;
+  onReprocessSelected?: () => void;
   onDeleteSelected: () => void;
 }) {
   const { t } = useTranslation();
@@ -197,6 +203,21 @@ export function LibraryToolbar({
             {t("library.retrySelected")}
             {retryableSelectedCount > 0 ? ` (${retryableSelectedCount})` : ""}
           </Button>
+          {canManage ? (
+            <Button
+              type="button"
+              variant="outline"
+              data-testid="library-reprocess-selected"
+              disabled={reprocessableSelectedCount === 0 || reprocessSelectedBusy}
+              aria-busy={reprocessSelectedBusy}
+              title={reprocessableSelectedCount === 0 ? t("library.reprocessSelectedUnavailable") : undefined}
+              onClick={onReprocessSelected}
+            >
+              <RefreshCcw aria-hidden="true" />
+              {t("library.reprocessSelected")}
+              {reprocessableSelectedCount > 0 ? ` (${reprocessableSelectedCount})` : ""}
+            </Button>
+          ) : null}
           <Button
             type="button"
             variant="destructive"

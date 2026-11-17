@@ -37,7 +37,7 @@ mod source_connections;
 mod sync_runs;
 mod task_file_dedup;
 pub(crate) mod task_git_dedup;
-pub(crate) use task_file_dedup::lock_file_processing_slots;
+pub(crate) use task_file_dedup::{active_file_task_items, lock_file_processing_slots};
 mod tasks;
 mod translations;
 mod upgrade_admission;
@@ -83,6 +83,7 @@ pub use search_registry::{
     RebuildCheckpoint, RebuildCursor, RebuildInstallAdvance, RebuildRefusalReason,
     RebuildStagingState, RebuildStartOutcome, RebuildTranslationCursor, RegistryVectorIdentity,
 };
+pub(crate) use tasks::NewFileReprocessItem;
 pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,

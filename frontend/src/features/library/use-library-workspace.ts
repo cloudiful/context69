@@ -1,13 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { apiClient, groupLibrarySettingsQueryKey, isPartialUploadFailure } from "@/services/api";
 import type {
   GroupLibrarySettingsResponse,
   LibraryFileDetailResponse,
+  LibraryFileReprocessResult,
   LibraryIngestStatus,
   LibraryResourceItem,
   LibraryResourceSortBy,
@@ -22,6 +23,7 @@ import {
   buildLibraryFolderQuery,
   buildExplorerEntries,
   canMutateEntry,
+  canReprocessFile,
   canReleaseFileSource,
   collectDescendantFolderIds,
   confirmedSourcePolicy,
@@ -37,12 +39,17 @@ import {
   readLibraryFileQuery,
   readLibraryFolderQuery,
   selectedFailedFileIds,
+  REPROCESS_CHUNK_SIZE,
+  REPROCESS_MAX_CONCURRENT_REQUESTS,
+  reprocessReasonLabel,
+  selectedReprocessFileIds,
   type ExplorerEntry,
   type FileExplorerEntry,
   type FolderSummary,
   type LibrarySearchMode,
 } from "./library-model";
-import { settleTaskRefs } from "./library-tasks";
+import { processingQueueTaskPath, settleTaskRefs } from "./library-tasks";
+import type { SettleOptions } from "./library-tasks";
 
 export const DEFAULT_LIBRARY_PAGE_SIZE = 50;
 
@@ -124,7 +131,10 @@ interface TaskOperation {
   /** Whether the owning workspace/group this operation started in is gone. */
   isDisposed: () => boolean;
   /** Settles the accepted tasks under this operation's lifetime. */
-  settle: (taskRefs: TaskRef[]) => Promise<TaskResponse[]>;
+  settle: (
+    taskRefs: TaskRef[],
+    options?: Omit<SettleOptions, "signal">,
+  ) => Promise<TaskResponse[]>;
   /** Releases the operation's listeners; always called in `finally`. */
   finish: () => void;
 }
@@ -141,6 +151,7 @@ interface TaskOperation {
 export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspaceOptions) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const searchString = searchParams.toString();
 
@@ -179,6 +190,8 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     setResourceContextKey(null);
   }
   const [retryingFileIds, setRetryingFileIds] = useState<string[]>([]);
+  const [reprocessingFileIds, setReprocessingFileIds] = useState<string[]>([]);
+  const reprocessStateEpoch = useRef(0);
   const [releasingFileIds, setReleasingFileIds] = useState<string[]>([]);
   const [unavailableFileIds, setUnavailableFileIds] = useState<string[]>([]);
   const [uploadBusy, setUploadBusy] = useState(false);
@@ -388,7 +401,13 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
       name: detail?.filename ?? (rowScopeMatches ? selectedFileEntry?.name : null) ?? null,
       canRetry: !!fileState && isRetryableFileStatus(fileState.ingestStatus) && !unavailable,
       canRelease: !!fileState && canReleaseFileSource(fileState) && !unavailable,
+      // A released source does not block reprocessing: the original URL is
+      // the documented fallback, so only the backend hint decides.
+      canReprocess: !!fileState
+        && detail?.file_id === selectedFileId
+        && detail?.can_reprocess === true,
       retrying: retryingFileIds.includes(selectedFileId),
+      reprocessing: reprocessingFileIds.includes(selectedFileId),
       releasing: releasingFileIds.includes(selectedFileId),
     };
   }, [
@@ -397,6 +416,7 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     detailQuery.status,
     folderId,
     releasingFileIds,
+    reprocessingFileIds,
     retryingFileIds,
     selectedFileEntry,
     selectedFileId,
@@ -507,7 +527,14 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     if (previousGroup.current === groupPath) {
       return;
     }
+    const previousPath = previousGroup.current;
     previousGroup.current = groupPath;
+    // A group switch invalidates any in-flight reprocess busy ownership. The
+    // epoch fences late completions from the old group, and the selection
+    // scope is cleared so a hung old request cannot disable the new group.
+    reprocessStateEpoch.current += 1;
+    setReprocessingFileIds([]);
+    setReprocessSelectedScope((current) => (current === previousPath ? null : current));
     setQueryState("");
     setStatusFilter(null);
     setExpandedKeys({ [folderKey(null)]: true });
@@ -610,11 +637,11 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     return {
       signal: controller.signal,
       isDisposed,
-      settle: async (taskRefs) => {
+      settle: async (taskRefs, options = {}) => {
         if (isDisposed() || controller.signal.aborted) {
           return [];
         }
-        return settleTaskRefs(taskRefs, { signal: controller.signal });
+        return settleTaskRefs(taskRefs, { signal: controller.signal, ...options });
       },
       finish: () => {
         owner.signal.removeEventListener("abort", abort);
@@ -1141,6 +1168,199 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     }
   }, [retryFiles, retryingFileIds, unavailableFileIds]);
 
+  const observeReprocessOutcomes = useCallback(async (
+    operation: TaskOperation,
+    taskIds: string[],
+  ) => {
+    if (taskIds.length === 0) {
+      return;
+    }
+    const reportedFailures = new Set<string>();
+    const reportFailures = (tasks: TaskResponse[]) => {
+      if (operation.isDisposed()) {
+        return;
+      }
+      const failedTasks = tasks.filter((task) => (
+        task.status === "failed" && !reportedFailures.has(task.task_id)
+      ));
+      if (failedTasks.length === 0) {
+        return;
+      }
+      for (const task of failedTasks) {
+        reportedFailures.add(task.task_id);
+      }
+      const failedTaskId = failedTasks[0]?.task_id;
+      if (!failedTaskId) {
+        return;
+      }
+      const errorSummary = failedTasks
+        .map((task) => task.error_summary)
+        .find((value): value is string => !!value);
+      toast.error(t("library.reprocessTaskFailed", { count: failedTasks.length }), {
+        description: errorSummary ?? t("library.reprocessFailedMessage"),
+        duration: 8000,
+        action: {
+          label: t("processingQueue.viewTask"),
+          onClick: () => navigate(processingQueueTaskPath(failedTaskId)),
+        },
+      });
+    };
+    // The task may legitimately run for more than the bounded library settle
+    // window. This observation keeps polling under the same operation lifetime,
+    // so it stops on unmount, group navigation or owner disposal instead of
+    // leaving a detached poller behind.
+    const settled = await operation.settle(
+      taskIds.map((taskId) => ({ task_id: taskId, item_ids: [] })),
+      {
+        untilTerminal: true,
+        onTerminal: reportFailures,
+        onUnreachable: (unreachableTaskIds) => {
+          if (operation.isDisposed()) {
+            return;
+          }
+          const unreachableTaskId = unreachableTaskIds[0];
+          if (!unreachableTaskId) {
+            return;
+          }
+          toast.error(t("library.reprocessObservationFailed", { count: unreachableTaskIds.length }), {
+            description: t("library.reprocessObservationFailedMessage"),
+            duration: 8000,
+            action: {
+              label: t("processingQueue.viewTask"),
+              onClick: () => navigate(processingQueueTaskPath(unreachableTaskId)),
+            },
+          });
+        },
+      },
+    );
+    if (operation.isDisposed()) {
+      return;
+    }
+    // Terminal observation before this call may have finished in the final
+    // poll; report anything the callback has not seen yet.
+    reportFailures(settled);
+    if (settled.length > 0) {
+      await invalidateLibrary();
+    }
+  }, [invalidateLibrary, navigate, t]);
+
+  const reprocessFiles = useCallback(async (fileIds: string[]) => {
+    const requested = [...new Set(fileIds)];
+    if (requested.length === 0) {
+      return;
+    }
+    const operation = beginTaskOperation();
+    let observation: Promise<void> | null = null;
+    try {
+      const chunks: string[][] = [];
+      for (let offset = 0; offset < requested.length; offset += REPROCESS_CHUNK_SIZE) {
+        chunks.push(requested.slice(offset, offset + REPROCESS_CHUNK_SIZE));
+      }
+      const results: LibraryFileReprocessResult[] = [];
+      // A selection larger than one request is split into bounded waves, so
+      // the page never holds more than four reprocessing requests in flight.
+      for (let wave = 0; wave < chunks.length; wave += REPROCESS_MAX_CONCURRENT_REQUESTS) {
+        if (operation.isDisposed() || operation.signal.aborted) {
+          return;
+        }
+        const responses = await Promise.all(
+          chunks
+            .slice(wave, wave + REPROCESS_MAX_CONCURRENT_REQUESTS)
+            .map((chunk) => apiClient.reprocessGroupLibraryFiles(groupPath, chunk, {
+              signal: operation.signal,
+            })),
+        );
+        if (operation.isDisposed()) {
+          return;
+        }
+        for (const response of responses) {
+          results.push(...response.results);
+        }
+      }
+      const accepted = results.filter((result) => result.outcome === "accepted");
+      const skipped = results.filter((result) => result.outcome === "skipped");
+      const failed = results.filter((result) => result.outcome === "failed");
+      if (accepted.length > 0) {
+        const queuedTaskId = accepted.find((result) => result.task_id)?.task_id;
+        toast.success(t("library.reprocessAccepted", { count: accepted.length }), {
+          description: t("library.reprocessAcceptedMessage"),
+          duration: 5000,
+          action: queuedTaskId
+            ? {
+              label: t("processingQueue.viewTask"),
+              onClick: () => navigate(processingQueueTaskPath(queuedTaskId)),
+            }
+            : undefined,
+        });
+      }
+      if (skipped.length > 0) {
+        const reasons = [...new Set(skipped.map((result) => reprocessReasonLabel(t, result.reason)))];
+        toast.warning(t("library.reprocessSkipped", { count: skipped.length }), {
+          description: reasons.join(" · "),
+          duration: 5000,
+        });
+      }
+      if (failed.length > 0) {
+        // A failed admission is a per-file outcome, so its localized reason must
+        // be visible; a bare count would hide the storage/admission failure.
+        const fileNames = new Map<string, string>();
+        for (const entry of [...entries, ...explorerEntries]) {
+          if (entry.kind === "file" && !fileNames.has(entry.id)) {
+            fileNames.set(entry.id, entry.name);
+          }
+        }
+        const descriptions = [...new Set(failed.map((result) => {
+          const reason = reprocessReasonLabel(t, result.reason);
+          const name = fileNames.get(result.file_id);
+          return name ? `${name}: ${reason}` : reason;
+        }))];
+        toast.error(t("library.reprocessFailed", { count: failed.length }), {
+          description: descriptions.join(" · "),
+          duration: 8000,
+        });
+      }
+      const taskIds = [...new Set(results.flatMap((result) => (result.task_id ? [result.task_id] : [])))];
+      if (taskIds.length > 0) {
+        observation = observeReprocessOutcomes(operation, taskIds);
+      }
+      if (results.length > 0) {
+        await invalidateLibrary();
+      }
+    } catch (error) {
+      if (operation.isDisposed()) {
+        return;
+      }
+      toast.error(t("common.error"), {
+        description: error instanceof Error ? error.message : t("library.reprocessFailedMessage"),
+        duration: 5000,
+      });
+    } finally {
+      if (observation) {
+        // Observation owns this operation's lifetime until every accepted task
+        // is terminal or the owner aborts it.
+        void observation.then(operation.finish, operation.finish);
+      } else {
+        operation.finish();
+      }
+    }
+  }, [beginTaskOperation, entries, explorerEntries, groupPath, invalidateLibrary, navigate, observeReprocessOutcomes, t]);
+
+  const reprocessFile = useCallback(async (fileId: string) => {
+    if (reprocessingFileIds.includes(fileId)) {
+      return;
+    }
+    const epoch = reprocessStateEpoch.current;
+    setReprocessingFileIds((current) => [...current, fileId]);
+    try {
+      await reprocessFiles([fileId]);
+    } finally {
+      // A completion from a previous group must not clear a newer owner's row.
+      if (reprocessStateEpoch.current === epoch) {
+        setReprocessingFileIds((current) => current.filter((id) => id !== fileId));
+      }
+    }
+  }, [reprocessFiles, reprocessingFileIds]);
+
   const releaseFileSource = useCallback((fileId: string, filename: string) => {
     setConfirmRequest({
       title: t("library.releaseSource"),
@@ -1188,6 +1408,33 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
       setRetrySelectedBusy(false);
     }
   }, [retryFiles, retrySelectedBusy, selectedFailedIds]);
+
+  // The paged resource rows are the surface the table renders, so the
+  // selection is resolved there rather than from the folder tree.
+  const selectedReprocessIds = useMemo(
+    () => selectedReprocessFileIds(entries, selectedKeys),
+    [entries, selectedKeys],
+  );
+  const [reprocessSelectedScope, setReprocessSelectedScope] = useState<string | null>(null);
+  const reprocessSelectedBusy = reprocessSelectedScope === groupPath;
+
+  const reprocessSelected = useCallback(async () => {
+    if (reprocessSelectedBusy || selectedReprocessIds.length === 0) {
+      return;
+    }
+    const epoch = reprocessStateEpoch.current;
+    const group = groupPath;
+    setReprocessSelectedScope(group);
+    try {
+      await reprocessFiles(selectedReprocessIds);
+    } finally {
+      // The scope and epoch fence a slow or hung admission so its completion
+      // cannot clear a newer group's busy state.
+      if (reprocessStateEpoch.current === epoch && currentGroupPathRef.current === group) {
+        setReprocessSelectedScope((current) => (current === group ? null : current));
+      }
+    }
+  }, [groupPath, reprocessFiles, reprocessSelectedBusy, selectedReprocessIds]);
 
   const openSourceFolderCreate = useCallback(() => {
     setSourceFolder({
@@ -1378,6 +1625,8 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     && !unavailableFileIds.includes(entry.id)
   ), [unavailableFileIds]);
 
+  const canReprocess = useCallback((entry: ExplorerEntry) => canReprocessFile(entry), []);
+
   const canRelease = useCallback((entry: ExplorerEntry) => (
     entry.kind === "file"
     && canReleaseFileSource(entry)
@@ -1388,6 +1637,7 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     actionBusy,
     canGoUp,
     canRelease,
+    canReprocess,
     canRetryFile,
     changePage,
     changePageSize,
@@ -1429,6 +1679,11 @@ export function useLibraryWorkspace({ groupPath, groupName }: UseLibraryWorkspac
     refresh,
     releaseFileSource,
     releasingFileIds,
+    reprocessFile,
+    reprocessSelected,
+    reprocessSelectedBusy,
+    reprocessableSelectedCount: selectedReprocessIds.length,
+    reprocessingFileIds,
     resourceContextEntry,
     requestMoveEntry,
     resourcesPagination: resourcesQuery.data?.pagination ?? null,
