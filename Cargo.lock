@@ -851,7 +851,7 @@ dependencies = [
 [[package]]
 name = "cloudiful-tasks"
 version = "0.1.0"
-source = "git+https://github.com/cloudiful/tasks?rev=ddf2fd4facb3f914c00ce03c646530c4bf51ddd9#ddf2fd4facb3f914c00ce03c646530c4bf51ddd9"
+source = "git+https://github.com/cloudiful/tasks?rev=3ea7f31cded4a11fb010c5e9d82e6c994712c528#3ea7f31cded4a11fb010c5e9d82e6c994712c528"
 dependencies = [
  "async-trait",
  "sea-orm",

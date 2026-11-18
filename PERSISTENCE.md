@@ -56,6 +56,24 @@ The legacy SQLx migration chain is the only schema executor.
   library schema at the same point, and `src/bin/db_init.rs` is the standalone
   initializer entry point.
 
+### Library schema protocol
+
+`crates/context69-db-schema` bootstraps the `cloudiful_tasks` schema through the
+pinned `cloudiful-tasks` library, which implements schema protocol 5. The
+protocol adds `tasks_terminal_finished_idx`, a partial index over terminal tasks
+selected by finished time; the upgrade is additive and preserves every task,
+attempt, payload and lease. `bootstrap_library_schema` remains the only
+migration owner at writable normal startup and in `db_init`, and the read-side
+compatibility check used by cutover readiness accepts only the exact protocol
+version.
+
+A protocol-5 schema is refused by a protocol-4 consumer, so an upgrade stops
+every old client on that database before the new bootstrap runs. Do not run
+mixed protocol versions during a rollout, and do not promise a rollback after
+the new version has written. The pin activates no data reset and no retention:
+the library exposes only an opt-in retention runner, Context69 does not start
+it, so task history is still never deleted automatically.
+
 Each entity model exposes a `schema()` builder that declares the columns,
 types, defaults, primary key and owned indexes as they exist after the applied
 migrations. Those declarations are asserted in unit tests and are never
