@@ -12,9 +12,15 @@ mod connection_tests;
 
 pub use connection_tests::{
     TestLlmProviderOutcome, TestLlmProviderRequest, TestLlmProviderResponse,
-    TestRuntimeEmbeddingPurpose, TestRuntimeEmbeddingRequest, TestRuntimeQdrantRequest,
-    TestRuntimeValkeyRequest,
+    TestRuntimeEmbeddingKeyIntent, TestRuntimeEmbeddingPurpose, TestRuntimeEmbeddingRequest,
+    TestRuntimeQdrantRequest, TestRuntimeValkeyRequest,
 };
+
+/// The default physical Qdrant collection image vectors live in.
+///
+/// An image channel that inherits its collection name resolves to this
+/// collection, so an enabled image channel always has a usable destination.
+pub const DEFAULT_IMAGE_COLLECTION_NAME: &str = "context69_images";
 
 fn default_search_vector_weight() -> f32 {
     SEARCH_VECTOR_WEIGHT_DEFAULT
@@ -173,6 +179,10 @@ pub struct RuntimeSettingsResponse {
     /// Absent when the deployment never stored a code row. A present value with
     /// `enabled = false` is an explicitly disabled configuration that retains
     /// its non-secret fields.
+    ///
+    /// The stored fields are sparse overrides: an absent one inherits the
+    /// document embedding configuration, and the `effective_*` fields report the
+    /// values actually in effect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_embedding: Option<RuntimeCodeEmbeddingSettings>,
     /// The optional, independent image embedding configuration.
@@ -180,6 +190,10 @@ pub struct RuntimeSettingsResponse {
     /// Absent when the deployment never stored an image row. A present value
     /// with `enabled = false` is an explicitly disabled configuration that
     /// retains its non-secret fields and credential.
+    ///
+    /// The stored fields are sparse overrides: an absent one inherits the
+    /// document embedding configuration, and the `effective_*` fields report the
+    /// values actually in effect.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub image_embedding: Option<RuntimeImageEmbeddingSettings>,
     pub scheduler: RuntimeSchedulerSettings,
@@ -264,79 +278,159 @@ pub struct UpdateRuntimeEmbeddingSettings {
 
 /// The stored optional Git code embedding settings.
 ///
-/// This block is independent of the document embedding block: it never borrows
-/// the document model, credential, or object. `has_api_key` is presence
-/// metadata only; the credential is never returned.
+/// The block stores sparse overrides: an absent field inherits the document
+/// embedding configuration field by field, and the stored row never materializes
+/// an inherited value. `has_api_key` is presence metadata for the code-owned
+/// credential only; `inherits_document_api_key` says whether the credential in
+/// effect is the document one. Neither field ever carries a credential.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeCodeEmbeddingSettings {
     pub enabled: bool,
-    pub base_url: String,
-    pub model: String,
-    /// The model code queries are embedded with. Absent means the code model.
+    /// The stored endpoint override. Absent means the document endpoint.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// The stored model override. Absent means the document model.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The stored query model override. Absent means the document query model,
+    /// and a document without one means the effective code model.
     #[serde(default)]
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
+    /// The stored dimension override. Absent means the document dimensions.
+    #[serde(default)]
+    pub dimensions: Option<usize>,
+    /// The stored timeout override. Absent means the document timeout.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// The endpoint in effect, resolved against the document configuration.
+    pub effective_base_url: String,
+    /// The model in effect, resolved against the document configuration.
+    pub effective_model: String,
+    /// The query model in effect, resolved against the document configuration.
+    #[serde(default)]
+    pub effective_query_model: Option<String>,
+    /// The dimensions in effect, resolved against the document configuration.
+    pub effective_dimensions: usize,
+    /// The timeout in effect, resolved against the document configuration.
+    pub effective_timeout_secs: u64,
+    /// Whether the code-owned credential is stored.
     pub has_api_key: bool,
+    /// Whether the credential in effect is the inherited document credential.
+    pub inherits_document_api_key: bool,
 }
 
 /// The optional code embedding update.
 ///
-/// The tri-state secret patch follows the settings contract: `keep` retains the
-/// stored code credential, `set` replaces it, and `clear` removes it. Disabling
-/// the block keeps every non-secret field and the credential unless the caller
+/// The block is the complete desired override set: an absent or blank field
+/// inherits the document value, so the update clears that override instead of
+/// keeping it. The tri-state secret patch follows the settings contract:
+/// `keep` retains the stored code credential, `set` replaces it, and `clear`
+/// removes it and restores the same-origin document credential. Disabling the
+/// block keeps every field it carries and the credential unless the caller
 /// explicitly clears the key.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateCodeEmbeddingSettings {
     pub enabled: bool,
-    pub base_url: String,
-    pub model: String,
+    /// The endpoint override. Absent or blank inherits the document endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// The model override. Absent or blank inherits the document model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The query model override. Absent or blank inherits the document query
+    /// model, and a document without one means the effective code model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
+    /// The dimension override. Absent inherits the document dimensions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<usize>,
+    /// The timeout override. Absent inherits the document timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub api_key: SecretPatch,
 }
 
 /// The stored optional image embedding settings.
 ///
-/// This block is independent of the document and code embedding blocks: it has
-/// its own endpoint, model pair, credential and physical Qdrant collection. The
-/// image model embeds stored image bytes; the query model embeds text queries
-/// into the same space. `has_api_key` is presence metadata only.
+/// The block stores sparse overrides exactly like the code block, and it keeps
+/// its own physical Qdrant collection: an inherited collection name resolves to
+/// the default image collection, never to the document or code collection.
+/// `has_api_key` is presence metadata for the image-owned credential only.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct RuntimeImageEmbeddingSettings {
     pub enabled: bool,
-    pub base_url: String,
-    /// The model image bytes are embedded with.
-    pub model: String,
-    /// The model text queries are embedded with. Absent means the image model.
+    /// The stored endpoint override. Absent means the document endpoint.
+    #[serde(default)]
+    pub base_url: Option<String>,
+    /// The stored model override. Absent means the document model.
+    #[serde(default)]
+    pub model: Option<String>,
+    /// The stored query model override. Absent means the document query model,
+    /// and a document without one means the effective image model.
     #[serde(default)]
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
-    /// The independent physical Qdrant collection image vectors live in.
-    pub collection_name: String,
+    /// The stored dimension override. Absent means the document dimensions.
+    #[serde(default)]
+    pub dimensions: Option<usize>,
+    /// The stored timeout override. Absent means the document timeout.
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    /// The stored collection override. Absent means the default image
+    /// collection.
+    #[serde(default)]
+    pub collection_name: Option<String>,
+    /// The endpoint in effect, resolved against the document configuration.
+    pub effective_base_url: String,
+    /// The model in effect, resolved against the document configuration.
+    pub effective_model: String,
+    /// The query model in effect, resolved against the document configuration.
+    #[serde(default)]
+    pub effective_query_model: Option<String>,
+    /// The dimensions in effect, resolved against the document configuration.
+    pub effective_dimensions: usize,
+    /// The timeout in effect, resolved against the document configuration.
+    pub effective_timeout_secs: u64,
+    /// The physical collection in effect. An inherited collection name resolves
+    /// to the default image collection.
+    pub effective_collection_name: String,
+    /// Whether the image-owned credential is stored.
     pub has_api_key: bool,
+    /// Whether the credential in effect is the inherited document credential.
+    pub inherits_document_api_key: bool,
 }
 
 /// The optional image embedding update.
 ///
-/// The tri-state secret patch follows the settings contract: `keep` retains the
-/// stored image credential, `set` replaces it, and `clear` removes it.
-/// Disabling the block keeps every non-secret field and the credential unless
-/// the caller explicitly clears the key.
+/// The block is the complete desired override set, exactly like the code block:
+/// an absent or blank field inherits the document value. The tri-state secret
+/// patch follows the settings contract: `keep` retains the stored image
+/// credential, `set` replaces it, and `clear` removes it and restores the
+/// same-origin document credential. Disabling the block keeps every field it
+/// carries and the credential unless the caller explicitly clears the key.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct UpdateImageEmbeddingSettings {
     pub enabled: bool,
-    pub base_url: String,
-    pub model: String,
+    /// The endpoint override. Absent or blank inherits the document endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// The model override. Absent or blank inherits the document model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// The query model override. Absent or blank inherits the document query
+    /// model, and a document without one means the effective image model.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
-    pub collection_name: String,
+    /// The dimension override. Absent inherits the document dimensions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<usize>,
+    /// The timeout override. Absent inherits the document timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+    /// The collection override. Absent or blank resolves to the default image
+    /// collection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collection_name: Option<String>,
     #[serde(default)]
     pub api_key: SecretPatch,
 }

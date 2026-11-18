@@ -223,13 +223,17 @@ mod tests {
 
         let code = rendered(runtime_code_embedding_settings::schema());
         assert!(code.contains("\"context69\".\"runtime_code_embedding_settings\""));
-        assert!(code.contains("NOT enabled OR ("), "{code}");
+        // The optional channels store sparse overrides, so an enabled row no
+        // longer has to repeat the document configuration in its own row: the
+        // "enabled" check that demanded it is gone, exactly like in the applied
+        // migrations.
+        assert!(!code.contains("NOT enabled OR ("), "{code}");
         assert!(code.contains("CHECK (singleton)"), "{code}");
 
         let image = rendered(runtime_image_embedding_settings::schema());
         assert!(image.contains("\"context69\".\"runtime_image_embedding_settings\""));
         assert!(image.contains("collection_name"), "{image}");
-        assert!(image.contains("NOT enabled OR ("), "{image}");
+        assert!(!image.contains("NOT enabled OR ("), "{image}");
 
         let deletions = rendered(image_vector_deletions::schema());
         assert!(deletions.contains("\"context69\".\"image_vector_deletions\""));

@@ -84,14 +84,5 @@ pub fn schema() -> TableCreateStatement {
             "runtime_image_embedding_settings_timeout_check",
             Expr::cust("timeout_secs IS NULL OR timeout_secs > 0"),
         ))
-        .check((
-            "runtime_image_embedding_settings_enabled_check",
-            Expr::cust(
-                "NOT enabled OR (base_url IS NOT NULL AND btrim(base_url) <> '' \
-                 AND collection_name IS NOT NULL AND btrim(collection_name) <> '' \
-                 AND model IS NOT NULL AND btrim(model) <> '' AND dimensions IS NOT NULL \
-                 AND dimensions > 0 AND timeout_secs IS NOT NULL AND timeout_secs > 0)",
-            ),
-        ))
         .to_owned()
 }

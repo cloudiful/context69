@@ -205,44 +205,63 @@ export const settings = {
     codeEmbeddingTitle: "Code embedding (optional)",
     codeEmbeddingEnabled: "Enable code embedding",
     codeEmbeddingEnabledHelper:
-      "Used for Git code search only. It never reuses the document model or key.",
+      "Used for Git code search only. It inherits the document configuration field by field unless you override a field.",
     codeEmbeddingBaseUrl: "Code embedding Base URL",
+    codeEmbeddingBaseUrlHelper: "Leave blank to inherit the document endpoint.",
     codeEmbeddingApiKey: "Code embedding API Key",
+    codeEmbeddingApiKeyHelper:
+      "Leave blank to keep the stored credential. Without a stored code credential the document credential is used when the endpoint is the same.",
     codeEmbeddingKeyStored: "Stored; leave blank to keep",
-    codeEmbeddingClearKey: "Clear stored code API key",
-    codeEmbeddingClearKeyHelper: "Removes only the code credential; the document key stays.",
+    codeEmbeddingClearKey: "Remove the stored code credential",
+    codeEmbeddingClearKeyHelper:
+      "Removes the code credential override. The document credential is used again when the endpoint is the same origin.",
+    codeEmbeddingInheritedCredential:
+      "The credential in effect is the inherited document credential.",
     codeEmbeddingModel: "Code model",
     codeEmbeddingModelHelper:
-      "Embedding model for code chunks and code queries. Changing it requires a Git reindex.",
+      "Embedding model for code chunks and code queries. Leave blank to inherit the document model; changing the effective model requires a Git reindex.",
     codeEmbeddingQueryModel: "Code query model",
-    codeEmbeddingQueryModelHelper: "Leave blank to embed queries with the code model.",
+    codeEmbeddingQueryModelHelper:
+      "Leave blank to inherit the document query model, or the effective code model when the document has none.",
     codeEmbeddingDimensions: "Code dimensions",
+    codeEmbeddingDimensionsHelper: "Leave blank to inherit the document dimensions.",
     codeEmbeddingTimeout: "Code timeout (seconds)",
+    codeEmbeddingTimeoutHelper: "Leave blank to inherit the document timeout.",
+    codeEmbeddingInheritedIdentityWarning:
+      "This block inherits the document model and/or dimensions. A change to the document model or dimensions changes the code embedding identity and requires an explicit Git reindex; nothing is reindexed automatically.",
     codeEmbeddingTest: "Test Connection",
     codeEmbeddingTestSuccess: "Code embedding connection succeeded",
     codeEmbeddingTestFailed: "Code embedding connection failed",
     imageEmbeddingTitle: "Image Embedding (optional)",
     imageEmbeddingEnabled: "Enable image embedding",
     imageEmbeddingEnabledHelper:
-      "Used for image search only. It never reuses the document or code model, key, or vectors.",
+      "Used for image search only. It inherits the document configuration field by field unless you override a field.",
     imageEmbeddingBaseUrl: "Image embedding Base URL",
+    imageEmbeddingBaseUrlHelper: "Leave blank to inherit the document endpoint.",
     imageEmbeddingApiKey: "Image embedding API Key",
+    imageEmbeddingApiKeyHelper:
+      "Leave blank to keep the stored credential. Without a stored image credential the document credential is used when the endpoint is the same.",
     imageEmbeddingKeyStored: "Stored; leave blank to keep",
-    imageEmbeddingClearKey: "Clear stored image API key",
+    imageEmbeddingClearKey: "Remove the stored image credential",
     imageEmbeddingClearKeyHelper:
-      "Removes only the image credential; the document and code keys stay.",
-    imageEmbeddingTestClearKeyBlocked:
-      "Save the cleared key first, or enter a new key, before testing the connection.",
+      "Removes the image credential override. The document credential is used again when the endpoint is the same origin.",
+    imageEmbeddingInheritedCredential:
+      "The credential in effect is the inherited document credential.",
     imageEmbeddingModel: "Image model",
-    imageEmbeddingModelHelper: "Embedding model for stored image bytes.",
+    imageEmbeddingModelHelper:
+      "Embedding model for stored image bytes. Leave blank to inherit the document model.",
     imageEmbeddingQueryModel: "Image query model",
     imageEmbeddingQueryModelHelper:
-      "Leave blank to embed text queries with the image model.",
+      "Leave blank to inherit the document query model, or the effective image model when the document has none.",
     imageEmbeddingCollection: "Collection namespace",
     imageEmbeddingCollectionHelper:
-      "Namespace of the image vectors. The physical collection is derived per runtime and never shared with the document or code collections.",
+      "Namespace of the image vectors. Leave blank to use the default namespace context69_images. The physical collection is derived per runtime and is not shared with the document or code collections.",
     imageEmbeddingDimensions: "Image dimensions",
+    imageEmbeddingDimensionsHelper: "Leave blank to inherit the document dimensions.",
     imageEmbeddingTimeout: "Image timeout (seconds)",
+    imageEmbeddingTimeoutHelper: "Leave blank to inherit the document timeout.",
+    imageEmbeddingInheritedIdentityWarning:
+      "This block inherits the document model and/or dimensions. A change to the document model or dimensions changes the image embedding identity; reindexing the stored images is an explicit operator action and nothing is reindexed automatically.",
     imageEmbeddingTest: "Test Connection",
     imageEmbeddingTestSuccess: "Image embedding connection succeeded",
     imageEmbeddingTestFailed: "Image embedding connection failed",

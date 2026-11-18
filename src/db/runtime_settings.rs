@@ -85,59 +85,56 @@ fn stored_chunking_settings_from_row(
     })
 }
 
-fn optional_positive_usize(value: Option<i64>, label: &str) -> Result<usize> {
-    match value {
-        None => Ok(0),
-        Some(value) => {
-            usize::try_from(value).with_context(|| format!("{label} must be non-negative"))
-        }
-    }
-}
-
-fn optional_positive_u64(value: Option<i64>, label: &str) -> Result<u64> {
-    match value {
-        None => Ok(0),
-        Some(value) => {
-            u64::try_from(value).with_context(|| format!("{label} must be non-negative"))
-        }
-    }
-}
-
 fn optional_text(value: &str) -> Option<&str> {
     let trimmed = value.trim();
     (!trimmed.is_empty()).then_some(trimmed)
 }
 
-fn optional_i64(value: usize, label: &str) -> Result<Option<i64>> {
-    if value == 0 {
-        return Ok(None);
-    }
-    Ok(Some(
-        i64::try_from(value).with_context(|| format!("{label} too large"))?,
-    ))
+/// A stored override value: absent means inherit.
+///
+/// A blank stored value is absent as well, so an inherited field never carries
+/// a placeholder that a caller could mistake for an explicit override.
+fn optional_override_text(value: Option<&str>) -> Option<&str> {
+    value.and_then(optional_text)
 }
 
-fn optional_i64_u64(value: u64, label: &str) -> Result<Option<i64>> {
-    if value == 0 {
-        return Ok(None);
+/// A stored numeric override: absent means inherit.
+///
+/// Zero is never a value: it is the shape a blank field takes on the wire, so
+/// it is stored as absent rather than as an override of zero.
+fn optional_override_number(value: Option<u64>, label: &str) -> Result<Option<i64>> {
+    match value {
+        None | Some(0) => Ok(None),
+        Some(value) => Ok(Some(
+            i64::try_from(value).with_context(|| format!("{label} too large"))?,
+        )),
     }
-    Ok(Some(
-        i64::try_from(value).with_context(|| format!("{label} too large"))?,
-    ))
+}
+
+/// The stored numeric override of a row, read back as an optional value.
+fn stored_override_number(value: Option<i64>, label: &str) -> Result<Option<u64>> {
+    match value {
+        None | Some(0) => Ok(None),
+        Some(value) => {
+            Ok(Some(u64::try_from(value).with_context(|| {
+                format!("{label} must be non-negative")
+            })?))
+        }
+    }
 }
 
 async fn write_runtime_code_embedding_settings_in(
     connection: &mut sqlx::PgConnection,
     code: &StoredRuntimeCodeEmbeddingSettings,
 ) -> Result<()> {
-    let dimensions = optional_i64(code.dimensions, "code embedding dimensions")?;
-    let timeout_secs = optional_i64_u64(code.timeout_secs, "code embedding timeout_secs")?;
+    let dimensions = optional_override_number(code.dimensions, "code embedding dimensions")?;
+    let timeout_secs = optional_override_number(code.timeout_secs, "code embedding timeout_secs")?;
     sqlx::query_file!(
         "src/sql/db/runtime_settings/save_runtime_code_embedding_settings.sql",
         code.enabled,
-        optional_text(&code.base_url),
-        optional_text(&code.model),
-        code.query_model.as_deref(),
+        optional_override_text(code.base_url.as_deref()),
+        optional_override_text(code.model.as_deref()),
+        optional_override_text(code.query_model.as_deref()),
         dimensions,
         timeout_secs
     )
@@ -150,8 +147,9 @@ async fn write_runtime_image_embedding_settings_in(
     connection: &mut sqlx::PgConnection,
     image: &StoredRuntimeImageEmbeddingSettings,
 ) -> Result<()> {
-    let dimensions = optional_i64(image.dimensions, "image embedding dimensions")?;
-    let timeout_secs = optional_i64_u64(image.timeout_secs, "image embedding timeout_secs")?;
+    let dimensions = optional_override_number(image.dimensions, "image embedding dimensions")?;
+    let timeout_secs =
+        optional_override_number(image.timeout_secs, "image embedding timeout_secs")?;
     // The statement is loaded at compile time but executed with runtime binds:
     // the image settings have no SQLx offline query-cache entry, and adding one
     // would require a live schema during compilation.
@@ -159,10 +157,10 @@ async fn write_runtime_image_embedding_settings_in(
         "../sql/db/runtime_settings/save_runtime_image_embedding_settings.sql"
     ))
     .bind(image.enabled)
-    .bind(optional_text(&image.base_url))
-    .bind(optional_text(&image.collection_name))
-    .bind(optional_text(&image.model))
-    .bind(image.query_model.as_deref())
+    .bind(optional_override_text(image.base_url.as_deref()))
+    .bind(optional_override_text(image.collection_name.as_deref()))
+    .bind(optional_override_text(image.model.as_deref()))
+    .bind(optional_override_text(image.query_model.as_deref()))
     .bind(dimensions)
     .bind(timeout_secs)
     .execute(&mut *connection)
@@ -309,14 +307,11 @@ impl Database {
         };
         Ok(Some(StoredRuntimeCodeEmbeddingSettings {
             enabled: row.enabled,
-            base_url: row.base_url.unwrap_or_default(),
-            model: row.model.unwrap_or_default(),
-            query_model: row
-                .query_model
-                .map(|model| model.trim().to_string())
-                .filter(|model| !model.is_empty()),
-            dimensions: optional_positive_usize(row.dimensions, "code embedding dimensions")?,
-            timeout_secs: optional_positive_u64(row.timeout_secs, "code embedding timeout_secs")?,
+            base_url: optional_override_text(row.base_url.as_deref()).map(str::to_string),
+            model: optional_override_text(row.model.as_deref()).map(str::to_string),
+            query_model: optional_override_text(row.query_model.as_deref()).map(str::to_string),
+            dimensions: stored_override_number(row.dimensions, "code embedding dimensions")?,
+            timeout_secs: stored_override_number(row.timeout_secs, "code embedding timeout_secs")?,
             api_key: None,
         }))
     }
@@ -351,15 +346,13 @@ impl Database {
         };
         Ok(Some(StoredRuntimeImageEmbeddingSettings {
             enabled: row.enabled,
-            base_url: row.base_url.unwrap_or_default(),
-            collection_name: row.collection_name.unwrap_or_default(),
-            model: row.model.unwrap_or_default(),
-            query_model: row
-                .query_model
-                .map(|model| model.trim().to_string())
-                .filter(|model| !model.is_empty()),
-            dimensions: optional_positive_usize(row.dimensions, "image embedding dimensions")?,
-            timeout_secs: optional_positive_u64(row.timeout_secs, "image embedding timeout_secs")?,
+            base_url: optional_override_text(row.base_url.as_deref()).map(str::to_string),
+            collection_name: optional_override_text(row.collection_name.as_deref())
+                .map(str::to_string),
+            model: optional_override_text(row.model.as_deref()).map(str::to_string),
+            query_model: optional_override_text(row.query_model.as_deref()).map(str::to_string),
+            dimensions: stored_override_number(row.dimensions, "image embedding dimensions")?,
+            timeout_secs: stored_override_number(row.timeout_secs, "image embedding timeout_secs")?,
             api_key: None,
         }))
     }

@@ -14468,42 +14468,90 @@
       },
       "RuntimeCodeEmbeddingSettings": {
         "type": "object",
-        "description": "The stored optional Git code embedding settings.\n\nThis block is independent of the document embedding block: it never borrows\nthe document model, credential, or object. `has_api_key` is presence\nmetadata only; the credential is never returned.",
+        "description": "The stored optional Git code embedding settings.\n\nThe block stores sparse overrides: an absent field inherits the document\nembedding configuration field by field, and the stored row never materializes\nan inherited value. `has_api_key` is presence metadata for the code-owned\ncredential only; `inherits_document_api_key` says whether the credential in\neffect is the document one. Neither field ever carries a credential.",
         "required": [
           "enabled",
-          "base_url",
-          "model",
-          "dimensions",
-          "timeout_secs",
-          "has_api_key"
+          "effective_base_url",
+          "effective_model",
+          "effective_dimensions",
+          "effective_timeout_secs",
+          "has_api_key",
+          "inherits_document_api_key"
         ],
         "properties": {
           "base_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored endpoint override. Absent means the document endpoint."
           },
           "dimensions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The stored dimension override. Absent means the document dimensions.",
+            "minimum": 0
+          },
+          "effective_base_url": {
+            "type": "string",
+            "description": "The endpoint in effect, resolved against the document configuration."
+          },
+          "effective_dimensions": {
             "type": "integer",
+            "description": "The dimensions in effect, resolved against the document configuration.",
+            "minimum": 0
+          },
+          "effective_model": {
+            "type": "string",
+            "description": "The model in effect, resolved against the document configuration."
+          },
+          "effective_query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The query model in effect, resolved against the document configuration."
+          },
+          "effective_timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The timeout in effect, resolved against the document configuration.",
             "minimum": 0
           },
           "enabled": {
             "type": "boolean"
           },
           "has_api_key": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the code-owned credential is stored."
+          },
+          "inherits_document_api_key": {
+            "type": "boolean",
+            "description": "Whether the credential in effect is the inherited document credential."
           },
           "model": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored model override. Absent means the document model."
           },
           "query_model": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The model code queries are embedded with. Absent means the code model."
+            "description": "The stored query model override. Absent means the document query model,\nand a document without one means the effective code model."
           },
           "timeout_secs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "The stored timeout override. Absent means the document timeout.",
             "minimum": 0
           }
         }
@@ -14590,48 +14638,102 @@
       },
       "RuntimeImageEmbeddingSettings": {
         "type": "object",
-        "description": "The stored optional image embedding settings.\n\nThis block is independent of the document and code embedding blocks: it has\nits own endpoint, model pair, credential and physical Qdrant collection. The\nimage model embeds stored image bytes; the query model embeds text queries\ninto the same space. `has_api_key` is presence metadata only.",
+        "description": "The stored optional image embedding settings.\n\nThe block stores sparse overrides exactly like the code block, and it keeps\nits own physical Qdrant collection: an inherited collection name resolves to\nthe default image collection, never to the document or code collection.\n`has_api_key` is presence metadata for the image-owned credential only.",
         "required": [
           "enabled",
-          "base_url",
-          "model",
-          "dimensions",
-          "timeout_secs",
-          "collection_name",
-          "has_api_key"
+          "effective_base_url",
+          "effective_model",
+          "effective_dimensions",
+          "effective_timeout_secs",
+          "effective_collection_name",
+          "has_api_key",
+          "inherits_document_api_key"
         ],
         "properties": {
           "base_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored endpoint override. Absent means the document endpoint."
           },
           "collection_name": {
-            "type": "string",
-            "description": "The independent physical Qdrant collection image vectors live in."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored collection override. Absent means the default image\ncollection."
           },
           "dimensions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The stored dimension override. Absent means the document dimensions.",
+            "minimum": 0
+          },
+          "effective_base_url": {
+            "type": "string",
+            "description": "The endpoint in effect, resolved against the document configuration."
+          },
+          "effective_collection_name": {
+            "type": "string",
+            "description": "The physical collection in effect. An inherited collection name resolves\nto the default image collection."
+          },
+          "effective_dimensions": {
             "type": "integer",
+            "description": "The dimensions in effect, resolved against the document configuration.",
+            "minimum": 0
+          },
+          "effective_model": {
+            "type": "string",
+            "description": "The model in effect, resolved against the document configuration."
+          },
+          "effective_query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The query model in effect, resolved against the document configuration."
+          },
+          "effective_timeout_secs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "The timeout in effect, resolved against the document configuration.",
             "minimum": 0
           },
           "enabled": {
             "type": "boolean"
           },
           "has_api_key": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Whether the image-owned credential is stored."
+          },
+          "inherits_document_api_key": {
+            "type": "boolean",
+            "description": "Whether the credential in effect is the inherited document credential."
           },
           "model": {
-            "type": "string",
-            "description": "The model image bytes are embedded with."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The stored model override. Absent means the document model."
           },
           "query_model": {
             "type": [
               "string",
               "null"
             ],
-            "description": "The model text queries are embedded with. Absent means the image model."
+            "description": "The stored query model override. Absent means the document query model,\nand a document without one means the effective image model."
           },
           "timeout_secs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "The stored timeout override. Absent means the document timeout.",
             "minimum": 0
           }
         }
@@ -14740,7 +14842,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/RuntimeCodeEmbeddingSettings",
-                "description": "The optional, independent Git code embedding configuration.\n\nAbsent when the deployment never stored a code row. A present value with\n`enabled = false` is an explicitly disabled configuration that retains\nits non-secret fields."
+                "description": "The optional, independent Git code embedding configuration.\n\nAbsent when the deployment never stored a code row. A present value with\n`enabled = false` is an explicitly disabled configuration that retains\nits non-secret fields.\n\nThe stored fields are sparse overrides: an absent one inherits the\ndocument embedding configuration, and the `effective_*` fields report the\nvalues actually in effect."
               },
               {
                 "type": "null"
@@ -14757,7 +14859,7 @@
             "oneOf": [
               {
                 "$ref": "#/components/schemas/RuntimeImageEmbeddingSettings",
-                "description": "The optional, independent image embedding configuration.\n\nAbsent when the deployment never stored an image row. A present value\nwith `enabled = false` is an explicitly disabled configuration that\nretains its non-secret fields and credential."
+                "description": "The optional, independent image embedding configuration.\n\nAbsent when the deployment never stored an image row. A present value\nwith `enabled = false` is an explicitly disabled configuration that\nretains its non-secret fields and credential.\n\nThe stored fields are sparse overrides: an absent one inherits the\ndocument embedding configuration, and the `effective_*` fields report the\nvalues actually in effect."
               },
               {
                 "type": "null"
@@ -17519,6 +17621,14 @@
           }
         }
       },
+      "TestRuntimeEmbeddingKeyIntent": {
+        "type": "string",
+        "description": "The credential a probe may use when it carries no key of its own.\n\nThe intent never changes what is stored: the probe resolves a credential and\nuses it for that call only.",
+        "enum": [
+          "stored",
+          "inherited"
+        ]
+      },
       "TestRuntimeEmbeddingPurpose": {
         "type": "string",
         "description": "The independent embedding configuration a probe targets.",
@@ -17530,13 +17640,7 @@
       },
       "TestRuntimeEmbeddingRequest": {
         "type": "object",
-        "description": "The non-persisting embedding provider probe.\n\nAn absent `api_key` falls back to the stored key for the selected purpose, so\na saved deployment can be tested without re-entering the credential; a\nsubmitted key is used as given and never written.",
-        "required": [
-          "base_url",
-          "model",
-          "dimensions",
-          "timeout_secs"
-        ],
+        "description": "The non-persisting embedding provider probe.\n\nThe request carries the same sparse values a save would store: an absent or\nblank field inherits the document embedding configuration, and the unsaved\ndocument draft in `document_*` is the inheritance source for that probe. A\nprobe never persists or installs anything it resolves.\n\nAn absent `api_key` falls back to the stored credential for the selected\npurpose, so a saved deployment can be tested without re-entering the\ncredential; a submitted key is used as given and never written.",
         "properties": {
           "api_key": {
             "type": [
@@ -17545,14 +17649,86 @@
             ]
           },
           "base_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The endpoint under test. Absent or blank inherits the document endpoint."
           },
           "dimensions": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The dimensions under test. Absent inherits the document dimensions.",
             "minimum": 0
           },
+          "document_api_key": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/SecretPatch",
+                "description": "The unsaved document credential of the probe's inheritance source.\n\nThe probe never persists it. `Keep` (the default, and an absent field)\nmeans the document draft carries no replacement key, so only the stored\ndocument credential applies, and only at its persisted origin. `Set`\ncarries a key the operator entered for this call only; it is used when\nthe endpoint under test is the document draft origin, exactly the\ncredential the same save would install. `Clear` describes a draft that\nremoved the document credential, so no inherited credential is used."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "document_base_url": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The unsaved document endpoint used as the inheritance source."
+          },
+          "document_dimensions": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The unsaved document dimensions used as the inheritance source.",
+            "minimum": 0
+          },
+          "document_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The unsaved document model used as the inheritance source."
+          },
+          "document_query_model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The unsaved document query model used as the inheritance source."
+          },
+          "document_timeout_secs": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int64",
+            "description": "The unsaved document timeout used as the inheritance source.",
+            "minimum": 0
+          },
+          "key_intent": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TestRuntimeEmbeddingKeyIntent",
+                "description": "The credential the probe may use when it carries no key of its own.\n\nThe default uses the stored own-purpose credential when it belongs to the\norigin under test. `Inherited` tests the inherited document credential\ninstead, so a pending clear is probed against the credential that would\nactually be in effect — never against the cleared one."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "model": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model under test. Absent or blank inherits the document model."
           },
           "purpose": {
             "$ref": "#/components/schemas/TestRuntimeEmbeddingPurpose",
@@ -17563,11 +17739,15 @@
               "string",
               "null"
             ],
-            "description": "The model queries are embedded with. An absent or blank value means the\ndocument model."
+            "description": "The model queries are embedded with. An absent or blank value means the\ndocument query model, and a document without one means the model under\ntest."
           },
           "timeout_secs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "The timeout under test. Absent inherits the document timeout.",
             "minimum": 0
           }
         }
@@ -18249,40 +18429,53 @@
       },
       "UpdateCodeEmbeddingSettings": {
         "type": "object",
-        "description": "The optional code embedding update.\n\nThe tri-state secret patch follows the settings contract: `keep` retains the\nstored code credential, `set` replaces it, and `clear` removes it. Disabling\nthe block keeps every non-secret field and the credential unless the caller\nexplicitly clears the key.",
+        "description": "The optional code embedding update.\n\nThe block is the complete desired override set: an absent or blank field\ninherits the document value, so the update clears that override instead of\nkeeping it. The tri-state secret patch follows the settings contract:\n`keep` retains the stored code credential, `set` replaces it, and `clear`\nremoves it and restores the same-origin document credential. Disabling the\nblock keeps every field it carries and the credential unless the caller\nexplicitly clears the key.",
         "required": [
-          "enabled",
-          "base_url",
-          "model",
-          "dimensions",
-          "timeout_secs"
+          "enabled"
         ],
         "properties": {
           "api_key": {
             "$ref": "#/components/schemas/SecretPatch"
           },
           "base_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The endpoint override. Absent or blank inherits the document endpoint."
           },
           "dimensions": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The dimension override. Absent inherits the document dimensions.",
             "minimum": 0
           },
           "enabled": {
             "type": "boolean"
           },
           "model": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model override. Absent or blank inherits the document model."
           },
           "query_model": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The query model override. Absent or blank inherits the document query\nmodel, and a document without one means the effective code model."
           },
           "timeout_secs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "The timeout override. Absent inherits the document timeout.",
             "minimum": 0
           }
         }
@@ -18476,44 +18669,60 @@
       },
       "UpdateImageEmbeddingSettings": {
         "type": "object",
-        "description": "The optional image embedding update.\n\nThe tri-state secret patch follows the settings contract: `keep` retains the\nstored image credential, `set` replaces it, and `clear` removes it.\nDisabling the block keeps every non-secret field and the credential unless\nthe caller explicitly clears the key.",
+        "description": "The optional image embedding update.\n\nThe block is the complete desired override set, exactly like the code block:\nan absent or blank field inherits the document value. The tri-state secret\npatch follows the settings contract: `keep` retains the stored image\ncredential, `set` replaces it, and `clear` removes it and restores the\nsame-origin document credential. Disabling the block keeps every field it\ncarries and the credential unless the caller explicitly clears the key.",
         "required": [
-          "enabled",
-          "base_url",
-          "model",
-          "dimensions",
-          "timeout_secs",
-          "collection_name"
+          "enabled"
         ],
         "properties": {
           "api_key": {
             "$ref": "#/components/schemas/SecretPatch"
           },
           "base_url": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The endpoint override. Absent or blank inherits the document endpoint."
           },
           "collection_name": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The collection override. Absent or blank resolves to the default image\ncollection."
           },
           "dimensions": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "The dimension override. Absent inherits the document dimensions.",
             "minimum": 0
           },
           "enabled": {
             "type": "boolean"
           },
           "model": {
-            "type": "string"
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The model override. Absent or blank inherits the document model."
           },
           "query_model": {
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "The query model override. Absent or blank inherits the document query\nmodel, and a document without one means the effective image model."
           },
           "timeout_secs": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "format": "int64",
+            "description": "The timeout override. Absent inherits the document timeout.",
             "minimum": 0
           }
         }

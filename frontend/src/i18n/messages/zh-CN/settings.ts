@@ -205,41 +205,61 @@ export const settings = {
     codeEmbeddingTitle: "代码 Embedding（可选）",
     codeEmbeddingEnabled: "启用代码 Embedding",
     codeEmbeddingEnabledHelper:
-      "仅用于 Git 代码搜索，绝不复用文档模型或密钥。",
+      "仅用于 Git 代码搜索。除非显式覆盖某一项，否则逐字段沿用文档配置。",
     codeEmbeddingBaseUrl: "代码 Embedding 基础地址",
+    codeEmbeddingBaseUrlHelper: "留空则沿用文档端点。",
     codeEmbeddingApiKey: "代码 Embedding API Key",
+    codeEmbeddingApiKeyHelper:
+      "留空则保持已保存的凭据。若没有已保存的代码凭据，且端点相同，则使用文档凭据。",
     codeEmbeddingKeyStored: "已保存，留空保持不变",
-    codeEmbeddingClearKey: "清除已保存的代码 API Key",
-    codeEmbeddingClearKeyHelper: "只删除代码凭据，文档密钥保持不变。",
+    codeEmbeddingClearKey: "移除已保存的代码凭据",
+    codeEmbeddingClearKeyHelper:
+      "删除代码凭据覆盖项。端点同源时会重新使用文档凭据。",
+    codeEmbeddingInheritedCredential: "当前生效的凭据是继承自文档的凭据。",
     codeEmbeddingModel: "代码模型",
-    codeEmbeddingModelHelper: "代码块和代码查询使用的模型。修改后需要重新索引 Git 仓库。",
+    codeEmbeddingModelHelper:
+      "代码块和代码查询使用的模型。留空则沿用文档模型；修改实际生效的模型需要重新索引 Git 仓库。",
     codeEmbeddingQueryModel: "代码查询模型",
-    codeEmbeddingQueryModelHelper: "留空则使用代码模型嵌入查询。",
+    codeEmbeddingQueryModelHelper:
+      "留空则沿用文档查询模型；文档没有查询模型时沿用实际生效的代码模型。",
     codeEmbeddingDimensions: "代码维度",
+    codeEmbeddingDimensionsHelper: "留空则沿用文档维度。",
     codeEmbeddingTimeout: "代码超时（秒）",
+    codeEmbeddingTimeoutHelper: "留空则沿用文档超时。",
+    codeEmbeddingInheritedIdentityWarning:
+      "此区块沿用文档模型和/或维度。修改文档模型或维度会同时改变代码 Embedding 的向量身份，需要显式重新索引 Git 仓库；系统不会自动重新索引。",
     codeEmbeddingTest: "测试连接",
     codeEmbeddingTestSuccess: "代码 Embedding 连接成功",
     codeEmbeddingTestFailed: "代码 Embedding 连接失败",
     imageEmbeddingTitle: "图片 Embedding（可选）",
     imageEmbeddingEnabled: "启用图片 Embedding",
     imageEmbeddingEnabledHelper:
-      "仅用于图片搜索，绝不复用文档或代码模型、密钥与向量。",
+      "仅用于图片搜索。除非显式覆盖某一项，否则逐字段沿用文档配置。",
     imageEmbeddingBaseUrl: "图片 Embedding 基础地址",
+    imageEmbeddingBaseUrlHelper: "留空则沿用文档端点。",
     imageEmbeddingApiKey: "图片 Embedding API Key",
+    imageEmbeddingApiKeyHelper:
+      "留空则保持已保存的凭据。若没有已保存的图片凭据，且端点相同，则使用文档凭据。",
     imageEmbeddingKeyStored: "已保存，留空保持不变",
-    imageEmbeddingClearKey: "清除已保存的图片 API Key",
-    imageEmbeddingClearKeyHelper: "只删除图片凭据，文档与代码密钥保持不变。",
-    imageEmbeddingTestClearKeyBlocked:
-      "请先保存清除密钥的设置，或输入新密钥，然后再测试连接。",
+    imageEmbeddingClearKey: "移除已保存的图片凭据",
+    imageEmbeddingClearKeyHelper:
+      "删除图片凭据覆盖项。端点同源时会重新使用文档凭据。",
+    imageEmbeddingInheritedCredential: "当前生效的凭据是继承自文档的凭据。",
     imageEmbeddingModel: "图片模型",
-    imageEmbeddingModelHelper: "用于已存储图片字节的嵌入模型。",
+    imageEmbeddingModelHelper:
+      "用于已存储图片字节的嵌入模型。留空则沿用文档模型。",
     imageEmbeddingQueryModel: "图片查询模型",
-    imageEmbeddingQueryModelHelper: "留空则使用图片模型嵌入文本查询。",
+    imageEmbeddingQueryModelHelper:
+      "留空则沿用文档查询模型；文档没有查询模型时沿用实际生效的图片模型。",
     imageEmbeddingCollection: "集合命名空间",
     imageEmbeddingCollectionHelper:
-      "图片向量所属的命名空间。物理集合按运行时派生，绝不与文档或代码集合共用。",
+      "图片向量所属的命名空间。留空则使用默认命名空间 context69_images。物理集合按运行时派生，不与文档或代码集合共用。",
     imageEmbeddingDimensions: "图片维度",
+    imageEmbeddingDimensionsHelper: "留空则沿用文档维度。",
     imageEmbeddingTimeout: "图片超时（秒）",
+    imageEmbeddingTimeoutHelper: "留空则沿用文档超时。",
+    imageEmbeddingInheritedIdentityWarning:
+      "此区块沿用文档模型和/或维度。修改文档模型或维度会同时改变图片 Embedding 的向量身份；重新索引已存储图片需要操作者显式执行，系统不会自动重新索引。",
     imageEmbeddingTest: "测试连接",
     imageEmbeddingTestSuccess: "图片 Embedding 连接成功",
     imageEmbeddingTestFailed: "图片 Embedding 连接失败",

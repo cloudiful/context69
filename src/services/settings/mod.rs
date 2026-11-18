@@ -31,6 +31,7 @@ use crate::{
 
 mod docling_probe;
 mod embedding_probe;
+pub mod inheritance;
 pub mod llm_probe;
 mod mappers;
 pub mod qdrant_probe;
@@ -44,6 +45,10 @@ pub(crate) use runtime_mappers::{
 };
 
 use self::{
+    inheritance::{
+        DocumentEmbeddingSource, channel_credential, inherits_document_credential,
+        resolve_code_settings, resolve_image_settings,
+    },
     mappers::{
         canonical_search_settings_from_request, config_from_stored, docling_needs_vlm_credential,
         docling_settings_from_request, effective_do_code_enrichment,
@@ -53,9 +58,10 @@ use self::{
         validate_docling_vlm_shape_if_enabled,
     },
     runtime_mappers::{
-        default_runtime_settings_response, runtime_settings_from_request,
-        runtime_settings_response_with_code, s3_secret_patch, stored_code_embedding_from_request,
-        stored_image_embedding_from_request, with_image_embedding,
+        code_embedding_response, default_runtime_settings_response, image_embedding_response,
+        runtime_settings_from_request, runtime_settings_response_with_code, s3_secret_patch,
+        stored_code_embedding_from_request, stored_image_embedding_from_request,
+        with_image_embedding,
     },
     secrets::{
         SettingsSecrets, docling_hidden_vlm_patch, docling_mode_vlm_patch, docling_vlm_patch,
@@ -348,17 +354,30 @@ impl SettingsService {
     ///
     /// A disabled or absent configuration removes the current snapshot without
     /// changing the stored settings or credential.
+    ///
+    /// An enabled channel is resolved against the document configuration it
+    /// inherits from, and its credential is the channel's own one — or the
+    /// document credential when the effective endpoint is the document origin.
     pub(crate) fn apply_code_embedding_settings(
         &self,
         code: Option<&StoredRuntimeCodeEmbeddingSettings>,
+        document: Option<&DocumentEmbeddingSource>,
     ) -> Result<()> {
         let Some(code) = code.filter(|code| code.enabled) else {
             self.code_embedding.disable();
             return Ok(());
         };
+        let Some(effective) = resolve_code_settings(code, document) else {
+            self.code_embedding.disable();
+            return Err(DomainError::invalid_argument(
+                "runtime.code_embedding inherits an incomplete document embedding configuration",
+            )
+            .into());
+        };
+        let credential = channel_credential(code.api_key.clone(), &effective.base_url, document);
         self.install_code_embedding_config(&runtime_mappers::code_embedding_config(
-            code,
-            code.api_key.clone(),
+            &effective,
+            credential.api_key,
         ))
     }
 
@@ -377,17 +396,30 @@ impl SettingsService {
     ///
     /// A disabled or absent configuration removes the current snapshot without
     /// changing the stored settings or credential.
+    ///
+    /// An enabled channel is resolved against the document configuration it
+    /// inherits from, exactly like the code channel, and its collection name
+    /// resolves to the default image collection when it inherits it.
     pub(crate) async fn apply_image_embedding_settings(
         &self,
         image: Option<&StoredRuntimeImageEmbeddingSettings>,
+        document: Option<&DocumentEmbeddingSource>,
         qdrant: &crate::config::QdrantConfig,
     ) -> Result<()> {
         let Some(image) = image.filter(|image| image.enabled) else {
             self.image_embedding.disable().await;
             return Ok(());
         };
+        let Some(effective) = resolve_image_settings(image, document) else {
+            self.image_embedding.disable().await;
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding inherits an incomplete document embedding configuration",
+            )
+            .into());
+        };
+        let credential = channel_credential(image.api_key.clone(), &effective.base_url, document);
         self.install_image_embedding_config(
-            &runtime_mappers::image_embedding_config(image, image.api_key.clone()),
+            &runtime_mappers::image_embedding_config(&effective, credential.api_key),
             qdrant,
         )
         .await
@@ -537,20 +569,12 @@ impl SettingsService {
         // Presence only: a settings projection never opens a stored key, so it
         // stays truthful on a deployment that cannot decrypt.
         let has = self.embedding_secrets.is_present().await?;
-        let code = self.db.get_runtime_code_embedding_settings().await?;
-        let has_code_api_key = match code {
-            Some(_) => self.code_embedding_secrets.is_present().await?,
-            None => false,
-        };
         let has_s3_secret_key = match stored.file_library.s3.as_ref() {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
-        let image = self.db.get_runtime_image_embedding_settings().await?;
-        let has_image_api_key = match image {
-            Some(_) => self.image_embedding_secrets.is_present().await?,
-            None => false,
-        };
+        let document = DocumentEmbeddingSource::from_stored(&stored.embedding);
+        let (code, image) = self.optional_channel_responses(&document, has).await?;
         let requires_rebuild = self.requires_rebuild(&stored).await?;
         Ok(with_image_embedding(
             runtime_settings_response_with_code(
@@ -559,11 +583,59 @@ impl SettingsService {
                 has_s3_secret_key,
                 requires_rebuild,
                 code,
-                has_code_api_key,
             ),
             image,
-            has_image_api_key,
         ))
+    }
+
+    /// The optional channel blocks as the response reports them.
+    ///
+    /// The stored fields are the sparse overrides and the effective fields are
+    /// the values in effect after the inheritance resolution. The credential is
+    /// never part of the projection: only its presence and its source are.
+    async fn optional_channel_responses(
+        &self,
+        document: &DocumentEmbeddingSource,
+        has_document_api_key: bool,
+    ) -> Result<(
+        Option<crate::contracts::RuntimeCodeEmbeddingSettings>,
+        Option<crate::contracts::RuntimeImageEmbeddingSettings>,
+    )> {
+        let code = self.db.get_runtime_code_embedding_settings().await?;
+        let has_code_api_key = match code {
+            Some(_) => self.code_embedding_secrets.is_present().await?,
+            None => false,
+        };
+        let image = self.db.get_runtime_image_embedding_settings().await?;
+        let has_image_api_key = match image {
+            Some(_) => self.image_embedding_secrets.is_present().await?,
+            None => false,
+        };
+        let code = code.as_ref().map(|code| {
+            let effective = resolve_code_settings(code, Some(document));
+            let inherits = effective.as_ref().is_some_and(|effective| {
+                inherits_document_credential(
+                    has_code_api_key,
+                    has_document_api_key,
+                    &effective.base_url,
+                    &document.base_url,
+                )
+            });
+            code_embedding_response(code, effective.as_ref(), has_code_api_key, inherits)
+        });
+        let image = image.as_ref().map(|image| {
+            let effective = resolve_image_settings(image, Some(document));
+            let inherits = effective.as_ref().is_some_and(|effective| {
+                inherits_document_credential(
+                    has_image_api_key,
+                    has_document_api_key,
+                    &effective.base_url,
+                    &document.base_url,
+                )
+            });
+            image_embedding_response(image, effective.as_ref(), has_image_api_key, inherits)
+        });
+        Ok((code, image))
     }
 
     /// Prepares one known tokenizer preset.
@@ -703,14 +775,40 @@ impl SettingsService {
         let s3_patch = s3_secret_patch(request.file_library.s3.as_ref());
         let s3_secret_key = self.s3_secrets.resolve_and_merge(&s3_patch).await?;
 
+        // The document block of this request is the inheritance source of both
+        // optional channels. The candidate of this save is the source, never
+        // the stale persisted row, so a channel and the document it inherits
+        // from are always the ones this save installs together.
+        let document_source =
+            DocumentEmbeddingSource::from_update(&request.embedding, embedding_api_key.clone());
+
+        // The stored rows of both optional channels. They are read here so an
+        // omitted block can be re-resolved against the new document values
+        // without writing its own sparse overrides or secrets.
+        let existing_code = self.db.get_runtime_code_embedding_settings().await?;
+        let existing_image = self.db.get_runtime_image_embedding_settings().await?;
+
+        // An enabled image channel keeps writing its own collection even when
+        // this request omits its block, so the candidate document target is
+        // checked against the effective stored image destination before any
+        // write.
+        settings_validate::stored_channel_collections(request, existing_image.as_ref())?;
+
         // The code block is optional. When it is present, its own credential is
         // resolved and its own provider is built before anything is committed;
-        // when it is absent, no code secret is opened and no code row is
-        // written, so an ordinary document save cannot disable code embedding.
-        let stored_code = request
-            .code_embedding
-            .as_ref()
-            .map(stored_code_embedding_from_request);
+        // when it is absent, no code row is written, so an ordinary document
+        // save cannot disable code embedding.
+        let stored_code = request.code_embedding.as_ref().map(|code| {
+            let requested = stored_code_embedding_from_request(code);
+            if code.enabled {
+                requested
+            } else {
+                runtime_mappers::disabled_code_embedding_overrides(
+                    &requested,
+                    existing_code.as_ref(),
+                )
+            }
+        });
         let code_patch = request
             .code_embedding
             .as_ref()
@@ -723,24 +821,54 @@ impl SettingsService {
         let code_api_key = match &code_patch {
             Some(patch) if code_disabled && keeps_code_secret(patch) => None,
             Some(patch) => self.code_embedding_secrets.resolve_and_merge(patch).await?,
-            None => None,
+            // An omitted block keeps the stored credential: the enabled channel
+            // runs with it, so the re-resolved runtime needs it as well.
+            None => match existing_code.as_ref() {
+                Some(code) if code.enabled => self.code_embedding_secrets.resolve().await?,
+                _ => None,
+            },
         };
-        let code_candidate = match &stored_code {
-            Some(code) if code.enabled => {
-                let config = runtime_mappers::code_embedding_config(code, code_api_key.clone());
-                Some((build_code_provider(&config)?, config))
-            }
-            _ => None,
+        // The effective code configuration of this save: the request's block
+        // when it is present, and the stored row when it is omitted. An omitted
+        // block is never written, but an enabled channel that inherits still has
+        // to be re-resolved when the document it inherits from changed.
+        let code_overrides = match &stored_code {
+            Some(code) => code.clone(),
+            None => existing_code.clone().unwrap_or_default(),
+        };
+        let code_candidate = if code_overrides.enabled {
+            let effective = resolve_code_settings(&code_overrides, Some(&document_source))
+                .ok_or_else(|| {
+                    DomainError::invalid_argument(
+                        "runtime.code_embedding inherits an incomplete document embedding \
+                         configuration",
+                    )
+                })?;
+            let credential = channel_credential(
+                code_api_key.clone(),
+                &effective.base_url,
+                Some(&document_source),
+            );
+            let config = runtime_mappers::code_embedding_config(&effective, credential.api_key);
+            Some((build_code_provider(&config)?, config))
+        } else {
+            None
         };
 
         // The image block follows the same independent contract: an absent block
-        // skips every image write and never opens the image credential, while a
-        // present block resolves its own key and builds its own provider before
-        // anything commits.
-        let stored_image = request
-            .image_embedding
-            .as_ref()
-            .map(stored_image_embedding_from_request);
+        // skips every image write, while a present block resolves its own key
+        // and builds its own provider before anything commits.
+        let stored_image = request.image_embedding.as_ref().map(|image| {
+            let requested = stored_image_embedding_from_request(image);
+            if image.enabled {
+                requested
+            } else {
+                runtime_mappers::disabled_image_embedding_overrides(
+                    &requested,
+                    existing_image.as_ref(),
+                )
+            }
+        });
         let image_patch = request
             .image_embedding
             .as_ref()
@@ -753,15 +881,40 @@ impl SettingsService {
                     .resolve_and_merge(patch)
                     .await?
             }
-            None => None,
+            // An omitted block keeps the stored credential, exactly like the
+            // code channel.
+            None => match existing_image.as_ref() {
+                Some(image) if image.enabled => self.image_embedding_secrets.resolve().await?,
+                _ => None,
+            },
         };
-        let image_candidate = match &stored_image {
-            Some(image) if image.enabled => {
-                let config = runtime_mappers::image_embedding_config(image, image_api_key.clone());
-                Some((build_image_provider(&config)?, config))
-            }
-            _ => None,
+        let image_overrides = match &stored_image {
+            Some(image) => image.clone(),
+            None => existing_image.clone().unwrap_or_default(),
         };
+        let image_candidate = if image_overrides.enabled {
+            let effective = resolve_image_settings(&image_overrides, Some(&document_source))
+                .ok_or_else(|| {
+                    DomainError::invalid_argument(
+                        "runtime.image_embedding inherits an incomplete document embedding \
+                         configuration",
+                    )
+                })?;
+            let credential = channel_credential(
+                image_api_key.clone(),
+                &effective.base_url,
+                Some(&document_source),
+            );
+            let config = runtime_mappers::image_embedding_config(&effective, credential.api_key);
+            Some((build_image_provider(&config)?, config))
+        } else {
+            None
+        };
+        // A channel with a stored row is installed or disabled by this save,
+        // even when its own block is omitted: an inherited channel follows the
+        // document it inherits from.
+        let code_row_present = request.code_embedding.is_some() || existing_code.is_some();
+        let image_row_present = request.image_embedding.is_some() || existing_image.is_some();
         let qdrant_destination_changed = existing.as_ref().is_some_and(|existing| {
             normalize_endpoint(&request.qdrant.url) != normalize_endpoint(&existing.qdrant.url)
                 || request.qdrant.collection_name.trim() != existing.qdrant.collection_name.trim()
@@ -771,7 +924,7 @@ impl SettingsService {
         // request's Qdrant target. It is installed under the publication guard;
         // a final publisher never combines a pre-guard endpoint with a
         // post-guard collection.
-        let image_destination = match (&image_candidate, request.image_embedding.is_some()) {
+        let image_destination = match (&image_candidate, image_row_present) {
             (Some((_, config)), _) => Some(
                 crate::image_embedding_vectors::ImageVectorTarget::from_config(
                     &request.qdrant.url,
@@ -836,13 +989,14 @@ impl SettingsService {
         }
         // A committed image settings update takes the publication write side
         // before the settings transaction, so a final image write admitted
-        // after the commit observes the installed or disabled snapshot.
-        let mut image_publication =
-            if request.image_embedding.is_some() || qdrant_destination_changed {
-                Some(self.image_embedding.publication_write().await)
-            } else {
-                None
-            };
+        // after the commit observes the installed or disabled snapshot. An
+        // inherited image channel is reinstalled too: its effective target can
+        // change with the document it inherits from.
+        let mut image_publication = if image_row_present || qdrant_destination_changed {
+            Some(self.image_embedding.publication_write().await)
+        } else {
+            None
+        };
         let saved = match &planned_ack {
             Some(ack) => {
                 self.db
@@ -867,9 +1021,11 @@ impl SettingsService {
         };
 
         // A committed code update becomes the live snapshot before the save
-        // reports success. An omitted block leaves the current snapshot alone; a
-        // present disabled row removes it without touching the stored fields.
-        if request.code_embedding.is_some() {
+        // reports success. A channel with a stored row is installed or disabled
+        // even when its own block is omitted, so an inherited channel follows
+        // the document it inherits from; a present disabled row removes the
+        // snapshot without touching the stored fields.
+        if code_row_present {
             match code_candidate {
                 Some((provider, config)) => self.code_embedding.install(
                     provider,
@@ -881,9 +1037,10 @@ impl SettingsService {
         }
 
         // A committed image update becomes the live snapshot before the save
-        // reports success; an omitted block leaves it alone.
+        // reports success; an omitted block with a stored row follows the
+        // document it inherits from.
         if let Some(_guard) = image_publication.take() {
-            if request.image_embedding.is_some() {
+            if image_row_present {
                 match image_candidate {
                     Some((provider, config)) => self.image_embedding.install_locked(
                         provider,
@@ -943,20 +1100,16 @@ impl SettingsService {
             observer();
         }
         let has = self.embedding_secrets.is_present().await?;
-        let code = self.db.get_runtime_code_embedding_settings().await?;
-        let has_code_api_key = match code {
-            Some(_) => self.code_embedding_secrets.is_present().await?,
-            None => false,
-        };
         let has_s3_secret_key = match saved.file_library.s3.as_ref() {
             Some(_) => self.s3_secrets.is_present().await?,
             None => false,
         };
-        let image = self.db.get_runtime_image_embedding_settings().await?;
-        let has_image_api_key = match image {
-            Some(_) => self.image_embedding_secrets.is_present().await?,
-            None => false,
-        };
+        // The response reports the values that are in effect after this save, so
+        // the optional channels are resolved against the document block this
+        // request installed.
+        let (code, image) = self
+            .optional_channel_responses(&document_source, has)
+            .await?;
         let requires_rebuild = self.requires_rebuild(&saved).await?;
         Ok(with_image_embedding(
             runtime_settings_response_with_code(
@@ -965,10 +1118,8 @@ impl SettingsService {
                 has_s3_secret_key,
                 requires_rebuild,
                 code,
-                has_code_api_key,
             ),
             image,
-            has_image_api_key,
         ))
     }
 

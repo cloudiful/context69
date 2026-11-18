@@ -1277,6 +1277,58 @@ mod tests {
         }
     }
 
+    /// Every schema reference resolves to a registered schema.
+    ///
+    /// A nested contract type that is not registered would leave a dangling
+    /// reference in the published document, so the probe intent and the
+    /// optional channel blocks have to be part of the published components.
+    #[test]
+    fn openapi_has_no_dangling_schema_reference() {
+        let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");
+        let schemas = json
+            .pointer("/components/schemas")
+            .and_then(Value::as_object)
+            .expect("schemas to exist");
+        let raw = serde_json::to_string(&json).expect("openapi string");
+        for name in [
+            "TestRuntimeEmbeddingRequest",
+            "TestRuntimeEmbeddingKeyIntent",
+            "RuntimeCodeEmbeddingSettings",
+            "RuntimeImageEmbeddingSettings",
+            "UpdateCodeEmbeddingSettings",
+            "UpdateImageEmbeddingSettings",
+        ] {
+            assert!(
+                schemas.contains_key(name),
+                "schema must be published: {name}"
+            );
+        }
+        // Every local reference names a published schema.
+        let mut references = Vec::new();
+        collect_references(&raw, &mut references);
+        for reference in references {
+            let name = reference
+                .strip_prefix("#/components/schemas/")
+                .expect("a local schema reference");
+            assert!(
+                schemas.contains_key(name),
+                "OpenAPI references an unpublished schema: {name}"
+            );
+        }
+    }
+
+    fn collect_references(value: &str, references: &mut Vec<String>) {
+        let mut rest = value;
+        while let Some(start) = rest.find("\"#/components/schemas/") {
+            rest = &rest[start + "\"#/components/schemas/".len()..];
+            let Some(end) = rest.find('"') else {
+                break;
+            };
+            references.push(format!("#/components/schemas/{}", &rest[..end]));
+            rest = &rest[end..];
+        }
+    }
+
     #[test]
     fn openapi_has_no_duplicate_stream_or_source_key_schemas() {
         let json = serde_json::to_value(openapi_document()).expect("openapi to serialize");

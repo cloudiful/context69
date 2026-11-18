@@ -23,6 +23,12 @@ pub const DEFAULT_SESSION_VALKEY_URL: &str = "redis://127.0.0.1:6379";
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_TTL_SECS: u64 = 30;
 pub const DEFAULT_SCHEDULER_EXECUTION_GUARD_RENEW_INTERVAL_SECS: u64 = 10;
 pub const DEFAULT_SECRET_STORE_KEY_VERSION: u32 = 1;
+/// The default physical Qdrant collection image vectors live in.
+///
+/// An image channel that inherits its collection name resolves to this
+/// collection, so an enabled image channel always has a usable destination.
+pub const DEFAULT_IMAGE_COLLECTION_NAME: &str =
+    context69_contracts::settings::DEFAULT_IMAGE_COLLECTION_NAME;
 /// The default number of vector point ids the search registry admits for one
 /// file.
 pub const DEFAULT_REGISTRY_MAX_IDS_PER_FILE: i64 = 16384;

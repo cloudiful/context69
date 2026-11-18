@@ -4520,20 +4520,47 @@ export interface components {
         /**
          * @description The stored optional Git code embedding settings.
          *
-         *     This block is independent of the document embedding block: it never borrows
-         *     the document model, credential, or object. `has_api_key` is presence
-         *     metadata only; the credential is never returned.
+         *     The block stores sparse overrides: an absent field inherits the document
+         *     embedding configuration field by field, and the stored row never materializes
+         *     an inherited value. `has_api_key` is presence metadata for the code-owned
+         *     credential only; `inherits_document_api_key` says whether the credential in
+         *     effect is the document one. Neither field ever carries a credential.
          */
         RuntimeCodeEmbeddingSettings: {
-            base_url: string;
-            dimensions: number;
+            /** @description The stored endpoint override. Absent means the document endpoint. */
+            base_url?: string | null;
+            /** @description The stored dimension override. Absent means the document dimensions. */
+            dimensions?: number | null;
+            /** @description The endpoint in effect, resolved against the document configuration. */
+            effective_base_url: string;
+            /** @description The dimensions in effect, resolved against the document configuration. */
+            effective_dimensions: number;
+            /** @description The model in effect, resolved against the document configuration. */
+            effective_model: string;
+            /** @description The query model in effect, resolved against the document configuration. */
+            effective_query_model?: string | null;
+            /**
+             * Format: int64
+             * @description The timeout in effect, resolved against the document configuration.
+             */
+            effective_timeout_secs: number;
             enabled: boolean;
+            /** @description Whether the code-owned credential is stored. */
             has_api_key: boolean;
-            model: string;
-            /** @description The model code queries are embedded with. Absent means the code model. */
+            /** @description Whether the credential in effect is the inherited document credential. */
+            inherits_document_api_key: boolean;
+            /** @description The stored model override. Absent means the document model. */
+            model?: string | null;
+            /**
+             * @description The stored query model override. Absent means the document query model,
+             *     and a document without one means the effective code model.
+             */
             query_model?: string | null;
-            /** Format: int64 */
-            timeout_secs: number;
+            /**
+             * Format: int64
+             * @description The stored timeout override. Absent means the document timeout.
+             */
+            timeout_secs?: number | null;
         };
         RuntimeEmbeddingSettings: {
             base_url: string;
@@ -4565,24 +4592,56 @@ export interface components {
         /**
          * @description The stored optional image embedding settings.
          *
-         *     This block is independent of the document and code embedding blocks: it has
-         *     its own endpoint, model pair, credential and physical Qdrant collection. The
-         *     image model embeds stored image bytes; the query model embeds text queries
-         *     into the same space. `has_api_key` is presence metadata only.
+         *     The block stores sparse overrides exactly like the code block, and it keeps
+         *     its own physical Qdrant collection: an inherited collection name resolves to
+         *     the default image collection, never to the document or code collection.
+         *     `has_api_key` is presence metadata for the image-owned credential only.
          */
         RuntimeImageEmbeddingSettings: {
-            base_url: string;
-            /** @description The independent physical Qdrant collection image vectors live in. */
-            collection_name: string;
-            dimensions: number;
+            /** @description The stored endpoint override. Absent means the document endpoint. */
+            base_url?: string | null;
+            /**
+             * @description The stored collection override. Absent means the default image
+             *     collection.
+             */
+            collection_name?: string | null;
+            /** @description The stored dimension override. Absent means the document dimensions. */
+            dimensions?: number | null;
+            /** @description The endpoint in effect, resolved against the document configuration. */
+            effective_base_url: string;
+            /**
+             * @description The physical collection in effect. An inherited collection name resolves
+             *     to the default image collection.
+             */
+            effective_collection_name: string;
+            /** @description The dimensions in effect, resolved against the document configuration. */
+            effective_dimensions: number;
+            /** @description The model in effect, resolved against the document configuration. */
+            effective_model: string;
+            /** @description The query model in effect, resolved against the document configuration. */
+            effective_query_model?: string | null;
+            /**
+             * Format: int64
+             * @description The timeout in effect, resolved against the document configuration.
+             */
+            effective_timeout_secs: number;
             enabled: boolean;
+            /** @description Whether the image-owned credential is stored. */
             has_api_key: boolean;
-            /** @description The model image bytes are embedded with. */
-            model: string;
-            /** @description The model text queries are embedded with. Absent means the image model. */
+            /** @description Whether the credential in effect is the inherited document credential. */
+            inherits_document_api_key: boolean;
+            /** @description The stored model override. Absent means the document model. */
+            model?: string | null;
+            /**
+             * @description The stored query model override. Absent means the document query model,
+             *     and a document without one means the effective image model.
+             */
             query_model?: string | null;
-            /** Format: int64 */
-            timeout_secs: number;
+            /**
+             * Format: int64
+             * @description The stored timeout override. Absent means the document timeout.
+             */
+            timeout_secs?: number | null;
         };
         RuntimeQdrantSettings: {
             collection_name: string;
@@ -5670,6 +5729,14 @@ export interface components {
             safe_endpoint?: string | null;
         };
         /**
+         * @description The credential a probe may use when it carries no key of its own.
+         *
+         *     The intent never changes what is stored: the probe resolves a credential and
+         *     uses it for that call only.
+         * @enum {string}
+         */
+        TestRuntimeEmbeddingKeyIntent: "stored" | "inherited";
+        /**
          * @description The independent embedding configuration a probe targets.
          * @enum {string}
          */
@@ -5677,24 +5744,51 @@ export interface components {
         /**
          * @description The non-persisting embedding provider probe.
          *
-         *     An absent `api_key` falls back to the stored key for the selected purpose, so
-         *     a saved deployment can be tested without re-entering the credential; a
-         *     submitted key is used as given and never written.
+         *     The request carries the same sparse values a save would store: an absent or
+         *     blank field inherits the document embedding configuration, and the unsaved
+         *     document draft in `document_*` is the inheritance source for that probe. A
+         *     probe never persists or installs anything it resolves.
+         *
+         *     An absent `api_key` falls back to the stored credential for the selected
+         *     purpose, so a saved deployment can be tested without re-entering the
+         *     credential; a submitted key is used as given and never written.
          */
         TestRuntimeEmbeddingRequest: {
             api_key?: string | null;
-            base_url: string;
-            dimensions: number;
-            model: string;
+            /** @description The endpoint under test. Absent or blank inherits the document endpoint. */
+            base_url?: string | null;
+            /** @description The dimensions under test. Absent inherits the document dimensions. */
+            dimensions?: number | null;
+            document_api_key?: components["schemas"]["SecretPatch"] | null;
+            /** @description The unsaved document endpoint used as the inheritance source. */
+            document_base_url?: string | null;
+            /** @description The unsaved document dimensions used as the inheritance source. */
+            document_dimensions?: number | null;
+            /** @description The unsaved document model used as the inheritance source. */
+            document_model?: string | null;
+            /** @description The unsaved document query model used as the inheritance source. */
+            document_query_model?: string | null;
+            /**
+             * Format: int64
+             * @description The unsaved document timeout used as the inheritance source.
+             */
+            document_timeout_secs?: number | null;
+            key_intent?: components["schemas"]["TestRuntimeEmbeddingKeyIntent"] | null;
+            /** @description The model under test. Absent or blank inherits the document model. */
+            model?: string | null;
             /** @description Which independent embedding configuration the probe exercises. */
             purpose?: components["schemas"]["TestRuntimeEmbeddingPurpose"];
             /**
              * @description The model queries are embedded with. An absent or blank value means the
-             *     document model.
+             *     document query model, and a document without one means the model under
+             *     test.
              */
             query_model?: string | null;
-            /** Format: int64 */
-            timeout_secs: number;
+            /**
+             * Format: int64
+             * @description The timeout under test. Absent inherits the document timeout.
+             */
+            timeout_secs?: number | null;
         };
         /**
          * @description A non-persisting Qdrant connectivity probe.
@@ -5920,20 +6014,33 @@ export interface components {
         /**
          * @description The optional code embedding update.
          *
-         *     The tri-state secret patch follows the settings contract: `keep` retains the
-         *     stored code credential, `set` replaces it, and `clear` removes it. Disabling
-         *     the block keeps every non-secret field and the credential unless the caller
+         *     The block is the complete desired override set: an absent or blank field
+         *     inherits the document value, so the update clears that override instead of
+         *     keeping it. The tri-state secret patch follows the settings contract:
+         *     `keep` retains the stored code credential, `set` replaces it, and `clear`
+         *     removes it and restores the same-origin document credential. Disabling the
+         *     block keeps every field it carries and the credential unless the caller
          *     explicitly clears the key.
          */
         UpdateCodeEmbeddingSettings: {
             api_key?: components["schemas"]["SecretPatch"];
-            base_url: string;
-            dimensions: number;
+            /** @description The endpoint override. Absent or blank inherits the document endpoint. */
+            base_url?: string | null;
+            /** @description The dimension override. Absent inherits the document dimensions. */
+            dimensions?: number | null;
             enabled: boolean;
-            model: string;
+            /** @description The model override. Absent or blank inherits the document model. */
+            model?: string | null;
+            /**
+             * @description The query model override. Absent or blank inherits the document query
+             *     model, and a document without one means the effective code model.
+             */
             query_model?: string | null;
-            /** Format: int64 */
-            timeout_secs: number;
+            /**
+             * Format: int64
+             * @description The timeout override. Absent inherits the document timeout.
+             */
+            timeout_secs?: number | null;
         };
         UpdateDoclingConnectionSettings: {
             base_url: string;
@@ -6040,21 +6147,37 @@ export interface components {
         /**
          * @description The optional image embedding update.
          *
-         *     The tri-state secret patch follows the settings contract: `keep` retains the
-         *     stored image credential, `set` replaces it, and `clear` removes it.
-         *     Disabling the block keeps every non-secret field and the credential unless
-         *     the caller explicitly clears the key.
+         *     The block is the complete desired override set, exactly like the code block:
+         *     an absent or blank field inherits the document value. The tri-state secret
+         *     patch follows the settings contract: `keep` retains the stored image
+         *     credential, `set` replaces it, and `clear` removes it and restores the
+         *     same-origin document credential. Disabling the block keeps every field it
+         *     carries and the credential unless the caller explicitly clears the key.
          */
         UpdateImageEmbeddingSettings: {
             api_key?: components["schemas"]["SecretPatch"];
-            base_url: string;
-            collection_name: string;
-            dimensions: number;
+            /** @description The endpoint override. Absent or blank inherits the document endpoint. */
+            base_url?: string | null;
+            /**
+             * @description The collection override. Absent or blank resolves to the default image
+             *     collection.
+             */
+            collection_name?: string | null;
+            /** @description The dimension override. Absent inherits the document dimensions. */
+            dimensions?: number | null;
             enabled: boolean;
-            model: string;
+            /** @description The model override. Absent or blank inherits the document model. */
+            model?: string | null;
+            /**
+             * @description The query model override. Absent or blank inherits the document query
+             *     model, and a document without one means the effective image model.
+             */
             query_model?: string | null;
-            /** Format: int64 */
-            timeout_secs: number;
+            /**
+             * Format: int64
+             * @description The timeout override. Absent inherits the document timeout.
+             */
+            timeout_secs?: number | null;
         };
         UpdateMetadataIndexRequest: {
             data_type: components["schemas"]["MetadataDataType"];

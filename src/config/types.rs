@@ -132,13 +132,21 @@ pub struct Config {
     pub app_db: AppDbConfig,
     pub qdrant: QdrantConfig,
     pub embedding: EmbeddingConfig,
-    /// The optional, independent Git code embedding configuration.
+    /// The optional Git code embedding configuration.
     ///
-    /// Disabled when absent. It never borrows the document embedding block.
+    /// Disabled when absent. A declared block of a file configuration is
+    /// complete on its own and is validated as such, so it does not inherit
+    /// the document embedding block. The stored runtime settings are the sparse
+    /// ones: a field they do not override inherits the document embedding
+    /// value, while the code vectors stay in their own vector space.
     pub code_embedding: Option<EmbeddingConfig>,
-    /// The optional, independent image embedding configuration.
+    /// The optional image embedding configuration.
     ///
-    /// Disabled when absent. It never borrows the document or code block.
+    /// Disabled when absent. A declared block of a file configuration is
+    /// complete on its own and is validated as such, so it does not inherit
+    /// the document or code block. The stored runtime settings are the sparse
+    /// ones: a field they do not override inherits the document embedding
+    /// value, while the image vectors stay in their own collection.
     pub image_embedding: Option<ImageEmbeddingConfig>,
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
@@ -215,10 +223,12 @@ pub struct EmbeddingConfig {
     pub timeout: Duration,
 }
 
-/// The optional, independent image embedding configuration.
+/// The optional image embedding configuration.
 ///
-/// Image vectors live in their own physical Qdrant collection and never borrow
-/// the document endpoint, model, credential, or collection.
+/// Image vectors live in their own physical Qdrant collection, and the
+/// document and code collections are never reused. A file configuration states
+/// its own endpoint, model, credential, and collection, while the stored
+/// runtime settings may inherit the document embedding value field by field.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImageEmbeddingConfig {
     pub base_url: String,
@@ -232,6 +242,10 @@ pub struct ImageEmbeddingConfig {
     #[serde(rename = "timeout_secs", with = "serde_helpers::seconds")]
     pub timeout: Duration,
     /// The independent physical Qdrant collection image vectors live in.
+    ///
+    /// An absent or blank namespace resolves to the default image collection,
+    /// so a deployment never has to repeat it.
+    #[serde(default = "default_image_collection_name")]
     pub collection_name: String,
 }
 
@@ -355,6 +369,11 @@ impl Default for McpConfig {
 
 pub(super) fn default_mcp_bind_addr() -> String {
     DEFAULT_MCP_BIND_ADDR.to_string()
+}
+
+/// The default physical Qdrant collection image vectors live in.
+pub(super) fn default_image_collection_name() -> String {
+    super::defaults::DEFAULT_IMAGE_COLLECTION_NAME.to_string()
 }
 
 /// Configuration that describes the stored ciphertext rather than holding a
@@ -482,6 +501,18 @@ impl Default for Config {
     }
 }
 
+/// The image configuration of a deployment file.
+///
+/// A blank collection name resolves to the default image collection, so a
+/// deployment never has to repeat it and an enabled image channel always has a
+/// usable destination.
+fn normalize_image_embedding_config(mut config: ImageEmbeddingConfig) -> ImageEmbeddingConfig {
+    if config.collection_name.trim().is_empty() {
+        config.collection_name = super::defaults::DEFAULT_IMAGE_COLLECTION_NAME.to_string();
+    }
+    config
+}
+
 impl TryFrom<FileConfig> for Config {
     type Error = anyhow::Error;
 
@@ -499,7 +530,9 @@ impl TryFrom<FileConfig> for Config {
             qdrant: file_config.qdrant,
             embedding: file_config.embedding,
             code_embedding: file_config.code_embedding,
-            image_embedding: file_config.image_embedding,
+            image_embedding: file_config
+                .image_embedding
+                .map(normalize_image_embedding_config),
             docling: file_config.docling.map(normalize_docling_config),
             auth: file_config.auth,
             file_library: file_config.file_library,

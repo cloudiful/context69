@@ -10,6 +10,8 @@
 use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
+use super::SecretPatch;
+
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TestRuntimeValkeyRequest {
     pub valkey_url: String,
@@ -27,24 +29,72 @@ pub struct TestRuntimeQdrantRequest {
 
 /// The non-persisting embedding provider probe.
 ///
-/// An absent `api_key` falls back to the stored key for the selected purpose, so
-/// a saved deployment can be tested without re-entering the credential; a
-/// submitted key is used as given and never written.
+/// The request carries the same sparse values a save would store: an absent or
+/// blank field inherits the document embedding configuration, and the unsaved
+/// document draft in `document_*` is the inheritance source for that probe. A
+/// probe never persists or installs anything it resolves.
+///
+/// An absent `api_key` falls back to the stored credential for the selected
+/// purpose, so a saved deployment can be tested without re-entering the
+/// credential; a submitted key is used as given and never written.
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct TestRuntimeEmbeddingRequest {
     /// Which independent embedding configuration the probe exercises.
     #[serde(default)]
     pub purpose: TestRuntimeEmbeddingPurpose,
-    pub base_url: String,
-    pub model: String,
+    /// The endpoint under test. Absent or blank inherits the document endpoint.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_url: Option<String>,
+    /// The model under test. Absent or blank inherits the document model.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
     /// The model queries are embedded with. An absent or blank value means the
-    /// document model.
+    /// document query model, and a document without one means the model under
+    /// test.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
+    /// The dimensions under test. Absent inherits the document dimensions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dimensions: Option<usize>,
+    /// The timeout under test. Absent inherits the document timeout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
+    /// The credential the probe may use when it carries no key of its own.
+    ///
+    /// The default uses the stored own-purpose credential when it belongs to the
+    /// origin under test. `Inherited` tests the inherited document credential
+    /// instead, so a pending clear is probed against the credential that would
+    /// actually be in effect — never against the cleared one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key_intent: Option<TestRuntimeEmbeddingKeyIntent>,
+    /// The unsaved document credential of the probe's inheritance source.
+    ///
+    /// The probe never persists it. `Keep` (the default, and an absent field)
+    /// means the document draft carries no replacement key, so only the stored
+    /// document credential applies, and only at its persisted origin. `Set`
+    /// carries a key the operator entered for this call only; it is used when
+    /// the endpoint under test is the document draft origin, exactly the
+    /// credential the same save would install. `Clear` describes a draft that
+    /// removed the document credential, so no inherited credential is used.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_api_key: Option<SecretPatch>,
+    /// The unsaved document endpoint used as the inheritance source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_base_url: Option<String>,
+    /// The unsaved document model used as the inheritance source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_model: Option<String>,
+    /// The unsaved document query model used as the inheritance source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_query_model: Option<String>,
+    /// The unsaved document dimensions used as the inheritance source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_dimensions: Option<usize>,
+    /// The unsaved document timeout used as the inheritance source.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document_timeout_secs: Option<u64>,
 }
 
 /// The independent embedding configuration a probe targets.
@@ -55,6 +105,23 @@ pub enum TestRuntimeEmbeddingPurpose {
     Document,
     Code,
     Image,
+}
+
+/// The credential a probe may use when it carries no key of its own.
+///
+/// The intent never changes what is stored: the probe resolves a credential and
+/// uses it for that call only.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum TestRuntimeEmbeddingKeyIntent {
+    /// Use the stored own-purpose credential, but only when it belongs to the
+    /// origin under test.
+    #[default]
+    Stored,
+    /// Test the inherited document credential. The stored own-purpose credential
+    /// is not used, so a pending clear is probed against the credential that
+    /// would be in effect after the clear.
+    Inherited,
 }
 
 /// A non-persisting LLM provider probe.

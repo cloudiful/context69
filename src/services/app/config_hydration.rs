@@ -40,13 +40,24 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
     super::runtime_settings::import_legacy_runtime_if_needed(db, config, &secrets).await?;
     let settings = SettingsService::with_secrets(db.clone(), secrets.clone());
     let runtime = super::runtime_settings::load_runtime_settings(db, &secrets).await?;
+    // The document configuration is the inheritance source of both optional
+    // channels, so it is resolved once and handed to every one of them.
+    let document = runtime.as_ref().map(|runtime| {
+        crate::services::settings::inheritance::DocumentEmbeddingSource::from_stored(
+            &runtime.embedding,
+        )
+    });
     if let Some(runtime) = &runtime {
         super::runtime_settings::apply_runtime_settings(config, runtime);
     }
     match super::runtime_settings::load_code_embedding_settings(db, &secrets).await? {
         Some(code) => {
-            super::runtime_settings::apply_code_embedding_settings(config, &code);
-            settings.apply_code_embedding_settings(Some(&code))?;
+            super::runtime_settings::apply_code_embedding_settings(
+                config,
+                &code,
+                document.as_ref(),
+            );
+            settings.apply_code_embedding_settings(Some(&code), document.as_ref())?;
         }
         None => {
             if let Some(code) = &config.code_embedding {
@@ -56,9 +67,13 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
     }
     match super::runtime_settings::load_image_embedding_settings(db, &secrets).await? {
         Some(image) => {
-            super::runtime_settings::apply_image_embedding_settings(config, &image);
+            super::runtime_settings::apply_image_embedding_settings(
+                config,
+                &image,
+                document.as_ref(),
+            );
             settings
-                .apply_image_embedding_settings(Some(&image), &config.qdrant)
+                .apply_image_embedding_settings(Some(&image), document.as_ref(), &config.qdrant)
                 .await?;
         }
         None => {

@@ -37,10 +37,12 @@ export type DraftRuntimeSettings = {
     timeout_secs: number;
   };
   /**
-   * The independent optional Git code embedding draft.
+   * The optional Git code embedding draft.
    *
-   * `touched` is frontend-only: an ordinary document save omits the block so it
-   * can never disable code embedding, while any code edit carries it.
+   * Every provider field is an override: a blank one inherits the document
+   * configuration field by field. `touched` is frontend-only: an ordinary
+   * document save omits the block so it can never disable code embedding,
+   * while any code edit carries it.
    */
   code_embedding: {
     enabled: boolean;
@@ -49,21 +51,28 @@ export type DraftRuntimeSettings = {
     model: string;
     /** The model code queries are embedded with; blank inherits the code model. */
     query_model: string;
-    dimensions: number;
-    timeout_secs: number;
+    /** The dimension override; null inherits the document dimensions. */
+    dimensions: number | null;
+    /** The timeout override; null inherits the document timeout. */
+    timeout_secs: number | null;
     /** Whether the response reported a stored code credential. */
     has_api_key: boolean;
+    /** Whether the credential in effect is the inherited document credential. */
+    inherits_document_api_key: boolean;
     /** An explicit request to remove the stored code credential. */
     clear_api_key: boolean;
     touched: boolean;
   };
   /**
-   * The independent optional image embedding draft.
+   * The optional image embedding draft.
    *
-   * `touched` is frontend-only: an ordinary document or code save omits the
-   * block so it can never disable image embedding, while any image edit
-   * carries it. The collection name is a namespace, not a physical collection:
-   * the backend derives the physical collection from the runtime fingerprint.
+   * Every provider field is an override: a blank one inherits the document
+   * configuration field by field, while the collection name falls back to the
+   * default image namespace. `touched` is frontend-only: an ordinary document
+   * or code save omits the block so it can never disable image embedding,
+   * while any image edit carries it. The collection name is a namespace, not
+   * a physical collection: the backend derives the physical collection from
+   * the runtime fingerprint.
    */
   image_embedding: {
     enabled: boolean;
@@ -73,12 +82,16 @@ export type DraftRuntimeSettings = {
     model: string;
     /** The model text queries are embedded with; blank inherits the image model. */
     query_model: string;
-    dimensions: number;
-    timeout_secs: number;
+    /** The dimension override; null inherits the document dimensions. */
+    dimensions: number | null;
+    /** The timeout override; null inherits the document timeout. */
+    timeout_secs: number | null;
     /** The namespace image vectors live under. */
     collection_name: string;
     /** Whether the response reported a stored image credential. */
     has_api_key: boolean;
+    /** Whether the credential in effect is the inherited document credential. */
+    inherits_document_api_key: boolean;
     /** An explicit request to remove the stored image credential. */
     clear_api_key: boolean;
     touched: boolean;

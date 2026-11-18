@@ -16,6 +16,10 @@ use crate::{
         secret_store::SecretStore,
         settings::code_embedding_config,
         settings::image_embedding_config,
+        settings::inheritance::{
+            DocumentEmbeddingSource, channel_credential, resolve_code_settings,
+            resolve_image_settings,
+        },
         settings::secrets::{SettingsSecrets, optional_key_patch},
         settings::stored_chunk_budget,
     },
@@ -217,13 +221,24 @@ pub async fn load_code_embedding_settings(
 ///
 /// A disabled row keeps no `code_embedding` block: the non-secret fields stay in
 /// the database, but the live configuration does not create a provider.
+///
+/// An enabled row is resolved against the document configuration it inherits
+/// from, and its credential is the code-owned one — or the document credential
+/// when the effective endpoint is the document origin.
 pub fn apply_code_embedding_settings(
     config: &mut Config,
     code: &StoredRuntimeCodeEmbeddingSettings,
+    document: Option<&DocumentEmbeddingSource>,
 ) {
-    config.code_embedding = code
-        .enabled
-        .then(|| code_embedding_config(code, code.api_key.clone()));
+    config.code_embedding = if code.enabled {
+        resolve_code_settings(code, document).map(|effective| {
+            let credential =
+                channel_credential(code.api_key.clone(), &effective.base_url, document);
+            code_embedding_config(&effective, credential.api_key)
+        })
+    } else {
+        None
+    };
 }
 
 /// Loads the persisted optional image embedding settings with the image key
@@ -248,13 +263,24 @@ pub async fn load_image_embedding_settings(
 }
 
 /// Applies the persisted image block to the effective configuration.
+///
+/// An enabled row is resolved against the document configuration it inherits
+/// from, exactly like the code block, and its collection name resolves to the
+/// default image collection when it inherits it.
 pub fn apply_image_embedding_settings(
     config: &mut Config,
     image: &StoredRuntimeImageEmbeddingSettings,
+    document: Option<&DocumentEmbeddingSource>,
 ) {
-    config.image_embedding = image
-        .enabled
-        .then(|| image_embedding_config(image, image.api_key.clone()));
+    config.image_embedding = if image.enabled {
+        resolve_image_settings(image, document).map(|effective| {
+            let credential =
+                channel_credential(image.api_key.clone(), &effective.base_url, document);
+            image_embedding_config(&effective, credential.api_key)
+        })
+    } else {
+        None
+    };
 }
 
 /// The same read for paths that must not write while they initialize.

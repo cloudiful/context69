@@ -1,10 +1,14 @@
 //! The process-wide handle to the optional image embedding provider.
 //!
-//! Image embedding is independent of the document and code embedding runtimes:
-//! it has its own configuration, credential, immutable snapshot, and physical
-//! Qdrant collection, and it never borrows a document value. The handle
-//! publishes one complete snapshot at a time, so a reader clones either the
-//! previous or the next provider/config/fingerprint triple and can never mix
+//! Image embedding keeps its own purpose: its own configuration, its own
+//! purpose-owned credential, its own immutable snapshot, and its own physical
+//! Qdrant collection. A field the image block does not override inherits the
+//! document embedding value, an inherited collection name resolves to the
+//! default image collection, and an image block without a stored credential
+//! uses the document credential when the effective endpoint is the document
+//! origin — the image vectors are never the document or the code vectors. The
+//! handle publishes one complete snapshot at a time, so a reader clones either
+//! the previous or the next provider/config/fingerprint triple and can never mix
 //! fields from two installations.
 //!
 //! A task item that starts after an install keeps the snapshot it captured;
