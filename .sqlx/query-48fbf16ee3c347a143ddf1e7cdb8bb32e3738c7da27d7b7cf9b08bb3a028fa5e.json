@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Permanently delete the locked task rows of a bounded permanent-delete set.\n--\n-- `$1` is the locked task id set. The rows are deleted without a further\n-- eligibility predicate: the set was locked and re-checked under that lock\n-- by the caller, so the deletion removes exactly the rows the caller decided\n-- to remove. The items, the attempts and the library ingest runs of the tasks\n-- are removed by the ON DELETE CASCADE of their foreign keys.\nDELETE FROM context69.tasks task\nWHERE task.id = ANY($1::uuid[])\nRETURNING task.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "48fbf16ee3c347a143ddf1e7cdb8bb32e3738c7da27d7b7cf9b08bb3a028fa5e"
+}

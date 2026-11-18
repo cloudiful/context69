@@ -101,8 +101,13 @@ impl Database {
             // Only the authorized candidate ids may reach the purge lock,
             // cleanup outbox and delete. A requested id the caller cannot
             // manage never enters this subset, so it is never mutated and the
-            // batch reports it as masked/not found.
-            TaskLifecycleMutation::Purge => self.purge_tasks_in(&mut tx, &manageable).await?,
+            // batch reports it as masked/not found. The purge works on the
+            // snapshot of the trashed ids, so a task that is trashed after
+            // the request began is not purged by this request.
+            TaskLifecycleMutation::Purge => self
+                .purge_tasks_in(&mut tx, &trashed)
+                .await
+                .map_err(super::execution::map_permanent_delete_conflict)?,
             _ if eligible.is_empty() => Vec::new(),
             TaskLifecycleMutation::Cancel => self.cancel_tasks_in(&mut tx, &eligible).await?,
             TaskLifecycleMutation::Trash => {
@@ -192,33 +197,80 @@ impl Database {
     /// Permanently delete the authorized trashed rows inside the caller's
     /// transaction.
     ///
-    /// `task_ids` must already be scoped to the rows the caller can manage.
-    /// The still-trashed subset is locked first; a concurrent restore either
-    /// commits before that lock (and the row is not a purge target) or waits
-    /// for this transaction. Cleanup is enqueued only for the locked targets,
-    /// before the cascade, so a row that left the trash never gets a purge
-    /// cleanup row and a purged row still gets its remote terminated.
+    /// `snapshot_ids` must already be scoped to the rows the caller can
+    /// manage and that were trashed when the request began. The items of
+    /// exactly those rows are locked first, in item id order, so the item
+    /// locks always precede the task locks and the native locks. The
+    /// still-trashed subset is locked next with the authoritative gate; a
+    /// concurrent restore either commits before that lock (and the row is not
+    /// a purge target) or waits for this transaction.
+    ///
+    /// The native queue records of the locked targets are deleted in the same
+    /// transaction, the cleanup is enqueued only for the locked targets before
+    /// the cascade, and a row that left the trash never gets a purge cleanup
+    /// row or a native deletion, while a purged row still gets its remote
+    /// terminated.
     async fn purge_tasks_in(
         &self,
         tx: &mut Transaction<'_, Postgres>,
-        task_ids: &[Uuid],
+        snapshot_ids: &[Uuid],
     ) -> Result<Vec<Uuid>> {
+        if snapshot_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        sqlx::query_file_scalar!("src/sql/db/tasks/lock_purge_task_items.sql", snapshot_ids)
+            .fetch_all(&mut **tx)
+            .await?;
         let locked: Vec<Uuid> =
-            sqlx::query_file_scalar!("src/sql/db/tasks/lock_trashed_tasks.sql", task_ids)
+            sqlx::query_file_scalar!("src/sql/db/tasks/lock_trashed_tasks.sql", snapshot_ids)
                 .fetch_all(&mut **tx)
                 .await?;
         if locked.is_empty() {
             return Ok(locked);
         }
+        self.permanent_delete_tasks_in(tx, &locked).await
+    }
+
+    /// Permanently delete the locked task rows of a permanent-delete set.
+    ///
+    /// The helper is shared by the purge of the recycle bin and by the
+    /// user-scoped clear of the task history, so both paths delete the native
+    /// queue records, enqueue the cleanup and remove the domain rows in one
+    /// transaction and in one order.
+    ///
+    /// `task_ids` must already be locked and re-checked by the caller. The
+    /// native identifiers of exactly these tasks are collected first: the
+    /// current segment of every item, the segment of every historical attempt
+    /// and the segment of every library ingest run. Every distinct native
+    /// task is then deleted through the queue of the library, which refuses an
+    /// active native task and rolls the whole transaction back. The cleanup is
+    /// enqueued for exactly these tasks, and the domain rows are deleted last.
+    pub(crate) async fn permanent_delete_tasks_in(
+        &self,
+        tx: &mut Transaction<'_, Postgres>,
+        task_ids: &[Uuid],
+    ) -> Result<Vec<Uuid>> {
+        if task_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let native_ids: Vec<Option<Uuid>> =
+            sqlx::query_file_scalar!("src/sql/db/tasks/collect_native_task_ids.sql", task_ids)
+                .fetch_all(&mut **tx)
+                .await?;
+        let native_ids: Vec<Uuid> = native_ids.into_iter().flatten().collect();
+        if !native_ids.is_empty() {
+            let queue = self.execution_queue().await?;
+            super::execution::delete_native_tasks_in(queue, &mut *tx, &native_ids).await?;
+        }
         sqlx::query_file_scalar!(
             "src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_tasks.sql",
-            &locked,
+            task_ids,
             "purge",
         )
         .fetch_all(&mut **tx)
         .await?;
         Ok(
-            sqlx::query_file_scalar!("src/sql/db/tasks/delete_trashed_tasks.sql", &locked)
+            sqlx::query_file_scalar!("src/sql/db/tasks/delete_locked_tasks.sql", task_ids)
                 .fetch_all(&mut **tx)
                 .await?,
         )

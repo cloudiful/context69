@@ -1,0 +1,28 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lock the domain items of a bounded permanent-delete set.\n--\n-- `$1` is the task id set. The items are locked in ascending item id order,\n-- so two overlapping permanent deletions take the same item locks in one\n-- deterministic order. The item locks are taken before the task rows and\n-- before the native queue rows, which keeps the canonical item -> task order\n-- of the permanent-delete path.\nSELECT item.id\nFROM context69.task_items item\nWHERE item.task_id = ANY($1::uuid[])\nORDER BY item.id\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.task_items",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "4ba19d626c9a9370f0c534d0b6b2a87b122e683cad17f659ed579e2d32cc51b6"
+}

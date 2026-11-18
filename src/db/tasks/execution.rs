@@ -28,6 +28,7 @@ use time::OffsetDateTime;
 use uuid::Uuid;
 
 use crate::db::Database;
+use crate::domain_errors::DomainError;
 
 /// Converts a library `time` timestamp to the chrono type of the Context69
 /// schemas. Both sides are Unix-epoch seconds at nanosecond precision, so the
@@ -329,6 +330,106 @@ struct RecoveredItem {
     released_parent_leases: Option<i64>,
 }
 
+/// The error codes of a PostgreSQL lock conflict.
+///
+/// A deadlock, a serialization failure and a lock timeout are all transient
+/// conflicts of the permanent-delete path: the transaction is rolled back and
+/// the caller may retry the request.
+const RETRYABLE_LOCK_CONFLICT_CODES: [&str; 3] = ["40P01", "40001", "55P03"];
+
+/// Deletes the native queue tasks of a permanent deletion in the transaction of
+/// the caller.
+///
+/// The library locks every native task and reads its status under that lock:
+/// a terminal task is deleted with its attempt history, an active task is
+/// refused, and a task that is already gone is reported as deleted. The
+/// deletion is only durable when the caller commits the transaction, so the
+/// native history and the domain rows never disagree.
+///
+/// A native task that is still active is a conflict of the whole request: the
+/// caller rolls its transaction back, so neither the native history nor the
+/// domain rows of the other tasks of the request are deleted. A permanent
+/// deletion never requests or forces a cancellation of such a task.
+pub(crate) async fn delete_native_tasks_in(
+    queue: &Queue,
+    transaction: &mut Transaction<'_, Postgres>,
+    native_ids: &[Uuid],
+) -> Result<()> {
+    for native_id in native_ids {
+        match queue
+            .delete_in(&mut *transaction, TaskId::from_uuid(*native_id))
+            .await
+        {
+            Ok(_) => {}
+            // A native task that is already gone is an idempotent success:
+            // the domain rows of the request may still be deleted.
+            Err(cloudiful_tasks::Error::NotFound) => {}
+            Err(cloudiful_tasks::Error::InvalidTaskState {
+                task_id, status, ..
+            }) => {
+                return Err(DomainError::conflict(format!(
+                    "native task {task_id} is {status}; permanent deletion is refused until it is terminal"
+                ))
+                .into());
+            }
+            Err(error) => return Err(anyhow::Error::new(error)),
+        }
+    }
+    Ok(())
+}
+
+/// The PostgreSQL error code of an error, when it carries one.
+fn postgres_error_code(error: &(dyn std::error::Error + 'static)) -> Option<String> {
+    if let Some(sqlx_error) = error.downcast_ref::<sqlx::Error>() {
+        return sqlx_error
+            .as_database_error()
+            .and_then(|database_error| database_error.code())
+            .map(|code| code.into_owned());
+    }
+    if let Some(library_error) = error.downcast_ref::<cloudiful_tasks::Error>()
+        && let cloudiful_tasks::Error::Database(database_error) = library_error
+    {
+        return postgres_error_code(database_error);
+    }
+    if let Some(database_error) = error.downcast_ref::<sea_orm::DbErr>() {
+        return match database_error {
+            sea_orm::DbErr::Query(runtime_error) => match runtime_error {
+                sea_orm::error::RuntimeErr::SqlxError(sqlx_error) => sqlx_error
+                    .as_database_error()
+                    .and_then(|database_error| database_error.code())
+                    .map(|code| code.into_owned()),
+                _ => None,
+            },
+            _ => None,
+        };
+    }
+    error.source().and_then(postgres_error_code)
+}
+
+/// Whether the error of the permanent-delete path is a transient lock
+/// conflict of PostgreSQL.
+fn is_retryable_lock_conflict(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        postgres_error_code(cause)
+            .is_some_and(|code| RETRYABLE_LOCK_CONFLICT_CODES.contains(&code.as_str()))
+    })
+}
+
+/// Maps a transient lock conflict of the permanent-delete path to the typed
+/// conflict of the API.
+///
+/// The error is never swallowed: a conflict of PostgreSQL becomes a conflict
+/// of the request, and every other error keeps its own cause.
+pub(crate) fn map_permanent_delete_conflict(error: anyhow::Error) -> anyhow::Error {
+    if is_retryable_lock_conflict(&error) {
+        return DomainError::conflict(
+            "the task history was modified concurrently; retry the request",
+        )
+        .into();
+    }
+    error
+}
+
 impl Database {
     /// Produces the library segment of one queued item and links it.
     ///
@@ -411,5 +512,81 @@ impl Database {
                 .await?;
         }
         Ok(outcome)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::borrow::Cow;
+
+    use super::{is_retryable_lock_conflict, map_permanent_delete_conflict};
+    use crate::domain_errors::status_for_error;
+
+    /// A database error with a fixed SQLSTATE code.
+    #[derive(Debug)]
+    struct CodedDatabaseError(&'static str);
+
+    impl std::fmt::Display for CodedDatabaseError {
+        fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            formatter.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for CodedDatabaseError {}
+
+    impl sqlx::error::DatabaseError for CodedDatabaseError {
+        fn message(&self) -> &str {
+            "lock conflict"
+        }
+
+        fn code(&self) -> Option<Cow<'_, str>> {
+            Some(Cow::Borrowed(self.0))
+        }
+
+        fn kind(&self) -> sqlx::error::ErrorKind {
+            sqlx::error::ErrorKind::Other
+        }
+
+        fn as_error(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn as_error_mut(&mut self) -> &mut (dyn std::error::Error + Send + Sync + 'static) {
+            self
+        }
+
+        fn into_error(self: Box<Self>) -> Box<dyn std::error::Error + Send + Sync + 'static> {
+            self
+        }
+    }
+
+    fn database_error(code: &'static str) -> anyhow::Error {
+        anyhow::Error::new(sqlx::Error::Database(Box::new(CodedDatabaseError(code))))
+    }
+
+    #[test]
+    fn transient_lock_conflicts_become_a_typed_conflict() {
+        for code in ["40P01", "40001", "55P03"] {
+            let error = database_error(code);
+            assert!(is_retryable_lock_conflict(&error), "{code} is a conflict");
+            let mapped = map_permanent_delete_conflict(error);
+            assert_eq!(
+                status_for_error(&mapped),
+                axum::http::StatusCode::CONFLICT,
+                "{code} must be reported as a conflict"
+            );
+        }
+    }
+
+    #[test]
+    fn other_database_errors_keep_their_own_cause() {
+        let error = database_error("23505");
+        assert!(!is_retryable_lock_conflict(&error));
+        let mapped = map_permanent_delete_conflict(error);
+        assert_ne!(
+            status_for_error(&mapped),
+            axum::http::StatusCode::CONFLICT,
+            "a unique violation is not a lock conflict"
+        );
     }
 }

@@ -110,30 +110,59 @@ impl Database {
     }
 
     /// Bulk-clear the calling user's history for one view in a single
-    /// user-scoped DELETE. `view` is `completed` or `trash`; any other value
-    /// deletes nothing. Completed matches only untrashed `succeeded` rows;
+    /// user-scoped transaction. `view` is `completed` or `trash`; any other
+    /// value clears nothing. Completed matches only untrashed `succeeded` rows;
     /// trash matches only trashed terminal rows. Active rows, other users'
     /// rows, files, documents, vectors, and S3 objects are never touched.
     /// Idempotent: a repeat call deletes zero rows.
-    /// P2: enqueues still-active remotes for affected tasks before the cascade.
+    ///
+    /// The eligible rows are snapshotted first, their items are locked next
+    /// and the eligibility is re-checked under that lock afterwards, so only
+    /// the rows of the snapshot are cleared. The native queue records of the
+    /// cleared rows are deleted in the same transaction, and the durable
+    /// cleanup is enqueued for exactly the cleared rows before the cascade.
     pub async fn clear_user_task_history(&self, user_id: i64, view: &str) -> Result<u64> {
+        self.clear_user_task_history_in(user_id, view)
+            .await
+            .map_err(super::execution::map_permanent_delete_conflict)
+    }
+
+    /// The transaction of one bulk clear of the calling user's history.
+    async fn clear_user_task_history_in(&self, user_id: i64, view: &str) -> Result<u64> {
         let mut tx = self.pool().begin().await?;
-        sqlx::query_file_scalar!(
-            "src/sql/db/tasks/docling_remote_cleanup/enqueue_cleanup_for_user_history.sql",
+        let snapshot: Vec<Uuid> = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/snapshot_user_history_tasks.sql",
             user_id,
             view
         )
         .fetch_all(&mut *tx)
         .await?;
-        let result = sqlx::query_file!(
-            "src/sql/db/tasks/clear_user_task_history.sql",
+        if snapshot.is_empty() {
+            tx.commit().await?;
+            return Ok(0);
+        }
+        // The items are locked before the task rows and before the native
+        // rows, in the same order as the purge of the recycle bin.
+        sqlx::query_file_scalar!("src/sql/db/tasks/lock_purge_task_items.sql", &snapshot)
+            .fetch_all(&mut *tx)
+            .await?;
+        // Only the snapshot rows that are still eligible are cleared: a task
+        // that became eligible after the snapshot is outside this request.
+        let locked: Vec<Uuid> = sqlx::query_file_scalar!(
+            "src/sql/db/tasks/lock_user_history_tasks.sql",
+            &snapshot,
             user_id,
             view
         )
-        .execute(&mut *tx)
+        .fetch_all(&mut *tx)
         .await?;
+        if locked.is_empty() {
+            tx.commit().await?;
+            return Ok(0);
+        }
+        let deleted = self.permanent_delete_tasks_in(&mut tx, &locked).await?;
         tx.commit().await?;
-        Ok(result.rows_affected())
+        Ok(deleted.len() as u64)
     }
 
     /// Frees the barrier of an explicitly discarded terminal rebuild.

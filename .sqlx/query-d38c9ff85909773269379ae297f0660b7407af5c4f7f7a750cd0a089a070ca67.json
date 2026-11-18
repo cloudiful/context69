@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The user-scoped history rows of one view at the start of a bulk clear.\n--\n-- `$1` is the calling user and `$2` the view. The scope is exactly the scope\n-- of the clear: completed (untrashed succeeded) or trash (trashed terminal).\n-- Any other view matches nothing.\n--\n-- The rows are read without a lock. This is the snapshot of the clear: the\n-- items of exactly these rows are locked next, and only these ids are\n-- re-checked under a lock afterwards, so a task that becomes eligible in\n-- between stays outside this transaction.\nSELECT task.id\nFROM context69.tasks task\nWHERE task.user_id = $1\n  AND (\n    ($2::text = 'completed'\n      AND task.deleted_at IS NULL\n      AND task.status = 'succeeded')\n    OR ($2::text = 'trash'\n      AND task.deleted_at IS NOT NULL\n      AND task.status IN ('succeeded', 'failed', 'cancelled'))\n  )\nORDER BY task.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "d38c9ff85909773269379ae297f0660b7407af5c4f7f7a750cd0a089a070ca67"
+}
