@@ -851,7 +851,7 @@ dependencies = [
 [[package]]
 name = "cloudiful-tasks"
 version = "0.1.0"
-source = "git+https://github.com/cloudiful/tasks?rev=ddf2fd4facb3f914c00ce03c646530c4bf51ddd9#ddf2fd4facb3f914c00ce03c646530c4bf51ddd9"
+source = "git+https://github.com/cloudiful/tasks?rev=1a9a4b71f00b114b4c7bda3ed84dd143992efa68#1a9a4b71f00b114b4c7bda3ed84dd143992efa68"
 dependencies = [
  "async-trait",
  "sea-orm",
@@ -3814,7 +3814,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror",
  "tokio",
  "tracing",
@@ -3853,7 +3853,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]

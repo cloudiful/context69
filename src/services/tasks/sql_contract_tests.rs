@@ -295,20 +295,21 @@ fn task_stage_filter_and_sort_share_the_effective_focus_stage() {
 
 #[test]
 fn clear_user_task_history_sql_is_user_scoped_and_view_guarded() {
-    let sql = include_str!("../../sql/db/tasks/clear_user_task_history.sql");
+    let sql = include_str!("../../sql/db/tasks/snapshot_user_history_tasks.sql");
+    let lock = include_str!("../../sql/db/tasks/lock_user_history_tasks.sql");
+    let delete = include_str!("../../sql/db/tasks/delete_locked_tasks.sql");
     let code: String = sql
         .lines()
         .filter(|line| !line.trim_start().starts_with("--"))
         .collect::<Vec<_>>()
         .join("\n");
     assert!(
-        code.contains("DELETE FROM context69.tasks"),
-        "clear SQL must delete only task rows"
+        code.contains("SELECT task.id"),
+        "clear SQL must select the eligible task rows"
     );
-    assert_eq!(
-        code.matches("DELETE FROM").count(),
-        1,
-        "clear SQL must be a single DELETE statement"
+    assert!(
+        !code.contains("DELETE FROM"),
+        "the snapshot must not delete; the locked set is deleted separately"
     );
     assert!(
         code.contains("user_id = $1"),
@@ -343,6 +344,18 @@ fn clear_user_task_history_sql_is_user_scoped_and_view_guarded() {
             "clear SQL must not directly touch {forbidden}; history cascades, files stay"
         );
     }
+    assert!(
+        lock.contains("FOR UPDATE") && lock.contains("user_id = $2"),
+        "the locked set must be re-checked under the lock, still user scoped"
+    );
+    assert!(
+        delete.contains("DELETE FROM context69.tasks"),
+        "the deletion must remove the locked task rows"
+    );
+    assert!(
+        !delete.contains("deleted_at") && !delete.contains("status"),
+        "the deletion must not repeat the eligibility predicate of the lock"
+    );
 }
 
 #[test]

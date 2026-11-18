@@ -1,0 +1,30 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- Lock the still-eligible history rows of one view after their items are\n-- locked.\n--\n-- `$1` is the snapshot id set, `$2` the calling user and `$3` the view. The\n-- scope is exactly the scope of the clear and of the snapshot: completed\n-- (untrashed succeeded) or trash (trashed terminal). Any other view matches\n-- nothing.\n--\n-- The rows are locked in id order, so the eligibility, the native deletion,\n-- the cleanup targets and the reported count are all derived from the locked\n-- result and never from the earlier snapshot.\nSELECT task.id\nFROM context69.tasks task\nWHERE task.id = ANY($1::uuid[])\n  AND task.user_id = $2\n  AND (\n    ($3::text = 'completed'\n      AND task.deleted_at IS NULL\n      AND task.status = 'succeeded')\n    OR ($3::text = 'trash'\n      AND task.deleted_at IS NOT NULL\n      AND task.status IN ('succeeded', 'failed', 'cancelled'))\n  )\nORDER BY task.id\nFOR UPDATE\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": {
+          "Table": {
+            "table": "context69.tasks",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "bf36eb4cdadf5a971e230b745a5cf603a8af5d7431c63450d89b7fe30418f1f7"
+}

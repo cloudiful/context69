@@ -67,6 +67,51 @@ Foreign-key ownership is unchanged. The models declare empty relation enums,
 so referential integrity, cascade behaviour and every constraint remain owned
 by the existing schema exactly as the migrations define them.
 
+### Library schema protocol
+
+`crates/context69-db-schema` bootstraps the `cloudiful_tasks` schema through the
+pinned `cloudiful-tasks` library, which implements schema protocol 5. The
+protocol adds `tasks_terminal_finished_idx`, a partial index over terminal tasks
+selected by finished time; the upgrade is additive and preserves every task,
+attempt, payload and lease. `bootstrap_library_schema` remains the only
+migration owner at writable normal startup and in `db_init`, and the read-side
+compatibility check used by cutover readiness accepts only the exact protocol
+version.
+
+A protocol-5 schema is refused by a protocol-4 consumer, so an upgrade stops
+every old client on that database before the new bootstrap runs. Do not run
+mixed protocol versions during a rollout, and do not promise a rollback after
+the new version has written. The pin activates no data reset and no retention:
+the library exposes only an opt-in retention runner, Context69 does not start
+it, so task history is still never deleted automatically.
+
+## Permanent deletion of the task history
+
+The permanent-delete paths of the task history — the purge of the recycle bin
+and the user-scoped clear of the completed or trash view — delete the native
+queue records of the tasks in the same transaction as the domain rows.
+
+- The native identifiers are only read.
+  `src/sql/db/tasks/collect_native_task_ids.sql` returns the current segment
+  of every item, the segment of every historical attempt and the segment of
+  every library ingest run of the locked tasks, as one distinct set.
+- The native rows are deleted through the queue of the `cloudiful-tasks`
+  library (`Queue::delete_in`), which locks the native task, reads its status
+  under that lock and refuses a task that is still active. A refusal is a
+  conflict of the whole request: the transaction is rolled back, and the path
+  never requests or forces a cancellation.
+- The order of the path is item -> task -> native. The items are locked first
+  (`src/sql/db/tasks/lock_purge_task_items.sql`), the eligible task rows are
+  locked and re-checked next (`src/sql/db/tasks/lock_trashed_tasks.sql`,
+  `src/sql/db/tasks/lock_user_history_tasks.sql`), and the native rows are
+  deleted before the domain rows are removed
+  (`src/sql/db/tasks/delete_locked_tasks.sql`).
+- The durable docling cleanup is enqueued for exactly the locked tasks
+  (`src/sql/db/tasks/docling_remote_jobs/enqueue_cleanup_for_tasks.sql`)
+  before the cascade.
+- A deadlock, a serialization failure and a lock timeout are reported as a
+  conflict of the request. No automatic retry loop exists.
+
 ## Retained SQLx statements
 
 | Family | Where | Why it stays SQLx |

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "-- The native queue tasks of a bounded permanent-delete set.\n--\n-- `$1` is the task id set. The identifiers are the current execution segment\n-- of every item, the execution segment of every historical attempt and the\n-- execution segment of every library ingest run of the tasks. The result is\n-- the distinct set in ascending order, so one native task is deleted once\n-- even when several domain rows point at it.\n--\n-- Only the identifiers are read here. The native rows themselves are deleted\n-- through the queue of the library, never by a statement of this schema, and\n-- no payload is scanned.\nSELECT DISTINCT native.execution_task_id AS id\nFROM (\n    SELECT item.execution_task_id\n    FROM context69.task_items item\n    WHERE item.task_id = ANY($1::uuid[])\n      AND item.execution_task_id IS NOT NULL\n    UNION\n    SELECT attempt.execution_task_id\n    FROM context69.task_attempts attempt\n    WHERE attempt.task_id = ANY($1::uuid[])\n      AND attempt.execution_task_id IS NOT NULL\n    UNION\n    SELECT run.execution_task_id\n    FROM context69.library_ingest_runs run\n    WHERE run.task_id = ANY($1::uuid[])\n      AND run.execution_task_id IS NOT NULL\n) AS native\nORDER BY id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid",
+        "origin": "Expression"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e0e9ee905e2c4a6da88168ab07322a484089608938a177bb9e4fac0860480233"
+}
