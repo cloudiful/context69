@@ -374,6 +374,22 @@ impl LibraryService {
         // epoch-locked transaction.
         let (purge_target, captured_index) =
             self.require_delete_purge_target(write.connection()).await?;
+        // The image group scope is acquired before the folder row. A replacement
+        // that moves a file into this folder holds that group scope and needs
+        // the folder row for its FK check, so taking the folder row first would
+        // deadlock against it.
+        let Some(folder_scope) = self
+            .store
+            .get_folder(folder_id)
+            .await?
+            .filter(|folder| project_id.is_none_or(|project_id| folder.group_id == project_id))
+        else {
+            write.rollback().await;
+            return Err(DomainError::not_found(format!("unknown folder {folder_id}")).into());
+        };
+        self.db
+            .lock_image_vector_scopes_in(write.connection(), folder_scope.group_id, &[], &[])
+            .await?;
         let Some(folder) = self
             .store
             .lock_folder_for_delete_on(write.connection(), folder_id, project_id)
@@ -390,9 +406,24 @@ impl LibraryService {
             None => self.descendant_file_ids(folder_id).await?,
         };
         file_ids.sort();
+        // The shared image-vector scopes and every per-file processing slot are
+        // taken before any link or origin cleanup, in the same order an image
+        // write uses. A write of a subtree file then either finishes first and
+        // has its origin scheduled below, or sees the removed row and stops.
+        self.db
+            .lock_image_vector_scopes_in(write.connection(), folder.group_id, &file_ids, &[])
+            .await?;
+        crate::db::lock_file_processing_slots(write.connection(), &file_ids).await?;
         // The documents of the whole subtree are removed in one statement, so
         // a file that joined the subtree after the enumeration loses its
         // documents too.
+        self.store
+            .delete_image_document_links_for_folder_subtree_on(
+                write.connection(),
+                folder.group_id,
+                folder_id,
+            )
+            .await?;
         self.store
             .delete_documents_for_folder_subtree_on(write.connection(), folder.group_id, folder_id)
             .await?;
@@ -420,6 +451,10 @@ impl LibraryService {
                     purge_target.as_ref(),
                 )
                 .await?;
+            // Recorded before the file row disappears: the target query reads
+            // the file's media type and current links.
+            self.record_image_vector_deletion_for_file(write.connection(), file.group_id, file.id)
+                .await?;
             let deleted = match project_id {
                 Some(project_id) => {
                     self.store
@@ -435,6 +470,9 @@ impl LibraryService {
             if !deleted {
                 continue;
             }
+            self.store
+                .delete_image_document_links_for_file_on(write.connection(), file.group_id, file.id)
+                .await?;
             self.record_source_cleanup_intent(
                 write.connection(),
                 file.group_id,

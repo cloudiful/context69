@@ -6,7 +6,7 @@ pub use context69_contracts_library::{ingest, library};
 pub use context69_contracts_mcp::{code, mcp, projections};
 pub use context69_contracts_namespace::namespace;
 pub use context69_contracts_results::document_results;
-pub use context69_contracts_search::{documents, search};
+pub use context69_contracts_search::{documents, images, search};
 pub use context69_contracts_settings::settings;
 pub use context69_contracts_sources::sources;
 pub use context69_contracts_tasks::tasks;
@@ -96,6 +96,14 @@ pub use context69_contracts_search::documents::{
     MetadataIndexResponse, MetadataIndexStatus, MetadataValueKind, SortOrder,
     UpdateMetadataIndexRequest,
 };
+pub use context69_contracts_search::images::{
+    DocumentImageListResponse, DocumentImageOccurrence, DocumentImageOccurrenceWithParent,
+    IMAGE_DOCUMENT_LIST_MAX, IMAGE_SEARCH_LIMIT_DEFAULT, IMAGE_SEARCH_LIMIT_MAX,
+    IMAGE_SEARCH_QUERY_MAX_CHARS, IMAGE_UNLINK_ITEMS_MAX, ImageOccurrenceRole, ImageSearchHit,
+    ImageSearchRequest, ImageSearchResponse, ImageUnlinkOutcome, UnlinkDocumentImageItem,
+    UnlinkDocumentImageResult, UnlinkDocumentImagesRequest, UnlinkDocumentImagesResponse,
+    default_image_search_limit,
+};
 pub use context69_contracts_search::search::{
     CanonicalSearchRequest, DocumentChunkResponse, DocumentResponse, SearchHit, SearchMode,
     SearchRequest, SearchResponse, SearchSort,
@@ -130,16 +138,17 @@ pub use context69_contracts_tasks::docling::{
 pub use context69_contracts_tasks::tasks::{
     CancelActiveTasksResponse, CanonicalTaskListQuery, ClearTaskHistoryRequest,
     ClearTaskHistoryResponse, ClearTaskHistoryView, DeleteBatchRequest, EnsureScopeResponse,
-    FileBatchItem, FileBatchRequest, FileRetryItem, RerunTaskResponse, ScopeMetadataIndex,
-    ScopeSpec, TASK_BATCH_LIFECYCLE_MAX, TASK_BATCH_RERUN_MAX, TASK_BATCH_RETRY_MAX,
-    TASK_STREAM_IDS_MAX, TaskAttemptView, TaskBatchLifecycleItem, TaskBatchLifecycleOutcome,
-    TaskBatchLifecycleReason, TaskBatchLifecycleRequest, TaskBatchLifecycleResponse,
-    TaskBatchRerunItem, TaskBatchRerunOutcome, TaskBatchRerunReason, TaskBatchRerunRequest,
-    TaskBatchRerunResponse, TaskBatchRetryItem, TaskBatchRetryOutcome, TaskBatchRetryReason,
-    TaskBatchRetryRequest, TaskBatchRetryResponse, TaskBatchTrashRequest, TaskConsistencyReport,
-    TaskDiagnoseItem, TaskDiagnoseParent, TaskDiagnoseResponse, TaskItemProgress, TaskItemResponse,
-    TaskItemStatus, TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView,
-    TaskOrigin, TaskPageResponse, TaskProgress, TaskQueueStateResponse, TaskRef, TaskResponse,
+    FileBatchItem, FileBatchRequest, FileRetryItem, ImageBatchItem, ImageBatchRequest,
+    RerunTaskResponse, ScopeMetadataIndex, ScopeSpec, TASK_BATCH_LIFECYCLE_MAX,
+    TASK_BATCH_RERUN_MAX, TASK_BATCH_RETRY_MAX, TASK_STREAM_IDS_MAX, TaskAttemptView,
+    TaskBatchLifecycleItem, TaskBatchLifecycleOutcome, TaskBatchLifecycleReason,
+    TaskBatchLifecycleRequest, TaskBatchLifecycleResponse, TaskBatchRerunItem,
+    TaskBatchRerunOutcome, TaskBatchRerunReason, TaskBatchRerunRequest, TaskBatchRerunResponse,
+    TaskBatchRetryItem, TaskBatchRetryOutcome, TaskBatchRetryReason, TaskBatchRetryRequest,
+    TaskBatchRetryResponse, TaskBatchTrashRequest, TaskConsistencyReport, TaskDiagnoseItem,
+    TaskDiagnoseParent, TaskDiagnoseResponse, TaskItemProgress, TaskItemResponse, TaskItemStatus,
+    TaskItemsQuery, TaskItemsResponse, TaskKind, TaskListQuery, TaskListView, TaskOrigin,
+    TaskPageResponse, TaskProgress, TaskQueueStateResponse, TaskRef, TaskResponse,
     TaskRetryResponse, TaskSortBy, TaskStatus, TaskStreamDone, TaskStreamEvent, TaskStreamQuery,
     TaskStreamSnapshot, TaskStreamUpdate, TaskSubmitRequest, TextBatchRequest,
     TranslationSubmitItem, UpdateTaskQueueStateRequest, UrlBatchRequest,

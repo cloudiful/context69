@@ -9,11 +9,13 @@ use crate::{
         RegistryQuotaConfig, SchedulerConfig,
     },
     db::{
-        Database, StoredDoclingSettings, StoredRuntimeCodeEmbeddingSettings, StoredRuntimeSettings,
+        Database, StoredDoclingSettings, StoredRuntimeCodeEmbeddingSettings,
+        StoredRuntimeImageEmbeddingSettings, StoredRuntimeSettings,
     },
     services::{
         secret_store::SecretStore,
         settings::code_embedding_config,
+        settings::image_embedding_config,
         settings::secrets::{SettingsSecrets, optional_key_patch},
         settings::stored_chunk_budget,
     },
@@ -222,6 +224,37 @@ pub fn apply_code_embedding_settings(
     config.code_embedding = code
         .enabled
         .then(|| code_embedding_config(code, code.api_key.clone()));
+}
+
+/// Loads the persisted optional image embedding settings with the image key
+/// resolved from its own purpose.
+///
+/// An explicitly disabled row keeps its retained credential unopened, exactly
+/// like the code block.
+pub async fn load_image_embedding_settings(
+    db: &Database,
+    store: &SecretStore,
+) -> Result<Option<StoredRuntimeImageEmbeddingSettings>> {
+    let Some(mut image) = db.get_runtime_image_embedding_settings().await? else {
+        return Ok(None);
+    };
+    if !image.enabled {
+        return Ok(Some(image));
+    }
+    image.api_key = SettingsSecrets::image_embedding(store.clone())
+        .resolve()
+        .await?;
+    Ok(Some(image))
+}
+
+/// Applies the persisted image block to the effective configuration.
+pub fn apply_image_embedding_settings(
+    config: &mut Config,
+    image: &StoredRuntimeImageEmbeddingSettings,
+) {
+    config.image_embedding = image
+        .enabled
+        .then(|| image_embedding_config(image, image.api_key.clone()));
 }
 
 /// The same read for paths that must not write while they initialize.

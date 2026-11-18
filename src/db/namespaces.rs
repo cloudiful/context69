@@ -684,6 +684,23 @@ impl Database {
                 "git_group_owned_state_present"
             )));
         }
+        // Image vectors and links have no foreign key to the group, so they are
+        // cleaned explicitly in this transaction. The shared image-vector scopes
+        // are taken before any image write can register a new origin, and every
+        // recorded origin becomes an exact deletion target before the group rows
+        // disappear. No current setting is consulted.
+        self.lock_image_vector_scopes_in(&mut tx, existing.id, &[], &[])
+            .await?;
+        self.schedule_image_vector_deletions_for_group_in(&mut tx, existing.id)
+            .await?;
+        self.delete_image_vector_origins_for_group_in(&mut tx, existing.id)
+            .await?;
+        sqlx::query(include_str!(
+            "../sql/db/library_image_documents/delete_for_group.sql"
+        ))
+        .bind(existing.id)
+        .execute(&mut *tx)
+        .await?;
         sqlx::query_file!("src/sql/db/namespaces/delete_group.sql", existing.id)
             .execute(&mut *tx)
             .await?;

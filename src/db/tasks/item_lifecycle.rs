@@ -18,6 +18,19 @@ use super::types::{
     TaskItemArtifactRow, WaitTaskItemRequest,
 };
 
+/// The guarded identity of one running task-item file binding.
+///
+/// Grouping the fence keeps the caller-transaction binding signature narrow
+/// without weakening the exact run identity the guarded SQL statement checks.
+#[derive(Debug, Clone, Copy)]
+pub struct TaskItemFileFence {
+    pub task_id: Uuid,
+    pub item_id: Uuid,
+    pub token: Uuid,
+    pub execution_task_id: Uuid,
+    pub execution_generation: i64,
+}
+
 /// Whether the library refused the transition because the caller no longer
 /// owns the lease of the segment.
 ///
@@ -568,6 +581,37 @@ impl Database {
             recompute_parent(&mut tx, task_id).await?;
         }
         tx.commit().await?;
+        Ok(updated)
+    }
+
+    /// Binds the file of one running task item on a caller transaction.
+    ///
+    /// The guarded item statement and the caller's content/mutation commit
+    /// together, so an image file row is never visible without the task file
+    /// association that authorizes it.
+    pub async fn set_task_item_file_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        fence: TaskItemFileFence,
+        file_id: Uuid,
+    ) -> Result<bool> {
+        let updated = sqlx::query_file!(
+            "src/sql/db/tasks/set_file.sql",
+            fence.item_id,
+            fence.token,
+            file_id,
+            fence.execution_task_id,
+            fence.execution_generation
+        )
+        .execute(&mut *connection)
+        .await?
+        .rows_affected()
+            > 0;
+        if updated {
+            sqlx::query_file!("src/sql/db/tasks/recompute.sql", fence.task_id)
+                .execute(&mut *connection)
+                .await?;
+        }
         Ok(updated)
     }
 

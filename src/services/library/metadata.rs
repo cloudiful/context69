@@ -133,26 +133,74 @@ impl LibraryService {
         file_id: Uuid,
         metadata: &crate::contracts::CanonicalUploadMetadata,
     ) -> Result<crate::domain::LibraryFileRecord> {
-        let metadata_value = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
         let caps = self.registry_caps();
-        let capture = self.capture_metadata_vector();
         let mut tx = self.db.pool().begin().await?;
+        let updated = self
+            .apply_file_business_metadata_in(&mut tx, file_id, metadata)
+            .await?;
+        tx.commit().await?;
+        if caps.is_none() {
+            self.bump_search_generation("library file business metadata update")
+                .await?;
+        }
+        Ok(updated)
+    }
+
+    /// The business metadata rewrite on a caller transaction.
+    ///
+    /// An image replacement commits its content, metadata, and old-origin
+    /// retirement on one transaction, so this helper never commits or bumps the
+    /// search generation itself.
+    pub(super) async fn apply_file_business_metadata_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
+    ) -> Result<crate::domain::LibraryFileRecord> {
         // The registry epoch is locked before the file row, so a publication
         // that admits a registry entry never holds a file lock while it waits
         // for the epoch and every registry writer takes the same order. The
         // guard also proves the captured pair against an active index; a
         // deployment without one publishes metadata only.
-        let mirror = self.guard_metadata_mutation(&mut tx, &capture).await?;
+        let mirror = self.prepare_file_metadata_mutation(connection).await?;
+        self.apply_file_business_metadata_guarded_in(connection, file_id, metadata, mirror)
+            .await
+    }
+
+    /// Takes the existing registry/rebuild guard once, before any image
+    /// group/file/row lock that participates in the same mutation.
+    pub(super) async fn prepare_file_metadata_mutation(
+        &self,
+        connection: &mut sqlx::PgConnection,
+    ) -> Result<bool> {
+        let capture = self.capture_metadata_vector();
+        self.guard_metadata_mutation(connection, &capture).await
+    }
+
+    /// The business metadata rewrite after the caller already took the registry
+    /// guard.
+    pub(super) async fn apply_file_business_metadata_guarded_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        file_id: Uuid,
+        metadata: &crate::contracts::CanonicalUploadMetadata,
+        mirror: bool,
+    ) -> Result<crate::domain::LibraryFileRecord> {
+        let metadata_value = crate::contracts::metadata_object_to_value(&metadata.metadata_json);
+        let caps = self.registry_caps();
         let current = self
             .store
-            .lock_file_on(&mut tx, file_id)
+            .lock_file_on(connection, file_id)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))?;
-        let folder_path = folder_path_for_on(&self.store, &mut tx, current.folder_id).await?;
-        let mappings = self.store.list_file_documents_on(&mut tx, file_id).await?;
+        let folder_path = folder_path_for_on(&self.store, connection, current.folder_id).await?;
+        let mappings = self
+            .store
+            .list_file_documents_on(connection, file_id)
+            .await?;
         for definition in self
             .db
-            .list_metadata_indexes_on(&mut tx, current.group_id, FILE_LIBRARY_SOURCE_KEY)
+            .list_metadata_indexes_on(connection, current.group_id, FILE_LIBRARY_SOURCE_KEY)
             .await?
             .into_iter()
             .filter(|definition| definition.status == "ready")
@@ -173,24 +221,21 @@ impl LibraryService {
         }
         let updated = self
             .store
-            .update_business_metadata_in(&mut tx, current.group_id, file_id, metadata)
+            .update_business_metadata_in(connection, current.group_id, file_id, metadata)
             .await?
             .ok_or_else(|| DomainError::not_found(format!("unknown file {file_id}")))
             .map_err(anyhow::Error::from)?;
-        let publication = self.refresh_metadata_for_file_on(&mut tx, &updated).await?;
+        let publication = self
+            .refresh_metadata_for_file_on(connection, &updated)
+            .await?;
         if let Some(caps) = caps {
-            self.retire_invalidated_translations(&mut tx, file_id, &publication, caps)
+            self.retire_invalidated_translations(connection, file_id, &publication, caps)
                 .await?;
-            self.db.bump_search_generation_in(&mut tx).await?;
+            self.db.bump_search_generation_in(connection).await?;
         }
         if mirror {
             self.db
-                .enqueue_library_metadata_mirror_in(&mut tx, file_id)
-                .await?;
-        }
-        tx.commit().await?;
-        if caps.is_none() {
-            self.bump_search_generation("library file business metadata update")
+                .enqueue_library_metadata_mirror_in(connection, file_id)
                 .await?;
         }
         Ok(updated)

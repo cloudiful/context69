@@ -388,6 +388,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/batch/image": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submit_image_batch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/batch/text": {
         parameters: {
             query?: never;
@@ -468,6 +484,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/groups/by-path/{group_path}/documents/images/unlink": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["unlink_document_images"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/groups/by-path/{group_path}/documents/query": {
         parameters: {
             query?: never;
@@ -478,6 +510,22 @@ export interface paths {
         get?: never;
         put?: never;
         post: operations["query_group_documents"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/documents/{document_id}/images": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_document_images"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -734,6 +782,22 @@ export interface paths {
         get: operations["get_git_repository_webhook"];
         put: operations["create_git_webhook_registration"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/groups/by-path/{group_path}/images/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["search_images"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2599,6 +2663,43 @@ export interface components {
             record_hash: string;
             text: string;
         };
+        DocumentImageListResponse: {
+            /** Format: int64 */
+            document_id: number;
+            /** @description The bounded list stopped before every occurrence was read. */
+            has_more: boolean;
+            items: components["schemas"]["DocumentImageOccurrence"][];
+        };
+        /** @description One current image occurrence of a document. */
+        DocumentImageOccurrence: {
+            caption?: string | null;
+            context?: string | null;
+            external_id?: string | null;
+            /** Format: uuid */
+            file_id: string;
+            filename: string;
+            media_type: string;
+            /** Format: int32 */
+            ordinal: number;
+            role: components["schemas"]["ImageOccurrenceRole"];
+            sha256: string;
+            source_uri?: string | null;
+        };
+        /** @description One current parent occurrence of a search-hit image. */
+        DocumentImageOccurrenceWithParent: {
+            caption?: string | null;
+            context?: string | null;
+            /** Format: int64 */
+            document_id: number;
+            document_key: components["schemas"]["DocumentKey"];
+            document_source_uri: string;
+            /** Format: int32 */
+            ordinal: number;
+            role: components["schemas"]["ImageOccurrenceRole"];
+            /** @description The page or source that displayed this image occurrence. */
+            source_uri?: string | null;
+            title: string;
+        };
         DocumentKey: {
             external_id: string;
             source_key: string;
@@ -3766,6 +3867,81 @@ export interface components {
         /** @enum {string} */
         HealthStatus: "ok" | "degraded";
         /**
+         * @description One bounded image ingestion item.
+         *
+         *     Exactly one source is supplied: inline image bytes or an http(s) URL. A
+         *     `parent` names the group-scoped document the occurrence belongs to; a
+         *     missing parent fails that item and never creates a placeholder. The link
+         *     fields describe the occurrence, not the shared image bytes.
+         */
+        ImageBatchItem: {
+            caption?: string | null;
+            content_base64?: string | null;
+            context?: string | null;
+            declared_sha256?: string | null;
+            filename: string;
+            /** Format: uuid */
+            folder_id?: string | null;
+            media_type: string;
+            options?: components["schemas"]["IngestOptions"];
+            /** Format: int32 */
+            ordinal?: number;
+            parent?: components["schemas"]["DocumentKey"] | null;
+            role?: components["schemas"]["ImageOccurrenceRole"] | null;
+            /** @description The page that displayed the image. Falls back to `url`. */
+            source_uri?: string | null;
+            url?: string | null;
+        };
+        ImageBatchRequest: {
+            items: components["schemas"]["ImageBatchItem"][];
+        };
+        /**
+         * @description How one occurrence uses its image.
+         * @enum {string}
+         */
+        ImageOccurrenceRole: "cover" | "body";
+        /**
+         * @description One hydrated image search hit.
+         *
+         *     `parents` is empty for a standalone image. `has_more_parents` reports that
+         *     the bounded parent hydration stopped before every current link was read.
+         */
+        ImageSearchHit: {
+            external_id?: string | null;
+            /** Format: uuid */
+            file_id: string;
+            filename: string;
+            has_more_parents: boolean;
+            media_type: string;
+            parents: components["schemas"]["DocumentImageOccurrenceWithParent"][];
+            /** Format: float */
+            score: number;
+            sha256: string;
+        };
+        /**
+         * @description One visual search request inside a group scope.
+         *
+         *     `limit` is the number of image points requested. Hydration may return fewer
+         *     points when a candidate is stale; there is no total or pagination, so a
+         *     caller starts a new search instead of following a cursor.
+         */
+        ImageSearchRequest: {
+            limit?: number;
+            /** @description Optional supported image media type filter. */
+            media_type?: string | null;
+            query: string;
+        };
+        ImageSearchResponse: {
+            items: components["schemas"]["ImageSearchHit"][];
+        };
+        /**
+         * @description The per-item result of one unlink request.
+         *
+         *     A missing occurrence is idempotent success and reports `not_linked`.
+         * @enum {string}
+         */
+        ImageUnlinkOutcome: "unlinked" | "not_linked";
+        /**
          * @description v0.18 canonical URL import: ingest behavior is owned entirely by
          *     `options`. Flattened legacy fields are gone; unknown fields (including
          *     those legacy keys) are rejected.
@@ -4376,6 +4552,28 @@ export interface components {
             storage_root: string;
             trusted_proxy_enabled: boolean;
         };
+        /**
+         * @description The stored optional image embedding settings.
+         *
+         *     This block is independent of the document and code embedding blocks: it has
+         *     its own endpoint, model pair, credential and physical Qdrant collection. The
+         *     image model embeds stored image bytes; the query model embeds text queries
+         *     into the same space. `has_api_key` is presence metadata only.
+         */
+        RuntimeImageEmbeddingSettings: {
+            base_url: string;
+            /** @description The independent physical Qdrant collection image vectors live in. */
+            collection_name: string;
+            dimensions: number;
+            enabled: boolean;
+            has_api_key: boolean;
+            /** @description The model image bytes are embedded with. */
+            model: string;
+            /** @description The model text queries are embedded with. Absent means the image model. */
+            query_model?: string | null;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         RuntimeQdrantSettings: {
             collection_name: string;
             recreate_on_dimension_mismatch: boolean;
@@ -4403,6 +4601,7 @@ export interface components {
             code_embedding?: components["schemas"]["RuntimeCodeEmbeddingSettings"] | null;
             embedding: components["schemas"]["RuntimeEmbeddingSettings"];
             file_library: components["schemas"]["RuntimeFileLibrarySettings"];
+            image_embedding?: components["schemas"]["RuntimeImageEmbeddingSettings"] | null;
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             /**
              * @description True when the persisted vector identity does not match the stored
@@ -5083,7 +5282,7 @@ export interface components {
             next_cursor?: string | null;
         };
         /** @enum {string} */
-        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild" | "git_index";
+        TaskKind: "source_sync" | "text_batch" | "file_batch" | "url_batch" | "delete_batch" | "translation" | "vector_rebuild" | "git_index" | "image_batch";
         /**
          * @description v0.18 task list query: typed `view` owns the trash predicate and the
          *     legacy `trashed` flag is gone. Unknown fields (including `trashed`) are
@@ -5392,6 +5591,11 @@ export interface components {
             kind: "file_batch";
         } | {
             group_path?: string | null;
+            items: components["schemas"]["ImageBatchItem"][];
+            /** @enum {string} */
+            kind: "image_batch";
+        } | {
+            group_path?: string | null;
             items: components["schemas"]["UpsertLibraryTextRequest"][];
             /** @enum {string} */
             kind: "text_batch";
@@ -5459,7 +5663,7 @@ export interface components {
          * @description The independent embedding configuration a probe targets.
          * @enum {string}
          */
-        TestRuntimeEmbeddingPurpose: "document" | "code";
+        TestRuntimeEmbeddingPurpose: "document" | "code" | "image";
         /**
          * @description The non-persisting embedding provider probe.
          *
@@ -5673,6 +5877,32 @@ export interface components {
             document_id: number;
             target_locales?: string[];
         };
+        /** @description One occurrence link to remove. */
+        UnlinkDocumentImageItem: {
+            /** Format: int64 */
+            document_id: number;
+            /** Format: uuid */
+            file_id: string;
+            /** Format: int32 */
+            ordinal: number;
+            role: components["schemas"]["ImageOccurrenceRole"];
+        };
+        UnlinkDocumentImageResult: {
+            /** Format: int64 */
+            document_id: number;
+            /** Format: uuid */
+            file_id: string;
+            /** Format: int32 */
+            ordinal: number;
+            outcome: components["schemas"]["ImageUnlinkOutcome"];
+            role: components["schemas"]["ImageOccurrenceRole"];
+        };
+        UnlinkDocumentImagesRequest: {
+            items: components["schemas"]["UnlinkDocumentImageItem"][];
+        };
+        UnlinkDocumentImagesResponse: {
+            items: components["schemas"]["UnlinkDocumentImageResult"][];
+        };
         UpdateAdminUserRequest: {
             display_name?: string | null;
             is_admin?: boolean | null;
@@ -5781,6 +6011,25 @@ export interface components {
             glossary?: components["schemas"]["TranslationGlossaryEntry"][];
             source_locale?: string | null;
         };
+        /**
+         * @description The optional image embedding update.
+         *
+         *     The tri-state secret patch follows the settings contract: `keep` retains the
+         *     stored image credential, `set` replaces it, and `clear` removes it.
+         *     Disabling the block keeps every non-secret field and the credential unless
+         *     the caller explicitly clears the key.
+         */
+        UpdateImageEmbeddingSettings: {
+            api_key?: components["schemas"]["SecretPatch"];
+            base_url: string;
+            collection_name: string;
+            dimensions: number;
+            enabled: boolean;
+            model: string;
+            query_model?: string | null;
+            /** Format: int64 */
+            timeout_secs: number;
+        };
         UpdateMetadataIndexRequest: {
             data_type: components["schemas"]["MetadataDataType"];
             sortable?: boolean;
@@ -5844,6 +6093,7 @@ export interface components {
             code_embedding?: components["schemas"]["UpdateCodeEmbeddingSettings"] | null;
             embedding: components["schemas"]["UpdateRuntimeEmbeddingSettings"];
             file_library: components["schemas"]["UpdateRuntimeFileLibrarySettings"];
+            image_embedding?: components["schemas"]["UpdateImageEmbeddingSettings"] | null;
             qdrant: components["schemas"]["RuntimeQdrantSettings"];
             scheduler: components["schemas"]["RuntimeSchedulerSettings"];
         };
@@ -7220,6 +7470,42 @@ export interface operations {
             };
         };
     };
+    submit_image_batch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageBatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Image ingestion task accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TaskRef"];
+                };
+            };
+            /** @description Idempotency key reuse conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     submit_text_batch: {
         parameters: {
             query?: never;
@@ -7421,6 +7707,60 @@ export interface operations {
             };
         };
     };
+    unlink_document_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlinkDocumentImagesRequest"];
+            };
+        };
+        responses: {
+            /** @description Request-ordered per-item unlink outcomes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnlinkDocumentImagesResponse"];
+                };
+            };
+            /** @description Empty, oversized, or invalid unlink batch */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Group not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
     query_group_documents: {
         parameters: {
             query?: never;
@@ -7447,6 +7787,49 @@ export interface operations {
             };
             /** @description Invalid document query */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    list_document_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+                /** @description Parent document id */
+                document_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded current image occurrences of the document */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentImageListResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Document or group not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -8686,6 +9069,60 @@ export interface operations {
             };
             /** @description A webhook is already registered, or the hook identity is claimed */
             409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+        };
+    };
+    search_images: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description URL-encoded group path */
+                group_path: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ImageSearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Authorized image search hits; hydration may return fewer than the requested limit */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageSearchResponse"];
+                };
+            };
+            /** @description Invalid image search request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Insufficient permissions */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiErrorResponse"];
+                };
+            };
+            /** @description Image search runtime unavailable */
+            503: {
                 headers: {
                     [name: string]: unknown;
                 };

@@ -30,9 +30,9 @@ pub use artifact_backfill::{
 };
 pub use docling_remote_finalize::{DoclingRecoveryRow, DoclingRecoverySummary};
 pub use docling_remote_jobs::StoredDoclingRemoteJob;
-pub use execution::{ExecutionContext, SegmentPayload};
+pub use execution::{ExecutionContext, LEASE_TTL, SegmentPayload};
 pub(crate) use file_reprocess::NewFileReprocessItem;
-pub use item_lifecycle::LeaseRenewalProof;
+pub use item_lifecycle::{LeaseRenewalProof, TaskItemFileFence};
 pub use lifecycle_batch::TaskLifecycleMutation;
 pub use queue_control::TaskQueueState;
 pub use types::{

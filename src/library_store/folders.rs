@@ -155,6 +155,23 @@ impl LibraryStore {
         row.map(folder_from_row).transpose()
     }
 
+    /// Whether a project-scoped folder still exists on the caller transaction.
+    pub async fn folder_exists_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        folder_id: Uuid,
+    ) -> Result<bool> {
+        let id: Option<Uuid> = sqlx::query_scalar(include_str!(
+            "../sql/library_store/folders/folder_exists_in_project.sql"
+        ))
+        .bind(project_id)
+        .bind(folder_id)
+        .fetch_optional(connection)
+        .await?;
+        Ok(id.is_some())
+    }
+
     pub async fn create_folder(
         &self,
         folder_id: Uuid,

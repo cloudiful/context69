@@ -69,7 +69,7 @@ pub(crate) async fn submit_task_request(state: &ApiState, request: TaskSubmissio
     }
 }
 
-async fn managed_group(
+pub(crate) async fn managed_group(
     state: &ApiState,
     session: &crate::services::auth::AuthSession,
     group_path: &str,
@@ -135,7 +135,7 @@ fn restricted_token_scope(scope: &Option<TokenGroupScope>) -> Option<&TokenGroup
     scope.as_ref().filter(|scope| scope.is_restricted())
 }
 
-fn idempotency_key(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn idempotency_key(headers: &HeaderMap) -> Option<String> {
     headers
         .get("idempotency-key")
         .and_then(|value| value.to_str().ok())

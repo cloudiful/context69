@@ -54,6 +54,21 @@ pub async fn hydrate(db: &Database, config: &mut Config) -> Result<ConfigHydrati
             }
         }
     }
+    match super::runtime_settings::load_image_embedding_settings(db, &secrets).await? {
+        Some(image) => {
+            super::runtime_settings::apply_image_embedding_settings(config, &image);
+            settings
+                .apply_image_embedding_settings(Some(&image), &config.qdrant)
+                .await?;
+        }
+        None => {
+            if let Some(image) = &config.image_embedding {
+                settings
+                    .install_image_embedding_config(image, &config.qdrant)
+                    .await?;
+            }
+        }
+    }
     let browser_sessions = browser_sessions::resolve(&secrets, config).await?;
     // A connection's database URL lives only in the shared store, so the effective
     // configuration is built from the value this deployment can actually open. A

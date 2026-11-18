@@ -259,6 +259,34 @@ impl SourceCleanupDispatcher {
                 );
             }
         }
+        // Image vector deletion targets are retried on the same cadence. A full
+        // image file delete records its physical target before the file row
+        // disappears, so an unreachable index leaves work here instead of
+        // silently leaking a point.
+        match library
+            .run_image_vector_cleanup(super::DEFAULT_IMAGE_VECTOR_CLEANUP_BATCH_SIZE)
+            .await
+        {
+            Ok(summary) if summary.purged > 0 || summary.failed > 0 || summary.reconciled > 0 => {
+                tracing::info!(
+                    purged = summary.purged,
+                    failed = summary.failed,
+                    reconciled = summary.reconciled,
+                    scanned = summary.scanned,
+                    elapsed_ms = started.elapsed().as_millis() as u64,
+                    reason = reason_str,
+                    "image vector cleanup pass completed"
+                );
+            }
+            Ok(_) => {}
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    reason = reason_str,
+                    "image vector cleanup pass failed"
+                );
+            }
+        }
         // Staged-input orphan sweep (issue 391 Task 4): safe to run on every
         // drain because `STAGED_SWEEP_GRACE` (24h) filters recent inputs and
         // the sweep itself re-validates file/task references under a lock

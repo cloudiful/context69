@@ -22,6 +22,8 @@ pub(crate) mod documents;
 mod files;
 mod folders;
 mod group_settings;
+mod image_documents;
+mod image_search;
 mod mappers;
 pub(crate) mod objects;
 mod resources;
@@ -40,6 +42,13 @@ pub use task_write_fence::{
 pub use dependency_gates::{DependencyGateRecord, DependencyGateTransition};
 pub(crate) use files::LegacyDirectPathFileRow;
 pub use files::MissingLegacySourceFileRow;
+pub use image_documents::{
+    ImageDocumentLinkRecord, MAX_IMAGE_LINK_DOCUMENTS_PER_DELETE, MAX_IMAGE_OCCURRENCES_PER_READ,
+    NewImageDocumentLink,
+};
+pub use image_search::{
+    IMAGE_PARENT_HYDRATION_LIMIT, ImageParentDocumentRecord, LibraryImageFileRecord,
+};
 pub(crate) use mappers::{file_to_summary, infer_preview_content_format};
 
 #[derive(Clone)]
@@ -71,6 +80,18 @@ pub struct UpdateLibraryFileContent {
     pub sha256: String,
     pub storage_rel_path: String,
     pub storage_object_id: Option<Uuid>,
+}
+
+/// The exact content revision and physical image target one image task
+/// published, used by the final status promotion.
+#[derive(Debug, Clone, Copy)]
+pub struct ImageFileSuccessExpectation<'a> {
+    pub file_id: Uuid,
+    pub sha256: &'a str,
+    pub attempt_id: Uuid,
+    pub endpoint: &'a str,
+    pub collection_name: &'a str,
+    pub runtime_fingerprint: &'a str,
 }
 
 #[derive(Debug, Clone, FromRow, sea_orm::FromQueryResult)]

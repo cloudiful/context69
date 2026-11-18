@@ -61,6 +61,16 @@ pub struct DeleteFileRow {
     pub sha256: String,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageVectorWriteFile {
+    pub id: Uuid,
+    pub group_id: i64,
+    pub sha256: String,
+    pub media_type: String,
+    pub filename: String,
+    pub external_id: Option<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, FromRow)]
 pub struct ReplacementFileSnapshot {
     pub id: Uuid,
@@ -600,6 +610,22 @@ impl LibraryStore {
             .await?)
     }
 
+    /// The occupied filenames of one group folder on a caller connection.
+    pub async fn list_filenames_in_project_folder_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        folder_id: Option<Uuid>,
+    ) -> Result<Vec<String>> {
+        Ok(sqlx::query_scalar(include_str!(
+            "../sql/library_store/files/list_filenames_in_project_folder.sql"
+        ))
+        .bind(project_id)
+        .bind(folder_id)
+        .fetch_all(connection)
+        .await?)
+    }
+
     pub async fn get_file(&self, file_id: Uuid) -> Result<Option<LibraryFileRecord>> {
         let row = file_select()
             .filter(library_files::Column::Id.eq(file_id))
@@ -832,6 +858,15 @@ impl LibraryStore {
         file_id: Uuid,
         update: &UpdateLibraryFileContent,
     ) -> Result<Option<LibraryFileRecord>> {
+        if let Some(existing) = self.get_file_in_project(project_id, file_id).await? {
+            crate::services::library::ensure_external_id_replacement_kind(
+                &existing.filename,
+                &existing.media_type,
+                &update.filename,
+                &update.media_type,
+                None,
+            )?;
+        }
         let mut write = match self.begin_task_write(fence).await {
             Ok(write) => write,
             Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(None),
@@ -864,12 +899,133 @@ impl LibraryStore {
         Ok(Some(record))
     }
 
+    /// Locks one file row and returns its current content revision.
+    pub async fn lock_file_sha_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        file_id: Uuid,
+    ) -> Result<Option<String>> {
+        Ok(
+            sqlx::query_scalar(include_str!("../sql/library_store/files/lock_file_sha.sql"))
+                .bind(project_id)
+                .bind(file_id)
+                .fetch_optional(connection)
+                .await?,
+        )
+    }
+
+    /// The content update of one file on a caller transaction.
+    pub async fn update_file_content_in_project_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        project_id: i64,
+        file_id: Uuid,
+        update: &UpdateLibraryFileContent,
+    ) -> Result<Option<LibraryFileRecord>> {
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/update_file_content_in_project.sql",
+            project_id,
+            file_id,
+            update.folder_id,
+            update.external_id,
+            update.filename,
+            update.media_type,
+            update.size_bytes,
+            update.sha256,
+            update.storage_rel_path,
+            update.storage_object_id
+        )
+        .fetch_optional(connection)
+        .await?;
+        row.map(file_from_row).transpose()
+    }
+
+    /// Replaces one file's content under the shared image mutation scopes.
+    ///
+    /// The image group/file advisory scopes and the per-file processing slot
+    /// are taken before the row lock, in the same order an image publish or
+    /// delete uses. When the content revision changes, every recorded image
+    /// origin of the file becomes an exact deletion target in this same
+    /// transaction, before the new revision becomes visible. A metadata-only
+    /// replay of the same bytes retires nothing. The boolean result reports
+    /// whether the revision changed.
+    pub async fn replace_file_content_in_project(
+        &self,
+        project_id: i64,
+        file_id: Uuid,
+        update: &UpdateLibraryFileContent,
+    ) -> Result<Option<(LibraryFileRecord, bool)>> {
+        let mut transaction = self.db.pool().begin().await?;
+        self.db
+            .lock_image_vector_scopes_in(&mut transaction, project_id, &[file_id], &[])
+            .await?;
+        crate::db::lock_file_processing_slots(&mut transaction, &[file_id]).await?;
+        if let Some(folder_id) = update.folder_id
+            && !self
+                .folder_exists_in_project_on(&mut transaction, project_id, folder_id)
+                .await?
+        {
+            transaction.rollback().await?;
+            return Ok(None);
+        }
+        let Some(current_sha) = self
+            .lock_file_sha_on(&mut transaction, project_id, file_id)
+            .await?
+        else {
+            transaction.rollback().await?;
+            return Ok(None);
+        };
+        let sha_changed = crate::db::image_content_revision_changed(&current_sha, &update.sha256);
+        if sha_changed {
+            self.db
+                .schedule_image_vector_deletions_for_file_in(&mut transaction, project_id, file_id)
+                .await?;
+            self.db
+                .delete_image_vector_origins_for_file_in(&mut transaction, project_id, file_id)
+                .await?;
+        }
+        let row = sqlx::query_file_as!(
+            FileRow,
+            "src/sql/library_store/files/update_file_content_in_project.sql",
+            project_id,
+            file_id,
+            update.folder_id,
+            update.external_id,
+            update.filename,
+            update.media_type,
+            update.size_bytes,
+            update.sha256,
+            update.storage_rel_path,
+            update.storage_object_id
+        )
+        .fetch_optional(&mut *transaction)
+        .await?;
+        let Some(row) = row else {
+            transaction.rollback().await?;
+            return Ok(None);
+        };
+        let record = file_from_row(row)?;
+        transaction.commit().await?;
+        Ok(Some((record, sha_changed)))
+    }
+
     pub async fn update_file_content_in_project(
         &self,
         project_id: i64,
         file_id: Uuid,
         update: &UpdateLibraryFileContent,
     ) -> Result<Option<LibraryFileRecord>> {
+        if let Some(existing) = self.get_file_in_project(project_id, file_id).await? {
+            crate::services::library::ensure_external_id_replacement_kind(
+                &existing.filename,
+                &existing.media_type,
+                &update.filename,
+                &update.media_type,
+                None,
+            )?;
+        }
         let native = library_files::Entity::update_many()
             .col_expr(library_files::Column::FolderId, Expr::val(update.folder_id))
             .col_expr(
@@ -1158,6 +1314,32 @@ impl LibraryStore {
     /// A worker that lost its segment projects nothing: the statement runs on
     /// the connection of the guarded transaction, and the grant is rechecked
     /// before the commit.
+    /// Promotes one image file to succeeded inside the caller's publish
+    /// transaction.
+    ///
+    /// The caller already holds the task/item, image file, and runtime
+    /// publication guards. The statement requires the captured file SHA and the
+    /// acknowledged active origin of the same attempt id and physical target,
+    /// so the status and origin acknowledgement commit together.
+    pub async fn mark_image_file_succeeded_for_origin_in(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        expected: &crate::library_store::ImageFileSuccessExpectation<'_>,
+    ) -> Result<bool> {
+        let result = sqlx::query(include_str!(
+            "../sql/library_store/files/mark_image_file_succeeded.sql"
+        ))
+        .bind(expected.file_id)
+        .bind(expected.sha256)
+        .bind(expected.attempt_id)
+        .bind(expected.endpoint)
+        .bind(expected.collection_name)
+        .bind(expected.runtime_fingerprint)
+        .execute(connection)
+        .await?;
+        Ok(result.rows_affected() == 1)
+    }
+
     pub async fn update_file_status_fenced(
         &self,
         fence: TaskWriteFence,
@@ -1293,6 +1475,38 @@ impl LibraryStore {
             }
         };
         Ok(row)
+    }
+
+    /// Read and lock the current revision of one image file for the short
+    /// write+ack phase of an image vector.
+    ///
+    /// The caller has already taken the shared image-vector file scope, so this
+    /// row lock is taken after the same group and file advisory order a delete
+    /// uses. A missing row means the file was deleted; a different SHA means a
+    /// replacement published newer content.
+    pub async fn lock_file_for_image_vector_write_on(
+        &self,
+        connection: &mut sqlx::PgConnection,
+        group_id: i64,
+        file_id: Uuid,
+    ) -> Result<Option<ImageVectorWriteFile>> {
+        let row: Option<(Uuid, i64, String, String, String, Option<String>)> = sqlx::query_as(
+            include_str!("../sql/library_store/files/lock_file_for_image_write.sql"),
+        )
+        .bind(file_id)
+        .bind(group_id)
+        .fetch_optional(connection)
+        .await?;
+        Ok(row.map(
+            |(id, group_id, sha256, media_type, filename, external_id)| ImageVectorWriteFile {
+                id,
+                group_id,
+                sha256,
+                media_type,
+                filename,
+                external_id,
+            },
+        ))
     }
 
     /// Delete one library file row on a borrowed connection.

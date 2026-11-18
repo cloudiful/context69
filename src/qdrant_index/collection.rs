@@ -4,6 +4,9 @@ use super::{
     format_qdrant_error,
 };
 use crate::config::QdrantConfig;
+use crate::qdrant_index::image_vectors::{
+    ImageCollectionOwnership, image_collection_metadata, image_collection_ownership_from_metadata,
+};
 use anyhow::{Context, Result, anyhow};
 use qdrant_client::{
     Qdrant,
@@ -64,14 +67,29 @@ pub(crate) const CODE_PAYLOAD_FIELD_INDEXES: &[(&str, FieldType)] = &[
     ("end_line", FieldType::Integer),
 ];
 
-/// The two collection shapes the shared ensure path serves.
+/// Payload fields the independent image collection indexes.
 ///
-/// The document shape tolerates Params or ParamsMap; the code shape requires
-/// exactly one unnamed dense vector.
+/// The point identity and every filter are here: the group scope is an integer,
+/// while the image file id and content revision are strings.
+pub(crate) const IMAGE_PAYLOAD_FIELD_INDEXES: &[(&str, FieldType)] = &[
+    ("group_id", FieldType::Integer),
+    ("image_file_id", FieldType::Keyword),
+    ("image_sha256", FieldType::Keyword),
+    ("image_point_id", FieldType::Keyword),
+    ("runtime_fingerprint", FieldType::Keyword),
+    ("record_type", FieldType::Keyword),
+    ("publish_attempt_id", FieldType::Keyword),
+];
+
+/// The three collection shapes the shared ensure path serves.
+///
+/// The document shape tolerates Params or ParamsMap; the code and image shapes
+/// require exactly one unnamed dense vector.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CollectionShape {
     Document,
     Code,
+    Image,
 }
 
 impl CollectionShape {
@@ -79,6 +97,7 @@ impl CollectionShape {
         match self {
             Self::Document => PAYLOAD_FIELD_INDEXES,
             Self::Code => CODE_PAYLOAD_FIELD_INDEXES,
+            Self::Image => IMAGE_PAYLOAD_FIELD_INDEXES,
         }
     }
 }
@@ -243,6 +262,26 @@ impl QdrantIndex {
     ) -> Result<Self> {
         let index = Self::connect_to(config, collection_name, dimensions)?;
         index.probe_code_collection().await?;
+        Ok(index)
+    }
+
+    /// Attaches to one named existing image collection with strict ownership,
+    /// vector-shape, and read-only validation.
+    ///
+    /// The collection must carry the exact image shape and runtime fingerprint
+    /// metadata before any read; this never creates, mutates, or adopts a
+    /// document or code collection.
+    pub(crate) async fn attach_image_read_only_collection(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+        runtime_fingerprint: &str,
+    ) -> Result<Self> {
+        let index = Self::connect_to(config, collection_name, dimensions)?;
+        index
+            .require_image_ownership(collection_name, runtime_fingerprint)
+            .await?;
+        index.probe_image_collection().await?;
         Ok(index)
     }
 
@@ -411,7 +450,7 @@ impl QdrantIndex {
             ));
         }
         match index
-            .create_collection(dimensions, CollectionShape::Document)
+            .create_collection(dimensions, CollectionShape::Document, None)
             .await
         {
             Ok(()) => {
@@ -441,6 +480,117 @@ impl QdrantIndex {
             .await?;
         index.probe_code_collection().await?;
         Ok(index)
+    }
+
+    /// Ensures one named image collection exists at `dimensions` with its
+    /// atomic ownership metadata, image filter indexes, and a probe.
+    ///
+    /// Ownership is collection-level metadata written in the same create RPC
+    /// as the collection itself. A pre-existing collection is only used when
+    /// that metadata proves the image shape version, exact physical collection,
+    /// and full runtime fingerprint; it is validated before any index or point
+    /// is mutated, so a same-shaped foreign collection is never adopted. An
+    /// interrupted create therefore leaves either no collection or an owned
+    /// one, and a retry can safely finish the index reconciliation.
+    pub(crate) async fn ensure_image_collection(
+        config: &QdrantConfig,
+        collection_name: &str,
+        dimensions: usize,
+        runtime_fingerprint: &str,
+    ) -> Result<Self> {
+        let index = Self::connect_to(config, collection_name, dimensions)?;
+        if index.collection_exists_checked().await? {
+            index
+                .validate_dimension(CollectionShape::Image, dimensions)
+                .await?;
+            index
+                .require_image_ownership(collection_name, runtime_fingerprint)
+                .await?;
+            index
+                .ensure_field_indexes(CollectionShape::Image.payload_field_indexes())
+                .await?;
+        } else {
+            let metadata = image_collection_metadata(collection_name, runtime_fingerprint);
+            match index
+                .create_collection(dimensions, CollectionShape::Image, Some(metadata.clone()))
+                .await
+            {
+                Ok(()) => {}
+                Err(error) if is_collection_already_exists(&error) => {
+                    index
+                        .validate_dimension(CollectionShape::Image, dimensions)
+                        .await?;
+                    index
+                        .require_image_ownership_after_race(collection_name, runtime_fingerprint)
+                        .await?;
+                    index
+                        .ensure_field_indexes(CollectionShape::Image.payload_field_indexes())
+                        .await?;
+                }
+                Err(error) => return Err(error),
+            }
+        }
+        index.probe_image_collection().await?;
+        Ok(index)
+    }
+
+    /// Require the exact ownership metadata of one image collection.
+    async fn require_image_ownership(
+        &self,
+        collection_name: &str,
+        runtime_fingerprint: &str,
+    ) -> Result<()> {
+        let ownership = self.existing_image_ownership().await?;
+        match ownership {
+            Some(ownership) if ownership.matches(collection_name, runtime_fingerprint) => Ok(()),
+            Some(_) => Err(anyhow!(
+                "qdrant image collection {} carries different shape, collection, or runtime \
+                 ownership metadata",
+                self.collection_name
+            )),
+            None => Err(anyhow!(
+                "qdrant image collection {} is pre-existing but carries no image ownership \
+                 metadata",
+                self.collection_name
+            )),
+        }
+    }
+
+    /// Require the metadata after losing a create race. The metadata is part of
+    /// the successful create, so the loser may only need a bounded moment for
+    /// the winner's create to become visible to `collection_info`.
+    async fn require_image_ownership_after_race(
+        &self,
+        collection_name: &str,
+        runtime_fingerprint: &str,
+    ) -> Result<()> {
+        for attempt in 0..5 {
+            match self
+                .require_image_ownership(collection_name, runtime_fingerprint)
+                .await
+            {
+                Ok(()) => return Ok(()),
+                Err(error) if attempt == 4 => return Err(error),
+                Err(_) => {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+            }
+        }
+        unreachable!("the final ownership retry returns")
+    }
+
+    /// Reads the collection-level ownership metadata of this image collection.
+    async fn existing_image_ownership(&self) -> Result<Option<ImageCollectionOwnership>> {
+        let collection = self
+            .client
+            .collection_info(&self.collection_name)
+            .await?
+            .result
+            .context("missing qdrant collection info")?;
+        Ok(collection
+            .config
+            .as_ref()
+            .and_then(|config| image_collection_ownership_from_metadata(&config.metadata)))
     }
 
     /// One read-only liveness/identity probe: collection exists, declared
@@ -487,6 +637,21 @@ impl QdrantIndex {
         Ok(())
     }
 
+    /// Strict image-only probe: one unnamed dense Cosine vector at the expected
+    /// dimension, then a count round trip. It never mutates the collection.
+    async fn probe_image_collection(&self) -> Result<()> {
+        if !self.collection_exists_checked().await? {
+            return Err(anyhow!(
+                "qdrant collection {} does not exist",
+                self.collection_name
+            ));
+        }
+        self.validate_dimension(CollectionShape::Image, self.dimensions)
+            .await?;
+        self.count_points().await?;
+        Ok(())
+    }
+
     async fn collection_exists_checked(&self) -> Result<bool> {
         self.client
             .collection_exists(&self.collection_name)
@@ -502,17 +667,17 @@ impl QdrantIndex {
     async fn ensure_collection(&self, dimensions: usize, shape: CollectionShape) -> Result<bool> {
         if self.collection_exists_checked().await? {
             self.validate_dimension(shape, dimensions).await?;
-            if shape == CollectionShape::Code {
+            if shape != CollectionShape::Document {
                 self.ensure_field_indexes(shape.payload_field_indexes())
                     .await?;
             }
             return Ok(false);
         }
 
-        match self.create_collection(dimensions, shape).await {
+        match self.create_collection(dimensions, shape, None).await {
             Ok(()) => Ok(true),
             Err(error)
-                if shape == CollectionShape::Code && is_collection_already_exists(&error) =>
+                if shape != CollectionShape::Document && is_collection_already_exists(&error) =>
             {
                 // A concurrent creator owns the name now: revalidate instead of
                 // adopting it as this attempt's create.
@@ -553,17 +718,24 @@ impl QdrantIndex {
                 .context("missing qdrant vector size in collection config"),
             CollectionShape::Code => code_vector_size_single(&collection)
                 .context("code qdrant collection is not a single Cosine dense vector collection"),
+            CollectionShape::Image => code_vector_size_single(&collection)
+                .context("image qdrant collection is not a single Cosine dense vector collection"),
         }
     }
 
-    async fn create_collection(&self, dimensions: usize, shape: CollectionShape) -> Result<()> {
-        self.client
-            .create_collection(
-                CreateCollectionBuilder::new(&self.collection_name).vectors_config(
-                    VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
-                ),
-            )
-            .await?;
+    async fn create_collection(
+        &self,
+        dimensions: usize,
+        shape: CollectionShape,
+        metadata: Option<std::collections::HashMap<String, serde_json::Value>>,
+    ) -> Result<()> {
+        let mut builder = CreateCollectionBuilder::new(&self.collection_name).vectors_config(
+            VectorParamsBuilder::new(dimensions as u64, Distance::Cosine),
+        );
+        if let Some(metadata) = metadata {
+            builder = builder.metadata(metadata);
+        }
+        self.client.create_collection(builder).await?;
         self.ensure_field_indexes(shape.payload_field_indexes())
             .await
     }
@@ -718,6 +890,12 @@ fn collection_dimension_mismatch(
         ),
         CollectionShape::Code => anyhow!(
             "qdrant code collection {} dimension mismatch: expected {}, found {}",
+            collection_name,
+            expected,
+            actual
+        ),
+        CollectionShape::Image => anyhow!(
+            "qdrant image collection {} dimension mismatch: expected {}, found {}",
             collection_name,
             expected,
             actual

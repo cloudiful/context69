@@ -2,10 +2,10 @@
 //! `POST /v1/tasks` submit, and the vector-index rebuild.
 
 use axum::{
-    Json,
+    Extension, Json,
     extract::{Path, State},
-    http::HeaderMap,
-    response::Response,
+    http::{HeaderMap, StatusCode},
+    response::{IntoResponse, Response},
 };
 use context69_contracts::{
     ApiErrorResponse, DeleteBatchRequest, FileBatchRequest, TaskRef, TaskSubmitRequest,
@@ -16,7 +16,11 @@ use serde_json::json;
 use super::{
     ApiState, CurrentUser, idempotency_key, managed_group, submit_task_request, task_error,
 };
-use crate::{contracts::TaskKind, services::tasks::TaskSubmission};
+use crate::{
+    api::auth::{AuthKind, RequestAuth},
+    contracts::{PersonalAccessTokenScope, TaskKind, TokenGroupScope},
+    services::tasks::TaskSubmission,
+};
 
 #[utoipa::path(post, path = "/v1/groups/by-path/{group_path}/batch/text", params(("group_path" = String, Path)), request_body = TextBatchRequest, responses((status = 202, description = "Text ingestion task accepted", body = TaskRef), (status = 409, description = "Idempotency key reuse conflict", body = ApiErrorResponse)))]
 pub(crate) async fn submit_text_batch(
@@ -170,6 +174,7 @@ pub(crate) async fn submit_delete_batch(
 pub(crate) async fn submit_task(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
+    Extension(auth): Extension<RequestAuth>,
     headers: HeaderMap,
     Json(request): Json<TaskSubmitRequest>,
 ) -> Response {
@@ -190,6 +195,15 @@ pub(crate) async fn submit_task(
             items
                 .into_iter()
                 .map(|item| serde_json::to_value(item).expect("FileBatchItem is serializable"))
+                .collect(),
+        ),
+        TaskSubmitRequest::ImageBatch { group_path, items } => (
+            TaskKind::ImageBatch,
+            group_path,
+            None,
+            items
+                .into_iter()
+                .map(|item| serde_json::to_value(item).expect("ImageBatchItem is serializable"))
                 .collect(),
         ),
         TaskSubmitRequest::TextBatch { group_path, items } => (
@@ -239,6 +253,45 @@ pub(crate) async fn submit_task(
         ),
         TaskSubmitRequest::VectorRebuild => (TaskKind::VectorRebuild, None, None, vec![json!({})]),
     };
+    if kind == TaskKind::VectorRebuild {
+        let Some(authenticated) = auth.0.as_ref() else {
+            return (
+                StatusCode::UNAUTHORIZED,
+                Json(ApiErrorResponse::new(
+                    "unauthorized",
+                    "missing authenticated session or personal access token".to_string(),
+                )),
+            )
+                .into_response();
+        };
+        match global_vector_rebuild_admission(
+            session.token_group_scope.as_ref(),
+            &authenticated.kind,
+        ) {
+            GlobalVectorRebuildAdmission::Allowed => {}
+            GlobalVectorRebuildAdmission::GroupRestricted => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(ApiErrorResponse::new(
+                        "forbidden",
+                        "group-restricted personal access tokens cannot submit a global vector rebuild"
+                            .to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+            GlobalVectorRebuildAdmission::MissingSettingsScope => {
+                return (
+                    StatusCode::FORBIDDEN,
+                    Json(ApiErrorResponse::new(
+                        "forbidden",
+                        "personal access token missing settings scope".to_string(),
+                    )),
+                )
+                    .into_response();
+            }
+        }
+    }
     let group = if let Some(path) = group_path.as_deref() {
         match managed_group(&state, &session, path).await {
             Ok(group) => Some(group),
@@ -289,6 +342,97 @@ pub(crate) async fn submit_vector_index_rebuild(
     .await
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum GlobalVectorRebuildAdmission {
+    Allowed,
+    GroupRestricted,
+    MissingSettingsScope,
+}
+
+/// The generic `/v1/tasks` entry point can carry the instance-wide vector
+/// rebuild, so it must meet the canonical settings endpoint's settings scope.
+/// Group-restricted tokens cannot name a group for this global operation and
+/// are refused instead of silently widening to every group.
+fn global_vector_rebuild_admission(
+    token_group_scope: Option<&TokenGroupScope>,
+    auth_kind: &AuthKind,
+) -> GlobalVectorRebuildAdmission {
+    if token_group_scope.is_some_and(|scope| scope.is_restricted()) {
+        return GlobalVectorRebuildAdmission::GroupRestricted;
+    }
+    match auth_kind {
+        AuthKind::BrowserSession => GlobalVectorRebuildAdmission::Allowed,
+        AuthKind::PersonalAccessToken { scopes, .. }
+            if scopes.contains(&PersonalAccessTokenScope::Settings) =>
+        {
+            GlobalVectorRebuildAdmission::Allowed
+        }
+        AuthKind::PersonalAccessToken { .. } => GlobalVectorRebuildAdmission::MissingSettingsScope,
+    }
+}
+
 async fn submit(state: &ApiState, request: TaskSubmission) -> Response {
     submit_task_request(state, request).await
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use uuid::Uuid;
+
+    use super::{GlobalVectorRebuildAdmission, global_vector_rebuild_admission};
+    use crate::{
+        api::auth::AuthKind,
+        contracts::{PersonalAccessTokenScope, TokenGroupScope},
+    };
+
+    fn token(scopes: &[PersonalAccessTokenScope]) -> AuthKind {
+        AuthKind::PersonalAccessToken {
+            token_id: Uuid::nil(),
+            scopes: scopes.iter().copied().collect::<BTreeSet<_>>(),
+        }
+    }
+
+    #[test]
+    fn global_vector_rebuild_requires_settings_for_all_tokens_and_rejects_group_ranges() {
+        assert_eq!(
+            global_vector_rebuild_admission(None, &AuthKind::BrowserSession),
+            GlobalVectorRebuildAdmission::Allowed
+        );
+        assert_eq!(
+            global_vector_rebuild_admission(
+                Some(&TokenGroupScope::All),
+                &token(&[
+                    PersonalAccessTokenScope::Workspace,
+                    PersonalAccessTokenScope::Settings,
+                ])
+            ),
+            GlobalVectorRebuildAdmission::Allowed
+        );
+        assert_eq!(
+            global_vector_rebuild_admission(
+                Some(&TokenGroupScope::All),
+                &token(&[PersonalAccessTokenScope::Workspace])
+            ),
+            GlobalVectorRebuildAdmission::MissingSettingsScope
+        );
+        assert_eq!(
+            global_vector_rebuild_admission(
+                Some(&TokenGroupScope::Groups { group_ids: vec![7] }),
+                &token(&[
+                    PersonalAccessTokenScope::Workspace,
+                    PersonalAccessTokenScope::Settings,
+                ])
+            ),
+            GlobalVectorRebuildAdmission::GroupRestricted
+        );
+        assert_eq!(
+            global_vector_rebuild_admission(
+                Some(&TokenGroupScope::Groups { group_ids: vec![7] }),
+                &token(&[PersonalAccessTokenScope::Workspace])
+            ),
+            GlobalVectorRebuildAdmission::GroupRestricted
+        );
+    }
 }

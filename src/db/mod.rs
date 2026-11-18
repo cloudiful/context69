@@ -21,6 +21,11 @@ mod document_versions;
 mod documents;
 pub mod entity;
 mod git_repositories;
+mod image_vector_deletions;
+pub(crate) use image_vector_deletions::image_content_revision_changed;
+pub use image_vector_deletions::{
+    ActiveImageSearchCandidate, ImageVectorDeletion, ImageVectorOrigin, NewImageVectorOrigin,
+};
 mod library_ingest_runs;
 mod library_metadata_mirror;
 mod metadata_indexes;
@@ -91,11 +96,12 @@ pub use tasks::{
     ArtifactBackfillCursor, ArtifactBackfillField, ArtifactBackfillRow, ArtifactRestoreRow,
     AttachTaskItemArtifactRequest, AttachTerminalTaskItemArtifactRequest, ClaimMaintenanceOutcome,
     ClaimedItem, CreateTaskSubmissionRequest, DoclingRecoveryRow, DoclingRecoverySummary,
-    ExecutionContext, FinishTaskItemRequest, LeaseRenewalProof, RemainingArtifactReferences,
-    RestoreTaskItemArtifactInlineRequest, SegmentPayload, StoredDoclingRemoteJob, StoredTask,
-    StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow, TaskCountFilter, TaskItemArtifactKind,
-    TaskItemArtifactRef, TaskItemArtifactRow, TaskItemDiagnostic, TaskItemOrder,
-    TaskLifecycleMutation, TaskListFilter, TaskQueueState, WaitTaskItemRequest,
+    ExecutionContext, FinishTaskItemRequest, LEASE_TTL, LeaseRenewalProof,
+    RemainingArtifactReferences, RestoreTaskItemArtifactInlineRequest, SegmentPayload,
+    StoredDoclingRemoteJob, StoredTask, StoredTaskAttempt, StoredTaskItem, TaskConsistencyRow,
+    TaskCountFilter, TaskItemArtifactKind, TaskItemArtifactRef, TaskItemArtifactRow,
+    TaskItemDiagnostic, TaskItemFileFence, TaskItemOrder, TaskLifecycleMutation, TaskListFilter,
+    TaskQueueState, WaitTaskItemRequest,
 };
 pub use upgrade_admission::{
     PRIOR_VERSION as UPGRADE_PRIOR_VERSION, RETIREMENT_SHA384, RETIREMENT_VERSION,
@@ -224,6 +230,24 @@ pub struct StoredRuntimeCodeEmbeddingSettings {
     pub base_url: String,
     pub model: String,
     /// The model code queries are embedded with. `None` means the code model.
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    /// The provider API key resolved from the shared store for the process that
+    /// loaded these settings. It is an in-memory value, never persisted here.
+    pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredRuntimeImageEmbeddingSettings {
+    /// Whether the image embedding channel is enabled.
+    pub enabled: bool,
+    pub base_url: String,
+    /// The independent physical Qdrant collection image vectors live in.
+    pub collection_name: String,
+    /// The model image bytes are embedded with.
+    pub model: String,
+    /// The model text queries are embedded with. `None` means the image model.
     pub query_model: Option<String>,
     pub dimensions: usize,
     pub timeout_secs: u64,

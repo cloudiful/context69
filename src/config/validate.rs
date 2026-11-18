@@ -11,7 +11,7 @@ use crate::{
 
 use super::types::{
     AppConfig, AuthConfig, ChunkingFileConfig, ConnectionConfig, EmbeddingConfig,
-    FileLibraryConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
+    FileLibraryConfig, ImageEmbeddingConfig, SchedulerConfig, SecretStoreConfig, SourceConfig,
 };
 
 /// Validates the embedding configuration of a deployment.
@@ -28,6 +28,51 @@ pub(super) fn validate_code_embedding_config(config: Option<&EmbeddingConfig>) -
         Some(config) => validate_provider_config("code_embedding", config),
         None => Ok(()),
     }
+}
+
+/// Validates the optional image embedding block when a deployment declares one.
+///
+/// An absent block is the disabled default. It has its own endpoint, model pair,
+/// dimensions, and physical collection, and never inherits a document value.
+pub(super) fn validate_image_embedding_config(
+    config: Option<&ImageEmbeddingConfig>,
+    document_collection: &str,
+) -> Result<()> {
+    let Some(config) = config else {
+        return Ok(());
+    };
+    if config.base_url.trim().is_empty() {
+        return Err(anyhow!("image_embedding.base_url must not be empty"));
+    }
+    if config.model.trim().is_empty() {
+        return Err(anyhow!("image_embedding.model must not be empty"));
+    }
+    if config.dimensions == 0 {
+        return Err(anyhow!("image_embedding.dimensions must be greater than 0"));
+    }
+    if config.timeout.as_secs() == 0 {
+        return Err(anyhow!(
+            "image_embedding.timeout_secs must be greater than 0"
+        ));
+    }
+    if config.collection_name.trim().is_empty() {
+        return Err(anyhow!("image_embedding.collection_name must not be empty"));
+    }
+    if config.collection_name.trim() == document_collection.trim() {
+        return Err(anyhow!(
+            "image_embedding.collection_name must not reuse the document collection"
+        ));
+    }
+    if config
+        .collection_name
+        .trim()
+        .starts_with(crate::qdrant_index::code_vectors::CODE_COLLECTION_PREFIX)
+    {
+        return Err(anyhow!(
+            "image_embedding.collection_name must not reuse a code collection"
+        ));
+    }
+    Ok(())
 }
 
 fn validate_provider_config(section: &str, config: &EmbeddingConfig) -> Result<()> {
@@ -261,7 +306,7 @@ pub(super) fn validate_secret_store_config(config: &SecretStoreConfig) -> Result
 mod tests {
     use std::time::Duration;
 
-    use super::validate_code_embedding_config;
+    use super::{validate_code_embedding_config, validate_image_embedding_config};
 
     fn code_config() -> super::EmbeddingConfig {
         super::EmbeddingConfig {
@@ -274,8 +319,33 @@ mod tests {
         }
     }
 
+    fn image_config() -> super::ImageEmbeddingConfig {
+        super::ImageEmbeddingConfig {
+            base_url: "http://image.invalid/v1".to_string(),
+            api_key: None,
+            model: "image-model".to_string(),
+            query_model: None,
+            dimensions: 768,
+            timeout: Duration::from_secs(30),
+            collection_name: "context69_images".to_string(),
+        }
+    }
+
     #[test]
     fn a_complete_code_embedding_config_is_accepted() {
         assert!(validate_code_embedding_config(Some(&code_config())).is_ok());
+    }
+
+    #[test]
+    fn an_image_namespace_cannot_alias_a_document_or_code_collection() {
+        let mut document = image_config();
+        document.collection_name = "context69".to_string();
+        assert!(validate_image_embedding_config(Some(&document), "context69").is_err());
+
+        let mut code = image_config();
+        code.collection_name =
+            super::super::super::qdrant_index::code_vectors::code_collection_name("fingerprint");
+        assert!(validate_image_embedding_config(Some(&code), "context69").is_err());
+        assert!(validate_image_embedding_config(Some(&image_config()), "context69").is_ok());
     }
 }

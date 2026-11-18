@@ -54,6 +54,7 @@ pub enum TestRuntimeEmbeddingPurpose {
     #[default]
     Document,
     Code,
+    Image,
 }
 
 /// A non-persisting LLM provider probe.
