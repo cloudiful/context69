@@ -163,7 +163,7 @@ tokio-util.workspace = true
 time.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "fmt"] }
-tower-http = { workspace = true, features = [ "cors" ] }
+tower-http = { workspace = true, features = [ "cors", "fs" ] }
 tower-sessions = { workspace = true, features = ["signed"] }
 tower-sessions-redis-store.workspace = true
 utoipa = { workspace = true, features = [ "axum_extras", "chrono", "uuid" ] }

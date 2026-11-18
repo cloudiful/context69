@@ -133,7 +133,8 @@ fn build_router_with_session_store<S: SessionStore + Clone + Send + Sync + 'stat
         .merge(protected_v1)
         .with_state(api_state)
         .layer(cors_layer())
-        .layer(auth_layer))
+        .layer(auth_layer)
+        .merge(super::static_frontend::router().layer(cors_layer())))
 }
 
 /// The unauthenticated provider-facing webhook ingress.

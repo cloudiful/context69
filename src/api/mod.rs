@@ -47,6 +47,7 @@ mod personal_access_tokens;
 mod resource_routes;
 mod router;
 mod sources;
+mod static_frontend;
 mod task_inputs;
 pub(crate) mod task_maintenance;
 mod tasks;
