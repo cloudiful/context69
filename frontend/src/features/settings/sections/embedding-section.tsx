@@ -5,6 +5,7 @@ import { SettingsGate } from "@/features/settings/settings-gate";
 
 import { EmbeddingBlock } from "./embedding-controls";
 import { CodeEmbeddingBlock } from "./code-embedding-controls";
+import { ImageEmbeddingBlock } from "./image-embedding-controls";
 
 export function EmbeddingSection() {
   const { t } = useTranslation();
@@ -15,6 +16,7 @@ export function EmbeddingSection() {
         <div className="grid gap-3">
           <EmbeddingBlock />
           <CodeEmbeddingBlock />
+          <ImageEmbeddingBlock />
         </div>
       </SettingsGate>
     </SettingsSection>

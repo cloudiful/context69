@@ -220,6 +220,31 @@ export const settings = {
     codeEmbeddingTest: "测试连接",
     codeEmbeddingTestSuccess: "代码 Embedding 连接成功",
     codeEmbeddingTestFailed: "代码 Embedding 连接失败",
+    imageEmbeddingTitle: "图片 Embedding（可选）",
+    imageEmbeddingEnabled: "启用图片 Embedding",
+    imageEmbeddingEnabledHelper:
+      "仅用于图片搜索，绝不复用文档或代码模型、密钥与向量。",
+    imageEmbeddingBaseUrl: "图片 Embedding 基础地址",
+    imageEmbeddingApiKey: "图片 Embedding API Key",
+    imageEmbeddingKeyStored: "已保存，留空保持不变",
+    imageEmbeddingClearKey: "清除已保存的图片 API Key",
+    imageEmbeddingClearKeyHelper: "只删除图片凭据，文档与代码密钥保持不变。",
+    imageEmbeddingTestClearKeyBlocked:
+      "请先保存清除密钥的设置，或输入新密钥，然后再测试连接。",
+    imageEmbeddingModel: "图片模型",
+    imageEmbeddingModelHelper: "用于已存储图片字节的嵌入模型。",
+    imageEmbeddingQueryModel: "图片查询模型",
+    imageEmbeddingQueryModelHelper: "留空则使用图片模型嵌入文本查询。",
+    imageEmbeddingCollection: "集合命名空间",
+    imageEmbeddingCollectionHelper:
+      "图片向量所属的命名空间。物理集合按运行时派生，绝不与文档或代码集合共用。",
+    imageEmbeddingDimensions: "图片维度",
+    imageEmbeddingTimeout: "图片超时（秒）",
+    imageEmbeddingTest: "测试连接",
+    imageEmbeddingTestSuccess: "图片 Embedding 连接成功",
+    imageEmbeddingTestFailed: "图片 Embedding 连接失败",
+    imageEmbeddingTestScope:
+      "测试连接使用未保存的取值检查图片 Embedding 通路，且不会保存任何设置。查询模型会随配置保存，但不会被该测试验证。",
     vectorRebuildStates: {
       queued: "排队中",
       running: "重建中",

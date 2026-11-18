@@ -126,6 +126,8 @@ The Embedding section calls the existing model the document model and accepts an
 
 The optional Code embedding block configures a separate Git-oriented model for code chunks and code search. It is disabled by default and has its own endpoint, credential, model, optional query model, and dimensions, and never reuses the document model or document API key. Disabling it retains the saved non-secret fields and the code credential unless the operator explicitly clears that key; enabling or changing it requires an explicit Git repository reindex.
 
+The optional Image Embedding block configures a separate model for stored image bytes and image queries. It is disabled by default and has its own endpoint, credential, model, optional query model, dimensions, timeout, and collection namespace, and never reuses the document or code configuration. Disabling it retains the saved fields and the image credential unless the operator explicitly clears that key. Its Test Connection button probes the unsaved image route and never saves, and the physical collection is derived per runtime from the configured namespace.
+
 Image ingestion has its own optional embedding settings and writes its own fingerprint-scoped Qdrant collection; it never changes document or code settings and never adopts their indexes. PNG, JPEG, and WebP only are accepted after magic-byte, media-type, dimension, and size checks, and originals are retained: image submissions reject `release_after_processing`, translation, and text-conversion options. A URL import keeps the existing SSRF, peer, redirect, and size protections. Submit standalone images, or link an occurrence to an existing parent document by key:
 
 ```rust

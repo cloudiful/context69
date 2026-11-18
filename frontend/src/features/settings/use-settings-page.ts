@@ -237,6 +237,7 @@ export function useSettingsPage() {
   const [valkeyTesting, setValkeyTesting] = useState(false);
   const [embeddingTesting, setEmbeddingTesting] = useState(false);
   const [codeEmbeddingTesting, setCodeEmbeddingTesting] = useState(false);
+  const [imageEmbeddingTesting, setImageEmbeddingTesting] = useState(false);
   const [qdrantTesting, setQdrantTesting] = useState(false);
   const [doclingTesting, setDoclingTesting] = useState(false);
   const qdrantUrlRevision = useRef(0);
@@ -258,6 +259,12 @@ export function useSettingsPage() {
   useEffect(() => {
     codeEmbeddingProbeTargetRef.current = codeEmbeddingProbeTarget;
   }, [codeEmbeddingProbeTarget]);
+
+  const imageEmbeddingProbeTarget = embeddingProbeSignature(runtimeDraft.image_embedding);
+  const imageEmbeddingProbeTargetRef = useRef(imageEmbeddingProbeTarget);
+  useEffect(() => {
+    imageEmbeddingProbeTargetRef.current = imageEmbeddingProbeTarget;
+  }, [imageEmbeddingProbeTarget]);
 
   const showErrorToast = useCallback((error: unknown, fallback: string) => {
     toast.error(t("common.error"), {
@@ -366,6 +373,48 @@ export function useSettingsPage() {
       const next = cloneDraft(current);
       mutate(next.code_embedding);
       next.code_embedding.touched = true;
+      return next;
+    });
+  }, []);
+
+  /**
+   * Applies one image edit and marks the block pending for the next save.
+   *
+   * The two secret intents are mutually exclusive, so the patch itself decides
+   * and not one control: an explicit clear always wins and empties the draft
+   * key, even when the same patch carries a key, a nonblank replacement key
+   * cancels a pending clear, and a blank key edit leaves a pending clear
+   * alone. Turning the clear off never restores a discarded key.
+   */
+  const updateImageEmbeddingDraft = useCallback((
+    patch: Partial<DraftRuntimeSettings["image_embedding"]>,
+  ) => {
+    runtimeRevision.current += 1;
+    setCompatibilityOpen(false);
+    setCompatibilityCandidate(null);
+    setRuntimeDraft((current) => {
+      const next = cloneDraft(current);
+      const image = next.image_embedding;
+      const { clear_api_key: clearPatch, api_key: keyPatch, ...rest } = patch;
+      Object.assign(image, rest);
+      if (clearPatch === true) {
+        // An explicit clear wins over any key the same patch carries.
+        image.clear_api_key = true;
+        image.api_key = "";
+      } else {
+        if (clearPatch === false) {
+          // Turning the clear off never restores the discarded key.
+          image.clear_api_key = false;
+        }
+        if (keyPatch !== undefined) {
+          image.api_key = keyPatch;
+          if (keyPatch.trim() !== "") {
+            // Only a nonblank replacement key cancels a pending clear.
+            image.clear_api_key = false;
+          }
+        }
+      }
+      image.touched = true;
       return next;
     });
   }, []);
@@ -933,6 +982,56 @@ export function useSettingsPage() {
   }, [runtimeDraft.code_embedding, showErrorToast, t]);
 
   /**
+   * Probes the unsaved image embedding draft.
+   *
+   * The probe never saves: it exercises the image route with the draft values
+   * only. A draft that asks for the stored key to be cleared is declined in
+   * every state, because the probe would fall back to that stored key and
+   * describe a configuration the pending save removes.
+   */
+  const testImageEmbeddingConnection = useCallback(async () => {
+    const draft = runtimeDraft.image_embedding;
+    if (draft.clear_api_key) {
+      toast.error(t("common.error"), {
+        description: t("settings.runtime.imageEmbeddingTestClearKeyBlocked"),
+        duration: 5000,
+      });
+      return;
+    }
+    const request = {
+      purpose: "image" as const,
+      base_url: draft.base_url.trim(),
+      model: draft.model.trim(),
+      // The image probe embeds one synthetic image; the query model is saved
+      // with the configuration but never exercised by the probe itself.
+      query_model: draft.query_model.trim() || undefined,
+      dimensions: draft.dimensions,
+      timeout_secs: draft.timeout_secs,
+      // An omitted key lets the deployment use its stored image credential.
+      api_key: draft.api_key.trim() || undefined,
+    };
+    const requestRevision = runtimeRevision.current;
+    const requestSignature = embeddingProbeSignature(request);
+    const isStale = () => requestRevision !== runtimeRevision.current
+      || imageEmbeddingProbeTargetRef.current !== requestSignature;
+    setImageEmbeddingTesting(true);
+    try {
+      await apiClient.testEmbeddingConnection(request);
+      if (isStale()) {
+        return;
+      }
+      toast.success(t("settings.runtime.imageEmbeddingTestSuccess"), { duration: 2500 });
+    } catch (error) {
+      if (isStale()) {
+        return;
+      }
+      showErrorToast(error, t("settings.runtime.imageEmbeddingTestFailed"));
+    } finally {
+      setImageEmbeddingTesting(false);
+    }
+  }, [runtimeDraft.image_embedding, showErrorToast, t]);
+
+  /**
    * Probe the unsaved Qdrant URL. The revision captured at request start must
    * still match when the outcome arrives, so editing the URL away — even back
    * to the same value — invalidates the old outcome.
@@ -995,6 +1094,7 @@ export function useSettingsPage() {
     doclingQuery,
     doclingTesting,
     embeddingTesting,
+    imageEmbeddingTesting,
     hasChanges,
     isAdmin,
     loadError,
@@ -1018,6 +1118,7 @@ export function useSettingsPage() {
     testCodeEmbeddingConnection,
     testDoclingConnection,
     testEmbeddingConnection,
+    testImageEmbeddingConnection,
     testQdrantConnection,
     testS3Connection,
     testValkeyConnection,
@@ -1028,6 +1129,7 @@ export function useSettingsPage() {
     translationQuery,
     updateDoclingDraft,
     updateCodeEmbeddingDraft,
+    updateImageEmbeddingDraft,
     updateQdrantUrl,
     updateRuntimeDraft,
     updateSearchDraft,
