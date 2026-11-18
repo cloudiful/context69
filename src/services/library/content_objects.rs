@@ -23,6 +23,13 @@ impl LibraryService {
                 .get_file_by_external_id_in_project(project.id, external_id)
                 .await?
         {
+            super::file_kind_identity::ensure_external_id_replacement_kind(
+                &existing.filename,
+                &existing.media_type,
+                &request.filename,
+                &request.media_type,
+                None,
+            )?;
             if existing.sha256 == request.sha256 {
                 if self.file_source_released(existing.id).await? {
                     // The recorded source is gone on purpose. The caller must
@@ -45,6 +52,13 @@ impl LibraryService {
             .get_file_by_sha_in_project(project.id, &request.sha256)
             .await?
         {
+            super::file_kind_identity::ensure_external_id_replacement_kind(
+                &existing.filename,
+                &existing.media_type,
+                &request.filename,
+                &request.media_type,
+                None,
+            )?;
             let requested_external_id = ingest.metadata.external_id.as_deref();
             if requested_external_id.is_some()
                 && existing.external_id.as_deref() != requested_external_id

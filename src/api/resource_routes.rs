@@ -18,16 +18,17 @@ use super::{
     get_group_document_by_key, get_group_library_file, get_group_library_resources,
     get_group_library_settings, get_group_library_tree, get_group_translation_settings,
     get_library_file, get_library_resources, get_library_tree, get_task,
-    import_group_library_file_url, list_document_results, list_document_translation_jobs,
-    list_metadata_indexes, list_task_items, list_task_selection, list_tasks,
-    move_group_library_file, move_group_library_folder, move_library_file, move_library_folder,
-    prepare_group_library_upload, query_group_documents, rebuild_document_translations,
-    release_group_library_file_source, reprocess_group_library_files,
-    require_library_scope_middleware, require_workspace_scope_middleware, rerun_task, restore_task,
-    retry_metadata_index, retry_task, stream_tasks, submit_delete_batch, submit_file_batch,
-    submit_task, submit_text_batch, submit_url_batch, trash_task, update_group_library_settings,
-    update_group_translation_settings, update_metadata_index, upload_group_library_files,
-    upload_library_files, upsert_group_library_text,
+    import_group_library_file_url, list_document_images, list_document_results,
+    list_document_translation_jobs, list_metadata_indexes, list_task_items, list_task_selection,
+    list_tasks, move_group_library_file, move_group_library_folder, move_library_file,
+    move_library_folder, prepare_group_library_upload, query_group_documents,
+    rebuild_document_translations, release_group_library_file_source,
+    reprocess_group_library_files, require_library_scope_middleware,
+    require_workspace_scope_middleware, rerun_task, restore_task, retry_metadata_index, retry_task,
+    search_images, stream_tasks, submit_delete_batch, submit_file_batch, submit_image_batch,
+    submit_task, submit_text_batch, submit_url_batch, trash_task, unlink_document_images,
+    update_group_library_settings, update_group_translation_settings, update_metadata_index,
+    upload_group_library_files, upload_library_files, upsert_group_library_text,
 };
 
 pub(super) fn task_routes(api_state: ApiState) -> Router<ApiState> {
@@ -65,6 +66,10 @@ pub(super) fn task_routes(api_state: ApiState) -> Router<ApiState> {
             post(submit_file_batch),
         )
         .route(
+            "/v1/groups/by-path/{group_path}/batch/image",
+            post(submit_image_batch),
+        )
+        .route(
             "/v1/groups/by-path/{group_path}/batch/delete",
             post(submit_delete_batch),
         )
@@ -83,6 +88,18 @@ pub(super) fn document_routes(api_state: ApiState) -> Router<ApiState> {
         .route(
             "/v1/groups/by-path/{group_path}/documents/batch-get",
             post(batch_get_group_documents),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/images/search",
+            post(search_images),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/images/unlink",
+            post(unlink_document_images),
+        )
+        .route(
+            "/v1/groups/by-path/{group_path}/documents/{document_id}/images",
+            get(list_document_images),
         )
         .route(
             "/v1/groups/by-path/{group_path}/documents/by-external-id",

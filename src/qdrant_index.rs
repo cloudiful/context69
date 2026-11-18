@@ -10,6 +10,7 @@ mod collection;
 pub(crate) mod collection_retirement;
 mod date_window;
 mod errors;
+pub(crate) mod image_vectors;
 pub mod metadata_retirement;
 mod payload;
 mod replacement;
@@ -19,7 +20,7 @@ mod writes;
 pub use errors::{format_qdrant_error, qdrant_timeout_error, truncate_for_qdrant_error};
 pub use writes::is_qdrant_idempotent_not_found;
 
-const QDRANT_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
+pub(crate) const QDRANT_OPERATION_TIMEOUT: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone)]
 pub struct SearchPointHit {

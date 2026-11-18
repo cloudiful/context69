@@ -8,13 +8,15 @@ use crate::{domain_errors::DomainError, vector_runtime::VectorIdentityAck};
 
 use super::entity::{
     runtime_chunking_settings, runtime_code_embedding_settings, runtime_embedding_settings,
-    runtime_file_library_settings, runtime_qdrant_settings, runtime_scheduler_settings,
+    runtime_file_library_settings, runtime_image_embedding_settings, runtime_qdrant_settings,
+    runtime_scheduler_settings,
 };
 use super::{
     Database, RegistryQuotaPolicy, RuntimeChunkingSettingsRow, StoredRuntimeChunkingSettings,
     StoredRuntimeCodeEmbeddingSettings, StoredRuntimeEmbeddingSettings,
-    StoredRuntimeFileLibrarySettings, StoredRuntimeQdrantSettings, StoredRuntimeS3Settings,
-    StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
+    StoredRuntimeFileLibrarySettings, StoredRuntimeImageEmbeddingSettings,
+    StoredRuntimeQdrantSettings, StoredRuntimeS3Settings, StoredRuntimeSchedulerSettings,
+    StoredRuntimeSettings,
 };
 
 /// The persisted name of a chunking unit.
@@ -139,6 +141,30 @@ async fn write_runtime_code_embedding_settings_in(
         dimensions,
         timeout_secs
     )
+    .execute(&mut *connection)
+    .await?;
+    Ok(())
+}
+
+async fn write_runtime_image_embedding_settings_in(
+    connection: &mut sqlx::PgConnection,
+    image: &StoredRuntimeImageEmbeddingSettings,
+) -> Result<()> {
+    let dimensions = optional_i64(image.dimensions, "image embedding dimensions")?;
+    let timeout_secs = optional_i64_u64(image.timeout_secs, "image embedding timeout_secs")?;
+    // The statement is loaded at compile time but executed with runtime binds:
+    // the image settings have no SQLx offline query-cache entry, and adding one
+    // would require a live schema during compilation.
+    sqlx::query(include_str!(
+        "../sql/db/runtime_settings/save_runtime_image_embedding_settings.sql"
+    ))
+    .bind(image.enabled)
+    .bind(optional_text(&image.base_url))
+    .bind(optional_text(&image.collection_name))
+    .bind(optional_text(&image.model))
+    .bind(image.query_model.as_deref())
+    .bind(dimensions)
+    .bind(timeout_secs)
     .execute(&mut *connection)
     .await?;
     Ok(())
@@ -312,6 +338,45 @@ impl Database {
             .context("runtime code embedding settings missing after save")
     }
 
+    /// The stored optional image embedding settings, or `None` when the
+    /// deployment never wrote an image row.
+    pub async fn get_runtime_image_embedding_settings(
+        &self,
+    ) -> Result<Option<StoredRuntimeImageEmbeddingSettings>> {
+        let Some(row) = runtime_image_embedding_settings::Entity::find_by_id(true)
+            .one(&self.orm)
+            .await?
+        else {
+            return Ok(None);
+        };
+        Ok(Some(StoredRuntimeImageEmbeddingSettings {
+            enabled: row.enabled,
+            base_url: row.base_url.unwrap_or_default(),
+            collection_name: row.collection_name.unwrap_or_default(),
+            model: row.model.unwrap_or_default(),
+            query_model: row
+                .query_model
+                .map(|model| model.trim().to_string())
+                .filter(|model| !model.is_empty()),
+            dimensions: optional_positive_usize(row.dimensions, "image embedding dimensions")?,
+            timeout_secs: optional_positive_u64(row.timeout_secs, "image embedding timeout_secs")?,
+            api_key: None,
+        }))
+    }
+
+    /// Saves only the image embedding row.
+    pub async fn save_runtime_image_embedding_settings(
+        &self,
+        image: &StoredRuntimeImageEmbeddingSettings,
+    ) -> Result<StoredRuntimeImageEmbeddingSettings> {
+        let mut tx = self.pool.begin().await?;
+        write_runtime_image_embedding_settings_in(&mut tx, image).await?;
+        tx.commit().await?;
+        self.get_runtime_image_embedding_settings()
+            .await?
+            .context("runtime image embedding settings missing after save")
+    }
+
     pub async fn save_runtime_settings(
         &self,
         settings: &StoredRuntimeSettings,
@@ -349,6 +414,24 @@ impl Database {
         &self,
         settings: &StoredRuntimeSettings,
         code: Option<&StoredRuntimeCodeEmbeddingSettings>,
+        acknowledgment: Option<VectorIdentityAck<'_>>,
+    ) -> Result<StoredRuntimeSettings> {
+        self.save_runtime_settings_with_code_and_image(settings, code, None, acknowledgment)
+            .await
+    }
+
+    /// Saves the runtime settings family together with the independent code and
+    /// image embedding rows in the same transaction.
+    ///
+    /// A `None` block skips that block's SQL entirely, so an update that omitted
+    /// it preserves the stored row and credential. A present row commits
+    /// atomically with the document settings: neither side can be stored while
+    /// the other fails.
+    pub async fn save_runtime_settings_with_code_and_image(
+        &self,
+        settings: &StoredRuntimeSettings,
+        code: Option<&StoredRuntimeCodeEmbeddingSettings>,
+        image: Option<&StoredRuntimeImageEmbeddingSettings>,
         acknowledgment: Option<VectorIdentityAck<'_>>,
     ) -> Result<StoredRuntimeSettings> {
         let mut tx = self.pool.begin().await?;
@@ -474,6 +557,10 @@ impl Database {
 
         if let Some(code) = code {
             write_runtime_code_embedding_settings_in(&mut tx, code).await?;
+        }
+
+        if let Some(image) = image {
+            write_runtime_image_embedding_settings_in(&mut tx, image).await?;
         }
 
         if let Some(acknowledgment) = acknowledgment {

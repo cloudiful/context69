@@ -150,6 +150,13 @@ pub(crate) async fn begin_atomic_first_insert(
     };
     if let Some(existing) = existing {
         write.rollback().await;
+        crate::services::library::ensure_external_id_replacement_kind(
+            &existing.filename,
+            &existing.media_type,
+            &file.filename,
+            &file.media_type,
+            None,
+        )?;
         return Ok(AtomicFirstInsert::Existing(existing));
     }
 

@@ -6,10 +6,12 @@ pub mod git_repository_sources;
 pub mod git_webhook_registrations;
 pub mod group_memberships;
 pub mod groups;
+pub mod image_vector_deletions;
 pub mod library_dependency_gates;
 pub mod library_file_documents;
 pub mod library_files;
 pub mod library_folders;
+pub mod library_image_documents;
 pub mod library_legacy_object_cleanup;
 pub mod library_storage_objects;
 pub mod personal_access_tokens;
@@ -18,6 +20,7 @@ pub mod runtime_chunking_settings;
 pub mod runtime_code_embedding_settings;
 pub mod runtime_embedding_settings;
 pub mod runtime_file_library_settings;
+pub mod runtime_image_embedding_settings;
 pub mod runtime_qdrant_settings;
 pub mod runtime_scheduler_settings;
 pub mod runtime_source_connections;
@@ -32,11 +35,12 @@ pub mod users;
 mod tests {
     use super::{
         docling_settings, document_chunks, documents, git_repository_sources,
-        git_webhook_registrations, group_memberships, groups, library_dependency_gates,
-        library_file_documents, library_files, library_folders, library_legacy_object_cleanup,
-        library_storage_objects, personal_access_tokens, rerank_item_scores,
-        runtime_chunking_settings, runtime_code_embedding_settings, runtime_embedding_settings,
-        runtime_file_library_settings, runtime_qdrant_settings, runtime_scheduler_settings,
+        git_webhook_registrations, group_memberships, groups, image_vector_deletions,
+        library_dependency_gates, library_file_documents, library_files, library_folders,
+        library_image_documents, library_legacy_object_cleanup, library_storage_objects,
+        personal_access_tokens, rerank_item_scores, runtime_chunking_settings,
+        runtime_code_embedding_settings, runtime_embedding_settings, runtime_file_library_settings,
+        runtime_image_embedding_settings, runtime_qdrant_settings, runtime_scheduler_settings,
         runtime_source_connections, search_generations, search_settings, source_checkpoints,
         source_configs, sync_runs, users,
     };
@@ -221,6 +225,23 @@ mod tests {
         assert!(code.contains("\"context69\".\"runtime_code_embedding_settings\""));
         assert!(code.contains("NOT enabled OR ("), "{code}");
         assert!(code.contains("CHECK (singleton)"), "{code}");
+
+        let image = rendered(runtime_image_embedding_settings::schema());
+        assert!(image.contains("\"context69\".\"runtime_image_embedding_settings\""));
+        assert!(image.contains("collection_name"), "{image}");
+        assert!(image.contains("NOT enabled OR ("), "{image}");
+
+        let deletions = rendered(image_vector_deletions::schema());
+        assert!(deletions.contains("\"context69\".\"image_vector_deletions\""));
+        assert!(
+            deletions.contains("\"attempts\" integer NOT NULL DEFAULT 0"),
+            "{deletions}"
+        );
+        assert!(
+            super::image_vector_deletions::unique_target_index()
+                .to_string(PostgresQueryBuilder)
+                .contains("uq_image_vector_deletions_target")
+        );
 
         for settings in [
             rendered(search_settings::schema()),
@@ -468,6 +489,59 @@ mod tests {
             group.contains("idx_library_file_documents_group_id"),
             "{group}"
         );
+    }
+
+    #[test]
+    fn declarations_cover_library_image_document_ddl() {
+        let links = rendered(library_image_documents::schema());
+        assert!(
+            links.contains("\"context69\".\"library_image_documents\""),
+            "{links}"
+        );
+        assert!(
+            links.contains("PRIMARY KEY (\"file_id\", \"document_id\", \"role\", \"ordinal\")"),
+            "{links}"
+        );
+        assert!(
+            links.contains(
+                "CONSTRAINT \"chk_library_image_documents_role\" CHECK (role IN ('cover', 'body'))"
+            ),
+            "{links}"
+        );
+        assert!(
+            links.contains(
+                "CONSTRAINT \"chk_library_image_documents_ordinal\" CHECK (ordinal >= 0)"
+            ),
+            "{links}"
+        );
+        assert!(
+            links.contains(
+                "CONSTRAINT \"chk_library_image_documents_caption\" CHECK (caption IS NULL OR char_length(caption) <= 1024)"
+            ),
+            "{links}"
+        );
+        assert!(
+            links.contains(
+                "CONSTRAINT \"chk_library_image_documents_context\" CHECK (context_text IS NULL OR char_length(context_text) <= 8192)"
+            ),
+            "{links}"
+        );
+        assert!(!links.contains("CREATE UNIQUE INDEX"), "{links}");
+
+        let occurrence =
+            library_image_documents::occurrence_unique_index().to_string(PostgresQueryBuilder);
+        assert!(
+            occurrence.contains("uq_library_image_documents_occurrence"),
+            "{occurrence}"
+        );
+        assert!(occurrence.contains("UNIQUE"), "{occurrence}");
+        let group = library_image_documents::group_document_index().to_string(PostgresQueryBuilder);
+        assert!(
+            group.contains("idx_library_image_documents_group_document"),
+            "{group}"
+        );
+        let file = library_image_documents::file_index().to_string(PostgresQueryBuilder);
+        assert!(file.contains("idx_library_image_documents_file"), "{file}");
     }
 
     #[test]

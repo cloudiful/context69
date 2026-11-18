@@ -1,5 +1,6 @@
 use crate::{
-    config::EmbeddingConfig,
+    config::{EmbeddingConfig, ImageEmbeddingConfig},
+    contracts::settings::{RuntimeImageEmbeddingSettings, UpdateImageEmbeddingSettings},
     contracts::{
         RuntimeChunkingSettings, RuntimeCodeEmbeddingSettings, RuntimeEmbeddingSettings,
         RuntimeFileLibrarySettings, RuntimeQdrantSettings, RuntimeSchedulerSettings,
@@ -9,7 +10,8 @@ use crate::{
     db::{
         StoredRuntimeChunkingSettings, StoredRuntimeCodeEmbeddingSettings,
         StoredRuntimeEmbeddingSettings, StoredRuntimeFileLibrarySettings,
-        StoredRuntimeQdrantSettings, StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
+        StoredRuntimeImageEmbeddingSettings, StoredRuntimeQdrantSettings,
+        StoredRuntimeSchedulerSettings, StoredRuntimeSettings,
     },
     support::normalize::normalize_optional_string,
 };
@@ -221,6 +223,40 @@ pub(super) fn stored_code_embedding_from_request(
     }
 }
 
+/// The pure image stored-settings projection shared by settings apply, update,
+/// and app hydration. The caller supplies the credential it resolved.
+pub(crate) fn image_embedding_config(
+    image: &StoredRuntimeImageEmbeddingSettings,
+    api_key: Option<String>,
+) -> ImageEmbeddingConfig {
+    ImageEmbeddingConfig {
+        base_url: image.base_url.trim().to_string(),
+        api_key,
+        model: image.model.trim().to_string(),
+        query_model: image.query_model.clone(),
+        dimensions: image.dimensions,
+        timeout: std::time::Duration::from_secs(image.timeout_secs),
+        collection_name: image.collection_name.trim().to_string(),
+    }
+}
+
+pub(super) fn stored_image_embedding_from_request(
+    request: &UpdateImageEmbeddingSettings,
+) -> StoredRuntimeImageEmbeddingSettings {
+    StoredRuntimeImageEmbeddingSettings {
+        enabled: request.enabled,
+        base_url: request.base_url.trim().to_string(),
+        collection_name: request.collection_name.trim().to_string(),
+        model: request.model.trim().to_string(),
+        query_model: normalize_optional_string(request.query_model.clone()),
+        dimensions: request.dimensions,
+        timeout_secs: request.timeout_secs,
+        // The provider API key is not a runtime setting: the shared store owns
+        // it under its own purpose.
+        api_key: None,
+    }
+}
+
 /// `has_api_key` and `has_secret_key` are passed in rather than derived from the
 /// stored values: a credential is answered from the shared store's metadata, so
 /// presence has to be answerable without opening it.
@@ -273,6 +309,7 @@ pub(super) fn runtime_settings_response_with_code(
             timeout_secs: code.timeout_secs,
             has_api_key: has_code_api_key,
         }),
+        image_embedding: None,
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
             run_on_start: settings.scheduler.run_on_start,
@@ -311,6 +348,28 @@ pub(super) fn runtime_settings_response_with_code(
     }
 }
 
+/// Attaches the optional image block to a response.
+///
+/// The image block is projected separately so the shared response builder keeps
+/// its existing argument list; presence is still metadata-only.
+pub(super) fn with_image_embedding(
+    mut response: RuntimeSettingsResponse,
+    image: Option<StoredRuntimeImageEmbeddingSettings>,
+    has_image_api_key: bool,
+) -> RuntimeSettingsResponse {
+    response.image_embedding = image.map(|image| RuntimeImageEmbeddingSettings {
+        enabled: image.enabled,
+        base_url: image.base_url,
+        model: image.model,
+        query_model: image.query_model,
+        dimensions: image.dimensions,
+        timeout_secs: image.timeout_secs,
+        collection_name: image.collection_name,
+        has_api_key: has_image_api_key,
+    });
+    response
+}
+
 pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
     let defaults = crate::config::Config::default();
     RuntimeSettingsResponse {
@@ -332,6 +391,7 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
                 .is_some_and(|value| !value.trim().is_empty()),
         },
         code_embedding: None,
+        image_embedding: None,
         scheduler: RuntimeSchedulerSettings {
             interval_secs: defaults.scheduler.interval.as_secs(),
             run_on_start: defaults.scheduler.run_on_start,
@@ -373,8 +433,13 @@ pub(super) fn default_runtime_settings_response() -> RuntimeSettingsResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::s3_secret_patch;
-    use crate::contracts::{SecretPatch, UpdateRuntimeS3Settings};
+    use super::{
+        image_embedding_config, s3_secret_patch, stored_image_embedding_from_request,
+        with_image_embedding,
+    };
+    use crate::contracts::settings::UpdateImageEmbeddingSettings;
+    use crate::contracts::{RuntimeSettingsResponse, SecretPatch, UpdateRuntimeS3Settings};
+    use crate::db::StoredRuntimeImageEmbeddingSettings;
     fn s3_request(secret_key: Option<&str>) -> UpdateRuntimeS3Settings {
         UpdateRuntimeS3Settings {
             endpoint: "https://objects.invalid".to_string(),
@@ -457,5 +522,95 @@ mod tests {
             ChunkBudgetMode::TokensV2,
             "saved settings are a fresh producer, so the next task uses the bounded cut"
         );
+    }
+
+    #[test]
+    fn an_image_request_round_trips_through_the_stored_projection() {
+        let request = UpdateImageEmbeddingSettings {
+            enabled: true,
+            base_url: " https://images.invalid/v1 ".to_string(),
+            model: " image-model ".to_string(),
+            query_model: Some(" query-model ".to_string()),
+            dimensions: 768,
+            timeout_secs: 30,
+            collection_name: " context69_images ".to_string(),
+            api_key: SecretPatch::Keep,
+        };
+        let stored = stored_image_embedding_from_request(&request);
+        assert_eq!(stored.base_url, "https://images.invalid/v1");
+        assert_eq!(stored.collection_name, "context69_images");
+        assert!(stored.api_key.is_none());
+        let config = image_embedding_config(&stored, Some("image-key".to_string()));
+        assert_eq!(config.model, "image-model");
+        assert_eq!(config.query_model.as_deref(), Some("query-model"));
+        assert_eq!(config.dimensions, 768);
+        assert_eq!(config.collection_name, "context69_images");
+        assert_eq!(config.api_key.as_deref(), Some("image-key"));
+    }
+
+    #[test]
+    fn the_image_response_projects_presence_without_the_credential() {
+        let stored = StoredRuntimeImageEmbeddingSettings {
+            enabled: false,
+            base_url: "https://images.invalid/v1".to_string(),
+            collection_name: "context69_images".to_string(),
+            model: "image-model".to_string(),
+            query_model: None,
+            dimensions: 768,
+            timeout_secs: 30,
+            api_key: None,
+        };
+        let response = with_image_embedding(
+            RuntimeSettingsResponse {
+                qdrant: crate::contracts::RuntimeQdrantSettings {
+                    url: "http://qdrant:6334".to_string(),
+                    collection_name: "context69".to_string(),
+                    recreate_on_dimension_mismatch: false,
+                },
+                embedding: crate::contracts::RuntimeEmbeddingSettings {
+                    base_url: "https://text.invalid/v1".to_string(),
+                    model: "text-model".to_string(),
+                    query_model: None,
+                    dimensions: 768,
+                    timeout_secs: 30,
+                    has_api_key: false,
+                },
+                code_embedding: None,
+                image_embedding: None,
+                scheduler: crate::contracts::RuntimeSchedulerSettings {
+                    interval_secs: 60,
+                    run_on_start: false,
+                    max_concurrency: 1,
+                    job_id: "job".to_string(),
+                    valkey_url: None,
+                },
+                chunking: crate::contracts::RuntimeChunkingSettings {
+                    max_chars: 1200,
+                    overlap_chars: 200,
+                    unit: context69_contracts::settings::ChunkingUnit::Chars,
+                    tokenizer: context69_contracts::settings::ChunkingTokenizer::Cl100kBase,
+                    tokenizer_sha256: None,
+                    max_tokens: 1024,
+                    overlap_tokens: 128,
+                },
+                file_library: crate::contracts::RuntimeFileLibrarySettings {
+                    storage_root: "/tmp/library".to_string(),
+                    max_upload_size_mb: 16,
+                    trusted_proxy_enabled: false,
+                    registry_max_ids_per_file: 16,
+                    registry_max_ids_per_run: 16,
+                    s3: None,
+                },
+                tokenizer_artifacts: Vec::new(),
+                tokenizer_presets: Vec::new(),
+                requires_rebuild: false,
+            },
+            Some(stored),
+            true,
+        );
+        let image = response.image_embedding.expect("image block");
+        assert!(!image.enabled);
+        assert!(image.has_api_key);
+        assert_eq!(image.collection_name, "context69_images");
     }
 }

@@ -17,7 +17,9 @@ use super::{
     },
     load::validate_loaded_config,
     normalize::{normalize_docling_config, normalize_scheduler_config, normalize_source_config},
-    validate::{validate_code_embedding_config, validate_embedding_config},
+    validate::{
+        validate_code_embedding_config, validate_embedding_config, validate_image_embedding_config,
+    },
 };
 
 /// The chunking section of the file configuration.
@@ -134,6 +136,10 @@ pub struct Config {
     ///
     /// Disabled when absent. It never borrows the document embedding block.
     pub code_embedding: Option<EmbeddingConfig>,
+    /// The optional, independent image embedding configuration.
+    ///
+    /// Disabled when absent. It never borrows the document or code block.
+    pub image_embedding: Option<ImageEmbeddingConfig>,
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
     pub file_library: FileLibraryConfig,
@@ -207,6 +213,26 @@ pub struct EmbeddingConfig {
     pub dimensions: usize,
     #[serde(rename = "timeout_secs", with = "serde_helpers::seconds")]
     pub timeout: Duration,
+}
+
+/// The optional, independent image embedding configuration.
+///
+/// Image vectors live in their own physical Qdrant collection and never borrow
+/// the document endpoint, model, credential, or collection.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageEmbeddingConfig {
+    pub base_url: String,
+    pub api_key: Option<String>,
+    /// The model image bytes are embedded with.
+    pub model: String,
+    /// The model text queries are embedded with. Absent means the image model.
+    #[serde(default)]
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    #[serde(rename = "timeout_secs", with = "serde_helpers::seconds")]
+    pub timeout: Duration,
+    /// The independent physical Qdrant collection image vectors live in.
+    pub collection_name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -426,6 +452,8 @@ pub(super) struct FileConfig {
     #[serde(default)]
     pub code_embedding: Option<EmbeddingConfig>,
     #[serde(default)]
+    pub image_embedding: Option<ImageEmbeddingConfig>,
+    #[serde(default)]
     pub docling: Option<DoclingConfig>,
     pub auth: AuthConfig,
     pub file_library: FileLibraryConfig,
@@ -461,12 +489,17 @@ impl TryFrom<FileConfig> for Config {
         validate_loaded_config(&file_config)?;
         validate_embedding_config(&file_config.embedding)?;
         validate_code_embedding_config(file_config.code_embedding.as_ref())?;
+        validate_image_embedding_config(
+            file_config.image_embedding.as_ref(),
+            &file_config.qdrant.collection_name,
+        )?;
         Ok(Self {
             app: file_config.app,
             app_db: file_config.app_db,
             qdrant: file_config.qdrant,
             embedding: file_config.embedding,
             code_embedding: file_config.code_embedding,
+            image_embedding: file_config.image_embedding,
             docling: file_config.docling.map(normalize_docling_config),
             auth: file_config.auth,
             file_library: file_config.file_library,

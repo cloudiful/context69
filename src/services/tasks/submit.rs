@@ -1,11 +1,13 @@
 use anyhow::Result;
 use base64::{Engine, engine::general_purpose::STANDARD};
+use context69_contracts::tasks::ImageBatchItem;
 use context69_contracts::{FileBatchItem, TaskKind, TaskRef};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{db::CreateTaskSubmissionRequest, domain_errors::DomainError};
 
+use super::pipeline_progress_input::normalize_image_batch;
 use super::{TaskService, TaskSubmission};
 
 impl TaskService {
@@ -72,6 +74,7 @@ impl TaskService {
                         .library
                         .stage_file_for_task_input(
                             group_id,
+                            crate::services::library::TaskInputMedia::for_task_kind(request.kind),
                             crate::services::library::UploadedLibraryFile {
                                 folder_id: file.folder_id,
                                 filename: file.filename,
@@ -87,6 +90,87 @@ impl TaskService {
                     newly_staged_object_ids.push(object_id);
                     if let Some(object) = payload.as_object_mut() {
                         object.remove("content_base64");
+                    }
+                }
+                Ok::<_, anyhow::Error>(())
+            }
+            .await;
+            if let Err(error) = result {
+                self.release_staged_input_objects(&newly_staged_object_ids)
+                    .await;
+                return Err(error);
+            }
+        }
+        if request.kind == TaskKind::ImageBatch {
+            let group_id = request
+                .group_id
+                .ok_or_else(|| DomainError::invalid_argument("image tasks require group_id"))?;
+            // Parse and validate the whole batch before staging any inline bytes
+            // or enqueuing: unsupported options and an invalid source must reject
+            // the submission without leaving staged objects. This is the single
+            // shared path behind both the group-scoped image route and the
+            // generic task submit.
+            let mut items = Vec::with_capacity(payloads.len());
+            for payload in &payloads {
+                let item: ImageBatchItem =
+                    serde_json::from_value(payload.clone()).map_err(|error| {
+                        DomainError::invalid_argument(format!("invalid image batch item: {error}"))
+                    })?;
+                items.push(item);
+            }
+            // Treat a blank/whitespace source as absent and persist the normalized
+            // choice, so the staging loop and the worker's replay routing both see
+            // the same source the XOR validation accepted. A valid URL with a blank
+            // inline field must dispatch as a URL item (never decode empty inline
+            // bytes), and a valid inline image with a blank URL must not be routed
+            // as a URL replay with no resolved metadata.
+            normalize_image_batch(&mut items);
+            validate_image_batch(&items)?;
+            for (payload, item) in payloads.iter_mut().zip(items.iter()) {
+                *payload = serde_json::to_value(item).map_err(|error| {
+                    DomainError::invalid_argument(format!("invalid image batch item: {error}"))
+                })?;
+            }
+            let result = async {
+                for (index, (payload, item)) in payloads.iter_mut().zip(items.iter()).enumerate() {
+                    let Some(encoded) = item.content_base64.as_deref() else {
+                        continue;
+                    };
+                    let bytes = STANDARD.decode(encoded.trim()).map_err(|error| {
+                        DomainError::invalid_argument(format!(
+                            "invalid image batch content_base64: {error}"
+                        ))
+                    })?;
+                    let object_id = self
+                        .library
+                        .stage_file_for_task_input(
+                            group_id,
+                            crate::services::library::TaskInputMedia::for_task_kind(
+                                TaskKind::ImageBatch,
+                            ),
+                            crate::services::library::UploadedLibraryFile {
+                                folder_id: item.folder_id,
+                                filename: item.filename.clone(),
+                                media_type: item.media_type.clone(),
+                                bytes: bytes.into(),
+                                declared_sha256: item.declared_sha256.clone(),
+                                options: item.options.clone(),
+                                staged_storage_object_id: None,
+                            },
+                        )
+                        .await?;
+                    let expected_sha256 = self
+                        .library
+                        .staged_task_input_sha256(group_id, object_id)
+                        .await?;
+                    input_storage_object_ids[index] = Some(object_id);
+                    newly_staged_object_ids.push(object_id);
+                    if let Some(object) = payload.as_object_mut() {
+                        object.remove("content_base64");
+                        object.insert(
+                            super::pipeline_progress_input::IMAGE_EXPECTED_SHA256_KEY.to_string(),
+                            serde_json::Value::String(expected_sha256),
+                        );
                     }
                 }
                 Ok::<_, anyhow::Error>(())
@@ -183,4 +267,166 @@ fn hash_payload(request: &TaskSubmission) -> String {
         .iter()
         .map(|byte| format!("{byte:02x}"))
         .collect()
+}
+
+/// The single public source an image batch item names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImageSourceKind {
+    Inline,
+    Url,
+}
+
+/// Validate the exclusive public image source choice.
+///
+/// Exactly one of a nonempty inline `content_base64` or a nonempty `url` is
+/// allowed; a whitespace-only value counts as absent. Rejecting both prevents
+/// inline bytes from inheriting an unused URL attribution, and rejecting neither
+/// refuses an item that could only fail later on empty bytes.
+fn image_source_kind(content_base64: Option<&str>, url: Option<&str>) -> Result<ImageSourceKind> {
+    let inline = content_base64.is_some_and(|value| !value.trim().is_empty());
+    let url = url.is_some_and(|value| !value.trim().is_empty());
+    match (inline, url) {
+        (true, false) => Ok(ImageSourceKind::Inline),
+        (false, true) => Ok(ImageSourceKind::Url),
+        (true, true) => Err(DomainError::invalid_argument(
+            "an image batch item must have exactly one source: content_base64 or url, not both",
+        )
+        .into()),
+        (false, false) => Err(DomainError::invalid_argument(
+            "an image batch item requires exactly one source: content_base64 or url",
+        )
+        .into()),
+    }
+}
+
+/// Validate every image batch item before any inline bytes are staged.
+///
+/// Both public image entrypoints reach this one service path, so a rejected
+/// item rejects the whole submission without staging bytes or enqueuing a task.
+fn validate_image_batch(items: &[ImageBatchItem]) -> Result<()> {
+    for item in items {
+        crate::services::library::ensure_image_options_supported(&item.options)?;
+        image_source_kind(item.content_base64.as_deref(), item.url.as_deref())?;
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use context69_contracts::tasks::ImageBatchItem;
+    use serde_json::json;
+
+    use super::super::pipeline_progress_input::{normalize_image_batch, normalize_image_source};
+    use super::{ImageSourceKind, image_source_kind, validate_image_batch};
+
+    fn item(value: serde_json::Value) -> ImageBatchItem {
+        serde_json::from_value(value).expect("the test image item parses")
+    }
+
+    #[test]
+    fn image_source_requires_exactly_one_nonempty_choice() {
+        assert_eq!(
+            image_source_kind(Some("AA=="), None).unwrap(),
+            ImageSourceKind::Inline
+        );
+        assert_eq!(
+            image_source_kind(None, Some("https://x/y.png")).unwrap(),
+            ImageSourceKind::Url
+        );
+        for (inline, url) in [(None, None), (Some("   "), None), (None, Some("  "))] {
+            assert!(
+                image_source_kind(inline, url).is_err(),
+                "neither source must fail for {inline:?}/{url:?}"
+            );
+        }
+        assert!(image_source_kind(Some("AA=="), Some("https://x/y.png")).is_err());
+        assert!(image_source_kind(Some("AA=="), Some("   ")).is_ok());
+        assert!(image_source_kind(Some("  "), Some("https://x/y.png")).is_ok());
+    }
+
+    #[test]
+    fn mixed_image_batch_is_rejected_before_any_item_is_accepted() {
+        let valid = item(json!({
+            "filename": "a.png",
+            "media_type": "image/png",
+            "content_base64": "AA==",
+        }));
+        let both = item(json!({
+            "filename": "b.png",
+            "media_type": "image/png",
+            "content_base64": "AA==",
+            "url": "https://x/b.png",
+        }));
+        let neither = item(json!({
+            "filename": "c.png",
+            "media_type": "image/png",
+        }));
+        assert!(validate_image_batch(std::slice::from_ref(&valid)).is_ok());
+        assert!(validate_image_batch(&[valid.clone(), both]).is_err());
+        assert!(validate_image_batch(&[valid, neither]).is_err());
+    }
+
+    #[test]
+    fn blank_source_normalizes_before_dispatch_and_persistence() {
+        // A valid URL with a blank inline field must persist as URL-only, so the
+        // staging loop skips inline decoding and the worker never rewrites the
+        // blank inline value back into a `Some("  ")`.
+        let mut url_item = item(json!({
+            "filename": "u.png",
+            "media_type": "image/png",
+            "content_base64": "   ",
+            "url": "https://x/u.png",
+        }));
+        normalize_image_source(&mut url_item);
+        assert!(url_item.content_base64.is_none());
+        assert_eq!(url_item.url.as_deref(), Some("https://x/u.png"));
+        let persisted = serde_json::to_value(&url_item).expect("item serializes");
+        assert!(persisted.get("content_base64").is_none());
+        let replay: ImageBatchItem =
+            serde_json::from_value(persisted).expect("worker input parses");
+        assert!(replay.content_base64.is_none());
+        assert_eq!(replay.url.as_deref(), Some("https://x/u.png"));
+
+        // A valid inline image with a blank URL (and extension-resolved media
+        // type) must persist as inline-only, never as a URL replay.
+        let mut inline_item = item(json!({
+            "filename": "cover.png",
+            "media_type": "",
+            "content_base64": "AA==",
+            "url": "  ",
+        }));
+        normalize_image_source(&mut inline_item);
+        assert!(inline_item.url.is_none());
+        assert_eq!(inline_item.content_base64.as_deref(), Some("AA=="));
+        let persisted = serde_json::to_value(&inline_item).expect("item serializes");
+        assert!(persisted.get("url").is_none());
+        let replay: ImageBatchItem =
+            serde_json::from_value(persisted).expect("worker input parses");
+        assert!(replay.url.is_none());
+        assert_eq!(replay.content_base64.as_deref(), Some("AA=="));
+    }
+
+    #[test]
+    fn mixed_batch_with_blank_sources_normalizes_to_a_valid_batch() {
+        let mut batch = [
+            item(json!({
+                "filename": "u.png",
+                "media_type": "image/png",
+                "content_base64": " ",
+                "url": "https://x/u.png",
+            })),
+            item(json!({
+                "filename": "cover.png",
+                "media_type": "",
+                "content_base64": "AA==",
+                "url": " ",
+            })),
+        ];
+        normalize_image_batch(&mut batch);
+        assert!(batch[0].content_base64.is_none());
+        assert_eq!(batch[0].url.as_deref(), Some("https://x/u.png"));
+        assert!(batch[1].url.is_none());
+        assert_eq!(batch[1].content_base64.as_deref(), Some("AA=="));
+        assert!(validate_image_batch(&batch).is_ok());
+    }
 }

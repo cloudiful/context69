@@ -85,6 +85,18 @@ impl SettingsSecrets {
         )
     }
 
+    /// The image embedding provider API key.
+    ///
+    /// It is a separate purpose and key name, so an image save or probe can
+    /// never open the document or code credential.
+    pub fn image_embedding(store: SecretStore) -> Self {
+        Self::new(
+            store,
+            SecretPurpose::ImageEmbeddingApiKey,
+            key_names::IMAGE_EMBEDDING_API_KEY,
+        )
+    }
+
     /// The Docling VLM provider API key.
     pub fn docling(store: SecretStore) -> Self {
         Self::new(
@@ -344,6 +356,22 @@ mod tests {
         assert_eq!(secrets.purpose, SecretPurpose::RuntimeS3SecretKey);
         assert_eq!(secrets.key_name, key_names::RUNTIME_S3_SECRET_KEY);
         assert!(SecretPurpose::RuntimeS3SecretKey.is_singleton());
+    }
+
+    #[tokio::test]
+    async fn the_image_binding_owns_only_the_image_secret() {
+        let secrets = SettingsSecrets::image_embedding(unkeyed_store());
+        assert_eq!(secrets.purpose, SecretPurpose::ImageEmbeddingApiKey);
+        assert_eq!(secrets.key_name, key_names::IMAGE_EMBEDDING_API_KEY);
+        assert!(SecretPurpose::ImageEmbeddingApiKey.is_singleton());
+        assert_ne!(
+            SecretPurpose::ImageEmbeddingApiKey,
+            SecretPurpose::EmbeddingApiKey
+        );
+        assert_ne!(
+            SecretPurpose::ImageEmbeddingApiKey,
+            SecretPurpose::CodeEmbeddingApiKey
+        );
     }
 
     #[test]

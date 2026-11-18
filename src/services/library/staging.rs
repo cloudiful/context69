@@ -1,20 +1,65 @@
 use anyhow::Result;
 use bytes::Bytes;
 use chrono::{Duration as ChronoDuration, Utc};
+use context69_contracts::tasks::TaskKind;
 use tracing::warn;
 use uuid::Uuid;
 
 use crate::{domain_errors::DomainError, library_store::objects::UpsertStagedStorageObjectRequest};
 
-use super::{LibraryService, UploadedLibraryFile, object_storage};
+use super::{
+    LibraryService, UploadedLibraryFile, object_storage,
+    uploads::{validate_document_uploaded_file, validate_image_uploaded_file},
+};
+
+/// The media validation one task input staging applies.
+///
+/// The family is explicit rather than inferred from the upload: an image task
+/// validates the exact image kinds its worker later stores, while every other
+/// task keeps the unchanged document validation. An image submitted to a
+/// document task is still refused exactly as before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TaskInputMedia {
+    Document,
+    Image,
+}
+
+impl TaskInputMedia {
+    pub(crate) fn for_task_kind(kind: TaskKind) -> Self {
+        match kind {
+            TaskKind::ImageBatch => Self::Image,
+            _ => Self::Document,
+        }
+    }
+
+    pub(crate) fn validate(
+        self,
+        upload: &UploadedLibraryFile,
+        max_upload_size_bytes: usize,
+    ) -> Result<String> {
+        match self {
+            Self::Document => {
+                let (_kind, sha256) =
+                    validate_document_uploaded_file(upload, max_upload_size_bytes)?;
+                Ok(sha256)
+            }
+            Self::Image => {
+                let (_kind, sha256) = validate_image_uploaded_file(upload, max_upload_size_bytes)?;
+                Ok(sha256)
+            }
+        }
+    }
+}
 
 impl LibraryService {
+    /// Stage one task input with the validation its task kind requires.
     pub(crate) async fn stage_file_for_task_input(
         &self,
         group_id: i64,
+        media: TaskInputMedia,
         upload: UploadedLibraryFile,
     ) -> Result<Uuid> {
-        let (_kind, sha256) = self.prepare_uploaded_file(&upload).await?;
+        let sha256 = media.validate(&upload, self.max_upload_size_bytes())?;
         let mut lock_tx = self.db.pool().begin().await?;
         self.store
             .lock_storage_object(&mut lock_tx, &format!("{group_id}:{sha256}"))
@@ -122,6 +167,31 @@ impl LibraryService {
         };
         tx.commit().await?;
         Ok(object.id)
+    }
+
+    /// The actual content SHA recorded for one immutable staged task input.
+    ///
+    /// The hash was computed from the staged bytes when the object was
+    /// materialized; callers bind submission identity to this value instead of
+    /// trusting a caller-declared digest or a later mutable file row.
+    pub(crate) async fn staged_task_input_sha256(
+        &self,
+        group_id: i64,
+        object_id: Uuid,
+    ) -> Result<String> {
+        let object = self
+            .store
+            .get_storage_object_by_id(object_id)
+            .await?
+            .ok_or_else(|| {
+                DomainError::not_found(format!("unknown staged storage object {object_id}"))
+            })?;
+        if object.group_id != group_id {
+            return Err(
+                DomainError::forbidden("staged storage object belongs to another group").into(),
+            );
+        }
+        Ok(object.sha256)
     }
 
     pub(crate) async fn read_task_input_for_task(

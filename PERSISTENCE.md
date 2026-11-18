@@ -22,14 +22,14 @@ produces is plain SQL text.
 
 | Module | Models | Tables |
 | --- | --- | --- |
-| `src/db/entity/` | 29 | `docling_settings`, `document_chunks`, `documents`, `git_provider_connections`, `git_repository_sources`, `git_webhook_registrations`, `group_memberships`, `groups`, `library_dependency_gates`, `library_file_documents`, `library_files`, `library_folders`, `library_legacy_object_cleanup`, `library_storage_objects`, `personal_access_tokens`, `rerank_item_scores`, `runtime_chunking_settings`, `runtime_code_embedding_settings`, `runtime_embedding_settings`, `runtime_file_library_settings`, `runtime_qdrant_settings`, `runtime_scheduler_settings`, `runtime_source_connections`, `search_generations`, `search_settings`, `source_checkpoints`, `source_configs`, `sync_runs`, `users` |
+| `src/db/entity/` | 32 | `docling_settings`, `document_chunks`, `documents`, `git_provider_connections`, `git_repository_sources`, `git_webhook_registrations`, `group_memberships`, `groups`, `image_vector_deletions`, `library_dependency_gates`, `library_file_documents`, `library_files`, `library_folders`, `library_image_documents`, `library_legacy_object_cleanup`, `library_storage_objects`, `personal_access_tokens`, `rerank_item_scores`, `runtime_chunking_settings`, `runtime_code_embedding_settings`, `runtime_embedding_settings`, `runtime_file_library_settings`, `runtime_image_embedding_settings`, `runtime_qdrant_settings`, `runtime_scheduler_settings`, `runtime_source_connections`, `search_generations`, `search_settings`, `source_checkpoints`, `source_configs`, `sync_runs`, `users` |
 | `crates/context69-translation/src/entity/` | 5 | `document_translation_attempts`, `document_translation_jobs`, `group_translation_settings`, `translation_provider_settings`, `translation_provider_usage` |
 | `crates/context69-secret-store/src/entity/` | 1 | `internal_secrets` |
 
 The native call sites are the modules that own those domains:
 `src/db/documents.rs`, `src/db/git_repositories/{connections,repositories,webhooks}.rs`,
 `src/db/{auth,namespaces,search_cache,search_settings,docling_settings,personal_access_tokens,runtime_settings,source_connections,sync_runs}.rs`,
-`src/library_store/{files,folders,objects,documents,dependency_gates,source_release}.rs`,
+`src/library_store/{files,folders,objects,documents,image_documents,dependency_gates,source_release}.rs`,
 `src/source_store/queries.rs`, `crates/context69-translation/src/store{,/jobs}.rs`
 and `crates/context69-secret-store/src/database.rs`.
 
@@ -87,6 +87,8 @@ conversion gap, not a semantic requirement:
 
 - `src/sql/db/document_results/**` — result insert, list and replay.
 - `src/sql/db/deleted_entities/**` — id-tombstone rows and purge marking.
+- `src/sql/db/image_vector_deletions/**` and `src/sql/db/image_vector_origins/**` — durable image-vector origin registry and exact deletion targets, executed with runtime binds so no offline query-cache entry is required.
+- `src/sql/db/runtime_settings/save_runtime_image_embedding_settings.sql` — the independent image settings row, executed with runtime binds inside the settings transaction.
 - `src/sql/db/vector_index_state/**` and
   `src/sql/db/vector_collection_retirement/**` — vector index bookkeeping.
 - `src/sql/db/library_ingest_runs/**` — ingest run and section bookkeeping.

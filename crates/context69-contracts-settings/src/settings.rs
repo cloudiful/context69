@@ -175,6 +175,13 @@ pub struct RuntimeSettingsResponse {
     /// its non-secret fields.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_embedding: Option<RuntimeCodeEmbeddingSettings>,
+    /// The optional, independent image embedding configuration.
+    ///
+    /// Absent when the deployment never stored an image row. A present value
+    /// with `enabled = false` is an explicitly disabled configuration that
+    /// retains its non-secret fields and credential.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_embedding: Option<RuntimeImageEmbeddingSettings>,
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: RuntimeFileLibrarySettings,
@@ -203,6 +210,12 @@ pub struct UpdateRuntimeSettingsRequest {
     /// row and credential, so an older client cannot disable code embedding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code_embedding: Option<UpdateCodeEmbeddingSettings>,
+    /// The optional image embedding block.
+    ///
+    /// An absent or `null` field skips every image write, preserving the stored
+    /// row and credential, so an older client cannot disable image embedding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_embedding: Option<UpdateImageEmbeddingSettings>,
     pub scheduler: RuntimeSchedulerSettings,
     pub chunking: RuntimeChunkingSettings,
     pub file_library: UpdateRuntimeFileLibrarySettings,
@@ -282,6 +295,48 @@ pub struct UpdateCodeEmbeddingSettings {
     pub query_model: Option<String>,
     pub dimensions: usize,
     pub timeout_secs: u64,
+    #[serde(default)]
+    pub api_key: SecretPatch,
+}
+
+/// The stored optional image embedding settings.
+///
+/// This block is independent of the document and code embedding blocks: it has
+/// its own endpoint, model pair, credential and physical Qdrant collection. The
+/// image model embeds stored image bytes; the query model embeds text queries
+/// into the same space. `has_api_key` is presence metadata only.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RuntimeImageEmbeddingSettings {
+    pub enabled: bool,
+    pub base_url: String,
+    /// The model image bytes are embedded with.
+    pub model: String,
+    /// The model text queries are embedded with. Absent means the image model.
+    #[serde(default)]
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    /// The independent physical Qdrant collection image vectors live in.
+    pub collection_name: String,
+    pub has_api_key: bool,
+}
+
+/// The optional image embedding update.
+///
+/// The tri-state secret patch follows the settings contract: `keep` retains the
+/// stored image credential, `set` replaces it, and `clear` removes it.
+/// Disabling the block keeps every non-secret field and the credential unless
+/// the caller explicitly clears the key.
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdateImageEmbeddingSettings {
+    pub enabled: bool,
+    pub base_url: String,
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query_model: Option<String>,
+    pub dimensions: usize,
+    pub timeout_secs: u64,
+    pub collection_name: String,
     #[serde(default)]
     pub api_key: SecretPatch,
 }

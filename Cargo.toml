@@ -69,6 +69,7 @@ context69-translation = { path = "crates/context69-translation", version = "0.1.
 futures = "0.3.34"
 getrandom = "0.4.3"
 hmac = "0.13.0"
+image = { version = "0.25.9", default-features = false, features = ["jpeg", "png", "webp"] }
 qdrant-client = "1.20.0"
 rate-limiter = { package = "cloudiful-rate-limiter", version = "0.1.0", features = ["valkey"] }
 opendal = { version = "0.59.5", default-features = false, features = ["services-fs", "services-s3", "http-transport-reqwest", "executors-tokio"] }
@@ -137,6 +138,7 @@ db-init.workspace = true
 futures.workspace = true
 getrandom.workspace = true
 hmac.workspace = true
+image.workspace = true
 qdrant-client.workspace = true
 rate-limiter.workspace = true
 opendal.workspace = true

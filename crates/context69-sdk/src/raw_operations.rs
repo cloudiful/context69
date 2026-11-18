@@ -1,7 +1,7 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
 //! Generated mechanically from `frontend/openapi/context69.openapi.json`
-//! (154 operations, sorted by `operation_id` for deterministic diffs).
+//! (163 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`
 //! name the shared contract schemas (`-` means no JSON body/response,
@@ -858,6 +858,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "list_document_images",
+        method: "GET",
+        path_template: "/v1/groups/by-path/{group_path}/documents/{document_id}/images",
+        requires_auth: true,
+        body_kind: BodyKind::Empty,
+        request_schema: "-",
+        response_schema: "DocumentImageListResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "list_document_results",
         method: "GET",
         path_template: "/v1/groups/by-path/{group_path}/documents/{document_id}/results",
@@ -1364,6 +1375,17 @@ pub const OPERATIONS: &[Operation] = &[
         idempotent: false,
     },
     Operation {
+        id: "search_images",
+        method: "POST",
+        path_template: "/v1/groups/by-path/{group_path}/images/search",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "ImageSearchRequest",
+        response_schema: "ImageSearchResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
         id: "search_stream",
         method: "GET",
         path_template: "/v1/search/stream",
@@ -1425,6 +1447,17 @@ pub const OPERATIONS: &[Operation] = &[
         requires_auth: true,
         body_kind: BodyKind::Json,
         request_schema: "FileBatchRequest",
+        response_schema: "TaskRef",
+        success_status: 202,
+        idempotent: true,
+    },
+    Operation {
+        id: "submit_image_batch",
+        method: "POST",
+        path_template: "/v1/groups/by-path/{group_path}/batch/image",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "ImageBatchRequest",
         response_schema: "TaskRef",
         success_status: 202,
         idempotent: true,
@@ -1569,6 +1602,17 @@ pub const OPERATIONS: &[Operation] = &[
         body_kind: BodyKind::Empty,
         request_schema: "-",
         response_schema: "TaskResponse",
+        success_status: 200,
+        idempotent: false,
+    },
+    Operation {
+        id: "unlink_document_images",
+        method: "POST",
+        path_template: "/v1/groups/by-path/{group_path}/documents/images/unlink",
+        requires_auth: true,
+        body_kind: BodyKind::Json,
+        request_schema: "UnlinkDocumentImagesRequest",
+        response_schema: "UnlinkDocumentImagesResponse",
         success_status: 200,
         idempotent: false,
     },

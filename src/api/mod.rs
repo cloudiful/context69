@@ -40,6 +40,7 @@ mod group_library;
 mod group_library_settings;
 mod group_source_folders;
 mod health;
+mod images;
 mod library;
 mod library_upload;
 mod personal_access_tokens;
@@ -163,6 +164,9 @@ pub(crate) use group_source_folders::{
     create_group_source_folder, sync_group_source_folder, update_group_source_folder_config,
 };
 pub(crate) use health::healthz;
+pub(crate) use images::{
+    list_document_images, search_images, submit_image_batch, unlink_document_images,
+};
 pub(crate) use library::{
     create_library_folder, create_library_text, delete_library_file, delete_library_folder,
     get_library_file, get_library_resources, get_library_tree, move_library_file,

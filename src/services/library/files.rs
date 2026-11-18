@@ -57,6 +57,26 @@ impl LibraryService {
             .await
     }
 
+    /// The raw stored bytes of one library file under the item's write lease.
+    ///
+    /// The image embedding step reads the exact source revision it is about to
+    /// embed; the caller never reconstructs bytes from a parent or a task
+    /// payload.
+    pub(crate) async fn read_library_file_bytes_for_lease(
+        &self,
+        file: &crate::domain::LibraryFileRecord,
+        lease_token: Uuid,
+    ) -> Result<bytes::Bytes> {
+        self.read_active_storage_for_lease(&file.storage_rel_path, lease_token)
+            .await?
+            .ok_or_else(|| {
+                anyhow::Error::from(DomainError::not_found(format!(
+                    "stored file not found for file {}",
+                    file.id
+                )))
+            })
+    }
+
     async fn read_text_file_content_with_lease(
         &self,
         file: &crate::domain::LibraryFileRecord,
@@ -388,6 +408,25 @@ impl LibraryService {
         // epoch-locked transaction.
         let (purge_target, captured_index) =
             self.require_delete_purge_target(write.connection()).await?;
+        // The shared image-vector scopes and the per-file processing slot are
+        // taken before the file row, in the same order an image write uses, so
+        // an in-flight write either finishes before this delete schedules its
+        // origin or sees the removed row and never writes. The scope read is
+        // non-locking; the row lock below proves the file still exists in the
+        // requested project.
+        let scope = self
+            .store
+            .get_file(file_id)
+            .await?
+            .filter(|file| project_id.is_none_or(|project_id| file.group_id == project_id));
+        let Some(scope) = scope else {
+            write.rollback().await;
+            return Err(DomainError::not_found(format!("unknown file {file_id}")).into());
+        };
+        self.db
+            .lock_image_vector_scopes_in(write.connection(), scope.group_id, &[file_id], &[])
+            .await?;
+        crate::db::lock_file_processing_slots(write.connection(), &[file_id]).await?;
         let Some(file) = self
             .store
             .lock_file_for_delete_on(write.connection(), file_id, project_id)
@@ -417,6 +456,18 @@ impl LibraryService {
                 Some(file.group_id),
                 purge_target.as_ref(),
             )
+            .await?;
+        self.record_image_vector_deletion_for_file(write.connection(), file.group_id, file.id)
+            .await?;
+        self.store
+            .delete_image_document_links_for_file_documents_on(
+                write.connection(),
+                file.group_id,
+                file.id,
+            )
+            .await?;
+        self.store
+            .delete_image_document_links_for_file_on(write.connection(), file.group_id, file.id)
             .await?;
         self.store
             .delete_documents_for_files_in(write.connection(), &[file.id])

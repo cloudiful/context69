@@ -51,7 +51,7 @@ pub(crate) async fn submit_task_request(state: &ApiState, request: TaskSubmissio
     }
 }
 
-async fn managed_group(
+pub(crate) async fn managed_group(
     state: &ApiState,
     user_id: i64,
     group_path: &str,
@@ -64,7 +64,7 @@ async fn managed_group(
     Ok(group)
 }
 
-fn idempotency_key(headers: &HeaderMap) -> Option<String> {
+pub(crate) fn idempotency_key(headers: &HeaderMap) -> Option<String> {
     headers
         .get("idempotency-key")
         .and_then(|value| value.to_str().ok())

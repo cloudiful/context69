@@ -126,6 +126,48 @@ The Embedding section calls the existing model the document model and accepts an
 
 The optional Code embedding block configures a separate Git-oriented model for code chunks and code search. It is disabled by default and has its own endpoint, credential, model, optional query model, and dimensions, and never reuses the document model or document API key. Disabling it retains the saved non-secret fields and the code credential unless the operator explicitly clears that key; enabling or changing it requires an explicit Git repository reindex.
 
+Image ingestion has its own optional embedding settings and writes its own fingerprint-scoped Qdrant collection; it never changes document or code settings and never adopts their indexes. PNG, JPEG, and WebP only are accepted after magic-byte, media-type, dimension, and size checks, and originals are retained: image submissions reject `release_after_processing`, translation, and text-conversion options. A URL import keeps the existing SSRF, peer, redirect, and size protections. Submit standalone images, or link an occurrence to an existing parent document by key:
+
+```rust
+use context69_sdk::{ImageBatchItem, ImageBatchRequest, ImageSearchRequest};
+
+client
+    .submit_image_batch(
+        "team/library",
+        &ImageBatchRequest {
+            items: vec![ImageBatchItem {
+                filename: "photo.png".into(),
+                media_type: "image/png".into(),
+                content_base64: Some(encoded_png),
+                url: None,
+                declared_sha256: None,
+                folder_id: None,
+                parent: None,
+                role: None,
+                ordinal: 0,
+                caption: None,
+                context: None,
+                source_uri: None,
+                options: Default::default(),
+            }],
+        },
+    )
+    .await?;
+
+let hits = client
+    .search_images(
+        "team/library",
+        &ImageSearchRequest {
+            query: "a red bicycle in a city".into(),
+            limit: 20,
+            media_type: None,
+        },
+    )
+    .await?;
+```
+
+Set `parent` to the target document key and `role`/`ordinal` to attach a cover or body occurrence; omission keeps the image standalone. Visual search embeds the text query into the image model's vector space and returns authorized images with score, file identity, and current parent occurrences. It does not perform OCR or HTML extraction, so text printed inside an image is not searchable through this channel. Hydration drops stale or deleted candidates and may return fewer hits than `limit`; the response has no total or cursor. Use `list_document_images` and `unlink_document_images` to inspect up to 512 occurrences (`has_more` reports the bound) and remove links only; files and vectors stay intact.
+
 Each Git repository selects its own index profile. `Lexical` is the default and searches the stored code text only. `Hybrid` and `FullSemantic` require the code model and write an isolated code vector set for each indexed generation: Hybrid fuses lexical and vector ranks, while FullSemantic ranks by code-vector similarity. When the code model is not configured, the serving generation was indexed without code vectors, the recorded code destination no longer matches the current code identity, or the vector runtime is unavailable, a semantic request returns lexical results and reports the reason through `vector_unavailable` instead of claiming a semantic result. Code vectors use their own collection and never reuse document vectors, the document collection, or the document credential. Changing the code model requires an explicit reindex; existing repositories keep their configured profile until it is changed. The tracked ref, optional pinned commit, and index profile remain editable after registration: changing any of them marks the stored snapshot stale, and an index attempt started against the previous target or profile cannot publish. A source whose last index attempt failed reports a bounded `last_error_code` classification, never a provider message, response body, or secret-bearing detail.
 
 Refresh is manual by default. An optional per-repository interval runs independently of the document pipeline, and authenticated provider pushes refresh the repository through `/v1/webhooks/{provider}/{external_hook_id}`; the webhook requires the registration's signing secret, verifies the raw body with HMAC-SHA256, and only a matching push event for the source's repository and tracked ref dispatches work. A request that arrives while indexing is already running leaves a durable follow-up instead of being dropped, and one repository never runs two index tasks at once. Webhook deliveries are idempotent by provider delivery id, and unsigned, mis-signed, foreign-repository, and unrelated-ref deliveries are acknowledged without refreshing.

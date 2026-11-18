@@ -71,6 +71,15 @@ impl LibraryService {
             .store
             .get_file_by_external_id_in_project(project.id, external_id)
             .await?;
+        if let Some(existing_file) = existing.as_ref() {
+            super::file_kind_identity::ensure_external_id_replacement_kind(
+                &existing_file.filename,
+                &existing_file.media_type,
+                filename,
+                &request.media_type,
+                Some(&bytes),
+            )?;
+        }
         let previous_file = existing.clone();
         let previous_translation = match existing.as_ref() {
             Some(file) => self.store.file_translation_directive(file.id).await?,

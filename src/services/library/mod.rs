@@ -93,6 +93,17 @@ pub use replacement_runner::{
 };
 pub use replacement_task::AtomicFirstInsert;
 pub(crate) use replacement_task::{begin_ordinary_replacement, clear_ingest_cache};
+mod image_links;
+pub use image_links::{
+    ImageLinkRequest, ImageOccurrenceRole, MAX_IMAGE_CAPTION_CHARS, MAX_IMAGE_CONTEXT_CHARS,
+    MAX_IMAGE_SOURCE_URI_CHARS,
+};
+mod image_cleanup;
+mod image_search;
+pub use image_cleanup::{DEFAULT_IMAGE_VECTOR_CLEANUP_BATCH_SIZE, ImageVectorCleanupSummary};
+mod file_kind_identity;
+mod image_uploads;
+mod image_validation;
 mod ingest_types;
 mod legacy_cleanup;
 pub use legacy_cleanup::{DEFAULT_LEGACY_CLEANUP_BATCH_SIZE, LegacyCleanupSummary};
@@ -127,6 +138,13 @@ pub(crate) mod docling_remote_ops;
 mod docling_remote_result;
 mod docling_remote_submit;
 mod staging;
+pub(crate) use file_kind_identity::{
+    ensure_external_id_replacement_kind, ensure_image_options_supported,
+};
+pub(crate) use image_uploads::ImageVectorPublish;
+pub(crate) use image_validation::{image_kind_from_bytes, require_image_media};
+pub(crate) use staging::TaskInputMedia;
+pub(crate) use storage::hash_bytes;
 mod staging_cleanup;
 pub(crate) mod storage;
 mod streaming;
@@ -150,7 +168,9 @@ pub use ingest_types::LibraryDependency;
 use ingest_types::{
     IngestFailure, IngestResult, PreparedIngestSection, SourceConfigPreview, SourceRecordJson,
 };
-pub(crate) use ingest_types::{IngestSection, LibraryFileKind, TaskSourceRef};
+pub(crate) use ingest_types::{
+    IngestSection, LibraryFileKind, LibraryImageKind, LibraryMediaKind, TaskSourceRef,
+};
 use metadata_helpers::{compose_library_metadata, library_system_metadata};
 pub(crate) use source_release::{
     can_reprocess_source, has_downloadable_source, is_managed_source_file,
@@ -398,6 +418,12 @@ impl LibraryService {
         // epoch-locked transaction.
         let (purge_target, captured_index) =
             self.require_delete_purge_target(write.connection()).await?;
+        // The shared image-vector group and document scopes are taken before
+        // the document row, so a concurrent link insert either commits first
+        // and is removed by this cleanup or waits and then finds no parent.
+        self.db
+            .lock_image_vector_scopes_in(write.connection(), group_id, &[], &[document_id])
+            .await?;
         let Some(document) = self
             .store
             .lock_document_for_delete_on(write.connection(), group_id, document_id)
@@ -416,6 +442,13 @@ impl LibraryService {
             .await?;
         self.store
             .delete_document_by_id_on(write.connection(), document.id)
+            .await?;
+        self.store
+            .delete_image_document_links_for_document_on(
+                write.connection(),
+                document.group_id,
+                document.id,
+            )
             .await?;
         if !write.commit().await? {
             return Err(crate::library_store::TaskWriteDenied::new(

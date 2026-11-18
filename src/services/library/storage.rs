@@ -4,6 +4,38 @@ use crate::contracts::LibraryTextContentFormat;
 
 use super::*;
 
+/// The classification of one upload: an existing document kind, or the
+/// additive supported image kind.
+///
+/// An image claim is decided before document detection, so a declared image
+/// never falls through to the document kinds. An upload that does not claim to
+/// be an image is classified exactly as before by [`detect_file_kind`].
+pub(crate) fn detect_media_kind(
+    filename: &str,
+    media_type: &str,
+    bytes: &[u8],
+) -> Result<LibraryMediaKind> {
+    let Some(declared) = image_validation::declared_image_kind(filename, media_type)? else {
+        return Ok(LibraryMediaKind::Document(detect_file_kind(
+            filename, media_type,
+        )?));
+    };
+    let detected = image_validation::image_kind_from_bytes(bytes).ok_or_else(|| {
+        DomainError::invalid_argument(format!(
+            "image {filename} does not contain PNG, JPEG or WebP bytes"
+        ))
+    })?;
+    if detected != declared {
+        return Err(DomainError::invalid_argument(format!(
+            "image {filename} declares {} but contains {} bytes",
+            declared.media_type(),
+            detected.media_type()
+        ))
+        .into());
+    }
+    Ok(LibraryMediaKind::Image(detected))
+}
+
 pub(crate) fn detect_file_kind(filename: &str, media_type: &str) -> Result<LibraryFileKind> {
     let lowered = filename.to_ascii_lowercase();
     if lowered.ends_with(".pdf") || media_type == "application/pdf" {
@@ -67,7 +99,7 @@ pub(super) fn text_media_type(format: LibraryTextContentFormat) -> &'static str 
     }
 }
 
-pub(super) fn hash_bytes(bytes: &[u8]) -> String {
+pub(crate) fn hash_bytes(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     hasher
@@ -81,7 +113,8 @@ pub(super) fn hash_bytes(bytes: &[u8]) -> String {
 mod tests {
     use crate::contracts::LibraryTextContentFormat;
 
-    use super::{detect_file_kind, text_filename_from_title, text_media_type};
+    use super::{detect_file_kind, detect_media_kind, text_filename_from_title, text_media_type};
+    use crate::services::library::{LibraryFileKind, LibraryImageKind, LibraryMediaKind};
 
     #[test]
     fn unknown_file_type_is_typed_invalid_argument() {
@@ -93,6 +126,57 @@ mod tests {
             Some(DomainError::InvalidArgument(_))
         ));
         assert_eq!(error.to_string(), "unsupported file type for payload.exe");
+    }
+
+    #[test]
+    fn image_bytes_classify_as_the_declared_supported_image_kind() {
+        let png = b"\x89PNG\r\n\x1a\n";
+        assert_eq!(
+            detect_media_kind("cover.png", "image/png", png).unwrap(),
+            LibraryMediaKind::Image(LibraryImageKind::Png)
+        );
+        assert_eq!(
+            detect_media_kind("cover.jpg", "image/jpeg", b"\xff\xd8\xff").unwrap(),
+            LibraryMediaKind::Image(LibraryImageKind::Jpeg)
+        );
+        assert_eq!(
+            detect_media_kind("cover.webp", "image/webp", b"RIFF\0\0\0\0WEBP").unwrap(),
+            LibraryMediaKind::Image(LibraryImageKind::WebP)
+        );
+    }
+
+    #[test]
+    fn nonimage_uploads_keep_the_existing_document_classification() {
+        assert_eq!(
+            detect_media_kind("notes.md", "text/markdown", b"# notes").unwrap(),
+            LibraryMediaKind::Document(LibraryFileKind::PlainText)
+        );
+        assert_eq!(
+            detect_media_kind("report.pdf", "application/pdf", b"%PDF").unwrap(),
+            LibraryMediaKind::Document(LibraryFileKind::Pdf)
+        );
+    }
+
+    #[test]
+    fn image_claims_with_foreign_or_refused_bytes_fail_explicitly() {
+        use crate::domain_errors::{DomainError, find_domain_error};
+
+        let error = detect_media_kind("cover.png", "image/png", b"plain text").unwrap_err();
+        assert!(matches!(
+            find_domain_error(&error),
+            Some(DomainError::InvalidArgument(_))
+        ));
+        assert_eq!(
+            error.to_string(),
+            "image cover.png does not contain PNG, JPEG or WebP bytes"
+        );
+        let error = detect_media_kind("icon.svg", "image/svg+xml", b"<svg/>").unwrap_err();
+        assert_eq!(error.to_string(), "unsupported image type for icon.svg");
+        let error = detect_media_kind("cover.png", "image/png", b"\xff\xd8\xff").unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "image cover.png declares image/png but contains image/jpeg bytes"
+        );
     }
 
     #[test]
