@@ -36,7 +36,4 @@ jobs:
       dockerfile: ./forgejo.Dockerfile
       targets: >-
         [{"target":"runtime"}]
-      publish_latest: "false"
-      builder_name_prefix: context69
-      inline_cache_tag: latest-amd64
       push: true
