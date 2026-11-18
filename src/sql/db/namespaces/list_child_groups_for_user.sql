@@ -49,6 +49,7 @@ WHERE parent.full_path = $2
   )
   AND ($8::TEXT IS NULL OR g.visibility = $8::TEXT)
   AND ($9::TEXT IS NULL OR g.kind = $9::TEXT)
+  AND ($10::BIGINT[] IS NULL OR g.id = ANY($10::BIGINT[]))
 ORDER BY
     CASE WHEN $6::TEXT = 'name' AND $7::TEXT = 'asc' THEN LOWER(g.name) END ASC NULLS LAST,
     CASE WHEN $6::TEXT = 'name' AND $7::TEXT = 'desc' THEN LOWER(g.name) END DESC NULLS LAST,

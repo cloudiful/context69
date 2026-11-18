@@ -37,12 +37,14 @@ pub trait NamespaceRepository: Send + Sync {
         &self,
         user_id: i64,
         request: &PageRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>>;
     async fn search_groups_for_user(
         &self,
         user_id: i64,
         query: &str,
         limit: u32,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Vec<GroupRecord>>;
     async fn get_group_for_user(
         &self,
@@ -90,10 +92,17 @@ pub trait NamespaceRepository: Send + Sync {
         user_id: i64,
         group_path: &str,
         request: &PageRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
+    ) -> Result<Page<GroupRecord>>;
+    async fn list_accessible_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
     ) -> Result<Page<GroupRecord>>;
     async fn resolve_access_scope(
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<AccessScope>;
 }

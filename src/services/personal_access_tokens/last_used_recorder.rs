@@ -11,12 +11,13 @@
 //! database handle. The worker never holds the recorder, so the last owner
 //! dropping the recorder stops the worker.
 
-use std::collections::HashSet;
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::Result;
+use chrono::{DateTime, Utc};
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -40,8 +41,15 @@ pub(crate) const SINK_TIMEOUT: Duration = Duration::from_secs(2);
 /// The writer the worker flushes observations to.
 #[async_trait::async_trait]
 pub(crate) trait UsageSink: Send + Sync + 'static {
-    /// Write the usage timestamp of the given tokens.
-    async fn touch(&self, token_ids: &[Uuid]) -> Result<u64>;
+    /// Write the usage timestamps of the given token observations.
+    async fn touch(&self, observations: &[(Uuid, DateTime<Utc>)]) -> Result<u64>;
+}
+
+/// One captured usage observation: the token and the instant it was authorized.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct UsageObservation {
+    pub(crate) token_id: Uuid,
+    pub(crate) observed_at: DateTime<Utc>,
 }
 
 /// The source of the worker's flush ticks.
@@ -108,9 +116,9 @@ struct DatabaseUsageSink {
 
 #[async_trait::async_trait]
 impl UsageSink for DatabaseUsageSink {
-    async fn touch(&self, token_ids: &[Uuid]) -> Result<u64> {
+    async fn touch(&self, observations: &[(Uuid, DateTime<Utc>)]) -> Result<u64> {
         self.db
-            .touch_personal_access_tokens_last_used(token_ids)
+            .touch_personal_access_tokens_last_used(observations)
             .await
     }
 }
@@ -162,7 +170,7 @@ impl RecorderSettings {
 
 /// The one recorder every clone of the token service shares.
 pub struct LastUsedRecorder {
-    sender: mpsc::Sender<Uuid>,
+    sender: mpsc::Sender<UsageObservation>,
     cancel: CancellationToken,
     worker: Mutex<Option<JoinHandle<()>>>,
     dropped: Arc<AtomicU64>,
@@ -190,8 +198,15 @@ impl LastUsedRecorder {
     ///
     /// The call never awaits, never locks, and never fails: a full or closed
     /// queue drops the observation and counts it.
-    pub fn record(&self, token_id: Uuid) {
-        if self.sender.try_send(token_id).is_err() {
+    pub fn record(&self, token_id: Uuid, observed_at: DateTime<Utc>) {
+        if self
+            .sender
+            .try_send(UsageObservation {
+                token_id,
+                observed_at,
+            })
+            .is_err()
+        {
             count_one(&self.dropped);
         }
     }
@@ -281,7 +296,7 @@ fn count_one(counter: &AtomicU64) {
 
 /// The worker that drains the queue and flushes it.
 struct Worker {
-    receiver: mpsc::Receiver<Uuid>,
+    receiver: mpsc::Receiver<UsageObservation>,
     sink: Arc<dyn UsageSink>,
     clock: Box<dyn FlushClock>,
     reporter: Arc<dyn FlushReporter>,
@@ -319,7 +334,7 @@ impl Worker {
             drained,
             ..
         } = self;
-        let mut pending: HashSet<Uuid> = HashSet::new();
+        let mut pending: HashMap<Uuid, DateTime<Utc>> = HashMap::new();
         loop {
             // The cancellation is checked before every round, so a worker that
             // is asked to stop never starts another drain or flush.
@@ -329,7 +344,7 @@ impl Worker {
             tokio::select! {
                 _ = cancel.cancelled() => break,
                 received = receiver.recv() => match received {
-                    Some(token_id) => observe(&mut pending, token_id, pending_capacity, &dropped),
+                    Some(observation) => observe(&mut pending, observation, pending_capacity, &dropped),
                     None => break,
                 },
                 _ = clock.tick() => {
@@ -362,16 +377,23 @@ impl Worker {
 
 /// Coalesce one observation into the pending set.
 fn observe(
-    pending: &mut HashSet<Uuid>,
-    token_id: Uuid,
+    pending: &mut HashMap<Uuid, DateTime<Utc>>,
+    observation: UsageObservation,
     pending_capacity: usize,
     dropped: &AtomicU64,
 ) {
-    if pending.len() >= pending_capacity && !pending.contains(&token_id) {
+    if pending.len() >= pending_capacity && !pending.contains_key(&observation.token_id) {
         count_one(dropped);
         return;
     }
-    pending.insert(token_id);
+    pending
+        .entry(observation.token_id)
+        .and_modify(|observed_at| {
+            if observation.observed_at > *observed_at {
+                *observed_at = observation.observed_at;
+            }
+        })
+        .or_insert(observation.observed_at);
 }
 
 /// Move queued observations into the pending set, up to the drain budget.
@@ -380,8 +402,8 @@ fn observe(
 /// replenishing the queue cannot hold the worker here, so the flush still
 /// starts and the cancellation is still observed.
 fn drain(
-    receiver: &mut mpsc::Receiver<Uuid>,
-    pending: &mut HashSet<Uuid>,
+    receiver: &mut mpsc::Receiver<UsageObservation>,
+    pending: &mut HashMap<Uuid, DateTime<Utc>>,
     pending_capacity: usize,
     budget: usize,
     dropped: &AtomicU64,
@@ -389,9 +411,9 @@ fn drain(
 ) {
     for _ in 0..budget {
         match receiver.try_recv() {
-            Ok(token_id) => {
+            Ok(observation) => {
                 count_one(drained);
-                observe(pending, token_id, pending_capacity, dropped);
+                observe(pending, observation, pending_capacity, dropped);
             }
             Err(_) => break,
         }
@@ -400,7 +422,7 @@ fn drain(
 
 /// Write the pending observations as one batch.
 async fn flush(
-    pending: &mut HashSet<Uuid>,
+    pending: &mut HashMap<Uuid, DateTime<Utc>>,
     sink: &dyn UsageSink,
     reporter: &dyn FlushReporter,
     sink_timeout: Duration,
@@ -408,10 +430,10 @@ async fn flush(
     if pending.is_empty() {
         return;
     }
-    let mut token_ids: Vec<Uuid> = pending.drain().collect();
-    token_ids.sort_unstable();
-    let token_count = token_ids.len();
-    let outcome = tokio::time::timeout(sink_timeout, sink.touch(&token_ids)).await;
+    let mut observations: Vec<(Uuid, DateTime<Utc>)> = pending.drain().collect();
+    observations.sort_unstable_by_key(|observation| observation.0);
+    let token_count = observations.len();
+    let outcome = tokio::time::timeout(sink_timeout, sink.touch(&observations)).await;
     match outcome {
         Ok(Ok(_updated)) => {}
         Ok(Err(error)) => reporter.report(&FlushFailure {
@@ -422,5 +444,58 @@ async fn flush(
             token_count,
             reason: FailureReason::TimedOut,
         }),
+    }
+}
+
+#[cfg(test)]
+mod observation_tests {
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use chrono::{TimeZone, Utc};
+    use uuid::Uuid;
+
+    use super::{UsageObservation, observe};
+
+    #[test]
+    fn coalescing_keeps_the_latest_instant_per_token() {
+        let token_id = Uuid::new_v4();
+        let other = Uuid::new_v4();
+        let earlier = Utc.with_ymd_and_hms(2024, 3, 10, 8, 0, 0).unwrap();
+        let later = Utc.with_ymd_and_hms(2024, 3, 10, 9, 0, 0).unwrap();
+        let dropped = AtomicU64::new(0);
+        let mut pending = HashMap::new();
+
+        observe(
+            &mut pending,
+            UsageObservation {
+                token_id,
+                observed_at: later,
+            },
+            4,
+            &dropped,
+        );
+        observe(
+            &mut pending,
+            UsageObservation {
+                token_id,
+                observed_at: earlier,
+            },
+            4,
+            &dropped,
+        );
+        observe(
+            &mut pending,
+            UsageObservation {
+                token_id: other,
+                observed_at: earlier,
+            },
+            4,
+            &dropped,
+        );
+
+        assert_eq!(pending.get(&token_id), Some(&later));
+        assert_eq!(pending.get(&other), Some(&earlier));
+        assert_eq!(dropped.load(Ordering::Relaxed), 0);
     }
 }

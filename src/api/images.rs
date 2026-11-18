@@ -36,7 +36,7 @@ pub(crate) async fn submit_image_batch(
     headers: HeaderMap,
     Json(request): Json<ImageBatchRequest>,
 ) -> Response {
-    let group = match managed_group(&state, session.user.id, &group_path).await {
+    let group = match managed_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -83,7 +83,7 @@ pub(crate) async fn search_images(
     Path(group_path): Path<String>,
     Json(request): Json<ImageSearchRequest>,
 ) -> Response {
-    let (group, scope) = match group_and_scope(&state, session.user.id, &group_path).await {
+    let (group, scope) = match group_and_scope(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -116,7 +116,7 @@ pub(crate) async fn list_document_images(
     CurrentUser(session): CurrentUser,
     Path((group_path, document_id)): Path<(String, i64)>,
 ) -> Response {
-    let (group, scope) = match group_and_scope(&state, session.user.id, &group_path).await {
+    let (group, scope) = match group_and_scope(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -149,7 +149,7 @@ pub(crate) async fn unlink_document_images(
     Path(group_path): Path<String>,
     Json(request): Json<UnlinkDocumentImagesRequest>,
 ) -> Response {
-    let group = match managed_group(&state, session.user.id, &group_path).await {
+    let group = match managed_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -166,14 +166,18 @@ pub(crate) async fn unlink_document_images(
 
 async fn group_and_scope(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> anyhow::Result<(crate::domain::GroupRecord, crate::domain::AccessScope)> {
-    let group = super::group_access::group_for_user(state, user_id, group_path).await?;
+    let group = super::group_access::group_for_user(state, session, group_path).await?;
     let scope = state
         .app
         .auth
-        .access_scope(Some(user_id), Some(group_path.to_string()))
+        .access_scope(
+            Some(session.user.id),
+            Some(group_path.to_string()),
+            session.token_group_scope.as_ref(),
+        )
         .await?;
     Ok((group, scope))
 }

@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 
-import { FormField } from "./form-field";
+import { FormField, type FieldLayout } from "./form-field";
 
 export function TextField({
   id,
@@ -15,6 +15,8 @@ export function TextField({
   disabled,
   testId,
   className,
+  layout,
+  controlClassName,
 }: {
   id: string;
   label: string;
@@ -28,9 +30,18 @@ export function TextField({
   disabled?: boolean;
   testId?: string;
   className?: string;
+  layout?: FieldLayout;
+  controlClassName?: string;
 }) {
   return (
-    <FormField label={label} htmlFor={id} helper={helper} className={className}>
+    <FormField
+      label={label}
+      htmlFor={id}
+      helper={helper}
+      className={className}
+      layout={layout}
+      controlClassName={controlClassName}
+    >
       <Input
         id={id}
         name={id}

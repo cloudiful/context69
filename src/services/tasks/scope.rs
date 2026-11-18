@@ -2,8 +2,8 @@ use std::time::Duration;
 
 use anyhow::{Error, Result};
 use context69_contracts::{
-    CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, MetadataIndexResponse,
-    MetadataIndexStatus, ScopeSpec,
+    CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, MembershipRole,
+    MetadataIndexResponse, MetadataIndexStatus, ScopeSpec,
 };
 use tokio::time::sleep;
 
@@ -27,7 +27,7 @@ impl TaskService {
         let (parent_group_path, group_key) = split_scope_path(&spec.group_path)?;
         let group = match self
             .namespace
-            .get_group_for_user(user_id, &spec.group_path)
+            .get_group_for_user(user_id, &spec.group_path, None)
             .await?
         {
             Some(group) => group,
@@ -48,7 +48,7 @@ impl TaskService {
                 Ok(group) => group,
                 Err(error) if is_conflict_error(&error) => self
                     .namespace
-                    .get_group_for_user(user_id, &spec.group_path)
+                    .get_group_for_user(user_id, &spec.group_path, None)
                     .await?
                     .ok_or_else(|| DomainError::conflict("scope creation conflicted"))?,
                 Err(error) => return Err(error),
@@ -68,28 +68,31 @@ impl TaskService {
                     ensure_index_definition(&index, &requested.definition)?;
                     index
                 }
-                None => match self
-                    .document_store
-                    .create_index(
-                        group.id,
-                        &group.group_path,
-                        &requested.source_key,
-                        &requested.definition,
-                    )
-                    .await
-                {
-                    Ok(index) => index,
-                    Err(error) if is_conflict_error(&error) => self
+                None => {
+                    require_index_write_role(&group)?;
+                    match self
                         .document_store
-                        .list_indexes(group.id, &requested.source_key)
-                        .await?
-                        .into_iter()
-                        .find(|index| index.path == requested.definition.path)
-                        .ok_or_else(|| {
-                            DomainError::conflict("metadata index creation conflicted")
-                        })?,
-                    Err(error) => return Err(error),
-                },
+                        .create_index(
+                            group.id,
+                            &group.group_path,
+                            &requested.source_key,
+                            &requested.definition,
+                        )
+                        .await
+                    {
+                        Ok(index) => index,
+                        Err(error) if is_conflict_error(&error) => self
+                            .document_store
+                            .list_indexes(group.id, &requested.source_key)
+                            .await?
+                            .into_iter()
+                            .find(|index| index.path == requested.definition.path)
+                            .ok_or_else(|| {
+                                DomainError::conflict("metadata index creation conflicted")
+                            })?,
+                        Err(error) => return Err(error),
+                    }
+                }
             };
             indexes.push(
                 wait_for_index(
@@ -137,6 +140,20 @@ fn ensure_group_definition(group: &GroupRecord, spec: &ScopeSpec) -> Result<()> 
         .into());
     }
     Ok(())
+}
+
+/// Creating an index changes an existing group's write state, so the owner's
+/// current role must satisfy the same Maintainer rule as the normal API path.
+/// A newly bootstrapped group returns the creator as Owner and therefore passes.
+fn require_index_write_role(group: &GroupRecord) -> Result<()> {
+    if group
+        .current_role
+        .is_some_and(|role| role.rank() >= MembershipRole::Maintainer.rank())
+    {
+        Ok(())
+    } else {
+        Err(DomainError::forbidden("insufficient permissions for group").into())
+    }
 }
 
 fn ensure_index_definition(
@@ -225,5 +242,46 @@ mod tests {
             (None, "news".into())
         );
         assert!(split_scope_path("/").is_err());
+    }
+}
+
+#[cfg(test)]
+mod role_tests {
+    use chrono::Utc;
+
+    use super::require_index_write_role;
+    use crate::{
+        contracts::{GroupKind, MembershipRole, Visibility},
+        domain::GroupRecord,
+    };
+
+    fn group(current_role: Option<MembershipRole>) -> GroupRecord {
+        GroupRecord {
+            id: 1,
+            parent_group_id: None,
+            group_path: "public".to_string(),
+            parent_group_path: None,
+            group_key: "public".to_string(),
+            name: "Public".to_string(),
+            visibility: Visibility::Public,
+            kind: GroupKind::Shared,
+            owner_user_id: Some(2),
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            current_role,
+        }
+    }
+
+    #[test]
+    fn existing_group_index_creation_requires_maintainer_or_owner() {
+        assert!(require_index_write_role(&group(None)).is_err());
+        assert!(require_index_write_role(&group(Some(MembershipRole::Viewer))).is_err());
+        assert!(require_index_write_role(&group(Some(MembershipRole::Maintainer))).is_ok());
+        assert!(require_index_write_role(&group(Some(MembershipRole::Owner))).is_ok());
+    }
+
+    #[test]
+    fn a_newly_bootstrapped_group_owner_can_create_its_index() {
+        assert!(require_index_write_role(&group(Some(MembershipRole::Owner))).is_ok());
     }
 }

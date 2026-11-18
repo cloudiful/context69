@@ -25,14 +25,18 @@ use crate::services::tasks::TaskSubmission;
 
 async fn group_and_scope(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> anyhow::Result<(crate::domain::GroupRecord, crate::domain::AccessScope)> {
-    let group = group_for_user(state, user_id, group_path).await?;
+    let group = group_for_user(state, session, group_path).await?;
     let scope = state
         .app
         .auth
-        .access_scope(Some(user_id), Some(group_path.to_string()))
+        .access_scope(
+            Some(session.user.id),
+            Some(group_path.to_string()),
+            session.token_group_scope.as_ref(),
+        )
         .await?;
     Ok((group, scope))
 }
@@ -45,7 +49,7 @@ pub(crate) async fn query_group_documents(
     Path(group_path): Path<String>,
     Json(request): Json<DocumentQueryRequest>,
 ) -> impl IntoResponse {
-    let (group, scope) = match group_and_scope(&state, session.user.id, &group_path).await {
+    let (group, scope) = match group_and_scope(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -68,7 +72,7 @@ pub(crate) async fn get_group_document_by_key(
     Path(group_path): Path<String>,
     Query(query): Query<DocumentLookupQuery>,
 ) -> impl IntoResponse {
-    let (group, scope) = match group_and_scope(&state, session.user.id, &group_path).await {
+    let (group, scope) = match group_and_scope(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -95,7 +99,7 @@ pub(crate) async fn batch_get_group_documents(
     Path(group_path): Path<String>,
     Json(request): Json<BatchGetDocumentsRequest>,
 ) -> impl IntoResponse {
-    let (group, scope) = match group_and_scope(&state, session.user.id, &group_path).await {
+    let (group, scope) = match group_and_scope(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -117,7 +121,7 @@ pub(crate) async fn delete_group_document_by_key(
     Path(group_path): Path<String>,
     Query(query): Query<DocumentLookupQuery>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -151,7 +155,7 @@ pub(crate) async fn list_metadata_indexes(
     Path(group_path): Path<String>,
     Query(query): Query<MetadataIndexPageQuery>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -174,7 +178,7 @@ pub(crate) async fn create_metadata_index(
     Query(query): Query<super::error_mapping::SourceKeyQuery>,
     Json(request): Json<CreateMetadataIndexRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
@@ -194,10 +198,10 @@ pub(crate) async fn create_metadata_index(
 
 async fn require_manager(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> Result<crate::domain::GroupRecord, Box<axum::response::Response>> {
-    let group = group_for_user(state, user_id, group_path)
+    let group = group_for_user(state, session, group_path)
         .await
         .map_err(|error| Box::new(group_access_error_response(error)))?;
     require_group_role(&group, MembershipRole::Maintainer)
@@ -212,7 +216,7 @@ pub(crate) async fn update_metadata_index(
     Path((group_path, index_id)): Path<(String, Uuid)>,
     Json(request): Json<UpdateMetadataIndexRequest>,
 ) -> impl IntoResponse {
-    let group = match require_manager(&state, session.user.id, &group_path).await {
+    let group = match require_manager(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -233,7 +237,7 @@ pub(crate) async fn retry_metadata_index(
     CurrentUser(session): CurrentUser,
     Path((group_path, index_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match require_manager(&state, session.user.id, &group_path).await {
+    let group = match require_manager(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };
@@ -254,7 +258,7 @@ pub(crate) async fn delete_metadata_index(
     CurrentUser(session): CurrentUser,
     Path((group_path, index_id)): Path<(String, Uuid)>,
 ) -> impl IntoResponse {
-    let group = match require_manager(&state, session.user.id, &group_path).await {
+    let group = match require_manager(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return *response,
     };

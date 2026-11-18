@@ -156,6 +156,17 @@ impl QdrantIndex {
             });
         }
 
+        if let Some(allowed_group_ids) = &scope.allowed_group_ids {
+            if allowed_group_ids.is_empty() {
+                return Ok(BuiltSearchConditions {
+                    filter,
+                    must_not: exclusion_conditions(exclusions),
+                    is_short_circuit: true,
+                });
+            }
+            filter.push(Condition::matches("group_id", allowed_group_ids.clone()));
+        }
+
         let access_condition = if scope.private_group_ids.is_empty() {
             Condition::matches("visibility", "public".to_string())
         } else {
@@ -315,6 +326,7 @@ mod tests {
             private_group_ids: Vec::new(),
             group_path: None,
             scoped_group_id: None,
+            allowed_group_ids: None,
         }
     }
 
@@ -513,6 +525,7 @@ mod tests {
             private_group_ids: vec![4001i64],
             group_path: None,
             scoped_group_id: None,
+            allowed_group_ids: None,
         };
         let conditions = index
             .build_search_conditions(&test_request(), &scope, &point_exclusions(vec![staged]))

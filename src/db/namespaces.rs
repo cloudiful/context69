@@ -258,9 +258,75 @@ impl Database {
         &self,
         user_id: i64,
         request: &PageRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
+        let allowed_group_ids = restriction.and_then(|scope| scope.restricted_group_ids());
         let total = sqlx::query_file_scalar!(
             "src/sql/db/namespaces/count_groups_for_user.sql",
+            user_id,
+            &request.query,
+            request.visibility.map(Visibility::as_str),
+            request.kind.map(GroupKind::as_str),
+            allowed_group_ids
+        )
+        .fetch_one(self.pool())
+        .await?;
+        let rows = sqlx::query_file_as!(
+            GroupRow,
+            "src/sql/db/namespaces/list_groups_for_user.sql",
+            user_id,
+            &request.query,
+            i64::from(request.page_size),
+            page_offset(request)?,
+            request.sort.map(|sort| sort.column),
+            request.sort.map(|sort| sort.direction.as_str()),
+            request.visibility.map(Visibility::as_str),
+            request.kind.map(GroupKind::as_str),
+            allowed_group_ids
+        )
+        .fetch_all(self.pool())
+        .await?;
+        page_result(
+            rows.into_iter()
+                .map(group_from_row)
+                .collect::<Result<_>>()?,
+            total,
+            request,
+        )
+    }
+
+    pub async fn search_groups_for_user(
+        &self,
+        user_id: i64,
+        query: &str,
+        limit: u32,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+    ) -> Result<Vec<GroupRecord>> {
+        let limit = i64::from(limit.clamp(1, 20));
+        let allowed_group_ids = restriction.and_then(|scope| scope.restricted_group_ids());
+        let rows = sqlx::query_file_as!(
+            GroupRow,
+            "src/sql/db/namespaces/search_groups_for_user.sql",
+            user_id,
+            query,
+            limit,
+            allowed_group_ids
+        )
+        .fetch_all(self.pool())
+        .await?;
+        rows.into_iter().map(group_from_row).collect()
+    }
+
+    /// List every group the user can currently see, without limiting the walk
+    /// to visible roots. A direct membership under an inaccessible ancestor
+    /// stays discoverable, while an inaccessible parent path is not exposed.
+    pub async fn list_accessible_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        let total = sqlx::query_file_scalar!(
+            "src/sql/db/namespaces/count_accessible_groups_for_user.sql",
             user_id,
             &request.query,
             request.visibility.map(Visibility::as_str),
@@ -270,7 +336,7 @@ impl Database {
         .await?;
         let rows = sqlx::query_file_as!(
             GroupRow,
-            "src/sql/db/namespaces/list_groups_for_user.sql",
+            "src/sql/db/namespaces/list_accessible_groups_for_user.sql",
             user_id,
             &request.query,
             i64::from(request.page_size),
@@ -289,25 +355,6 @@ impl Database {
             total,
             request,
         )
-    }
-
-    pub async fn search_groups_for_user(
-        &self,
-        user_id: i64,
-        query: &str,
-        limit: u32,
-    ) -> Result<Vec<GroupRecord>> {
-        let limit = i64::from(limit.clamp(1, 20));
-        let rows = sqlx::query_file_as!(
-            GroupRow,
-            "src/sql/db/namespaces/search_groups_for_user.sql",
-            user_id,
-            query,
-            limit
-        )
-        .fetch_all(self.pool())
-        .await?;
-        rows.into_iter().map(group_from_row).collect()
     }
 
     pub async fn get_group_for_user(
@@ -822,14 +869,17 @@ impl Database {
         user_id: i64,
         group_path: &str,
         request: &PageRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
+        let allowed_group_ids = restriction.and_then(|scope| scope.restricted_group_ids());
         let total = sqlx::query_file_scalar!(
             "src/sql/db/namespaces/count_child_groups_for_user.sql",
             user_id,
             group_path,
             &request.query,
             request.visibility.map(Visibility::as_str),
-            request.kind.map(GroupKind::as_str)
+            request.kind.map(GroupKind::as_str),
+            allowed_group_ids
         )
         .fetch_one(self.pool())
         .await?;
@@ -844,7 +894,8 @@ impl Database {
             request.sort.map(|sort| sort.column),
             request.sort.map(|sort| sort.direction.as_str()),
             request.visibility.map(Visibility::as_str),
-            request.kind.map(GroupKind::as_str)
+            request.kind.map(GroupKind::as_str),
+            allowed_group_ids
         )
         .fetch_all(self.pool())
         .await?;
@@ -857,19 +908,44 @@ impl Database {
         )
     }
 
+    pub async fn resolve_accessible_group_ids(
+        &self,
+        user_id: i64,
+        requested_group_ids: &[i64],
+    ) -> Result<Vec<i64>> {
+        if requested_group_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let rows = sqlx::query_file_as!(
+            PrivateGroupIdRow,
+            "src/sql/db/namespaces/accessible_group_ids.sql",
+            user_id,
+            requested_group_ids
+        )
+        .fetch_all(self.pool())
+        .await?;
+        Ok(rows.into_iter().map(|row| row.group_id).collect())
+    }
+
     pub async fn resolve_access_scope(
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<AccessScope> {
         let scoped_group_id = self.resolve_group_id_by_path(group_path.as_deref()).await?;
+        let mut allowed_group_ids = None;
         let Some(user_id) = user_id else {
+            if let Some(ids) = restriction.and_then(|scope| scope.restricted_group_ids()) {
+                allowed_group_ids = Some(ids.to_vec());
+            }
             return Ok(AccessScope {
                 user_id: None,
                 include_public: true,
                 private_group_ids: Vec::new(),
                 group_path,
                 scoped_group_id,
+                allowed_group_ids,
             });
         };
 
@@ -881,13 +957,23 @@ impl Database {
         )
         .fetch_all(self.pool())
         .await?;
+        let mut private_group_ids = rows.into_iter().map(|row| row.group_id).collect::<Vec<_>>();
+        if let Some(ids) = restriction.and_then(|scope| scope.restricted_group_ids()) {
+            let mut accessible = self.resolve_accessible_group_ids(user_id, ids).await?;
+            if let Some(scoped_group_id) = scoped_group_id {
+                accessible.retain(|id| *id == scoped_group_id);
+            }
+            private_group_ids.retain(|id| accessible.iter().any(|allowed| allowed == id));
+            allowed_group_ids = Some(accessible);
+        }
 
         Ok(AccessScope {
             user_id: Some(user_id),
             include_public: true,
-            private_group_ids: rows.into_iter().map(|row| row.group_id).collect(),
+            private_group_ids,
             group_path,
             scoped_group_id,
+            allowed_group_ids,
         })
     }
 

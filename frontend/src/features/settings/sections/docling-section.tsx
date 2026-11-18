@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ConfirmDialog } from "@/components/common/confirm-dialog";
 import { NumberField } from "@/components/common/number-field";
 import { FormField } from "@/components/common/form-field";
+import { SettingsFieldRow } from "@/components/common/settings-field-row";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { TableColumnHeader } from "@/components/common/table-column-header";
@@ -58,9 +59,11 @@ export function DoclingSection() {
             />
           }
         >
-          <div className="grid max-w-2xl gap-3">
+          <div className="grid max-w-3xl gap-3">
             <TextField
               id="docling-base-url"
+              layout="row"
+              controlClassName="max-w-xl"
               type="url"
               label={t("settings.docling.baseUrl")}
               placeholder="http://127.0.0.1:5001"
@@ -71,6 +74,7 @@ export function DoclingSection() {
             />
             <NumberField
               id="docling-timeout"
+              layout="row"
               label={t("settings.docling.timeout")}
               min={1}
               value={draft.connection.timeout_secs}
@@ -80,6 +84,7 @@ export function DoclingSection() {
             />
             <NumberField
               id="docling-poll-interval"
+              layout="row"
               label={t("settings.docling.pollInterval")}
               min={1}
               value={draft.connection.poll_interval_secs}
@@ -89,6 +94,7 @@ export function DoclingSection() {
             />
             <NumberField
               id="docling-task-timeout"
+              layout="row"
               label={t("settings.docling.taskTimeout")}
               min={1}
               value={draft.connection.task_timeout_secs}
@@ -98,6 +104,7 @@ export function DoclingSection() {
             />
             <NumberField
               id="docling-max-inflight"
+              layout="row"
               label={t("settings.docling.maxInflight")}
               helper={t("settings.docling.maxInflightHelper")}
               min={1}
@@ -127,9 +134,10 @@ export function DoclingSection() {
           }
         >
           {draft.do_ocr ? (
-            <div className="grid max-w-2xl gap-3">
+            <div className="grid max-w-3xl gap-3">
               <TextField
                 id="docling-ocr-preset"
+                layout="row"
                 label={t("settings.docling.ocrPreset")}
                 placeholder={t("settings.docling.ocrPresetPlaceholder")}
                 value={draft.ocr_preset}
@@ -159,44 +167,51 @@ export function DoclingSection() {
         >
           {draft.do_picture_description ? (
             <>
-              <div className="flex max-w-2xl items-end gap-2">
-                <FormField label={t("settings.docling.vlmModeLabel")} htmlFor="docling-vlm-mode" className="flex-1">
-                  <Select
-                    value={draft.vlm_mode}
-                    onValueChange={(value) => page.updateDoclingDraft((next) => {
-                      next.vlm_mode = value as DraftDoclingVlmMode;
-                    })}
-                  >
-                    <SelectTrigger id="docling-vlm-mode" aria-label={t("settings.docling.vlmModeLabel")}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="disabled">{t("settings.docling.vlmModeDisabled")}</SelectItem>
-                      <SelectItem value="preset">{t("settings.docling.vlmModePreset")}</SelectItem>
-                      <SelectItem value="custom">{t("settings.docling.vlmModeCustom")}</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </FormField>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon-sm"
-                      data-testid="docling-vlm-mode-info"
-                      aria-label={t("settings.docling.vlmModeInfoLabel")}
+              <SettingsFieldRow
+                label={t("settings.docling.vlmModeLabel")}
+                htmlFor="docling-vlm-mode"
+                controlClassName="max-w-72"
+              >
+                <div className="flex items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    <Select
+                      value={draft.vlm_mode}
+                      onValueChange={(value) => page.updateDoclingDraft((next) => {
+                        next.vlm_mode = value as DraftDoclingVlmMode;
+                      })}
                     >
-                      <Info aria-hidden="true" />
-                    </Button>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs text-xs leading-5">{vlmModeInfo}</TooltipContent>
-                </Tooltip>
-              </div>
+                      <SelectTrigger id="docling-vlm-mode" aria-label={t("settings.docling.vlmModeLabel")}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="disabled">{t("settings.docling.vlmModeDisabled")}</SelectItem>
+                        <SelectItem value="preset">{t("settings.docling.vlmModePreset")}</SelectItem>
+                        <SelectItem value="custom">{t("settings.docling.vlmModeCustom")}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        data-testid="docling-vlm-mode-info"
+                        aria-label={t("settings.docling.vlmModeInfoLabel")}
+                      >
+                        <Info aria-hidden="true" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent className="max-w-xs text-xs leading-5">{vlmModeInfo}</TooltipContent>
+                  </Tooltip>
+                </div>
+              </SettingsFieldRow>
 
               {draft.vlm_mode === "preset" ? (
-                <div className="grid max-w-2xl gap-3">
+                <div className="grid max-w-3xl gap-3">
                   <TextField
                     id="docling-picture-description-preset"
+                    layout="row"
                     label={t("settings.docling.pictureDescriptionPreset")}
                     placeholder={t("settings.docling.pictureDescriptionPresetPlaceholder")}
                     value={draft.vlm.picture_description_preset}
@@ -208,10 +223,12 @@ export function DoclingSection() {
               ) : null}
 
               {draft.vlm_mode === "custom" ? (
-                <div className="grid max-w-2xl gap-3">
+                <div className="grid max-w-3xl gap-3">
                   <TextField
                     id="docling-openai-base-url"
                     type="url"
+                    layout="row"
+                    controlClassName="max-w-xl"
                     label={t("settings.docling.openAiBaseUrl")}
                     placeholder="https://openrouter.ai/api/v1"
                     value={draft.vlm.openai_base_url}
@@ -223,6 +240,7 @@ export function DoclingSection() {
                     id="docling-api-key"
                     type="password"
                     autoComplete="new-password"
+                    layout="row"
                     label={t("settings.docling.apiKey")}
                     placeholder="sk-..."
                     value={draft.vlm.api_key}
@@ -232,6 +250,7 @@ export function DoclingSection() {
                   />
                   <TextField
                     id="docling-vlm-pipeline-model"
+                    layout="row"
                     label={t("settings.docling.vlmPipelineModel")}
                     placeholder="gemini-3-flash"
                     value={draft.vlm.vlm_pipeline_model}
@@ -241,6 +260,7 @@ export function DoclingSection() {
                   />
                   <TextField
                     id="docling-picture-description-model"
+                    layout="row"
                     label={t("settings.docling.pictureDescriptionModel")}
                     placeholder="gpt-4o-mini"
                     value={draft.vlm.picture_description_model}
@@ -250,6 +270,7 @@ export function DoclingSection() {
                   />
                   <TextField
                     id="docling-code-formula-model"
+                    layout="row"
                     label={t("settings.docling.codeFormulaModel")}
                     placeholder="gpt-4o-mini"
                     value={draft.vlm.code_formula_model}

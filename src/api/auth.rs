@@ -156,6 +156,7 @@ fn authenticated_user(session: &AuthSession) -> AuthenticatedUser {
         login_name: session.user.login_name.clone(),
         display_name: session.user.display_name.clone(),
         is_admin: session.user.is_admin,
+        token_group_scope: session.token_group_scope.clone(),
     }
 }
 
@@ -187,21 +188,30 @@ pub(crate) async fn touch_personal_access_token_middleware(
     request: axum::http::Request<axum::body::Body>,
     next: Next,
 ) -> Response {
-    if let Some(token_id) =
-        request
-            .extensions()
-            .get::<RequestAuth>()
-            .and_then(|auth| match &auth.0 {
-                Some(authenticated) => {
-                    usage_observation(&authenticated.kind, authenticated.telemetry_due)
-                }
-                None => None,
-            })
+    let token_id = request
+        .extensions()
+        .get::<RequestAuth>()
+        .and_then(|auth| match &auth.0 {
+            Some(authenticated) => {
+                usage_observation(&authenticated.kind, authenticated.telemetry_due)
+            }
+            None => None,
+        });
+    let response = next.run(request).await;
+    if let Some(token_id) = token_id
+        && records_successful_use(response.status())
     {
         state.app.personal_access_tokens.record_last_used(token_id);
     }
+    response
+}
 
-    next.run(request).await
+/// Whether a completed request is evidence of a successful authorized use.
+///
+/// The observation is admitted only after the downstream handler finished, so
+/// authentication, scope, and group/resource denials never advance last-used.
+pub(crate) fn records_successful_use(status: StatusCode) -> bool {
+    status.is_success()
 }
 
 /// The token whose usage an authenticated request observed.
@@ -280,7 +290,10 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
     use uuid::Uuid;
 
-    use super::{AuthKind, extract_bearer_token, personal_access_token_id, usage_observation};
+    use super::{
+        AuthKind, extract_bearer_token, personal_access_token_id, records_successful_use,
+        usage_observation,
+    };
     use crate::contracts::PersonalAccessTokenScope;
 
     #[test]
@@ -334,5 +347,22 @@ mod tests {
             None,
             "a browser session never observes token usage"
         );
+    }
+
+    #[test]
+    fn only_a_successful_downstream_response_observes_usage() {
+        assert!(records_successful_use(axum::http::StatusCode::OK));
+        assert!(records_successful_use(axum::http::StatusCode::NO_CONTENT));
+        for denied_or_failed in [
+            axum::http::StatusCode::UNAUTHORIZED,
+            axum::http::StatusCode::FORBIDDEN,
+            axum::http::StatusCode::NOT_FOUND,
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+        ] {
+            assert!(
+                !records_successful_use(denied_or_failed),
+                "{denied_or_failed} must not count as successful use"
+            );
+        }
     }
 }

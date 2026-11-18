@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 
-import { FormField } from "./form-field";
+import { FormField, type FieldLayout } from "./form-field";
 
 export function NumberField({
   id,
@@ -13,6 +13,8 @@ export function NumberField({
   helper,
   disabled,
   testId,
+  layout,
+  controlClassName = "max-w-28",
 }: {
   id: string;
   label: string;
@@ -24,9 +26,17 @@ export function NumberField({
   helper?: string;
   disabled?: boolean;
   testId?: string;
+  layout?: FieldLayout;
+  controlClassName?: string;
 }) {
   return (
-    <FormField label={label} htmlFor={id} helper={helper}>
+    <FormField
+      label={label}
+      htmlFor={id}
+      helper={helper}
+      layout={layout}
+      controlClassName={controlClassName}
+    >
       <Input
         id={id}
         name={id}

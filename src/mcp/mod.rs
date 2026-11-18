@@ -20,14 +20,16 @@ use rmcp::{
     tool, tool_handler, tool_router,
 };
 use tower_http::cors::{Any, CorsLayer};
+use uuid::Uuid;
 
 use crate::{
-    api::{RequestAuth, optional_auth_middleware},
+    api::{AuthKind, RequestAuth, optional_auth_middleware},
     contracts::{
         McpBatchDocumentArgs, McpBatchDocumentItem, McpBatchDocumentResponse, McpCodeSearchRequest,
         McpCodeSearchResponse, McpDocumentArgs, McpDocumentKeyArgs, McpDocumentQueryArgs,
         McpDocumentQueryResponse, McpGetCodeRequest, McpGetCodeResponse, McpSearchRequest,
-        McpSearchResponse, McpSourceListArgs, McpSourceListResponse,
+        McpSearchResponse, McpSourceListArgs, McpSourceListResponse, PersonalAccessTokenScope,
+        TokenGroupScope,
     },
     domain::AccessScope,
     services::app::Context69App,
@@ -43,6 +45,50 @@ pub struct Context69McpServer {
     tool_router: ToolRouter<Self>,
 }
 
+#[derive(Clone)]
+struct McpAuthContext {
+    user_id: Option<i64>,
+    kind: Option<AuthKind>,
+    telemetry_due: bool,
+    group_scope: Option<TokenGroupScope>,
+}
+
+impl McpAuthContext {
+    fn anonymous() -> Self {
+        Self {
+            user_id: None,
+            kind: None,
+            telemetry_due: false,
+            group_scope: None,
+        }
+    }
+
+    fn is_group_restricted(&self) -> bool {
+        is_group_restricted(&self.group_scope)
+    }
+}
+
+fn is_group_restricted(scope: &Option<TokenGroupScope>) -> bool {
+    matches!(scope, Some(TokenGroupScope::Groups { .. }))
+}
+
+fn token_missing_scope(kind: &Option<AuthKind>, required: PersonalAccessTokenScope) -> bool {
+    match kind {
+        Some(AuthKind::PersonalAccessToken { scopes, .. }) => !scopes.contains(&required),
+        _ => false,
+    }
+}
+
+fn successful_use_token_id(auth: &McpAuthContext) -> Option<Uuid> {
+    if !auth.telemetry_due {
+        return None;
+    }
+    match &auth.kind {
+        Some(AuthKind::PersonalAccessToken { token_id, .. }) => Some(*token_id),
+        _ => None,
+    }
+}
+
 impl Context69McpServer {
     pub fn new(app: Arc<Context69App>) -> Self {
         Self {
@@ -51,38 +97,93 @@ impl Context69McpServer {
         }
     }
 
-    fn user_id_from_context(
+    fn auth_from_context(
         &self,
         context: &RequestContext<RoleServer>,
-    ) -> Result<Option<i64>, McpError> {
+    ) -> Result<McpAuthContext, McpError> {
         let Some(parts) = context.extensions.get::<axum::http::request::Parts>() else {
-            return Ok(None);
+            return Ok(McpAuthContext::anonymous());
         };
         let auth = parts
             .extensions
             .get::<RequestAuth>()
             .cloned()
             .unwrap_or(RequestAuth(None));
-        if auth.0.is_none() && !self.app.auth.anonymous_mcp_enabled() {
+        let Some(authenticated) = auth.0 else {
+            if !self.app.auth.anonymous_mcp_enabled() {
+                return Err(McpError::invalid_request(
+                    "anonymous mcp is disabled".to_string(),
+                    None,
+                ));
+            }
+            return Ok(McpAuthContext::anonymous());
+        };
+        Ok(McpAuthContext {
+            user_id: Some(authenticated.session.user.id),
+            kind: Some(authenticated.kind),
+            telemetry_due: authenticated.telemetry_due,
+            group_scope: authenticated.session.token_group_scope,
+        })
+    }
+
+    fn require_scope(
+        &self,
+        auth: &McpAuthContext,
+        required: PersonalAccessTokenScope,
+    ) -> Result<(), McpError> {
+        if token_missing_scope(&auth.kind, required) {
             return Err(McpError::invalid_request(
-                "anonymous mcp is disabled".to_string(),
+                format!(
+                    "forbidden: personal access token missing {} scope",
+                    scope_name(required)
+                ),
                 None,
             ));
         }
-        Ok(auth.0.map(|authenticated| authenticated.session.user.id))
+        Ok(())
+    }
+
+    /// Source enumeration is global, so a group-restricted token is rejected
+    /// exactly like the HTTP source surface instead of filtering after the fact.
+    fn require_source_access(&self, auth: &McpAuthContext) -> Result<(), McpError> {
+        self.require_scope(auth, PersonalAccessTokenScope::Sources)?;
+        if auth.is_group_restricted() {
+            return Err(McpError::invalid_request(
+                "forbidden: source enumeration is not available to a group-restricted personal access token"
+                    .to_string(),
+                None,
+            ));
+        }
+        Ok(())
+    }
+
+    fn observe_success(&self, auth: &McpAuthContext) {
+        if let Some(token_id) = successful_use_token_id(auth) {
+            self.app.personal_access_tokens.record_last_used(token_id);
+        }
     }
 
     async fn scope_from_context(
         &self,
-        context: &RequestContext<RoleServer>,
+        auth: &McpAuthContext,
         group_path: Option<String>,
     ) -> Result<AccessScope, McpError> {
-        let user_id = self.user_id_from_context(context)?;
         self.app
             .auth
-            .access_scope(user_id, group_path)
+            .access_scope(auth.user_id, group_path, auth.group_scope.as_ref())
             .await
             .map_err(internal_error)
+    }
+}
+
+fn scope_name(scope: PersonalAccessTokenScope) -> &'static str {
+    match scope {
+        PersonalAccessTokenScope::Search => "search",
+        PersonalAccessTokenScope::Workspace => "workspace",
+        PersonalAccessTokenScope::Library => "library",
+        PersonalAccessTokenScope::Sources => "sources",
+        PersonalAccessTokenScope::Settings => "settings",
+        PersonalAccessTokenScope::Admin => "admin",
     }
 }
 
@@ -98,15 +199,18 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpSearchResponse>, McpError> {
         search_tools::checked_request(&request)?;
-        let user_id = self.user_id_from_context(&context)?;
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
         let internal = request.to_search_request();
         let response = self
             .app
             .query
-            .search(user_id, internal)
+            .search(auth.user_id, internal, auth.group_scope.as_ref())
             .await
             .map_err(service_error)?;
-        Ok(Json(search_tools::search_response(response)))
+        let response = search_tools::search_response(response);
+        self.observe_success(&auth);
+        Ok(Json(response))
     }
 
     #[tool(
@@ -119,7 +223,9 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<crate::contracts::McpDocumentDetailResponse>, McpError> {
         let start = document_tools::checked_document_args(&args)?;
-        let scope = self.scope_from_context(&context, None).await?;
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
+        let scope = self.scope_from_context(&auth, None).await?;
         let response = self
             .app
             .query
@@ -132,11 +238,9 @@ impl Context69McpServer {
                     internal_error(error)
                 }
             })?;
-        Ok(Json(document_tools::detail_window(
-            &response,
-            start,
-            args.chunk_limit,
-        )?))
+        let detail = document_tools::detail_window(&response, start, args.chunk_limit)?;
+        self.observe_success(&auth);
+        Ok(Json(detail))
     }
 
     #[tool(
@@ -149,18 +253,22 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpDocumentQueryResponse>, McpError> {
         document_tools::checked_query_args(&request)?;
-        let user_id = self
-            .user_id_from_context(&context)?
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
+        let user_id = auth
+            .user_id
             .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
         let group = self
             .app
             .namespace
-            .get_group_for_user(user_id, &request.group_path)
+            .get_group_for_user(user_id, &request.group_path, None)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        crate::authorization::require_group_allowed(auth.group_scope.as_ref(), group.id)
+            .map_err(internal_error)?;
         let scope = self
-            .scope_from_context(&context, Some(request.group_path.clone()))
+            .scope_from_context(&auth, Some(request.group_path.clone()))
             .await?;
         let internal = request.query.to_document_query_request();
         let response = self
@@ -174,10 +282,9 @@ impl Context69McpServer {
             .iter()
             .map(document_tools::summary)
             .collect();
-        Ok(Json(McpDocumentQueryResponse::new(
-            documents,
-            response.next_cursor,
-        )))
+        let response = McpDocumentQueryResponse::new(documents, response.next_cursor);
+        self.observe_success(&auth);
+        Ok(Json(response))
     }
 
     #[tool(
@@ -190,18 +297,22 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<crate::contracts::McpDocumentDetailResponse>, McpError> {
         document_tools::checked_key_args(&request)?;
-        let user_id = self
-            .user_id_from_context(&context)?
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
+        let user_id = auth
+            .user_id
             .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
         let group = self
             .app
             .namespace
-            .get_group_for_user(user_id, &request.group_path)
+            .get_group_for_user(user_id, &request.group_path, None)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        crate::authorization::require_group_allowed(auth.group_scope.as_ref(), group.id)
+            .map_err(internal_error)?;
         let scope = self
-            .scope_from_context(&context, Some(request.group_path.clone()))
+            .scope_from_context(&auth, Some(request.group_path.clone()))
             .await?;
         let document = self
             .app
@@ -209,7 +320,9 @@ impl Context69McpServer {
             .get_by_key(group.id, &request.key, request.locale.as_deref(), &scope)
             .await
             .map_err(internal_error)?;
-        Ok(Json(document_tools::first_page_detail(&document)?))
+        let detail = document_tools::first_page_detail(&document)?;
+        self.observe_success(&auth);
+        Ok(Json(detail))
     }
 
     #[tool(
@@ -222,18 +335,22 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpBatchDocumentResponse>, McpError> {
         document_tools::checked_batch_args(&args)?;
-        let user_id = self.user_id_from_context(&context)?.ok_or_else(|| {
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
+        let user_id = auth.user_id.ok_or_else(|| {
             McpError::invalid_request("authentication required".to_string(), None)
         })?;
         let group = self
             .app
             .namespace
-            .get_group_for_user(user_id, &args.group_path)
+            .get_group_for_user(user_id, &args.group_path, None)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        crate::authorization::require_group_allowed(auth.group_scope.as_ref(), group.id)
+            .map_err(internal_error)?;
         let scope = self
-            .scope_from_context(&context, Some(args.group_path.clone()))
+            .scope_from_context(&auth, Some(args.group_path.clone()))
             .await?;
         let response = self
             .app
@@ -260,6 +377,7 @@ impl Context69McpServer {
                 }
             })
             .collect();
+        self.observe_success(&auth);
         Ok(Json(McpBatchDocumentResponse {
             items,
             has_more: false,
@@ -275,13 +393,16 @@ impl Context69McpServer {
         Parameters(args): Parameters<McpSourceListArgs>,
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpSourceListResponse>, McpError> {
-        let user_id = self.user_id_from_context(&context)?;
+        let auth = self.auth_from_context(&context)?;
+        self.require_source_access(&auth)?;
         let sources = self
-            .visible_sources(user_id)
+            .visible_sources(auth.user_id)
             .await
             .map_err(internal_error)?;
         let summaries = source_tools::summarize_all(&sources);
-        Ok(Json(source_tools::paged_response(&summaries, &args)?))
+        let response = source_tools::paged_response(&summaries, &args)?;
+        self.observe_success(&auth);
+        Ok(Json(response))
     }
 
     #[tool(
@@ -294,21 +415,26 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpCodeSearchResponse>, McpError> {
         code_tools::checked_search_args(&request)?;
-        let user_id = self
-            .user_id_from_context(&context)?
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
+        let user_id = auth
+            .user_id
             .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
         let group = self
             .app
             .namespace
-            .get_group_for_user(user_id, &request.group_path)
+            .get_group_for_user(user_id, &request.group_path, None)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        crate::authorization::require_group_allowed(auth.group_scope.as_ref(), group.id)
+            .map_err(internal_error)?;
         let scope = self
-            .scope_from_context(&context, Some(request.group_path.clone()))
+            .scope_from_context(&auth, Some(request.group_path.clone()))
             .await?;
         let response =
             code_tools::search(&self.app.db, &self.app.settings, &group, &scope, &request).await?;
+        self.observe_success(&auth);
         Ok(Json(response))
     }
 
@@ -322,20 +448,25 @@ impl Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<Json<McpGetCodeResponse>, McpError> {
         code_get_tools::checked_get_args(&request)?;
-        let user_id = self
-            .user_id_from_context(&context)?
+        let auth = self.auth_from_context(&context)?;
+        self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
+        let user_id = auth
+            .user_id
             .ok_or_else(|| McpError::invalid_request("authentication required", None))?;
         let group = self
             .app
             .namespace
-            .get_group_for_user(user_id, &request.group_path)
+            .get_group_for_user(user_id, &request.group_path, None)
             .await
             .map_err(internal_error)?
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
+        crate::authorization::require_group_allowed(auth.group_scope.as_ref(), group.id)
+            .map_err(internal_error)?;
         let scope = self
-            .scope_from_context(&context, Some(request.group_path.clone()))
+            .scope_from_context(&auth, Some(request.group_path.clone()))
             .await?;
         let response = code_get_tools::get(&self.app.db, group.id, &scope, &request).await?;
+        self.observe_success(&auth);
         Ok(Json(response))
     }
 
@@ -361,15 +492,17 @@ impl ServerHandler for Context69McpServer {
         let start = source_tools::resource_offset(
             request.as_ref().and_then(|params| params.cursor.as_deref()),
         )?;
-        let user_id = self.user_id_from_context(&context)?;
+        let auth = self.auth_from_context(&context)?;
+        self.require_source_access(&auth)?;
         let sources = self
-            .visible_sources(user_id)
+            .visible_sources(auth.user_id)
             .await
             .map_err(internal_error)?;
         let summaries = source_tools::summarize_all(&sources);
         let (resources, next_cursor) = source_tools::resource_page(&summaries, start);
         let mut result = ListResourcesResult::with_all_items(resources);
         result.next_cursor = next_cursor;
+        self.observe_success(&auth);
         Ok(result)
     }
 
@@ -378,6 +511,8 @@ impl ServerHandler for Context69McpServer {
         _request: Option<PaginatedRequestParams>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, McpError> {
+        // A static template reveals no data and grants no execution right, so
+        // it neither needs a functional scope nor counts as successful use.
         Ok(ListResourceTemplatesResult::with_all_items(vec![
             ResourceTemplate::new("context69://documents/{document_id}", "context69-document")
                 .with_description("Fetch a single indexed document")
@@ -391,10 +526,11 @@ impl ServerHandler for Context69McpServer {
         context: RequestContext<RoleServer>,
     ) -> Result<ReadResourceResponse, McpError> {
         let uri = request.uri;
+        let auth = self.auth_from_context(&context)?;
         if let Some(source_key) = uri.strip_prefix("context69://sources/") {
-            let user_id = self.user_id_from_context(&context)?;
+            self.require_source_access(&auth)?;
             let sources = self
-                .visible_sources(user_id)
+                .visible_sources(auth.user_id)
                 .await
                 .map_err(internal_error)?;
             let summaries = source_tools::summarize_all(&sources);
@@ -404,14 +540,17 @@ impl ServerHandler for Context69McpServer {
                 .context("source not found")
                 .map_err(|error| McpError::resource_not_found(error.to_string(), None))?;
             let content = source_tools::resource_content(&uri, &summary)?;
-            return Ok(ReadResourceResult::new(vec![content]).into());
+            let result = ReadResourceResult::new(vec![content]).into();
+            self.observe_success(&auth);
+            return Ok(result);
         }
 
         if let Some(document_id) = uri.strip_prefix("context69://documents/") {
+            self.require_scope(&auth, PersonalAccessTokenScope::Search)?;
             let document_id = document_id.parse::<i64>().map_err(|error| {
                 McpError::invalid_params(format!("invalid document id: {error}"), None)
             })?;
-            let scope = self.scope_from_context(&context, None).await?;
+            let scope = self.scope_from_context(&auth, None).await?;
             let document = self
                 .app
                 .query
@@ -427,10 +566,12 @@ impl ServerHandler for Context69McpServer {
             let detail = document_tools::first_page_detail(&document)?;
             let content = serde_json::to_string_pretty(&detail)
                 .map_err(|error| internal_error(anyhow::Error::new(error)))?;
-            return Ok(ReadResourceResult::new(vec![
+            let result = ReadResourceResult::new(vec![
                 ResourceContents::text(content, uri).with_mime_type("application/json"),
             ])
-            .into());
+            .into();
+            self.observe_success(&auth);
+            return Ok(result);
         }
 
         Err(McpError::resource_not_found(
@@ -534,4 +675,81 @@ where
         );
     }
     internal_error(anyhow::anyhow!(message))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use super::{
+        AuthKind, McpAuthContext, is_group_restricted, successful_use_token_id, token_missing_scope,
+    };
+    use crate::contracts::{PersonalAccessTokenScope, TokenGroupScope};
+    use uuid::Uuid;
+
+    fn pat(scopes: &[PersonalAccessTokenScope], telemetry_due: bool) -> McpAuthContext {
+        McpAuthContext {
+            user_id: Some(7),
+            kind: Some(AuthKind::PersonalAccessToken {
+                token_id: Uuid::nil(),
+                scopes: BTreeSet::from_iter(scopes.iter().copied()),
+            }),
+            telemetry_due,
+            group_scope: None,
+        }
+    }
+
+    #[test]
+    fn mcp_requires_the_functional_scope_for_a_personal_access_token() {
+        let search = pat(&[PersonalAccessTokenScope::Search], true);
+        assert!(!token_missing_scope(
+            &search.kind,
+            PersonalAccessTokenScope::Search
+        ));
+        assert!(token_missing_scope(
+            &search.kind,
+            PersonalAccessTokenScope::Sources
+        ));
+
+        let browser = McpAuthContext {
+            kind: Some(AuthKind::BrowserSession),
+            ..search
+        };
+        assert!(!token_missing_scope(
+            &browser.kind,
+            PersonalAccessTokenScope::Sources
+        ));
+        assert!(!token_missing_scope(
+            &McpAuthContext::anonymous().kind,
+            PersonalAccessTokenScope::Search
+        ));
+    }
+
+    #[test]
+    fn restricted_tokens_cannot_use_global_source_enumeration() {
+        assert!(!is_group_restricted(&None));
+        assert!(!is_group_restricted(&Some(TokenGroupScope::All)));
+        assert!(is_group_restricted(&Some(TokenGroupScope::Groups {
+            group_ids: vec![4],
+        })));
+    }
+
+    #[test]
+    fn mcp_observes_use_only_for_a_due_personal_access_token() {
+        let token_id = Uuid::new_v4();
+        let mut auth = pat(&[PersonalAccessTokenScope::Search], true);
+        auth.kind = Some(AuthKind::PersonalAccessToken {
+            token_id,
+            scopes: BTreeSet::from([PersonalAccessTokenScope::Search]),
+        });
+        assert_eq!(successful_use_token_id(&auth), Some(token_id));
+
+        auth.telemetry_due = false;
+        assert_eq!(successful_use_token_id(&auth), None);
+
+        auth.telemetry_due = true;
+        auth.kind = Some(AuthKind::BrowserSession);
+        assert_eq!(successful_use_token_id(&auth), None);
+        assert_eq!(successful_use_token_id(&McpAuthContext::anonymous()), None);
+    }
 }

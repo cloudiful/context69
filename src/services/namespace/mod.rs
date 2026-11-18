@@ -32,8 +32,11 @@ impl NamespaceService {
         &self,
         user_id: i64,
         request: &PageRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
-        self.inner.list_groups_for_user(user_id, request).await
+        self.inner
+            .list_groups_for_user(user_id, request, restriction)
+            .await
     }
 
     pub async fn search_groups_for_user(
@@ -41,9 +44,10 @@ impl NamespaceService {
         user_id: i64,
         query: &str,
         limit: u32,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Vec<GroupRecord>> {
         self.inner
-            .search_groups_for_user(user_id, query, limit)
+            .search_groups_for_user(user_id, query, limit, restriction)
             .await
     }
 
@@ -51,8 +55,11 @@ impl NamespaceService {
         &self,
         user_id: i64,
         group_path: &str,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Option<GroupRecord>> {
-        self.inner.get_group_for_user(user_id, group_path).await
+        self.inner
+            .get_group_for_user(user_id, group_path, restriction)
+            .await
     }
 
     pub async fn create_group(
@@ -143,9 +150,20 @@ impl NamespaceService {
         user_id: i64,
         group_path: &str,
         request: &PageRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
         self.inner
-            .list_child_groups_for_user(user_id, group_path, request)
+            .list_child_groups_for_user(user_id, group_path, request, restriction)
+            .await
+    }
+
+    pub async fn list_accessible_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        self.inner
+            .list_accessible_groups_for_user(user_id, request)
             .await
     }
 
@@ -153,8 +171,11 @@ impl NamespaceService {
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<AccessScope> {
-        self.inner.resolve_access_scope(user_id, group_path).await
+        self.inner
+            .resolve_access_scope(user_id, group_path, restriction)
+            .await
     }
 }
 

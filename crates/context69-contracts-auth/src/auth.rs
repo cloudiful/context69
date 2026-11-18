@@ -4,7 +4,9 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
-use context69_contracts_core::common::Pagination;
+use context69_contracts_core::{
+    PersonalAccessTokenLastUsedPrecision, TokenGroupScope, common::Pagination,
+};
 use context69_contracts_namespace::MembershipRole;
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -47,6 +49,24 @@ pub struct CreatePersonalAccessTokenRequest {
     pub name: String,
     pub scopes: Vec<PersonalAccessTokenScope>,
     pub expires_in_days: u16,
+    /// Omitted by old clients to keep the unrestricted group range.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_scope: Option<TokenGroupScope>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct UpdatePersonalAccessTokenRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scopes: Option<Vec<PersonalAccessTokenScope>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group_scope: Option<TokenGroupScope>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RotatePersonalAccessTokenRequest {
+    pub expires_in_days: u16,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -55,15 +75,23 @@ pub struct PersonalAccessTokenResponse {
     pub name: String,
     pub display_prefix: String,
     pub scopes: Vec<PersonalAccessTokenScope>,
+    pub group_scope: TokenGroupScope,
     pub expires_at: DateTime<Utc>,
-    /// First recorded use instant of the token's most recent UTC day.
+    /// The most recent recorded successful authorized use.
     ///
-    /// Usage telemetry is recorded at most once per UTC day, so display the UTC
-    /// calendar date rather than treating this as the exact last request time.
+    /// Interpret it together with `last_used_precision`: `exact` is a real
+    /// observation instant, while `legacy_day` is the old first-observation-of-
+    /// the-day telemetry and must not be presented as an exact time.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_used_precision: Option<PersonalAccessTokenLastUsedPrecision>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<DateTime<Utc>>,
+    /// The token this record replaced through rotation, when it was generated
+    /// from another token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotated_from_token_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

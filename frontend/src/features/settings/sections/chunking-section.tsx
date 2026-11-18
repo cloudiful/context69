@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 
-import { FormField } from "@/components/common/form-field";
 import { NumberField } from "@/components/common/number-field";
+import { SettingsFieldRow } from "@/components/common/settings-field-row";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -77,10 +77,11 @@ export function ChunkingSection() {
           compact
           title={t("settings.runtime.chunkingTitle")}
         >
-          <div className="grid max-w-2xl gap-3">
-            <FormField
+          <div className="grid max-w-3xl gap-3">
+            <SettingsFieldRow
               label={t("settings.runtime.chunkingUnit")}
               htmlFor="runtime-chunking-unit"
+              controlClassName="max-w-56"
             >
               <Select
                 value={runtimeDraft.chunking.unit}
@@ -99,11 +100,12 @@ export function ChunkingSection() {
                   <SelectItem value="tokens">{t("settings.runtime.chunkingUnitTokens")}</SelectItem>
                 </SelectContent>
               </Select>
-            </FormField>
+            </SettingsFieldRow>
 
-            <FormField
+            <SettingsFieldRow
               label={t("settings.runtime.chunkingTokenizer")}
               htmlFor="runtime-chunking-tokenizer"
+              controlClassName="max-w-72"
             >
               <Select value={tokenizerValue} onValueChange={selectTokenizer}>
                 <SelectTrigger
@@ -127,7 +129,7 @@ export function ChunkingSection() {
                   ) : null}
                 </SelectContent>
               </Select>
-            </FormField>
+            </SettingsFieldRow>
 
             {/*
               One flat first-preparation row: the explicit action and any
@@ -186,10 +188,11 @@ export function ChunkingSection() {
                 </summary>
                 <div className="mt-3 grid gap-3">
                   {tokenizerArtifacts.length > 0 ? (
-                    <FormField
+                    <SettingsFieldRow
                       label={t("settings.runtime.chunkingTokenizerArtifact")}
                       htmlFor="runtime-chunking-artifact"
                       helper={t("settings.runtime.chunkingTokenizerArtifactHelper")}
+                      controlClassName="max-w-md"
                     >
                       <Select
                         value={customSelection ? (chunking.tokenizer_sha256 ?? undefined) : undefined}
@@ -212,7 +215,7 @@ export function ChunkingSection() {
                           ))}
                         </SelectContent>
                       </Select>
-                    </FormField>
+                    </SettingsFieldRow>
                   ) : null}
                   {missingCustomSelection ? (
                     <p
@@ -234,6 +237,7 @@ export function ChunkingSection() {
                   id="runtime-chunking-max-chars"
                   label={t("settings.runtime.chunkingMaxChars")}
                   min={1}
+                  layout="row"
                   value={runtimeDraft.chunking.max_chars}
                   onChange={(value) => updateRuntimeDraft((draft) => {
                     draft.chunking.max_chars = value;
@@ -243,6 +247,7 @@ export function ChunkingSection() {
                   id="runtime-chunking-overlap"
                   label={t("settings.runtime.chunkingOverlapChars")}
                   min={0}
+                  layout="row"
                   value={runtimeDraft.chunking.overlap_chars}
                   onChange={(value) => updateRuntimeDraft((draft) => {
                     draft.chunking.overlap_chars = value;
@@ -255,6 +260,7 @@ export function ChunkingSection() {
                   id="runtime-chunking-max-tokens"
                   label={t("settings.runtime.chunkingMaxTokens")}
                   min={1}
+                  layout="row"
                   value={runtimeDraft.chunking.max_tokens}
                   onChange={(value) => updateRuntimeDraft((draft) => {
                     draft.chunking.max_tokens = value;
@@ -264,6 +270,7 @@ export function ChunkingSection() {
                   id="runtime-chunking-overlap-tokens"
                   label={t("settings.runtime.chunkingOverlapTokens")}
                   min={0}
+                  layout="row"
                   value={runtimeDraft.chunking.overlap_tokens}
                   onChange={(value) => updateRuntimeDraft((draft) => {
                     draft.chunking.overlap_tokens = value;

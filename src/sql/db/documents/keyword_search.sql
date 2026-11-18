@@ -23,6 +23,7 @@ WITH query_terms AS (
       AND ($6::timestamptz IS NULL OR d.published_at >= $6)
       AND ($7::timestamptz IS NULL OR d.published_at <= $7)
       AND (g.visibility = 'public' OR d.group_id = ANY($8))
+      AND ($12::bigint[] IS NULL OR d.group_id = ANY($12::bigint[]))
 ), eligible_translation_versions AS (
     SELECT v.id AS translation_id, d.id AS document_id, v.target_locale
     FROM context69.document_translation_versions v
@@ -36,6 +37,7 @@ WITH query_terms AS (
       AND ($6::timestamptz IS NULL OR d.published_at >= $6)
       AND ($7::timestamptz IS NULL OR d.published_at <= $7)
       AND (g.visibility = 'public' OR d.group_id = ANY($8))
+      AND ($12::bigint[] IS NULL OR d.group_id = ANY($12::bigint[]))
 ), original_title_phrase_documents AS (
     SELECT d.id AS document_id
     FROM context69.documents d
@@ -183,6 +185,7 @@ WITH query_terms AS (
       AND ($6::timestamptz IS NULL OR published_at >= $6)
       AND ($7::timestamptz IS NULL OR published_at <= $7)
       AND (visibility = 'public' OR group_id = ANY($8))
+      AND ($12::bigint[] IS NULL OR group_id = ANY($12::bigint[]))
       AND (content_locale = 'original' OR content_locale = $10)
       AND NOT EXISTS (
           SELECT 1

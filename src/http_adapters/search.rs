@@ -25,6 +25,7 @@ impl SearchApi for SearchApiAdapter {
         &self,
         user_id: Option<i64>,
         request: crate::contracts::SearchRequest,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> anyhow::Result<crate::contracts::SearchResponse> {
         if !request.metadata_filters.is_empty() {
             let source_key = request
@@ -42,6 +43,7 @@ impl SearchApi for SearchApiAdapter {
                 .get_group_for_user(user_id, group_path)
                 .await?
                 .ok_or_else(|| anyhow::anyhow!("group not found"))?;
+            crate::authorization::require_group_allowed(restriction, group.id)?;
             let definitions = self.db.list_metadata_indexes(group.id, source_key).await?;
             for filter in &request.metadata_filters {
                 let definition = definitions
@@ -58,7 +60,7 @@ impl SearchApi for SearchApiAdapter {
                 }
             }
         }
-        self.query.search(user_id, request).await
+        self.query.search(user_id, request, restriction).await
     }
 
     async fn stream_search(
@@ -67,10 +69,13 @@ impl SearchApi for SearchApiAdapter {
         request: crate::contracts::SearchRequest,
         tx: tokio::sync::mpsc::Sender<SearchStreamEvent>,
         abort: AbortSignal,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> anyhow::Result<()> {
         // The stream surface is a GET endpoint and therefore never carries
         // metadata filters; POST /v1/search stays the metadata-filtered API.
-        self.query.stream_search(user_id, request, tx, abort).await
+        self.query
+            .stream_search(user_id, request, tx, abort, restriction)
+            .await
     }
 
     async fn get_document(
@@ -78,8 +83,9 @@ impl SearchApi for SearchApiAdapter {
         user_id: Option<i64>,
         document_id: i64,
         locale: Option<String>,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> anyhow::Result<crate::contracts::DocumentResponse> {
-        let scope = self.auth.access_scope(user_id, None).await?;
+        let scope = self.auth.access_scope(user_id, None, restriction).await?;
         self.query
             .get_document(document_id, locale.as_deref(), &scope)
             .await

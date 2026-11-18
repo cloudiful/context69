@@ -22,8 +22,11 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         &self,
         user_id: i64,
         request: &PageRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
-        self.repository.list_groups_for_user(user_id, request).await
+        self.repository
+            .list_groups_for_user(user_id, request, restriction)
+            .await
     }
 
     pub async fn search_groups_for_user(
@@ -31,9 +34,10 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         user_id: i64,
         query: &str,
         limit: u32,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Vec<GroupRecord>> {
         self.repository
-            .search_groups_for_user(user_id, query, limit)
+            .search_groups_for_user(user_id, query, limit, restriction)
             .await
     }
 
@@ -41,10 +45,13 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         &self,
         user_id: i64,
         group_path: &str,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Option<GroupRecord>> {
-        self.repository
+        let group = self
+            .repository
             .get_group_for_user(user_id, group_path)
-            .await
+            .await?;
+        Ok(group.filter(|group| restriction.is_none_or(|scope| scope.allows(group.id))))
     }
 
     pub async fn create_group(
@@ -117,9 +124,20 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         user_id: i64,
         group_path: &str,
         request: &PageRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Page<GroupRecord>> {
         self.repository
-            .list_child_groups_for_user(user_id, group_path, request)
+            .list_child_groups_for_user(user_id, group_path, request, restriction)
+            .await
+    }
+
+    pub async fn list_accessible_groups_for_user(
+        &self,
+        user_id: i64,
+        request: &PageRequest,
+    ) -> Result<Page<GroupRecord>> {
+        self.repository
+            .list_accessible_groups_for_user(user_id, request)
             .await
     }
 
@@ -127,9 +145,10 @@ impl<R: NamespaceRepository> NamespaceService<R> {
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<AccessScope> {
         self.repository
-            .resolve_access_scope(user_id, group_path)
+            .resolve_access_scope(user_id, group_path, restriction)
             .await
     }
 }

@@ -16,9 +16,13 @@ pub struct Model {
     #[sea_orm(column_type = "Text")]
     pub display_prefix: String,
     pub scopes: Vec<String>,
+    pub group_scope_all: bool,
+    pub group_ids: Vec<i64>,
     pub expires_at: DateTimeUtc,
     pub last_used_at: Option<DateTimeUtc>,
+    pub last_used_precision: Option<String>,
     pub revoked_at: Option<DateTimeUtc>,
+    pub rotated_from_token_id: Option<Uuid>,
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
 }
@@ -46,13 +50,21 @@ pub fn schema() -> TableCreateStatement {
                 .array(ColumnType::Text)
                 .not_null(),
         )
+        .col(ColumnDef::new(Column::GroupScopeAll).boolean().not_null())
+        .col(
+            ColumnDef::new(Column::GroupIds)
+                .array(ColumnType::BigInteger)
+                .not_null(),
+        )
         .col(
             ColumnDef::new(Column::ExpiresAt)
                 .timestamp_with_time_zone()
                 .not_null(),
         )
         .col(ColumnDef::new(Column::LastUsedAt).timestamp_with_time_zone())
+        .col(ColumnDef::new(Column::LastUsedPrecision).text())
         .col(ColumnDef::new(Column::RevokedAt).timestamp_with_time_zone())
+        .col(ColumnDef::new(Column::RotatedFromTokenId).uuid())
         .col(
             ColumnDef::new(Column::CreatedAt)
                 .timestamp_with_time_zone()
@@ -80,6 +92,16 @@ pub fn schema() -> TableCreateStatement {
         .check((
             "personal_access_tokens_scopes_check",
             Expr::cust("cardinality(scopes) > 0"),
+        ))
+        .check((
+            "personal_access_tokens_group_scope_check",
+            Expr::cust("group_scope_all OR cardinality(group_ids) > 0"),
+        ))
+        .check((
+            "personal_access_tokens_last_used_precision_check",
+            Expr::cust(
+                "last_used_precision IS NULL OR last_used_precision IN ('exact', 'legacy_day')",
+            ),
         ))
         .to_owned()
 }

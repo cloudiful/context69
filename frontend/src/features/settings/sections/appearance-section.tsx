@@ -2,7 +2,7 @@ import { Check, ChevronsUpDown } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
-import { FormField } from "@/components/common/form-field";
+import { SettingsFieldRow } from "@/components/common/settings-field-row";
 import { SettingsBlock, SettingsSection } from "@/components/common/settings-section";
 import { Button } from "@/components/ui/button";
 import {
@@ -30,8 +30,8 @@ export function AppearanceSection() {
     <SettingsSection title={t("settings.appearance.title")}>
       <SettingsGate>
       <SettingsBlock id="settings-appearance">
-        <div className="grid max-w-sm gap-3">
-          <FormField label={t("language.label")} htmlFor="settings-locale-select">
+        <div className="grid max-w-3xl gap-3">
+          <SettingsFieldRow label={t("language.label")} htmlFor="settings-locale-select">
             <Select value={draft.locale} onValueChange={(value) => updateLocale(value)}>
               <SelectTrigger id="settings-locale-select" data-testid="settings-locale-select" aria-label={t("language.label")}>
                 <SelectValue />
@@ -41,9 +41,9 @@ export function AppearanceSection() {
                 <SelectItem value="zh-CN">{t("language.zhCN")}</SelectItem>
               </SelectContent>
             </Select>
-          </FormField>
+          </SettingsFieldRow>
 
-          <FormField label={t("theme.label")} htmlFor="settings-theme-select">
+          <SettingsFieldRow label={t("theme.label")} htmlFor="settings-theme-select">
             <Select value={draft.theme} onValueChange={(value) => updateTheme(value as ThemePreference)}>
               <SelectTrigger id="settings-theme-select" data-testid="settings-theme-select" aria-label={t("theme.label")}>
                 <SelectValue />
@@ -54,7 +54,7 @@ export function AppearanceSection() {
                 <SelectItem value="dark">{t("theme.dark")}</SelectItem>
               </SelectContent>
             </Select>
-          </FormField>
+          </SettingsFieldRow>
 
           <TimeZoneCombobox
             value={draft.timeZone}
@@ -97,7 +97,7 @@ function TimeZoneCombobox({
   const label = options.find((option) => option.value === active)?.label ?? active;
 
   return (
-    <FormField label={t("settings.appearance.timeZoneLabel")} htmlFor="settings-time-zone-select">
+    <SettingsFieldRow label={t("settings.appearance.timeZoneLabel")} htmlFor="settings-time-zone-select">
       <Popover open={open} onOpenChange={setOpen}>
         <PopoverTrigger asChild>
           <Button
@@ -147,6 +147,6 @@ function TimeZoneCombobox({
           </Command>
         </PopoverContent>
       </Popover>
-    </FormField>
+    </SettingsFieldRow>
   );
 }

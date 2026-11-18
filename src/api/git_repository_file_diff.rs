@@ -77,7 +77,7 @@ pub(crate) async fn diff_git_repository_files(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Query(query): Query<GitRepositoryFileDiffQuery>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

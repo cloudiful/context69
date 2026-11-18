@@ -83,6 +83,7 @@ pub(super) fn to_search_scope(scope: &AccessScope) -> SearchAccessScope {
         private_group_ids: scope.private_group_ids.clone(),
         group_path: scope.group_path.clone(),
         scoped_group_id: scope.scoped_group_id,
+        allowed_group_ids: scope.allowed_group_ids.clone(),
     }
 }
 
@@ -93,6 +94,7 @@ fn to_root_scope(scope: &SearchAccessScope) -> AccessScope {
         private_group_ids: scope.private_group_ids.clone(),
         group_path: scope.group_path.clone(),
         scoped_group_id: scope.scoped_group_id,
+        allowed_group_ids: scope.allowed_group_ids.clone(),
     }
 }
 
@@ -135,6 +137,7 @@ impl SearchRepository for DbSearchRepository {
         user_id: Option<i64>,
         request: &SearchRequest,
         exclusions: &SearchExclusions,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<Option<i64>> {
         // The date-mode pipeline asks Qdrant for the largest `published_ts`
         // visible under the request's filter set. The snapshot must use the
@@ -144,7 +147,7 @@ impl SearchRepository for DbSearchRepository {
         // replayed upper cursor would pin the wrong ceiling.
         let scope = self
             .auth
-            .access_scope(user_id, request.group_path.clone())
+            .access_scope(user_id, request.group_path.clone(), restriction)
             .await?;
         let snapshot = self.vector.require_ready()?;
         let max = snapshot
@@ -272,8 +275,12 @@ impl SearchScopeResolver for AuthScopeResolver {
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<SearchAccessScope> {
-        let scope = self.auth.access_scope(user_id, group_path).await?;
+        let scope = self
+            .auth
+            .access_scope(user_id, group_path, restriction)
+            .await?;
         Ok(to_search_scope(&scope))
     }
 }

@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH RECURSIVE inherited_groups AS (\n    SELECT\n        g.id,\n        CASE gm.role\n            WHEN 'owner' THEN 3\n            WHEN 'maintainer' THEN 2\n            ELSE 1\n        END::smallint AS role_rank\n    FROM context69.group_memberships gm\n    JOIN context69.groups g ON g.id = gm.group_id\n    WHERE gm.user_id = $1\n\n    UNION ALL\n\n    SELECT\n        child.id,\n        inherited_groups.role_rank\n    FROM context69.groups child\n    JOIN inherited_groups ON child.parent_group_id = inherited_groups.id\n),\ngroup_roles AS (\n    SELECT id AS group_id, MAX(role_rank)::smallint AS role_rank\n    FROM inherited_groups\n    GROUP BY id\n)\nSELECT g.id AS \"group_id!\"\nFROM context69.groups g\nJOIN unnest($2::bigint[]) AS requested(group_id) ON requested.group_id = g.id\nLEFT JOIN group_roles gr ON gr.group_id = g.id\nWHERE g.visibility = 'public' OR gr.role_rank IS NOT NULL\nORDER BY g.id\n",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "group_id!",
+        "type_info": "Int8",
+        "origin": {
+          "Table": {
+            "table": "context69.groups",
+            "name": "id"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8Array"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "60601720271498c3d465eed73a565754d89067f75218e4e8e8dfa4ca9fac17f8"
+}

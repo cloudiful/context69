@@ -26,5 +26,6 @@ WHERE (g.visibility = 'public' OR gr.role_rank IS NOT NULL)
     OR g.name ILIKE '%' || BTRIM($2::TEXT) || '%'
     OR g.full_path ILIKE '%' || BTRIM($2::TEXT) || '%'
   )
+  AND ($4::BIGINT[] IS NULL OR g.id = ANY($4::BIGINT[]))
 ORDER BY g.full_path
 LIMIT $3

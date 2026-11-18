@@ -48,6 +48,7 @@ impl SearchScopeResolver for MockScope {
         &self,
         _user_id: Option<i64>,
         _group_path: Option<String>,
+        _restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> anyhow::Result<AccessScope> {
         Ok(AccessScope::default())
     }
@@ -260,6 +261,7 @@ impl SearchRepository for MockRepo {
         _user_id: Option<i64>,
         _request: &SearchRequest,
         _exclusions: &SearchExclusions,
+        _restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> anyhow::Result<Option<i64>> {
         // Tests that exercise the date-mode pipeline construct mocks that
         // observe the upper-bound request explicitly. The default is `None`
@@ -472,7 +474,7 @@ fn vector_first_page_slices_probe_and_reports_more() {
     let (service, seen_index, _) =
         build_service(vector_settings(), index_hits, hydrated, Vec::new());
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(response.items.len(), 8);
     assert_eq!(response.pagination.page, 1);
     assert_eq!(response.pagination.total, 9);
@@ -496,7 +498,7 @@ fn vector_short_page_reports_no_more() {
     let hydrated = hits.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
     let (service, _, _) = build_service(vector_settings(), index_hits, hydrated, Vec::new());
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(response.items.len(), 5);
     assert_eq!(response.pagination.total, 5);
     assert_eq!(response.pagination.has_more, Some(false));
@@ -524,7 +526,7 @@ fn vector_saturated_topk_below_cap_reports_unknown() {
     let hydrated = hits.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
     let (service, _, _) = build_service(vector_settings(), index_hits, hydrated, Vec::new());
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(response.items.len(), 5);
     assert_eq!(response.pagination.total, 5);
     assert_eq!(response.pagination.has_more, None);
@@ -550,7 +552,7 @@ fn hybrid_keyword_meaningful_filtering_preserves_probe() {
         keyword_hits,
     );
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(response.items.len(), 8);
     assert_eq!(response.pagination.total, 9);
     assert_eq!(response.pagination.has_more, Some(true));
@@ -583,7 +585,7 @@ fn hybrid_rerank_fallback_preserves_probe_without_network() {
         .collect();
     let (service, _, _) = build_service(hybrid_settings(true), index_hits, hydrated, keyword_hits);
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(response.items.len(), 8);
     assert_eq!(response.pagination.has_more, Some(true));
     assert_eq!(response.pagination.total_is_exact, Some(false));
@@ -594,9 +596,9 @@ fn hybrid_rerank_fallback_preserves_probe_without_network() {
 fn page_limit_boundaries_return_errors() {
     let (service, _, _) = build_service(vector_settings(), Vec::new(), HashMap::new(), Vec::new());
 
-    assert!(block_on(service.search(None, test_request(0, 8))).is_err());
-    assert!(block_on(service.search(None, test_request(1, 0))).is_err());
-    assert!(block_on(service.search(None, test_request(1, 101))).is_err());
+    assert!(block_on(service.search(None, test_request(0, 8), None)).is_err());
+    assert!(block_on(service.search(None, test_request(1, 0), None)).is_err());
+    assert!(block_on(service.search(None, test_request(1, 101), None)).is_err());
 }
 
 fn collect_stream_frames(
@@ -605,7 +607,7 @@ fn collect_stream_frames(
 ) -> Vec<SearchStreamEvent> {
     let (tx, mut rx) = tokio::sync::mpsc::channel(8);
     let (signal, _guard) = abort_pair();
-    block_on(service.stream_search(None, request, tx, signal)).expect("stream search");
+    block_on(service.stream_search(None, request, tx, signal, None)).expect("stream search");
     let mut frames = Vec::new();
     while let Some(frame) = block_on(rx.recv()) {
         frames.push(frame);
@@ -662,7 +664,7 @@ fn sse_local_page_equals_post_in_vector_mode() {
     let hydrated = hits.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
     let (service, _, _) = build_service(vector_settings(), index_hits, hydrated, Vec::new());
 
-    let post = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let post = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     let local = stream_local_page(&service, test_request(1, 8));
     assert_pages_equivalent(&post, &local);
 
@@ -677,7 +679,8 @@ fn sse_local_page_equals_post_in_vector_mode() {
     ));
 
     // Page 2 (offset via legacy page param) matches POST page 2 as well.
-    let post_page2 = block_on(service.search(None, test_request(2, 8))).expect("search page 2");
+    let post_page2 =
+        block_on(service.search(None, test_request(2, 8), None)).expect("search page 2");
     let local_page2 = stream_local_page(&service, test_request(2, 8));
     assert_pages_equivalent(&post_page2, &local_page2);
     assert!(post_page2.pagination.prev_cursor.is_some());
@@ -710,7 +713,7 @@ fn sse_stream_equals_post_when_rerank_falls_back_to_local() {
         .collect();
     let (service, _, _) = build_service(hybrid_settings(true), index_hits, hydrated, keyword_hits);
 
-    let post = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let post = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     let frames = collect_stream_frames(&service, test_request(1, 8));
     let mut iter = frames.into_iter();
     let local = match iter.next() {
@@ -858,7 +861,7 @@ fn sse_hybrid_cursor_accepts_matching_epoch_and_replays_local_then_rerank() {
     let service =
         build_service_with_rerank(hybrid_settings(true), index_hits, hydrated, Vec::new());
 
-    let page1 = block_on(service.search(None, test_request(1, 8))).expect("page 1");
+    let page1 = block_on(service.search(None, test_request(1, 8), None)).expect("page 1");
     let next_cursor = page1
         .pagination
         .next_cursor
@@ -910,7 +913,7 @@ fn cursor_navigation_reuses_offset_windows() {
     let hydrated = hits.into_iter().map(|hit| (hit.chunk_id, hit)).collect();
     let (service, _, _) = build_service(vector_settings(), index_hits, hydrated, Vec::new());
 
-    let post_page2 = block_on(service.search(None, test_request(2, 8))).expect("page 2");
+    let post_page2 = block_on(service.search(None, test_request(2, 8), None)).expect("page 2");
     let next_cursor = post_page2
         .pagination
         .next_cursor
@@ -919,8 +922,8 @@ fn cursor_navigation_reuses_offset_windows() {
 
     let mut cursor_request = test_request(1, 8);
     cursor_request.cursor = Some(next_cursor);
-    let post_page3 = block_on(service.search(None, cursor_request)).expect("cursor page 3");
-    let expected_page3 = block_on(service.search(None, test_request(3, 8))).expect("page 3");
+    let post_page3 = block_on(service.search(None, cursor_request, None)).expect("cursor page 3");
+    let expected_page3 = block_on(service.search(None, test_request(3, 8), None)).expect("page 3");
     assert_eq!(
         serde_json::to_value(&post_page3.pagination).unwrap(),
         serde_json::to_value(&expected_page3.pagination).unwrap()
@@ -1038,7 +1041,8 @@ fn cursor_rejects_mismatched_query_context() {
         },
     );
     request.cursor = Some(cursor);
-    let error = block_on(service.search(None, request)).expect_err("cursor mismatch must reject");
+    let error =
+        block_on(service.search(None, request, None)).expect_err("cursor mismatch must reject");
     let message = error.to_string();
     assert!(
         message.contains("cursor context mismatch"),
@@ -1077,7 +1081,8 @@ fn cursor_rejects_misaligned_offset() {
         },
     );
     request.cursor = Some(cursor);
-    let error = block_on(service.search(None, request)).expect_err("misaligned cursor must reject");
+    let error =
+        block_on(service.search(None, request, None)).expect_err("misaligned cursor must reject");
     assert!(
         error.to_string().contains("not aligned"),
         "unexpected error: {error}"
@@ -1109,7 +1114,7 @@ fn reranked_page_two_is_consistent_with_page_one() {
     let service =
         build_service_with_rerank(hybrid_settings(true), index_hits, hydrated, Vec::new());
 
-    let page1 = block_on(service.search(None, test_request(1, 8))).expect("page 1");
+    let page1 = block_on(service.search(None, test_request(1, 8), None)).expect("page 1");
     let next_cursor = page1
         .pagination
         .next_cursor
@@ -1117,7 +1122,7 @@ fn reranked_page_two_is_consistent_with_page_one() {
         .expect("page 1 must have a next cursor when more results exist");
     let mut page2_request = test_request(1, 8);
     page2_request.cursor = Some(next_cursor);
-    let page2 = block_on(service.search(None, page2_request)).expect("page 2");
+    let page2 = block_on(service.search(None, page2_request, None)).expect("page 2");
 
     // Page 1 + page 2 must be disjoint (no row repeats across the cursor
     // boundary) and form a prefix of the stable rerank ordering.
@@ -1155,15 +1160,15 @@ fn post_invalid_page_or_limit_is_rejected() {
     let (service, _, _) = build_service(vector_settings(), Vec::new(), HashMap::new(), Vec::new());
 
     assert!(
-        block_on(service.search(None, test_request(0, 8))).is_err(),
+        block_on(service.search(None, test_request(0, 8), None)).is_err(),
         "page 0 must be rejected"
     );
     assert!(
-        block_on(service.search(None, test_request(1, 0))).is_err(),
+        block_on(service.search(None, test_request(1, 0), None)).is_err(),
         "limit 0 must be rejected"
     );
     assert!(
-        block_on(service.search(None, test_request(1, 101))).is_err(),
+        block_on(service.search(None, test_request(1, 101), None)).is_err(),
         "limit 101 must be rejected"
     );
 }
@@ -1278,7 +1283,7 @@ async fn stream_abort_stops_producer_before_first_frame() {
     let (signal, guard) = abort_pair();
     let producer = tokio::spawn(async move {
         let _ = service
-            .stream_search(None, test_request(1, 8), tx, signal)
+            .stream_search(None, test_request(1, 8), tx, signal, None)
             .await;
     });
     // Give the producer time to enter `select!` on the blocked embedding.
@@ -1468,7 +1473,7 @@ fn date_mode_first_page_returns_latest_first_in_qdrant_order() {
         date_hit(same_second_b.0, Some(1_700_000_005)),
     ];
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
-    let response = block_on(service.search(None, date_request(4))).expect("date search");
+    let response = block_on(service.search(None, date_request(4), None)).expect("date search");
     let actual: Vec<i64> = response.items.iter().map(|hit| hit.document_id).collect();
     // Expected order: fresh (1) → second (2) → same-second B (4, larger UUID) → A (3).
     // The Qdrant return order is the authoritative ordering; the
@@ -1484,7 +1489,7 @@ fn date_mode_first_page_returns_latest_first_in_qdrant_order() {
         .pagination
         .next_cursor
         .expect("full window must emit a next cursor");
-    let next = block_on(service.search(None, date_request_with_cursor(4, next_cursor)))
+    let next = block_on(service.search(None, date_request_with_cursor(4, next_cursor), None))
         .expect("date search page 2");
     // The next window's `before = 1_700_000_004` is below every record;
     // the pipeline must report an empty page and no further cursor.
@@ -1514,7 +1519,7 @@ fn date_mode_walks_multiple_windows_without_overlap() {
         date_hit(second.0, Some(1_700_000_005)),
     ];
     let (service, mocks) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
-    let response = block_on(service.search(None, date_request(2))).expect("date search");
+    let response = block_on(service.search(None, date_request(2), None)).expect("date search");
     let actual: Vec<i64> = response.items.iter().map(|hit| hit.document_id).collect();
     assert_eq!(actual, vec![1, 2]);
     // The mock reports the same hits on every call, so the pipeline
@@ -1550,7 +1555,7 @@ fn date_mode_walks_multiple_windows_without_overlap() {
         .pagination
         .next_cursor
         .expect("next cursor expected when window reported more");
-    let page_two = block_on(service.search(None, date_request_with_cursor(2, next_cursor)))
+    let page_two = block_on(service.search(None, date_request_with_cursor(2, next_cursor), None))
         .expect("date search page 2");
     let actual: Vec<i64> = page_two.items.iter().map(|hit| hit.document_id).collect();
     // The mock is configured to return both hits on every call, so
@@ -1589,7 +1594,7 @@ fn date_mode_empty_window_advances_without_duplication() {
     hydrated.insert(only.0, only.1.clone());
     let index_hits = vec![date_hit(only.0, Some(1_700_000_010))];
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
-    let response = block_on(service.search(None, date_request(2))).expect("date search");
+    let response = block_on(service.search(None, date_request(2), None)).expect("date search");
     let actual: Vec<i64> = response.items.iter().map(|hit| hit.document_id).collect();
     assert_eq!(actual, vec![1]);
     assert_eq!(response.pagination.has_more, Some(false));
@@ -1609,7 +1614,7 @@ fn date_mode_rerank_is_not_invoked() {
     hydrated.insert(hit.0, hit.1.clone());
     let index_hits = vec![date_hit(hit.0, Some(1_700_000_010))];
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
-    let response = block_on(service.search(None, date_request(1))).expect("date search");
+    let response = block_on(service.search(None, date_request(1), None)).expect("date search");
     assert_eq!(response.items.len(), 1);
     // Vector score is propagated from the index; rerank score is `None`.
     assert!(response.items[0].rerank_score.is_none());
@@ -1637,7 +1642,7 @@ fn date_mode_rejects_relevance_cursor() {
     );
     let mut request = date_request(8);
     request.cursor = Some(relevance_cursor);
-    let error = block_on(service.search(None, request))
+    let error = block_on(service.search(None, request, None))
         .expect_err("relevance cursor must be rejected by date pipeline");
     assert!(
         error.to_string().contains("relevance"),
@@ -1664,7 +1669,7 @@ fn date_mode_rejects_changed_filter() {
         offset: None,
         upper: Some(1_700_000_010),
     });
-    let error = block_on(service.search(None, date_request_with_cursor(8, cursor)))
+    let error = block_on(service.search(None, date_request_with_cursor(8, cursor), None))
         .expect_err("query hash mismatch must be rejected");
     assert!(error.to_string().contains("cursor context mismatch"));
 }
@@ -1703,7 +1708,7 @@ fn date_mode_same_second_qdrant_order_is_deterministic_across_pages() {
     // return order is B-then-A (largest UUID first per the
     // adversarial mock), so the cursor is bound by B's
     // `published_ts = 1_700_000_005`.
-    let page1 = block_on(service.search(None, date_request(2))).expect("page 1");
+    let page1 = block_on(service.search(None, date_request(2), None)).expect("page 1");
     assert_eq!(
         page1
             .items
@@ -1719,8 +1724,9 @@ fn date_mode_same_second_qdrant_order_is_deterministic_across_pages() {
         .expect("full window must emit a next cursor");
     // Page 2 (limit=2): only A remains. The pipeline must skip the
     // already-seen B and emit A alone.
-    let page2 = block_on(service.search(None, date_request_with_cursor(2, next_cursor.clone())))
-        .expect("page 2");
+    let page2 =
+        block_on(service.search(None, date_request_with_cursor(2, next_cursor.clone()), None))
+            .expect("page 2");
     assert_eq!(
         page2
             .items
@@ -1731,7 +1737,7 @@ fn date_mode_same_second_qdrant_order_is_deterministic_across_pages() {
     );
     // Replaying page 1's cursor through the service should yield the
     // same A record (deterministic Qdrant return order).
-    let replay = block_on(service.search(None, date_request_with_cursor(2, next_cursor)))
+    let replay = block_on(service.search(None, date_request_with_cursor(2, next_cursor), None))
         .expect("replay page 2");
     assert_eq!(
         replay
@@ -1773,7 +1779,7 @@ fn date_mode_post_and_sse_return_same_sequence() {
         date_hit(b.0, Some(1_700_000_005)),
     ];
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
-    let post = block_on(service.search(None, date_request(2))).expect("post");
+    let post = block_on(service.search(None, date_request(2), None)).expect("post");
     let stream = collect_stream_frames(&service, date_request(2));
     let stream_page = match stream.into_iter().next() {
         Some(SearchStreamEvent::Local(page)) => page,
@@ -1852,7 +1858,7 @@ async fn date_mode_abort_stops_streaming_before_first_frame() {
     let (signal, guard) = abort_pair();
     let producer = tokio::spawn(async move {
         let _ = service
-            .stream_search(None, date_request(2), tx, signal)
+            .stream_search(None, date_request(2), tx, signal, None)
             .await;
     });
     tokio::time::sleep(std::time::Duration::from_millis(20)).await;
@@ -1908,7 +1914,7 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
     // (chunk_id DESC). The cursor's `offset` (Qdrant PointId) carries
     // the resume key so the next request continues the boundary in
     // the same order.
-    let page1 = block_on(service.search(None, date_request(4))).expect("page 1");
+    let page1 = block_on(service.search(None, date_request(4), None)).expect("page 1");
     let page1_ids: Vec<Uuid> = page1.items.iter().map(|hit| hit.chunk_id).collect();
     let expected_page1: Vec<Uuid> = qdrant_order.iter().take(4).copied().collect();
     assert_eq!(
@@ -1923,8 +1929,12 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
         .expect("same-second > limit must emit a next cursor");
     // Page 2: the next 4 chunks (5..=8) in the same Qdrant return
     // order with no overlap with page 1.
-    let page2 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_1.clone())))
-        .expect("page 2");
+    let page2 = block_on(service.search(
+        None,
+        date_request_with_cursor(4, next_cursor_1.clone()),
+        None,
+    ))
+    .expect("page 2");
     let page2_ids: Vec<Uuid> = page2.items.iter().map(|hit| hit.chunk_id).collect();
     let expected_page2: Vec<Uuid> = qdrant_order.iter().skip(4).take(4).copied().collect();
     assert_eq!(
@@ -1938,8 +1948,12 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
         .clone()
         .expect("in-flight drain must emit a next cursor");
     // Page 3: the last 2 chunks (9..=10) and `has_more = false`.
-    let page3 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_2.clone())))
-        .expect("page 3");
+    let page3 = block_on(service.search(
+        None,
+        date_request_with_cursor(4, next_cursor_2.clone()),
+        None,
+    ))
+    .expect("page 3");
     let page3_ids: Vec<Uuid> = page3.items.iter().map(|hit| hit.chunk_id).collect();
     let expected_page3: Vec<Uuid> = qdrant_order.iter().skip(8).copied().collect();
     assert_eq!(
@@ -1962,8 +1976,9 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
     );
     // The replayed cursor yields the same page 2 and page 3 because
     // the Qdrant-side `offset` is deterministic per ordering epoch.
-    let replay_p2 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_1)))
-        .expect("replay page 2");
+    let replay_p2 =
+        block_on(service.search(None, date_request_with_cursor(4, next_cursor_1), None))
+            .expect("replay page 2");
     assert_eq!(
         replay_p2
             .items
@@ -1973,8 +1988,9 @@ fn date_mode_same_second_population_exceeds_limit_drains_in_full() {
         page2_ids,
         "replayed cursor must be deterministic for page 2"
     );
-    let replay_p3 = block_on(service.search(None, date_request_with_cursor(4, next_cursor_2)))
-        .expect("replay page 3");
+    let replay_p3 =
+        block_on(service.search(None, date_request_with_cursor(4, next_cursor_2), None))
+            .expect("replay page 3");
     assert_eq!(
         replay_p3
             .items
@@ -2001,7 +2017,7 @@ fn date_mode_rejects_legacy_page_greater_than_one() {
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
     let mut request = date_request(8);
     request.page = 2;
-    let error = block_on(service.search(None, request))
+    let error = block_on(service.search(None, request, None))
         .expect_err("page > 1 must be rejected by date pipeline");
     let message = error.to_string();
     assert!(
@@ -2032,6 +2048,7 @@ fn date_mode_snapshot_error_propagates_as_repository_error() {
             _user_id: Option<i64>,
             _request: &SearchRequest,
             _exclusions: &SearchExclusions,
+            _restriction: Option<&context69_contracts_core::TokenGroupScope>,
         ) -> anyhow::Result<Option<i64>> {
             // Snapshot failure must surface as `Err(_)`.
             Err(anyhow!("qdrant snapshot failure: timeout"))
@@ -2098,7 +2115,7 @@ fn date_mode_snapshot_error_propagates_as_repository_error() {
         "test-model".to_string(),
     ))
     .expect("service");
-    let error = block_on(service.search(None, date_request(8)))
+    let error = block_on(service.search(None, date_request(8), None))
         .expect_err("snapshot failure must surface as a repository error");
     let message = error.to_string();
     assert!(
@@ -2131,6 +2148,7 @@ fn date_mode_snapshot_receives_caller_user_id() {
             user_id: Option<i64>,
             _request: &SearchRequest,
             _exclusions: &SearchExclusions,
+            _restriction: Option<&context69_contracts_core::TokenGroupScope>,
         ) -> anyhow::Result<Option<i64>> {
             *self.observed_user_id.lock().expect("lock") = Some(user_id);
             Ok(Some(1_700_000_010))
@@ -2199,7 +2217,7 @@ fn date_mode_snapshot_receives_caller_user_id() {
     ))
     .expect("service");
     let user_id: Option<i64> = Some(42);
-    let _ = block_on(service.search(user_id, date_request(8))).expect("search");
+    let _ = block_on(service.search(user_id, date_request(8), None)).expect("search");
     let captured = *observed.lock().expect("lock");
     assert_eq!(
         captured,
@@ -2224,7 +2242,7 @@ fn date_mode_rejects_blank_query() {
     for blank in ["", "   ", "\t \n"] {
         let mut request = date_request(8);
         request.query = blank.to_string();
-        let error = block_on(service.search(None, request))
+        let error = block_on(service.search(None, request, None))
             .expect_err("blank query in date mode must be rejected");
         let message = error.to_string();
         assert!(
@@ -2262,7 +2280,7 @@ fn date_mode_matches_query_text_in_hydrated_chunks() {
     let (service, _) = build_date_service(index_hits, hydrated, Some(ts));
     let mut request = date_request(8);
     request.query = "body".to_string();
-    let response = block_on(service.search(None, request)).expect("search");
+    let response = block_on(service.search(None, request, None)).expect("search");
     let ids: Vec<Uuid> = response.items.iter().map(|hit| hit.chunk_id).collect();
     assert_eq!(
         ids,
@@ -2303,7 +2321,7 @@ fn date_mode_query_filter_requires_all_terms() {
     // punctuation/whitespace split; only the "both" chunk satisfies
     // both substrings.
     request.query = "body text".to_string();
-    let response = block_on(service.search(None, request)).expect("search");
+    let response = block_on(service.search(None, request, None)).expect("search");
     let ids: Vec<Uuid> = response.items.iter().map(|hit| hit.chunk_id).collect();
     assert_eq!(
         ids,
@@ -2344,7 +2362,7 @@ fn date_mode_keyset_offset_drains_truncated_boundary_across_pages() {
     // Page 1: limit=100. The mock's first call returns the largest
     // 100 UUIDs (out of 2000); the pipeline must surface the
     // Qdrant-side resume key in the cursor.
-    let page1 = block_on(service.search(None, date_request(100))).expect("page 1");
+    let page1 = block_on(service.search(None, date_request(100), None)).expect("page 1");
     assert_eq!(page1.items.len(), 100);
     assert!(page1.pagination.has_more == Some(true));
     let next_cursor_1 = page1
@@ -2355,9 +2373,12 @@ fn date_mode_keyset_offset_drains_truncated_boundary_across_pages() {
     // Page 2: still 100 records. The mock returns the next 100 from
     // the descending list, so page 1 + page 2 must contain 200
     // distinct UUIDs and page 2 must be disjoint from page 1.
-    let page2 =
-        block_on(service.search(None, date_request_with_cursor(100, next_cursor_1.clone())))
-            .expect("page 2");
+    let page2 = block_on(service.search(
+        None,
+        date_request_with_cursor(100, next_cursor_1.clone()),
+        None,
+    ))
+    .expect("page 2");
     assert_eq!(page2.items.len(), 100);
     let page1_ids: HashSet<Uuid> = page1.items.iter().map(|hit| hit.chunk_id).collect();
     let page2_ids: HashSet<Uuid> = page2.items.iter().map(|hit| hit.chunk_id).collect();
@@ -2382,9 +2403,12 @@ fn date_mode_keyset_offset_drains_truncated_boundary_across_pages() {
         .expect("page 2 must carry a next cursor");
     let mut pages = 2;
     while pages < 32 {
-        let page =
-            block_on(service.search(None, date_request_with_cursor(100, current_cursor.clone())))
-                .expect("page");
+        let page = block_on(service.search(
+            None,
+            date_request_with_cursor(100, current_cursor.clone()),
+            None,
+        ))
+        .expect("page");
         let ids: HashSet<Uuid> = page.items.iter().map(|hit| hit.chunk_id).collect();
         for id in &ids {
             assert!(
@@ -2461,7 +2485,7 @@ fn date_mode_request_window_cap_emits_resumable_cursor() {
     // boundaries and emits one record per boundary, then the cap
     // fires. The request must surface `has_more = true` plus a
     // cursor.
-    let page1 = block_on(service.search(None, date_request(limit))).expect("page 1");
+    let page1 = block_on(service.search(None, date_request(limit), None)).expect("page 1");
     assert_eq!(
         page1.items.len(),
         rounds_before_cap,
@@ -2490,6 +2514,7 @@ fn date_mode_request_window_cap_emits_resumable_cursor() {
         let page = block_on(service.search(
             None,
             date_request_with_cursor(limit, current_cursor.clone()),
+            None,
         ))
         .expect("page");
         let ids: HashSet<Uuid> = page.items.iter().map(|hit| hit.chunk_id).collect();
@@ -2549,7 +2574,7 @@ fn date_mode_request_window_cap_preserves_qdrant_offset_in_cursor() {
     let (service, _) = build_date_service(index_hits, hydrated, Some(1_700_000_010));
     // First request: cap fires after `MAX_DATE_WINDOWS / 2`
     // boundaries.
-    let page1 = block_on(service.search(None, date_request(limit))).expect("page 1");
+    let page1 = block_on(service.search(None, date_request(limit), None)).expect("page 1");
     assert_eq!(page1.items.len(), MAX_DATE_WINDOWS / 2);
     assert_eq!(page1.pagination.has_more, Some(true));
     let cursor_1 = page1
@@ -2579,6 +2604,7 @@ fn date_mode_request_window_cap_preserves_qdrant_offset_in_cursor() {
         let page = block_on(service.search(
             None,
             date_request_with_cursor(limit, current_cursor.clone()),
+            None,
         ))
         .expect("page");
         let ids: HashSet<Uuid> = page.items.iter().map(|hit| hit.chunk_id).collect();
@@ -2645,7 +2671,7 @@ fn date_mode_population_strictly_exceeds_fetch_drains_in_full() {
     // Page 1: limit 8. The mock's first call returns the largest 8
     // UUIDs (out of 300); the page is full so `has_more = true`
     // and the cursor carries the Qdrant-side resume key.
-    let page1 = block_on(service.search(None, date_request(limit))).expect("page 1");
+    let page1 = block_on(service.search(None, date_request(limit), None)).expect("page 1");
     assert_eq!(page1.items.len(), limit);
     assert_eq!(page1.pagination.has_more, Some(true));
     let next_cursor_1 = page1
@@ -2665,6 +2691,7 @@ fn date_mode_population_strictly_exceeds_fetch_drains_in_full() {
         let page = block_on(service.search(
             None,
             date_request_with_cursor(limit, current_cursor.clone()),
+            None,
         ))
         .expect("page");
         let ids: HashSet<Uuid> = page.items.iter().map(|hit| hit.chunk_id).collect();
@@ -2760,7 +2787,7 @@ fn date_mode_filtered_head_keeps_draining_to_match_tail() {
     // `before` is emitted.
     let mut request = date_request(limit);
     request.query = "tailtoken".to_string();
-    let page1 = block_on(service.search(None, request)).expect("page 1");
+    let page1 = block_on(service.search(None, request, None)).expect("page 1");
     assert_eq!(
         page1.items.len(),
         limit,
@@ -2801,7 +2828,7 @@ fn date_mode_filtered_head_keeps_draining_to_match_tail() {
     let mut page2_request = date_request(limit);
     page2_request.query = "tailtoken".to_string();
     page2_request.cursor = Some(next_cursor_1);
-    let page2 = block_on(service.search(None, page2_request)).expect("page 2");
+    let page2 = block_on(service.search(None, page2_request, None)).expect("page 2");
     assert!(
         page2.items.is_empty(),
         "page 2 (cross-ts exhaustion probe) must be empty; got {} items",
@@ -2866,7 +2893,7 @@ fn date_mode_punctuation_only_query_uses_phrase_substring_fallback() {
     // contains the literal "---" substring in its body.
     let mut request = date_request(8);
     request.query = "---".to_string();
-    let response = block_on(service.search(None, request)).expect("search");
+    let response = block_on(service.search(None, request, None)).expect("search");
     let ids: Vec<Uuid> = response.items.iter().map(|hit| hit.chunk_id).collect();
     assert_eq!(
         ids,
@@ -2878,7 +2905,7 @@ fn date_mode_punctuation_only_query_uses_phrase_substring_fallback() {
     // hydrated body, so the page is empty.
     let mut request = date_request(8);
     request.query = ".-.".to_string();
-    let response = block_on(service.search(None, request)).expect("search");
+    let response = block_on(service.search(None, request, None)).expect("search");
     assert!(
         response.items.is_empty(),
         "phrase substring rule must not match-all; got {} items",
@@ -2888,7 +2915,7 @@ fn date_mode_punctuation_only_query_uses_phrase_substring_fallback() {
     // guard the existing tests already exercise).
     let mut request = date_request(8);
     request.query = "   ".to_string();
-    let error = block_on(service.search(None, request))
+    let error = block_on(service.search(None, request, None))
         .expect_err("whitespace-only query in date mode must be rejected");
     assert!(
         error.to_string().contains("query text is required"),
@@ -3141,7 +3168,7 @@ fn a_moved_epoch_retry_reaches_the_availability_check() {
     ))
     .expect("service");
 
-    let error = block_on(service.search(None, test_request(1, 8)))
+    let error = block_on(service.search(None, test_request(1, 8), None))
         .expect_err("the retry must fail closed when the registry becomes unavailable");
     assert!(
         error.to_string().contains("derived search index"),
@@ -3180,13 +3207,13 @@ fn a_stable_epoch_answers_without_a_retry() {
     };
     let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
 
-    let first = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let first = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(first.items.len(), 5);
     assert_eq!(mock_index_calls(&index), 1, "a stable epoch never retries");
 
     // A second identical request is byte-identical: a stable epoch produces
     // the same output.
-    let second = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let second = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(
         serde_json::to_value(&first).unwrap(),
         serde_json::to_value(&second).unwrap()
@@ -3233,7 +3260,7 @@ fn an_epoch_change_after_data_reads_retries_without_leaking_precheck_content() {
     };
     let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     let answered: Vec<Uuid> = response.items.iter().map(|hit| hit.chunk_id).collect();
     assert_eq!(
         answered,
@@ -3273,7 +3300,7 @@ fn two_epoch_changes_retry_twice_and_still_answer() {
     };
     let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert_eq!(response.items.len(), 3);
     assert_eq!(
         mock_index_calls(&index),
@@ -3317,7 +3344,7 @@ fn a_hybrid_post_retries_across_the_rerank_reads() {
     // read-contributing path the re-check must cover.
     let service = epoch_service(hybrid_settings(true), Arc::clone(&index), repo);
 
-    let response = block_on(service.search(None, test_request(1, 8))).expect("search");
+    let response = block_on(service.search(None, test_request(1, 8), None)).expect("search");
     assert!(!response.items.is_empty());
     assert_eq!(
         mock_index_calls(&index),
@@ -3354,7 +3381,7 @@ fn a_date_post_page_is_discarded_and_rerun_when_the_epoch_moves() {
     });
     let service = epoch_service(vector_settings(), Arc::clone(&index), repo);
 
-    let response = block_on(service.search(None, date_request(8))).expect("date search");
+    let response = block_on(service.search(None, date_request(8), None)).expect("date search");
     assert_eq!(
         response
             .items
@@ -3619,7 +3646,7 @@ async fn a_stream_abort_stops_epoch_retries() {
     let (signal, guard) = abort_pair();
     let producer = tokio::spawn(async move {
         let _ = service
-            .stream_search(None, test_request(1, 8), tx, signal)
+            .stream_search(None, test_request(1, 8), tx, signal, None)
             .await;
     });
     // Let the producer park on the first embedding of attempt 1, then
@@ -3692,7 +3719,7 @@ fn unavailable_service() -> (SearchService, Arc<RecordingExclusionIndex>) {
 #[test]
 fn an_unavailable_registry_rejects_relevance_search_before_the_index() {
     let (service, index) = unavailable_service();
-    let error = block_on(service.search(None, test_request(1, 8)))
+    let error = block_on(service.search(None, test_request(1, 8), None))
         .expect_err("an unavailable registry must reject the search");
     assert!(
         error.to_string().contains("derived search index"),
@@ -3712,7 +3739,7 @@ fn an_unavailable_registry_rejects_relevance_search_before_the_index() {
 fn an_unavailable_registry_rejects_date_search_before_the_index() {
     let (service, index) = unavailable_service();
     assert!(
-        block_on(service.search(None, date_request(5))).is_err(),
+        block_on(service.search(None, date_request(5), None)).is_err(),
         "an unavailable registry must reject the date pipeline"
     );
     assert!(
@@ -3819,13 +3846,14 @@ impl SearchRepository for RegistryEntriesRepo {
         user_id: Option<i64>,
         request: &SearchRequest,
         exclusions: &SearchExclusions,
+        _restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> anyhow::Result<Option<i64>> {
         self.seen_upper_exclusions
             .lock()
             .expect("upper exclusions lock")
             .push(exclusions.clone());
         self.inner
-            .date_request_upper_bound(user_id, request, exclusions)
+            .date_request_upper_bound(user_id, request, exclusions, None)
             .await
     }
 
@@ -4012,7 +4040,7 @@ fn relevance_search_passes_the_deleted_entities_to_the_index() {
     );
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, test_request(1, 8))).expect("search");
+    block_on(service.search(None, test_request(1, 8), None)).expect("search");
 
     assert_eq!(
         index.seen_relevance.lock().expect("relevance lock").clone(),
@@ -4052,7 +4080,7 @@ fn an_epoch_retry_carries_the_new_deleted_entity_sets() {
     );
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, test_request(1, 8))).expect("search");
+    block_on(service.search(None, test_request(1, 8), None)).expect("search");
 
     assert_eq!(
         index.seen_relevance.lock().expect("relevance lock").clone(),
@@ -4165,7 +4193,7 @@ fn relevance_search_passes_deduped_registry_exclusions_to_the_index() {
     );
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, test_request(1, 8))).expect("search");
+    block_on(service.search(None, test_request(1, 8), None)).expect("search");
 
     let seen = index.seen_relevance.lock().expect("relevance lock").clone();
     assert_eq!(
@@ -4243,7 +4271,7 @@ fn date_search_passes_the_attempt_exclusions_to_the_ceiling_and_windows() {
     );
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, date_request(8))).expect("date search");
+    block_on(service.search(None, date_request(8), None)).expect("date search");
 
     let expected = vec![point_exclusions(vec![staged, retired])];
     assert_eq!(
@@ -4285,7 +4313,7 @@ fn date_ceiling_query_receives_the_attempt_exclusions() {
     let seen_upper = Arc::clone(&repo.seen_upper_exclusions);
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, date_request(8))).expect("date search");
+    block_on(service.search(None, date_request(8), None)).expect("date search");
 
     assert_eq!(
         seen_upper.lock().expect("upper lock").clone(),
@@ -4315,8 +4343,8 @@ fn an_empty_registry_leaves_the_filter_empty_for_relevance_and_date() {
     let repo = RegistryEntriesRepo::new(inner, vec![SearchRegistryState::default()]);
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, test_request(1, 8))).expect("relevance search");
-    block_on(service.search(None, date_request(8))).expect("date search");
+    block_on(service.search(None, test_request(1, 8), None)).expect("relevance search");
+    block_on(service.search(None, date_request(8), None)).expect("date search");
 
     assert_eq!(
         index.seen_relevance.lock().expect("relevance lock").clone(),
@@ -4361,7 +4389,7 @@ fn an_epoch_retry_uses_the_new_attempt_exclusion_snapshot() {
     );
     let service = exclusion_service(repo, Arc::clone(&index));
 
-    block_on(service.search(None, test_request(1, 8))).expect("search");
+    block_on(service.search(None, test_request(1, 8), None)).expect("search");
 
     assert_eq!(
         index.seen_relevance.lock().expect("relevance lock").clone(),

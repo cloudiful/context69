@@ -13,6 +13,7 @@ pub trait SearchScopeResolver: Send + Sync {
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<AccessScope>;
 }
 
@@ -228,6 +229,7 @@ pub trait SearchRepository: Send + Sync {
         user_id: Option<i64>,
         request: &SearchRequest,
         exclusions: &SearchExclusions,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Option<i64>>;
     async fn fetch_search_hits_by_chunk_ids(
         &self,

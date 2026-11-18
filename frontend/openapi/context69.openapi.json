@@ -911,6 +911,116 @@
         }
       }
     },
+    "/v1/auth/personal-access-tokens/group-catalog": {
+      "get": {
+        "tags": [],
+        "operationId": "list_personal_access_token_group_catalog",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "minimum": 0
+            }
+          },
+          {
+            "name": "query",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GroupSortBy"
+            }
+          },
+          {
+            "name": "sort_direction",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SortDirection"
+            }
+          },
+          {
+            "name": "visibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/Visibility"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/GroupKind"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Paged catalog of every group currently accessible to the token owner",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GroupPageResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid page request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid browser session",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Personal access tokens cannot manage personal access tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/auth/personal-access-tokens/{token_id}": {
       "delete": {
         "tags": [],
@@ -953,6 +1063,184 @@
           },
           "404": {
             "description": "Personal access token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [],
+        "operationId": "update_personal_access_token",
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "description": "Personal access token id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdatePersonalAccessTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Updated personal access token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PersonalAccessTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid personal access token request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Personal access tokens cannot manage personal access tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Personal access token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Personal access token changed since it was read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/auth/personal-access-tokens/{token_id}/rotate": {
+      "post": {
+        "tags": [],
+        "operationId": "rotate_personal_access_token",
+        "parameters": [
+          {
+            "name": "token_id",
+            "in": "path",
+            "description": "Personal access token id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RotatePersonalAccessTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Replacement personal access token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePersonalAccessTokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid personal access token request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing or invalid bearer token",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Personal access tokens cannot manage personal access tokens",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Personal access token not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ApiErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Personal access token changed since it was read",
             "content": {
               "application/json": {
                 "schema": {
@@ -9265,6 +9553,17 @@
             "format": "int32",
             "minimum": 0
           },
+          "group_scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TokenGroupScope",
+                "description": "Omitted by old clients to keep the unrestricted group range."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "name": {
             "type": "string"
           },
@@ -13811,6 +14110,14 @@
           }
         }
       },
+      "PersonalAccessTokenLastUsedPrecision": {
+        "type": "string",
+        "description": "How the recorded last-used instant must be interpreted.",
+        "enum": [
+          "exact",
+          "legacy_day"
+        ]
+      },
       "PersonalAccessTokenPageQuery": {
         "type": "object",
         "properties": {
@@ -13851,6 +14158,7 @@
           "name",
           "display_prefix",
           "scopes",
+          "group_scope",
           "expires_at",
           "created_at",
           "updated_at"
@@ -13867,13 +14175,26 @@
             "type": "string",
             "format": "date-time"
           },
+          "group_scope": {
+            "$ref": "#/components/schemas/TokenGroupScope"
+          },
           "last_used_at": {
             "type": [
               "string",
               "null"
             ],
             "format": "date-time",
-            "description": "First recorded use instant of the token's most recent UTC day.\n\nUsage telemetry is recorded at most once per UTC day, so display the UTC\ncalendar date rather than treating this as the exact last request time."
+            "description": "The most recent recorded successful authorized use.\n\nInterpret it together with `last_used_precision`: `exact` is a real\nobservation instant, while `legacy_day` is the old first-observation-of-\nthe-day telemetry and must not be presented as an exact time."
+          },
+          "last_used_precision": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PersonalAccessTokenLastUsedPrecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "name": {
             "type": "string"
@@ -13884,6 +14205,14 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "rotated_from_token_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The token this record replaced through rotation, when it was generated\nfrom another token."
           },
           "scopes": {
             "type": "array",
@@ -14064,6 +14393,19 @@
         "properties": {
           "password": {
             "type": "string"
+          }
+        }
+      },
+      "RotatePersonalAccessTokenRequest": {
+        "type": "object",
+        "required": [
+          "expires_in_days"
+        ],
+        "properties": {
+          "expires_in_days": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
           }
         }
       },
@@ -17257,6 +17599,47 @@
           }
         }
       },
+      "TokenGroupScope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": [
+              "mode"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "all"
+                ]
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": [
+              "group_ids",
+              "mode"
+            ],
+            "properties": {
+              "group_ids": {
+                "type": "array",
+                "items": {
+                  "type": "integer",
+                  "format": "int64"
+                }
+              },
+              "mode": {
+                "type": "string",
+                "enum": [
+                  "groups"
+                ]
+              }
+            }
+          }
+        ],
+        "description": "The group range a personal access token is limited to.\n\n`All` follows the owner's current accessible groups. `Groups` names the\nexact stable group ids the token may use; it never grows implicitly and is\nstill intersected with the owner's current access at request time."
+      },
       "TokenizerArtifactDescriptor": {
         "type": "object",
         "description": "One verified local tokenizer artifact.",
@@ -18126,6 +18509,36 @@
           },
           "value_kind": {
             "$ref": "#/components/schemas/MetadataValueKind"
+          }
+        }
+      },
+      "UpdatePersonalAccessTokenRequest": {
+        "type": "object",
+        "properties": {
+          "group_scope": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/TokenGroupScope"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "scopes": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "$ref": "#/components/schemas/PersonalAccessTokenScope"
+            }
           }
         }
       },

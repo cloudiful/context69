@@ -29,7 +29,12 @@ use utoipa::OpenApi;
 
 #[async_trait]
 pub trait SearchApi: Send + Sync {
-    async fn search(&self, user_id: Option<i64>, request: SearchRequest) -> Result<SearchResponse>;
+    async fn search(
+        &self,
+        user_id: Option<i64>,
+        request: SearchRequest,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
+    ) -> Result<SearchResponse>;
     /// Run the staged search pipeline for one SSE connection. `abort` resolves
     /// when the SSE body is dropped (client disconnect); the pipeline selects
     /// on it next to its long-running awaits so the in-flight embed/Qdrant/
@@ -40,12 +45,14 @@ pub trait SearchApi: Send + Sync {
         request: SearchRequest,
         tx: mpsc::Sender<SearchStreamEvent>,
         abort: AbortSignal,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<()>;
     async fn get_document(
         &self,
         user_id: Option<i64>,
         document_id: i64,
         locale: Option<String>,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<DocumentResponse>;
 }
 
@@ -113,7 +120,11 @@ async fn search(
     if let Err(error) = validate_post_request(&request) {
         return json_error_response(StatusCode::BAD_REQUEST, error.to_string());
     }
-    match state.search.search(Some(user.user_id), request).await {
+    match state
+        .search
+        .search(Some(user.user_id), request, user.token_group_scope.as_ref())
+        .await
+    {
         Ok(response) => (StatusCode::OK, axum::Json(response)).into_response(),
         Err(error) => map_search_service_error(error),
     }
@@ -262,6 +273,7 @@ async fn search_stream(
     let request: SearchRequest = decoded.into();
     let search = state.search.clone();
     let user_id = user.user_id;
+    let restriction = user.token_group_scope.clone();
     // F1: tie the in-flight work to the SSE response body. The producer
     // selects on `abort.wait()` next to its long-running awaits, so a client
     // disconnect (which drops the unfold state and therefore the
@@ -270,7 +282,7 @@ async fn search_stream(
     let (signal, on_drop) = abort_pair();
     tokio::spawn(async move {
         let _ = search
-            .stream_search(Some(user_id), request, tx, signal)
+            .stream_search(Some(user_id), request, tx, signal, restriction.as_ref())
             .await;
     });
     // The `AbortOnDrop` lives inside the unfold state. When the response
@@ -344,7 +356,12 @@ async fn get_document(
 ) -> impl IntoResponse {
     match state
         .search
-        .get_document(Some(user.user_id), document_id, query.locale)
+        .get_document(
+            Some(user.user_id),
+            document_id,
+            query.locale,
+            user.token_group_scope.as_ref(),
+        )
         .await
     {
         Ok(document) => (StatusCode::OK, axum::Json(document)).into_response(),

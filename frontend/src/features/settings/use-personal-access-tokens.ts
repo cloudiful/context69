@@ -4,15 +4,16 @@ import { toast } from "sonner";
 
 import { apiClient } from "@/services/api";
 import type {
+  CreatePersonalAccessTokenRequest,
   CreatePersonalAccessTokenResponse,
   Pagination,
   PersonalAccessTokenResponse,
   PersonalAccessTokenScope,
+  UpdatePersonalAccessTokenRequest,
 } from "@/services/api";
 
 import { errorMessage } from "./settings-error";
 
-const DEFAULT_SCOPES: PersonalAccessTokenScope[] = ["search"];
 const DEFAULT_EXPIRY_DAYS = 30;
 const PAGE_SIZE = 50;
 
@@ -22,12 +23,6 @@ const PAGE_SIZE = 50;
  * `settings.personalAccessTokens.expiry<Days>Days` in every locale.
  */
 export const PERSONAL_ACCESS_TOKEN_EXPIRY_DAYS = [7, 30, 90, 365] as const;
-
-export interface PersonalAccessTokenDraft {
-  name: string;
-  scopes: PersonalAccessTokenScope[];
-  expires_in_days: number;
-}
 
 const EMPTY_PAGINATION: Pagination = { page: 1, page_size: PAGE_SIZE, total: 0, total_pages: 0 };
 
@@ -40,10 +35,12 @@ export const PERSONAL_ACCESS_TOKEN_SCOPES: PersonalAccessTokenScope[] = [
   "admin",
 ];
 
+export type PersonalAccessTokenBusyAction = "create" | "update" | "rotate" | "revoke" | null;
+
 /**
- * Access-token list, create, one-time reveal, copy and revoke. The revealed
- * secret lives only in this component state; it is never written to storage,
- * logs, or a test artifact.
+ * Access-token list plus create, edit, rotate, revoke and one-time reveal.
+ * The revealed secret lives only in this state; it is never written to
+ * storage, logs, or a test artifact.
  */
 export function usePersonalAccessTokens() {
   const { t } = useTranslation();
@@ -53,14 +50,9 @@ export function usePersonalAccessTokens() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(PAGE_SIZE);
   const [loading, setLoading] = useState(false);
-  const [creating, setCreating] = useState(false);
+  const [busyAction, setBusyAction] = useState<PersonalAccessTokenBusyAction>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [reveal, setReveal] = useState<CreatePersonalAccessTokenResponse | null>(null);
-  const [draft, setDraft] = useState<PersonalAccessTokenDraft>({
-    name: "",
-    scopes: [...DEFAULT_SCOPES],
-    expires_in_days: DEFAULT_EXPIRY_DAYS,
-  });
-  const [revokeTarget, setRevokeTarget] = useState<PersonalAccessTokenResponse | null>(null);
 
   const showErrorToast = useCallback((error: unknown, fallback: string) => {
     toast.error(t("common.error"), {
@@ -105,48 +97,79 @@ export function usePersonalAccessTokens() {
     void load(1, next);
   }, [load, pageSize]);
 
-  const validationError = !draft.name.trim()
-    ? t("settings.personalAccessTokens.nameRequired")
-    : draft.scopes.length === 0
-      ? t("settings.personalAccessTokens.scopesRequired")
-      : "";
+  const clearActionError = useCallback(() => setActionError(null), []);
 
-  const updateDraft = useCallback((patch: Partial<PersonalAccessTokenDraft>) => {
-    setDraft((current) => ({ ...current, ...patch, scopes: patch.scopes ? [...patch.scopes] : current.scopes }));
-  }, []);
-
-  const create = useCallback(async () => {
-    if (validationError) {
-      showErrorToast(null, validationError);
-      return;
-    }
-
-    setCreating(true);
+  const runAction = useCallback(async (
+    action: Exclude<PersonalAccessTokenBusyAction, null>,
+    failureKey: string,
+    task: () => Promise<void>,
+  ): Promise<boolean> => {
+    setBusyAction(action);
+    setActionError(null);
     try {
-      const created = await apiClient.createPersonalAccessToken({
-        name: draft.name.trim(),
-        scopes: draft.scopes,
-        expires_in_days: draft.expires_in_days,
+      await task();
+      return true;
+    } catch (error) {
+      const message = errorMessage(error, t(failureKey));
+      setActionError(message);
+      showErrorToast(error, t(failureKey));
+      return false;
+    } finally {
+      setBusyAction(null);
+    }
+  }, [showErrorToast, t]);
+
+  const create = useCallback(async (payload: CreatePersonalAccessTokenRequest): Promise<boolean> => {
+    const ok = await runAction("create", "settings.personalAccessTokens.createFailed", async () => {
+      const created = await apiClient.createPersonalAccessToken(payload);
+      setReveal(created);
+      await load(1, PAGE_SIZE);
+    });
+    if (ok) {
+      toast.success(t("settings.personalAccessTokens.createSuccess"), { duration: 2500 });
+    }
+    return ok;
+  }, [load, runAction, t]);
+
+  const update = useCallback(async (
+    tokenId: string,
+    payload: UpdatePersonalAccessTokenRequest,
+  ): Promise<boolean> => {
+    const ok = await runAction("update", "settings.personalAccessTokens.updateFailed", async () => {
+      await apiClient.updatePersonalAccessToken(tokenId, payload);
+      await load(page, pageSize);
+    });
+    if (ok) {
+      toast.success(t("settings.personalAccessTokens.updateSuccess"), { duration: 2500 });
+    }
+    return ok;
+  }, [load, page, pageSize, runAction, t]);
+
+  const rotate = useCallback(async (tokenId: string, expiresInDays: number): Promise<boolean> => {
+    const ok = await runAction("rotate", "settings.personalAccessTokens.rotateFailed", async () => {
+      const created = await apiClient.rotatePersonalAccessToken(tokenId, {
+        expires_in_days: expiresInDays,
       });
       setReveal(created);
-      await load(1, pageSize);
-      setPage(1);
-      setDraft({ name: "", scopes: [...DEFAULT_SCOPES], expires_in_days: DEFAULT_EXPIRY_DAYS });
-      toast.success(t("settings.personalAccessTokens.createSuccess"), { duration: 2500 });
-    } catch (error) {
-      showErrorToast(error, t("settings.personalAccessTokens.createFailed"));
-    } finally {
-      setCreating(false);
+      await load(page, pageSize);
+    });
+    if (ok) {
+      toast.success(t("settings.personalAccessTokens.rotateSuccess"), { duration: 2500 });
     }
-  }, [draft, load, pageSize, showErrorToast, t, validationError]);
+    return ok;
+  }, [load, page, pageSize, runAction, t]);
 
   const revoke = useCallback(async (token: PersonalAccessTokenResponse) => {
+    setBusyAction("revoke");
+    setActionError(null);
     try {
       await apiClient.revokePersonalAccessToken(token.token_id);
       await load(page, pageSize);
       toast.success(t("settings.personalAccessTokens.revokeSuccess"), { duration: 2500 });
     } catch (error) {
       showErrorToast(error, t("settings.personalAccessTokens.revokeFailed"));
+    } finally {
+      setBusyAction(null);
     }
   }, [load, page, pageSize, showErrorToast, t]);
 
@@ -170,23 +193,23 @@ export function usePersonalAccessTokens() {
   const dismissReveal = useCallback(() => setReveal(null), []);
 
   return {
+    actionError,
+    busyAction,
     changePage,
     changePageSize,
+    clearActionError,
     copy,
-    creating,
     create,
     dismissReveal,
-    draft,
     items,
     loading,
     pagination,
     reveal,
     revoke,
-    revokeTarget,
-    setRevokeTarget,
-    updateDraft,
-    validationError,
+    rotate,
+    update,
   };
 }
 
 export type PersonalAccessTokensState = ReturnType<typeof usePersonalAccessTokens>;
+export { DEFAULT_EXPIRY_DAYS };

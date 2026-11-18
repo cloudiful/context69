@@ -9,7 +9,7 @@ use axum::{
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
 };
-use context69_contracts::{ApiErrorResponse, ScopeSpec};
+use context69_contracts::{ApiErrorResponse, ScopeSpec, TokenGroupScope};
 
 use super::{
     ApiState,
@@ -38,6 +38,24 @@ pub(crate) async fn ensure_scope(
     CurrentUser(session): CurrentUser,
     Json(spec): Json<ScopeSpec>,
 ) -> Response {
+    if let Some(restriction) = restricted_token_scope(&session.token_group_scope) {
+        let allowed = match state
+            .app
+            .namespace
+            .get_group_for_user(session.user.id, &spec.group_path, None)
+            .await
+        {
+            Ok(group) => group.is_some_and(|group| {
+                crate::authorization::group_allowed(Some(restriction), group.id)
+            }),
+            Err(error) => return task_error(error),
+        };
+        if !allowed {
+            return group_access_error_response(anyhow::anyhow!(
+                "insufficient permissions for group"
+            ));
+        }
+    }
     match state.app.tasks.ensure_scope(session.user.id, &spec).await {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => task_error(error),
@@ -53,15 +71,68 @@ pub(crate) async fn submit_task_request(state: &ApiState, request: TaskSubmissio
 
 pub(crate) async fn managed_group(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> Result<crate::domain::GroupRecord, Box<Response>> {
-    let group = group_for_user(state, user_id, group_path)
+    let group = group_for_user(state, session, group_path)
         .await
         .map_err(|error| Box::new(group_access_error_response(error)))?;
     require_group_role(&group, crate::contracts::MembershipRole::Maintainer)
         .map_err(|error| Box::new(group_access_error_response(error)))?;
     Ok(group)
+}
+
+pub(crate) async fn authorize_task(
+    state: &ApiState,
+    session: &crate::services::auth::AuthSession,
+    task_id: uuid::Uuid,
+) -> Result<(), Response> {
+    if restricted_token_scope(&session.token_group_scope).is_none() {
+        return Ok(());
+    }
+    let task = state
+        .app
+        .tasks
+        .get(task_id, session.user.id)
+        .await
+        .map_err(task_error)?;
+    require_task_group_allowed(state, session, task.group_path.as_deref()).await
+}
+
+pub(crate) async fn require_task_group_allowed(
+    state: &ApiState,
+    session: &crate::services::auth::AuthSession,
+    group_path: Option<&str>,
+) -> Result<(), Response> {
+    let Some(restriction) = restricted_token_scope(&session.token_group_scope) else {
+        return Ok(());
+    };
+    let Some(group_path) = group_path else {
+        return Err(group_access_error_response(
+            crate::domain_errors::DomainError::forbidden("insufficient permissions for group")
+                .into(),
+        ));
+    };
+    let group = state
+        .app
+        .namespace
+        .get_group_for_user(session.user.id, group_path, None)
+        .await
+        .map_err(group_access_error_response)?;
+    match group {
+        Some(group) => crate::authorization::require_group_allowed(Some(restriction), group.id)
+            .map_err(group_access_error_response),
+        None => Err(group_access_error_response(
+            crate::domain_errors::DomainError::forbidden("insufficient permissions for group")
+                .into(),
+        )),
+    }
+}
+
+/// The exact-group restriction, or `None` for browser sessions and legacy/all
+/// tokens, which keep their historical task behavior.
+fn restricted_token_scope(scope: &Option<TokenGroupScope>) -> Option<&TokenGroupScope> {
+    scope.as_ref().filter(|scope| scope.is_restricted())
 }
 
 pub(crate) fn idempotency_key(headers: &HeaderMap) -> Option<String> {
@@ -71,4 +142,24 @@ pub(crate) fn idempotency_key(headers: &HeaderMap) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::restricted_token_scope;
+    use crate::contracts::TokenGroupScope;
+
+    #[test]
+    fn task_prechecks_apply_only_to_exact_group_ranges() {
+        assert!(restricted_token_scope(&None).is_none());
+        assert!(restricted_token_scope(&Some(TokenGroupScope::All)).is_none());
+        assert_eq!(
+            restricted_token_scope(&Some(TokenGroupScope::Groups {
+                group_ids: vec![4, 9],
+            })),
+            Some(&TokenGroupScope::Groups {
+                group_ids: vec![4, 9],
+            })
+        );
+    }
 }

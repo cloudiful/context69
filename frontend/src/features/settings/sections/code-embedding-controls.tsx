@@ -37,10 +37,11 @@ export function CodeEmbeddingBlock() {
         />
       }
     >
-      <div className="grid max-w-2xl gap-3">
+      <div className="grid max-w-3xl gap-3">
         <ToggleField
           id="runtime-code-embedding-enabled"
           testId="runtime-code-embedding-enabled"
+          layout="row"
           label={t("settings.runtime.codeEmbeddingEnabled")}
           helper={t("settings.runtime.codeEmbeddingEnabledHelper")}
           checked={code.enabled}
@@ -53,6 +54,8 @@ export function CodeEmbeddingBlock() {
             <TextField
               id="runtime-code-embedding-base-url"
               type="url"
+              layout="row"
+              controlClassName="max-w-xl"
               label={t("settings.runtime.codeEmbeddingBaseUrl")}
               placeholder="https://openrouter.ai/api/v1"
               value={code.base_url}
@@ -64,6 +67,7 @@ export function CodeEmbeddingBlock() {
               id="runtime-code-embedding-api-key"
               type="password"
               autoComplete="new-password"
+              layout="row"
               label={t("settings.runtime.codeEmbeddingApiKey")}
               placeholder={code.has_api_key ? t("settings.runtime.codeEmbeddingKeyStored") : "sk-..."}
               value={code.api_key}
@@ -76,6 +80,7 @@ export function CodeEmbeddingBlock() {
               <ToggleField
                 id="runtime-code-embedding-clear-key"
                 testId="runtime-code-embedding-clear-key"
+                layout="row"
                 label={t("settings.runtime.codeEmbeddingClearKey")}
                 helper={t("settings.runtime.codeEmbeddingClearKeyHelper")}
                 checked={code.clear_api_key}
@@ -86,6 +91,7 @@ export function CodeEmbeddingBlock() {
             ) : null}
             <TextField
               id="runtime-code-embedding-model"
+              layout="row"
               label={t("settings.runtime.codeEmbeddingModel")}
               helper={t("settings.runtime.codeEmbeddingModelHelper")}
               value={code.model}
@@ -95,6 +101,7 @@ export function CodeEmbeddingBlock() {
             />
             <TextField
               id="runtime-code-embedding-query-model"
+              layout="row"
               label={t("settings.runtime.codeEmbeddingQueryModel")}
               helper={t("settings.runtime.codeEmbeddingQueryModelHelper")}
               value={code.query_model}
@@ -102,26 +109,26 @@ export function CodeEmbeddingBlock() {
                 draft.query_model = value;
               })}
             />
-            <div className="grid gap-3 sm:grid-cols-2">
-              <NumberField
-                id="runtime-code-embedding-dimensions"
-                label={t("settings.runtime.codeEmbeddingDimensions")}
-                min={1}
-                value={code.dimensions}
-                onChange={(value) => updateCodeEmbeddingDraft((draft) => {
-                  draft.dimensions = value;
-                })}
-              />
-              <NumberField
-                id="runtime-code-embedding-timeout"
-                label={t("settings.runtime.codeEmbeddingTimeout")}
-                min={1}
-                value={code.timeout_secs}
-                onChange={(value) => updateCodeEmbeddingDraft((draft) => {
-                  draft.timeout_secs = value;
-                })}
-              />
-            </div>
+            <NumberField
+              id="runtime-code-embedding-dimensions"
+              layout="row"
+              label={t("settings.runtime.codeEmbeddingDimensions")}
+              min={1}
+              value={code.dimensions}
+              onChange={(value) => updateCodeEmbeddingDraft((draft) => {
+                draft.dimensions = value;
+              })}
+            />
+            <NumberField
+              id="runtime-code-embedding-timeout"
+              layout="row"
+              label={t("settings.runtime.codeEmbeddingTimeout")}
+              min={1}
+              value={code.timeout_secs}
+              onChange={(value) => updateCodeEmbeddingDraft((draft) => {
+                draft.timeout_secs = value;
+              })}
+            />
           </>
         ) : null}
       </div>

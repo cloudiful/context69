@@ -24,6 +24,9 @@ pub(crate) async fn get_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.get(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
         Err(error) => task_error(error),
@@ -36,6 +39,11 @@ pub(crate) async fn list_tasks(
     CurrentUser(session): CurrentUser,
     Query(query): Query<CanonicalTaskListQuery>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     if let Err(error) = query.validate() {
         return task_error(error);
     }
@@ -57,6 +65,11 @@ pub(crate) async fn list_task_selection(
     CurrentUser(session): CurrentUser,
     Query(query): Query<TaskSelectionQuery>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     // Read-only snapshot of every task matching the current filters. The
     // captured ids freeze the scope of a later bulk action; the per-task
     // endpoints stay authoritative for authorization and lifecycle.
@@ -73,6 +86,9 @@ pub(crate) async fn list_task_items(
     Path(task_id): Path<Uuid>,
     Query(query): Query<TaskItemsQuery>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     let offset = query.cursor.as_deref().unwrap_or("0").parse::<i64>();
     let offset = match offset {
         Ok(offset) if offset >= 0 => offset,
@@ -109,6 +125,9 @@ pub(crate) async fn diagnose_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     // Same task-detail authorization as `get_task`: the task must belong to the
     // caller or to a group they inherit, so a foreign task is `not_found`.
     match state.app.tasks.diagnose(task_id, session.user.id).await {
@@ -123,6 +142,9 @@ pub(crate) async fn retry_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.retry(task_id, session.user.id).await {
         Ok(task) => (StatusCode::ACCEPTED, Json(task)).into_response(),
         Err(error) => task_error(error),
@@ -135,6 +157,11 @@ pub(crate) async fn batch_retry_tasks(
     CurrentUser(session): CurrentUser,
     Json(request): Json<TaskBatchRetryRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     // One ordered outcome per requested id; per-item authorization and
     // lifecycle stay inside the existing in-place primitives.
     match state.app.tasks.batch_retry(session.user.id, &request).await {
@@ -149,6 +176,9 @@ pub(crate) async fn rerun_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     // Routing: a cancelled submission reopens its own items and keeps its id,
     // a failed task keeps the documented fresh-parent rerun, and a succeeded
     // file, url, or text task is rerun from its current source.
@@ -164,6 +194,11 @@ pub(crate) async fn batch_rerun_tasks(
     CurrentUser(session): CurrentUser,
     Json(request): Json<TaskBatchRerunRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     // One ordered outcome per requested id; only a succeeded file, url, or text
     // parent is rerun, and every other id is skipped with a reason.
     match state.app.tasks.batch_rerun(session.user.id, &request).await {
@@ -178,6 +213,9 @@ pub(crate) async fn pause_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.pause_task(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
         Err(error) => task_error(error),
@@ -190,6 +228,9 @@ pub(crate) async fn resume_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.resume_task(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
         Err(error) => task_error(error),
@@ -202,6 +243,9 @@ pub(crate) async fn cancel_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.cancel(task_id, session.user.id).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => task_error(error),
@@ -214,6 +258,9 @@ pub(crate) async fn trash_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.trash(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
         Err(error) => task_error(error),
@@ -226,6 +273,9 @@ pub(crate) async fn restore_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state.app.tasks.restore(task_id, session.user.id).await {
         Ok(task) => (StatusCode::OK, Json(task)).into_response(),
         Err(error) => task_error(error),
@@ -238,6 +288,11 @@ pub(crate) async fn batch_cancel_tasks(
     CurrentUser(session): CurrentUser,
     Json(request): Json<TaskBatchLifecycleRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     // One ordered outcome per requested id; the set is authorized and mutated
     // by bounded batch statements, never by a per-id transaction.
     match state
@@ -257,6 +312,11 @@ pub(crate) async fn batch_trash_tasks(
     CurrentUser(session): CurrentUser,
     Json(request): Json<TaskBatchTrashRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     // A caller that opts into `cancel_active` cancels the active rows in the
     // same transaction before their rows are recycled; the default keeps the
     // terminal-only contract and refuses an active row unmoved.
@@ -272,6 +332,11 @@ pub(crate) async fn batch_restore_tasks(
     CurrentUser(session): CurrentUser,
     Json(request): Json<TaskBatchLifecycleRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     match state
         .app
         .tasks
@@ -289,6 +354,11 @@ pub(crate) async fn batch_purge_tasks(
     CurrentUser(session): CurrentUser,
     Json(request): Json<TaskBatchLifecycleRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     // Only trashed rows are removed; the recycle bin stays the only path to
     // permanent deletion.
     match state.app.tasks.batch_purge(session.user.id, &request).await {
@@ -303,6 +373,11 @@ pub(crate) async fn clear_task_history(
     CurrentUser(session): CurrentUser,
     Json(request): Json<ClearTaskHistoryRequest>,
 ) -> Response {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return task_error(error);
+    }
     match state
         .app
         .tasks
@@ -320,6 +395,9 @@ pub(crate) async fn delete_task(
     CurrentUser(session): CurrentUser,
     Path(task_id): Path<Uuid>,
 ) -> Response {
+    if let Err(response) = super::authorize_task(&state, &session, task_id).await {
+        return response;
+    }
     match state
         .app
         .tasks

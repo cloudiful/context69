@@ -54,7 +54,7 @@ fn the_enable_route_shares_the_maintainer_floor_of_the_other_lifecycle_paths() {
         "a non-member is refused before any read or write"
     );
     assert!(
-        ROUTE_SOURCE.contains("maintainer_group(&state, session.user.id, &group_path)"),
+        ROUTE_SOURCE.contains("maintainer_group(&state, &session, &group_path)"),
         "the enable handler must resolve the group through the shared helper"
     );
 }

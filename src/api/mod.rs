@@ -119,8 +119,8 @@ pub(crate) use admin_users::{
     reset_admin_user_password, update_admin_user,
 };
 pub(crate) use auth::{
-    RequestAuth, auth_middleware, forbid_personal_access_token_middleware, login, logout, me,
-    optional_auth_middleware, require_admin_scope_middleware, require_library_scope_middleware,
+    AuthKind, RequestAuth, auth_middleware, forbid_personal_access_token_middleware, login, logout,
+    me, optional_auth_middleware, require_admin_scope_middleware, require_library_scope_middleware,
     require_search_scope_middleware, require_settings_scope_middleware,
     require_sources_scope_middleware, require_workspace_scope_middleware,
     touch_personal_access_token_middleware,
@@ -173,7 +173,9 @@ pub(crate) use library::{
     move_library_folder, upload_library_files,
 };
 pub(crate) use personal_access_tokens::{
-    create_personal_access_token, list_personal_access_tokens, revoke_personal_access_token,
+    create_personal_access_token, list_personal_access_token_group_catalog,
+    list_personal_access_tokens, revoke_personal_access_token, rotate_personal_access_token,
+    update_personal_access_token,
 };
 pub(crate) use rebuild_control::{
     cancel_vector_index_rebuild, get_vector_index_rebuild_status, pause_vector_index_rebuild,

@@ -10,6 +10,9 @@ pub struct AccessScope {
     /// Resolved id of the group that a scoped request is narrowed to.
     /// `None` while `group_path` is `Some` means the group no longer exists.
     pub scoped_group_id: Option<i64>,
+    /// Exact group ids a restricted personal access token may use.
+    /// `None` means unrestricted; `Some(empty)` means no group is allowed.
+    pub allowed_group_ids: Option<Vec<i64>>,
 }
 
 #[derive(Debug, Clone)]

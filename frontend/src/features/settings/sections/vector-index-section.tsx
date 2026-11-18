@@ -60,16 +60,19 @@ export function VectorIndexSection() {
               />
             }
           >
-            <div className="grid max-w-2xl gap-3">
+            <div className="grid max-w-3xl gap-3">
               <TextField
                 id="runtime-qdrant-url"
                 type="url"
+                layout="row"
+                controlClassName="max-w-xl"
                 label={t("settings.runtime.qdrantUrl")}
                 value={runtimeDraft.qdrant.url}
                 onChange={updateQdrantUrl}
               />
               <TextField
                 id="runtime-qdrant-collection"
+                layout="row"
                 label={t("settings.runtime.qdrantCollection")}
                 value={runtimeDraft.qdrant.collection_name}
                 onChange={(value) => updateRuntimeDraft((draft) => {

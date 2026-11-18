@@ -22,7 +22,7 @@ pub(crate) async fn get_group_library_settings(
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -39,7 +39,7 @@ pub(crate) async fn update_group_library_settings(
     Path(group_path): Path<String>,
     Json(request): Json<UpdateGroupLibrarySettingsRequest>,
 ) -> impl IntoResponse {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

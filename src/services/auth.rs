@@ -34,6 +34,8 @@ pub struct AuthService {
 pub struct AuthSession {
     pub user: UserRecord,
     pub personal_group: PersonalGroupRecord,
+    /// Set only while the request authenticated with a personal access token.
+    pub token_group_scope: Option<crate::contracts::TokenGroupScope>,
 }
 
 #[derive(Debug, Clone)]
@@ -276,6 +278,7 @@ impl AuthService {
         Ok(AuthSession {
             user,
             personal_group,
+            token_group_scope: None,
         })
     }
 
@@ -283,8 +286,11 @@ impl AuthService {
         &self,
         user_id: Option<i64>,
         group_path: Option<String>,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
     ) -> Result<AccessScope> {
-        self.db.resolve_access_scope(user_id, group_path).await
+        self.db
+            .resolve_access_scope(user_id, group_path, restriction)
+            .await
     }
 
     pub fn anonymous_mcp_enabled(&self) -> bool {

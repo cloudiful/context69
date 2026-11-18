@@ -69,7 +69,7 @@ pub(crate) async fn enable_git_connection(
     // The same Maintainer floor the create and disable paths enforce: a Viewer or
     // non-member is refused before the update and learns nothing about the
     // connection.
-    let group = match maintainer_group(&state, session.user.id, &group_path).await {
+    let group = match maintainer_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -124,7 +124,7 @@ pub(crate) async fn disable_git_connection(
     // The same Maintainer floor the create path enforces, resolved through the
     // shared group helpers, so a Viewer or non-member is refused before the
     // mutation and learns nothing about the connection.
-    let group = match maintainer_group(&state, session.user.id, &group_path).await {
+    let group = match maintainer_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -161,10 +161,10 @@ pub(crate) async fn disable_git_connection(
 /// group-scoped helpers, exactly as the connection create path does.
 async fn maintainer_group(
     state: &ApiState,
-    user_id: i64,
+    session: &crate::services::auth::AuthSession,
     group_path: &str,
 ) -> anyhow::Result<GroupRecord> {
-    let group = group_for_user(state, user_id, group_path).await?;
+    let group = group_for_user(state, session, group_path).await?;
     require_group_role(&group, MembershipRole::Maintainer)?;
     Ok(group)
 }

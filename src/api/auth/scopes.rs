@@ -10,7 +10,7 @@ use uuid::Uuid;
 
 use crate::contracts::{ApiErrorResponse, PersonalAccessTokenScope};
 
-use super::{ApiState, AuthKind, RequestAuth};
+use super::{ApiState, AuthKind, RequestAuth, records_successful_use};
 
 pub(crate) async fn require_search_scope_middleware(
     State(state): State<ApiState>,
@@ -78,12 +78,8 @@ async fn require_scope_middleware(
             .into_response();
     };
 
-    match admit_personal_access_token(&authenticated.kind, required_scope) {
-        ScopeAdmission::Allowed(token_id) => {
-            if authenticated.telemetry_due {
-                state.app.personal_access_tokens.record_last_used(token_id);
-            }
-        }
+    let token_id = match admit_personal_access_token(&authenticated.kind, required_scope) {
+        ScopeAdmission::Allowed(token_id) => authenticated.telemetry_due.then_some(token_id),
         ScopeAdmission::MissingScope => {
             return (
                 StatusCode::FORBIDDEN,
@@ -97,10 +93,16 @@ async fn require_scope_middleware(
             )
                 .into_response();
         }
-        ScopeAdmission::NotAPersonalAccessToken => {}
-    }
+        ScopeAdmission::NotAPersonalAccessToken => None,
+    };
 
-    next.run(request).await
+    let response = next.run(request).await;
+    if let Some(token_id) = token_id
+        && records_successful_use(response.status())
+    {
+        state.app.personal_access_tokens.record_last_used(token_id);
+    }
+    response
 }
 
 /// What a scope-gated request observed.

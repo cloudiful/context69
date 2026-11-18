@@ -65,7 +65,7 @@ pub(crate) async fn list_git_repository_files(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Query(query): Query<CursorPageQuery>,
 ) -> Response {
-    let group = match readable_group(&state, session.user.id, &group_path).await {
+    let group = match readable_group(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(response) => return response,
     };

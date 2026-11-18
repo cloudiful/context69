@@ -112,6 +112,7 @@ impl DateRequestSnapshot {
         user_id: Option<i64>,
         request: &SearchRequest,
         exclusions: &SearchExclusions,
+        restriction: Option<&context69_contracts_core::TokenGroupScope>,
     ) -> Result<Self> {
         let settings = repository
             .get_search_settings()
@@ -124,7 +125,7 @@ impl DateRequestSnapshot {
         // "snapshot fetch failed" (Err(_)) so a transient Qdrant outage
         // can never silently widen a replayed upper bound.
         let upper_ts = repository
-            .date_request_upper_bound(user_id, request, exclusions)
+            .date_request_upper_bound(user_id, request, exclusions, restriction)
             .await?;
         Ok(Self {
             settings,
@@ -233,6 +234,12 @@ fn validate_date_query(request: &SearchRequest) -> Result<()> {
     Ok(())
 }
 
+/// The caller identity whose visibility constrains a date-mode search.
+pub struct DateSearchAuthorization<'a> {
+    pub user_id: Option<i64>,
+    pub restriction: Option<&'a context69_contracts_core::TokenGroupScope>,
+}
+
 /// Run the date-mode pipeline for a POST search or an SSE stream.
 ///
 /// Cancellation is owned by the SSE layer: the `stream_search_by_date`
@@ -246,10 +253,14 @@ pub async fn run_date_search(
     scope_resolver: &dyn SearchScopeResolver,
     embedding: &dyn SearchEmbeddingProvider,
     index: &dyn SearchIndex,
-    user_id: Option<i64>,
+    authorization: DateSearchAuthorization<'_>,
     request: SearchRequest,
     exclusions: &SearchExclusions,
 ) -> Result<SearchResponse> {
+    let DateSearchAuthorization {
+        user_id,
+        restriction,
+    } = authorization;
     let limit = request.limit;
     if limit == 0 || limit > 100 {
         return Err(DomainError::invalid_argument("page_size must be between 1 and 100").into());
@@ -266,7 +277,9 @@ pub async fn run_date_search(
             "page > 1 is not supported for sort=date; pass the cursor returned in `next_cursor` to fetch the next page"
         ).into());
     }
-    let snapshot = DateRequestSnapshot::capture(repository, user_id, &request, exclusions).await?;
+    let snapshot =
+        DateRequestSnapshot::capture(repository, user_id, &request, exclusions, restriction)
+            .await?;
     let context = CursorContext {
         query_hash: snapshot.query_hash.clone(),
         filter_hash: SearchCache::filter_hash(&request),
@@ -275,7 +288,7 @@ pub async fn run_date_search(
         limit,
     };
     let scope = scope_resolver
-        .access_scope(user_id, request.group_path.clone())
+        .access_scope(user_id, request.group_path.clone(), restriction)
         .await?;
     let incoming = match request.cursor.as_deref() {
         Some(raw) => {

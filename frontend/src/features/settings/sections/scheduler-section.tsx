@@ -31,9 +31,10 @@ export function SchedulerSection() {
             />
           }
         >
-          <div className="grid max-w-2xl gap-3">
+          <div className="grid max-w-3xl gap-3">
             <NumberField
               id="runtime-scheduler-interval"
+              layout="row"
               label={t("settings.runtime.schedulerInterval")}
               min={1}
               value={runtimeDraft.scheduler.interval_secs}
@@ -43,6 +44,7 @@ export function SchedulerSection() {
             />
             <NumberField
               id="runtime-scheduler-concurrency"
+              layout="row"
               label={t("settings.runtime.schedulerConcurrency")}
               min={1}
               value={runtimeDraft.scheduler.max_concurrency}
@@ -52,6 +54,7 @@ export function SchedulerSection() {
             />
             <TextField
               id="runtime-scheduler-job-id"
+              layout="row"
               label={t("settings.runtime.schedulerJobId")}
               value={runtimeDraft.scheduler.job_id}
               onChange={(value) => updateRuntimeDraft((draft) => {
@@ -60,6 +63,8 @@ export function SchedulerSection() {
             />
             <TextField
               id="runtime-scheduler-valkey-url"
+              layout="row"
+              controlClassName="max-w-xl"
               label={t("settings.runtime.schedulerValkeyUrl")}
               helper={t("settings.runtime.valkeyRestartRequired")}
               placeholder="redis://valkey:6379/0"
@@ -71,6 +76,7 @@ export function SchedulerSection() {
             <ToggleField
               id="runtime-scheduler-run-on-start"
               testId="runtime-scheduler-run-on-start"
+              layout="row"
               label={t("settings.runtime.runOnStart")}
               checked={runtimeDraft.scheduler.run_on_start}
               onCheckedChange={(checked) => updateRuntimeDraft((draft) => {

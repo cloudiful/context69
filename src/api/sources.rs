@@ -35,8 +35,14 @@ use super::{
 )]
 pub(crate) async fn list_sources(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Query(query): Query<SourcePageQuery>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     if let Err(error) = state.app.sync.reload_sources().await {
         return super::errors::internal_error_response(error);
     }
@@ -59,7 +65,15 @@ pub(crate) async fn list_sources(
         (status = 500, description = "Internal error", body = ApiErrorResponse)
     )
 )]
-pub(crate) async fn list_source_connections(State(state): State<ApiState>) -> impl IntoResponse {
+pub(crate) async fn list_source_connections(
+    State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
+) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     match state.app.sync.list_source_connections().await {
         Ok(connections) => (StatusCode::OK, Json(connections)).into_response(),
         Err(error) => source_management_error_response(error),
@@ -78,8 +92,14 @@ pub(crate) async fn list_source_connections(State(state): State<ApiState>) -> im
 )]
 pub(crate) async fn create_source_connection(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Json(request): Json<UpsertSourceConnectionRequest>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     save_source_connection(state, request).await
 }
 
@@ -95,8 +115,14 @@ pub(crate) async fn create_source_connection(
 )]
 pub(crate) async fn update_source_connection(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Json(request): Json<UpsertSourceConnectionRequest>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     save_source_connection(state, request).await
 }
 
@@ -122,8 +148,14 @@ async fn save_source_connection(
 )]
 pub(crate) async fn delete_source_connection(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Path(name): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     match state.app.sync.delete_source_connection(&name).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => source_management_error_response(error),
@@ -143,8 +175,14 @@ pub(crate) async fn delete_source_connection(
 )]
 pub(crate) async fn create_source(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Json(request): Json<SourceConfigInput>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     match state.app.sync.create_source(&request).await {
         Ok(source) => (StatusCode::CREATED, Json(source)).into_response(),
         Err(error) => source_management_error_response(error),
@@ -165,9 +203,15 @@ pub(crate) async fn create_source(
 )]
 pub(crate) async fn update_source(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Path(source_key): Path<String>,
     Json(request): Json<SourceConfigInput>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     match state.app.sync.update_source(&source_key, &request).await {
         Ok(source) => (StatusCode::OK, Json(source)).into_response(),
         Err(error) => source_management_error_response(error),
@@ -186,8 +230,14 @@ pub(crate) async fn update_source(
 )]
 pub(crate) async fn delete_source(
     State(state): State<ApiState>,
+    CurrentUser(session): CurrentUser,
     Path(source_key): Path<String>,
 ) -> impl IntoResponse {
+    if let Err(error) =
+        crate::authorization::require_unrestricted(session.token_group_scope.as_ref())
+    {
+        return source_management_error_response(error);
+    }
     match state.app.sync.delete_source(&source_key).await {
         Ok(()) => StatusCode::NO_CONTENT.into_response(),
         Err(error) => source_management_error_response(error),
@@ -229,7 +279,7 @@ pub(crate) async fn sync_source(
         },
         Err(error) => return super::errors::internal_error_response(error),
     };
-    let group = match group_for_user(&state, session.user.id, &source.group_path).await {
+    let group = match group_for_user(&state, &session, &source.group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

@@ -27,23 +27,23 @@ use utoipa::OpenApi;
 pub trait NamespaceApi: Send + Sync {
     async fn list_groups_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         query: &NamespacePageQuery,
     ) -> Result<GroupPageResponse>;
     async fn search_groups_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         query: &GroupSearchQuery,
     ) -> Result<Vec<GroupResponse>>;
     async fn list_child_groups_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         group_path: &str,
         query: &NamespacePageQuery,
     ) -> Result<GroupPageResponse>;
     async fn get_group_for_user(
         &self,
-        user_id: i64,
+        actor: &AuthenticatedUser,
         group_path: &str,
     ) -> Result<Option<GroupResponse>>;
     async fn create_group(
@@ -220,11 +220,7 @@ async fn list_groups(
     CurrentUser(user): CurrentUser,
     Query(query): Query<NamespacePageQuery>,
 ) -> impl IntoResponse {
-    match state
-        .namespace
-        .list_groups_for_user(user.user_id, &query)
-        .await
-    {
+    match state.namespace.list_groups_for_user(&user, &query).await {
         Ok(groups) => (StatusCode::OK, axum::Json(groups)).into_response(),
         Err(error) => internal_error_response(error),
     }
@@ -236,11 +232,7 @@ async fn search_groups(
     CurrentUser(user): CurrentUser,
     Query(query): Query<GroupSearchQuery>,
 ) -> impl IntoResponse {
-    match state
-        .namespace
-        .search_groups_for_user(user.user_id, &query)
-        .await
-    {
+    match state.namespace.search_groups_for_user(&user, &query).await {
         Ok(groups) => (StatusCode::OK, axum::Json(groups)).into_response(),
         Err(error) => internal_error_response(error),
     }
@@ -264,11 +256,7 @@ async fn get_group(
     CurrentUser(user): CurrentUser,
     Path(group_path): Path<String>,
 ) -> impl IntoResponse {
-    match state
-        .namespace
-        .get_group_for_user(user.user_id, &group_path)
-        .await
-    {
+    match state.namespace.get_group_for_user(&user, &group_path).await {
         Ok(Some(group)) => (StatusCode::OK, axum::Json(group)).into_response(),
         Ok(None) => json_error_response(StatusCode::NOT_FOUND, "unknown group"),
         Err(error) => internal_error_response(error),
@@ -333,7 +321,7 @@ async fn list_child_groups(
 ) -> impl IntoResponse {
     match state
         .namespace
-        .list_child_groups_for_user(user.user_id, &group_path, &query)
+        .list_child_groups_for_user(&user, &group_path, &query)
         .await
     {
         Ok(groups) => (StatusCode::OK, axum::Json(groups)).into_response(),

@@ -25,3 +25,4 @@ WHERE parent.full_path = $2
   )
   AND ($4::TEXT IS NULL OR g.visibility = $4::TEXT)
   AND ($5::TEXT IS NULL OR g.kind = $5::TEXT)
+  AND ($6::BIGINT[] IS NULL OR g.id = ANY($6::BIGINT[]))

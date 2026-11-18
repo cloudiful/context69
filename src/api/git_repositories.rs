@@ -66,7 +66,7 @@ pub(crate) async fn register_git_repository(
     headers: HeaderMap,
     Json(request): Json<GitRepositoryRegistrationRequest>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -126,7 +126,7 @@ pub(crate) async fn list_git_repositories(
     CurrentUser(session): CurrentUser,
     Path(group_path): Path<String>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -163,7 +163,7 @@ pub(crate) async fn get_git_repository(
     CurrentUser(session): CurrentUser,
     Path((group_path, repository_key)): Path<(String, Uuid)>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -206,7 +206,7 @@ pub(crate) async fn index_git_repository(
     body: Option<Json<GitIndexRequest>>,
 ) -> Response {
     let force_rebuild = body.map(|Json(body)| body.force_rebuild).unwrap_or(false);
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -255,7 +255,7 @@ pub(crate) async fn update_git_repository_settings(
     Path((group_path, repository_key)): Path<(String, Uuid)>,
     Json(request): Json<GitRepositorySettingsUpdateRequest>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
@@ -361,7 +361,7 @@ pub(crate) async fn delete_git_repository(
     CurrentUser(session): CurrentUser,
     Path((group_path, repository_key)): Path<(String, Uuid)>,
 ) -> Response {
-    let group = match group_for_user(&state, session.user.id, &group_path).await {
+    let group = match group_for_user(&state, &session, &group_path).await {
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };

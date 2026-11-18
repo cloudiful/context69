@@ -36,3 +36,4 @@ SELECT chunk_id AS "chunk_id!", document_id AS "document_id!",
 FROM hits
 WHERE (visibility = 'public' OR group_id = ANY($2))
   AND ($3::text IS NULL OR group_path = $3)
+  AND ($5::bigint[] IS NULL OR group_id = ANY($5::bigint[]))
