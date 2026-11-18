@@ -223,34 +223,53 @@ pub struct StoredRuntimeEmbeddingSettings {
     pub timeout_secs: u64,
 }
 
-#[derive(Debug, Clone)]
+/// The stored optional code embedding overrides.
+///
+/// The row holds sparse overrides only: an absent field inherits the document
+/// embedding configuration, so the stored row never materializes an inherited
+/// value.
+#[derive(Debug, Clone, Default)]
 pub struct StoredRuntimeCodeEmbeddingSettings {
     /// Whether the code embedding channel is enabled.
     pub enabled: bool,
-    pub base_url: String,
-    pub model: String,
-    /// The model code queries are embedded with. `None` means the code model.
+    /// The endpoint override. Absent means the document endpoint.
+    pub base_url: Option<String>,
+    /// The model override. Absent means the document model.
+    pub model: Option<String>,
+    /// The model code queries are embedded with. Absent means the document
+    /// query model, and a document without one means the effective code model.
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
+    /// The dimension override. Absent means the document dimensions.
+    pub dimensions: Option<u64>,
+    /// The timeout override. Absent means the document timeout.
+    pub timeout_secs: Option<u64>,
     /// The provider API key resolved from the shared store for the process that
     /// loaded these settings. It is an in-memory value, never persisted here.
     pub api_key: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+/// The stored optional image embedding overrides.
+///
+/// The row holds sparse overrides only, exactly like the code row, and it never
+/// aliases the document or code collection.
+#[derive(Debug, Clone, Default)]
 pub struct StoredRuntimeImageEmbeddingSettings {
     /// Whether the image embedding channel is enabled.
     pub enabled: bool,
-    pub base_url: String,
+    /// The endpoint override. Absent means the document endpoint.
+    pub base_url: Option<String>,
     /// The independent physical Qdrant collection image vectors live in.
-    pub collection_name: String,
-    /// The model image bytes are embedded with.
-    pub model: String,
-    /// The model text queries are embedded with. `None` means the image model.
+    /// Absent means the default image collection.
+    pub collection_name: Option<String>,
+    /// The model override. Absent means the document model.
+    pub model: Option<String>,
+    /// The model text queries are embedded with. Absent means the document
+    /// query model, and a document without one means the effective image model.
     pub query_model: Option<String>,
-    pub dimensions: usize,
-    pub timeout_secs: u64,
+    /// The dimension override. Absent means the document dimensions.
+    pub dimensions: Option<u64>,
+    /// The timeout override. Absent means the document timeout.
+    pub timeout_secs: Option<u64>,
     /// The provider API key resolved from the shared store for the process that
     /// loaded these settings. It is an in-memory value, never persisted here.
     pub api_key: Option<String>,

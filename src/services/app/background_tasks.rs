@@ -143,12 +143,14 @@ pub async fn start(
         let base_config = config.clone();
         let embedding_reloader = embedding_reloader.clone();
         let recovery = Arc::clone(&vector.recovery);
+        let channel_settings = settings.clone();
         move || {
             let db = db.clone();
             let store = store.clone();
             let base_config = base_config.clone();
             let embedding_reloader = embedding_reloader.clone();
             let recovery = recovery.clone();
+            let channel_settings = channel_settings.clone();
             Box::pin(async move {
                 let Some(stored) =
                     super::runtime_settings::load_runtime_settings_readonly(&db, &store).await?
@@ -158,6 +160,30 @@ pub async fn start(
                 embedding_reloader.reload_reserved(&stored).await?;
                 let mut effective = base_config;
                 super::runtime_settings::apply_runtime_settings(&mut effective, &stored);
+                // The optional channels inherit the document configuration, so
+                // they are re-resolved against the committed row: a document
+                // change reaches an inherited channel even when its own block
+                // was never part of the request.
+                let document =
+                    crate::services::settings::inheritance::DocumentEmbeddingSource::from_stored(
+                        &stored.embedding,
+                    );
+                if let Some(code) =
+                    super::runtime_settings::load_code_embedding_settings(&db, &store).await?
+                {
+                    channel_settings.apply_code_embedding_settings(Some(&code), Some(&document))?;
+                }
+                if let Some(image) =
+                    super::runtime_settings::load_image_embedding_settings(&db, &store).await?
+                {
+                    channel_settings
+                        .apply_image_embedding_settings(
+                            Some(&image),
+                            Some(&document),
+                            &effective.qdrant,
+                        )
+                        .await?;
+                }
                 Ok(recovery.apply_reserved_reconfiguration(effective))
             })
         }

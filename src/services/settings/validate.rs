@@ -5,11 +5,17 @@ use crate::domain_errors::DomainError;
 use crate::{
     contracts::{
         CanonicalUpdateSearchSettingsRequest, UpdateCodeEmbeddingSettings,
-        UpdateDoclingSettingsRequest, UpdateRuntimeFileLibrarySettings,
-        UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
+        UpdateDoclingSettingsRequest, UpdateRuntimeEmbeddingSettings,
+        UpdateRuntimeFileLibrarySettings, UpdateRuntimeSettingsRequest,
+        UpdateSearchSettingsRequest,
     },
-    db::StoredSearchSettings,
+    db::{StoredRuntimeImageEmbeddingSettings, StoredSearchSettings},
     support::normalize::normalize_optional_string,
+};
+
+use super::inheritance::{DocumentEmbeddingSource, resolve_code_settings, resolve_image_settings};
+use super::runtime_mappers::{
+    image_embedding_config, stored_code_embedding_from_request, stored_image_embedding_from_request,
 };
 
 use context69_contracts::settings::DOCLING_OCR_PRESET_MAX_LEN;
@@ -48,10 +54,10 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
         .into());
     }
     if let Some(code) = &request.code_embedding {
-        code_embedding_request(code)?;
+        code_embedding_request(code, &request.embedding)?;
     }
     if let Some(image) = &request.image_embedding {
-        image_embedding_request(image, &request.qdrant.collection_name)?;
+        image_embedding_request(image, &request.embedding, &request.qdrant.collection_name)?;
     }
     if request.scheduler.interval_secs == 0 {
         return Err(DomainError::invalid_argument(
@@ -173,98 +179,121 @@ pub(super) fn runtime_settings_request(request: &UpdateRuntimeSettingsRequest) -
     Ok(())
 }
 
-/// The code block is optional and independent of the document block.
+/// The code block is optional and inherits the document block field by field.
 ///
-/// A disabled block does not require provider fields, so an operator can keep a
-/// stored configuration while turned off. An enabled block requires a complete
-/// usable provider configuration; no value is inherited from the document
-/// block. Every present number must also be representable in PostgreSQL.
-fn code_embedding_request(request: &UpdateCodeEmbeddingSettings) -> Result<()> {
-    if request.enabled {
-        if request.base_url.trim().is_empty() {
-            return Err(DomainError::invalid_argument(
-                "runtime.code_embedding.base_url must not be empty",
-            )
-            .into());
-        }
-        if request.model.trim().is_empty() {
-            return Err(DomainError::invalid_argument(
-                "runtime.code_embedding.model must not be empty",
-            )
-            .into());
-        }
-        if request.dimensions == 0 {
+/// Every field is an override: an absent or blank one inherits the document
+/// value, so an enabled block needs no provider fields of its own. An enabled
+/// block must still resolve to a usable configuration: either it overrides
+/// what it needs, or the document block provides it.
+///
+/// An explicitly supplied number is a value, never an inheritance: a zero is
+/// refused here, before the sparse projection normalizes anything. Every
+/// present number must also be representable in PostgreSQL.
+fn code_embedding_request(
+    request: &UpdateCodeEmbeddingSettings,
+    document: &UpdateRuntimeEmbeddingSettings,
+) -> Result<()> {
+    if let Some(dimensions) = request.dimensions {
+        if dimensions == 0 {
             return Err(DomainError::invalid_argument(
                 "runtime.code_embedding.dimensions must be greater than 0",
             )
             .into());
         }
-        if request.timeout_secs == 0 {
+        if i64::try_from(dimensions).is_err() {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.code_embedding.dimensions must be at most {}",
+                i64::MAX
+            ))
+            .into());
+        }
+    }
+    if let Some(timeout_secs) = request.timeout_secs {
+        if timeout_secs == 0 {
             return Err(DomainError::invalid_argument(
                 "runtime.code_embedding.timeout_secs must be greater than 0",
             )
             .into());
         }
+        if i64::try_from(timeout_secs).is_err() {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.code_embedding.timeout_secs must be at most {}",
+                i64::MAX
+            ))
+            .into());
+        }
     }
-    if i64::try_from(request.dimensions).is_err() {
-        return Err(DomainError::invalid_argument(format!(
-            "runtime.code_embedding.dimensions must be at most {}",
-            i64::MAX
-        ))
-        .into());
-    }
-    if i64::try_from(request.timeout_secs).is_err() {
-        return Err(DomainError::invalid_argument(format!(
-            "runtime.code_embedding.timeout_secs must be at most {}",
-            i64::MAX
-        ))
-        .into());
+    if request.enabled {
+        let source = DocumentEmbeddingSource::from_update(document, None);
+        let overrides = stored_code_embedding_from_request(request);
+        if resolve_code_settings(&overrides, Some(&source)).is_none() {
+            return Err(DomainError::invalid_argument(
+                "runtime.code_embedding must provide a base_url, a model, dimensions, and a \
+                 timeout_secs, or inherit them from the document embedding configuration",
+            )
+            .into());
+        }
     }
     Ok(())
 }
 
+/// The image block is optional and inherits the document block field by field.
+///
+/// The collection name is no exception: an absent one resolves to the default
+/// image collection, which is never the document collection and never a code
+/// collection.
 fn image_embedding_request(
     request: &crate::contracts::settings::UpdateImageEmbeddingSettings,
+    document: &UpdateRuntimeEmbeddingSettings,
     document_collection: &str,
 ) -> Result<()> {
-    if request.enabled {
-        if request.base_url.trim().is_empty() {
-            return Err(DomainError::invalid_argument(
-                "runtime.image_embedding.base_url must not be empty",
-            )
-            .into());
-        }
-        if request.model.trim().is_empty() {
-            return Err(DomainError::invalid_argument(
-                "runtime.image_embedding.model must not be empty",
-            )
-            .into());
-        }
-        if request.collection_name.trim().is_empty() {
-            return Err(DomainError::invalid_argument(
-                "runtime.image_embedding.collection_name must not be empty",
-            )
-            .into());
-        }
-        if request.dimensions == 0 {
+    if let Some(dimensions) = request.dimensions {
+        if dimensions == 0 {
             return Err(DomainError::invalid_argument(
                 "runtime.image_embedding.dimensions must be greater than 0",
             )
             .into());
         }
-        if request.timeout_secs == 0 {
+        if i64::try_from(dimensions).is_err() {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.image_embedding.dimensions must be at most {}",
+                i64::MAX
+            ))
+            .into());
+        }
+    }
+    if let Some(timeout_secs) = request.timeout_secs {
+        if timeout_secs == 0 {
             return Err(DomainError::invalid_argument(
                 "runtime.image_embedding.timeout_secs must be greater than 0",
             )
             .into());
         }
-        if request.collection_name.trim() == document_collection.trim() {
+        if i64::try_from(timeout_secs).is_err() {
+            return Err(DomainError::invalid_argument(format!(
+                "runtime.image_embedding.timeout_secs must be at most {}",
+                i64::MAX
+            ))
+            .into());
+        }
+    }
+    if request.enabled {
+        let source = DocumentEmbeddingSource::from_update(document, None);
+        let overrides = stored_image_embedding_from_request(request);
+        let Some(effective) = resolve_image_settings(&overrides, Some(&source)) else {
+            return Err(DomainError::invalid_argument(
+                "runtime.image_embedding must provide a base_url, a model, dimensions, and a \
+                 timeout_secs, or inherit them from the document embedding configuration",
+            )
+            .into());
+        };
+        if effective.collection_name.trim() == document_collection.trim() {
             return Err(DomainError::invalid_argument(
                 "runtime.image_embedding.collection_name must not reuse the document collection",
             )
             .into());
         }
-        if request
+        if effective
             .collection_name
             .trim()
             .starts_with(crate::qdrant_index::code_vectors::CODE_COLLECTION_PREFIX)
@@ -275,18 +304,51 @@ fn image_embedding_request(
             .into());
         }
     }
-    if i64::try_from(request.dimensions).is_err() {
-        return Err(DomainError::invalid_argument(format!(
-            "runtime.image_embedding.dimensions must be at most {}",
-            i64::MAX
-        ))
+    Ok(())
+}
+
+/// The persisted channels still own their collections when a request omits them.
+///
+/// A document or Qdrant save that omits the image block writes no image row,
+/// but an enabled image channel keeps writing its own collection. The candidate
+/// document target is therefore compared with the effective stored image
+/// destination as well, so a document collection can never move onto the
+/// collection an enabled image channel already owns. A request that carries the
+/// image block is validated with the block itself, and a disabled channel owns
+/// no destination.
+pub(super) fn stored_channel_collections(
+    request: &UpdateRuntimeSettingsRequest,
+    stored_image: Option<&StoredRuntimeImageEmbeddingSettings>,
+) -> Result<()> {
+    if request.image_embedding.is_some() {
+        return Ok(());
+    }
+    let Some(image) = stored_image.filter(|image| image.enabled) else {
+        return Ok(());
+    };
+    // The save resolves the omitted block against the document candidate of the
+    // same request, so the comparison names the destination this save installs.
+    let source = DocumentEmbeddingSource::from_update(&request.embedding, None);
+    let Some(effective) = resolve_image_settings(image, Some(&source)) else {
+        return Ok(());
+    };
+    let document_collection = request.qdrant.collection_name.trim();
+    let namespace = effective.collection_name.trim();
+    if namespace == document_collection {
+        return Err(DomainError::invalid_argument(
+            "runtime.qdrant.collection_name must not reuse the image collection namespace",
+        )
         .into());
     }
-    if i64::try_from(request.timeout_secs).is_err() {
-        return Err(DomainError::invalid_argument(format!(
-            "runtime.image_embedding.timeout_secs must be at most {}",
-            i64::MAX
-        ))
+    let config = image_embedding_config(&effective, None);
+    let collection = crate::image_embedding_vectors::image_collection_name(
+        namespace,
+        &crate::image_embedding::image_embedding_fingerprint(&config),
+    );
+    if collection == document_collection {
+        return Err(DomainError::invalid_argument(
+            "runtime.qdrant.collection_name must not alias the image collection",
+        )
         .into());
     }
     Ok(())
@@ -531,11 +593,20 @@ fn validate_fusion_weights(vector_weight: f32, keyword_weight: f32) -> Result<()
 
 #[cfg(test)]
 mod validation_tests {
-    use super::{code_embedding_request, image_embedding_request, registry_capacity_request};
+    use super::{
+        code_embedding_request, image_embedding_request, registry_capacity_request,
+        stored_channel_collections,
+    };
+    use crate::contracts::UpdateRuntimeEmbeddingSettings;
     use crate::contracts::UpdateRuntimeFileLibrarySettings;
+    use crate::contracts::UpdateRuntimeSettingsRequest;
     use crate::contracts::settings::UpdateImageEmbeddingSettings;
+    use crate::db::StoredRuntimeImageEmbeddingSettings;
+    use crate::services::settings::inheritance::{DocumentEmbeddingSource, resolve_image_settings};
+    use crate::services::settings::runtime_mappers::image_embedding_config;
     use context69_contracts::settings::SecretPatch;
     use context69_contracts::settings::UpdateCodeEmbeddingSettings;
+    use context69_contracts::settings::{ChunkingTokenizer, ChunkingUnit};
 
     fn file_library(
         per_file: Option<i64>,
@@ -555,22 +626,22 @@ mod validation_tests {
         UpdateImageEmbeddingSettings {
             enabled,
             base_url: if enabled {
-                "https://images.invalid/v1".to_string()
+                Some("https://images.invalid/v1".to_string())
             } else {
-                String::new()
+                None
             },
             model: if enabled {
-                "image-model".to_string()
+                Some("image-model".to_string())
             } else {
-                String::new()
+                None
             },
             query_model: None,
-            dimensions: if enabled { 768 } else { 0 },
-            timeout_secs: if enabled { 30 } else { 0 },
+            dimensions: if enabled { Some(768) } else { None },
+            timeout_secs: if enabled { Some(30) } else { None },
             collection_name: if enabled {
-                "context69_images".to_string()
+                Some("context69_images".to_string())
             } else {
-                String::new()
+                None
             },
             api_key: SecretPatch::Keep,
         }
@@ -580,70 +651,127 @@ mod validation_tests {
         UpdateCodeEmbeddingSettings {
             enabled,
             base_url: if enabled {
-                "https://embedding.invalid/v1".to_string()
+                Some("https://embedding.invalid/v1".to_string())
             } else {
-                String::new()
+                None
             },
             model: if enabled {
-                "code-model".to_string()
+                Some("code-model".to_string())
             } else {
-                String::new()
+                None
             },
             query_model: None,
-            dimensions: if enabled { 1024 } else { 0 },
-            timeout_secs: if enabled { 30 } else { 0 },
+            dimensions: if enabled { Some(1024) } else { None },
+            timeout_secs: if enabled { Some(30) } else { None },
             api_key: SecretPatch::Keep,
+        }
+    }
+
+    fn document() -> UpdateRuntimeEmbeddingSettings {
+        UpdateRuntimeEmbeddingSettings {
+            base_url: "https://documents.invalid/v1".to_string(),
+            model: "document-model".to_string(),
+            query_model: None,
+            dimensions: 768,
+            timeout_secs: 30,
+            api_key: None,
+            confirm_vector_space_unchanged: false,
         }
     }
 
     #[test]
     fn a_disabled_block_needs_no_provider_fields() {
-        code_embedding_request(&code(false)).expect("a disabled block may keep blank fields");
-        image_embedding_request(&image(false), "context69")
+        code_embedding_request(&code(false), &document())
+            .expect("a disabled block may keep blank fields");
+        image_embedding_request(&image(false), &document(), "context69")
             .expect("a disabled image block may keep blanks");
     }
 
     #[test]
-    fn an_enabled_image_block_requires_a_collection_and_complete_fields() {
-        image_embedding_request(&image(true), "context69")
-            .expect("a complete image block is valid");
+    fn an_enabled_block_inherits_the_document_configuration() {
+        let mut request = code(true);
+        request.base_url = None;
+        request.model = None;
+        request.dimensions = None;
+        request.timeout_secs = None;
+        code_embedding_request(&request, &document())
+            .expect("an enabled block may inherit every field");
+
         let mut request = image(true);
-        request.collection_name.clear();
-        assert!(image_embedding_request(&request, "context69").is_err());
-        let mut request = image(true);
-        request.base_url.clear();
-        assert!(image_embedding_request(&request, "context69").is_err());
-        let mut request = image(true);
-        request.dimensions = 0;
-        assert!(image_embedding_request(&request, "context69").is_err());
+        request.base_url = None;
+        request.model = None;
+        request.dimensions = None;
+        request.timeout_secs = None;
+        request.collection_name = None;
+        image_embedding_request(&request, &document(), "context69")
+            .expect("an enabled image block may inherit every field");
+    }
+
+    #[test]
+    fn an_enabled_block_without_any_usable_configuration_is_refused() {
+        let mut document = document();
+        document.base_url = String::new();
+        document.model = String::new();
+        let mut request = code(true);
+        request.base_url = None;
+        request.model = None;
+        request.dimensions = None;
+        request.timeout_secs = None;
+        assert!(code_embedding_request(&request, &document).is_err());
     }
 
     #[test]
     fn an_enabled_image_block_cannot_alias_a_document_or_code_collection() {
         let mut request = image(true);
-        request.collection_name = "context69".to_string();
-        assert!(image_embedding_request(&request, "context69").is_err());
+        request.collection_name = Some("context69".to_string());
+        assert!(image_embedding_request(&request, &document(), "context69").is_err());
         let mut request = image(true);
-        request.collection_name =
-            crate::qdrant_index::code_vectors::code_collection_name("fingerprint");
-        assert!(image_embedding_request(&request, "context69").is_err());
+        request.collection_name = Some(crate::qdrant_index::code_vectors::code_collection_name(
+            "fingerprint",
+        ));
+        assert!(image_embedding_request(&request, &document(), "context69").is_err());
     }
 
     #[test]
-    fn an_enabled_block_requires_complete_provider_fields() {
+    fn an_inherited_image_collection_resolves_to_the_default_namespace() {
+        let mut request = image(true);
+        request.collection_name = None;
+        image_embedding_request(&request, &document(), "context69")
+            .expect("the default image collection never aliases the document collection");
+    }
+
+    #[test]
+    fn an_explicit_zero_is_refused_and_never_read_as_an_inheritance() {
         let mut request = code(true);
-        request.base_url.clear();
-        assert!(code_embedding_request(&request).is_err());
+        request.dimensions = Some(0);
+        assert!(
+            code_embedding_request(&request, &document()).is_err(),
+            "an explicit zero is a value, not an inheritance"
+        );
         let mut request = code(true);
-        request.model.clear();
-        assert!(code_embedding_request(&request).is_err());
+        request.timeout_secs = Some(0);
+        assert!(code_embedding_request(&request, &document()).is_err());
+        let mut request = image(true);
+        request.dimensions = Some(0);
+        assert!(image_embedding_request(&request, &document(), "context69").is_err());
+        let mut request = image(true);
+        request.timeout_secs = Some(0);
+        assert!(image_embedding_request(&request, &document(), "context69").is_err());
+        // An absent number is the inheritance, and it stays valid.
         let mut request = code(true);
-        request.dimensions = 0;
-        assert!(code_embedding_request(&request).is_err());
+        request.dimensions = None;
+        request.timeout_secs = None;
+        code_embedding_request(&request, &document())
+            .expect("an absent number inherits the document value");
+    }
+
+    #[test]
+    fn a_blank_override_inherits_instead_of_failing() {
         let mut request = code(true);
-        request.timeout_secs = 0;
-        assert!(code_embedding_request(&request).is_err());
-        code_embedding_request(&code(true)).expect("a complete block is valid");
+        request.base_url = Some(String::new());
+        request.model = Some(String::new());
+        code_embedding_request(&request, &document())
+            .expect("a blank override inherits the document value");
     }
 
     #[test]
@@ -666,5 +794,95 @@ mod validation_tests {
             registry_capacity_request(&file_library(Some(8), Some(9))).is_err(),
             "the run cap may not exceed the file cap"
         );
+    }
+
+    fn runtime_request(
+        collection: &str,
+        image_block: Option<UpdateImageEmbeddingSettings>,
+    ) -> UpdateRuntimeSettingsRequest {
+        UpdateRuntimeSettingsRequest {
+            qdrant: crate::contracts::RuntimeQdrantSettings {
+                url: "http://qdrant.invalid:6334".to_string(),
+                collection_name: collection.to_string(),
+                recreate_on_dimension_mismatch: false,
+            },
+            embedding: document(),
+            code_embedding: None,
+            image_embedding: image_block,
+            scheduler: crate::contracts::RuntimeSchedulerSettings {
+                interval_secs: 300,
+                run_on_start: true,
+                max_concurrency: 1,
+                job_id: "context69-sync".to_string(),
+                valkey_url: None,
+            },
+            chunking: crate::contracts::RuntimeChunkingSettings {
+                max_chars: 1200,
+                overlap_chars: 200,
+                unit: ChunkingUnit::Chars,
+                tokenizer: ChunkingTokenizer::Cl100kBase,
+                tokenizer_sha256: None,
+                max_tokens: 1024,
+                overlap_tokens: 128,
+            },
+            file_library: file_library(None, None),
+        }
+    }
+
+    fn stored_image(enabled: bool, namespace: Option<&str>) -> StoredRuntimeImageEmbeddingSettings {
+        StoredRuntimeImageEmbeddingSettings {
+            enabled,
+            base_url: None,
+            collection_name: namespace.map(str::to_string),
+            model: None,
+            query_model: None,
+            dimensions: None,
+            timeout_secs: None,
+            api_key: None,
+        }
+    }
+
+    #[test]
+    fn a_document_save_may_not_alias_the_stored_image_namespace() {
+        let request = runtime_request("context69_images", None);
+        let error = stored_channel_collections(&request, Some(&stored_image(true, None)))
+            .expect_err("the document collection may not reuse the image namespace");
+        assert!(error.to_string().contains("image collection"), "{error}");
+    }
+
+    #[test]
+    fn a_document_save_may_not_alias_the_derived_image_collection() {
+        let stored = stored_image(true, Some("image-namespace"));
+        let effective = resolve_image_settings(
+            &stored,
+            Some(&DocumentEmbeddingSource::from_update(&document(), None)),
+        )
+        .expect("the stored image channel resolves against the document candidate");
+        let physical = crate::image_embedding_vectors::image_collection_name(
+            "image-namespace",
+            &crate::image_embedding::image_embedding_fingerprint(&image_embedding_config(
+                &effective, None,
+            )),
+        );
+        let request = runtime_request(&physical, None);
+        let error = stored_channel_collections(&request, Some(&stored))
+            .expect_err("the document collection may not alias the physical image collection");
+        assert!(error.to_string().contains("image collection"), "{error}");
+    }
+
+    #[test]
+    fn an_omitted_disabled_image_block_owns_no_collection() {
+        let request = runtime_request("context69_images", None);
+        stored_channel_collections(&request, Some(&stored_image(false, None)))
+            .expect("a disabled channel owns no destination");
+        stored_channel_collections(&request, None)
+            .expect("without a stored channel no document collection is blocked");
+    }
+
+    #[test]
+    fn a_request_that_carries_the_image_block_is_validated_with_the_block() {
+        let request = runtime_request("context69", Some(image(true)));
+        stored_channel_collections(&request, Some(&stored_image(true, Some("context69"))))
+            .expect("the request's own block replaces the stored one");
     }
 }

@@ -16,6 +16,10 @@ use crate::{
     support::normalize::normalize_optional_string,
 };
 
+use super::inheritance::{
+    DEFAULT_IMAGE_COLLECTION_NAME, EffectiveCodeSettings, EffectiveImageSettings,
+};
+
 use context69_contracts::settings::{
     CHUNKING_MAX_TOKENS_DEFAULT, CHUNKING_OVERLAP_TOKENS_DEFAULT, ChunkingTokenizer, ChunkingUnit,
 };
@@ -193,29 +197,22 @@ pub(super) fn runtime_settings_from_request(
 
 /// The pure code stored-settings projection shared by settings apply, update,
 /// and app hydration. The caller supplies the credential it resolved.
-pub(crate) fn code_embedding_config(
-    code: &StoredRuntimeCodeEmbeddingSettings,
-    api_key: Option<String>,
-) -> EmbeddingConfig {
-    EmbeddingConfig {
-        base_url: code.base_url.trim().to_string(),
-        api_key,
-        model: code.model.trim().to_string(),
-        query_model: code.query_model.clone(),
-        dimensions: code.dimensions,
-        timeout: std::time::Duration::from_secs(code.timeout_secs),
-    }
-}
-
+///
+/// The block is sparse: an absent field is an override that inherits the
+/// document embedding configuration, so the stored row never materializes an
+/// inherited value.
 pub(super) fn stored_code_embedding_from_request(
     request: &UpdateCodeEmbeddingSettings,
 ) -> StoredRuntimeCodeEmbeddingSettings {
     StoredRuntimeCodeEmbeddingSettings {
         enabled: request.enabled,
-        base_url: request.base_url.trim().to_string(),
-        model: request.model.trim().to_string(),
-        query_model: normalize_optional_string(request.query_model.clone()),
-        dimensions: request.dimensions,
+        base_url: optional_override(request.base_url.as_deref()),
+        model: optional_override(request.model.as_deref()),
+        query_model: optional_override(request.query_model.as_deref()),
+        // An explicitly supplied number is stored as it was validated; only an
+        // absent field is an inheritance. The request validation refuses a zero
+        // before this projection, so a zero never reaches the stored row.
+        dimensions: request.dimensions.map(|dimensions| dimensions as u64),
         timeout_secs: request.timeout_secs,
         // The provider API key is not a runtime setting: the shared store owns
         // it under its own purpose.
@@ -225,35 +222,123 @@ pub(super) fn stored_code_embedding_from_request(
 
 /// The pure image stored-settings projection shared by settings apply, update,
 /// and app hydration. The caller supplies the credential it resolved.
-pub(crate) fn image_embedding_config(
-    image: &StoredRuntimeImageEmbeddingSettings,
-    api_key: Option<String>,
-) -> ImageEmbeddingConfig {
-    ImageEmbeddingConfig {
-        base_url: image.base_url.trim().to_string(),
-        api_key,
-        model: image.model.trim().to_string(),
-        query_model: image.query_model.clone(),
-        dimensions: image.dimensions,
-        timeout: std::time::Duration::from_secs(image.timeout_secs),
-        collection_name: image.collection_name.trim().to_string(),
-    }
-}
-
+///
+/// The block is sparse, exactly like the code block.
 pub(super) fn stored_image_embedding_from_request(
     request: &UpdateImageEmbeddingSettings,
 ) -> StoredRuntimeImageEmbeddingSettings {
     StoredRuntimeImageEmbeddingSettings {
         enabled: request.enabled,
-        base_url: request.base_url.trim().to_string(),
-        collection_name: request.collection_name.trim().to_string(),
-        model: request.model.trim().to_string(),
-        query_model: normalize_optional_string(request.query_model.clone()),
-        dimensions: request.dimensions,
+        base_url: optional_override(request.base_url.as_deref()),
+        collection_name: optional_override(request.collection_name.as_deref()),
+        model: optional_override(request.model.as_deref()),
+        query_model: optional_override(request.query_model.as_deref()),
+        dimensions: request.dimensions.map(|dimensions| dimensions as u64),
         timeout_secs: request.timeout_secs,
         // The provider API key is not a runtime setting: the shared store owns
         // it under its own purpose.
         api_key: None,
+    }
+}
+
+/// A stored override value.
+///
+/// A blank value is absent: it inherits the document value instead of
+/// overriding it with nothing.
+fn optional_override(value: Option<&str>) -> Option<String> {
+    let trimmed = value?.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
+/// The stored overrides of a disabled code block.
+///
+/// Turning a channel off must not remove the configuration it keeps for the
+/// next enable, so the overrides the block carries replace the stored ones and
+/// the ones it omits are retained. Only an enabled block describes the
+/// complete desired override set.
+pub(super) fn disabled_code_embedding_overrides(
+    requested: &StoredRuntimeCodeEmbeddingSettings,
+    existing: Option<&StoredRuntimeCodeEmbeddingSettings>,
+) -> StoredRuntimeCodeEmbeddingSettings {
+    let Some(existing) = existing else {
+        return requested.clone();
+    };
+    StoredRuntimeCodeEmbeddingSettings {
+        enabled: false,
+        base_url: requested
+            .base_url
+            .clone()
+            .or_else(|| existing.base_url.clone()),
+        model: requested.model.clone().or_else(|| existing.model.clone()),
+        query_model: requested
+            .query_model
+            .clone()
+            .or_else(|| existing.query_model.clone()),
+        dimensions: requested.dimensions.or(existing.dimensions),
+        timeout_secs: requested.timeout_secs.or(existing.timeout_secs),
+        api_key: None,
+    }
+}
+
+/// The stored overrides of a disabled image block, exactly like the code block.
+pub(super) fn disabled_image_embedding_overrides(
+    requested: &StoredRuntimeImageEmbeddingSettings,
+    existing: Option<&StoredRuntimeImageEmbeddingSettings>,
+) -> StoredRuntimeImageEmbeddingSettings {
+    let Some(existing) = existing else {
+        return requested.clone();
+    };
+    StoredRuntimeImageEmbeddingSettings {
+        enabled: false,
+        base_url: requested
+            .base_url
+            .clone()
+            .or_else(|| existing.base_url.clone()),
+        collection_name: requested
+            .collection_name
+            .clone()
+            .or_else(|| existing.collection_name.clone()),
+        model: requested.model.clone().or_else(|| existing.model.clone()),
+        query_model: requested
+            .query_model
+            .clone()
+            .or_else(|| existing.query_model.clone()),
+        dimensions: requested.dimensions.or(existing.dimensions),
+        timeout_secs: requested.timeout_secs.or(existing.timeout_secs),
+        api_key: None,
+    }
+}
+
+/// The effective code provider configuration. The caller supplies the
+/// credential it resolved.
+pub(crate) fn code_embedding_config(
+    effective: &EffectiveCodeSettings,
+    api_key: Option<String>,
+) -> EmbeddingConfig {
+    EmbeddingConfig {
+        base_url: effective.base_url.trim().to_string(),
+        api_key,
+        model: effective.model.trim().to_string(),
+        query_model: effective.query_model.clone(),
+        dimensions: effective.dimensions as usize,
+        timeout: std::time::Duration::from_secs(effective.timeout_secs),
+    }
+}
+
+/// The effective image provider configuration. The caller supplies the
+/// credential it resolved.
+pub(crate) fn image_embedding_config(
+    effective: &EffectiveImageSettings,
+    api_key: Option<String>,
+) -> ImageEmbeddingConfig {
+    ImageEmbeddingConfig {
+        base_url: effective.base_url.trim().to_string(),
+        api_key,
+        model: effective.model.trim().to_string(),
+        query_model: effective.query_model.clone(),
+        dimensions: effective.dimensions as usize,
+        timeout: std::time::Duration::from_secs(effective.timeout_secs),
+        collection_name: effective.collection_name.trim().to_string(),
     }
 }
 
@@ -273,7 +358,6 @@ pub(super) fn runtime_settings_response(
         has_s3_secret_key,
         requires_rebuild,
         None,
-        false,
     )
 }
 
@@ -282,8 +366,7 @@ pub(super) fn runtime_settings_response_with_code(
     has_embedding_api_key: bool,
     has_s3_secret_key: bool,
     requires_rebuild: bool,
-    code: Option<StoredRuntimeCodeEmbeddingSettings>,
-    has_code_api_key: bool,
+    code: Option<RuntimeCodeEmbeddingSettings>,
 ) -> RuntimeSettingsResponse {
     let quota = settings.file_library.registry_quota();
     RuntimeSettingsResponse {
@@ -300,15 +383,7 @@ pub(super) fn runtime_settings_response_with_code(
             timeout_secs: settings.embedding.timeout_secs,
             has_api_key: has_embedding_api_key,
         },
-        code_embedding: code.map(|code| RuntimeCodeEmbeddingSettings {
-            enabled: code.enabled,
-            base_url: code.base_url,
-            model: code.model,
-            query_model: code.query_model,
-            dimensions: code.dimensions,
-            timeout_secs: code.timeout_secs,
-            has_api_key: has_code_api_key,
-        }),
+        code_embedding: code,
         image_embedding: None,
         scheduler: RuntimeSchedulerSettings {
             interval_secs: settings.scheduler.interval_secs,
@@ -348,25 +423,89 @@ pub(super) fn runtime_settings_response_with_code(
     }
 }
 
+/// The stored code block as the response reports it.
+///
+/// The stored fields are the sparse overrides, and the `effective_*` fields are
+/// the values in effect after the inheritance resolution. The credential is
+/// never part of the projection: only its presence and its source are.
+pub(super) fn code_embedding_response(
+    code: &StoredRuntimeCodeEmbeddingSettings,
+    effective: Option<&EffectiveCodeSettings>,
+    has_api_key: bool,
+    inherits_document_api_key: bool,
+) -> RuntimeCodeEmbeddingSettings {
+    RuntimeCodeEmbeddingSettings {
+        enabled: code.enabled,
+        base_url: code.base_url.clone(),
+        model: code.model.clone(),
+        query_model: code.query_model.clone(),
+        dimensions: code.dimensions.map(|dimensions| dimensions as usize),
+        timeout_secs: code.timeout_secs,
+        effective_base_url: effective
+            .map(|effective| effective.base_url.clone())
+            .unwrap_or_default(),
+        effective_model: effective
+            .map(|effective| effective.model.clone())
+            .unwrap_or_default(),
+        effective_query_model: effective.and_then(|effective| effective.query_model.clone()),
+        effective_dimensions: effective
+            .map(|effective| effective.dimensions as usize)
+            .unwrap_or_default(),
+        effective_timeout_secs: effective
+            .map(|effective| effective.timeout_secs)
+            .unwrap_or_default(),
+        has_api_key,
+        inherits_document_api_key,
+    }
+}
+
+/// The stored image block as the response reports it.
+pub(super) fn image_embedding_response(
+    image: &StoredRuntimeImageEmbeddingSettings,
+    effective: Option<&EffectiveImageSettings>,
+    has_api_key: bool,
+    inherits_document_api_key: bool,
+) -> RuntimeImageEmbeddingSettings {
+    RuntimeImageEmbeddingSettings {
+        enabled: image.enabled,
+        base_url: image.base_url.clone(),
+        model: image.model.clone(),
+        query_model: image.query_model.clone(),
+        dimensions: image.dimensions.map(|dimensions| dimensions as usize),
+        timeout_secs: image.timeout_secs,
+        collection_name: image.collection_name.clone(),
+        effective_base_url: effective
+            .map(|effective| effective.base_url.clone())
+            .unwrap_or_default(),
+        effective_model: effective
+            .map(|effective| effective.model.clone())
+            .unwrap_or_default(),
+        effective_query_model: effective.and_then(|effective| effective.query_model.clone()),
+        effective_dimensions: effective
+            .map(|effective| effective.dimensions as usize)
+            .unwrap_or_default(),
+        effective_timeout_secs: effective
+            .map(|effective| effective.timeout_secs)
+            .unwrap_or_default(),
+        // An inherited collection name resolves to the default image
+        // collection, so the response always names a usable destination.
+        effective_collection_name: effective
+            .map(|effective| effective.collection_name.clone())
+            .unwrap_or_else(|| DEFAULT_IMAGE_COLLECTION_NAME.to_string()),
+        has_api_key,
+        inherits_document_api_key,
+    }
+}
+
 /// Attaches the optional image block to a response.
 ///
 /// The image block is projected separately so the shared response builder keeps
 /// its existing argument list; presence is still metadata-only.
 pub(super) fn with_image_embedding(
     mut response: RuntimeSettingsResponse,
-    image: Option<StoredRuntimeImageEmbeddingSettings>,
-    has_image_api_key: bool,
+    image: Option<RuntimeImageEmbeddingSettings>,
 ) -> RuntimeSettingsResponse {
-    response.image_embedding = image.map(|image| RuntimeImageEmbeddingSettings {
-        enabled: image.enabled,
-        base_url: image.base_url,
-        model: image.model,
-        query_model: image.query_model,
-        dimensions: image.dimensions,
-        timeout_secs: image.timeout_secs,
-        collection_name: image.collection_name,
-        has_api_key: has_image_api_key,
-    });
+    response.image_embedding = image;
     response
 }
 
@@ -439,6 +578,7 @@ mod tests {
     };
     use crate::contracts::settings::UpdateImageEmbeddingSettings;
     use crate::contracts::{RuntimeSettingsResponse, SecretPatch, UpdateRuntimeS3Settings};
+    use crate::db::StoredRuntimeCodeEmbeddingSettings;
     use crate::db::StoredRuntimeImageEmbeddingSettings;
     fn s3_request(secret_key: Option<&str>) -> UpdateRuntimeS3Settings {
         UpdateRuntimeS3Settings {
@@ -528,19 +668,25 @@ mod tests {
     fn an_image_request_round_trips_through_the_stored_projection() {
         let request = UpdateImageEmbeddingSettings {
             enabled: true,
-            base_url: " https://images.invalid/v1 ".to_string(),
-            model: " image-model ".to_string(),
+            base_url: Some(" https://images.invalid/v1 ".to_string()),
+            model: Some(" image-model ".to_string()),
             query_model: Some(" query-model ".to_string()),
-            dimensions: 768,
-            timeout_secs: 30,
-            collection_name: " context69_images ".to_string(),
+            dimensions: Some(768),
+            timeout_secs: Some(30),
+            collection_name: Some(" context69_images ".to_string()),
             api_key: SecretPatch::Keep,
         };
         let stored = stored_image_embedding_from_request(&request);
-        assert_eq!(stored.base_url, "https://images.invalid/v1");
-        assert_eq!(stored.collection_name, "context69_images");
+        assert_eq!(
+            stored.base_url.as_deref(),
+            Some("https://images.invalid/v1")
+        );
+        assert_eq!(stored.collection_name.as_deref(), Some("context69_images"));
         assert!(stored.api_key.is_none());
-        let config = image_embedding_config(&stored, Some("image-key".to_string()));
+        let effective =
+            crate::services::settings::inheritance::resolve_image_settings(&stored, None)
+                .expect("a complete override set resolves without a document source");
+        let config = image_embedding_config(&effective, Some("image-key".to_string()));
         assert_eq!(config.model, "image-model");
         assert_eq!(config.query_model.as_deref(), Some("query-model"));
         assert_eq!(config.dimensions, 768);
@@ -549,17 +695,140 @@ mod tests {
     }
 
     #[test]
-    fn the_image_response_projects_presence_without_the_credential() {
-        let stored = StoredRuntimeImageEmbeddingSettings {
+    fn a_blank_override_is_stored_as_an_inherited_field() {
+        let request = UpdateImageEmbeddingSettings {
+            enabled: true,
+            base_url: Some("   ".to_string()),
+            model: None,
+            query_model: Some("  ".to_string()),
+            // An absent number inherits; an explicit one is a value, and the
+            // request validation refuses a zero before this projection.
+            dimensions: None,
+            timeout_secs: None,
+            collection_name: None,
+            api_key: SecretPatch::Keep,
+        };
+        let stored = stored_image_embedding_from_request(&request);
+        assert_eq!(stored.base_url, None);
+        assert_eq!(stored.model, None);
+        assert_eq!(stored.query_model, None);
+        assert_eq!(stored.dimensions, None);
+        assert_eq!(stored.timeout_secs, None);
+        assert_eq!(stored.collection_name, None);
+    }
+
+    #[test]
+    fn an_explicit_number_is_stored_as_it_was_validated() {
+        let request = UpdateImageEmbeddingSettings {
+            enabled: true,
+            base_url: None,
+            model: None,
+            query_model: None,
+            dimensions: Some(768),
+            timeout_secs: Some(30),
+            collection_name: None,
+            api_key: SecretPatch::Keep,
+        };
+        let stored = stored_image_embedding_from_request(&request);
+        assert_eq!(stored.dimensions, Some(768));
+        assert_eq!(stored.timeout_secs, Some(30));
+    }
+
+    #[test]
+    fn a_disabled_block_retains_the_overrides_it_omits() {
+        use super::{disabled_code_embedding_overrides, disabled_image_embedding_overrides};
+
+        let existing = StoredRuntimeCodeEmbeddingSettings {
+            enabled: true,
+            base_url: Some("https://code.invalid/v1".to_string()),
+            model: Some("code-model".to_string()),
+            query_model: Some("code-query".to_string()),
+            dimensions: Some(1024),
+            timeout_secs: Some(30),
+            api_key: None,
+        };
+        let requested = StoredRuntimeCodeEmbeddingSettings {
             enabled: false,
-            base_url: "https://images.invalid/v1".to_string(),
-            collection_name: "context69_images".to_string(),
-            model: "image-model".to_string(),
+            ..Default::default()
+        };
+        let merged = disabled_code_embedding_overrides(&requested, Some(&existing));
+        assert!(!merged.enabled);
+        assert_eq!(merged.base_url.as_deref(), Some("https://code.invalid/v1"));
+        assert_eq!(merged.model.as_deref(), Some("code-model"));
+        assert_eq!(merged.query_model.as_deref(), Some("code-query"));
+        assert_eq!(merged.dimensions, Some(1024));
+        assert_eq!(merged.timeout_secs, Some(30));
+
+        let existing = StoredRuntimeImageEmbeddingSettings {
+            enabled: true,
+            base_url: Some("https://images.invalid/v1".to_string()),
+            collection_name: Some("context69_images".to_string()),
+            model: Some("image-model".to_string()),
+            query_model: None,
+            dimensions: Some(768),
+            timeout_secs: Some(30),
+            api_key: None,
+        };
+        let merged = disabled_image_embedding_overrides(&requested_image(), Some(&existing));
+        assert_eq!(merged.collection_name.as_deref(), Some("context69_images"));
+        assert_eq!(merged.model.as_deref(), Some("image-model"));
+    }
+
+    fn requested_image() -> StoredRuntimeImageEmbeddingSettings {
+        StoredRuntimeImageEmbeddingSettings {
+            enabled: false,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn the_code_response_reports_the_effective_values_and_the_inherited_credential() {
+        use super::code_embedding_response;
+        use crate::services::settings::inheritance::{
+            DocumentEmbeddingSource, resolve_code_settings,
+        };
+
+        let stored = StoredRuntimeCodeEmbeddingSettings {
+            enabled: true,
+            ..Default::default()
+        };
+        let document = DocumentEmbeddingSource {
+            base_url: "https://documents.invalid/v1".to_string(),
+            model: "document-model".to_string(),
             query_model: None,
             dimensions: 768,
             timeout_secs: 30,
+            api_key: Some("document-key".to_string()),
+        };
+        let effective = resolve_code_settings(&stored, Some(&document))
+            .expect("an empty override set inherits");
+        let response = code_embedding_response(&stored, Some(&effective), false, true);
+        assert_eq!(response.base_url, None, "the stored override is absent");
+        assert_eq!(response.effective_base_url, "https://documents.invalid/v1");
+        assert_eq!(response.effective_model, "document-model");
+        assert_eq!(response.effective_dimensions, 768);
+        assert!(!response.has_api_key, "the own credential is absent");
+        assert!(
+            response.inherits_document_api_key,
+            "the credential in effect is the document one"
+        );
+    }
+
+    #[test]
+    fn the_image_response_projects_presence_without_the_credential() {
+        let stored = StoredRuntimeImageEmbeddingSettings {
+            enabled: false,
+            base_url: Some("https://images.invalid/v1".to_string()),
+            collection_name: Some("context69_images".to_string()),
+            model: Some("image-model".to_string()),
+            query_model: None,
+            dimensions: Some(768),
+            timeout_secs: Some(30),
             api_key: None,
         };
+        let effective =
+            crate::services::settings::inheritance::resolve_image_settings(&stored, None)
+                .expect("a complete override set resolves without a document source");
         let response = with_image_embedding(
             RuntimeSettingsResponse {
                 qdrant: crate::contracts::RuntimeQdrantSettings {
@@ -605,12 +874,17 @@ mod tests {
                 tokenizer_presets: Vec::new(),
                 requires_rebuild: false,
             },
-            Some(stored),
-            true,
+            Some(super::image_embedding_response(
+                &stored,
+                Some(&effective),
+                true,
+                false,
+            )),
         );
         let image = response.image_embedding.expect("image block");
         assert!(!image.enabled);
         assert!(image.has_api_key);
-        assert_eq!(image.collection_name, "context69_images");
+        assert_eq!(image.collection_name.as_deref(), Some("context69_images"));
+        assert_eq!(image.effective_collection_name, "context69_images");
     }
 }

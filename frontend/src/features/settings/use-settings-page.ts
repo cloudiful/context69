@@ -92,26 +92,108 @@ function embeddingSignature(identity: {
  * The full effective request identity of one embedding probe.
  *
  * Every input that can change what the provider checks is part of it: the
- * endpoint, the document model, the distinct query alias, the dimension, the
- * timeout and the credential. A response is presented only while this exact
- * request is still the observed draft.
+ * endpoint, the model, the distinct query alias, the dimension, the timeout,
+ * the credential, the credential intent, and the unsaved document draft a
+ * sparse channel request inherits from. A response is presented only while
+ * this exact request is still the observed draft.
  */
 function embeddingProbeSignature(request: {
-  base_url: string;
-  model: string;
+  base_url?: string;
+  model?: string;
   query_model?: string;
-  dimensions: number;
-  timeout_secs: number;
+  dimensions?: number | null;
+  timeout_secs?: number | null;
   api_key?: string;
+  key_intent?: string;
+  document_api_key?: { op: string; value?: string };
+  document_base_url?: string;
+  document_model?: string;
+  document_query_model?: string;
+  document_dimensions?: number | null;
+  document_timeout_secs?: number | null;
 }) {
   return JSON.stringify([
-    normalizeEndpoint(request.base_url),
-    request.model.trim(),
+    normalizeEndpoint(request.base_url ?? ""),
+    (request.model ?? "").trim(),
     (request.query_model ?? "").trim(),
-    request.dimensions,
-    request.timeout_secs,
+    request.dimensions ?? null,
+    request.timeout_secs ?? null,
     (request.api_key ?? "").trim(),
+    request.key_intent ?? null,
+    (request.document_api_key?.value ?? "").trim(),
+    normalizeEndpoint(request.document_base_url ?? ""),
+    (request.document_model ?? "").trim(),
+    (request.document_query_model ?? "").trim(),
+    request.document_dimensions ?? null,
+    request.document_timeout_secs ?? null,
   ]);
+}
+
+/**
+ * The document credential intent of a channel probe.
+ *
+ * The stored document secret is never hydrated into the browser. Only a key the
+ * operator entered in the unsaved document draft travels with the request, and
+ * it is exactly the credential the same save would install.
+ */
+function documentKeyPatch(document: DraftRuntimeSettings["embedding"]) {
+  const value = document.api_key.trim();
+  return value ? { op: "set" as const, value } : { op: "keep" as const };
+}
+
+/**
+ * The probe request of the document block.
+ *
+ * The document configuration is complete on its own, so the request carries
+ * its own values and inherits nothing. The probe must exercise the same
+ * distinct query alias the deployment would use: an invalid query model
+ * otherwise passes Test Connection while real query embeddings fail.
+ */
+function buildDocumentProbeRequest(draft: DraftRuntimeSettings["embedding"]) {
+  return {
+    base_url: draft.base_url.trim() || undefined,
+    model: draft.model.trim() || undefined,
+    query_model: draft.query_model.trim() || undefined,
+    dimensions: draft.dimensions,
+    timeout_secs: draft.timeout_secs,
+    api_key: draft.api_key.trim() || undefined,
+  };
+}
+
+/**
+ * The probe request of one optional channel block.
+ *
+ * The request carries the same sparse overrides a save would store: a blank
+ * field is absent and inherits the document configuration, and the unsaved
+ * document draft travels with it as the inheritance source. The credential
+ * intent is explicit: a pending clear removes the own-purpose credential, so
+ * the probe then tests the inherited document credential that would be in
+ * effect after the clear.
+ */
+function buildChannelProbeRequest(
+  purpose: "code" | "image",
+  draft: DraftRuntimeSettings["code_embedding"] | DraftRuntimeSettings["image_embedding"],
+  document: DraftRuntimeSettings["embedding"],
+) {
+  return {
+    purpose,
+    base_url: draft.base_url.trim() || undefined,
+    model: draft.model.trim() || undefined,
+    query_model: draft.query_model.trim() || undefined,
+    // An absent number inherits; an explicit one is a value.
+    dimensions: draft.dimensions ?? undefined,
+    timeout_secs: draft.timeout_secs ?? undefined,
+    api_key: draft.api_key.trim() || undefined,
+    key_intent: draft.clear_api_key ? "inherited" as const : "stored" as const,
+    // The probe inherits from the unsaved document draft; the draft key is the
+    // only document credential that travels, never the stored secret.
+    document_api_key: documentKeyPatch(document),
+    document_base_url: document.base_url.trim() || undefined,
+    document_model: document.model.trim() || undefined,
+    document_query_model: document.query_model.trim() || undefined,
+    document_dimensions: document.dimensions,
+    document_timeout_secs: document.timeout_secs,
+  };
 }
 
 /**
@@ -248,19 +330,39 @@ export function useSettingsPage() {
   // about. A capability or connection outcome that arrives after any probe
   // input moved (including the query alias) is discarded instead of
   // describing or validating a request the form no longer shows.
-  const embeddingProbeTarget = embeddingProbeSignature(runtimeDraft.embedding);
+  const embeddingProbeRequest = useMemo(
+    () => buildDocumentProbeRequest(runtimeDraft.embedding),
+    [runtimeDraft.embedding],
+  );
+  const embeddingProbeTarget = embeddingProbeSignature(embeddingProbeRequest);
   const embeddingProbeTargetRef = useRef(embeddingProbeTarget);
   useEffect(() => {
     embeddingProbeTargetRef.current = embeddingProbeTarget;
   }, [embeddingProbeTarget]);
 
-  const codeEmbeddingProbeTarget = embeddingProbeSignature(runtimeDraft.code_embedding);
+  const codeEmbeddingProbeRequest = useMemo(
+    () => buildChannelProbeRequest(
+      "code",
+      runtimeDraft.code_embedding,
+      runtimeDraft.embedding,
+    ),
+    [runtimeDraft.code_embedding, runtimeDraft.embedding],
+  );
+  const codeEmbeddingProbeTarget = embeddingProbeSignature(codeEmbeddingProbeRequest);
   const codeEmbeddingProbeTargetRef = useRef(codeEmbeddingProbeTarget);
   useEffect(() => {
     codeEmbeddingProbeTargetRef.current = codeEmbeddingProbeTarget;
   }, [codeEmbeddingProbeTarget]);
 
-  const imageEmbeddingProbeTarget = embeddingProbeSignature(runtimeDraft.image_embedding);
+  const imageEmbeddingProbeRequest = useMemo(
+    () => buildChannelProbeRequest(
+      "image",
+      runtimeDraft.image_embedding,
+      runtimeDraft.embedding,
+    ),
+    [runtimeDraft.image_embedding, runtimeDraft.embedding],
+  );
+  const imageEmbeddingProbeTarget = embeddingProbeSignature(imageEmbeddingProbeRequest);
   const imageEmbeddingProbeTargetRef = useRef(imageEmbeddingProbeTarget);
   useEffect(() => {
     imageEmbeddingProbeTargetRef.current = imageEmbeddingProbeTarget;
@@ -362,17 +464,44 @@ export function useSettingsPage() {
     });
   }, []);
 
-  /** Applies a code edit and marks the block pending for the next save. */
+  /**
+   * Applies one code edit and marks the block pending for the next save.
+   *
+   * The two secret intents are mutually exclusive, so the patch itself decides
+   * and not one control: an explicit clear always wins and empties the draft
+   * key, even when the same patch carries a key, a nonblank replacement key
+   * cancels a pending clear, and a blank key edit leaves a pending clear
+   * alone. Turning the clear off never restores a discarded key.
+   */
   const updateCodeEmbeddingDraft = useCallback((
-    mutate: (draft: DraftRuntimeSettings["code_embedding"]) => void,
+    patch: Partial<DraftRuntimeSettings["code_embedding"]>,
   ) => {
     runtimeRevision.current += 1;
     setCompatibilityOpen(false);
     setCompatibilityCandidate(null);
     setRuntimeDraft((current) => {
       const next = cloneDraft(current);
-      mutate(next.code_embedding);
-      next.code_embedding.touched = true;
+      const code = next.code_embedding;
+      const { clear_api_key: clearPatch, api_key: keyPatch, ...rest } = patch;
+      Object.assign(code, rest);
+      if (clearPatch === true) {
+        // An explicit clear wins over any key the same patch carries.
+        code.clear_api_key = true;
+        code.api_key = "";
+      } else {
+        if (clearPatch === false) {
+          // Turning the clear off never restores the discarded key.
+          code.clear_api_key = false;
+        }
+        if (keyPatch !== undefined) {
+          code.api_key = keyPatch;
+          if (keyPatch.trim() !== "") {
+            // Only a nonblank replacement key cancels a pending clear.
+            code.clear_api_key = false;
+          }
+        }
+      }
+      code.touched = true;
       return next;
     });
   }, []);
@@ -917,17 +1046,7 @@ export function useSettingsPage() {
     // exact request (including the query alias and credential) is still the
     // observed draft; the revision also covers an edit that lands before the
     // next render updates the signature ref.
-    const request = {
-      base_url: runtimeDraft.embedding.base_url.trim(),
-      model: runtimeDraft.embedding.model.trim(),
-      // The probe must exercise the same distinct query alias the deployment
-      // would use: an invalid query model otherwise passes Test Connection
-      // while real query embeddings fail.
-      query_model: runtimeDraft.embedding.query_model.trim() || undefined,
-      dimensions: runtimeDraft.embedding.dimensions,
-      timeout_secs: runtimeDraft.embedding.timeout_secs,
-      api_key: runtimeDraft.embedding.api_key.trim() || undefined,
-    };
+    const request = embeddingProbeRequest;
     const requestRevision = runtimeRevision.current;
     const requestSignature = embeddingProbeSignature(request);
     const isStale = () => requestRevision !== runtimeRevision.current
@@ -947,19 +1066,17 @@ export function useSettingsPage() {
     } finally {
       setEmbeddingTesting(false);
     }
-  }, [runtimeDraft.embedding, showErrorToast, t]);
+  }, [embeddingProbeRequest, showErrorToast, t]);
 
+  /**
+   * Probes the unsaved code embedding draft.
+   *
+   * The probe carries the same sparse overrides a save would store, so a
+   * blank field inherits the document configuration and the unsaved document
+   * draft travels with the request as the inheritance source.
+   */
   const testCodeEmbeddingConnection = useCallback(async () => {
-    const draft = runtimeDraft.code_embedding;
-    const request = {
-      purpose: "code" as const,
-      base_url: draft.base_url.trim(),
-      model: draft.model.trim(),
-      query_model: draft.query_model.trim() || undefined,
-      dimensions: draft.dimensions,
-      timeout_secs: draft.timeout_secs,
-      api_key: draft.api_key.trim() || undefined,
-    };
+    const request = codeEmbeddingProbeRequest;
     const requestRevision = runtimeRevision.current;
     const requestSignature = embeddingProbeSignature(request);
     const isStale = () => requestRevision !== runtimeRevision.current
@@ -979,37 +1096,20 @@ export function useSettingsPage() {
     } finally {
       setCodeEmbeddingTesting(false);
     }
-  }, [runtimeDraft.code_embedding, showErrorToast, t]);
+  }, [codeEmbeddingProbeRequest, showErrorToast, t]);
 
   /**
    * Probes the unsaved image embedding draft.
    *
    * The probe never saves: it exercises the image route with the draft values
-   * only. A draft that asks for the stored key to be cleared is declined in
-   * every state, because the probe would fall back to that stored key and
-   * describe a configuration the pending save removes.
+   * only. It embeds one synthetic image, so the query model is carried with
+   * the configuration but never exercised by the probe itself. A pending
+   * credential clear is not a reason to refuse the probe: the request states
+   * the inherited intent, so the probe exercises the document credential that
+   * would be in effect after the clear.
    */
   const testImageEmbeddingConnection = useCallback(async () => {
-    const draft = runtimeDraft.image_embedding;
-    if (draft.clear_api_key) {
-      toast.error(t("common.error"), {
-        description: t("settings.runtime.imageEmbeddingTestClearKeyBlocked"),
-        duration: 5000,
-      });
-      return;
-    }
-    const request = {
-      purpose: "image" as const,
-      base_url: draft.base_url.trim(),
-      model: draft.model.trim(),
-      // The image probe embeds one synthetic image; the query model is saved
-      // with the configuration but never exercised by the probe itself.
-      query_model: draft.query_model.trim() || undefined,
-      dimensions: draft.dimensions,
-      timeout_secs: draft.timeout_secs,
-      // An omitted key lets the deployment use its stored image credential.
-      api_key: draft.api_key.trim() || undefined,
-    };
+    const request = imageEmbeddingProbeRequest;
     const requestRevision = runtimeRevision.current;
     const requestSignature = embeddingProbeSignature(request);
     const isStale = () => requestRevision !== runtimeRevision.current
@@ -1029,7 +1129,7 @@ export function useSettingsPage() {
     } finally {
       setImageEmbeddingTesting(false);
     }
-  }, [runtimeDraft.image_embedding, showErrorToast, t]);
+  }, [imageEmbeddingProbeRequest, showErrorToast, t]);
 
   /**
    * Probe the unsaved Qdrant URL. The revision captured at request start must

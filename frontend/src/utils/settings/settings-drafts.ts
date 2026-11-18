@@ -22,6 +22,9 @@ export const DEFAULT_CHUNKING_MAX_TOKENS = 1024;
 /** Token overlap two chunks share when the response carries no overlap. */
 export const DEFAULT_CHUNKING_OVERLAP_TOKENS = 128;
 
+/** The image namespace a deployment uses when no image collection is stored. */
+export const DEFAULT_IMAGE_COLLECTION_NAME = "context69_images";
+
 export function createRuntimeDraft(): DraftRuntimeSettings {
   return {
     qdrant: {
@@ -43,9 +46,10 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       api_key: "",
       model: "",
       query_model: "",
-      dimensions: 768,
-      timeout_secs: 30,
+      dimensions: null,
+      timeout_secs: null,
       has_api_key: false,
+      inherits_document_api_key: false,
       clear_api_key: false,
       touched: false,
     },
@@ -55,10 +59,11 @@ export function createRuntimeDraft(): DraftRuntimeSettings {
       api_key: "",
       model: "",
       query_model: "",
-      dimensions: 768,
-      timeout_secs: 30,
-      collection_name: "",
+      dimensions: null,
+      timeout_secs: null,
+      collection_name: DEFAULT_IMAGE_COLLECTION_NAME,
       has_api_key: false,
+      inherits_document_api_key: false,
       clear_api_key: false,
       touched: false,
     },
@@ -158,9 +163,12 @@ export function runtimeResponseToDraft(
       api_key: "",
       model: response.code_embedding?.model ?? "",
       query_model: response.code_embedding?.query_model ?? "",
-      dimensions: response.code_embedding?.dimensions || 768,
-      timeout_secs: response.code_embedding?.timeout_secs || 30,
+      // An absent stored override is an inheritance, not a value: the draft
+      // keeps it blank so the form shows the document value it inherits.
+      dimensions: response.code_embedding?.dimensions ?? null,
+      timeout_secs: response.code_embedding?.timeout_secs ?? null,
       has_api_key: response.code_embedding?.has_api_key ?? false,
+      inherits_document_api_key: response.code_embedding?.inherits_document_api_key ?? false,
       clear_api_key: false,
       // A response never marks the block pending: only an edit does.
       touched: false,
@@ -171,10 +179,13 @@ export function runtimeResponseToDraft(
       api_key: "",
       model: response.image_embedding?.model ?? "",
       query_model: response.image_embedding?.query_model ?? "",
-      dimensions: response.image_embedding?.dimensions || 768,
-      timeout_secs: response.image_embedding?.timeout_secs || 30,
-      collection_name: response.image_embedding?.collection_name ?? "",
+      dimensions: response.image_embedding?.dimensions ?? null,
+      timeout_secs: response.image_embedding?.timeout_secs ?? null,
+      // An absent stored namespace resolves to the default image namespace.
+      collection_name: response.image_embedding?.collection_name
+        ?? DEFAULT_IMAGE_COLLECTION_NAME,
       has_api_key: response.image_embedding?.has_api_key ?? false,
+      inherits_document_api_key: response.image_embedding?.inherits_document_api_key ?? false,
       clear_api_key: false,
       // A response never marks the block pending: only an edit does.
       touched: false,

@@ -39,11 +39,16 @@ export function normalizeRuntimePayload(
     code_embedding: value.code_embedding.touched
       ? {
           enabled: value.code_embedding.enabled,
-          base_url: value.code_embedding.base_url.trim(),
-          model: value.code_embedding.model.trim(),
+          // A blank field is an inheritance: it is omitted instead of being
+          // sent as an empty override.
+          base_url: cleanOptional(value.code_embedding.base_url),
+          model: cleanOptional(value.code_embedding.model),
           query_model: cleanOptional(value.code_embedding.query_model),
-          dimensions: Number(value.code_embedding.dimensions),
-          timeout_secs: Number(value.code_embedding.timeout_secs),
+          // An absent number is an inheritance too. An explicit number is a
+          // value and is sent as it was typed: the backend refuses a zero
+          // instead of reading it as an inheritance.
+          dimensions: optionalNumber(value.code_embedding.dimensions),
+          timeout_secs: optionalNumber(value.code_embedding.timeout_secs),
           api_key: codeSecretPatch(value.code_embedding),
         }
       : undefined,
@@ -52,12 +57,13 @@ export function normalizeRuntimePayload(
     image_embedding: value.image_embedding.touched
       ? {
           enabled: value.image_embedding.enabled,
-          base_url: value.image_embedding.base_url.trim(),
-          model: value.image_embedding.model.trim(),
+          base_url: cleanOptional(value.image_embedding.base_url),
+          model: cleanOptional(value.image_embedding.model),
           query_model: cleanOptional(value.image_embedding.query_model),
-          dimensions: Number(value.image_embedding.dimensions),
-          timeout_secs: Number(value.image_embedding.timeout_secs),
-          collection_name: value.image_embedding.collection_name.trim(),
+          dimensions: optionalNumber(value.image_embedding.dimensions),
+          timeout_secs: optionalNumber(value.image_embedding.timeout_secs),
+          // A blank namespace resolves to the default image namespace.
+          collection_name: cleanOptional(value.image_embedding.collection_name),
           api_key: imageSecretPatch(value.image_embedding),
         }
       : undefined,
@@ -136,6 +142,17 @@ export function normalizeDoclingPayload(
 function cleanOptional(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+/**
+ * The wire form of an optional number.
+ *
+ * A blank field is an inheritance and is omitted. An explicit number is a
+ * value and is sent as it was typed: a zero stays a zero here, because the
+ * backend refuses it as a value instead of reading it as an inheritance.
+ */
+function optionalNumber(value: number | null | undefined) {
+  return value === null || value === undefined ? undefined : Number(value);
 }
 
 function codeSecretPatch(code: DraftRuntimeSettings["code_embedding"]) {

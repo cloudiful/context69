@@ -55,19 +55,19 @@ pub(super) fn validate_image_embedding_config(
             "image_embedding.timeout_secs must be greater than 0"
         ));
     }
-    if config.collection_name.trim().is_empty() {
-        return Err(anyhow!("image_embedding.collection_name must not be empty"));
-    }
-    if config.collection_name.trim() == document_collection.trim() {
+    // A blank namespace resolves to the default image collection, so the
+    // effective name is what the alias rules are checked against.
+    let collection_name = if config.collection_name.trim().is_empty() {
+        crate::config::defaults::DEFAULT_IMAGE_COLLECTION_NAME
+    } else {
+        config.collection_name.trim()
+    };
+    if collection_name == document_collection.trim() {
         return Err(anyhow!(
             "image_embedding.collection_name must not reuse the document collection"
         ));
     }
-    if config
-        .collection_name
-        .trim()
-        .starts_with(crate::qdrant_index::code_vectors::CODE_COLLECTION_PREFIX)
-    {
+    if collection_name.starts_with(crate::qdrant_index::code_vectors::CODE_COLLECTION_PREFIX) {
         return Err(anyhow!(
             "image_embedding.collection_name must not reuse a code collection"
         ));
