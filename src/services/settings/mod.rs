@@ -45,10 +45,12 @@ pub(crate) use runtime_mappers::{
 
 use self::{
     mappers::{
-        canonical_search_settings_from_request, config_from_stored, docling_settings_from_request,
-        effective_do_ocr, preserve_omitted_hidden_docling_vlm, resolved_ocr_preset,
-        response_from_stored, search_response_from_stored, search_settings_from_request,
-        unconfigured_docling_response, validate_docling_vlm_shape_if_enabled,
+        canonical_search_settings_from_request, config_from_stored, docling_needs_vlm_credential,
+        docling_settings_from_request, effective_do_code_enrichment,
+        effective_do_formula_enrichment, effective_do_ocr, preserve_omitted_hidden_docling_vlm,
+        resolved_ocr_preset, response_from_stored, search_response_from_stored,
+        search_settings_from_request, unconfigured_docling_response,
+        validate_docling_vlm_shape_if_enabled,
     },
     runtime_mappers::{
         default_runtime_settings_response, runtime_settings_from_request,
@@ -1218,6 +1220,8 @@ impl SettingsService {
                     .map(|settings| settings.do_picture_description)
             })
             .unwrap_or(false);
+        let do_code_enrichment = effective_do_code_enrichment(request, stored.as_ref());
+        let do_formula_enrichment = effective_do_formula_enrichment(request, stored.as_ref());
         settings_validate::docling_request(request, do_ocr, do_picture_description)?;
         let ocr_preset = resolved_ocr_preset(
             request,
@@ -1243,27 +1247,35 @@ impl SettingsService {
         } else {
             docling_hidden_vlm_patch(requested_api_key)
         };
+        let build_candidate = |api_key: Option<String>| {
+            let mut candidate = docling_settings_from_request(
+                request,
+                api_key,
+                &ocr_preset,
+                do_ocr,
+                do_picture_description,
+                do_code_enrichment,
+                do_formula_enrichment,
+            );
+            if !do_picture_description && let Some(stored) = stored.as_ref() {
+                preserve_omitted_hidden_docling_vlm(request, &mut candidate, stored);
+            }
+            candidate
+        };
+        // The credential is opened only when the saved configuration can use
+        // it. A disabled picture branch and a partial enrichment bundle fall
+        // back to the remote default, so an unavailable secret must not block
+        // that save; a genuine picture or complete-bundle use still reports it.
+        let credential_used = docling_needs_vlm_credential(&build_candidate(None), true);
         let candidate = self
             .docling_secrets
-            .stage(
-                &patch,
-                |api_key| {
-                    let mut candidate = docling_settings_from_request(
-                        request,
-                        api_key,
-                        &ocr_preset,
-                        do_ocr,
-                        do_picture_description,
-                    );
-                    if !do_picture_description && let Some(stored) = stored.as_ref() {
-                        preserve_omitted_hidden_docling_vlm(request, &mut candidate, stored);
-                    }
-                    candidate
-                },
-                |candidate| {
-                    validate_docling_vlm_shape_if_enabled(candidate, do_picture_description)
-                },
-            )
+            .stage_if_used(&patch, credential_used, build_candidate, |candidate| {
+                // Picture description keeps its strict bundle validation.
+                // Code and formula enrichment may fall back to the remote
+                // model when a hidden legacy bundle is incomplete, so they
+                // never block a save on that leftover configuration.
+                validate_docling_vlm_shape_if_enabled(candidate, do_picture_description)
+            })
             .await?;
 
         let settings = self.db.save_docling_settings(&candidate).await?;
@@ -1284,13 +1296,24 @@ impl SettingsService {
     /// The value is handed to the provider in memory and is never logged, put in
     /// a task payload, or returned by an API.
     pub async fn resolve_docling_config(&self) -> Result<Option<DoclingConfig>> {
+        self.resolve_docling_config_for_input(true).await
+    }
+
+    /// The Docling runtime config for one input capability.
+    ///
+    /// An input that never carries VLM enrichment, such as XLSX, skips the
+    /// provider credential entirely. Picture description keeps its existing
+    /// behavior. Code and formula enrichment open the credential only when a
+    /// complete legacy bundle could actually use it, so a partial leftover
+    /// configuration falls back to the remote default without a secret read.
+    pub async fn resolve_docling_config_for_input(
+        &self,
+        input_supports_vlm: bool,
+    ) -> Result<Option<DoclingConfig>> {
         let Some(settings) = self.db.get_docling_settings().await? else {
             return Ok(None);
         };
-        // A disabled picture-description section never uses the provider
-        // credential, so a sealed or unavailable secret must not block an
-        // otherwise OCR-only conversion.
-        let api_key = if settings.do_picture_description {
+        let api_key = if docling_needs_vlm_credential(&settings, input_supports_vlm) {
             self.docling_secrets.resolve().await?
         } else {
             None
@@ -1436,7 +1459,8 @@ mod tests {
     use super::{
         mappers::validate_docling_vlm_shape,
         mappers::{
-            config_from_stored, docling_settings_from_request, effective_do_ocr,
+            config_from_stored, docling_needs_vlm_credential, docling_settings_from_request,
+            effective_do_code_enrichment, effective_do_formula_enrichment, effective_do_ocr,
             preserve_omitted_hidden_docling_vlm, resolved_ocr_preset, response_from_stored,
             search_response_from_stored, search_settings_from_request,
         },
@@ -1470,6 +1494,7 @@ mod tests {
             UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
         },
         db::{StoredDoclingSettings, default_search_settings},
+        docling::{InputFormat, resolve_enrichment_vlm_for_input},
     };
 
     fn sample_request() -> UpdateDoclingSettingsRequest {
@@ -1486,6 +1511,8 @@ mod tests {
             ocr_preset: None,
             do_ocr: None,
             do_picture_description: None,
+            do_code_enrichment: None,
+            do_formula_enrichment: None,
         }
     }
 
@@ -1902,7 +1929,8 @@ mod tests {
             ..UpdateDoclingVlmSettings::default()
         });
 
-        let stored = docling_settings_from_request(&request, None, "rapidocr", true, true);
+        let stored =
+            docling_settings_from_request(&request, None, "rapidocr", true, true, false, false);
         assert_eq!(
             stored.picture_description_preset.as_deref(),
             Some("smolvlm"),
@@ -1931,7 +1959,8 @@ mod tests {
     #[test]
     fn empty_picture_description_preset_is_normalized_away_in_mapper() {
         let request = sample_request();
-        let stored = docling_settings_from_request(&request, None, "rapidocr", true, true);
+        let stored =
+            docling_settings_from_request(&request, None, "rapidocr", true, true, false, false);
         assert!(
             stored.picture_description_preset.is_none(),
             "blank picture_description_preset must be normalized away by the mapper"
@@ -1953,7 +1982,8 @@ mod tests {
         // api_key and the model trio are deliberately missing: the hidden
         // section must not turn this partial bundle into a save blocker.
 
-        let stored = docling_settings_from_request(&request, None, "rapidocr", false, false);
+        let stored =
+            docling_settings_from_request(&request, None, "rapidocr", false, false, false, false);
         assert!(!stored.do_ocr);
         assert!(!stored.do_picture_description);
         validate_docling_vlm_shape_if_enabled(&stored, false)
@@ -1973,7 +2003,8 @@ mod tests {
 
         let mut omitted = sample_request();
         omitted.vlm = None;
-        let mut candidate = docling_settings_from_request(&omitted, None, "rapidocr", true, false);
+        let mut candidate =
+            docling_settings_from_request(&omitted, None, "rapidocr", true, false, false, false);
         let mut previous = sample_stored();
         previous.picture_description_preset = Some("smolvlm".to_string());
         preserve_omitted_hidden_docling_vlm(&omitted, &mut candidate, &previous);
@@ -1982,6 +2013,310 @@ mod tests {
             Some("smolvlm"),
             "an omitted hidden field must keep its stored value"
         );
+    }
+
+    /// The stored partial hidden bundle from the issue's production state: code
+    /// enrichment on, picture description off, and every omitted VLM field
+    /// retained. The save validation, credential decision, and runtime
+    /// resolution must all leave the remote server default in effect.
+    #[test]
+    fn a_partial_hidden_bundle_saves_and_resolves_without_a_credential_read() {
+        let mut stored = sample_stored();
+        stored.openai_base_url = Some("https://legacy.example/v1".to_string());
+        stored.vlm_pipeline_model = Some("vlm".to_string());
+        stored.picture_description_model = Some("pic".to_string());
+        stored.code_formula_model = None;
+        stored.do_picture_description = false;
+        stored.do_code_enrichment = true;
+
+        validate_docling_vlm_shape_if_enabled(&stored, stored.do_picture_description)
+            .expect("a hidden partial bundle must not block the enrichment save");
+        assert!(
+            !docling_needs_vlm_credential(&stored, true),
+            "an incomplete bundle falls back to the remote default, so no secret is opened"
+        );
+
+        let config = config_from_stored(stored, None);
+        assert_eq!(
+            config.vlm.openai_base_url.as_deref(),
+            Some("https://legacy.example/v1"),
+            "the omitted leftover fields stay exactly as stored"
+        );
+        assert_eq!(config.vlm.picture_description_model.as_deref(), Some("pic"));
+        assert!(config.vlm.code_formula_model.is_none());
+        assert!(
+            !config.effective_do_picture_description(),
+            "picture description stays off"
+        );
+        assert!(
+            resolve_enrichment_vlm_for_input(InputFormat::Pdf, &config.vlm, false, true, false)
+                .expect("resolve")
+                .is_none(),
+            "code enrichment must use the remote server default"
+        );
+    }
+
+    /// The same hidden bundle with formula enrichment on resolves the same way,
+    /// and an unchanged complete bundle keeps its credential.
+    #[test]
+    fn formula_enrichment_and_a_complete_bundle_resolve_independently() {
+        let mut partial = sample_stored();
+        partial.openai_base_url = Some("https://legacy.example/v1".to_string());
+        partial.vlm_pipeline_model = Some("vlm".to_string());
+        partial.picture_description_model = Some("pic".to_string());
+        partial.do_formula_enrichment = true;
+        assert!(!docling_needs_vlm_credential(&partial, true));
+
+        let mut complete = sample_stored();
+        complete.openai_base_url = Some("https://legacy.example/v1".to_string());
+        complete.vlm_pipeline_model = Some("vlm".to_string());
+        complete.picture_description_model = Some("pic".to_string());
+        complete.code_formula_model = Some("code".to_string());
+        complete.do_code_enrichment = true;
+        assert!(
+            docling_needs_vlm_credential(&complete, true),
+            "a complete legacy bundle can use the stored credential"
+        );
+        let config = config_from_stored(complete, Some("secret".to_string()));
+        let vlm =
+            resolve_enrichment_vlm_for_input(InputFormat::Docx, &config.vlm, false, true, false)
+                .expect("resolve")
+                .expect("a complete bundle resolves");
+        assert_eq!(vlm.api_key, "secret");
+    }
+
+    /// Picture description keeps its existing behavior: an enabled section still
+    /// needs the credential and still rejects an incomplete bundle.
+    #[test]
+    fn an_enabled_picture_description_keeps_its_credential_and_shape_rules() {
+        let mut stored = sample_stored();
+        stored.openai_base_url = Some("https://legacy.example/v1".to_string());
+        stored.do_picture_description = true;
+        assert!(
+            docling_needs_vlm_credential(&stored, true),
+            "picture description must not hide a genuine configuration error"
+        );
+        assert!(
+            validate_docling_vlm_shape_if_enabled(&stored, true).is_err(),
+            "an enabled picture description still requires the whole bundle"
+        );
+        let config = config_from_stored(stored, Some("secret".to_string()));
+        assert!(
+            resolve_enrichment_vlm_for_input(InputFormat::Pdf, &config.vlm, true, false, false)
+                .is_err()
+        );
+    }
+
+    /// A disabled enrichment section and an input without VLM enrichment both
+    /// skip the credential entirely.
+    #[test]
+    fn disabled_enrichment_and_unsupported_inputs_need_no_credential() {
+        let stored = sample_stored();
+        assert!(!docling_needs_vlm_credential(&stored, true));
+        assert!(
+            !docling_needs_vlm_credential(&stored, false),
+            "an unsupported input never opens the provider credential"
+        );
+
+        let mut complete = stored;
+        complete.openai_base_url = Some("https://legacy.example/v1".to_string());
+        complete.vlm_pipeline_model = Some("vlm".to_string());
+        complete.picture_description_model = Some("pic".to_string());
+        complete.code_formula_model = Some("code".to_string());
+        complete.do_picture_description = true;
+        assert!(!docling_needs_vlm_credential(&complete, false));
+        let config = config_from_stored(complete, None);
+        assert!(
+            resolve_enrichment_vlm_for_input(InputFormat::Xlsx, &config.vlm, true, true, true)
+                .expect("resolve")
+                .is_none(),
+            "XLSX never receives VLM enrichment"
+        );
+    }
+
+    /// The migration's normalized presence must follow the runtime rule: a field
+    /// is configured when it survives Rust `trim`, and a legacy plaintext
+    /// credential is readable when its lossy UTF-8 text survives the same trim.
+    /// These are the synthetic values compared against the SQL predicate.
+    #[test]
+    fn the_enrichment_migration_presence_matches_the_runtime_trim() {
+        use crate::support::normalize::normalize_optional_string;
+
+        fn field_present(value: &str) -> bool {
+            normalize_optional_string(Some(value.to_string())).is_some()
+        }
+
+        fn legacy_credential_present(bytes: &[u8]) -> bool {
+            let decoded = String::from_utf8_lossy(bytes);
+            normalize_optional_string(Some(decoded.into_owned())).is_some()
+        }
+
+        let cases: [(&str, &str, &[u8], bool, bool); 10] = [
+            ("space", " ", b" ", false, false),
+            ("tab", "\t", b"\t", false, false),
+            ("newline", "\n", b"\n", false, false),
+            ("next-line", "\u{0085}", "\u{0085}".as_bytes(), false, false),
+            (
+                "no-break-space",
+                "\u{00A0}",
+                "\u{00A0}".as_bytes(),
+                false,
+                false,
+            ),
+            (
+                "ideographic-space",
+                "\u{3000}",
+                "\u{3000}".as_bytes(),
+                false,
+                false,
+            ),
+            ("mixed", " pdf ", b" \tkey\n ", true, true),
+            ("empty", "", b"", false, false),
+            ("invalid-bytes", "\u{00A0}", b"\xff", false, true),
+            (
+                "zero-width-space",
+                "\u{200B}",
+                "\u{200B}".as_bytes(),
+                true,
+                true,
+            ),
+        ];
+        for (label, field, bytes, expected_field, expected_credential) in cases {
+            assert_eq!(field_present(field), expected_field, "field {label}");
+            assert_eq!(
+                legacy_credential_present(bytes),
+                expected_credential,
+                "credential {label}"
+            );
+        }
+
+        let migration =
+            include_str!("../../../migrations/20261118033952_docling_enrichment_defaults.sql");
+        assert_eq!(
+            migration.matches("btrim(COALESCE(").count(),
+            4,
+            "every legacy model or endpoint field is normalized"
+        );
+        assert!(
+            migration.contains(
+                "U&'\\0009\\000A\\000B\\000C\\000D\\0020\\0085\\00A0\\1680\\2000\\2001\\2002\\2003\\2004\\2005\\2006\\2007\\2008\\2009\\200A\\2028\\2029\\202F\\205F\\3000'"
+            ),
+            "the SQL whitespace set is the Unicode White_Space set Rust trims"
+        );
+        assert!(
+            migration.contains(
+                "encode(secret.value, 'hex') !~ '^(09|0a|0b|0c|0d|20|c285|c2a0|e19a80|e2808[0-9a]|e280a8|e280a9|e280af|e2819f|e38080)*$'"
+            ),
+            "a legacy credential is blank only when it is entirely UTF-8 whitespace"
+        );
+        assert!(
+            !migration.contains("convert_from"),
+            "invalid bytes must not abort the migration"
+        );
+        assert!(
+            migration.contains("secret.purpose = 'docling.vlm_api_key'")
+                && migration.contains("octet_length(secret.value) > 0"),
+            "a nonempty sealed Docling-purpose credential stays readable"
+        );
+        assert!(
+            migration.contains("AND do_picture_description"),
+            "a picture-disabled legacy configuration is not preserved"
+        );
+    }
+
+    /// The save path decides from the candidate it would persist, before the
+    /// credential is opened: a partial hidden bundle keeps enrichment on and
+    /// never marks the credential as used, while a complete bundle does.
+    #[test]
+    fn the_save_credential_decision_uses_the_built_candidate() {
+        let mut partial = sample_stored();
+        partial.openai_base_url = Some("https://legacy.example/v1".to_string());
+        partial.vlm_pipeline_model = Some("vlm".to_string());
+        partial.picture_description_model = Some("pic".to_string());
+
+        let mut request = sample_request();
+        request.vlm = None;
+        request.do_code_enrichment = Some(true);
+        let do_code = effective_do_code_enrichment(&request, Some(&partial));
+        let mut candidate =
+            docling_settings_from_request(&request, None, "rapidocr", true, false, do_code, false);
+        preserve_omitted_hidden_docling_vlm(&request, &mut candidate, &partial);
+        assert!(candidate.do_code_enrichment);
+        assert!(!candidate.do_picture_description);
+        assert_eq!(
+            candidate.openai_base_url.as_deref(),
+            Some("https://legacy.example/v1"),
+            "the omitted leftover fields stay stored"
+        );
+        assert_eq!(
+            candidate.code_formula_model, None,
+            "an absent field is never invented"
+        );
+        assert!(
+            !docling_needs_vlm_credential(&candidate, true),
+            "the save must not open the unused credential"
+        );
+
+        let mut complete = candidate;
+        complete.code_formula_model = Some("code".to_string());
+        assert!(
+            docling_needs_vlm_credential(&complete, true),
+            "a complete bundle still uses the stored credential"
+        );
+    }
+
+    /// The enrichment toggles are optional updates: an old caller omits them and
+    /// keeps the stored flags, while an explicit value always wins.
+    #[test]
+    fn omitted_enrichment_toggles_keep_the_stored_values() {
+        let request = sample_request();
+        assert_eq!(request.do_code_enrichment, None);
+        assert_eq!(request.do_formula_enrichment, None);
+
+        let mut stored = sample_stored();
+        stored.do_code_enrichment = true;
+        stored.do_formula_enrichment = false;
+        assert!(effective_do_code_enrichment(&request, Some(&stored)));
+        assert!(!effective_do_formula_enrichment(&request, Some(&stored)));
+        assert!(
+            !effective_do_code_enrichment(&request, None),
+            "a fresh installation defaults code enrichment to off"
+        );
+        assert!(
+            !effective_do_formula_enrichment(&request, None),
+            "a fresh installation defaults formula enrichment to off"
+        );
+
+        let mut disabled = request;
+        disabled.do_code_enrichment = Some(false);
+        disabled.do_formula_enrichment = Some(true);
+        assert!(!effective_do_code_enrichment(&disabled, Some(&stored)));
+        assert!(effective_do_formula_enrichment(&disabled, Some(&stored)));
+
+        let candidate = docling_settings_from_request(
+            &disabled,
+            None,
+            "rapidocr",
+            true,
+            false,
+            effective_do_code_enrichment(&disabled, Some(&stored)),
+            effective_do_formula_enrichment(&disabled, Some(&stored)),
+        );
+        assert!(!candidate.do_code_enrichment);
+        assert!(candidate.do_formula_enrichment);
+
+        let config = config_from_stored(candidate.clone(), None);
+        assert!(!config.do_code_enrichment);
+        assert!(config.do_formula_enrichment);
+        assert!(
+            !config.effective_do_picture_description(),
+            "the enrichment toggles must stay independent of picture description"
+        );
+
+        let response =
+            response_from_stored(DoclingSettingsSource::Database, true, candidate, false);
+        assert!(!response.do_code_enrichment);
+        assert!(response.do_formula_enrichment);
     }
 
     /// A branch selected while the section is off replaces the stored branch;
@@ -1998,8 +2333,15 @@ mod tests {
             .as_mut()
             .expect("the sample request carries a VLM selection")
             .openai_base_url = Some("https://openrouter.ai/api/v1".to_string());
-        let mut candidate =
-            docling_settings_from_request(&custom_request, None, "rapidocr", true, false);
+        let mut candidate = docling_settings_from_request(
+            &custom_request,
+            None,
+            "rapidocr",
+            true,
+            false,
+            false,
+            false,
+        );
         preserve_omitted_hidden_docling_vlm(&custom_request, &mut candidate, &previous);
         assert_eq!(
             candidate.openai_base_url.as_deref(),
@@ -2021,6 +2363,8 @@ mod tests {
             "rapidocr",
             true,
             false,
+            false,
+            false,
         );
         preserve_omitted_hidden_docling_vlm(&key_only_request, &mut candidate, &previous);
         assert!(
@@ -2040,8 +2384,15 @@ mod tests {
             .as_mut()
             .expect("the sample request carries a VLM selection")
             .picture_description_preset = Some("granite_vision".to_string());
-        let mut candidate =
-            docling_settings_from_request(&preset_request, None, "rapidocr", true, false);
+        let mut candidate = docling_settings_from_request(
+            &preset_request,
+            None,
+            "rapidocr",
+            true,
+            false,
+            false,
+            false,
+        );
         preserve_omitted_hidden_docling_vlm(&preset_request, &mut candidate, &previous);
         assert_eq!(
             candidate.picture_description_preset.as_deref(),
@@ -2056,8 +2407,15 @@ mod tests {
         empty_request.vlm = Some(UpdateDoclingVlmSettings::default());
         let mut previous = sample_stored();
         previous.picture_description_preset = Some("smolvlm".to_string());
-        let mut candidate =
-            docling_settings_from_request(&empty_request, None, "rapidocr", true, false);
+        let mut candidate = docling_settings_from_request(
+            &empty_request,
+            None,
+            "rapidocr",
+            true,
+            false,
+            false,
+            false,
+        );
         preserve_omitted_hidden_docling_vlm(&empty_request, &mut candidate, &previous);
         assert!(
             candidate.picture_description_preset.is_none(),
@@ -2067,8 +2425,15 @@ mod tests {
         let mut mode_only_request = sample_request();
         mode_only_request.vlm = None;
         mode_only_request.vlm_mode = Some(context69_contracts::settings::DoclingVlmMode::Preset);
-        let mut candidate =
-            docling_settings_from_request(&mode_only_request, None, "rapidocr", true, false);
+        let mut candidate = docling_settings_from_request(
+            &mode_only_request,
+            None,
+            "rapidocr",
+            true,
+            false,
+            false,
+            false,
+        );
         preserve_omitted_hidden_docling_vlm(&mode_only_request, &mut candidate, &previous);
         assert!(
             candidate.picture_description_preset.is_none(),
@@ -2240,7 +2605,8 @@ mod tests {
     fn docling_mapper_round_trips_max_inflight() {
         let mut request = sample_request();
         request.connection.max_inflight = 3;
-        let stored = docling_settings_from_request(&request, None, "rapidocr", true, true);
+        let stored =
+            docling_settings_from_request(&request, None, "rapidocr", true, true, false, false);
         assert_eq!(stored.max_inflight, 3);
 
         let response =
@@ -2331,7 +2697,15 @@ mod tests {
         request.ocr_preset = Some(Some("custom.ocr-preset".to_string()));
         validate_docling_request(&request, true, true).expect("a valid preset must be accepted");
 
-        let stored = docling_settings_from_request(&request, None, "custom.ocr-preset", true, true);
+        let stored = docling_settings_from_request(
+            &request,
+            None,
+            "custom.ocr-preset",
+            true,
+            true,
+            false,
+            false,
+        );
         assert_eq!(stored.ocr_engine.as_deref(), Some("custom.ocr-preset"));
         assert_eq!(
             resolved_ocr_preset(&request, Some("tesseract")),

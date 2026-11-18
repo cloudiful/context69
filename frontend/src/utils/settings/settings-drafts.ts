@@ -95,6 +95,8 @@ export function createDoclingDraft(): DraftDoclingSettings {
     ocr_preset: DEFAULT_DOCLING_OCR_PRESET,
     do_ocr: true,
     do_picture_description: false,
+    do_code_enrichment: false,
+    do_formula_enrichment: false,
     vlm_mode: "disabled",
     vlm: {
       openai_base_url: "",
@@ -202,6 +204,8 @@ export function doclingResponseToDraft(
     ocr_preset: response.ocr_preset,
     do_ocr: response.do_ocr,
     do_picture_description: response.do_picture_description,
+    do_code_enrichment: response.do_code_enrichment ?? false,
+    do_formula_enrichment: response.do_formula_enrichment ?? false,
     vlm_mode: inferDoclingVlmMode(vlm),
     vlm: {
       openai_base_url: vlm.openai_base_url ?? "",

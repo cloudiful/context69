@@ -10022,7 +10022,9 @@
           "vlm",
           "ocr_preset",
           "do_ocr",
-          "do_picture_description"
+          "do_picture_description",
+          "do_code_enrichment",
+          "do_formula_enrichment"
         ],
         "properties": {
           "configured": {
@@ -10030,6 +10032,14 @@
           },
           "connection": {
             "$ref": "#/components/schemas/DoclingConnectionSettingsResponse"
+          },
+          "do_code_enrichment": {
+            "type": "boolean",
+            "description": "Whether conversions request code enrichment. A fresh or unconfigured\ninstallation reports `false`."
+          },
+          "do_formula_enrichment": {
+            "type": "boolean",
+            "description": "Whether conversions request formula enrichment. A fresh or unconfigured\ninstallation reports `false`."
           },
           "do_ocr": {
             "type": "boolean",
@@ -18318,6 +18328,20 @@
         "properties": {
           "connection": {
             "$ref": "#/components/schemas/UpdateDoclingConnectionSettings"
+          },
+          "do_code_enrichment": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether conversions request code enrichment.\n\nAn absent field keeps the stored value; a fresh installation defaults\nto `false`. The value is sent to Docling explicitly and is independent\nof OCR and picture description."
+          },
+          "do_formula_enrichment": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Whether conversions request formula enrichment.\n\nAn absent field keeps the stored value; a fresh installation defaults\nto `false`. The value is sent to Docling explicitly and is independent\nof OCR and picture description."
           },
           "do_ocr": {
             "type": [

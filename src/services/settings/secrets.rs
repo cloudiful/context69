@@ -167,6 +167,30 @@ impl SettingsSecrets {
         Ok(candidate)
     }
 
+    /// Stages one patch, reading the stored value only when the built settings
+    /// actually use it.
+    ///
+    /// A `Keep` whose resolved configuration cannot use this credential keeps
+    /// the stored reference without opening it: the patch is left untouched, so
+    /// a sealed or unavailable secret cannot block a save that never depends on
+    /// it. Every other case keeps the resolve-then-merge order, so a genuinely
+    /// used credential still reports its store failure instead of being treated
+    /// as unconfigured.
+    pub async fn stage_if_used<T>(
+        &self,
+        patch: &SecretPatch,
+        used: bool,
+        build: impl FnOnce(Option<String>) -> T,
+        validate: impl FnOnce(&T) -> Result<()>,
+    ) -> Result<T> {
+        if used || !matches!(patch, SecretPatch::Keep) {
+            return self.stage(patch, build, validate).await;
+        }
+        let candidate = build(None);
+        validate(&candidate)?;
+        Ok(candidate)
+    }
+
     /// Applies one tri-state patch to the store.
     ///
     /// `Keep` and a blank `Set` leave the stored value alone, `Set` writes it,
@@ -484,6 +508,37 @@ mod tests {
                 .expect("a clear resolves without a database"),
             None
         );
+    }
+
+    #[tokio::test]
+    async fn an_unused_kept_credential_decides_without_opening_the_store() {
+        // A save whose resolved configuration never uses this credential keeps
+        // the stored reference untouched, so the lazy unkeyed store is never
+        // reached. That is what keeps a sealed or unavailable secret from
+        // blocking an unrelated save.
+        let secrets = SettingsSecrets::docling(unkeyed_store());
+        let candidate = secrets
+            .stage_if_used(&SecretPatch::Keep, false, |api_key| api_key, |_| Ok(()))
+            .await
+            .expect("an unused keep decides before any store statement");
+        assert_eq!(candidate, None);
+
+        let mut validated = false;
+        let candidate = secrets
+            .stage_if_used(
+                &SecretPatch::Keep,
+                false,
+                |_| "candidate",
+                |value| {
+                    assert_eq!(*value, "candidate");
+                    validated = true;
+                    Ok(())
+                },
+            )
+            .await
+            .expect("an unused keep still validates its candidate");
+        assert_eq!(candidate, "candidate");
+        assert!(validated, "the save validation must still run");
     }
 
     #[test]

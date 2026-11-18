@@ -127,6 +127,10 @@ pub(super) fn validate_docling_config(config: Option<&DoclingConfig>) -> Result<
     if docling.connection.poll_interval.as_secs() == 0 {
         return Err(anyhow!("docling.poll_interval_secs must be greater than 0"));
     }
+    // Picture description keeps its strict legacy-bundle validation. Code and
+    // formula enrichment may fall back to the remote default when a legacy
+    // bundle is incomplete, so they do not make that hidden leftover a
+    // configuration error.
     if docling.effective_do_picture_description() {
         resolve_vlm_runtime_config(&docling.vlm)?;
     }

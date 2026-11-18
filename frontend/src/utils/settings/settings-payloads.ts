@@ -31,6 +31,8 @@ export function buildDoclingPayload(
     ocr_preset: draft.ocr_preset,
     do_ocr: draft.do_ocr,
     do_picture_description: draft.do_picture_description,
+    do_code_enrichment: draft.do_code_enrichment,
+    do_formula_enrichment: draft.do_formula_enrichment,
     vlm_mode: draft.vlm_mode,
     vlm: projectDoclingVlmForPayload(draft.vlm_mode, draft.vlm),
   });

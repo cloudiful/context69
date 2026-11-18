@@ -165,6 +165,18 @@ pub struct DoclingConfig {
     /// An explicit value, including `false`, always wins and is never inferred
     /// again from the presence of those fields.
     pub do_picture_description: Option<bool>,
+    /// Whether PDF and DOCX conversions request code enrichment.
+    ///
+    /// An omitted file configuration defaults to `false`. The value is sent to
+    /// Docling explicitly and is independent of OCR and picture description.
+    #[serde(default)]
+    pub do_code_enrichment: bool,
+    /// Whether PDF and DOCX conversions request formula enrichment.
+    ///
+    /// An omitted file configuration defaults to `false`. The value is sent to
+    /// Docling explicitly and is independent of OCR and picture description.
+    #[serde(default)]
+    pub do_formula_enrichment: bool,
 }
 
 fn default_docling_do_ocr() -> bool {
@@ -202,6 +214,8 @@ impl Default for DoclingConfig {
             ocr_preset: default_docling_ocr_preset(),
             do_ocr: default_docling_do_ocr(),
             do_picture_description: None,
+            do_code_enrichment: false,
+            do_formula_enrichment: false,
         }
     }
 }
@@ -269,4 +283,62 @@ pub(crate) fn resolve_vlm_runtime_config(
             .expect("picture_description_model present"),
         code_formula_model: code_formula_model.expect("code_formula_model present"),
     }))
+}
+
+/// Whether every non-credential field of the legacy VLM bundle is configured.
+pub(crate) fn complete_legacy_vlm_fields(config: &DoclingVlmConfig) -> bool {
+    [
+        config.openai_base_url.as_deref(),
+        config.vlm_pipeline_model.as_deref(),
+        config.picture_description_model.as_deref(),
+        config.code_formula_model.as_deref(),
+    ]
+    .into_iter()
+    .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
+}
+
+/// Resolves the VLM bundle an enrichment branch may actually use.
+///
+/// Picture description keeps the strict all-or-nothing rule, so a genuine
+/// configuration error is never hidden. Code and formula enrichment use a
+/// legacy bundle only when it is complete and carries a credential; an
+/// incomplete leftover configuration falls back to the remote server default.
+pub(crate) fn resolve_enrichment_vlm(
+    config: &DoclingVlmConfig,
+    do_picture_description: bool,
+    do_code_enrichment: bool,
+    do_formula_enrichment: bool,
+) -> Result<Option<models::VlmSettings>, DoclingError> {
+    if do_picture_description {
+        return resolve_vlm_runtime_config(config);
+    }
+    if !(do_code_enrichment || do_formula_enrichment) || !complete_legacy_vlm_fields(config) {
+        return Ok(None);
+    }
+    if normalize_optional_string(config.api_key.clone()).is_none() {
+        return Ok(None);
+    }
+    resolve_vlm_runtime_config(config)
+}
+
+/// Resolves the VLM bundle for one conversion input.
+///
+/// An input that never carries VLM enrichment, such as XLSX, resolves no bundle
+/// and therefore needs no provider credential.
+pub(crate) fn resolve_enrichment_vlm_for_input(
+    input_format: InputFormat,
+    config: &DoclingVlmConfig,
+    do_picture_description: bool,
+    do_code_enrichment: bool,
+    do_formula_enrichment: bool,
+) -> Result<Option<models::VlmSettings>, DoclingError> {
+    if !input_format.supports_vlm() {
+        return Ok(None);
+    }
+    resolve_enrichment_vlm(
+        config,
+        do_picture_description,
+        do_code_enrichment,
+        do_formula_enrichment,
+    )
 }

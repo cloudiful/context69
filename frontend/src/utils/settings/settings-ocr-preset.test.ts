@@ -23,6 +23,8 @@ function makeDoclingResponse(ocrPreset: string): DoclingSettingsResponse {
     ocr_preset: ocrPreset,
     do_ocr: true,
     do_picture_description: false,
+    do_code_enrichment: false,
+    do_formula_enrichment: false,
     vlm: {
       has_api_key: false,
       openai_base_url: null,

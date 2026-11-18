@@ -218,6 +218,12 @@ pub(crate) struct SubmitRequest<'a> {
     /// Whether the conversion requests picture description. VLM form fields are
     /// only added when this is set.
     pub do_picture_description: bool,
+    /// Whether the conversion requests code enrichment. The value is sent
+    /// independently of the picture-description toggle.
+    pub do_code_enrichment: bool,
+    /// Whether the conversion requests formula enrichment. The value is sent
+    /// independently of the picture-description toggle.
+    pub do_formula_enrichment: bool,
 }
 
 impl std::fmt::Debug for SubmitRequest<'_> {
@@ -237,6 +243,8 @@ impl std::fmt::Debug for SubmitRequest<'_> {
             .field("ocr_preset", &self.ocr_preset)
             .field("do_ocr", &self.do_ocr)
             .field("do_picture_description", &self.do_picture_description)
+            .field("do_code_enrichment", &self.do_code_enrichment)
+            .field("do_formula_enrichment", &self.do_formula_enrichment)
             .finish()
     }
 }
@@ -501,12 +509,19 @@ pub(crate) fn picture_description_options(vlm: &VlmSettings) -> PictureDescripti
 }
 
 /// The code and formula options for the configured provider.
-pub(crate) fn code_formula_options(vlm: &VlmSettings) -> CodeFormulaVlmOptions {
+///
+/// The two extraction controls follow the operator's enrichment toggles: a
+/// disabled toggle is never silently enabled by the custom configuration.
+pub(crate) fn code_formula_options(
+    vlm: &VlmSettings,
+    extract_code: bool,
+    extract_formulas: bool,
+) -> CodeFormulaVlmOptions {
     CodeFormulaVlmOptions {
         scale: Some(2.0),
         max_size: None,
-        extract_code: Some(true),
-        extract_formulas: Some(true),
+        extract_code: Some(extract_code),
+        extract_formulas: Some(extract_formulas),
         engine_options: engine_options(
             &vlm.openai_base_url,
             &vlm.api_key,
@@ -536,6 +551,94 @@ pub(crate) fn vlm_pipeline_options(vlm: &VlmSettings) -> VlmPipelineOptions {
         batch_size: None,
         force_backend_text: true,
     }
+}
+
+/// The enrichment form fields of one supported conversion.
+///
+/// The two enrichment booleans are always present. A legacy custom
+/// configuration is attached only when its own branch is enabled, so a
+/// disabled branch never becomes an accidental enrichment and an absent custom
+/// configuration leaves the remote server default in effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EnrichmentFormFields {
+    pub ocr_preset: String,
+    pub do_ocr: bool,
+    pub do_picture_description: bool,
+    pub do_code_enrichment: bool,
+    pub do_formula_enrichment: bool,
+    pub picture_description_preset: Option<String>,
+    pub vlm_pipeline_custom_config: Option<String>,
+    pub picture_description_custom_config: Option<String>,
+    pub code_formula_custom_config: Option<String>,
+}
+
+/// Resolves the enrichment form fields of one submission.
+///
+/// Only the formats that accept the Docling VLM options carry these fields;
+/// every other format returns `None`. OCR and both enrichment booleans are
+/// named for every supported submission, with or without a VLM bundle, so a
+/// disabled toggle reaches the remote explicitly.
+pub(crate) fn enrichment_form_fields(
+    request: &SubmitRequest<'_>,
+) -> Result<Option<EnrichmentFormFields>, DoclingError> {
+    if !request.input_format.supports_vlm() {
+        return Ok(None);
+    }
+
+    let picture = request.do_picture_description;
+    let code_formula = request.do_code_enrichment || request.do_formula_enrichment;
+    let vlm = request.vlm;
+
+    let vlm_pipeline_custom_config = match (picture, vlm) {
+        (true, Some(vlm)) => Some(encode_enrichment_config(
+            &vlm_pipeline_options(vlm),
+            "the vlm pipeline configuration could not be encoded",
+        )?),
+        _ => None,
+    };
+    let picture_description_custom_config =
+        match (picture, request.picture_description_preset.is_some(), vlm) {
+            (true, false, Some(vlm)) => Some(encode_enrichment_config(
+                &picture_description_options(vlm),
+                "the vlm picture description configuration could not be encoded",
+            )?),
+            _ => None,
+        };
+    let code_formula_custom_config = match (code_formula, vlm) {
+        (true, Some(vlm)) => Some(encode_enrichment_config(
+            &code_formula_options(
+                vlm,
+                request.do_code_enrichment,
+                request.do_formula_enrichment,
+            ),
+            "the vlm code and formula configuration could not be encoded",
+        )?),
+        _ => None,
+    };
+
+    Ok(Some(EnrichmentFormFields {
+        ocr_preset: request.ocr_preset.to_string(),
+        do_ocr: request.do_ocr,
+        do_picture_description: picture,
+        do_code_enrichment: request.do_code_enrichment,
+        do_formula_enrichment: request.do_formula_enrichment,
+        picture_description_preset: match (picture, request.picture_description_preset) {
+            (true, Some(preset)) => Some(preset.to_string()),
+            _ => None,
+        },
+        vlm_pipeline_custom_config,
+        picture_description_custom_config,
+        code_formula_custom_config,
+    }))
+}
+
+fn encode_enrichment_config<T: Serialize>(
+    value: &T,
+    message: &str,
+) -> Result<String, DoclingError> {
+    serde_json::to_string(value).map_err(|_| DoclingError::Configuration {
+        message: message.to_string(),
+    })
 }
 
 /// Reads one task status response.
