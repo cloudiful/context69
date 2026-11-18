@@ -119,6 +119,8 @@ export function normalizeDoclingPayload(
     ocr_preset: (payload.ocr_preset ?? "").trim(),
     do_ocr: payload.do_ocr,
     do_picture_description: payload.do_picture_description,
+    do_code_enrichment: payload.do_code_enrichment,
+    do_formula_enrichment: payload.do_formula_enrichment,
     vlm_mode: payload.vlm_mode,
     vlm: {
       openai_base_url: cleanOptional(vlm.openai_base_url),

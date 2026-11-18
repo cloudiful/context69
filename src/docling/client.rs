@@ -19,9 +19,8 @@ use crate::docling::DoclingConfig;
 use crate::docling::error::{DoclingError, DoclingLimitKind};
 use crate::docling::models::{
     ConvertedDocument, InputFormat, OutputFormat, PDF_BACKEND, ParsedResult, RemoteTaskSummary,
-    SubmitRequest, TaskStatusObservation, VlmSettings, code_formula_options, parse_cancel_response,
+    SubmitRequest, TaskStatusObservation, enrichment_form_fields, parse_cancel_response,
     parse_result, parse_status_response, parse_task_list, parse_task_post, parse_task_status,
-    picture_description_options, vlm_pipeline_options,
 };
 use crate::docling::task_id::{encode_task_id_segment, validate_task_id};
 
@@ -455,28 +454,34 @@ fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingErr
     if request.input_format == InputFormat::Pdf {
         form = form.text("pdf_backend", PDF_BACKEND);
     }
-    if request.do_picture_description
-        && let Some(preset) = request.picture_description_preset
-    {
-        form = form.text("picture_description_preset", preset.to_string());
-    }
     // The OCR preset and both enrichment toggles are conversion settings of
     // their own: they are named for every PDF and DOCX submission, with or
     // without a VLM bundle, so a disabled toggle reaches the remote explicitly.
-    if request.input_format.supports_vlm() {
+    if let Some(fields) = enrichment_form_fields(request)? {
         form = form
-            .text("ocr_preset", request.ocr_preset.to_string())
-            .text("do_ocr", bool_value(request.do_ocr))
+            .text("ocr_preset", fields.ocr_preset)
+            .text("do_ocr", bool_value(fields.do_ocr))
             .text(
                 "do_picture_description",
-                bool_value(request.do_picture_description),
+                bool_value(fields.do_picture_description),
+            )
+            .text("do_code_enrichment", bool_value(fields.do_code_enrichment))
+            .text(
+                "do_formula_enrichment",
+                bool_value(fields.do_formula_enrichment),
             );
-    }
-    if request.input_format.supports_vlm()
-        && request.do_picture_description
-        && let Some(vlm) = request.vlm
-    {
-        form = apply_vlm_config(form, vlm, request.picture_description_preset.is_some())?;
+        if let Some(preset) = fields.picture_description_preset {
+            form = form.text("picture_description_preset", preset);
+        }
+        if let Some(config) = fields.vlm_pipeline_custom_config {
+            form = form.text("vlm_pipeline_custom_config", config);
+        }
+        if let Some(config) = fields.picture_description_custom_config {
+            form = form.text("picture_description_custom_config", config);
+        }
+        if let Some(config) = fields.code_formula_custom_config {
+            form = form.text("code_formula_custom_config", config);
+        }
     }
     Ok(form)
 }
@@ -484,43 +489,6 @@ fn build_form(request: &SubmitRequest<'_>) -> Result<multipart::Form, DoclingErr
 /// The Docling form spelling of one boolean toggle.
 fn bool_value(value: bool) -> &'static str {
     if value { "true" } else { "false" }
-}
-
-/// Adds the VLM form fields for the configured provider bundle.
-///
-/// A preset suppresses only the picture-description configuration; the
-/// pipeline and code/formula mappings stay. The picture-description toggle is
-/// sent by [`build_form`], so a disabled toggle never turns into an accidental
-/// enrichment here.
-fn apply_vlm_config(
-    form: multipart::Form,
-    vlm: &VlmSettings,
-    has_preset: bool,
-) -> Result<multipart::Form, DoclingError> {
-    let pipeline = serde_json::to_string(&vlm_pipeline_options(vlm)).map_err(|_| {
-        DoclingError::Configuration {
-            message: "the vlm pipeline configuration could not be encoded".to_string(),
-        }
-    })?;
-    let code_formula = serde_json::to_string(&code_formula_options(vlm)).map_err(|_| {
-        DoclingError::Configuration {
-            message: "the vlm code and formula configuration could not be encoded".to_string(),
-        }
-    })?;
-    let mut form = form.text("vlm_pipeline_custom_config", pipeline);
-    if !has_preset {
-        let picture = serde_json::to_string(&picture_description_options(vlm)).map_err(|_| {
-            DoclingError::Configuration {
-                message: "the vlm picture description configuration could not be encoded"
-                    .to_string(),
-            }
-        })?;
-        form = form.text("picture_description_custom_config", picture);
-    }
-    Ok(form
-        .text("code_formula_custom_config", code_formula)
-        .text("do_code_enrichment", "true")
-        .text("do_formula_enrichment", "true"))
 }
 
 /// Turns a non-success answer into a typed failure without reading its body.

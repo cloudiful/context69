@@ -594,6 +594,8 @@ fn docling_configuration_fingerprint(config: Option<&crate::docling::DoclingConf
         config.connection.poll_interval.as_secs().to_string(),
         config.connection.task_timeout.as_secs().to_string(),
     ]);
+    parts.push(config.do_code_enrichment.to_string());
+    parts.push(config.do_formula_enrichment.to_string());
     append_optional(&mut parts, config.vlm.openai_base_url.as_deref());
     append_optional(&mut parts, config.vlm.api_key.as_deref());
     append_optional(&mut parts, config.vlm.vlm_pipeline_model.as_deref());
@@ -646,7 +648,10 @@ fn embedding_gate_state(
 mod tests {
     use crate::vector_runtime::CurrentVectorState;
 
-    use super::{VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT, embedding_gate_state};
+    use super::{
+        VECTOR_RUNTIME_UNAVAILABLE_GATE_TEXT, docling_configuration_fingerprint,
+        embedding_gate_state,
+    };
 
     fn state(ready: bool, rebuilding: bool) -> Option<CurrentVectorState> {
         Some(CurrentVectorState {
@@ -655,6 +660,42 @@ mod tests {
             rebuilding,
             snapshot: None,
         })
+    }
+
+    /// The runtime fingerprint must change with either enrichment toggle, so a
+    /// dependency gate refreshes when the operator turns one on or off.
+    #[test]
+    fn the_docling_fingerprint_covers_the_enrichment_toggles() {
+        use std::time::Duration;
+
+        use crate::docling::{DoclingConfig, DoclingConnectionConfig, DoclingVlmConfig};
+
+        let config = || DoclingConfig {
+            connection: DoclingConnectionConfig {
+                base_url: "http://docling:5001".to_string(),
+                timeout: Duration::from_secs(120),
+                poll_interval: Duration::from_secs(2),
+                task_timeout: Duration::from_secs(3600),
+                max_inflight: 1,
+            },
+            vlm: DoclingVlmConfig::default(),
+            ocr_preset: "rapidocr".to_string(),
+            do_ocr: true,
+            do_picture_description: Some(false),
+            do_code_enrichment: false,
+            do_formula_enrichment: false,
+        };
+
+        let baseline = docling_configuration_fingerprint(Some(&config()));
+        assert_eq!(baseline, docling_configuration_fingerprint(Some(&config())));
+
+        let mut code = config();
+        code.do_code_enrichment = true;
+        assert_ne!(baseline, docling_configuration_fingerprint(Some(&code)));
+
+        let mut formula = config();
+        formula.do_formula_enrichment = true;
+        assert_ne!(baseline, docling_configuration_fingerprint(Some(&formula)));
     }
 
     #[test]

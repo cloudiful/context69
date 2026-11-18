@@ -28,6 +28,8 @@ function makeDoclingResponse(
     ocr_preset: "rapidocr",
     do_ocr: true,
     do_picture_description: false,
+    do_code_enrichment: false,
+    do_formula_enrichment: false,
     vlm: {
       openai_base_url: null,
       has_api_key: false,

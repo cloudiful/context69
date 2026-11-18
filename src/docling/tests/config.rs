@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use crate::docling::{
     DEFAULT_DOCLING_MAX_INFLIGHT, DEFAULT_DOCLING_OCR_PRESET, DoclingConfig,
-    DoclingConnectionConfig, DoclingVlmConfig, effective_ocr_preset, request_timeout,
+    DoclingConnectionConfig, DoclingVlmConfig, InputFormat, complete_legacy_vlm_fields,
+    effective_ocr_preset, request_timeout, resolve_enrichment_vlm_for_input,
     resolve_vlm_runtime_config,
 };
 
@@ -29,6 +30,8 @@ fn sample_config() -> DoclingConfig {
         ocr_preset: DEFAULT_DOCLING_OCR_PRESET.to_string(),
         do_ocr: true,
         do_picture_description: Some(true),
+        do_code_enrichment: false,
+        do_formula_enrichment: false,
     }
 }
 
@@ -99,6 +102,8 @@ fn a_configuration_without_a_vlm_bundle_resolves_to_no_provider() {
         ocr_preset: DEFAULT_DOCLING_OCR_PRESET.to_string(),
         do_ocr: true,
         do_picture_description: None,
+        do_code_enrichment: false,
+        do_formula_enrichment: false,
     };
     assert!(
         resolve_vlm_runtime_config(&config.vlm)
@@ -252,4 +257,187 @@ fn omitted_file_toggles_keep_the_legacy_behavior() {
     custom.vlm.picture_description_model = Some("pic".to_string());
     custom.vlm.code_formula_model = Some("code".to_string());
     assert!(custom.effective_do_picture_description());
+}
+
+/// A fresh or legacy configuration requests no code or formula enrichment:
+/// both toggles default to off and stay independent of OCR and picture
+/// description.
+#[test]
+fn omitted_enrichment_toggles_default_to_off() {
+    let config = DoclingConfig::default();
+    assert!(!config.do_code_enrichment);
+    assert!(!config.do_formula_enrichment);
+
+    let json = r#"{
+        "connection": {
+            "base_url": "http://localhost:5001",
+            "timeout_secs": 120,
+            "poll_interval_secs": 2,
+            "task_timeout_secs": 3600
+        },
+        "vlm": {},
+        "do_picture_description": true
+    }"#;
+    let config: DoclingConfig = serde_json::from_str(json)
+        .expect("legacy config without enrichment toggles should deserialize");
+    assert!(config.effective_do_picture_description());
+    assert!(!config.do_code_enrichment);
+    assert!(!config.do_formula_enrichment);
+
+    let json = r#"{
+        "connection": {
+            "base_url": "http://localhost:5001",
+            "timeout_secs": 120,
+            "poll_interval_secs": 2,
+            "task_timeout_secs": 3600
+        },
+        "vlm": {},
+        "do_code_enrichment": true,
+        "do_formula_enrichment": false
+    }"#;
+    let config: DoclingConfig =
+        serde_json::from_str(json).expect("explicit enrichment toggles should deserialize");
+    assert!(config.do_code_enrichment);
+    assert!(!config.do_formula_enrichment);
+    assert!(
+        !config.effective_do_picture_description(),
+        "code enrichment must not enable picture description"
+    );
+}
+
+/// A partial leftover legacy bundle must not block code or formula enrichment
+/// while picture description is off: the enrichment falls back to the remote
+/// server default instead of sending an incomplete provider request. A complete
+/// bundle stays usable, picture description keeps its all-or-nothing rule, and
+/// an input without VLM enrichment resolves nothing.
+#[test]
+fn enrichment_resolution_follows_the_bundle_and_input() {
+    /// The legacy bundle a case stores.
+    #[derive(Clone, Copy)]
+    enum Bundle {
+        Complete,
+        PartialCodeFormula,
+        PartialBaseUrl,
+        BlankField,
+        Absent,
+    }
+
+    /// What resolving the bundle for the case must produce.
+    enum Expected {
+        Bundle,
+        ServerDefault,
+        Error,
+    }
+
+    fn config_with(bundle: Bundle) -> DoclingConfig {
+        let mut config = sample_config();
+        config.do_picture_description = Some(false);
+        match bundle {
+            Bundle::Complete => {}
+            Bundle::PartialCodeFormula => config.vlm.code_formula_model = None,
+            Bundle::PartialBaseUrl => config.vlm.openai_base_url = None,
+            Bundle::BlankField => config.vlm.vlm_pipeline_model = Some("   ".to_string()),
+            Bundle::Absent => config.vlm = DoclingVlmConfig::default(),
+        }
+        config
+    }
+
+    let cases = [
+        (
+            "code only, partial bundle",
+            InputFormat::Pdf,
+            (false, true, false),
+            Bundle::PartialCodeFormula,
+            Expected::ServerDefault,
+        ),
+        (
+            "formula only, partial bundle",
+            InputFormat::Pdf,
+            (false, false, true),
+            Bundle::PartialBaseUrl,
+            Expected::ServerDefault,
+        ),
+        (
+            "blank leftover field",
+            InputFormat::Pdf,
+            (false, true, false),
+            Bundle::BlankField,
+            Expected::ServerDefault,
+        ),
+        (
+            "absent bundle",
+            InputFormat::Pdf,
+            (false, false, true),
+            Bundle::Absent,
+            Expected::ServerDefault,
+        ),
+        (
+            "code and formula, complete bundle",
+            InputFormat::Docx,
+            (false, true, true),
+            Bundle::Complete,
+            Expected::Bundle,
+        ),
+        (
+            "picture description, partial bundle",
+            InputFormat::Pdf,
+            (true, false, false),
+            Bundle::PartialCodeFormula,
+            Expected::Error,
+        ),
+        (
+            "every branch off",
+            InputFormat::Pdf,
+            (false, false, false),
+            Bundle::Complete,
+            Expected::ServerDefault,
+        ),
+        (
+            "supported input, complete bundle",
+            InputFormat::Pdf,
+            (true, true, true),
+            Bundle::Complete,
+            Expected::Bundle,
+        ),
+        (
+            "unsupported input, complete bundle",
+            InputFormat::Xlsx,
+            (true, true, true),
+            Bundle::Complete,
+            Expected::ServerDefault,
+        ),
+    ];
+
+    for (label, input_format, (picture, code, formula), bundle, expected) in cases {
+        let config = config_with(bundle);
+        assert_eq!(
+            complete_legacy_vlm_fields(&config.vlm),
+            matches!(bundle, Bundle::Complete),
+            "{label}: incomplete fields are not configured"
+        );
+
+        let resolved =
+            resolve_enrichment_vlm_for_input(input_format, &config.vlm, picture, code, formula);
+        match expected {
+            Expected::Bundle => {
+                let vlm = resolved
+                    .expect("resolve")
+                    .unwrap_or_else(|| panic!("{label}: a complete bundle resolves"));
+                assert_eq!(vlm.api_key, "secret", "{label}");
+            }
+            Expected::ServerDefault => assert!(
+                resolved.expect("resolve").is_none(),
+                "{label}: the remote server default is used"
+            ),
+            Expected::Error => {
+                let error = resolved.expect_err("picture description needs the whole bundle");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("must be fully configured together"),
+                    "{label}: {error}"
+                );
+            }
+        }
+    }
 }

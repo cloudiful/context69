@@ -696,6 +696,12 @@ pub struct DoclingSettingsResponse {
     /// Whether conversions request picture description. A fresh or
     /// unconfigured installation reports `false`.
     pub do_picture_description: bool,
+    /// Whether conversions request code enrichment. A fresh or unconfigured
+    /// installation reports `false`.
+    pub do_code_enrichment: bool,
+    /// Whether conversions request formula enrichment. A fresh or unconfigured
+    /// installation reports `false`.
+    pub do_formula_enrichment: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -754,6 +760,20 @@ pub struct UpdateDoclingSettingsRequest {
     /// coerced from the presence of a VLM preset or model.
     #[serde(default)]
     pub do_picture_description: Option<bool>,
+    /// Whether conversions request code enrichment.
+    ///
+    /// An absent field keeps the stored value; a fresh installation defaults
+    /// to `false`. The value is sent to Docling explicitly and is independent
+    /// of OCR and picture description.
+    #[serde(default)]
+    pub do_code_enrichment: Option<bool>,
+    /// Whether conversions request formula enrichment.
+    ///
+    /// An absent field keeps the stored value; a fresh installation defaults
+    /// to `false`. The value is sent to Docling explicitly and is independent
+    /// of OCR and picture description.
+    #[serde(default)]
+    pub do_formula_enrichment: Option<bool>,
 }
 
 /// Keeps an absent optional field distinguishable from an explicit `null`.
@@ -933,6 +953,8 @@ mod tests {
         .expect("a request without the toggles");
         assert_eq!(absent.do_ocr, None);
         assert_eq!(absent.do_picture_description, None);
+        assert_eq!(absent.do_code_enrichment, None);
+        assert_eq!(absent.do_formula_enrichment, None);
 
         let disabled: UpdateDoclingSettingsRequest = serde_json::from_value(serde_json::json!({
             "connection": {
@@ -942,19 +964,76 @@ mod tests {
                 "task_timeout_secs": 3600
             },
             "do_ocr": false,
-            "do_picture_description": false
+            "do_picture_description": false,
+            "do_code_enrichment": false,
+            "do_formula_enrichment": true
         }))
-        .expect("a request with disabled toggles");
+        .expect("a request with independent toggles");
         assert_eq!(disabled.do_ocr, Some(false));
         assert_eq!(disabled.do_picture_description, Some(false));
+        assert_eq!(disabled.do_code_enrichment, Some(false));
+        assert_eq!(
+            disabled.do_formula_enrichment,
+            Some(true),
+            "an explicit formula value must stay independent of the other toggles"
+        );
 
         let schema = request_schema();
-        for name in ["do_ocr", "do_picture_description"] {
+        for name in [
+            "do_ocr",
+            "do_picture_description",
+            "do_code_enrichment",
+            "do_formula_enrichment",
+        ] {
             assert!(
                 !required_properties(&schema)
                     .iter()
                     .any(|property| property == name),
                 "the {name} update property must stay optional, got: {schema}"
+            );
+        }
+    }
+
+    /// The response always serializes the resolved enrichment booleans, so a
+    /// client never has to infer them from another toggle.
+    #[test]
+    fn the_docling_enrichment_response_carries_the_resolved_booleans() {
+        let response = DoclingSettingsResponse {
+            configured: true,
+            source: super::DoclingSettingsSource::Database,
+            connection: super::DoclingConnectionSettingsResponse {
+                base_url: Some("http://docling:5001".to_string()),
+                timeout_secs: 120,
+                poll_interval_secs: 2,
+                task_timeout_secs: 3600,
+                max_inflight: 1,
+            },
+            vlm: super::DoclingVlmSettingsResponse {
+                openai_base_url: None,
+                has_api_key: false,
+                vlm_pipeline_model: None,
+                picture_description_model: None,
+                code_formula_model: None,
+                picture_description_preset: None,
+            },
+            ocr_preset: "rapidocr".to_string(),
+            do_ocr: true,
+            do_picture_description: false,
+            do_code_enrichment: false,
+            do_formula_enrichment: true,
+        };
+        let value = serde_json::to_value(&response).expect("the response serializes");
+        assert_eq!(value["do_code_enrichment"], serde_json::json!(false));
+        assert_eq!(value["do_formula_enrichment"], serde_json::json!(true));
+
+        let schema = serde_json::to_value(DoclingSettingsResponse::schema())
+            .expect("the response schema serializes");
+        for name in ["do_code_enrichment", "do_formula_enrichment"] {
+            assert!(
+                required_properties(&schema)
+                    .iter()
+                    .any(|property| property == name),
+                "the {name} response property must always be present, got: {schema}"
             );
         }
     }

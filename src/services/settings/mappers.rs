@@ -11,6 +11,7 @@ use crate::{
         DEFAULT_DOCLING_MAX_INFLIGHT, DEFAULT_DOCLING_POLL_INTERVAL_SECS,
         DEFAULT_DOCLING_TASK_TIMEOUT_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
         DoclingConnectionConfig, DoclingVlmConfig, effective_ocr_preset,
+        legacy_vlm_fields_complete,
     },
     domain_errors::DomainError,
     support::normalize::{normalize_optional_string, normalize_string_list},
@@ -49,12 +50,73 @@ pub(super) fn effective_do_ocr(
         .unwrap_or(true)
 }
 
+/// The code-enrichment toggle an update resolves to.
+///
+/// An absent request flag keeps the stored value, and an unconfigured
+/// installation defaults to disabled. The toggle is independent of OCR and
+/// picture description.
+pub(super) fn effective_do_code_enrichment(
+    request: &UpdateDoclingSettingsRequest,
+    stored: Option<&StoredDoclingSettings>,
+) -> bool {
+    request
+        .do_code_enrichment
+        .or_else(|| stored.map(|settings| settings.do_code_enrichment))
+        .unwrap_or(false)
+}
+
+/// The formula-enrichment toggle an update resolves to.
+///
+/// An absent request flag keeps the stored value, and an unconfigured
+/// installation defaults to disabled. The toggle is independent of OCR and
+/// picture description.
+pub(super) fn effective_do_formula_enrichment(
+    request: &UpdateDoclingSettingsRequest,
+    stored: Option<&StoredDoclingSettings>,
+) -> bool {
+    request
+        .do_formula_enrichment
+        .or_else(|| stored.map(|settings| settings.do_formula_enrichment))
+        .unwrap_or(false)
+}
+
+/// Whether resolving the Docling runtime config needs the VLM provider
+/// credential.
+///
+/// Picture description keeps its existing behavior: an enabled section resolves
+/// the credential even when its legacy bundle is incomplete, so a genuine
+/// configuration error is never hidden. Code and formula enrichment use the
+/// provider only through a complete legacy bundle, so a partial leftover
+/// configuration falls back to the remote default without opening the secret.
+pub(super) fn docling_needs_vlm_credential(
+    settings: &StoredDoclingSettings,
+    input_supports_vlm: bool,
+) -> bool {
+    if !input_supports_vlm {
+        return false;
+    }
+    if settings.do_picture_description {
+        return true;
+    }
+    if !(settings.do_code_enrichment || settings.do_formula_enrichment) {
+        return false;
+    }
+    legacy_vlm_fields_complete([
+        settings.openai_base_url.as_deref(),
+        settings.vlm_pipeline_model.as_deref(),
+        settings.picture_description_model.as_deref(),
+        settings.code_formula_model.as_deref(),
+    ])
+}
+
 pub(super) fn docling_settings_from_request(
     request: &UpdateDoclingSettingsRequest,
     api_key: Option<String>,
     ocr_preset: &str,
     do_ocr: bool,
     do_picture_description: bool,
+    do_code_enrichment: bool,
+    do_formula_enrichment: bool,
 ) -> StoredDoclingSettings {
     let vlm = request.vlm.as_ref();
     StoredDoclingSettings {
@@ -70,8 +132,8 @@ pub(super) fn docling_settings_from_request(
         force_ocr: false,
         ocr_engine: Some(ocr_preset.to_string()),
         ocr_lang: normalize_string_list(Vec::new()),
-        do_code_enrichment: true,
-        do_formula_enrichment: true,
+        do_code_enrichment,
+        do_formula_enrichment,
         do_picture_description,
         openai_base_url: vlm.and_then(|vlm| normalize_optional_string(vlm.openai_base_url.clone())),
         api_key,
@@ -133,6 +195,8 @@ pub(super) fn unconfigured_docling_response() -> DoclingSettingsResponse {
         ocr_preset: effective_ocr_preset(None),
         do_ocr: true,
         do_picture_description: false,
+        do_code_enrichment: false,
+        do_formula_enrichment: false,
     }
 }
 
@@ -185,6 +249,8 @@ pub(super) fn response_from_stored(
         ocr_preset: effective_ocr_preset(settings.ocr_engine.as_deref()),
         do_ocr: settings.do_ocr,
         do_picture_description: settings.do_picture_description,
+        do_code_enrichment: settings.do_code_enrichment,
+        do_formula_enrichment: settings.do_formula_enrichment,
     }
 }
 
@@ -214,6 +280,8 @@ pub(super) fn config_from_stored(
         ocr_preset: effective_ocr_preset(settings.ocr_engine.as_deref()),
         do_ocr: settings.do_ocr,
         do_picture_description: Some(settings.do_picture_description),
+        do_code_enrichment: settings.do_code_enrichment,
+        do_formula_enrichment: settings.do_formula_enrichment,
     }
 }
 

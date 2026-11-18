@@ -11,6 +11,7 @@ import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { TableColumnHeader } from "@/components/common/table-column-header";
 import { TablePagination } from "@/components/common/table-pagination";
 import { TextField } from "@/components/common/text-field";
+import { ToggleField } from "@/components/common/toggle-field";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -147,6 +148,36 @@ export function DoclingSection() {
               />
             </div>
           ) : null}
+        </SettingsBlock>
+
+        <SettingsBlock
+          id="settings-enrichment"
+          compact
+          title={t("settings.docling.enrichmentTitle")}
+        >
+          <div className="grid max-w-2xl gap-3">
+            <ToggleField
+              id="docling-code-enrichment-enabled"
+              testId="docling-code-enrichment-enabled"
+              label={t("settings.docling.codeEnrichmentEnabled")}
+              checked={draft.do_code_enrichment}
+              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
+                next.do_code_enrichment = checked;
+              })}
+            />
+            <ToggleField
+              id="docling-formula-enrichment-enabled"
+              testId="docling-formula-enrichment-enabled"
+              label={t("settings.docling.formulaEnrichmentEnabled")}
+              checked={draft.do_formula_enrichment}
+              onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
+                next.do_formula_enrichment = checked;
+              })}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t("settings.docling.enrichmentHelper")}
+            </p>
+          </div>
         </SettingsBlock>
 
         <SettingsBlock

@@ -63,11 +63,14 @@ async fn submit_frozen_config(
     let client =
         super::ingest_documents::docling_client_for_config(config).map_err(docling_submit_error)?;
     let do_picture_description = config.effective_do_picture_description();
-    let vlm = if do_picture_description {
-        crate::docling::resolve_vlm_runtime_config(&config.vlm).map_err(docling_submit_error)?
-    } else {
-        None
-    };
+    let vlm = crate::docling::resolve_enrichment_vlm_for_input(
+        input_format,
+        &config.vlm,
+        do_picture_description,
+        config.do_code_enrichment,
+        config.do_formula_enrichment,
+    )
+    .map_err(docling_submit_error)?;
     let output_formats = super::ingest_documents::docling_output_formats_for_kind(kind);
     let request = crate::docling::SubmitRequest {
         filename,
@@ -80,6 +83,8 @@ async fn submit_frozen_config(
         ocr_preset: &config.ocr_preset,
         do_ocr: config.do_ocr,
         do_picture_description,
+        do_code_enrichment: config.do_code_enrichment,
+        do_formula_enrichment: config.do_formula_enrichment,
     };
     let endpoint_base_url = crate::docling::api_base_url(&config.connection.base_url);
     let remote_task_id = client
@@ -153,9 +158,12 @@ impl LibraryService {
         let bytes = self
             .read_task_source_bytes(&file, source, lease_token)
             .await?;
+        // XLSX never carries VLM enrichment, so it must not open the provider
+        // credential just to submit its conversion.
+        let input_supports_vlm = matches!(kind, LibraryFileKind::Pdf | LibraryFileKind::Docx);
         let config = self
             .settings
-            .resolve_docling_config()
+            .resolve_docling_config_for_input(input_supports_vlm)
             .await
             .map_err(docling_submit_error)?
             .context(crate::domain_errors::DomainError::internal(

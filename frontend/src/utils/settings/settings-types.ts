@@ -124,6 +124,10 @@ export type DraftDoclingSettings = {
   do_ocr: boolean;
   /** Whether PDF and DOCX conversions request picture description. */
   do_picture_description: boolean;
+  /** Whether PDF and DOCX conversions request code enrichment. */
+  do_code_enrichment: boolean;
+  /** Whether PDF and DOCX conversions request formula enrichment. */
+  do_formula_enrichment: boolean;
   /** Frontend-only draft mode selector; never persisted to the backend. */
   vlm_mode: DraftDoclingVlmMode;
   vlm: {

@@ -2609,6 +2609,16 @@ export interface components {
             configured: boolean;
             connection: components["schemas"]["DoclingConnectionSettingsResponse"];
             /**
+             * @description Whether conversions request code enrichment. A fresh or unconfigured
+             *     installation reports `false`.
+             */
+            do_code_enrichment: boolean;
+            /**
+             * @description Whether conversions request formula enrichment. A fresh or unconfigured
+             *     installation reports `false`.
+             */
+            do_formula_enrichment: boolean;
+            /**
              * @description Whether conversions request OCR. A fresh or unconfigured installation
              *     reports `true`.
              */
@@ -5937,6 +5947,22 @@ export interface components {
         };
         UpdateDoclingSettingsRequest: {
             connection: components["schemas"]["UpdateDoclingConnectionSettings"];
+            /**
+             * @description Whether conversions request code enrichment.
+             *
+             *     An absent field keeps the stored value; a fresh installation defaults
+             *     to `false`. The value is sent to Docling explicitly and is independent
+             *     of OCR and picture description.
+             */
+            do_code_enrichment?: boolean | null;
+            /**
+             * @description Whether conversions request formula enrichment.
+             *
+             *     An absent field keeps the stored value; a fresh installation defaults
+             *     to `false`. The value is sent to Docling explicitly and is independent
+             *     of OCR and picture description.
+             */
+            do_formula_enrichment?: boolean | null;
             /**
              * @description Whether conversions request OCR.
              *
