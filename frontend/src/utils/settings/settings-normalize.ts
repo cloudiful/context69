@@ -47,6 +47,20 @@ export function normalizeRuntimePayload(
           api_key: codeSecretPatch(value.code_embedding),
         }
       : undefined,
+    // An untouched image block is omitted as well, so a document or code save
+    // preserves the stored image row and credential.
+    image_embedding: value.image_embedding.touched
+      ? {
+          enabled: value.image_embedding.enabled,
+          base_url: value.image_embedding.base_url.trim(),
+          model: value.image_embedding.model.trim(),
+          query_model: cleanOptional(value.image_embedding.query_model),
+          dimensions: Number(value.image_embedding.dimensions),
+          timeout_secs: Number(value.image_embedding.timeout_secs),
+          collection_name: value.image_embedding.collection_name.trim(),
+          api_key: imageSecretPatch(value.image_embedding),
+        }
+      : undefined,
     scheduler: {
       interval_secs: Number(value.scheduler.interval_secs),
       run_on_start: value.scheduler.run_on_start,
@@ -127,5 +141,19 @@ function codeSecretPatch(code: DraftRuntimeSettings["code_embedding"]) {
     return { op: "clear" as const };
   }
   const value = code.api_key.trim();
+  return value ? { op: "set" as const, value } : { op: "keep" as const };
+}
+
+/**
+ * The tri-state secret patch of the image credential.
+ *
+ * It is independent of the code and document credentials: keeping, replacing,
+ * and clearing the image key never touches either of them.
+ */
+function imageSecretPatch(image: DraftRuntimeSettings["image_embedding"]) {
+  if (image.clear_api_key) {
+    return { op: "clear" as const };
+  }
+  const value = image.api_key.trim();
   return value ? { op: "set" as const, value } : { op: "keep" as const };
 }

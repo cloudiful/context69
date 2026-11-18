@@ -57,6 +57,32 @@ export type DraftRuntimeSettings = {
     clear_api_key: boolean;
     touched: boolean;
   };
+  /**
+   * The independent optional image embedding draft.
+   *
+   * `touched` is frontend-only: an ordinary document or code save omits the
+   * block so it can never disable image embedding, while any image edit
+   * carries it. The collection name is a namespace, not a physical collection:
+   * the backend derives the physical collection from the runtime fingerprint.
+   */
+  image_embedding: {
+    enabled: boolean;
+    base_url: string;
+    api_key: string;
+    /** The model stored image bytes are embedded with. */
+    model: string;
+    /** The model text queries are embedded with; blank inherits the image model. */
+    query_model: string;
+    dimensions: number;
+    timeout_secs: number;
+    /** The namespace image vectors live under. */
+    collection_name: string;
+    /** Whether the response reported a stored image credential. */
+    has_api_key: boolean;
+    /** An explicit request to remove the stored image credential. */
+    clear_api_key: boolean;
+    touched: boolean;
+  };
   scheduler: {
     interval_secs: number;
     run_on_start: boolean;

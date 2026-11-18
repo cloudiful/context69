@@ -221,6 +221,33 @@ export const settings = {
     codeEmbeddingTest: "Test Connection",
     codeEmbeddingTestSuccess: "Code embedding connection succeeded",
     codeEmbeddingTestFailed: "Code embedding connection failed",
+    imageEmbeddingTitle: "Image Embedding (optional)",
+    imageEmbeddingEnabled: "Enable image embedding",
+    imageEmbeddingEnabledHelper:
+      "Used for image search only. It never reuses the document or code model, key, or vectors.",
+    imageEmbeddingBaseUrl: "Image embedding Base URL",
+    imageEmbeddingApiKey: "Image embedding API Key",
+    imageEmbeddingKeyStored: "Stored; leave blank to keep",
+    imageEmbeddingClearKey: "Clear stored image API key",
+    imageEmbeddingClearKeyHelper:
+      "Removes only the image credential; the document and code keys stay.",
+    imageEmbeddingTestClearKeyBlocked:
+      "Save the cleared key first, or enter a new key, before testing the connection.",
+    imageEmbeddingModel: "Image model",
+    imageEmbeddingModelHelper: "Embedding model for stored image bytes.",
+    imageEmbeddingQueryModel: "Image query model",
+    imageEmbeddingQueryModelHelper:
+      "Leave blank to embed text queries with the image model.",
+    imageEmbeddingCollection: "Collection namespace",
+    imageEmbeddingCollectionHelper:
+      "Namespace of the image vectors. The physical collection is derived per runtime and never shared with the document or code collections.",
+    imageEmbeddingDimensions: "Image dimensions",
+    imageEmbeddingTimeout: "Image timeout (seconds)",
+    imageEmbeddingTest: "Test Connection",
+    imageEmbeddingTestSuccess: "Image embedding connection succeeded",
+    imageEmbeddingTestFailed: "Image embedding connection failed",
+    imageEmbeddingTestScope:
+      "Test Connection probes the image embedding route with the unsaved values and never saves. The query model is saved with the configuration but is not exercised by the probe.",
     vectorRebuildStates: {
       queued: "Queued",
       running: "Rebuilding",
