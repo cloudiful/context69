@@ -123,7 +123,9 @@ fn admit_personal_access_token(
     required_scope: PersonalAccessTokenScope,
 ) -> ScopeAdmission {
     match kind {
-        AuthKind::PersonalAccessToken { token_id, scopes } if scopes.contains(&required_scope) => {
+        AuthKind::PersonalAccessToken { token_id, scopes }
+            if context69_authz::scope(scopes, required_scope) =>
+        {
             ScopeAdmission::Allowed(*token_id)
         }
         AuthKind::PersonalAccessToken { .. } => ScopeAdmission::MissingScope,

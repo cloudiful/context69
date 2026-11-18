@@ -6,6 +6,7 @@ license.workspace = true
 publish = false
 
 [dependencies]
+context69-authz.workspace = true
 anyhow.workspace = true
 async-trait.workspace = true
 axum.workspace = true

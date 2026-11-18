@@ -363,7 +363,7 @@ fn verify_password(password_hash: &str, password: &str) -> Result<()> {
 }
 
 pub(crate) fn require_admin(actor: &UserRecord) -> Result<()> {
-    if actor.is_admin {
+    if context69_authz::admin(actor.is_admin) {
         return Ok(());
     }
     Err(DomainError::forbidden("admin access required").into())

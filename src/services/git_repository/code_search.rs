@@ -78,9 +78,7 @@ pub(crate) async fn search_code(
 }
 
 fn require_viewer(group: &GroupRecord) -> Result<()> {
-    let allowed = group
-        .current_role
-        .is_some_and(|role| role.rank() >= MembershipRole::Viewer.rank());
+    let allowed = context69_authz::group(group.current_role, MembershipRole::Viewer);
     if allowed {
         Ok(())
     } else {

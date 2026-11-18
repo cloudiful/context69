@@ -1,3 +1,4 @@
+mod authorization;
 mod tools;
 
 use std::sync::Arc;
@@ -351,6 +352,31 @@ impl Context69McpServer {
     }
 }
 
+fn tool_scope(name: &str) -> Option<crate::contracts::PersonalAccessTokenScope> {
+    use crate::contracts::PersonalAccessTokenScope::{Search, Sources, Workspace};
+    match name {
+        "search_documents"
+        | "get_document"
+        | "get_document_by_external_id"
+        | "get_documents"
+        | "query_documents" => Some(Search),
+        "list_sources" => Some(Sources),
+        "search_code" | "get_code" => Some(Workspace),
+        _ => None,
+    }
+}
+
+fn resource_scope(uri: &str) -> Option<crate::contracts::PersonalAccessTokenScope> {
+    use crate::contracts::PersonalAccessTokenScope::{Search, Sources};
+    if uri.starts_with("context69://sources/") {
+        Some(Sources)
+    } else if uri.starts_with("context69://documents/") {
+        Some(Search)
+    } else {
+        None
+    }
+}
+
 #[tool_handler(router = self.tool_router)]
 impl ServerHandler for Context69McpServer {
     async fn list_resources(
@@ -441,7 +467,7 @@ impl ServerHandler for Context69McpServer {
 }
 
 pub async fn run_stdio(app: Arc<Context69App>) -> Result<()> {
-    let server = Context69McpServer::new(app);
+    let server = authorization::Authorized::new(Context69McpServer::new(app));
     let running = server::mcp::serve_stdio(server).await?;
     running.waiting().await?;
     Ok(())
@@ -462,7 +488,7 @@ pub async fn run_http(app: Arc<Context69App>) -> Result<()> {
 pub fn router(app: Arc<Context69App>) -> Result<Router> {
     let api_state = crate::api::build_api_state(app.clone());
     let router = server::mcp::router(streamable_http_config(), move || {
-        Context69McpServer::new(app.clone())
+        authorization::Authorized::new(Context69McpServer::new(app.clone()))
     })?;
     Ok(router
         .layer(from_fn_with_state(api_state, optional_auth_middleware))
@@ -534,4 +560,35 @@ where
         );
     }
     internal_error(anyhow::anyhow!(message))
+}
+
+#[cfg(test)]
+mod authorization_tests {
+    use super::{resource_scope, tool_scope};
+    use crate::contracts::PersonalAccessTokenScope::{Search, Sources, Workspace};
+
+    #[test]
+    fn resource_data_scopes_are_explicit() {
+        assert_eq!(resource_scope("context69://sources/example"), Some(Sources));
+        assert_eq!(resource_scope("context69://documents/1"), Some(Search));
+        assert_eq!(resource_scope("context69://other/1"), None);
+    }
+
+    #[test]
+    fn every_tool_has_a_scope_and_unknown_tools_are_denied() {
+        for name in [
+            "search_documents",
+            "get_document",
+            "get_document_by_external_id",
+            "get_documents",
+            "query_documents",
+        ] {
+            assert_eq!(tool_scope(name), Some(Search));
+        }
+        assert_eq!(tool_scope("list_sources"), Some(Sources));
+        for name in ["search_code", "get_code"] {
+            assert_eq!(tool_scope(name), Some(Workspace));
+        }
+        assert_eq!(tool_scope("unknown"), None);
+    }
 }

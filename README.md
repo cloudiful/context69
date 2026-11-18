@@ -116,6 +116,8 @@ docker run -d \
 
 Open `http://localhost` after the first start. Configure Qdrant, the embedding provider, and any optional services in the Settings page, then restart the container. Port `80` serves the web UI and HTTP API; port `8097` serves MCP over HTTP.
 
+Personal access token scopes limit, but do not grant, the user's own permissions. MCP document tools and document resources require `search`, source tools and resources require `sources`, and code tools require `workspace`. Token tool discovery is filtered by scope; direct calls and resource reads enforce the same ceilings.
+
 Before upgrading, stop every old writer and back up PostgreSQL and the Qdrant collections. Run the new database initialization and migrations, then start the new version; do not mix old and new writers. The task execution protocol upgrade preserves task and attempt history, but older binaries refuse the upgraded schema and cannot be rolled back against it.
 
 During graceful shutdown, a worker waiting on a persisted Docling conversion can yield its own claim after reaching a safe checkpoint. The next worker adopts the existing remote job without consuming a retry. Other stages continue normally within the shutdown budget; if shutdown times out, the database is unavailable, or the process is killed, unfinished leases recover after expiry rather than immediately.

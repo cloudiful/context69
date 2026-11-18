@@ -19,10 +19,7 @@ pub(crate) async fn group_for_user(
 }
 
 pub(crate) fn require_group_role(group: &GroupRecord, required: MembershipRole) -> Result<()> {
-    let Some(actual) = group.current_role else {
-        return Err(DomainError::forbidden("insufficient permissions for group").into());
-    };
-    if actual.rank() < required.rank() {
+    if !context69_authz::group(group.current_role, required) {
         return Err(DomainError::forbidden("insufficient permissions for group").into());
     }
     Ok(())

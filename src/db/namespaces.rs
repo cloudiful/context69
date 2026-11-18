@@ -400,7 +400,7 @@ impl Database {
         if kind == GroupKind::Personal {
             return Err(anyhow!("personal groups are created automatically"));
         }
-        if request.visibility == Visibility::Public && !actor.is_admin {
+        if request.visibility == Visibility::Public && !context69_authz::admin(actor.is_admin) {
             return Err(anyhow!("only admins can create public groups"));
         }
 
@@ -485,7 +485,7 @@ impl Database {
         let next_visibility = request.visibility.unwrap_or(existing.visibility);
         if existing.visibility == Visibility::Private
             && next_visibility == Visibility::Public
-            && !actor.is_admin
+            && !context69_authz::admin(actor.is_admin)
         {
             return Err(anyhow!("only admins can make a group public"));
         }
@@ -909,8 +909,7 @@ fn ensure_role_at_least(
     required: MembershipRole,
     resource_name: &str,
 ) -> Result<()> {
-    let actual = actual.ok_or_else(|| anyhow!("insufficient permissions for {resource_name}"))?;
-    if actual.rank() < required.rank() {
+    if !context69_authz::group(actual, required) {
         return Err(anyhow!("insufficient permissions for {resource_name}"));
     }
     Ok(())

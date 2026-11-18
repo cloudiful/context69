@@ -49,6 +49,56 @@ pub(crate) struct AuthenticatedRequest {
 #[derive(Clone)]
 pub(crate) struct RequestAuth(pub Option<AuthenticatedRequest>);
 
+impl RequestAuth {
+    #[cfg(test)]
+    pub(crate) fn test_authenticated(scopes: Option<BTreeSet<PersonalAccessTokenScope>>) -> Self {
+        let now = chrono::Utc::now();
+        let user = crate::domain::UserRecord {
+            id: 1,
+            login_name: "test".into(),
+            display_name: "test".into(),
+            password_hash: String::new(),
+            is_admin: false,
+            disabled_at: None,
+            created_at: now,
+            updated_at: now,
+        };
+        let personal_group = crate::domain::PersonalGroupRecord {
+            group_id: 1,
+            group_path: "test".into(),
+            role: crate::contracts::MembershipRole::Owner,
+        };
+        let kind = match scopes {
+            Some(scopes) => AuthKind::PersonalAccessToken {
+                token_id: Uuid::nil(),
+                scopes,
+            },
+            None => AuthKind::BrowserSession,
+        };
+        Self(Some(AuthenticatedRequest {
+            session: AuthSession {
+                user,
+                personal_group,
+            },
+            telemetry_due: false,
+            kind,
+        }))
+    }
+
+    pub(crate) fn permits_scope(&self, required: Option<PersonalAccessTokenScope>) -> bool {
+        permits_scope(self.0.as_ref().map(|auth| &auth.kind), required)
+    }
+}
+
+fn permits_scope(kind: Option<&AuthKind>, required: Option<PersonalAccessTokenScope>) -> bool {
+    match kind {
+        Some(AuthKind::PersonalAccessToken { scopes, .. }) => {
+            required.is_some_and(|scope| context69_authz::scope(scopes, scope))
+        }
+        _ => true,
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct CurrentUser(pub AuthSession);
 
@@ -280,7 +330,28 @@ mod tests {
     use axum::http::{HeaderMap, HeaderValue, header};
     use uuid::Uuid;
 
-    use super::{AuthKind, extract_bearer_token, personal_access_token_id, usage_observation};
+    use super::{
+        AuthKind, extract_bearer_token, permits_scope, personal_access_token_id, usage_observation,
+    };
+
+    #[test]
+    fn mcp_scope_ceiling_applies_only_to_tokens() {
+        let token = AuthKind::PersonalAccessToken {
+            token_id: Uuid::new_v4(),
+            scopes: BTreeSet::from([PersonalAccessTokenScope::Search]),
+        };
+        assert!(permits_scope(
+            Some(&token),
+            Some(PersonalAccessTokenScope::Search)
+        ));
+        assert!(!permits_scope(
+            Some(&token),
+            Some(PersonalAccessTokenScope::Sources)
+        ));
+        assert!(!permits_scope(Some(&token), None));
+        assert!(permits_scope(Some(&AuthKind::BrowserSession), None));
+        assert!(permits_scope(None, None));
+    }
     use crate::contracts::PersonalAccessTokenScope;
 
     #[test]

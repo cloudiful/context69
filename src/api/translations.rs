@@ -26,7 +26,7 @@ pub(crate) async fn get_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
 ) -> impl IntoResponse {
-    if !session.user.is_admin {
+    if !context69_authz::admin(session.user.is_admin) {
         return admin_required();
     }
     match state.app.translation.settings().await {
@@ -41,7 +41,7 @@ pub(crate) async fn list_translation_providers(
     CurrentUser(session): CurrentUser,
     Query(query): Query<TranslationProviderPageQuery>,
 ) -> impl IntoResponse {
-    if !session.user.is_admin {
+    if !context69_authz::admin(session.user.is_admin) {
         return admin_required();
     }
     match state
@@ -61,7 +61,7 @@ pub(crate) async fn update_translation_settings(
     CurrentUser(session): CurrentUser,
     Json(request): Json<UpdateTranslationSettingsRequest>,
 ) -> impl IntoResponse {
-    if !session.user.is_admin {
+    if !context69_authz::admin(session.user.is_admin) {
         return admin_required();
     }
     match state.app.translation.update_settings(&request).await {

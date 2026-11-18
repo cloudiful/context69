@@ -50,6 +50,9 @@ async fn main() -> Result<()> {
         return maintenance::rewrap_secrets().await;
     }
 
+    context69_authz::initialize()
+        .await
+        .map_err(anyhow::Error::msg)?;
     let config = Config::load()?;
     let db = Database::connect(&config.app_db.url).await?;
     let pending_upgrade = db.pending_upgrade().is_some();
