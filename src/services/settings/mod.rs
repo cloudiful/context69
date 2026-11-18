@@ -1494,7 +1494,7 @@ mod tests {
             UpdateRuntimeSettingsRequest, UpdateSearchSettingsRequest,
         },
         db::{StoredDoclingSettings, default_search_settings},
-        docling::{InputFormat, resolve_enrichment_vlm_for_input},
+        docling::{InputFormat, complete_legacy_vlm_fields, resolve_enrichment_vlm_for_input},
     };
 
     fn sample_request() -> UpdateDoclingSettingsRequest {
@@ -1540,6 +1540,19 @@ mod tests {
             code_formula_model: None,
             picture_description_preset: None,
         }
+    }
+
+    /// A stored row with the legacy bundle the hidden section retains: the
+    /// non-credential fields, plus the code/formula model when complete.
+    fn stored_with_legacy_bundle(complete: bool) -> StoredDoclingSettings {
+        let mut stored = sample_stored();
+        stored.openai_base_url = Some("https://legacy.example/v1".to_string());
+        stored.vlm_pipeline_model = Some("vlm".to_string());
+        stored.picture_description_model = Some("pic".to_string());
+        if complete {
+            stored.code_formula_model = Some("code".to_string());
+        }
+        stored
     }
 
     fn sample_runtime_request() -> UpdateRuntimeSettingsRequest {
@@ -2021,12 +2034,7 @@ mod tests {
     /// resolution must all leave the remote server default in effect.
     #[test]
     fn a_partial_hidden_bundle_saves_and_resolves_without_a_credential_read() {
-        let mut stored = sample_stored();
-        stored.openai_base_url = Some("https://legacy.example/v1".to_string());
-        stored.vlm_pipeline_model = Some("vlm".to_string());
-        stored.picture_description_model = Some("pic".to_string());
-        stored.code_formula_model = None;
-        stored.do_picture_description = false;
+        let mut stored = stored_with_legacy_bundle(false);
         stored.do_code_enrichment = true;
 
         validate_docling_vlm_shape_if_enabled(&stored, stored.do_picture_description)
@@ -2056,46 +2064,49 @@ mod tests {
         );
     }
 
-    /// The same hidden bundle with formula enrichment on resolves the same way,
-    /// and an unchanged complete bundle keeps its credential.
+    /// The credential decision follows the branch that actually uses the
+    /// bundle: picture description always needs it, code and formula need it
+    /// only through a complete legacy bundle, and a disabled section or an
+    /// input without VLM enrichment never opens it.
     #[test]
-    fn formula_enrichment_and_a_complete_bundle_resolve_independently() {
-        let mut partial = sample_stored();
-        partial.openai_base_url = Some("https://legacy.example/v1".to_string());
-        partial.vlm_pipeline_model = Some("vlm".to_string());
-        partial.picture_description_model = Some("pic".to_string());
-        partial.do_formula_enrichment = true;
-        assert!(!docling_needs_vlm_credential(&partial, true));
-
-        let mut complete = sample_stored();
-        complete.openai_base_url = Some("https://legacy.example/v1".to_string());
-        complete.vlm_pipeline_model = Some("vlm".to_string());
-        complete.picture_description_model = Some("pic".to_string());
-        complete.code_formula_model = Some("code".to_string());
-        complete.do_code_enrichment = true;
-        assert!(
-            docling_needs_vlm_credential(&complete, true),
-            "a complete legacy bundle can use the stored credential"
-        );
-        let config = config_from_stored(complete, Some("secret".to_string()));
-        let vlm =
-            resolve_enrichment_vlm_for_input(InputFormat::Docx, &config.vlm, false, true, false)
-                .expect("resolve")
-                .expect("a complete bundle resolves");
-        assert_eq!(vlm.api_key, "secret");
+    fn the_enrichment_credential_decision_follows_the_used_branch() {
+        let cases = [
+            ("partial code", false, true, false, false, true, false),
+            ("partial formula", false, false, true, false, true, false),
+            ("complete code", false, true, false, true, true, true),
+            ("complete formula", false, false, true, true, true, true),
+            (
+                "picture, partial bundle",
+                true,
+                false,
+                false,
+                false,
+                true,
+                true,
+            ),
+            ("every branch off", false, false, false, true, true, false),
+            ("unsupported input", false, true, false, true, false, false),
+            ("picture on XLSX", true, true, true, true, false, false),
+        ];
+        for (label, picture, code, formula, complete, input_supports_vlm, expected) in cases {
+            let mut stored = stored_with_legacy_bundle(complete);
+            stored.do_picture_description = picture;
+            stored.do_code_enrichment = code;
+            stored.do_formula_enrichment = formula;
+            assert_eq!(
+                docling_needs_vlm_credential(&stored, input_supports_vlm),
+                expected,
+                "{label}: the credential follows the branch that uses it"
+            );
+        }
     }
 
     /// Picture description keeps its existing behavior: an enabled section still
-    /// needs the credential and still rejects an incomplete bundle.
+    /// rejects an incomplete bundle and still surfaces its resolution error.
     #[test]
-    fn an_enabled_picture_description_keeps_its_credential_and_shape_rules() {
-        let mut stored = sample_stored();
-        stored.openai_base_url = Some("https://legacy.example/v1".to_string());
+    fn an_enabled_picture_description_still_rejects_a_partial_bundle() {
+        let mut stored = stored_with_legacy_bundle(false);
         stored.do_picture_description = true;
-        assert!(
-            docling_needs_vlm_credential(&stored, true),
-            "picture description must not hide a genuine configuration error"
-        );
         assert!(
             validate_docling_vlm_shape_if_enabled(&stored, true).is_err(),
             "an enabled picture description still requires the whole bundle"
@@ -2107,121 +2118,43 @@ mod tests {
         );
     }
 
-    /// A disabled enrichment section and an input without VLM enrichment both
-    /// skip the credential entirely.
+    /// The migration must normalize stored presence exactly like the runtime:
+    /// a legacy field is configured only when it survives the production
+    /// non-blank rule, so a whitespace-only value never completes the bundle.
     #[test]
-    fn disabled_enrichment_and_unsupported_inputs_need_no_credential() {
-        let stored = sample_stored();
-        assert!(!docling_needs_vlm_credential(&stored, true));
-        assert!(
-            !docling_needs_vlm_credential(&stored, false),
-            "an unsupported input never opens the provider credential"
-        );
-
-        let mut complete = stored;
-        complete.openai_base_url = Some("https://legacy.example/v1".to_string());
-        complete.vlm_pipeline_model = Some("vlm".to_string());
-        complete.picture_description_model = Some("pic".to_string());
-        complete.code_formula_model = Some("code".to_string());
-        complete.do_picture_description = true;
-        assert!(!docling_needs_vlm_credential(&complete, false));
-        let config = config_from_stored(complete, None);
-        assert!(
-            resolve_enrichment_vlm_for_input(InputFormat::Xlsx, &config.vlm, true, true, true)
-                .expect("resolve")
-                .is_none(),
-            "XLSX never receives VLM enrichment"
-        );
-    }
-
-    /// The migration's normalized presence must follow the runtime rule: a field
-    /// is configured when it survives Rust `trim`, and a legacy plaintext
-    /// credential is readable when its lossy UTF-8 text survives the same trim.
-    /// These are the synthetic values compared against the SQL predicate.
-    #[test]
-    fn the_enrichment_migration_presence_matches_the_runtime_trim() {
-        use crate::support::normalize::normalize_optional_string;
-
-        fn field_present(value: &str) -> bool {
-            normalize_optional_string(Some(value.to_string())).is_some()
-        }
-
-        fn legacy_credential_present(bytes: &[u8]) -> bool {
-            let decoded = String::from_utf8_lossy(bytes);
-            normalize_optional_string(Some(decoded.into_owned())).is_some()
-        }
-
-        let cases: [(&str, &str, &[u8], bool, bool); 10] = [
-            ("space", " ", b" ", false, false),
-            ("tab", "\t", b"\t", false, false),
-            ("newline", "\n", b"\n", false, false),
-            ("next-line", "\u{0085}", "\u{0085}".as_bytes(), false, false),
-            (
-                "no-break-space",
-                "\u{00A0}",
-                "\u{00A0}".as_bytes(),
-                false,
-                false,
-            ),
-            (
-                "ideographic-space",
-                "\u{3000}",
-                "\u{3000}".as_bytes(),
-                false,
-                false,
-            ),
-            ("mixed", " pdf ", b" \tkey\n ", true, true),
-            ("empty", "", b"", false, false),
-            ("invalid-bytes", "\u{00A0}", b"\xff", false, true),
-            (
-                "zero-width-space",
-                "\u{200B}",
-                "\u{200B}".as_bytes(),
-                true,
-                true,
-            ),
+    fn whitespace_only_legacy_fields_are_not_configured() {
+        let setters: [fn(&mut StoredDoclingSettings, Option<String>); 4] = [
+            |stored, value| stored.openai_base_url = value,
+            |stored, value| stored.vlm_pipeline_model = value,
+            |stored, value| stored.picture_description_model = value,
+            |stored, value| stored.code_formula_model = value,
         ];
-        for (label, field, bytes, expected_field, expected_credential) in cases {
-            assert_eq!(field_present(field), expected_field, "field {label}");
-            assert_eq!(
-                legacy_credential_present(bytes),
-                expected_credential,
-                "credential {label}"
-            );
+        for setter in setters {
+            for value in ["", " ", "\t", "\n", "\u{0085}", "\u{00A0}", "\u{3000}"] {
+                let mut stored = stored_with_legacy_bundle(true);
+                stored.do_code_enrichment = true;
+                setter(&mut stored, Some(value.to_string()));
+                assert!(
+                    !docling_needs_vlm_credential(&stored, true),
+                    "{value:?} is not a configured field"
+                );
+                assert!(
+                    !complete_legacy_vlm_fields(&config_from_stored(stored, None).vlm),
+                    "{value:?} is not a complete bundle"
+                );
+            }
         }
 
+        let stored = stored_with_legacy_bundle(true);
+        assert!(complete_legacy_vlm_fields(
+            &config_from_stored(stored, None).vlm
+        ));
+
+        // The migration inspects legacy bytes without decoding them, so an
+        // unreadable value cannot abort it.
         let migration =
             include_str!("../../../migrations/20261118033952_docling_enrichment_defaults.sql");
-        assert_eq!(
-            migration.matches("btrim(COALESCE(").count(),
-            4,
-            "every legacy model or endpoint field is normalized"
-        );
-        assert!(
-            migration.contains(
-                "U&'\\0009\\000A\\000B\\000C\\000D\\0020\\0085\\00A0\\1680\\2000\\2001\\2002\\2003\\2004\\2005\\2006\\2007\\2008\\2009\\200A\\2028\\2029\\202F\\205F\\3000'"
-            ),
-            "the SQL whitespace set is the Unicode White_Space set Rust trims"
-        );
-        assert!(
-            migration.contains(
-                "encode(secret.value, 'hex') !~ '^(09|0a|0b|0c|0d|20|c285|c2a0|e19a80|e2808[0-9a]|e280a8|e280a9|e280af|e2819f|e38080)*$'"
-            ),
-            "a legacy credential is blank only when it is entirely UTF-8 whitespace"
-        );
-        assert!(
-            !migration.contains("convert_from"),
-            "invalid bytes must not abort the migration"
-        );
-        assert!(
-            migration.contains("secret.purpose = 'docling.vlm_api_key'")
-                && migration.contains("octet_length(secret.value) > 0"),
-            "a nonempty sealed Docling-purpose credential stays readable"
-        );
-        assert!(
-            migration.contains("AND do_picture_description"),
-            "a picture-disabled legacy configuration is not preserved"
-        );
+        assert!(!migration.contains("convert_from"));
     }
 
     /// The save path decides from the candidate it would persist, before the
@@ -2229,10 +2162,7 @@ mod tests {
     /// never marks the credential as used, while a complete bundle does.
     #[test]
     fn the_save_credential_decision_uses_the_built_candidate() {
-        let mut partial = sample_stored();
-        partial.openai_base_url = Some("https://legacy.example/v1".to_string());
-        partial.vlm_pipeline_model = Some("vlm".to_string());
-        partial.picture_description_model = Some("pic".to_string());
+        let partial = stored_with_legacy_bundle(false);
 
         let mut request = sample_request();
         request.vlm = None;

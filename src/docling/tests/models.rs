@@ -576,7 +576,7 @@ fn the_vlm_wire_serialization_keeps_the_provider_credential() {
 fn enrichment_request<'a>(
     bytes: &'a Bytes,
     outputs: &'a [OutputFormat],
-    case: EnrichmentCase<'a>,
+    case: &EnrichmentCase<'a>,
 ) -> SubmitRequest<'a> {
     SubmitRequest {
         filename: "a.pdf",
@@ -595,233 +595,219 @@ fn enrichment_request<'a>(
 }
 
 struct EnrichmentCase<'a> {
+    label: &'a str,
     input_format: InputFormat,
     vlm: Option<&'a VlmSettings>,
     preset: Option<&'a str>,
     picture: bool,
     code: bool,
     formula: bool,
+    expected: Option<EnrichmentExpectation>,
 }
 
-/// Both enrichment toggles off: the booleans are still sent explicitly, and no
-/// unnecessary code/formula custom configuration is attached even when a full
-/// legacy bundle is stored.
+/// The enrichment form fields one case must produce. The default is the
+/// all-off case: every branch boolean false and no custom configuration.
+#[derive(Default)]
+struct EnrichmentExpectation {
+    picture: bool,
+    code: bool,
+    formula: bool,
+    pipeline: bool,
+    picture_config: bool,
+    /// `extract_code` and `extract_formulas` of the code/formula configuration.
+    code_formula: Option<(bool, bool)>,
+}
+
+fn enrichment_case<'a>(
+    label: &'a str,
+    input_format: InputFormat,
+    vlm: Option<&'a VlmSettings>,
+    preset: Option<&'a str>,
+    toggles: (bool, bool, bool),
+    expected: Option<EnrichmentExpectation>,
+) -> EnrichmentCase<'a> {
+    let (picture, code, formula) = toggles;
+    EnrichmentCase {
+        label,
+        input_format,
+        vlm,
+        preset,
+        picture,
+        code,
+        formula,
+        expected,
+    }
+}
+
+/// The enrichment form fields follow the active branches: each toggle reaches
+/// the wire explicitly, a branch attaches only its own custom configuration,
+/// and an absent bundle or unsupported input leaves the server default in
+/// effect.
 #[test]
-fn disabled_enrichment_still_sends_booleans_without_custom_configs() {
+fn enrichment_form_fields_follow_the_active_branches() {
     let bytes = Bytes::from_static(b"x");
     let outputs = [OutputFormat::Md];
     let vlm = vlm_settings();
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Pdf,
-            vlm: Some(&vlm),
-            preset: None,
-            picture: false,
-            code: false,
-            formula: false,
-        },
-    );
+    let expectations = [
+        // Both off: the booleans are sent, no custom configuration is attached.
+        enrichment_case(
+            "both off",
+            InputFormat::Pdf,
+            Some(&vlm),
+            None,
+            (false, false, false),
+            Some(EnrichmentExpectation::default()),
+        ),
+        // Code alone: only its own configuration, with formulas off.
+        enrichment_case(
+            "code only",
+            InputFormat::Pdf,
+            Some(&vlm),
+            None,
+            (false, true, false),
+            Some(EnrichmentExpectation {
+                code: true,
+                code_formula: Some((true, false)),
+                ..EnrichmentExpectation::default()
+            }),
+        ),
+        // Formula alone: code extraction stays disabled.
+        enrichment_case(
+            "formula only",
+            InputFormat::Docx,
+            Some(&vlm),
+            None,
+            (false, false, true),
+            Some(EnrichmentExpectation {
+                formula: true,
+                code_formula: Some((false, true)),
+                ..EnrichmentExpectation::default()
+            }),
+        ),
+        // Picture alone: its pipeline and picture configurations only.
+        enrichment_case(
+            "picture only",
+            InputFormat::Pdf,
+            Some(&vlm),
+            None,
+            (true, false, false),
+            Some(EnrichmentExpectation {
+                picture: true,
+                pipeline: true,
+                picture_config: true,
+                ..EnrichmentExpectation::default()
+            }),
+        ),
+        // A preset suppresses only the picture-description custom configuration.
+        enrichment_case(
+            "picture preset",
+            InputFormat::Pdf,
+            Some(&vlm),
+            Some("granite_vision"),
+            (true, false, false),
+            Some(EnrichmentExpectation {
+                picture: true,
+                pipeline: true,
+                ..EnrichmentExpectation::default()
+            }),
+        ),
+        // No legacy bundle: the remote server default carries the enrichment.
+        enrichment_case(
+            "no bundle",
+            InputFormat::Pdf,
+            None,
+            None,
+            (false, true, true),
+            Some(EnrichmentExpectation {
+                code: true,
+                formula: true,
+                ..EnrichmentExpectation::default()
+            }),
+        ),
+        // An unsupported input carries none of the enrichment fields.
+        enrichment_case(
+            "unsupported input",
+            InputFormat::Xlsx,
+            Some(&vlm),
+            None,
+            (true, true, true),
+            None,
+        ),
+    ];
 
-    let fields = enrichment_form_fields(&request)
-        .expect("the form fields resolve")
-        .expect("a pdf carries the enrichment fields");
-    assert!(fields.do_ocr);
-    assert!(!fields.do_picture_description);
-    assert!(!fields.do_code_enrichment);
-    assert!(!fields.do_formula_enrichment);
-    assert!(fields.picture_description_preset.is_none());
-    assert!(fields.vlm_pipeline_custom_config.is_none());
-    assert!(fields.picture_description_custom_config.is_none());
-    assert!(fields.code_formula_custom_config.is_none());
-}
+    for case in expectations {
+        let fields = enrichment_form_fields(&enrichment_request(&bytes, &outputs, &case))
+            .expect("the form fields resolve");
+        let Some(expected) = case.expected else {
+            assert!(
+                fields.is_none(),
+                "{}: an unsupported input must carry no enrichment fields",
+                case.label
+            );
+            continue;
+        };
+        let fields = fields
+            .unwrap_or_else(|| panic!("{}: the input must carry enrichment fields", case.label));
 
-/// Code enrichment without picture description uses the complete legacy code
-/// configuration, while every picture branch stays absent.
-#[test]
-fn code_enrichment_alone_uses_the_legacy_code_config() {
-    let bytes = Bytes::from_static(b"x");
-    let outputs = [OutputFormat::Md];
-    let vlm = vlm_settings();
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Pdf,
-            vlm: Some(&vlm),
-            preset: None,
-            picture: false,
-            code: true,
-            formula: false,
-        },
-    );
+        assert!(fields.do_ocr, "{}: OCR stays on", case.label);
+        assert_eq!(
+            (
+                fields.do_picture_description,
+                fields.do_code_enrichment,
+                fields.do_formula_enrichment
+            ),
+            (expected.picture, expected.code, expected.formula),
+            "{}: every toggle reaches the wire explicitly",
+            case.label
+        );
+        assert_eq!(
+            fields.picture_description_preset.as_deref(),
+            case.preset,
+            "{}: the selected preset is forwarded as it is",
+            case.label
+        );
+        assert_eq!(
+            fields.vlm_pipeline_custom_config.is_some(),
+            expected.pipeline,
+            "{}: the pipeline configuration follows picture description",
+            case.label
+        );
+        assert_eq!(
+            fields.picture_description_custom_config.is_some(),
+            expected.picture_config,
+            "{}: the picture configuration follows its own branch",
+            case.label
+        );
 
-    let fields = enrichment_form_fields(&request)
-        .expect("the form fields resolve")
-        .expect("a pdf carries the enrichment fields");
-    assert!(fields.do_code_enrichment);
-    assert!(!fields.do_formula_enrichment);
-    assert!(fields.vlm_pipeline_custom_config.is_none());
-    assert!(fields.picture_description_custom_config.is_none());
-    let code_formula: serde_json::Value = serde_json::from_str(
-        fields
-            .code_formula_custom_config
-            .as_deref()
-            .expect("the code configuration is attached"),
-    )
-    .expect("the code configuration is JSON");
-    assert_eq!(code_formula["extract_code"], serde_json::json!(true));
-    assert_eq!(code_formula["extract_formulas"], serde_json::json!(false));
-}
-
-/// Formula enrichment alone reflects its own toggle and leaves code extraction
-/// disabled instead of silently enabling it.
-#[test]
-fn formula_enrichment_alone_disables_the_code_extraction() {
-    let bytes = Bytes::from_static(b"x");
-    let outputs = [OutputFormat::Md];
-    let vlm = vlm_settings();
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Docx,
-            vlm: Some(&vlm),
-            preset: None,
-            picture: false,
-            code: false,
-            formula: true,
-        },
-    );
-
-    let fields = enrichment_form_fields(&request)
-        .expect("the form fields resolve")
-        .expect("a docx carries the enrichment fields");
-    assert!(!fields.do_code_enrichment);
-    assert!(fields.do_formula_enrichment);
-    let code_formula: serde_json::Value = serde_json::from_str(
-        fields
-            .code_formula_custom_config
-            .as_deref()
-            .expect("the formula configuration is attached"),
-    )
-    .expect("the formula configuration is JSON");
-    assert_eq!(code_formula["extract_code"], serde_json::json!(false));
-    assert_eq!(code_formula["extract_formulas"], serde_json::json!(true));
-}
-
-/// Picture description with code and formula off keeps its own config and never
-/// attaches the code/formula configuration.
-#[test]
-fn picture_description_alone_attaches_only_its_own_config() {
-    let bytes = Bytes::from_static(b"x");
-    let outputs = [OutputFormat::Md];
-    let vlm = vlm_settings();
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Pdf,
-            vlm: Some(&vlm),
-            preset: None,
-            picture: true,
-            code: false,
-            formula: false,
-        },
-    );
-
-    let fields = enrichment_form_fields(&request)
-        .expect("the form fields resolve")
-        .expect("a pdf carries the enrichment fields");
-    assert!(fields.do_picture_description);
-    assert!(fields.vlm_pipeline_custom_config.is_some());
-    assert!(fields.picture_description_custom_config.is_some());
-    assert!(fields.code_formula_custom_config.is_none());
-}
-
-/// A selected picture preset suppresses only the picture-description custom
-/// configuration; the pipeline stays available.
-#[test]
-fn a_picture_preset_suppresses_only_the_picture_custom_config() {
-    let bytes = Bytes::from_static(b"x");
-    let outputs = [OutputFormat::Md];
-    let vlm = vlm_settings();
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Pdf,
-            vlm: Some(&vlm),
-            preset: Some("granite_vision"),
-            picture: true,
-            code: false,
-            formula: false,
-        },
-    );
-
-    let fields = enrichment_form_fields(&request)
-        .expect("the form fields resolve")
-        .expect("a pdf carries the enrichment fields");
-    assert_eq!(
-        fields.picture_description_preset.as_deref(),
-        Some("granite_vision")
-    );
-    assert!(fields.picture_description_custom_config.is_none());
-    assert!(fields.vlm_pipeline_custom_config.is_some());
-}
-
-/// Without a complete legacy bundle the booleans still reach the remote, which
-/// then uses its own server-side model and never needs a local credential.
-#[test]
-fn enrichment_without_a_legacy_bundle_relies_on_the_server_default() {
-    let bytes = Bytes::from_static(b"x");
-    let outputs = [OutputFormat::Md];
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Pdf,
-            vlm: None,
-            preset: None,
-            picture: false,
-            code: true,
-            formula: true,
-        },
-    );
-
-    let fields = enrichment_form_fields(&request)
-        .expect("the form fields resolve")
-        .expect("a pdf carries the enrichment fields");
-    assert!(fields.do_code_enrichment);
-    assert!(fields.do_formula_enrichment);
-    assert!(fields.vlm_pipeline_custom_config.is_none());
-    assert!(fields.picture_description_custom_config.is_none());
-    assert!(fields.code_formula_custom_config.is_none());
-}
-
-/// An unsupported input format carries none of the enrichment fields.
-#[test]
-fn an_unsupported_input_carries_no_enrichment_fields() {
-    let bytes = Bytes::from_static(b"x");
-    let outputs = [OutputFormat::Json];
-    let vlm = vlm_settings();
-    let request = enrichment_request(
-        &bytes,
-        &outputs,
-        EnrichmentCase {
-            input_format: InputFormat::Xlsx,
-            vlm: Some(&vlm),
-            preset: None,
-            picture: true,
-            code: true,
-            formula: true,
-        },
-    );
-
-    assert!(
-        enrichment_form_fields(&request)
-            .expect("the form fields resolve")
-            .is_none()
-    );
+        match expected.code_formula {
+            Some((extract_code, extract_formulas)) => {
+                let configuration: serde_json::Value = serde_json::from_str(
+                    fields
+                        .code_formula_custom_config
+                        .as_deref()
+                        .unwrap_or_else(|| {
+                            panic!("{}: the code configuration must be attached", case.label)
+                        }),
+                )
+                .expect("the code configuration is JSON");
+                assert_eq!(
+                    configuration["extract_code"],
+                    serde_json::json!(extract_code),
+                    "{}",
+                    case.label
+                );
+                assert_eq!(
+                    configuration["extract_formulas"],
+                    serde_json::json!(extract_formulas),
+                    "{}",
+                    case.label
+                );
+            }
+            None => assert!(
+                fields.code_formula_custom_config.is_none(),
+                "{}: no unnecessary code configuration is attached",
+                case.label
+            ),
+        }
+    }
 }

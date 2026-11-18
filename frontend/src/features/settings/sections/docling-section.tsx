@@ -160,7 +160,6 @@ export function DoclingSection() {
               id="docling-code-enrichment-enabled"
               testId="docling-code-enrichment-enabled"
               label={t("settings.docling.codeEnrichmentEnabled")}
-              helper={t("settings.docling.codeEnrichmentHelper")}
               checked={draft.do_code_enrichment}
               onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
                 next.do_code_enrichment = checked;
@@ -170,7 +169,6 @@ export function DoclingSection() {
               id="docling-formula-enrichment-enabled"
               testId="docling-formula-enrichment-enabled"
               label={t("settings.docling.formulaEnrichmentEnabled")}
-              helper={t("settings.docling.formulaEnrichmentHelper")}
               checked={draft.do_formula_enrichment}
               onCheckedChange={(checked) => page.updateDoclingDraft((next) => {
                 next.do_formula_enrichment = checked;

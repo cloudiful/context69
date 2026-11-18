@@ -11,6 +11,7 @@ use crate::{
         DEFAULT_DOCLING_MAX_INFLIGHT, DEFAULT_DOCLING_POLL_INTERVAL_SECS,
         DEFAULT_DOCLING_TASK_TIMEOUT_SECS, DEFAULT_DOCLING_TIMEOUT_SECS, DoclingConfig,
         DoclingConnectionConfig, DoclingVlmConfig, effective_ocr_preset,
+        legacy_vlm_fields_complete,
     },
     domain_errors::DomainError,
     support::normalize::{normalize_optional_string, normalize_string_list},
@@ -100,14 +101,12 @@ pub(super) fn docling_needs_vlm_credential(
     if !(settings.do_code_enrichment || settings.do_formula_enrichment) {
         return false;
     }
-    [
+    legacy_vlm_fields_complete([
         settings.openai_base_url.as_deref(),
         settings.vlm_pipeline_model.as_deref(),
         settings.picture_description_model.as_deref(),
         settings.code_formula_model.as_deref(),
-    ]
-    .into_iter()
-    .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
+    ])
 }
 
 pub(super) fn docling_settings_from_request(

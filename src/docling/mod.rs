@@ -287,14 +287,22 @@ pub(crate) fn resolve_vlm_runtime_config(
 
 /// Whether every non-credential field of the legacy VLM bundle is configured.
 pub(crate) fn complete_legacy_vlm_fields(config: &DoclingVlmConfig) -> bool {
-    [
+    legacy_vlm_fields_complete([
         config.openai_base_url.as_deref(),
         config.vlm_pipeline_model.as_deref(),
         config.picture_description_model.as_deref(),
         config.code_formula_model.as_deref(),
-    ]
-    .into_iter()
-    .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
+    ])
+}
+
+/// Whether the four non-credential legacy VLM fields are all configured.
+///
+/// The stored settings and the runtime bundle use the same rule: a field is
+/// present only when it has non-blank text.
+pub(crate) fn legacy_vlm_fields_complete(fields: [Option<&str>; 4]) -> bool {
+    fields
+        .into_iter()
+        .all(|value| value.is_some_and(|value| !value.trim().is_empty()))
 }
 
 /// Resolves the VLM bundle an enrichment branch may actually use.
