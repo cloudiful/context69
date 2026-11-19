@@ -15,9 +15,10 @@
 use std::collections::BTreeSet;
 
 use cloudiful_authz::{
-    Action, Attenuation, Authorizer, AuthorizerConfig, AuthzRequest, Capability, CredentialContext,
-    Decision, DomainHierarchy, DomainId, FactsRevision, Grant, PrincipalId, PrincipalKind,
-    PrincipalRef, ResolvedRoles, ResourceKind, ResourceRef, RoleId, RoleSpec, ServiceId, Subject,
+    Action, Attenuation, Authority, Authorizer, AuthorizerConfig, AuthzRequest, Capability,
+    CredentialContext, Decision, DomainHierarchy, DomainId, FactsRevision, Grant, PrincipalId,
+    PrincipalKind, PrincipalRef, ResolvedRoles, ResourceKind, ResourceRef, RoleId, RoleSpec,
+    ServiceId,
 };
 use context69_contracts_auth::PersonalAccessTokenScope;
 use context69_contracts_core::TokenGroupScope;
@@ -44,6 +45,28 @@ const VIEWER_ROLE: &str = "viewer";
 const MAINTAINER_ROLE: &str = "maintainer";
 const OWNER_ROLE: &str = "owner";
 
+/// A decision using trusted current facts resolved by the caller.
+pub enum Operation<'a> {
+    Admin {
+        is_admin: bool,
+    },
+    Scope {
+        required: PersonalAccessTokenScope,
+        token_scopes: Option<&'a BTreeSet<PersonalAccessTokenScope>>,
+    },
+    Group {
+        group_id: i64,
+        required: GroupAction,
+        current_role: Option<MembershipRole>,
+        token_scope: Option<&'a TokenGroupScope>,
+    },
+}
+
+enum DomainAuthority {
+    Registered,
+    Resolved,
+}
+
 /// The fixed engine shared by the whole process.
 #[derive(Clone)]
 pub struct Context69Authorizer {
@@ -69,128 +92,71 @@ impl Context69Authorizer {
         Ok(Self { authorizer })
     }
 
-    /// Whether the actual caller currently holds the administrator role.
-    ///
-    /// `is_admin` is the trusted current user fact; it is never inferred from a
-    /// token, header, or client claim, and the administrator role carries only
-    /// its enumerated control capability.
-    pub fn admin_allowed(&self, user_id: i64, is_admin: bool) -> bool {
+    /// Evaluate an operation against trusted current user, role and credential facts.
+    pub fn check(&self, user_id: i64, operation: Operation<'_>) -> bool {
         let Some(principal) = human_principal(user_id) else {
             return false;
         };
-        let roles = if is_admin {
-            BTreeSet::from([RoleId::new(ADMIN_ROLE)])
-        } else {
-            BTreeSet::new()
+        let (domain, roles, resource, action, grants, domain_authority) = match operation {
+            Operation::Admin { is_admin } => (
+                DomainId::new(SERVICE_DOMAIN),
+                if is_admin {
+                    BTreeSet::from([RoleId::new(ADMIN_ROLE)])
+                } else {
+                    BTreeSet::new()
+                },
+                ADMIN_RESOURCE,
+                ADMIN_MANAGE_ACTION,
+                None,
+                DomainAuthority::Registered,
+            ),
+            Operation::Scope {
+                required,
+                token_scopes,
+            } => (
+                DomainId::new(SERVICE_DOMAIN),
+                BTreeSet::from([RoleId::new(AUTHENTICATED_ROLE)]),
+                SCOPE_RESOURCE,
+                scope_action(required),
+                token_scopes.map(scope_attenuation),
+                DomainAuthority::Registered,
+            ),
+            Operation::Group {
+                group_id,
+                required,
+                current_role,
+                token_scope,
+            } => {
+                if group_id <= 0 {
+                    return false;
+                }
+                (
+                    group_domain(group_id),
+                    current_role
+                        .map(|role| BTreeSet::from([RoleId::new(role_id(role))]))
+                        .unwrap_or_default(),
+                    GROUP_RESOURCE,
+                    required.as_action(),
+                    token_scope.map(group_attenuation),
+                    DomainAuthority::Resolved,
+                )
+            }
         };
-        let request = request(
-            &principal,
-            SERVICE_DOMAIN,
-            ADMIN_RESOURCE,
-            ADMIN_MANAGE_ACTION,
-            None,
-        );
-        let resolved = ResolvedRoles {
-            principal,
-            domain: DomainId::new(SERVICE_DOMAIN),
-            roles,
-        };
-        self.allowed(request, resolved, false)
-    }
-
-    /// Whether the caller's credential grants one exact personal-access-token
-    /// scope.
-    ///
-    /// `token_scopes` is `None` for a browser session, which keeps the
-    /// historical unrestricted behavior. A personal-access token contributes
-    /// only the exact scopes it carries; an empty set authorizes nothing.
-    pub fn scope_allowed(
-        &self,
-        user_id: i64,
-        required: PersonalAccessTokenScope,
-        token_scopes: Option<&BTreeSet<PersonalAccessTokenScope>>,
-    ) -> bool {
-        let Some(principal) = human_principal(user_id) else {
-            return false;
-        };
-        let credential = token_scopes.map(|scopes| CredentialContext {
+        let credential = grants.map(|grants| CredentialContext {
             principal: principal.clone(),
             audience: service_id(),
-            grants: scope_attenuation(scopes),
+            grants,
         });
-        let request = request(
-            &principal,
-            SERVICE_DOMAIN,
-            SCOPE_RESOURCE,
-            scope_action(required),
-            credential,
-        );
-        let resolved = ResolvedRoles {
-            principal,
-            domain: DomainId::new(SERVICE_DOMAIN),
-            roles: BTreeSet::from([RoleId::new(AUTHENTICATED_ROLE)]),
+        let request = request(&domain.0, resource, action, credential);
+        let resolved = ResolvedRoles::new(principal, domain, roles);
+        let authority = match domain_authority {
+            DomainAuthority::Registered => Authority::Registered(&resolved),
+            DomainAuthority::Resolved => Authority::Resolved(&resolved),
         };
-        self.allowed(request, resolved, false)
-    }
-
-    /// Whether the actual caller may exercise `required` in `group_id`.
-    ///
-    /// The role set comes from the live SQL-resolved `current_role`, bound to
-    /// the exact dynamic `group:<id>` domain. The token group range is the
-    /// credential ceiling: an unrestricted token or a browser session imposes
-    /// no ceiling, while a restricted token must name this exact group. The
-    /// engine evaluates the role and the ceiling in one decision.
-    pub fn group_action_allowed(
-        &self,
-        user_id: i64,
-        group_id: i64,
-        required: GroupAction,
-        current_role: Option<MembershipRole>,
-        token_scope: Option<&TokenGroupScope>,
-    ) -> bool {
-        if group_id <= 0 {
-            return false;
-        }
-        let Some(principal) = human_principal(user_id) else {
-            return false;
-        };
-        let domain = group_domain(group_id);
-        let roles = current_role
-            .map(|role| BTreeSet::from([RoleId::new(role_id(role))]))
-            .unwrap_or_default();
-        let credential = token_scope.map(|scope| CredentialContext {
-            principal: principal.clone(),
-            audience: service_id(),
-            grants: group_attenuation(scope),
-        });
-        let request = request(
-            &principal,
-            &domain.0,
-            GROUP_RESOURCE,
-            required.as_action(),
-            credential,
-        );
-        let resolved = ResolvedRoles {
-            principal,
-            domain,
-            roles,
-        };
-        self.allowed(request, resolved, true)
-    }
-
-    fn allowed(
-        &self,
-        request: AuthzRequest,
-        resolved: ResolvedRoles,
-        dynamic_domain: bool,
-    ) -> bool {
-        let decision = if dynamic_domain {
-            self.authorizer
-                .authorize_with_resolved_domain(&request, &resolved)
-        } else {
-            self.authorizer.authorize_with_roles(&request, &resolved)
-        };
-        matches!(decision, Decision::Allow)
+        matches!(
+            self.authorizer.authorize(&request, authority),
+            Decision::Allow
+        )
     }
 }
 
@@ -354,15 +320,12 @@ fn group_attenuation(scope: &TokenGroupScope) -> Attenuation {
 }
 
 fn request(
-    principal: &PrincipalRef,
     domain: &str,
     resource: &str,
     action: &str,
     credential: Option<CredentialContext>,
 ) -> AuthzRequest {
     AuthzRequest {
-        subject: Subject::Principal(principal.clone()),
-        domain: DomainId::new(domain),
         resource: ResourceRef {
             kind: ResourceKind::new(resource),
             id: None,
@@ -370,7 +333,6 @@ fn request(
         },
         action: Action::new(action),
         audience: service_id(),
-        facts_revision: FactsRevision(1),
         credential,
         server: None,
     }
@@ -397,21 +359,43 @@ mod tests {
     #[test]
     fn administrator_role_requires_the_current_admin_fact() {
         let engine = engine();
-        assert!(engine.admin_allowed(7, true));
-        assert!(!engine.admin_allowed(7, false));
-        assert!(!engine.admin_allowed(0, true));
+        assert!(engine.check(7, crate::Operation::Admin { is_admin: true }));
+        assert!(!engine.check(7, crate::Operation::Admin { is_admin: false }));
+        assert!(!engine.check(0, crate::Operation::Admin { is_admin: true }));
     }
 
     #[test]
     fn personal_access_token_scopes_are_exact_and_empty_denies() {
         let engine = engine();
         let search = BTreeSet::from([PersonalAccessTokenScope::Search]);
-        assert!(engine.scope_allowed(7, PersonalAccessTokenScope::Search, Some(&search)));
-        assert!(!engine.scope_allowed(7, PersonalAccessTokenScope::Admin, Some(&search)));
-        assert!(
-            !engine.scope_allowed(7, PersonalAccessTokenScope::Search, Some(&BTreeSet::new()),)
-        );
-        assert!(engine.scope_allowed(7, PersonalAccessTokenScope::Admin, None));
+        assert!(engine.check(
+            7,
+            crate::Operation::Scope {
+                required: PersonalAccessTokenScope::Search,
+                token_scopes: Some(&search)
+            }
+        ));
+        assert!(!engine.check(
+            7,
+            crate::Operation::Scope {
+                required: PersonalAccessTokenScope::Admin,
+                token_scopes: Some(&search)
+            }
+        ));
+        assert!(!engine.check(
+            7,
+            crate::Operation::Scope {
+                required: PersonalAccessTokenScope::Search,
+                token_scopes: Some(&BTreeSet::new())
+            }
+        ));
+        assert!(engine.check(
+            7,
+            crate::Operation::Scope {
+                required: PersonalAccessTokenScope::Admin,
+                token_scopes: None
+            }
+        ));
     }
 
     #[test]
@@ -424,15 +408,39 @@ mod tests {
             (None, false, false, false),
         ] {
             assert_eq!(
-                engine.group_action_allowed(7, 3, GroupAction::View, role, None),
+                engine.check(
+                    7,
+                    crate::Operation::Group {
+                        group_id: 3,
+                        required: GroupAction::View,
+                        current_role: role,
+                        token_scope: None
+                    }
+                ),
                 view
             );
             assert_eq!(
-                engine.group_action_allowed(7, 3, GroupAction::Contribute, role, None),
+                engine.check(
+                    7,
+                    crate::Operation::Group {
+                        group_id: 3,
+                        required: GroupAction::Contribute,
+                        current_role: role,
+                        token_scope: None
+                    }
+                ),
                 contribute
             );
             assert_eq!(
-                engine.group_action_allowed(7, 3, GroupAction::Manage, role, None),
+                engine.check(
+                    7,
+                    crate::Operation::Group {
+                        group_id: 3,
+                        required: GroupAction::Manage,
+                        current_role: role,
+                        token_scope: None
+                    }
+                ),
                 manage
             );
         }
@@ -458,53 +466,71 @@ mod tests {
     fn a_restricted_token_ceiling_cannot_cross_group_boundaries() {
         let engine = engine();
         let scope = TokenGroupScope::Groups { group_ids: vec![3] };
-        assert!(engine.group_action_allowed(
+        assert!(engine.check(
             7,
-            3,
-            GroupAction::View,
-            Some(MembershipRole::Owner),
-            Some(&scope),
+            crate::Operation::Group {
+                group_id: 3,
+                required: GroupAction::View,
+                current_role: Some(MembershipRole::Owner),
+                token_scope: Some(&scope)
+            }
         ));
-        assert!(!engine.group_action_allowed(
+        assert!(!engine.check(
             7,
-            4,
-            GroupAction::View,
-            Some(MembershipRole::Owner),
-            Some(&scope),
+            crate::Operation::Group {
+                group_id: 4,
+                required: GroupAction::View,
+                current_role: Some(MembershipRole::Owner),
+                token_scope: Some(&scope)
+            }
         ));
-        assert!(!engine.group_action_allowed(
+        assert!(!engine.check(
             7,
-            3,
-            GroupAction::View,
-            Some(MembershipRole::Owner),
-            Some(&TokenGroupScope::Groups {
-                group_ids: Vec::new()
-            }),
+            crate::Operation::Group {
+                group_id: 3,
+                required: GroupAction::View,
+                current_role: Some(MembershipRole::Owner),
+                token_scope: Some(&TokenGroupScope::Groups {
+                    group_ids: Vec::new()
+                })
+            }
         ));
     }
 
     #[test]
     fn unrestricted_ceiling_still_requires_a_live_role() {
         let engine = engine();
-        assert!(engine.group_action_allowed(
+        assert!(engine.check(
             7,
-            9,
-            GroupAction::View,
-            Some(MembershipRole::Viewer),
-            None
+            crate::Operation::Group {
+                group_id: 9,
+                required: GroupAction::View,
+                current_role: Some(MembershipRole::Viewer),
+                token_scope: None
+            }
         ));
-        assert!(!engine.group_action_allowed(7, 9, GroupAction::View, None, None));
+        assert!(!engine.check(
+            7,
+            crate::Operation::Group {
+                group_id: 9,
+                required: GroupAction::View,
+                current_role: None,
+                token_scope: None
+            }
+        ));
     }
 
     #[test]
     fn a_dynamic_group_works_without_registration() {
         let engine = engine();
-        assert!(engine.group_action_allowed(
+        assert!(engine.check(
             7,
-            987_654,
-            GroupAction::View,
-            Some(MembershipRole::Viewer),
-            Some(&TokenGroupScope::All),
+            crate::Operation::Group {
+                group_id: 987_654,
+                required: GroupAction::View,
+                current_role: Some(MembershipRole::Viewer),
+                token_scope: Some(&TokenGroupScope::All)
+            }
         ));
     }
 }

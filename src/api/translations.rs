@@ -71,10 +71,12 @@ pub(crate) async fn update_translation_settings(
 }
 
 fn admin_allowed(state: &ApiState, session: &crate::services::auth::AuthSession) -> bool {
-    state
-        .app
-        .authorizer
-        .admin_allowed(session.user.id, session.user.is_admin)
+    state.app.authorizer.check(
+        session.user.id,
+        context69_authz::Operation::Admin {
+            is_admin: session.user.is_admin,
+        },
+    )
 }
 
 fn admin_required() -> axum::response::Response {

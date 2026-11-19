@@ -77,12 +77,14 @@ impl<'a> CodeSearchAdmission<'a> {
         token_scope: Option<&crate::contracts::TokenGroupScope>,
         group: &'a GroupRecord,
     ) -> Result<Self> {
-        if authorizer.group_action_allowed(
+        if authorizer.check(
             user_id,
-            group.id,
-            context69_authz::GroupAction::View,
-            group.current_role,
-            token_scope,
+            context69_authz::Operation::Group {
+                group_id: group.id,
+                required: context69_authz::GroupAction::View,
+                current_role: group.current_role,
+                token_scope,
+            },
         ) {
             Ok(Self { group })
         } else {

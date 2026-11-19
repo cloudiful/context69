@@ -119,7 +119,13 @@ fn scope_allowed(
         AuthKind::PersonalAccessToken { scopes, .. } => Some(scopes),
         AuthKind::BrowserSession => None,
     };
-    authorizer.scope_allowed(user_id, required_scope, token_scopes)
+    authorizer.check(
+        user_id,
+        context69_authz::Operation::Scope {
+            required: required_scope,
+            token_scopes,
+        },
+    )
 }
 
 fn missing_scope_response(required_scope: PersonalAccessTokenScope) -> Response {

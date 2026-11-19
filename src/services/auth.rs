@@ -101,7 +101,8 @@ impl AuthService {
     /// The live administrator flag is the trusted fact; the engine never infers
     /// it from a token or a client claim.
     pub(crate) fn admin_allowed(&self, user_id: i64, is_admin: bool) -> bool {
-        self.authorizer.admin_allowed(user_id, is_admin)
+        self.authorizer
+            .check(user_id, context69_authz::Operation::Admin { is_admin })
     }
 
     pub async fn ensure_bootstrap_admin(&self) -> Result<()> {
@@ -395,7 +396,12 @@ pub(crate) fn require_admin(
     authorizer: &context69_authz::Context69Authorizer,
     actor: &UserRecord,
 ) -> Result<()> {
-    if authorizer.admin_allowed(actor.id, actor.is_admin) {
+    if authorizer.check(
+        actor.id,
+        context69_authz::Operation::Admin {
+            is_admin: actor.is_admin,
+        },
+    ) {
         return Ok(());
     }
     Err(DomainError::forbidden("admin access required").into())

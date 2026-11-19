@@ -449,7 +449,12 @@ impl Database {
             return Err(anyhow!("personal groups are created automatically"));
         }
         if request.visibility == Visibility::Public
-            && !authorizer.admin_allowed(actor.user_id, actor.is_admin)
+            && !authorizer.check(
+                actor.user_id,
+                context69_authz::Operation::Admin {
+                    is_admin: actor.is_admin,
+                },
+            )
         {
             return Err(anyhow!("only admins can create public groups"));
         }
@@ -536,7 +541,12 @@ impl Database {
         let next_visibility = request.visibility.unwrap_or(existing.visibility);
         if existing.visibility == Visibility::Private
             && next_visibility == Visibility::Public
-            && !authorizer.admin_allowed(actor.user_id, actor.is_admin)
+            && !authorizer.check(
+                actor.user_id,
+                context69_authz::Operation::Admin {
+                    is_admin: actor.is_admin,
+                },
+            )
         {
             return Err(anyhow!("only admins can make a group public"));
         }
@@ -1012,12 +1022,14 @@ fn authorize_group(
     group: &GroupRecord,
     required: MembershipRole,
 ) -> Result<()> {
-    if authorizer.group_action_allowed(
+    if authorizer.check(
         actor.user_id,
-        group.id,
-        context69_authz::GroupAction::for_role(required),
-        group.current_role,
-        actor.token_group_scope.as_ref(),
+        context69_authz::Operation::Group {
+            group_id: group.id,
+            required: context69_authz::GroupAction::for_role(required),
+            current_role: group.current_role,
+            token_scope: actor.token_group_scope.as_ref(),
+        },
     ) {
         Ok(())
     } else {

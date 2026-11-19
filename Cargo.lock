@@ -800,7 +800,7 @@ dependencies = [
 [[package]]
 name = "cloudiful-authz"
 version = "0.1.0"
-source = "git+https://forgejo.cloud1ful.com/crates/authz?rev=237463d7bec0726d90b530e346735d43ec485047#237463d7bec0726d90b530e346735d43ec485047"
+source = "git+https://forgejo.cloud1ful.com/crates/authz?rev=c09f6ea4a51f07686747ab282bb4094780a16e0f#c09f6ea4a51f07686747ab282bb4094780a16e0f"
 dependencies = [
  "casbin",
 ]

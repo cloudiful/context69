@@ -152,12 +152,14 @@ fn require_index_write_role(
     group: &GroupRecord,
     token_group_scope: Option<&TokenGroupScope>,
 ) -> Result<()> {
-    if authorizer.group_action_allowed(
+    if authorizer.check(
         user_id,
-        group.id,
-        context69_authz::GroupAction::for_role(MembershipRole::Maintainer),
-        group.current_role,
-        token_group_scope,
+        context69_authz::Operation::Group {
+            group_id: group.id,
+            required: context69_authz::GroupAction::for_role(MembershipRole::Maintainer),
+            current_role: group.current_role,
+            token_scope: token_group_scope,
+        },
     ) {
         Ok(())
     } else {

@@ -372,7 +372,13 @@ fn global_vector_rebuild_admission(
         AuthKind::BrowserSession => None,
         AuthKind::PersonalAccessToken { scopes, .. } => Some(scopes),
     };
-    if authorizer.scope_allowed(user_id, PersonalAccessTokenScope::Settings, token_scopes) {
+    if authorizer.check(
+        user_id,
+        context69_authz::Operation::Scope {
+            required: PersonalAccessTokenScope::Settings,
+            token_scopes,
+        },
+    ) {
         GlobalVectorRebuildAdmission::Allowed
     } else {
         GlobalVectorRebuildAdmission::MissingSettingsScope

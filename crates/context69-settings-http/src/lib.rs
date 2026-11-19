@@ -231,7 +231,12 @@ async fn test_qdrant_connection(
     CurrentUser(user): CurrentUser,
     axum::Json(request): axum::Json<TestRuntimeQdrantRequest>,
 ) -> impl IntoResponse {
-    if !state.authorizer.admin_allowed(user.user_id, user.is_admin) {
+    if !state.authorizer.check(
+        user.user_id,
+        context69_authz::Operation::Admin {
+            is_admin: user.is_admin,
+        },
+    ) {
         return admin_required();
     }
     match state.settings.test_qdrant_connection(&request).await {
@@ -302,7 +307,12 @@ async fn test_llm_provider_connection(
     CurrentUser(user): CurrentUser,
     axum::Json(request): axum::Json<TestLlmProviderRequest>,
 ) -> impl IntoResponse {
-    if !state.authorizer.admin_allowed(user.user_id, user.is_admin) {
+    if !state.authorizer.check(
+        user.user_id,
+        context69_authz::Operation::Admin {
+            is_admin: user.is_admin,
+        },
+    ) {
         return admin_required();
     }
     match state.settings.test_llm_provider_connection(&request).await {
@@ -345,7 +355,12 @@ async fn provision_tokenizer_preset(
     CurrentUser(user): CurrentUser,
     axum::Json(request): axum::Json<TokenizerProvisionRequest>,
 ) -> impl IntoResponse {
-    if !state.authorizer.admin_allowed(user.user_id, user.is_admin) {
+    if !state.authorizer.check(
+        user.user_id,
+        context69_authz::Operation::Admin {
+            is_admin: user.is_admin,
+        },
+    ) {
         return admin_required();
     }
     match state.settings.provision_tokenizer_preset(&request).await {

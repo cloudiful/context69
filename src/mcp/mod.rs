@@ -131,11 +131,13 @@ impl Context69McpServer {
                 Some(AuthKind::PersonalAccessToken { scopes, .. }) => Some(scopes),
                 _ => None,
             };
-            if !self
-                .app
-                .authorizer
-                .scope_allowed(user_id, required, token_scopes)
-            {
+            if !self.app.authorizer.check(
+                user_id,
+                context69_authz::Operation::Scope {
+                    required,
+                    token_scopes,
+                },
+            ) {
                 return Err(McpError::invalid_request(
                     format!(
                         "forbidden: personal access token missing {} scope",
@@ -734,13 +736,31 @@ mod tests {
             Some(AuthKind::PersonalAccessToken { scopes, .. }) => Some(scopes),
             _ => None,
         };
-        assert!(engine.scope_allowed(7, PersonalAccessTokenScope::Search, search_scopes));
+        assert!(engine.check(
+            7,
+            context69_authz::Operation::Scope {
+                required: PersonalAccessTokenScope::Search,
+                token_scopes: search_scopes
+            }
+        ));
         assert!(
-            !engine.scope_allowed(7, PersonalAccessTokenScope::Sources, search_scopes),
+            !engine.check(
+                7,
+                context69_authz::Operation::Scope {
+                    required: PersonalAccessTokenScope::Sources,
+                    token_scopes: search_scopes
+                }
+            ),
             "a missing scope is rejected by the engine, not a legacy short-circuit"
         );
         assert!(
-            engine.scope_allowed(7, PersonalAccessTokenScope::Sources, None),
+            engine.check(
+                7,
+                context69_authz::Operation::Scope {
+                    required: PersonalAccessTokenScope::Sources,
+                    token_scopes: None
+                }
+            ),
             "an authenticated browser session carries every service scope"
         );
     }
