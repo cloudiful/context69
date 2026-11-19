@@ -33,7 +33,6 @@ jobs:
         bun run generate:api
         bun run build
         test -f dist/index.html
-      runtime_init: true
       runtime_packages: '["bash"]'
       runtime_expose: |
         80
