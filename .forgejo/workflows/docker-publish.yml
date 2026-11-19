@@ -25,11 +25,9 @@ jobs:
       binary_mappings: >-
         [{"source":"target/release/context69","destination":"context69"}]
       after_build_command: |
-        set -euo pipefail
         "${RUST_OUTPUT_DIRECTORY:?}/context69" export-openapi
       frontend_install_args: '["--minimum-release-age=604800"]'
       frontend_build_command: |
-        set -euo pipefail
         bun run generate:api
         bun run build
         test -f dist/index.html
