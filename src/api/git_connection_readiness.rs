@@ -49,7 +49,7 @@ pub(crate) async fn get_git_connection_readiness(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Viewer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Viewer) {
         return group_access_error_response(error);
     }
     let connection = match state

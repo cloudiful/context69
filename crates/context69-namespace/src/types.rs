@@ -5,6 +5,9 @@ use context69_contracts_namespace::{GroupKind, MembershipRole, Visibility};
 pub struct NamespaceActor {
     pub user_id: i64,
     pub is_admin: bool,
+    /// The exact group range of the caller's personal access token, or `None`
+    /// for a browser session or internal actor. It is never synthesized.
+    pub token_group_scope: Option<context69_contracts_core::TokenGroupScope>,
 }
 
 #[derive(Debug, Clone)]

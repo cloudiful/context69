@@ -121,7 +121,11 @@ impl NamespaceApi for NamespaceApiAdapter {
     ) -> anyhow::Result<GroupResponse> {
         crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.service
-            .create_group(&to_user_record(actor), request)
+            .create_group_with_restriction(
+                &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
+                request,
+            )
             .await
             .map(group_response)
     }
@@ -134,7 +138,12 @@ impl NamespaceApi for NamespaceApiAdapter {
     ) -> anyhow::Result<GroupResponse> {
         self.require_allowed_group(actor, group_path).await?;
         self.service
-            .update_group(&to_user_record(actor), group_path, request)
+            .update_group_with_restriction(
+                &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
+                group_path,
+                request,
+            )
             .await
             .map(group_response)
     }
@@ -147,7 +156,12 @@ impl NamespaceApi for NamespaceApiAdapter {
     ) -> anyhow::Result<GroupResponse> {
         crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.service
-            .move_group(&to_user_record(actor), group_path, request)
+            .move_group_with_restriction(
+                &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
+                group_path,
+                request,
+            )
             .await
             .map(group_response)
     }
@@ -159,7 +173,11 @@ impl NamespaceApi for NamespaceApiAdapter {
     ) -> anyhow::Result<()> {
         crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.service
-            .delete_group(&to_user_record(actor), group_path)
+            .delete_group_with_restriction(
+                &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
+                group_path,
+            )
             .await
     }
 
@@ -172,8 +190,9 @@ impl NamespaceApi for NamespaceApiAdapter {
         self.require_allowed_group(actor, group_path).await?;
         let page = self
             .service
-            .list_group_members(
+            .list_group_members_with_restriction(
                 &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
                 group_path,
                 &member_page_request(query),
             )
@@ -192,7 +211,12 @@ impl NamespaceApi for NamespaceApiAdapter {
         crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.require_allowed_group(actor, group_path).await?;
         self.service
-            .upsert_group_member(&to_user_record(actor), group_path, request)
+            .upsert_group_member_with_restriction(
+                &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
+                group_path,
+                request,
+            )
             .await
     }
 
@@ -205,7 +229,12 @@ impl NamespaceApi for NamespaceApiAdapter {
         crate::authorization::require_unrestricted(actor.token_group_scope.as_ref())?;
         self.require_allowed_group(actor, group_path).await?;
         self.service
-            .delete_group_member(&to_user_record(actor), group_path, login_name)
+            .delete_group_member_with_restriction(
+                &to_user_record(actor),
+                actor.token_group_scope.as_ref(),
+                group_path,
+                login_name,
+            )
             .await
     }
 }

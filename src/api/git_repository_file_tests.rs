@@ -13,7 +13,7 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        GroupKind, MembershipRole, Visibility,
+        GroupKind, MembershipRole, TokenGroupScope, Visibility,
         sources::{
             GitCommitCheckpoint, GitGenerationStatus, GitIndexProfile, GitIndexStatus,
             GitProviderKind, GitRepositoryFile, GitVersionPolicy,
@@ -28,7 +28,8 @@ use crate::{
 };
 
 use super::super::git_read_access::{found_manifest_file, invalid_repository_path};
-use super::super::git_repository_files::{repository_not_found, require_manifest_read};
+use super::super::git_repository_files::repository_not_found;
+use super::super::group_access::group_action_allowed;
 use super::file_detail;
 
 /// Longest path the acquisition path validator accepts; the query contract
@@ -36,6 +37,27 @@ use super::file_detail;
 const PATH_MAX_CHARS: usize = 512;
 /// Deepest path the acquisition path validator accepts.
 const PATH_MAX_DEPTH: usize = 32;
+
+fn authorizer() -> context69_authz::Context69Authorizer {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(context69_authz::Context69Authorizer::new())
+        .expect("engine")
+}
+
+fn viewer_group(
+    group: &GroupRecord,
+    token_group_scope: Option<&TokenGroupScope>,
+) -> anyhow::Result<()> {
+    group_action_allowed(
+        &authorizer(),
+        7,
+        group,
+        MembershipRole::Viewer,
+        token_group_scope,
+    )
+}
 
 fn generation_key() -> Uuid {
     Uuid::parse_str("018f9f40-2222-7000-8000-0000000000c2").expect("uuid")
@@ -159,12 +181,17 @@ fn the_exact_file_read_shares_the_manifest_viewer_floor() {
         MembershipRole::Maintainer,
         MembershipRole::Owner,
     ] {
-        require_manifest_read(&group(Some(role)))
+        viewer_group(&group(Some(role)), None)
             .unwrap_or_else(|error| panic!("{role:?} may read a file entry: {error}"));
     }
     assert!(
-        require_manifest_read(&group(None)).is_err(),
+        viewer_group(&group(None), None).is_err(),
         "a caller with no membership is refused before the path is even read"
+    );
+    let foreign = TokenGroupScope::Groups { group_ids: vec![7] };
+    assert!(
+        viewer_group(&group(Some(MembershipRole::Viewer)), Some(&foreign)).is_err(),
+        "a mismatched token group ceiling is refused at the same adapter"
     );
 }
 

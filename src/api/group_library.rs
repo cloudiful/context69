@@ -39,7 +39,7 @@ pub(crate) async fn import_group_library_file_url(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     submit_task_request(
@@ -83,7 +83,7 @@ pub(crate) async fn reprocess_group_library_files(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -137,7 +137,7 @@ pub(crate) async fn prepare_group_library_upload(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let mut prepared = match state
@@ -266,7 +266,7 @@ pub(crate) async fn create_group_library_folder(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -303,7 +303,7 @@ pub(crate) async fn create_group_library_text(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let payload = match create_text_payload(request) {
@@ -348,7 +348,7 @@ pub(crate) async fn upsert_group_library_text(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let payload = match serde_json::to_value(request) {
@@ -395,7 +395,7 @@ pub(crate) async fn move_group_library_folder(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -431,7 +431,7 @@ pub(crate) async fn delete_group_library_folder(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     if let Err(error) = state
@@ -481,7 +481,7 @@ pub(crate) async fn upload_group_library_files(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let uploads = match read_library_uploads(multipart).await {
@@ -558,7 +558,7 @@ pub(crate) async fn release_group_library_file_source(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -596,7 +596,7 @@ pub(crate) async fn move_group_library_file(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -632,7 +632,7 @@ pub(crate) async fn delete_group_library_file(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     submit_task_request(

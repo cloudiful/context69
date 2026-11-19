@@ -16,10 +16,12 @@ use crate::{
         McpCodeCoverage, McpCodeGeneration, McpCodeHit, McpCodeSearchRequest, McpCodeSearchResponse,
     },
     db::Database,
-    domain::{AccessScope, GroupRecord},
+    domain::AccessScope,
     domain_errors::{DomainError, find_domain_error},
     services::{
-        git_repository::code_search::{CodeSearchOutcome, CodeSearchParams, search_code},
+        git_repository::code_search::{
+            CodeSearchAdmission, CodeSearchOutcome, CodeSearchParams, search_code,
+        },
         settings::SettingsService,
     },
 };
@@ -39,7 +41,7 @@ pub(crate) fn checked_search_args(request: &McpCodeSearchRequest) -> Result<(), 
 pub(crate) async fn search(
     db: &Database,
     settings: &SettingsService,
-    group: &GroupRecord,
+    admission: &CodeSearchAdmission<'_>,
     scope: &AccessScope,
     request: &McpCodeSearchRequest,
 ) -> Result<McpCodeSearchResponse, McpError> {
@@ -50,7 +52,7 @@ pub(crate) async fn search(
         language: request.language.as_deref(),
         limit: i64::from(request.limit),
     };
-    let outcome = search_code(db, settings, group, scope, &params)
+    let outcome = search_code(db, settings, admission, scope, &params)
         .await
         .map_err(search_error)?;
     Ok(project_response(&outcome, usize::from(request.limit)))

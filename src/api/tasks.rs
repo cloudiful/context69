@@ -56,7 +56,12 @@ pub(crate) async fn ensure_scope(
             ));
         }
     }
-    match state.app.tasks.ensure_scope(session.user.id, &spec).await {
+    match state
+        .app
+        .tasks
+        .ensure_scope(session.user.id, session.token_group_scope.as_ref(), &spec)
+        .await
+    {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
         Err(error) => task_error(error),
     }
@@ -77,8 +82,13 @@ pub(crate) async fn managed_group(
     let group = group_for_user(state, session, group_path)
         .await
         .map_err(|error| Box::new(group_access_error_response(error)))?;
-    require_group_role(&group, crate::contracts::MembershipRole::Maintainer)
-        .map_err(|error| Box::new(group_access_error_response(error)))?;
+    require_group_role(
+        state,
+        session,
+        &group,
+        crate::contracts::MembershipRole::Maintainer,
+    )
+    .map_err(|error| Box::new(group_access_error_response(error)))?;
     Ok(group)
 }
 

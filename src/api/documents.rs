@@ -125,7 +125,7 @@ pub(crate) async fn delete_group_document_by_key(
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let key = DocumentKey {
@@ -182,7 +182,7 @@ pub(crate) async fn create_metadata_index(
         Ok(value) => value,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -204,7 +204,7 @@ async fn require_manager(
     let group = group_for_user(state, session, group_path)
         .await
         .map_err(|error| Box::new(group_access_error_response(error)))?;
-    require_group_role(&group, MembershipRole::Maintainer)
+    require_group_role(state, session, &group, MembershipRole::Maintainer)
         .map_err(|error| Box::new(group_access_error_response(error)))?;
     Ok(group)
 }

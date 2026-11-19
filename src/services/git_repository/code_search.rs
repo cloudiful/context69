@@ -18,7 +18,6 @@ use anyhow::{Result, anyhow};
 use uuid::Uuid;
 
 use crate::config::QdrantConfig;
-use crate::contracts::MembershipRole;
 use crate::contracts::sources::{
     GitCodeLexicalHit, GitCodeMatchKind, GitCodeSearchHit, GitCodeVectorUnavailableReason,
     GitIndexProfile,
@@ -58,15 +57,64 @@ pub(crate) struct CodeSearchOutcome {
     pub vector_unavailable: Option<GitCodeVectorUnavailableReason>,
 }
 
-/// Runs one admission-checked code search.
+/// Proof that the shared engine admitted the caller to view this exact group.
+///
+/// The group is private, the only constructor mints it from a real engine
+/// decision over the actual user, group id, current role and token ceiling, and
+/// there is no default or deserializable bypass. Retrieval therefore cannot run
+/// without a genuine authorization decision, and the group it reads is exactly
+/// the group that was checked.
+#[derive(Debug)]
+pub(crate) struct CodeSearchAdmission<'a> {
+    group: &'a GroupRecord,
+}
+
+impl<'a> CodeSearchAdmission<'a> {
+    /// Mint admission only when the shared engine allows the viewer action.
+    pub(crate) fn admit(
+        authorizer: &context69_authz::Context69Authorizer,
+        user_id: i64,
+        token_scope: Option<&crate::contracts::TokenGroupScope>,
+        group: &'a GroupRecord,
+    ) -> Result<Self> {
+        if authorizer.check(
+            user_id,
+            context69_authz::Operation::Group {
+                group_id: group.id,
+                required: context69_authz::GroupAction::View,
+                current_role: group.current_role,
+                token_scope,
+            },
+        ) {
+            Ok(Self { group })
+        } else {
+            Err(DomainError::forbidden("insufficient permissions for group").into())
+        }
+    }
+
+    fn group(&self) -> &GroupRecord {
+        self.group
+    }
+}
+
+/// Run one bounded code search through the single admitted retrieval path.
 pub(crate) async fn search_code(
+    db: &Database,
+    settings: &SettingsService,
+    admission: &CodeSearchAdmission<'_>,
+    scope: &AccessScope,
+    params: &CodeSearchParams<'_>,
+) -> Result<CodeSearchOutcome> {
+    search_code_after_admission(db, settings, admission.group(), scope, params).await
+}
+
+async fn search_code_after_admission(
     db: &Database,
     settings: &SettingsService,
     group: &GroupRecord,
     scope: &AccessScope,
     params: &CodeSearchParams<'_>,
 ) -> Result<CodeSearchOutcome> {
-    require_viewer(group)?;
     let source = db
         .get_git_repository_source(group.id, params.repository_key)
         .await?
@@ -75,17 +123,6 @@ pub(crate) async fn search_code(
         .await?
         .ok_or_else(|| anyhow!(DomainError::conflict("no active ready index generation")))?;
     search_captured(db, settings, &source, &generation, scope, params).await
-}
-
-fn require_viewer(group: &GroupRecord) -> Result<()> {
-    let allowed = group
-        .current_role
-        .is_some_and(|role| role.rank() >= MembershipRole::Viewer.rank());
-    if allowed {
-        Ok(())
-    } else {
-        Err(DomainError::forbidden("insufficient permissions for group").into())
-    }
 }
 
 async fn active_ready_generation(

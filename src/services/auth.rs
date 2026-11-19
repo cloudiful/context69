@@ -6,6 +6,7 @@ use argon2::{
 };
 use axum_login::{AuthUser, AuthnBackend, UserId};
 use chrono::Utc;
+use std::sync::Arc;
 
 use crate::{
     config::AuthConfig,
@@ -28,6 +29,7 @@ pub const AUTH_SESSION_DATA_KEY: &str = "context69.auth_session_v2";
 pub struct AuthService {
     db: Database,
     config: AuthConfig,
+    authorizer: Arc<context69_authz::Context69Authorizer>,
 }
 
 #[derive(Debug, Clone)]
@@ -77,8 +79,30 @@ impl From<anyhow::Error> for AuthBackendError {
 }
 
 impl AuthService {
-    pub fn new(db: Database, config: AuthConfig) -> Result<Self> {
-        Ok(Self { db, config })
+    pub fn new(
+        db: Database,
+        config: AuthConfig,
+        authorizer: Arc<context69_authz::Context69Authorizer>,
+    ) -> Result<Self> {
+        Ok(Self {
+            db,
+            config,
+            authorizer,
+        })
+    }
+
+    /// The engine-backed administrator gate for the actual caller.
+    fn require_admin(&self, actor: &UserRecord) -> Result<()> {
+        require_admin(&self.authorizer, actor)
+    }
+
+    /// Whether the actual caller currently holds the administrator role.
+    ///
+    /// The live administrator flag is the trusted fact; the engine never infers
+    /// it from a token or a client claim.
+    pub(crate) fn admin_allowed(&self, user_id: i64, is_admin: bool) -> bool {
+        self.authorizer
+            .check(user_id, context69_authz::Operation::Admin { is_admin })
     }
 
     pub async fn ensure_bootstrap_admin(&self) -> Result<()> {
@@ -133,7 +157,7 @@ impl AuthService {
         sort_by: Option<&str>,
         sort_direction: Option<&str>,
     ) -> Result<AdminUserPage> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         let bounds = PageBounds::new(page, page_size)?;
         let total = self.db.count_users(query).await?;
         Ok(AdminUserPage {
@@ -159,7 +183,7 @@ impl AuthService {
         password: &str,
         is_admin: bool,
     ) -> Result<UserRecord> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
 
         let login_name = login_name.trim();
         let display_name = display_name.trim();
@@ -190,7 +214,7 @@ impl AuthService {
         display_name: Option<&str>,
         is_admin: Option<bool>,
     ) -> Result<UserRecord> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
 
         let trimmed_display_name = display_name.map(str::trim);
         if let Some("") = trimmed_display_name {
@@ -210,7 +234,7 @@ impl AuthService {
         login_name: &str,
         password: &str,
     ) -> Result<UserRecord> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
 
         let password = password.trim();
         if password.is_empty() {
@@ -230,7 +254,7 @@ impl AuthService {
         actor: &UserRecord,
         login_name: &str,
     ) -> Result<UserRecord> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         self.db
             .set_user_disabled_at(login_name, Some(Utc::now()))
             .await?
@@ -243,7 +267,7 @@ impl AuthService {
         actor: &UserRecord,
         login_name: &str,
     ) -> Result<UserRecord> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         self.db
             .set_user_disabled_at(login_name, None)
             .await?
@@ -368,8 +392,16 @@ fn verify_password(password_hash: &str, password: &str) -> Result<()> {
     Ok(())
 }
 
-pub(crate) fn require_admin(actor: &UserRecord) -> Result<()> {
-    if actor.is_admin {
+pub(crate) fn require_admin(
+    authorizer: &context69_authz::Context69Authorizer,
+    actor: &UserRecord,
+) -> Result<()> {
+    if authorizer.check(
+        actor.id,
+        context69_authz::Operation::Admin {
+            is_admin: actor.is_admin,
+        },
+    ) {
         return Ok(());
     }
     Err(DomainError::forbidden("admin access required").into())

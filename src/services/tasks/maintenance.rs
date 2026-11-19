@@ -380,7 +380,12 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };
-        let error = crate::services::auth::require_admin(&actor).unwrap_err();
+        let authorizer = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(context69_authz::Context69Authorizer::new())
+            .expect("engine");
+        let error = crate::services::auth::require_admin(&authorizer, &actor).unwrap_err();
         assert_eq!(
             crate::domain_errors::status_for_error(&error),
             axum::http::StatusCode::FORBIDDEN
@@ -525,7 +530,7 @@ impl TaskService {
         &self,
         actor: &UserRecord,
     ) -> Result<CancelActiveTasksResponse> {
-        crate::services::auth::require_admin(actor)?;
+        self.require_admin(actor)?;
         Ok(CancelActiveTasksResponse {
             cancelled_tasks: self.db().cancel_all_active_tasks().await?,
         })
@@ -539,7 +544,7 @@ impl TaskService {
         &self,
         actor: &UserRecord,
     ) -> Result<TaskQueueStateResponse> {
-        crate::services::auth::require_admin(actor)?;
+        self.require_admin(actor)?;
         Ok(task_queue_state_response(
             self.db().read_task_queue_state().await?,
         ))
@@ -557,7 +562,7 @@ impl TaskService {
         actor: &UserRecord,
         request: &UpdateTaskQueueStateRequest,
     ) -> Result<TaskQueueStateResponse> {
-        crate::services::auth::require_admin(actor)?;
+        self.require_admin(actor)?;
         let state = self.db().set_task_queue_paused(request.paused).await?;
         if !state.paused {
             self.notify_dispatch();
@@ -575,7 +580,7 @@ impl TaskService {
         actor: &UserRecord,
         query: &DoclingRemoteTasksQuery,
     ) -> Result<DoclingRemoteTasksResponse> {
-        crate::services::auth::require_admin(actor)?;
+        self.require_admin(actor)?;
         validate_remote_query(query)?;
         let cleanup = self
             .db()
@@ -608,7 +613,7 @@ impl TaskService {
         actor: &UserRecord,
         query: &DoclingCleanupQuery,
     ) -> Result<DoclingCleanupPageResponse> {
-        crate::services::auth::require_admin(actor)?;
+        self.require_admin(actor)?;
         validate_cleanup_query(query)?;
         let page = OffsetPageQuery {
             page: query.page,
@@ -662,7 +667,7 @@ impl TaskService {
         &self,
         actor: &UserRecord,
     ) -> Result<context69_contracts::DoclingCleanupResponse> {
-        crate::services::auth::require_admin(actor)?;
+        self.require_admin(actor)?;
         let woken = self.db().wake_due_docling_cleanup().await?.len() as u32;
         Ok(context69_contracts::DoclingCleanupResponse { woken })
     }

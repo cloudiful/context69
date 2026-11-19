@@ -6,8 +6,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use uuid::Uuid;
-
 use crate::contracts::{ApiErrorResponse, PersonalAccessTokenScope};
 
 use super::{ApiState, AuthKind, RequestAuth, records_successful_use};
@@ -78,23 +76,25 @@ async fn require_scope_middleware(
             .into_response();
     };
 
-    let token_id = match admit_personal_access_token(&authenticated.kind, required_scope) {
-        ScopeAdmission::Allowed(token_id) => authenticated.telemetry_due.then_some(token_id),
-        ScopeAdmission::MissingScope => {
-            return (
-                StatusCode::FORBIDDEN,
-                Json(ApiErrorResponse::new(
-                    "forbidden",
-                    format!(
-                        "personal access token missing {} scope",
-                        scope_name(required_scope)
-                    ),
-                )),
-            )
-                .into_response();
+    let token_id = match &authenticated.kind {
+        AuthKind::PersonalAccessToken { token_id, .. } => {
+            authenticated.telemetry_due.then_some(*token_id)
         }
-        ScopeAdmission::NotAPersonalAccessToken => None,
+        AuthKind::BrowserSession => None,
     };
+
+    // The shared engine is the single scope authority: it decides the exact
+    // scope from the real caller and the token's credential ceiling. A browser
+    // session is unrestricted; a personal access token contributes only the
+    // scopes it carries.
+    if !scope_allowed(
+        &state.app.authorizer,
+        authenticated.session.user.id,
+        required_scope,
+        &authenticated.kind,
+    ) {
+        return missing_scope_response(required_scope);
+    }
 
     let response = next.run(request).await;
     if let Some(token_id) = token_id
@@ -105,32 +105,41 @@ async fn require_scope_middleware(
     response
 }
 
-/// What a scope-gated request observed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ScopeAdmission {
-    /// The request carried a personal access token with the required scope.
-    Allowed(Uuid),
-    /// The request carried a personal access token without the required scope.
-    MissingScope,
-    /// The request carried no personal access token.
-    NotAPersonalAccessToken,
+/// The shared engine's decision for one required scope.
+///
+/// This helper only classifies the credential kind and forwards the actual
+/// caller and token ceiling; it never decides scope membership itself.
+fn scope_allowed(
+    authorizer: &context69_authz::Context69Authorizer,
+    user_id: i64,
+    required_scope: PersonalAccessTokenScope,
+    kind: &AuthKind,
+) -> bool {
+    let token_scopes = match kind {
+        AuthKind::PersonalAccessToken { scopes, .. } => Some(scopes),
+        AuthKind::BrowserSession => None,
+    };
+    authorizer.check(
+        user_id,
+        context69_authz::Operation::Scope {
+            required: required_scope,
+            token_scopes,
+        },
+    )
 }
 
-/// The admission a scope-gated request earns.
-///
-/// The usage observation is admitted only with the scope, so a refused scope
-/// and a browser session record nothing.
-fn admit_personal_access_token(
-    kind: &AuthKind,
-    required_scope: PersonalAccessTokenScope,
-) -> ScopeAdmission {
-    match kind {
-        AuthKind::PersonalAccessToken { token_id, scopes } if scopes.contains(&required_scope) => {
-            ScopeAdmission::Allowed(*token_id)
-        }
-        AuthKind::PersonalAccessToken { .. } => ScopeAdmission::MissingScope,
-        AuthKind::BrowserSession => ScopeAdmission::NotAPersonalAccessToken,
-    }
+fn missing_scope_response(required_scope: PersonalAccessTokenScope) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(ApiErrorResponse::new(
+            "forbidden",
+            format!(
+                "personal access token missing {} scope",
+                scope_name(required_scope)
+            ),
+        )),
+    )
+        .into_response()
 }
 
 fn scope_name(scope: PersonalAccessTokenScope) -> &'static str {
@@ -150,33 +159,47 @@ mod tests {
 
     use uuid::Uuid;
 
-    use super::{AuthKind, ScopeAdmission, admit_personal_access_token};
+    use super::scope_allowed;
     use crate::contracts::PersonalAccessTokenScope;
 
+    fn authorizer() -> context69_authz::Context69Authorizer {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(context69_authz::Context69Authorizer::new())
+            .expect("engine")
+    }
+
     #[test]
-    fn a_scope_gated_request_observes_usage_only_after_its_scope_passed() {
-        let token_id = Uuid::new_v4();
-        let permitted = AuthKind::PersonalAccessToken {
-            token_id,
+    fn the_shared_engine_decides_present_and_missing_token_scopes() {
+        let permitted = super::AuthKind::PersonalAccessToken {
+            token_id: Uuid::new_v4(),
             scopes: BTreeSet::from([PersonalAccessTokenScope::Search]),
         };
-        assert_eq!(
-            admit_personal_access_token(&permitted, PersonalAccessTokenScope::Search),
-            ScopeAdmission::Allowed(token_id)
-        );
-        assert_eq!(
-            admit_personal_access_token(&permitted, PersonalAccessTokenScope::Admin),
-            ScopeAdmission::MissingScope,
-            "a refused scope observes no usage"
+        assert!(scope_allowed(
+            &authorizer(),
+            7,
+            PersonalAccessTokenScope::Search,
+            &permitted
+        ));
+        assert!(
+            !scope_allowed(
+                &authorizer(),
+                7,
+                PersonalAccessTokenScope::Admin,
+                &permitted
+            ),
+            "a missing scope is rejected by the engine, not by a legacy short-circuit"
         );
 
-        assert_eq!(
-            admit_personal_access_token(
-                &AuthKind::BrowserSession,
-                PersonalAccessTokenScope::Search
+        assert!(
+            scope_allowed(
+                &authorizer(),
+                7,
+                PersonalAccessTokenScope::Search,
+                &super::AuthKind::BrowserSession
             ),
-            ScopeAdmission::NotAPersonalAccessToken,
-            "a browser session observes no usage"
+            "an authenticated browser session carries every service scope"
         );
     }
 }

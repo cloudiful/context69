@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        CursorPageQuery,
+        CursorPageQuery, MembershipRole,
         sources::{
             GitGenerationStatus, GitRepositoryFileDiff, GitRepositoryFileDiffFile,
             GitRepositoryFileDiffQuery, GitRepositoryFileDiffResponse,
@@ -49,10 +49,8 @@ use super::{
     auth::CurrentUser,
     errors::library_management_error_response,
     git_repository_file_paging::{ManifestPage, requested_page},
-    git_repository_files::{
-        generation_not_ready, repository_not_found, require_manifest_read, serving_generation,
-    },
-    group_access::{group_access_error_response, group_for_user},
+    git_repository_files::{generation_not_ready, repository_not_found, serving_generation},
+    group_access::{group_access_error_response, group_for_user, require_group_role},
 };
 
 #[utoipa::path(
@@ -81,7 +79,7 @@ pub(crate) async fn diff_git_repository_files(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_manifest_read(&group) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Viewer) {
         return group_access_error_response(error);
     }
     // The page is validated before any repository work, so a malformed

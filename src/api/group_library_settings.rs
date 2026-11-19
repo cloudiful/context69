@@ -43,7 +43,7 @@ pub(crate) async fn update_group_library_settings(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state

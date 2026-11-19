@@ -84,6 +84,7 @@ pub(crate) fn build_api_state(app: Arc<Context69App>) -> ApiState {
         },
         settings_http: SettingsHttpState {
             settings: Arc::new(SettingsApiAdapter::new(app.settings.clone())),
+            authorizer: app.authorizer.clone(),
         },
     }
 }

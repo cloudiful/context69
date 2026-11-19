@@ -11,11 +11,15 @@ use crate::db::Database;
 #[derive(Clone)]
 pub(super) struct DbNamespaceRepository {
     db: Database,
+    authorizer: std::sync::Arc<context69_authz::Context69Authorizer>,
 }
 
 impl DbNamespaceRepository {
-    pub(super) fn new(db: Database) -> Self {
-        Self { db }
+    pub(super) fn new(
+        db: Database,
+        authorizer: std::sync::Arc<context69_authz::Context69Authorizer>,
+    ) -> Self {
+        Self { db, authorizer }
     }
 }
 
@@ -57,7 +61,7 @@ impl NamespaceRepository for DbNamespaceRepository {
         actor: &NamespaceActor,
         request: &CreateGroupInput,
     ) -> Result<GroupRecord> {
-        self.db.create_group(actor, request).await
+        self.db.create_group(actor, request, &self.authorizer).await
     }
 
     async fn update_group(
@@ -66,7 +70,9 @@ impl NamespaceRepository for DbNamespaceRepository {
         group_path: &str,
         request: &UpdateGroupInput,
     ) -> Result<GroupRecord> {
-        self.db.update_group(actor, group_path, request).await
+        self.db
+            .update_group(actor, group_path, request, &self.authorizer)
+            .await
     }
 
     async fn move_group(
@@ -75,11 +81,15 @@ impl NamespaceRepository for DbNamespaceRepository {
         group_path: &str,
         request: &MoveGroupInput,
     ) -> Result<GroupRecord> {
-        self.db.move_group(actor, group_path, request).await
+        self.db
+            .move_group(actor, group_path, request, &self.authorizer)
+            .await
     }
 
     async fn delete_group(&self, actor: &NamespaceActor, group_path: &str) -> Result<()> {
-        self.db.delete_group(actor, group_path).await
+        self.db
+            .delete_group(actor, group_path, &self.authorizer)
+            .await
     }
 
     async fn list_group_members(
@@ -88,7 +98,9 @@ impl NamespaceRepository for DbNamespaceRepository {
         group_path: &str,
         request: &PageRequest,
     ) -> Result<Page<NamespaceMemberRecord>> {
-        self.db.list_group_members(actor, group_path, request).await
+        self.db
+            .list_group_members(actor, group_path, request, &self.authorizer)
+            .await
     }
 
     async fn upsert_group_member(
@@ -98,7 +110,7 @@ impl NamespaceRepository for DbNamespaceRepository {
         request: &UpsertMembershipInput,
     ) -> Result<()> {
         self.db
-            .upsert_group_member(actor, group_path, request)
+            .upsert_group_member(actor, group_path, request, &self.authorizer)
             .await
     }
 
@@ -109,7 +121,7 @@ impl NamespaceRepository for DbNamespaceRepository {
         login_name: &str,
     ) -> Result<()> {
         self.db
-            .delete_group_member(actor, group_path, login_name)
+            .delete_group_member(actor, group_path, login_name, &self.authorizer)
             .await
     }
 

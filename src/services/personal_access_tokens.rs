@@ -249,7 +249,9 @@ impl PersonalAccessTokenService {
         if scopes.is_empty() {
             return Err(DomainError::invalid_argument("at least one scope is required").into());
         }
-        if scopes.contains(&PersonalAccessTokenScope::Admin) && !is_admin {
+        if scopes.contains(&PersonalAccessTokenScope::Admin)
+            && !self.auth.admin_allowed(user_id, is_admin)
+        {
             return Err(DomainError::invalid_argument(
                 "admin scope requires an administrator account",
             )
