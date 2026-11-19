@@ -16,24 +16,36 @@ concurrency:
 jobs:
   build-and-publish:
     if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    uses: actions/workflows/.forgejo/workflows/docker-publish.yml@v0.6.2
+    uses: actions/workflows/.forgejo/workflows/docker-publish.yml@main
     with:
       builds: >-
         [{"platform":"linux/amd64","runner":"aio"}]
-      before_build_command: rm -rf ci-image-input
-      build_command: cargo build --release --bin context69
+      dockerfile_mode: builtin
+      build_command: SQLX_OFFLINE=true cargo build --release --bin context69
       binary_mappings: >-
         [{"source":"target/release/context69","destination":"context69"}]
       after_build_command: |
-        ci-image-input/context69 export-openapi
-        cd frontend
-        bun install --no-save --minimum-release-age 604800
+        set -euo pipefail
+        "${RUST_OUTPUT_DIRECTORY:?}/context69" export-openapi
+      frontend_install_args: '["--minimum-release-age=604800"]'
+      frontend_build_command: |
+        set -euo pipefail
         bun run generate:api
         bun run build
         test -f dist/index.html
-        mkdir -p ../ci-image-input/frontend-dist
-        cp -R dist/. ../ci-image-input/frontend-dist/
-      dockerfile: ./forgejo.Dockerfile
-      targets: >-
-        [{"target":"runtime"}]
-      push: true
+      runtime_packages: '["bash"]'
+      runtime_expose: |
+        80
+        8097
+      runtime_env: |
+        RUST_LOG=context69=info,sqlx=warn
+        CONTEXT69_API__BIND_ADDR=0.0.0.0:80
+        CONTEXT69_MCP__BIND_ADDR=0.0.0.0:8097
+        CONTEXT69_CHUNKING__TOKENIZER_ARTIFACT_DIR=/var/lib/context69/tokenizers
+        CONTEXT69_CHUNKING__TOKENIZER_DOWNLOAD_DIR=/var/lib/context69/tokenizers.cache
+      runtime_directories: >-
+        [{"path":"/var/lib/context69/tokenizers","owner":"0:0"},{"path":"/var/lib/context69/tokenizers.cache","owner":"0:0"}]
+      runtime_files: >-
+        [{"source":"THIRD_PARTY_NOTICES.md","destination":"/usr/share/doc/context69/THIRD_PARTY_NOTICES.md"},{"source":"LICENSE","destination":"/usr/share/doc/context69/LICENSE"}]
+      runtime_remote_files: >-
+        [{"url":"https://huggingface.cloud1ful.com/google/embeddinggemma-2/resolve/f9972ac22e696a105c482202646979e33e4b5a1e/tokenizer.json","destination":"/var/lib/context69/tokenizers/4d777ef5bdc1aa36227abdfb77c3e49e7b9c892d16e1b6bda41c393504828be4.json"}]

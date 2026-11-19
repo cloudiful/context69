@@ -114,8 +114,7 @@ mod tests {
     }
 
     #[test]
-    fn the_default_image_pins_the_download_and_the_forgejo_image_uses_the_proxy_without_download_checks()
-     {
+    fn the_images_use_the_pinned_sources_and_content_addressed_destination() {
         let preset = preset_by_id(EMBEDDINGGEMMA2_R_F9972AC).expect("the preset");
         let size_check = format!(
             "test \"$(wc -c < /tmp/tokenizer.json)\" -eq {}",
@@ -127,48 +126,41 @@ mod tests {
             preset.sha256
         );
 
-        // The default image retrieves from the pinned upstream revision and
-        // verifies both the checksum and the exact size before the artifact is
-        // copied under its content hash.
         let default_dockerfile = include_str!("../Dockerfile");
         let download_url = preset.download_url();
-        let checksum = format!("ADD --checksum=sha256:{} {}", preset.sha256, download_url);
         assert!(
-            default_dockerfile.contains(&checksum),
-            "the default image download checksum pin"
+            default_dockerfile.contains(&format!("ADD {download_url} /tmp/tokenizer.json")),
+            "the default image uses the pinned public source"
         );
-        assert!(
-            default_dockerfile.contains(&size_check),
-            "the default image exact size check"
-        );
+        assert!(!default_dockerfile.contains("--checksum"));
+        assert!(!default_dockerfile.contains(&size_check));
         assert!(
             default_dockerfile.contains(&destination),
             "the default image artifact destination"
         );
 
-        // The Forgejo image deliberately routes through the trusted proxy
-        // without the download checksum/size check. It must keep the same
-        // pinned repository revision and file, and still copy the artifact
-        // under the same content hash.
-        let forgejo_dockerfile = include_str!("../forgejo.Dockerfile");
+        let forgejo_workflow = include_str!("../.forgejo/workflows/docker-publish.yml");
         let proxy_url = format!(
             "https://huggingface.cloud1ful.com/{}/resolve/{}/{}",
             preset.repo, preset.revision, preset.file
         );
         assert!(
-            forgejo_dockerfile.contains(&format!("ADD {proxy_url} /tmp/tokenizer.json")),
+            forgejo_workflow.contains(&format!("\"url\":\"{proxy_url}\"")),
             "the Forgejo image download must use the proxy at the pinned revision"
         );
         assert!(
-            !forgejo_dockerfile.contains(&checksum),
+            !forgejo_workflow.contains("--checksum"),
             "the Forgejo image intentionally omits the download checksum"
         );
         assert!(
-            !forgejo_dockerfile.contains(&size_check),
+            !forgejo_workflow.contains(&size_check),
             "the Forgejo image intentionally omits the download size check"
         );
         assert!(
-            forgejo_dockerfile.contains(&destination),
+            forgejo_workflow.contains(&format!(
+                "\"destination\":\"/var/lib/context69/tokenizers/{}.json\"",
+                preset.sha256
+            )),
             "the Forgejo image artifact destination"
         );
     }
