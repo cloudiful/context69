@@ -50,7 +50,7 @@ pub(crate) async fn list_git_provider_connections(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Viewer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Viewer) {
         return group_access_error_response(error);
     }
     match state.app.db.list_git_provider_connections(group.id).await {
@@ -87,7 +87,7 @@ pub(crate) async fn get_git_repository_webhook(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Viewer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Viewer) {
         return group_access_error_response(error);
     }
     match state

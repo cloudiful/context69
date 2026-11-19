@@ -19,13 +19,23 @@ use self::adapters::DbNamespaceRepository;
 #[derive(Clone)]
 pub struct NamespaceService {
     inner: CoreNamespaceService<DbNamespaceRepository>,
+    authorizer: std::sync::Arc<context69_authz::Context69Authorizer>,
 }
 
 impl NamespaceService {
-    pub fn new(db: Database) -> Self {
+    pub fn new(
+        db: Database,
+        authorizer: std::sync::Arc<context69_authz::Context69Authorizer>,
+    ) -> Self {
         Self {
-            inner: CoreNamespaceService::new(DbNamespaceRepository::new(db)),
+            inner: CoreNamespaceService::new(DbNamespaceRepository::new(db, authorizer.clone())),
+            authorizer,
         }
+    }
+
+    /// The process-wide engine shared with the other deciding services.
+    pub fn authorizer(&self) -> std::sync::Arc<context69_authz::Context69Authorizer> {
+        self.authorizer.clone()
     }
 
     pub async fn list_groups_for_user(
@@ -67,8 +77,21 @@ impl NamespaceService {
         actor: &UserRecord,
         request: &CreateGroupRequest,
     ) -> Result<GroupRecord> {
+        self.create_group_with_restriction(actor, None, request)
+            .await
+    }
+
+    pub async fn create_group_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        request: &CreateGroupRequest,
+    ) -> Result<GroupRecord> {
         self.inner
-            .create_group(&namespace_actor(actor), &create_group_input(request))
+            .create_group(
+                &namespace_actor(actor, restriction),
+                &create_group_input(request),
+            )
             .await
     }
 
@@ -78,9 +101,20 @@ impl NamespaceService {
         group_path: &str,
         request: &UpdateGroupRequest,
     ) -> Result<GroupRecord> {
+        self.update_group_with_restriction(actor, None, group_path, request)
+            .await
+    }
+
+    pub async fn update_group_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        group_path: &str,
+        request: &UpdateGroupRequest,
+    ) -> Result<GroupRecord> {
         self.inner
             .update_group(
-                &namespace_actor(actor),
+                &namespace_actor(actor, restriction),
                 group_path,
                 &update_group_input(request),
             )
@@ -93,9 +127,20 @@ impl NamespaceService {
         group_path: &str,
         request: &MoveGroupRequest,
     ) -> Result<GroupRecord> {
+        self.move_group_with_restriction(actor, None, group_path, request)
+            .await
+    }
+
+    pub async fn move_group_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        group_path: &str,
+        request: &MoveGroupRequest,
+    ) -> Result<GroupRecord> {
         self.inner
             .move_group(
-                &namespace_actor(actor),
+                &namespace_actor(actor, restriction),
                 group_path,
                 &move_group_input(request),
             )
@@ -103,8 +148,18 @@ impl NamespaceService {
     }
 
     pub async fn delete_group(&self, actor: &UserRecord, group_path: &str) -> Result<()> {
+        self.delete_group_with_restriction(actor, None, group_path)
+            .await
+    }
+
+    pub async fn delete_group_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        group_path: &str,
+    ) -> Result<()> {
         self.inner
-            .delete_group(&namespace_actor(actor), group_path)
+            .delete_group(&namespace_actor(actor, restriction), group_path)
             .await
     }
 
@@ -114,8 +169,19 @@ impl NamespaceService {
         group_path: &str,
         request: &PageRequest,
     ) -> Result<Page<NamespaceMemberRecord>> {
+        self.list_group_members_with_restriction(actor, None, group_path, request)
+            .await
+    }
+
+    pub async fn list_group_members_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        group_path: &str,
+        request: &PageRequest,
+    ) -> Result<Page<NamespaceMemberRecord>> {
         self.inner
-            .list_group_members(&namespace_actor(actor), group_path, request)
+            .list_group_members(&namespace_actor(actor, restriction), group_path, request)
             .await
     }
 
@@ -125,9 +191,20 @@ impl NamespaceService {
         group_path: &str,
         request: &UpsertMembershipRequest,
     ) -> Result<()> {
+        self.upsert_group_member_with_restriction(actor, None, group_path, request)
+            .await
+    }
+
+    pub async fn upsert_group_member_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        group_path: &str,
+        request: &UpsertMembershipRequest,
+    ) -> Result<()> {
         self.inner
             .upsert_group_member(
-                &namespace_actor(actor),
+                &namespace_actor(actor, restriction),
                 group_path,
                 &upsert_membership_input(request),
             )
@@ -140,8 +217,19 @@ impl NamespaceService {
         group_path: &str,
         login_name: &str,
     ) -> Result<()> {
+        self.delete_group_member_with_restriction(actor, None, group_path, login_name)
+            .await
+    }
+
+    pub async fn delete_group_member_with_restriction(
+        &self,
+        actor: &UserRecord,
+        restriction: Option<&crate::contracts::TokenGroupScope>,
+        group_path: &str,
+        login_name: &str,
+    ) -> Result<()> {
         self.inner
-            .delete_group_member(&namespace_actor(actor), group_path, login_name)
+            .delete_group_member(&namespace_actor(actor, restriction), group_path, login_name)
             .await
     }
 
@@ -179,10 +267,14 @@ impl NamespaceService {
     }
 }
 
-fn namespace_actor(user: &UserRecord) -> NamespaceActor {
+fn namespace_actor(
+    user: &UserRecord,
+    restriction: Option<&crate::contracts::TokenGroupScope>,
+) -> NamespaceActor {
     NamespaceActor {
         user_id: user.id,
         is_admin: user.is_admin,
+        token_group_scope: restriction.cloned(),
     }
 }
 

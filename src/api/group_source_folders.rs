@@ -42,7 +42,7 @@ pub(crate) async fn create_group_source_folder(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -80,7 +80,7 @@ pub(crate) async fn update_group_source_folder_config(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -116,7 +116,7 @@ pub(crate) async fn sync_group_source_folder(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     submit_task_request(

@@ -433,6 +433,7 @@ impl Database {
         &self,
         actor: &NamespaceActor,
         request: &CreateGroupInput,
+        authorizer: &context69_authz::Context69Authorizer,
     ) -> Result<GroupRecord> {
         let group_key = request.group_key.trim();
         let name = request.name.trim();
@@ -447,7 +448,9 @@ impl Database {
         if kind == GroupKind::Personal {
             return Err(anyhow!("personal groups are created automatically"));
         }
-        if request.visibility == Visibility::Public && !actor.is_admin {
+        if request.visibility == Visibility::Public
+            && !authorizer.admin_allowed(actor.user_id, actor.is_admin)
+        {
             return Err(anyhow!("only admins can create public groups"));
         }
 
@@ -456,7 +459,7 @@ impl Database {
                 .get_group_for_user(actor.user_id, parent_group_path)
                 .await?
                 .context("unknown group")?;
-            ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
+            authorize_group(authorizer, actor, &group, MembershipRole::Maintainer)?;
             if group.visibility == Visibility::Private && request.visibility == Visibility::Public {
                 return Err(anyhow!(
                     "child group visibility cannot be broader than parent group visibility"
@@ -510,12 +513,13 @@ impl Database {
         actor: &NamespaceActor,
         group_path: &str,
         request: &UpdateGroupInput,
+        authorizer: &context69_authz::Context69Authorizer,
     ) -> Result<GroupRecord> {
         let existing = self
             .get_group_for_user(actor.user_id, group_path)
             .await?
             .context("unknown group")?;
-        ensure_role_at_least(existing.current_role, MembershipRole::Maintainer, "group")?;
+        authorize_group(authorizer, actor, &existing, MembershipRole::Maintainer)?;
 
         if existing.kind == GroupKind::Personal {
             return Err(anyhow!("personal groups cannot be updated"));
@@ -532,7 +536,7 @@ impl Database {
         let next_visibility = request.visibility.unwrap_or(existing.visibility);
         if existing.visibility == Visibility::Private
             && next_visibility == Visibility::Public
-            && !actor.is_admin
+            && !authorizer.admin_allowed(actor.user_id, actor.is_admin)
         {
             return Err(anyhow!("only admins can make a group public"));
         }
@@ -570,13 +574,14 @@ impl Database {
         actor: &NamespaceActor,
         group_path: &str,
         request: &MoveGroupInput,
+        authorizer: &context69_authz::Context69Authorizer,
     ) -> Result<GroupRecord> {
         let existing = self
             .get_group_for_user(actor.user_id, group_path)
             .await?
             .context("unknown group")?;
 
-        ensure_role_at_least(existing.current_role, MembershipRole::Owner, "group")?;
+        authorize_group(authorizer, actor, &existing, MembershipRole::Owner)?;
         if existing.kind == GroupKind::Personal {
             return Err(anyhow!("personal groups cannot be moved"));
         }
@@ -588,7 +593,7 @@ impl Database {
                 .get_group_for_user(actor.user_id, target_parent_path)
                 .await?
                 .context("unknown group")?;
-            ensure_role_at_least(target.current_role, MembershipRole::Maintainer, "group")?;
+            authorize_group(authorizer, actor, &target, MembershipRole::Maintainer)?;
             if target.group_path == existing.group_path
                 || target
                     .group_path
@@ -642,12 +647,17 @@ impl Database {
             .context("moved group not found")
     }
 
-    pub async fn delete_group(&self, actor: &NamespaceActor, group_path: &str) -> Result<()> {
+    pub async fn delete_group(
+        &self,
+        actor: &NamespaceActor,
+        group_path: &str,
+        authorizer: &context69_authz::Context69Authorizer,
+    ) -> Result<()> {
         let existing = self
             .get_group_for_user(actor.user_id, group_path)
             .await?
             .context("unknown group")?;
-        ensure_role_at_least(existing.current_role, MembershipRole::Owner, "group")?;
+        authorize_group(authorizer, actor, &existing, MembershipRole::Owner)?;
         if existing.kind == GroupKind::Personal {
             return Err(anyhow!("personal groups cannot be deleted"));
         }
@@ -713,6 +723,7 @@ impl Database {
         actor: &NamespaceActor,
         group_path: &str,
         request: &PageRequest,
+        authorizer: &context69_authz::Context69Authorizer,
     ) -> Result<Page<NamespaceMemberRecord>> {
         let group = self
             .get_group_for_user(actor.user_id, group_path)
@@ -720,6 +731,9 @@ impl Database {
             .context("unknown group")?;
         if group.visibility == Visibility::Private && group.current_role.is_none() {
             return Err(anyhow!("unknown group"));
+        }
+        if group.current_role.is_some() {
+            authorize_group(authorizer, actor, &group, MembershipRole::Viewer)?;
         }
         let mut count = member_query(group_path, &request.query);
         count.expr_as(Func::count(Expr::col(Asterisk)), Alias::new("count"));
@@ -805,12 +819,13 @@ impl Database {
         actor: &NamespaceActor,
         group_path: &str,
         request: &UpsertMembershipInput,
+        authorizer: &context69_authz::Context69Authorizer,
     ) -> Result<()> {
         let group = self
             .get_group_for_user(actor.user_id, group_path)
             .await?
             .context("unknown group")?;
-        ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
+        authorize_group(authorizer, actor, &group, MembershipRole::Maintainer)?;
         let user = self
             .get_user_by_login_name(request.login_name.trim())
             .await?
@@ -847,12 +862,13 @@ impl Database {
         actor: &NamespaceActor,
         group_path: &str,
         login_name: &str,
+        authorizer: &context69_authz::Context69Authorizer,
     ) -> Result<()> {
         let group = self
             .get_group_for_user(actor.user_id, group_path)
             .await?
             .context("unknown group")?;
-        ensure_role_at_least(group.current_role, MembershipRole::Maintainer, "group")?;
+        authorize_group(authorizer, actor, &group, MembershipRole::Maintainer)?;
         let user = self
             .get_user_by_login_name(login_name)
             .await?
@@ -990,16 +1006,23 @@ impl Database {
     }
 }
 
-fn ensure_role_at_least(
-    actual: Option<MembershipRole>,
+fn authorize_group(
+    authorizer: &context69_authz::Context69Authorizer,
+    actor: &NamespaceActor,
+    group: &GroupRecord,
     required: MembershipRole,
-    resource_name: &str,
 ) -> Result<()> {
-    let actual = actual.ok_or_else(|| anyhow!("insufficient permissions for {resource_name}"))?;
-    if actual.rank() < required.rank() {
-        return Err(anyhow!("insufficient permissions for {resource_name}"));
+    if authorizer.group_action_allowed(
+        actor.user_id,
+        group.id,
+        context69_authz::GroupAction::for_role(required),
+        group.current_role,
+        actor.token_group_scope.as_ref(),
+    ) {
+        Ok(())
+    } else {
+        Err(anyhow!("insufficient permissions for group"))
     }
-    Ok(())
 }
 
 fn group_from_row(row: GroupRow) -> Result<GroupRecord> {

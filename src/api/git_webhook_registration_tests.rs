@@ -26,6 +26,7 @@ use crate::{
 };
 
 use super::{invalid_request, provider_matches, registration_conflict, repository_not_found};
+use crate::api::group_access::group_action_allowed;
 
 /// The compiled route module, so every wiring assertion below is made against
 /// the real handler rather than a copy of it.
@@ -204,17 +205,33 @@ fn a_hook_for_another_provider_is_a_conflict_and_never_reaches_the_seal() {
 
 #[test]
 fn the_maintainer_floor_precedes_every_repository_and_secret_step() {
+    let authorizer = || {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(context69_authz::Context69Authorizer::new())
+            .expect("engine")
+    };
     for role in [MembershipRole::Maintainer, MembershipRole::Owner] {
-        crate::api::group_access::require_group_role(
+        group_action_allowed(
+            &authorizer(),
+            7,
             &group(Some(role)),
             MembershipRole::Maintainer,
+            None,
         )
         .unwrap_or_else(|error| panic!("{role:?} may register a webhook: {error}"));
     }
     for role in [Some(MembershipRole::Viewer), None] {
         assert!(
-            crate::api::group_access::require_group_role(&group(role), MembershipRole::Maintainer)
-                .is_err(),
+            group_action_allowed(
+                &authorizer(),
+                7,
+                &group(role),
+                MembershipRole::Maintainer,
+                None
+            )
+            .is_err(),
             "a Viewer or non-member is refused before any repository or secret work"
         );
     }

@@ -25,16 +25,20 @@ use axum::{
 use uuid::Uuid;
 
 use crate::{
-    contracts::sources::{
-        GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS, GIT_CODE_SEARCH_LIMIT_MAX, GIT_CODE_SEARCH_LIMIT_MIN,
-        GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS, GIT_CODE_SEARCH_QUERY_MAX_CHARS, GitCodeSearchQuery,
-        GitCodeSearchResponse,
+    contracts::{
+        TokenGroupScope,
+        sources::{
+            GIT_CODE_SEARCH_LANGUAGE_MAX_CHARS, GIT_CODE_SEARCH_LIMIT_MAX,
+            GIT_CODE_SEARCH_LIMIT_MIN, GIT_CODE_SEARCH_PATH_PREFIX_MAX_CHARS,
+            GIT_CODE_SEARCH_QUERY_MAX_CHARS, GitCodeSearchQuery, GitCodeSearchResponse,
+        },
     },
     db::StoredGitRepositorySource,
+    domain::GroupRecord,
     domain_errors::DomainError,
     services::git_repository::{
         SafeTreePath,
-        code_search::{CodeSearchOutcome, CodeSearchParams, search_code},
+        code_search::{CodeSearchAdmission, CodeSearchOutcome, CodeSearchParams, search_code},
     },
 };
 
@@ -42,10 +46,8 @@ use super::{
     ApiState,
     auth::CurrentUser,
     errors::library_management_error_response,
-    git_repository_files::require_manifest_read,
     group_access::{group_access_error_response, group_for_user},
 };
-
 #[utoipa::path(
     get,
     path = "/v1/groups/by-path/{group_path}/git-repositories/{repository_key}/code-search",
@@ -72,14 +74,19 @@ pub(crate) async fn search_git_repository_code(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_manifest_read(&group) {
-        return group_access_error_response(error);
-    }
-    // The search is validated before any storage work, so an invalid term never
-    // reaches the query and the refusal never echoes it.
-    let filters = match SearchFilters::validated(&query) {
-        Ok(filters) => filters,
-        Err(error) => return library_management_error_response(error),
+    // Authorization comes first, exactly as before: a caller who cannot view the
+    // group is refused before the query is even validated or the access scope is
+    // resolved. The admission value is the single proof the retrieval path
+    // accepts.
+    let (admission, filters) = match preflight_search(
+        &state.app.authorizer,
+        session.user.id,
+        session.token_group_scope.as_ref(),
+        &group,
+        &query,
+    ) {
+        Ok(value) => value,
+        Err(response) => return response,
     };
     // The visible groups come from the caller's resolved access scope, never
     // from the request, so a private repository is searched only for a caller who
@@ -104,12 +111,38 @@ pub(crate) async fn search_git_repository_code(
         language: filters.language.as_deref(),
         limit: filters.limit,
     };
-    let outcome =
-        match search_code(&state.app.db, &state.app.settings, &group, &scope, &params).await {
-            Ok(outcome) => outcome,
-            Err(error) => return library_management_error_response(error),
-        };
+    let outcome = match search_code(
+        &state.app.db,
+        &state.app.settings,
+        &admission,
+        &scope,
+        &params,
+    )
+    .await
+    {
+        Ok(outcome) => outcome,
+        Err(error) => return library_management_error_response(error),
+    };
     (StatusCode::OK, Json(search_response(&outcome))).into_response()
+}
+
+/// The production preflight: authorize the actual caller first, then validate
+/// the wire query.
+///
+/// Keeping both steps here makes the observable precedence explicit and lets the
+/// regression tests exercise the real order without an HTTP server.
+fn preflight_search<'a>(
+    authorizer: &context69_authz::Context69Authorizer,
+    user_id: i64,
+    token_scope: Option<&TokenGroupScope>,
+    group: &'a GroupRecord,
+    query: &GitCodeSearchQuery,
+) -> Result<(CodeSearchAdmission<'a>, SearchFilters), Response> {
+    let admission = CodeSearchAdmission::admit(authorizer, user_id, token_scope, group)
+        .map_err(|error| group_access_error_response(error))?;
+    let filters = SearchFilters::validated(query)
+        .map_err(|error| library_management_error_response(error))?;
+    Ok((admission, filters))
 }
 
 /// The validated bounds of one search.

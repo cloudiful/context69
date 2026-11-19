@@ -3,7 +3,7 @@ use std::time::Duration;
 use anyhow::{Error, Result};
 use context69_contracts::{
     CreateGroupRequest, CreateMetadataIndexRequest, EnsureScopeResponse, MembershipRole,
-    MetadataIndexResponse, MetadataIndexStatus, ScopeSpec,
+    MetadataIndexResponse, MetadataIndexStatus, ScopeSpec, TokenGroupScope,
 };
 use tokio::time::sleep;
 
@@ -17,6 +17,7 @@ impl TaskService {
     pub async fn ensure_scope(
         &self,
         user_id: i64,
+        token_group_scope: Option<&TokenGroupScope>,
         spec: &ScopeSpec,
     ) -> Result<EnsureScopeResponse> {
         let actor = self
@@ -69,7 +70,7 @@ impl TaskService {
                     index
                 }
                 None => {
-                    require_index_write_role(&group)?;
+                    require_index_write_role(&self.authorizer, user_id, &group, token_group_scope)?;
                     match self
                         .document_store
                         .create_index(
@@ -145,11 +146,19 @@ fn ensure_group_definition(group: &GroupRecord, spec: &ScopeSpec) -> Result<()> 
 /// Creating an index changes an existing group's write state, so the owner's
 /// current role must satisfy the same Maintainer rule as the normal API path.
 /// A newly bootstrapped group returns the creator as Owner and therefore passes.
-fn require_index_write_role(group: &GroupRecord) -> Result<()> {
-    if group
-        .current_role
-        .is_some_and(|role| role.rank() >= MembershipRole::Maintainer.rank())
-    {
+fn require_index_write_role(
+    authorizer: &context69_authz::Context69Authorizer,
+    user_id: i64,
+    group: &GroupRecord,
+    token_group_scope: Option<&TokenGroupScope>,
+) -> Result<()> {
+    if authorizer.group_action_allowed(
+        user_id,
+        group.id,
+        context69_authz::GroupAction::for_role(MembershipRole::Maintainer),
+        group.current_role,
+        token_group_scope,
+    ) {
         Ok(())
     } else {
         Err(DomainError::forbidden("insufficient permissions for group").into())
@@ -255,6 +264,18 @@ mod role_tests {
         domain::GroupRecord,
     };
 
+    fn authorizer() -> context69_authz::Context69Authorizer {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(context69_authz::Context69Authorizer::new())
+            .expect("engine")
+    }
+
+    fn check(group: &GroupRecord) -> anyhow::Result<()> {
+        require_index_write_role(&authorizer(), 2, group, None)
+    }
+
     fn group(current_role: Option<MembershipRole>) -> GroupRecord {
         GroupRecord {
             id: 1,
@@ -274,14 +295,14 @@ mod role_tests {
 
     #[test]
     fn existing_group_index_creation_requires_maintainer_or_owner() {
-        assert!(require_index_write_role(&group(None)).is_err());
-        assert!(require_index_write_role(&group(Some(MembershipRole::Viewer))).is_err());
-        assert!(require_index_write_role(&group(Some(MembershipRole::Maintainer))).is_ok());
-        assert!(require_index_write_role(&group(Some(MembershipRole::Owner))).is_ok());
+        assert!(check(&group(None)).is_err());
+        assert!(check(&group(Some(MembershipRole::Viewer))).is_err());
+        assert!(check(&group(Some(MembershipRole::Maintainer))).is_ok());
+        assert!(check(&group(Some(MembershipRole::Owner))).is_ok());
     }
 
     #[test]
     fn a_newly_bootstrapped_group_owner_can_create_its_index() {
-        assert!(require_index_write_role(&group(Some(MembershipRole::Owner))).is_ok());
+        assert!(check(&group(Some(MembershipRole::Owner))).is_ok());
     }
 }

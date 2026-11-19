@@ -12,20 +12,40 @@
 use axum::http::StatusCode;
 
 use crate::contracts::{
-    MembershipRole,
+    MembershipRole, TokenGroupScope,
     sources::{GitFileChangeKind, GitGenerationStatus, GitIndexStatus, GitRepositoryFileDiffQuery},
 };
 
 use super::super::git_repository_file_paging::requested_page;
-use super::super::git_repository_files::{
-    generation_not_ready, repository_not_found, require_manifest_read,
-};
+use super::super::git_repository_files::{generation_not_ready, repository_not_found};
+use super::super::group_access::group_action_allowed;
 use super::fixture::{
     FROM_COMMIT, INDEXED_COMMIT, TO_COMMIT, changed, file_key, from_generation, from_key,
     generation, group, page, page_query, repository_key, response_body, source, to_generation,
     to_key,
 };
 use super::{checkpoint_match, comparable, found_generation, found_repository};
+
+fn authorizer() -> context69_authz::Context69Authorizer {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(context69_authz::Context69Authorizer::new())
+        .expect("engine")
+}
+
+fn viewer_group(
+    group: &crate::domain::GroupRecord,
+    token_group_scope: Option<&TokenGroupScope>,
+) -> anyhow::Result<()> {
+    group_action_allowed(
+        &authorizer(),
+        7,
+        group,
+        MembershipRole::Viewer,
+        token_group_scope,
+    )
+}
 
 /// The refusal text one invalid page request produces.
 fn refusal(limit: u32, cursor: Option<&str>) -> String {
@@ -41,12 +61,17 @@ fn the_comparison_shares_the_manifest_viewer_floor() {
         MembershipRole::Maintainer,
         MembershipRole::Owner,
     ] {
-        require_manifest_read(&group(Some(role)))
+        viewer_group(&group(Some(role)), None)
             .unwrap_or_else(|error| panic!("{role:?} may compare generations: {error}"));
     }
     assert!(
-        require_manifest_read(&group(None)).is_err(),
+        viewer_group(&group(None), None).is_err(),
         "a caller with no membership is refused before any comparison runs"
+    );
+    let foreign = TokenGroupScope::Groups { group_ids: vec![7] };
+    assert!(
+        viewer_group(&group(Some(MembershipRole::Viewer)), Some(&foreign)).is_err(),
+        "a mismatched token group ceiling is refused at the same adapter"
     );
 }
 

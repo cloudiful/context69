@@ -11,6 +11,7 @@ use axum::response::Response;
 use uuid::Uuid;
 
 use crate::{
+    contracts::MembershipRole,
     db::{
         Database, StoredGitGenerationFile, StoredGitRepositoryGeneration, StoredGitRepositorySource,
     },
@@ -21,10 +22,8 @@ use crate::{
 use super::{
     ApiState,
     errors::library_management_error_response,
-    git_repository_files::{
-        generation_not_ready, repository_not_found, require_manifest_read, serving_generation,
-    },
-    group_access::{group_access_error_response, group_for_user},
+    git_repository_files::{generation_not_ready, repository_not_found, serving_generation},
+    group_access::{group_access_error_response, group_for_user, require_group_role},
 };
 
 /// The caller's group after the shared manifest-read permission floor.
@@ -37,7 +36,7 @@ pub(super) async fn readable_group(
         Ok(group) => group,
         Err(error) => return Err(group_access_error_response(error)),
     };
-    if let Err(error) = require_manifest_read(&group) {
+    if let Err(error) = require_group_role(state, session, &group, MembershipRole::Viewer) {
         return Err(group_access_error_response(error));
     }
     Ok(group)

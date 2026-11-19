@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::{
     chunking::{ChunkBudget, ChunkingRuntime},
     db::{Database, RegistryQuotaOverride, StoredTask},
+    domain::UserRecord,
     domain_errors::DomainError,
     services::{
         document_store::DocumentStoreService, library::LibraryService, namespace::NamespaceService,
@@ -70,6 +71,9 @@ pub(crate) use maintenance::MaintenanceHandles;
 pub struct TaskService {
     db: Database,
     namespace: NamespaceService,
+    /// The process-wide authorization engine shared with AuthService and the
+    /// namespace repository.
+    authorizer: Arc<context69_authz::Context69Authorizer>,
     document_store: DocumentStoreService,
     library: LibraryService,
     sync: SyncService,
@@ -157,6 +161,7 @@ impl TaskService {
         Self {
             settings: SettingsService::new(db.clone()),
             db,
+            authorizer: namespace.authorizer(),
             namespace,
             document_store,
             library,
@@ -328,6 +333,12 @@ impl TaskService {
     }
     pub(crate) fn db(&self) -> &Database {
         &self.db
+    }
+
+    /// The engine-backed administrator gate for the actual caller. It keeps the
+    /// historical forbidden error shape and never grants a non-admin caller.
+    pub(crate) fn require_admin(&self, actor: &UserRecord) -> Result<()> {
+        crate::services::auth::require_admin(&self.authorizer, actor)
     }
     pub(crate) fn library(&self) -> &LibraryService {
         &self.library

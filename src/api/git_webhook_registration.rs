@@ -252,7 +252,7 @@ async fn maintainer_group(
     group_path: &str,
 ) -> anyhow::Result<GroupRecord> {
     let group = group_for_user(state, session, group_path).await?;
-    require_group_role(&group, MembershipRole::Maintainer)?;
+    require_group_role(state, session, &group, MembershipRole::Maintainer)?;
     Ok(group)
 }
 

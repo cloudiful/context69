@@ -187,8 +187,12 @@ pub(crate) async fn delete_library_folder(
         Ok(group) => group,
         Err(error) => return super::group_access::group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, context69_contracts::MembershipRole::Maintainer)
-    {
+    if let Err(error) = require_group_role(
+        &state,
+        &session,
+        &group,
+        context69_contracts::MembershipRole::Maintainer,
+    ) {
         return super::group_access::group_access_error_response(error);
     }
     if let Err(error) = state
@@ -339,8 +343,12 @@ pub(crate) async fn delete_library_file(
         Ok(group) => group,
         Err(error) => return super::group_access::group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, context69_contracts::MembershipRole::Maintainer)
-    {
+    if let Err(error) = require_group_role(
+        &state,
+        &session,
+        &group,
+        context69_contracts::MembershipRole::Maintainer,
+    ) {
         return super::group_access::group_access_error_response(error);
     }
     submit_task_request(

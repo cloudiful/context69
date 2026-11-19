@@ -25,7 +25,6 @@ use crate::contracts::{
 use crate::db::{RebuildBarrier, RebuildBarrierState};
 use crate::domain::UserRecord;
 use crate::domain_errors::DomainError;
-use crate::services::auth::require_admin;
 
 /// The exact dependency key of an item parked by a paused rebuild.
 ///
@@ -44,7 +43,7 @@ impl TaskService {
         actor: &UserRecord,
         task_id: uuid::Uuid,
     ) -> Result<()> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         if self
             .db()
             .request_task_pause(task_id, actor.id, true)
@@ -68,7 +67,7 @@ impl TaskService {
         actor: &UserRecord,
         task_id: uuid::Uuid,
     ) -> Result<()> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         let task = self
             .db()
             .get_task_internal(task_id)
@@ -107,7 +106,7 @@ impl TaskService {
         actor: &UserRecord,
         task_id: uuid::Uuid,
     ) -> Result<()> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         let owner = self.owned_rebuild_item(task_id).await?;
         let barrier = self.db().read_rebuild_barrier().await?;
         if !matches!(
@@ -141,7 +140,7 @@ impl TaskService {
         actor: &UserRecord,
         task_id: uuid::Uuid,
     ) -> Result<()> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         let task = self.task(task_id).await?;
         if task.kind != "vector_rebuild" {
             return Err(DomainError::invalid_argument(
@@ -184,7 +183,7 @@ impl TaskService {
         &self,
         actor: &UserRecord,
     ) -> Result<VectorIndexRebuildStatus> {
-        require_admin(actor)?;
+        self.require_admin(actor)?;
         let inputs = self.rebuild_status_inputs().await?;
         Ok(project_rebuild_status(&inputs))
     }

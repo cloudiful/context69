@@ -10,7 +10,7 @@
 use axum::http::StatusCode;
 
 use crate::contracts::{
-    MembershipRole, Visibility,
+    MembershipRole, TokenGroupScope, Visibility,
     sources::{
         GIT_CODE_SEARCH_LIMIT_DEFAULT, GitCodeMatchKind, GitCodeSearchQuery,
         GitCodeVectorUnavailableReason, GitIndexProfile, GitIndexStatus,
@@ -18,15 +18,38 @@ use crate::contracts::{
 };
 
 use super::super::errors::library_management_error_response;
-use super::super::git_repository_files::require_manifest_read;
+use super::super::group_access::group_action_allowed;
 use super::fixture::{
     generation, generation_key, group, query, repository_key, response_body, source, stored_hit,
 };
-use super::{SearchFilters, is_language_token, search_response};
-use crate::services::git_repository::code_search::{CodeSearchOutcome, search_hit_from_lexical};
+use super::{SearchFilters, is_language_token, preflight_search, search_response};
+use crate::services::git_repository::code_search::{
+    CodeSearchAdmission, CodeSearchOutcome, search_hit_from_lexical,
+};
 
 /// The commit both the repository and its serving generation are pinned to.
 const COMMIT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+fn authorizer() -> context69_authz::Context69Authorizer {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(context69_authz::Context69Authorizer::new())
+        .expect("engine")
+}
+
+fn viewer_group(
+    group: &crate::domain::GroupRecord,
+    token_group_scope: Option<&TokenGroupScope>,
+) -> anyhow::Result<()> {
+    group_action_allowed(
+        &authorizer(),
+        7,
+        group,
+        MembershipRole::Viewer,
+        token_group_scope,
+    )
+}
 
 /// The refusal text one invalid request produces.
 fn refusal(request: &GitCodeSearchQuery) -> String {
@@ -42,12 +65,65 @@ fn the_code_search_shares_the_manifest_viewer_floor() {
         MembershipRole::Maintainer,
         MembershipRole::Owner,
     ] {
-        require_manifest_read(&group(Some(role)))
+        viewer_group(&group(Some(role)), None)
             .unwrap_or_else(|error| panic!("{role:?} may search code: {error}"));
     }
     assert!(
-        require_manifest_read(&group(None)).is_err(),
+        viewer_group(&group(None), None).is_err(),
         "a caller with no membership is refused before any search runs"
+    );
+    let foreign = TokenGroupScope::Groups { group_ids: vec![7] };
+    assert!(
+        viewer_group(&group(Some(MembershipRole::Viewer)), Some(&foreign)).is_err(),
+        "a mismatched token group ceiling is refused at the same adapter"
+    );
+}
+
+#[test]
+fn code_search_admission_is_the_only_retrieval_proof() {
+    let viewer = group(Some(MembershipRole::Viewer));
+    assert!(
+        CodeSearchAdmission::admit(&authorizer(), 7, None, &viewer).is_ok(),
+        "a current viewer mints admission through the engine"
+    );
+    assert!(
+        CodeSearchAdmission::admit(&authorizer(), 7, None, &group(None)).is_err(),
+        "an unjoined caller cannot mint admission"
+    );
+    let foreign = TokenGroupScope::Groups { group_ids: vec![7] };
+    assert!(
+        CodeSearchAdmission::admit(&authorizer(), 7, Some(&foreign), &viewer).is_err(),
+        "a mismatched token group ceiling cannot mint admission"
+    );
+}
+
+#[test]
+fn unjoined_public_group_and_invalid_query_keep_forbidden_precedence() {
+    let invalid = query("", 10);
+    let response = preflight_search(&authorizer(), 7, None, &group(None), &invalid)
+        .expect_err("an unjoined caller is refused before validation");
+    assert_eq!(
+        response.status(),
+        StatusCode::FORBIDDEN,
+        "authorization precedes query validation"
+    );
+}
+
+#[test]
+fn a_valid_member_with_an_invalid_query_still_gets_the_invalid_argument() {
+    let invalid = query("", 10);
+    let response = preflight_search(
+        &authorizer(),
+        7,
+        None,
+        &group(Some(MembershipRole::Viewer)),
+        &invalid,
+    )
+    .expect_err("the invalid query is refused after authorization");
+    assert_eq!(
+        response.status(),
+        StatusCode::BAD_REQUEST,
+        "an admitted caller's invalid query stays a validation error"
     );
 }
 

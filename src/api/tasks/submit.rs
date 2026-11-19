@@ -265,6 +265,8 @@ pub(crate) async fn submit_task(
                 .into_response();
         };
         match global_vector_rebuild_admission(
+            &state.app.authorizer,
+            session.user.id,
             session.token_group_scope.as_ref(),
             &authenticated.kind,
         ) {
@@ -353,21 +355,27 @@ enum GlobalVectorRebuildAdmission {
 /// rebuild, so it must meet the canonical settings endpoint's settings scope.
 /// Group-restricted tokens cannot name a group for this global operation and
 /// are refused instead of silently widening to every group.
+///
+/// The scope decision is the shared engine's: this helper only rejects the
+/// restricted global-surface shape first, then forwards the actual user and
+/// token ceiling. It never inspects token scopes itself.
 fn global_vector_rebuild_admission(
+    authorizer: &context69_authz::Context69Authorizer,
+    user_id: i64,
     token_group_scope: Option<&TokenGroupScope>,
     auth_kind: &AuthKind,
 ) -> GlobalVectorRebuildAdmission {
     if token_group_scope.is_some_and(|scope| scope.is_restricted()) {
         return GlobalVectorRebuildAdmission::GroupRestricted;
     }
-    match auth_kind {
-        AuthKind::BrowserSession => GlobalVectorRebuildAdmission::Allowed,
-        AuthKind::PersonalAccessToken { scopes, .. }
-            if scopes.contains(&PersonalAccessTokenScope::Settings) =>
-        {
-            GlobalVectorRebuildAdmission::Allowed
-        }
-        AuthKind::PersonalAccessToken { .. } => GlobalVectorRebuildAdmission::MissingSettingsScope,
+    let token_scopes = match auth_kind {
+        AuthKind::BrowserSession => None,
+        AuthKind::PersonalAccessToken { scopes, .. } => Some(scopes),
+    };
+    if authorizer.scope_allowed(user_id, PersonalAccessTokenScope::Settings, token_scopes) {
+        GlobalVectorRebuildAdmission::Allowed
+    } else {
+        GlobalVectorRebuildAdmission::MissingSettingsScope
     }
 }
 
@@ -394,14 +402,25 @@ mod tests {
         }
     }
 
+    fn authorizer() -> context69_authz::Context69Authorizer {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(context69_authz::Context69Authorizer::new())
+            .expect("engine")
+    }
+
     #[test]
     fn global_vector_rebuild_requires_settings_for_all_tokens_and_rejects_group_ranges() {
+        let engine = authorizer();
         assert_eq!(
-            global_vector_rebuild_admission(None, &AuthKind::BrowserSession),
+            global_vector_rebuild_admission(&engine, 7, None, &AuthKind::BrowserSession),
             GlobalVectorRebuildAdmission::Allowed
         );
         assert_eq!(
             global_vector_rebuild_admission(
+                &engine,
+                7,
                 Some(&TokenGroupScope::All),
                 &token(&[
                     PersonalAccessTokenScope::Workspace,
@@ -412,13 +431,18 @@ mod tests {
         );
         assert_eq!(
             global_vector_rebuild_admission(
+                &engine,
+                7,
                 Some(&TokenGroupScope::All),
                 &token(&[PersonalAccessTokenScope::Workspace])
             ),
-            GlobalVectorRebuildAdmission::MissingSettingsScope
+            GlobalVectorRebuildAdmission::MissingSettingsScope,
+            "the shared engine rejects a token without the settings scope"
         );
         assert_eq!(
             global_vector_rebuild_admission(
+                &engine,
+                7,
                 Some(&TokenGroupScope::Groups { group_ids: vec![7] }),
                 &token(&[
                     PersonalAccessTokenScope::Workspace,
@@ -429,6 +453,8 @@ mod tests {
         );
         assert_eq!(
             global_vector_rebuild_admission(
+                &engine,
+                7,
                 Some(&TokenGroupScope::Groups { group_ids: vec![7] }),
                 &token(&[PersonalAccessTokenScope::Workspace])
             ),

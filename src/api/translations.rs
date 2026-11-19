@@ -26,7 +26,7 @@ pub(crate) async fn get_translation_settings(
     State(state): State<ApiState>,
     CurrentUser(session): CurrentUser,
 ) -> impl IntoResponse {
-    if !session.user.is_admin {
+    if !admin_allowed(&state, &session) {
         return admin_required();
     }
     match state.app.translation.settings().await {
@@ -41,7 +41,7 @@ pub(crate) async fn list_translation_providers(
     CurrentUser(session): CurrentUser,
     Query(query): Query<TranslationProviderPageQuery>,
 ) -> impl IntoResponse {
-    if !session.user.is_admin {
+    if !admin_allowed(&state, &session) {
         return admin_required();
     }
     match state
@@ -61,13 +61,20 @@ pub(crate) async fn update_translation_settings(
     CurrentUser(session): CurrentUser,
     Json(request): Json<UpdateTranslationSettingsRequest>,
 ) -> impl IntoResponse {
-    if !session.user.is_admin {
+    if !admin_allowed(&state, &session) {
         return admin_required();
     }
     match state.app.translation.update_settings(&request).await {
         Ok(value) => (StatusCode::OK, Json(value)).into_response(),
         Err(error) => library_management_error_response(error),
     }
+}
+
+fn admin_allowed(state: &ApiState, session: &crate::services::auth::AuthSession) -> bool {
+    state
+        .app
+        .authorizer
+        .admin_allowed(session.user.id, session.user.is_admin)
 }
 
 fn admin_required() -> axum::response::Response {
@@ -108,7 +115,7 @@ pub(crate) async fn update_group_translation_settings(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -154,7 +161,7 @@ pub(crate) async fn rebuild_document_translations(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state

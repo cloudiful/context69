@@ -24,13 +24,12 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        CursorPageQuery, CursorPagination, MembershipRole,
+        CursorPageQuery, CursorPagination,
         sources::{GitGenerationStatus, GitRepositoryFileListResponse},
     },
     db::{
         Database, StoredGitGenerationFile, StoredGitRepositoryGeneration, StoredGitRepositorySource,
     },
-    domain::GroupRecord,
     domain_errors::DomainError,
 };
 
@@ -40,7 +39,6 @@ use super::{
     errors::library_management_error_response,
     git_read_access::{readable_group, serving_source},
     git_repository_file_paging::{ManifestPage, requested_page},
-    group_access::require_group_role,
 };
 
 #[utoipa::path(
@@ -103,15 +101,6 @@ pub(crate) async fn list_git_repository_files(
         Json(manifest_page(&source, &generation, rows, &page, has_more)),
     )
         .into_response()
-}
-
-/// The group role this read requires: a manifest is readable by any Viewer.
-///
-/// The decision is delegated to the shared [`require_group_role`] rather than
-/// restated here, so the route cannot drift from the hierarchy every other
-/// group-scoped read uses and a refusal stays the shared typed forbidden error.
-pub(super) fn require_manifest_read(group: &GroupRecord) -> anyhow::Result<()> {
-    require_group_role(group, MembershipRole::Viewer)
 }
 
 /// The active generation whose manifest may be read, with its provenance.

@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::api::group_access::require_group_role;
+use crate::api::group_access::group_action_allowed;
 use crate::contracts::{GroupKind, MembershipRole, Visibility};
 use crate::domain::GroupRecord;
 
@@ -33,24 +33,52 @@ fn group(current_role: Option<MembershipRole>) -> GroupRecord {
     }
 }
 
+/// A fresh engine for the gate assertions; the adapter is pure and needs no app.
+fn authorizer() -> context69_authz::Context69Authorizer {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(context69_authz::Context69Authorizer::new())
+        .expect("engine")
+}
+
+/// The actual caller and no token restriction: session authority only.
+const ACTOR: i64 = 7;
+
 #[test]
 fn the_enable_route_shares_the_maintainer_floor_of_the_other_lifecycle_paths() {
     // The enable path reuses the one shared role helper, so a Viewer or a
     // non-member is refused with the same rule the create and disable paths use.
     for role in [MembershipRole::Maintainer, MembershipRole::Owner] {
-        require_group_role(&group(Some(role)), MembershipRole::Maintainer)
-            .unwrap_or_else(|error| panic!("{role:?} may enable a connection: {error}"));
+        group_action_allowed(
+            &authorizer(),
+            ACTOR,
+            &group(Some(role)),
+            MembershipRole::Maintainer,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{role:?} may enable a connection: {error}"));
     }
     assert!(
-        require_group_role(
+        group_action_allowed(
+            &authorizer(),
+            ACTOR,
             &group(Some(MembershipRole::Viewer)),
-            MembershipRole::Maintainer
+            MembershipRole::Maintainer,
+            None,
         )
         .is_err(),
         "a read-only role must not enable a connection"
     );
     assert!(
-        require_group_role(&group(None), MembershipRole::Maintainer).is_err(),
+        group_action_allowed(
+            &authorizer(),
+            ACTOR,
+            &group(None),
+            MembershipRole::Maintainer,
+            None,
+        )
+        .is_err(),
         "a non-member is refused before any read or write"
     );
     assert!(

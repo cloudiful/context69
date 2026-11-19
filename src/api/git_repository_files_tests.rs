@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 use crate::{
     contracts::{
-        CursorPageQuery, GroupKind, MembershipRole, Visibility,
+        CursorPageQuery, GroupKind, MembershipRole, TokenGroupScope, Visibility,
         sources::{
             GitCommitCheckpoint, GitGenerationStatus, GitIndexProfile, GitIndexStatus,
             GitProviderKind, GitRepositoryFile, GitVersionPolicy,
@@ -31,8 +31,8 @@ use crate::{
 };
 
 use super::super::git_repository_file_paging::requested_page;
-use super::super::group_access::group_access_error_response;
-use super::{generation_not_ready, manifest_page, repository_not_found, require_manifest_read};
+use super::super::group_access::{group_access_error_response, group_action_allowed};
+use super::{generation_not_ready, manifest_page, repository_not_found};
 
 /// The group the listing is read from, carrying `current_role`.
 fn group(current_role: Option<MembershipRole>) -> GroupRecord {
@@ -50,6 +50,27 @@ fn group(current_role: Option<MembershipRole>) -> GroupRecord {
         updated_at: timestamp(),
         current_role,
     }
+}
+
+fn authorizer() -> context69_authz::Context69Authorizer {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(context69_authz::Context69Authorizer::new())
+        .expect("engine")
+}
+
+fn viewer_group(
+    group: &GroupRecord,
+    token_group_scope: Option<&TokenGroupScope>,
+) -> anyhow::Result<()> {
+    group_action_allowed(
+        &authorizer(),
+        7,
+        group,
+        MembershipRole::Viewer,
+        token_group_scope,
+    )
 }
 
 fn generation_key() -> Uuid {
@@ -348,12 +369,12 @@ fn a_viewer_may_read_a_manifest_and_a_lower_or_absent_role_may_not() {
         MembershipRole::Maintainer,
         MembershipRole::Owner,
     ] {
-        require_manifest_read(&group(Some(role)))
+        viewer_group(&group(Some(role)), None)
             .unwrap_or_else(|error| panic!("{role:?} may read a manifest: {error}"));
     }
 
     // An absent membership is the only state below Viewer, and it is refused.
-    let error = require_manifest_read(&group(None))
+    let error = viewer_group(&group(None), None)
         .expect_err("a caller with no membership must not read a manifest");
     assert_eq!(error.to_string(), "insufficient permissions for group");
     assert_eq!(
@@ -361,11 +382,22 @@ fn a_viewer_may_read_a_manifest_and_a_lower_or_absent_role_may_not() {
         StatusCode::FORBIDDEN,
         "the refusal is the shared typed forbidden error, not a route-local one"
     );
+
+    // A token restricted to another group cannot use this role right.
+    let foreign = TokenGroupScope::Groups { group_ids: vec![7] };
+    assert!(
+        viewer_group(&group(Some(MembershipRole::Viewer)), Some(&foreign)).is_err(),
+        "a mismatched token group ceiling must be refused at the same adapter"
+    );
 }
 
 #[tokio::test]
 async fn a_refused_role_leaves_through_the_shared_group_access_shape() {
-    let error = require_manifest_read(&group(None)).expect_err("no membership");
+    let authorizer = context69_authz::Context69Authorizer::new()
+        .await
+        .expect("engine");
+    let error = group_action_allowed(&authorizer, 7, &group(None), MembershipRole::Viewer, None)
+        .expect_err("no membership");
     let response = group_access_error_response(error);
     assert_eq!(response.status(), StatusCode::FORBIDDEN);
     let body = response_body(response).await;

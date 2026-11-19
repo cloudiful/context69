@@ -2,7 +2,7 @@
 
 use chrono::{DateTime, Utc};
 
-use crate::api::group_access::require_group_role;
+use crate::api::group_access::group_action_allowed;
 use crate::contracts::sources::{GitConnectionMode, GitProviderKind};
 use crate::contracts::{GroupKind, MembershipRole, Visibility};
 use crate::db::{GitGroupOwnership, StoredGitProviderConnection};
@@ -65,15 +65,36 @@ fn connection(disabled: bool) -> StoredGitProviderConnection {
     }
 }
 
+/// A fresh engine for the gate assertions; the adapter is pure and needs no app.
+fn authorizer() -> context69_authz::Context69Authorizer {
+    tokio::runtime::Builder::new_current_thread()
+        .build()
+        .expect("runtime")
+        .block_on(context69_authz::Context69Authorizer::new())
+        .expect("engine")
+}
+
+/// The actual caller and no token restriction: session authority only.
+const ACTOR: i64 = 7;
+
 #[test]
 fn the_disable_route_shares_the_maintainer_floor_of_the_create_route() {
     for role in [MembershipRole::Maintainer, MembershipRole::Owner] {
-        require_group_role(&group(Some(role)), MembershipRole::Maintainer)
-            .unwrap_or_else(|error| panic!("{role:?} may disable a connection: {error}"));
+        group_action_allowed(
+            &authorizer(),
+            ACTOR,
+            &group(Some(role)),
+            MembershipRole::Maintainer,
+            None,
+        )
+        .unwrap_or_else(|error| panic!("{role:?} may disable a connection: {error}"));
     }
-    let error = require_group_role(
+    let error = group_action_allowed(
+        &authorizer(),
+        ACTOR,
         &group(Some(MembershipRole::Viewer)),
         MembershipRole::Maintainer,
+        None,
     )
     .expect_err("a read-only role must not disable a connection")
     .to_string();
@@ -82,7 +103,14 @@ fn the_disable_route_shares_the_maintainer_floor_of_the_create_route() {
         "a Viewer is refused with the shared forbidden rule: {error}"
     );
     assert!(
-        require_group_role(&group(None), MembershipRole::Maintainer).is_err(),
+        group_action_allowed(
+            &authorizer(),
+            ACTOR,
+            &group(None),
+            MembershipRole::Maintainer,
+            None,
+        )
+        .is_err(),
         "a non-member is refused before any read or write"
     );
 }

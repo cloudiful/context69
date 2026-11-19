@@ -283,7 +283,12 @@ pub(crate) async fn sync_source(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, crate::contracts::MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(
+        &state,
+        &session,
+        &group,
+        crate::contracts::MembershipRole::Maintainer,
+    ) {
         return group_access_error_response(error);
     }
     submit_task_request(

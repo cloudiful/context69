@@ -41,6 +41,8 @@ pub use browser_sessions::BrowserSessionConfig;
 pub struct Context69App {
     pub config: Config,
     pub db: Database,
+    /// The one immutable authorization engine of this process.
+    pub authorizer: Arc<context69_authz::Context69Authorizer>,
     pub auth: AuthService,
     pub personal_access_tokens: PersonalAccessTokenService,
     pub namespace: NamespaceService,
@@ -91,8 +93,11 @@ impl Context69App {
         // leaves the latch closed: the process stays up, the engine does not.
         let outcome = handover::run_legacy_handover(&db, handover::HandoverLimits::default()).await;
         handover::log_handover_outcome(outcome);
-        let namespace = NamespaceService::new(db.clone());
-        let auth = AuthService::new(db.clone(), config.auth.clone())?;
+        // One immutable decision engine for the whole process. A build failure
+        // aborts startup rather than running with a permissive fallback.
+        let authorizer = Arc::new(context69_authz::Context69Authorizer::new().await?);
+        let namespace = NamespaceService::new(db.clone(), authorizer.clone());
+        let auth = AuthService::new(db.clone(), config.auth.clone(), authorizer.clone())?;
         let personal_access_tokens = PersonalAccessTokenService::new(
             db.clone(),
             auth.clone(),
@@ -120,6 +125,7 @@ impl Context69App {
         Ok(Self {
             config,
             db,
+            authorizer,
             auth,
             personal_access_tokens,
             namespace,
@@ -173,7 +179,8 @@ impl UpgradeRecoveryApp {
         if db.pending_upgrade().is_none() {
             anyhow::bail!("upgrade recovery requires a database with a pending pinned migration");
         }
-        let namespace = NamespaceService::new(db.clone());
+        let authorizer = Arc::new(context69_authz::Context69Authorizer::new().await?);
+        let namespace = NamespaceService::new(db.clone(), authorizer);
         let (settings, secrets, runtime_configured) =
             hydrate_upgrade_recovery(&db, &mut config).await?;
         let vector = vector_runtime::initialize(&db, &config, runtime_configured).await?;

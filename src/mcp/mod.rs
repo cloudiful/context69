@@ -72,13 +72,6 @@ fn is_group_restricted(scope: &Option<TokenGroupScope>) -> bool {
     matches!(scope, Some(TokenGroupScope::Groups { .. }))
 }
 
-fn token_missing_scope(kind: &Option<AuthKind>, required: PersonalAccessTokenScope) -> bool {
-    match kind {
-        Some(AuthKind::PersonalAccessToken { scopes, .. }) => !scopes.contains(&required),
-        _ => false,
-    }
-}
-
 fn successful_use_token_id(auth: &McpAuthContext) -> Option<Uuid> {
     if !auth.telemetry_due {
         return None;
@@ -131,14 +124,26 @@ impl Context69McpServer {
         auth: &McpAuthContext,
         required: PersonalAccessTokenScope,
     ) -> Result<(), McpError> {
-        if token_missing_scope(&auth.kind, required) {
-            return Err(McpError::invalid_request(
-                format!(
-                    "forbidden: personal access token missing {} scope",
-                    scope_name(required)
-                ),
-                None,
-            ));
+        // The shared engine is the single scope authority. Anonymous callers
+        // stay on the existing optional-auth path, which has no principal.
+        if let Some(user_id) = auth.user_id {
+            let token_scopes = match &auth.kind {
+                Some(AuthKind::PersonalAccessToken { scopes, .. }) => Some(scopes),
+                _ => None,
+            };
+            if !self
+                .app
+                .authorizer
+                .scope_allowed(user_id, required, token_scopes)
+            {
+                return Err(McpError::invalid_request(
+                    format!(
+                        "forbidden: personal access token missing {} scope",
+                        scope_name(required)
+                    ),
+                    None,
+                ));
+            }
         }
         Ok(())
     }
@@ -429,11 +434,27 @@ impl Context69McpServer {
             .ok_or_else(|| McpError::resource_not_found("group not found", None))?;
         crate::authorization::require_group_allowed(auth.group_scope.as_ref(), group.id)
             .map_err(internal_error)?;
+        // The shared engine is the single admission authority. The minted value
+        // is the only input the retrieval path accepts, so there is no parallel
+        // unchecked search entrypoint.
+        let admission = crate::services::git_repository::code_search::CodeSearchAdmission::admit(
+            &self.app.authorizer,
+            user_id,
+            auth.group_scope.as_ref(),
+            &group,
+        )
+        .map_err(|_| McpError::invalid_request("insufficient permissions for group", None))?;
         let scope = self
             .scope_from_context(&auth, Some(request.group_path.clone()))
             .await?;
-        let response =
-            code_tools::search(&self.app.db, &self.app.settings, &group, &scope, &request).await?;
+        let response = code_tools::search(
+            &self.app.db,
+            &self.app.settings,
+            &admission,
+            &scope,
+            &request,
+        )
+        .await?;
         self.observe_success(&auth);
         Ok(Json(response))
     }
@@ -681,11 +702,17 @@ where
 mod tests {
     use std::collections::BTreeSet;
 
-    use super::{
-        AuthKind, McpAuthContext, is_group_restricted, successful_use_token_id, token_missing_scope,
-    };
+    use super::{AuthKind, McpAuthContext, is_group_restricted, successful_use_token_id};
     use crate::contracts::{PersonalAccessTokenScope, TokenGroupScope};
     use uuid::Uuid;
+
+    fn authorizer() -> context69_authz::Context69Authorizer {
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .expect("runtime")
+            .block_on(context69_authz::Context69Authorizer::new())
+            .expect("engine")
+    }
 
     fn pat(scopes: &[PersonalAccessTokenScope], telemetry_due: bool) -> McpAuthContext {
         McpAuthContext {
@@ -700,29 +727,22 @@ mod tests {
     }
 
     #[test]
-    fn mcp_requires_the_functional_scope_for_a_personal_access_token() {
+    fn mcp_scope_decisions_use_the_shared_engine() {
+        let engine = authorizer();
         let search = pat(&[PersonalAccessTokenScope::Search], true);
-        assert!(!token_missing_scope(
-            &search.kind,
-            PersonalAccessTokenScope::Search
-        ));
-        assert!(token_missing_scope(
-            &search.kind,
-            PersonalAccessTokenScope::Sources
-        ));
-
-        let browser = McpAuthContext {
-            kind: Some(AuthKind::BrowserSession),
-            ..search
+        let search_scopes = match &search.kind {
+            Some(AuthKind::PersonalAccessToken { scopes, .. }) => Some(scopes),
+            _ => None,
         };
-        assert!(!token_missing_scope(
-            &browser.kind,
-            PersonalAccessTokenScope::Sources
-        ));
-        assert!(!token_missing_scope(
-            &McpAuthContext::anonymous().kind,
-            PersonalAccessTokenScope::Search
-        ));
+        assert!(engine.scope_allowed(7, PersonalAccessTokenScope::Search, search_scopes));
+        assert!(
+            !engine.scope_allowed(7, PersonalAccessTokenScope::Sources, search_scopes),
+            "a missing scope is rejected by the engine, not a legacy short-circuit"
+        );
+        assert!(
+            engine.scope_allowed(7, PersonalAccessTokenScope::Sources, None),
+            "an authenticated browser session carries every service scope"
+        );
     }
 
     #[test]

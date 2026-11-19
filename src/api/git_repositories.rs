@@ -70,7 +70,7 @@ pub(crate) async fn register_git_repository(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let connection_key = match request.validated_connection_key() {
@@ -130,7 +130,7 @@ pub(crate) async fn list_git_repositories(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Viewer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Viewer) {
         return group_access_error_response(error);
     }
     match state.app.db.list_git_repository_sources(group.id).await {
@@ -167,7 +167,7 @@ pub(crate) async fn get_git_repository(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Viewer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Viewer) {
         return group_access_error_response(error);
     }
     match state
@@ -210,7 +210,7 @@ pub(crate) async fn index_git_repository(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match state
@@ -259,7 +259,7 @@ pub(crate) async fn update_git_repository_settings(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     let settings = match request.validated() {
@@ -365,7 +365,7 @@ pub(crate) async fn delete_git_repository(
         Ok(group) => group,
         Err(error) => return group_access_error_response(error),
     };
-    if let Err(error) = require_group_role(&group, MembershipRole::Maintainer) {
+    if let Err(error) = require_group_role(&state, &session, &group, MembershipRole::Maintainer) {
         return group_access_error_response(error);
     }
     match crate::services::git_repository::refresh::delete_repository(

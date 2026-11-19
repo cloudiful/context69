@@ -16,6 +16,7 @@ Context69 is a retrieval-focused knowledge base service for ingesting documents,
 - Retain task history until users clear it (per-task trash/restore/permanent delete); the processing queue offers cross-page task selection with contextual bulk retry/resume/cancel/trash, and confirmed bulk restore or permanent delete in the trash view; admin cancel-active and Docling recovery stay server-side
 - Delete library files, folders, sources, and documents logically: their search tombstones commit before any vector purge, so they disappear from search immediately, and a failed or interrupted purge is retried without blocking the delete. Each tombstone records the Qdrant endpoint and collection that its delete committed against, and a retry removes points only from that recorded origin, so activating a different collection cannot redirect it. Tombstones written before an origin was recorded keep no origin and stay pending for manual verification instead of being guessed from the current settings.
 - Expose an HTTP API, MCP over HTTP or stdio, and an optional web UI
+- Authorize through one shared policy engine built at startup: administrator gates use the caller's current role, group decisions combine the live SQL role with the exact personal-access-token group range, and the six token scopes are exact credential grants. Public group discovery stays readable without membership, and a new group needs no engine rebuild.
 
 ### Runtime chunking
 
