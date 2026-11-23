@@ -1,6 +1,6 @@
 //! Mechanical OpenAPI operation manifest (Redmine 362 Task 4b, sdk-raw).
 //!
-//! Generated mechanically from `frontend/openapi/context69.openapi.json`
+//! Generated mechanically from `frontend/openapi.json`
 //! (166 operations, sorted by `operation_id` for deterministic diffs).
 //! Do not edit by hand; regenerate from OpenAPI so contract tests can compare
 //! `operation_id`/`method`/`path` exactly. `request_schema`/`response_schema`

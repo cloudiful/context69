@@ -14,7 +14,7 @@ use context69_sdk::{
 };
 use serde_json::{Value, json};
 
-const OPENAPI_JSON: &str = include_str!("../../../frontend/openapi/context69.openapi.json");
+const OPENAPI_JSON: &str = include_str!("../../../frontend/openapi.json");
 
 fn openapi_operations() -> Vec<(String, String, String)> {
     let document: Value = serde_json::from_str(OPENAPI_JSON).expect("openapi parses");

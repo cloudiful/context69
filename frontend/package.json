@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "bun run check && vite build",
+    "build": "bun run generate:api && bun run check && vite build",
     "preview": "vite preview",
     "generate:api": "bun install --cwd=tooling/openapi --frozen-lockfile --minimum-release-age 604800 && bun --cwd=tooling/openapi run generate",
     "generate:api:from-backend": "cd .. && cargo run --bin context69 -- export-openapi && cd frontend && bun run generate:api",

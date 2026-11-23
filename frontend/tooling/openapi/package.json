@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "description": "Locked generator toolchain for frontend/src/generated/openapi.ts",
   "scripts": {
-    "generate": "openapi-typescript ../../openapi/context69.openapi.json -o ../../src/generated/openapi.ts"
+    "generate": "openapi-typescript ../../openapi.json -o ../../src/generated/openapi.ts"
   },
   "devDependencies": {
     "openapi-typescript": "7.13.0",

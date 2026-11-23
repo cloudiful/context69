@@ -128,7 +128,7 @@ where
 async fn export_openapi(output_path: Option<String>) -> Result<()> {
     let output_path = output_path
         .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("frontend/openapi/context69.openapi.json"));
+        .unwrap_or_else(|| PathBuf::from("frontend/openapi.json"));
 
     if let Some(parent) = output_path.parent() {
         fs::create_dir_all(parent)?;
