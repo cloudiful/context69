@@ -21,16 +21,10 @@ jobs:
       builds: >-
         [{"platform":"linux/amd64","runner":"aio"}]
       dockerfile_mode: builtin
-      build_command: SQLX_OFFLINE=true cargo build --release --bin context69
+      build_command: SQLX_OFFLINE=true cargo build --release --bin context69 --bin export-openapi
       binary_mappings: >-
-        [{"source":"target/release/context69","destination":"context69"}]
-      after_build_command: |
-        "${RUST_OUTPUT_DIRECTORY:?}/context69" export-openapi
+        [{"source":"target/release/context69","destination":"context69"},{"source":"target/release/export-openapi","destination":"export-openapi","include_in_image":false}]
       frontend_install_args: '["--minimum-release-age=604800"]'
-      frontend_build_command: |
-        bun run generate:api
-        bun run build
-        test -f dist/index.html
       runtime_packages: '["bash"]'
       runtime_expose: |
         80
