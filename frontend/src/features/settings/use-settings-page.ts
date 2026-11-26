@@ -10,7 +10,6 @@ import type {
   RuntimeSettingsResponse,
   SearchSettingsResponse,
   TokenizerPresetDescriptor,
-  TranslationProviderInput,
   TranslationSettingsResponse,
   UpdateRuntimeSettingsRequest,
 } from "@/services/api";
@@ -19,28 +18,30 @@ import {
   buildRuntimePayload,
   buildSearchSettingsComparablePayload,
   buildSearchSettingsPayload,
-  createDoclingDraft,
   createRuntimeDraft,
-  createSearchDraft,
-  doclingResponseToDraft,
   doclingResponseToPayload,
   runtimeResponseToDraft,
   runtimeResponseToPayload,
   searchResponseToPayload,
-  type DraftDoclingSettings,
   type DraftRuntimeSettings,
-  type DraftSearchSettings,
 } from "@/utils/settings";
 
 import { errorMessage } from "./settings-error";
-import { useAppearanceDraft, type AppearanceValues } from "./use-appearance-draft";
+import { useSettingsForm, useSettingsFormValues, type SettingsSubmitMeta } from "./settings-form";
+import {
+  adoptDoclingCommit,
+  adoptSearchCommit,
+  captureSettingsSnapshot,
+  defineSettingsSavePeer,
+  runSettingsSave,
+  settingsSaveHasPendingEdit,
+  type SettingsSavePeer,
+  type TranslationProviderDraft,
+} from "./settings-save";
+import { useAppearanceDraft } from "./use-appearance-draft";
 import { lastObservedRebuildStatus, rebuildHoldsBarrier } from "./use-vector-rebuild";
 
-export interface TranslationProviderDraft extends Omit<TranslationProviderInput, "enabled"> {
-  enabled: boolean;
-  has_api_key: boolean;
-  current_month_characters: number;
-}
+export type { TranslationProviderDraft } from "./settings-save";
 
 export const SETTINGS_QUERY_KEYS = {
   runtime: ["settings", "runtime"] as const,
@@ -230,17 +231,13 @@ function withVectorSpaceConfirmation(
   };
 }
 
-function translationPayload(providers: TranslationProviderDraft[]) {
+function translationPayload(providers: readonly TranslationProviderDraft[]) {
   return {
     providers: providers.map(({ has_api_key: _hasKey, current_month_characters: _usage, ...provider }) => ({
       ...provider,
       api_key: provider.api_key?.trim() || undefined,
     })),
   };
-}
-
-function sameAppearance(left: AppearanceValues, right: AppearanceValues) {
-  return left.locale === right.locale && left.theme === right.theme && left.timeZone === right.timeZone;
 }
 
 /**
@@ -257,7 +254,7 @@ export function useSettingsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuthSession();
   const isAdmin = user?.is_admin === true;
-  const appearance = useAppearanceDraft();
+  const appearanceDraft = useAppearanceDraft();
 
   const runtimeQuery = useQuery({
     queryKey: SETTINGS_QUERY_KEYS.runtime,
@@ -282,9 +279,6 @@ export function useSettingsPage() {
   });
 
   const [runtimeDraft, setRuntimeDraft] = useState<DraftRuntimeSettings>(createRuntimeDraft);
-  const [doclingDraft, setDoclingDraft] = useState<DraftDoclingSettings>(createDoclingDraft);
-  const [searchDraft, setSearchDraft] = useState<DraftSearchSettings>(createSearchDraft);
-  const [rerankApiKeyDraft, setRerankApiKeyDraftState] = useState("");
   const [translationProviders, setTranslationProviders] = useState<TranslationProviderDraft[]>([]);
 
   const runtimeRevision = useRef(0);
@@ -297,8 +291,31 @@ export function useSettingsPage() {
   const translationSeeded = useRef(0);
   const [draftsSeeded, setDraftsSeeded] = useState(false);
 
+  // The native form owns the Docling and the Search drafts. The provider
+  // keeps its lifetime, so the drafts of every routed section survive a
+  // section change, and the shared Save has one native submit entry.
+  const submitHandlerRef = useRef<(meta: SettingsSubmitMeta) => void | Promise<void>>(
+    () => undefined,
+  );
+  const form = useSettingsForm({
+    onSubmit: (meta) => submitHandlerRef.current(meta),
+    onResourceChange: (resource) => {
+      if (resource === "docling") {
+        doclingRevision.current += 1;
+        return;
+      }
+      searchRevision.current += 1;
+    },
+  });
+  const formValues = useSettingsFormValues(form);
+  const doclingDraft = formValues.doclingSettings;
+  const searchDraft = formValues.searchSettings;
+  const rerankApiKeyDraft = formValues.searchRerankApiKey;
+
   const [saving, setSaving] = useState(false);
-  const savingRef = useRef(false);
+  // The synchronous guard against a second dispatch: an explicit Save never
+  // queues another one while a save is running.
+  const dispatchingRef = useRef(false);
   const [saveMessage, setSaveMessage] = useState("");
 
   // The preparation of the known tokenizer presets, one entry per preset.
@@ -391,17 +408,19 @@ export function useSettingsPage() {
     if (doclingRevision.current !== doclingSeeded.current) {
       return;
     }
-    setDoclingDraft(doclingResponseToDraft(response));
+    // A programmatic reset is not an operator edit, so it must not move the
+    // resource revision.
+    form.setFieldValue("doclingSettings", adoptDoclingCommit(response), { dontRunListeners: true });
     doclingSeeded.current = doclingRevision.current;
-  }, []);
+  }, [form]);
 
   const seedSearch = useCallback((response: SearchSettingsResponse) => {
     if (searchRevision.current !== searchSeeded.current) {
       return;
     }
-    setSearchDraft(searchResponseToPayload(response));
+    form.setFieldValue("searchSettings", adoptSearchCommit(response).search, { dontRunListeners: true });
     searchSeeded.current = searchRevision.current;
-  }, []);
+  }, [form]);
 
   const seedTranslation = useCallback((response: TranslationSettingsResponse) => {
     if (translationRevision.current !== translationSeeded.current) {
@@ -548,29 +567,6 @@ export function useSettingsPage() {
     });
   }, []);
 
-  const updateDoclingDraft = useCallback((mutate: (draft: DraftDoclingSettings) => void) => {
-    doclingRevision.current += 1;
-    setDoclingDraft((current) => {
-      const next = cloneDraft(current);
-      mutate(next);
-      return next;
-    });
-  }, []);
-
-  const updateSearchDraft = useCallback((mutate: (draft: DraftSearchSettings) => void) => {
-    searchRevision.current += 1;
-    setSearchDraft((current) => {
-      const next = cloneDraft(current);
-      mutate(next);
-      return next;
-    });
-  }, []);
-
-  const setRerankApiKeyDraft = useCallback((value: string) => {
-    searchRevision.current += 1;
-    setRerankApiKeyDraftState(value);
-  }, []);
-
   const updateTranslationProviders = useCallback((
     mutate: (providers: TranslationProviderDraft[]) => TranslationProviderDraft[],
   ) => {
@@ -614,7 +610,7 @@ export function useSettingsPage() {
     || doclingHasChanges
     || searchHasChanges
     || translationHasChanges
-    || appearance.hasChanges;
+    || appearanceDraft.hasChanges;
 
   const loading = !draftsSeeded
     || runtimeQuery.isPending
@@ -754,167 +750,226 @@ export function useSettingsPage() {
   );
 
   /**
-   * Dispatches one save. `confirmVectorSpace` is set only by the dialog accept
-   * handler, so a normal save can never acknowledge a changed gateway/alias on
-   * the operator's behalf.
+   * Dispatches one save from the click-time snapshot the native submit
+   * carries. `confirmVectorSpace` is set only by the dialog accept handler,
+   * so a normal save can never acknowledge a changed gateway/alias on the
+   * operator's behalf.
    */
-  const performSave = useCallback(async (confirmVectorSpace: boolean) => {
-    if (savingRef.current || !hasChanges) {
-      return;
-    }
+  const performSave = useCallback(async (meta: SettingsSubmitMeta) => {
+    const { snapshot, confirmVectorSpace, appearance: appearanceSubmission } = meta;
+    setSaveMessage("");
 
-    savingRef.current = true;
-    setSaving(true);
-
-    try {
-      setSaveMessage("");
-
-      // Click-time snapshot: later edits must neither change a dispatched body
-      // nor be overwritten by a late response.
-      const runtimeSubmission = runtimeHasChanges
-        ? {
-          payload: withVectorSpaceConfirmation(
-            buildRuntimePayload(runtimeDraft),
-            confirmVectorSpace,
-          ),
-          revision: runtimeRevision.current,
-        }
-        : null;
-      const doclingSubmission = doclingHasChanges
-        ? { payload: buildDoclingPayload(doclingDraft), revision: doclingRevision.current }
-        : null;
-      const searchSubmission = searchHasChanges
-        ? {
-          payload: buildSearchSettingsPayload(searchDraft, rerankApiKeyDraft, false),
-          revision: searchRevision.current,
-        }
-        : null;
-      const translationSubmission = translationHasChanges
-        ? { payload: translationPayload(translationProviders), revision: translationRevision.current }
-        : null;
-      const appearanceSubmission = appearance.hasChanges ? appearance.captureSnapshot() : null;
-
-      // Runtime stays the authoritative admission step: its rejection stops
-      // every other PUT and the appearance commit.
-      if (runtimeSubmission) {
-        try {
-          const runtime = await apiClient.updateRuntimeSettings(runtimeSubmission.payload);
-          queryClient.setQueryData(SETTINGS_QUERY_KEYS.runtime, runtime);
-          if (runtimeRevision.current === runtimeSubmission.revision) {
-            setRuntimeDraft(runtimeResponseToDraft(runtime));
-            runtimeSeeded.current = runtimeRevision.current;
-          }
+    // Runtime stays the authoritative admission step: its rejection stops
+    // every other PUT and the appearance commit.
+    const runtimePeer = snapshot.applicable.runtime
+      ? defineSettingsSavePeer({
+        key: "runtime",
+        save: async () => {
+          const response = await apiClient.updateRuntimeSettings(
+            withVectorSpaceConfirmation(
+              buildRuntimePayload(snapshot.runtime),
+              confirmVectorSpace,
+            ),
+          );
+          queryClient.setQueryData(SETTINGS_QUERY_KEYS.runtime, response);
           // A committed identity acknowledgement is spent: a later change needs
           // a fresh confirmation.
           setCompatibilityOpen(false);
           setCompatibilityCandidate(null);
-        } catch (error) {
-          showErrorToast(error, t("settings.saveFailed"));
-          return;
-        }
+          return response;
+        },
+        adopt: (response) => {
+          setRuntimeDraft(runtimeResponseToDraft(response));
+          runtimeSeeded.current = runtimeRevision.current;
+        },
+        isCurrent: () => runtimeRevision.current === snapshot.revisions.runtime,
+      })
+      : null;
+
+    const doclingPeer = snapshot.applicable.docling
+      ? defineSettingsSavePeer({
+        key: "doclingSettings",
+        save: async () => {
+          const response = await apiClient.updateDoclingSettings(
+            buildDoclingPayload(snapshot.docling),
+          );
+          queryClient.setQueryData(SETTINGS_QUERY_KEYS.docling, response);
+          return response;
+        },
+        adopt: (response) => {
+          // A programmatic reset is not an operator edit, so it must not move the
+          // resource revision.
+          form.setFieldValue("doclingSettings", adoptDoclingCommit(response), { dontRunListeners: true });
+          doclingSeeded.current = doclingRevision.current;
+        },
+        isCurrent: () => doclingRevision.current === snapshot.revisions.docling,
+      })
+      : null;
+
+    const searchPeer = snapshot.applicable.search
+      ? defineSettingsSavePeer({
+        key: "searchSettings",
+        save: async () => {
+          const response = await apiClient.updateSearchSettings(
+            buildSearchSettingsPayload(snapshot.search, snapshot.searchRerankApiKey, false),
+          );
+          queryClient.setQueryData(SETTINGS_QUERY_KEYS.search, response);
+          return response;
+        },
+        adopt: (response) => {
+          const adopted = adoptSearchCommit(response);
+          // A programmatic reset is not an operator edit, so it must not move
+          // the resource revision.
+          form.setFieldValue("searchSettings", adopted.search, { dontRunListeners: true });
+          form.setFieldValue("searchRerankApiKey", adopted.searchRerankApiKey, { dontRunListeners: true });
+          searchSeeded.current = searchRevision.current;
+        },
+        isCurrent: () => searchRevision.current === snapshot.revisions.search,
+      })
+      : null;
+
+    const translationPeer = snapshot.applicable.translation
+      ? defineSettingsSavePeer({
+        key: "translation",
+        save: async () => {
+          const response = await apiClient.updateTranslationSettings(
+            translationPayload(snapshot.translation),
+          );
+          queryClient.setQueryData(SETTINGS_QUERY_KEYS.translation, response);
+          return response;
+        },
+        adopt: (response) => {
+          setTranslationProviders(response.providers.map((provider) => ({
+            ...provider,
+            api_key: undefined,
+          })));
+          translationSeeded.current = translationRevision.current;
+        },
+        isCurrent: () => translationRevision.current === snapshot.revisions.translation,
+      })
+      : null;
+
+    const outcome = await runSettingsSave({
+      admission: runtimePeer,
+      peers: [doclingPeer, searchPeer, translationPeer].filter(
+        (peer): peer is SettingsSavePeer => peer !== null,
+      ),
+    });
+
+    if (outcome.admissionFailed) {
+      showErrorToast(outcome.failures[0]?.reason, t("settings.saveFailed"));
+      return;
+    }
+
+    // Every fulfilled peer is adopted, so one rejected group cannot hide the
+    // others' committed results; a rejection still ends the save.
+    if (outcome.failures.length > 0) {
+      for (const failure of outcome.failures) {
+        showErrorToast(failure.reason, t("settings.saveFailed"));
       }
+      return;
+    }
 
-      const [doclingResult, searchResult, translationResult] = await Promise.allSettled([
-        doclingSubmission
-          ? apiClient.updateDoclingSettings(doclingSubmission.payload)
-          : Promise.resolve(null),
-        searchSubmission
-          ? apiClient.updateSearchSettings(searchSubmission.payload)
-          : Promise.resolve(null),
-        translationSubmission
-          ? apiClient.updateTranslationSettings(translationSubmission.payload)
-          : Promise.resolve(null),
-      ] as const);
-
-      // Every fulfilled peer is adopted, so one rejected group cannot hide the
-      // others' committed results.
-      const rejections: unknown[] = [];
-
-      if (doclingResult.status === "fulfilled") {
-        if (doclingResult.value) {
-          queryClient.setQueryData(SETTINGS_QUERY_KEYS.docling, doclingResult.value);
-          if (doclingSubmission && doclingRevision.current === doclingSubmission.revision) {
-            setDoclingDraft(doclingResponseToDraft(doclingResult.value));
-            doclingSeeded.current = doclingRevision.current;
-          }
-        }
-      } else {
-        rejections.push(doclingResult.reason);
-      }
-
-      if (searchResult.status === "fulfilled") {
-        if (searchResult.value) {
-          queryClient.setQueryData(SETTINGS_QUERY_KEYS.search, searchResult.value);
-          if (searchSubmission && searchRevision.current === searchSubmission.revision) {
-            setSearchDraft(searchResponseToPayload(searchResult.value));
-            setRerankApiKeyDraftState("");
-            searchSeeded.current = searchRevision.current;
-          }
-        }
-      } else {
-        rejections.push(searchResult.reason);
-      }
-
-      if (translationResult.status === "fulfilled") {
-        if (translationResult.value) {
-          queryClient.setQueryData(SETTINGS_QUERY_KEYS.translation, translationResult.value);
-          if (translationSubmission && translationRevision.current === translationSubmission.revision) {
-            setTranslationProviders(translationResult.value.providers.map((provider) => ({
-              ...provider,
-              api_key: undefined,
-            })));
-            translationSeeded.current = translationRevision.current;
-          }
-        }
-      } else {
-        rejections.push(translationResult.reason);
-      }
-
-      if (rejections.length > 0) {
-        for (const reason of rejections) {
-          showErrorToast(reason, t("settings.saveFailed"));
-        }
+    // Appearance follows only a completely successful service save, and uses
+    // the submitted snapshot rather than the live draft.
+    if (appearanceSubmission) {
+      const result = appearanceDraft.commit(appearanceSubmission);
+      if (!result.stored) {
+        toast.warning(t("settings.appearance.title"), {
+          description: t("settings.appearance.notStoredWarning"),
+          duration: 6000,
+        });
         return;
       }
-
-      // Appearance follows only a completely successful service save, and uses
-      // the submitted snapshot rather than the live draft.
-      let appearancePending = appearance.hasChanges;
-      if (appearanceSubmission) {
-        const result = appearance.commit(appearanceSubmission);
-        const liveAppearance = appearance.captureSnapshot();
-        appearancePending = !result.stored || !sameAppearance(liveAppearance, appearanceSubmission);
-        if (!result.stored) {
-          toast.warning(t("settings.appearance.title"), {
-            description: t("settings.appearance.notStoredWarning"),
-            duration: 6000,
-          });
-          return;
-        }
-      }
-
-      // A newer unsaved edit keeps the page pending, so no global success is
-      // claimed for it.
-      const stillDirty = appearancePending
-        || (!!runtimeSubmission && runtimeRevision.current !== runtimeSubmission.revision)
-        || (!!doclingSubmission && doclingRevision.current !== doclingSubmission.revision)
-        || (!!searchSubmission && searchRevision.current !== searchSubmission.revision)
-        || (!!translationSubmission && translationRevision.current !== translationSubmission.revision);
-
-      if (!stillDirty) {
-        setSaveMessage(t("settings.saveSuccess"));
-        toast.success(t("settings.saveSuccess"), { duration: 2500 });
-      }
-    } finally {
-      savingRef.current = false;
-      setSaving(false);
     }
+
+    // A newer unsaved edit keeps the page pending, so no global success is
+    // claimed for it. Every resource counts, not only the ones this save
+    // submitted: one that was clean when the operator clicked Save can be
+    // edited while the save is running, and that edit is still unsaved.
+    const pendingEdit = settingsSaveHasPendingEdit({
+      baseline: snapshot.revisions,
+      current: {
+        runtime: runtimeRevision.current,
+        docling: doclingRevision.current,
+        search: searchRevision.current,
+        translation: translationRevision.current,
+      },
+      appearanceBaseline: meta.appearanceAtClick,
+      appearance: appearanceDraft.captureSnapshot(),
+    })
+    // An appearance the browser could not store before this save stays
+    // pending as well, so no global success hides it.
+    || (meta.appearance === null && meta.appearanceUnresolved);
+
+    if (!pendingEdit) {
+      setSaveMessage(t("settings.saveSuccess"));
+      toast.success(t("settings.saveSuccess"), { duration: 2500 });
+    }
+  }, [appearanceDraft, form, queryClient, showErrorToast, t]);
+
+  // The native form owns the submit, so the page hands its handler to the
+  // form instead of rebuilding the form for every render.
+  useEffect(() => {
+    submitHandlerRef.current = performSave;
+  });
+
+  /**
+   * Hands one save to the native form.
+   *
+   * The click-time snapshot is captured here, before the form submits, so a
+   * later edit can neither change a dispatched body nor be overwritten by a
+   * late response. A second click while a save runs is refused instead of
+   * queued.
+   */
+  const submitSettings = useCallback((confirmVectorSpace: boolean) => {
+    if (dispatchingRef.current) {
+      return;
+    }
+    dispatchingRef.current = true;
+    setSaving(true);
+    const snapshot = captureSettingsSnapshot({
+      runtime: runtimeDraft,
+      docling: doclingDraft,
+      search: searchDraft,
+      searchRerankApiKey: rerankApiKeyDraft,
+      translation: translationProviders,
+      revisions: {
+        runtime: runtimeRevision.current,
+        docling: doclingRevision.current,
+        search: searchRevision.current,
+        translation: translationRevision.current,
+      },
+      applicable: {
+        runtime: runtimeHasChanges,
+        docling: doclingHasChanges,
+        search: searchHasChanges,
+        translation: translationHasChanges,
+      },
+    });
+    const appearance = appearanceDraft.hasChanges ? appearanceDraft.captureSnapshot() : null;
+    void form
+      .handleSubmit({
+        confirmVectorSpace,
+        snapshot,
+        appearance,
+        // The baseline is captured even without appearance changes, so a later
+        // edit of an initially clean appearance is recognized as pending.
+        appearanceAtClick: appearanceDraft.captureSnapshot(),
+        appearanceUnresolved: appearanceDraft.unresolvedCommit,
+      })
+      .catch((error: unknown) => {
+        showErrorToast(error, t("settings.saveFailed"));
+      })
+      .finally(() => {
+        dispatchingRef.current = false;
+        setSaving(false);
+      });
   }, [
-    appearance,
+    appearanceDraft,
     doclingDraft,
     doclingHasChanges,
-    hasChanges,
-    queryClient,
+    form,
     rerankApiKeyDraft,
     runtimeDraft,
     runtimeHasChanges,
@@ -927,7 +982,7 @@ export function useSettingsPage() {
   ]);
 
   const saveSettings = useCallback(async () => {
-    if (savingRef.current || !hasChanges) {
+    if (dispatchingRef.current || !hasChanges) {
       return;
     }
     // A selected preset that is not ready must not be saved: the deployment
@@ -979,19 +1034,18 @@ export function useSettingsPage() {
       setCompatibilityOpen(true);
       return;
     }
-    await performSave(false);
+    submitSettings(false);
   }, [
     hasChanges,
     isAdmin,
-    performSave,
     runtimeData,
     runtimeDraft,
     runtimeHasChanges,
     selectedTokenizerStatus,
+    submitSettings,
     t,
     tokenizerSaveBlocked,
   ]);
-
   const confirmCompatibility = useCallback(() => {
     const candidate = compatibilityCandidate;
     setCompatibilityOpen(false);
@@ -1005,8 +1059,8 @@ export function useSettingsPage() {
     if (embeddingSignature(live) !== embeddingSignature(candidate)) {
       return;
     }
-    void performSave(true);
-  }, [compatibilityCandidate, performSave, runtimeDraft]);
+    submitSettings(true);
+  }, [compatibilityCandidate, runtimeDraft, submitSettings]);
 
   const cancelCompatibility = useCallback(() => {
     setCompatibilityOpen(false);
@@ -1183,7 +1237,7 @@ export function useSettingsPage() {
   }, [doclingDraft, showErrorToast, t]);
 
   return {
-    appearance,
+    appearance: appearanceDraft,
     cancelCompatibility,
     codeEmbeddingTesting,
     compatibilityCandidate,
@@ -1194,6 +1248,7 @@ export function useSettingsPage() {
     doclingQuery,
     doclingTesting,
     embeddingTesting,
+    form,
     imageEmbeddingTesting,
     hasChanges,
     isAdmin,
@@ -1214,7 +1269,6 @@ export function useSettingsPage() {
     searchQuery,
     selectedTokenizerPreset,
     selectedTokenizerStatus,
-    setRerankApiKeyDraft,
     testCodeEmbeddingConnection,
     testDoclingConnection,
     testEmbeddingConnection,
@@ -1227,12 +1281,10 @@ export function useSettingsPage() {
     translationHasChanges,
     translationProviders,
     translationQuery,
-    updateDoclingDraft,
     updateCodeEmbeddingDraft,
     updateImageEmbeddingDraft,
     updateQdrantUrl,
     updateRuntimeDraft,
-    updateSearchDraft,
     updateTranslationProviders,
     valkeyTesting,
   };
