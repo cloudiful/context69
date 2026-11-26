@@ -340,9 +340,9 @@ const RETRYABLE_LOCK_CONFLICT_CODES: [&str; 3] = ["40P01", "40001", "55P03"];
 /// Deletes the native queue tasks of a permanent deletion in the transaction of
 /// the caller.
 ///
-/// The library locks every native task and reads its status under that lock:
-/// a terminal task is deleted with its attempt history, an active task is
-/// refused, and a task that is already gone is reported as deleted. The
+/// The library locks each bounded set and checks statuses under those locks:
+/// terminal tasks are deleted with their attempt history, active tasks are
+/// refused, and missing tasks are ignored. The
 /// deletion is only durable when the caller commits the transaction, so the
 /// native history and the domain rows never disagree.
 ///
@@ -355,15 +355,13 @@ pub(crate) async fn delete_native_tasks_in(
     transaction: &mut Transaction<'_, Postgres>,
     native_ids: &[Uuid],
 ) -> Result<()> {
-    for native_id in native_ids {
-        match queue
-            .delete_in(&mut *transaction, TaskId::from_uuid(*native_id))
-            .await
-        {
+    let mut native_ids = native_ids.to_vec();
+    native_ids.sort_unstable();
+    native_ids.dedup();
+    for chunk in native_ids.chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE) {
+        let task_ids: Vec<_> = chunk.iter().copied().map(TaskId::from_uuid).collect();
+        match queue.delete_many_in(&mut *transaction, &task_ids).await {
             Ok(_) => {}
-            // A native task that is already gone is an idempotent success:
-            // the domain rows of the request may still be deleted.
-            Err(cloudiful_tasks::Error::NotFound) => {}
             Err(cloudiful_tasks::Error::InvalidTaskState {
                 task_id, status, ..
             }) => {
