@@ -1,7 +1,9 @@
+import { useTable, type ColumnDef } from "@tanstack/react-table";
 import { RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 
+import { dataTableFeatures, renderTable } from "@/components/common/data-table";
 import { StatusBadge, type StatusTone } from "@/components/common/status-badge";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -11,7 +13,6 @@ import { formatTimestamp } from "@/lib/format";
 import { QueueDiagnosePanel } from "./queue-diagnose-panel";
 import { QueueItemProgress } from "./queue-item-progress";
 import { taskItemStatusLabel, useTaskItems, itemStatuses } from "./use-task-items";
-import { queueStageLabel } from "./queue-helpers";
 
 const ALL_ITEMS = "__all__";
 
@@ -66,6 +67,109 @@ export function QueueExpandedRow({
   const [diagnoseOpen, setDiagnoseOpen] = useState(false);
   const items = useTaskItems({ taskId: task.task_id, active, parentUpdatedAt: task.updated_at });
   const retryAvailable = task.status === "failed";
+  const hasErrors = items.items.some((item) => Boolean(item.error_message));
+  const columns = useMemo<ColumnDef<typeof dataTableFeatures, TaskItemResponse>[]>(() => [
+    {
+      id: "file",
+      header: t("processingQueue.itemProgress.file"),
+      cell: ({ row }) => {
+        const item = row.original;
+        const subject = itemSubject(item);
+        const fileName = itemFileName(item);
+        return (
+          <div className="flex min-w-64 items-center gap-2">
+            <span className="text-xs text-muted-foreground">#{item.ordinal}</span>
+            <span className="max-w-md truncate font-medium" title={subject ?? item.item_id}>
+              {subject ?? item.item_id.slice(0, 8)}
+            </span>
+            {fileName && fileName !== subject
+              ? <span className="max-w-48 truncate text-xs text-muted-foreground" title={fileName}>{fileName}</span>
+              : null}
+          </div>
+        );
+      },
+    },
+    {
+      accessorKey: "status",
+      header: t("processingQueue.status"),
+      cell: ({ row }) => (
+        <div className="flex items-center gap-2">
+          <StatusBadge tone={itemStatusTone(row.original.status)}>
+            {taskItemStatusLabel(t, row.original.status)}
+          </StatusBadge>
+          {row.original.waiting_reason
+            ? (
+                <span className="text-xs text-muted-foreground">
+                  {t(`processingQueue.waitingReasons.${row.original.waiting_reason}`, {
+                    defaultValue: row.original.waiting_reason,
+                  })}
+                </span>
+              )
+            : null}
+        </div>
+      ),
+    },
+    {
+      id: "progress",
+      header: t("processingQueue.progress"),
+      cell: ({ row }) => <QueueItemProgress progress={row.original.progress} />,
+    },
+    {
+      id: "lastProgressAt",
+      header: t("processingQueue.itemProgress.lastProgressAt"),
+      cell: ({ row }) => (
+        <span className="text-xs text-muted-foreground">
+          {row.original.progress?.last_progress_at
+            ? formatTimestamp(row.original.progress.last_progress_at)
+            : "--"}
+        </span>
+      ),
+    },
+    {
+      accessorKey: "attempt_count",
+      header: t("processingQueue.itemProgress.attempts"),
+      cell: ({ row }) => (
+        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+          <span>{row.original.attempt_count}</span>
+          {row.original.next_attempt_at
+            ? <span>{t("processingQueue.diagnose.nextRetry", { time: formatTimestamp(row.original.next_attempt_at) })}</span>
+            : null}
+        </div>
+      ),
+    },
+    ...(hasErrors ? [{
+      accessorKey: "error_message",
+      header: t("processingQueue.error"),
+      cell: ({ row }) => (
+        <p className="max-w-md whitespace-normal break-words text-xs text-destructive">
+          {row.original.error_message}
+        </p>
+      ),
+    } satisfies ColumnDef<typeof dataTableFeatures, TaskItemResponse>] : []),
+    ...(retryAvailable ? [{
+      id: "actions",
+      header: t("processingQueue.actions"),
+      cell: () => (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          disabled={isActing}
+          title={t("processingQueue.retryTaskScope")}
+          onClick={() => onRetry(task)}
+        >
+          <RotateCcw aria-hidden="true" />
+          {t("processingQueue.retryTaskScope")}
+        </Button>
+      ),
+    } satisfies ColumnDef<typeof dataTableFeatures, TaskItemResponse>] : []),
+  ], [t, hasErrors, retryAvailable, isActing, onRetry, task]);
+  const table = useTable({
+    features: dataTableFeatures,
+    data: items.items,
+    columns,
+    getRowId: (item) => item.item_id,
+  });
 
   return (
     <div className="space-y-3 p-3">
@@ -125,67 +229,9 @@ export function QueueExpandedRow({
       {items.items.length === 0 && !items.loading && !items.error
         ? <p className="text-xs text-muted-foreground">{t("processingQueue.noItems")}</p>
         : (
-            <ul className="divide-y rounded-md border">
-              {items.items.map((item) => {
-                const subject = itemSubject(item);
-                const fileName = itemFileName(item);
-                return (
-                <li key={item.item_id} className="flex flex-wrap items-start justify-between gap-3 p-2" data-testid="task-item-row">
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-2 text-sm">
-                      <span className="text-xs text-muted-foreground">#{item.ordinal}</span>
-                      <span className="truncate font-medium">
-                        {subject ?? item.item_id.slice(0, 8)}
-                      </span>
-                      {fileName && fileName !== subject
-                        ? <span className="truncate text-xs text-muted-foreground">{fileName}</span>
-                        : null}
-                      <StatusBadge tone={itemStatusTone(item.status)}>
-                        {taskItemStatusLabel(t, item.status)}
-                      </StatusBadge>
-                      {item.waiting_reason
-                        ? (
-                            <span className="text-xs text-muted-foreground">
-                              {t(`processingQueue.waitingReasons.${item.waiting_reason}`, {
-                                defaultValue: item.waiting_reason,
-                              })}
-                            </span>
-                          )
-                        : null}
-                    </div>
-                    {item.progress ? <QueueItemProgress progress={item.progress} /> : null}
-                    <div className="flex flex-wrap gap-x-3 text-xs text-muted-foreground">
-                      <span>{t("processingQueue.attempts", { count: item.attempt_count })}</span>
-                      {/* The progress block owns the real stage while the item
-                          has one; the persisted marker would contradict it. */}
-                      {item.stage && !item.progress ? <span>{queueStageLabel(t, item.stage)}</span> : null}
-                      {item.next_attempt_at
-                        ? <span>{t("processingQueue.diagnose.nextRetry", { time: formatTimestamp(item.next_attempt_at) })}</span>
-                        : null}
-                    </div>
-                    {item.error_message
-                      ? <p className="text-xs text-destructive">{item.error_message}</p>
-                      : null}
-                  </div>
-                  {retryAvailable
-                    ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          disabled={isActing}
-                          title={t("processingQueue.retryTaskScope")}
-                          onClick={() => onRetry(task)}
-                        >
-                          <RotateCcw aria-hidden="true" />
-                          {t("processingQueue.retryTaskScope")}
-                        </Button>
-                      )
-                    : null}
-                </li>
-                );
-              })}
-            </ul>
+            <div className="rounded-md border">
+              {renderTable(table, t("processingQueue.noItems"), "task-item-row")}
+            </div>
           )}
 
       {items.hasMore

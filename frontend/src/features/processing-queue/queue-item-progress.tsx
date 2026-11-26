@@ -1,7 +1,6 @@
 import { useTranslation } from "react-i18next";
 
 import type { TaskItemResponse } from "@/services/api";
-import { formatTimestamp } from "@/lib/format";
 
 import { itemProgressView, progressCountText, progressPercent } from "./queue-helpers";
 
@@ -24,13 +23,7 @@ export function QueueItemProgress({ progress }: { progress?: TaskItemResponse["p
     ?? progressCountText(t, view.batches, "batches");
 
   return (
-    <div className="space-y-1.5">
-      <div className="flex flex-wrap items-baseline justify-between gap-2 text-xs">
-        <span className="font-medium">{view.stageLabel}</span>
-        {view.remoteStatus
-          ? <span className="text-muted-foreground">{t("processingQueue.itemProgress.remoteStatus", { status: view.remoteStatus })}</span>
-          : null}
-      </div>
+    <div className="flex items-center gap-2 whitespace-nowrap text-xs text-muted-foreground">
       {percent !== null
         ? (
             <div
@@ -39,20 +32,15 @@ export function QueueItemProgress({ progress }: { progress?: TaskItemResponse["p
               aria-valuemax={100}
               aria-valuenow={percent}
               aria-label={view.stageLabel}
-              className="h-1.5 w-full overflow-hidden rounded-full bg-muted"
+              className="h-1.5 w-20 shrink-0 overflow-hidden rounded-full bg-muted"
             >
               <div className="h-full rounded-full bg-primary" style={{ width: `${percent}%` }} />
             </div>
           )
         : null}
-      <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
-        <span>{countText ?? (view.isComplete ? t("processingQueue.itemProgress.complete") : t("processingQueue.itemProgress.countUnknown"))}</span>
-        {view.lastProgressAt
-          ? <span>{t("processingQueue.itemProgress.lastObserved", { time: formatTimestamp(view.lastProgressAt) })}</span>
-          : null}
-      </div>
-      {view.showsPageProgressUnavailable
-        ? <p className="text-xs text-muted-foreground">{t("processingQueue.itemProgress.pageProgressUnavailable")}</p>
+      {countText ? <span>{countText}</span> : null}
+      {view.remoteStatus
+        ? <span>{t("processingQueue.itemProgress.remoteStatus", { status: view.remoteStatus })}</span>
         : null}
     </div>
   );

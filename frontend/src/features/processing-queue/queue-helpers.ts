@@ -891,7 +891,6 @@ export interface ItemProgressView {
   isComplete: boolean;
   isUnknown: boolean;
   remoteStatus: string | null;
-  showsPageProgressUnavailable: boolean;
   lastProgressAt: string | null;
 }
 
@@ -918,7 +917,6 @@ export function itemProgressView(
       || (batches !== null && batches.completed === batches.total && chunks === null),
     isUnknown: chunks === null && batches === null,
     remoteStatus,
-    showsPageProgressUnavailable: stage === "docling",
     lastProgressAt,
   };
 }
