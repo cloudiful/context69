@@ -260,13 +260,15 @@ async fn process_git_index_plan(
     };
     let result = run_git_index_snapshot_with_code_at_revision(
         service.db(),
-        group_id,
-        repository_key,
-        provider.as_ref(),
-        GitIndexLimits::default(),
-        code.as_ref(),
-        force_rebuild,
-        config_revision,
+        GitIndexSnapshotRequest {
+            group_id,
+            repository_key,
+            provider: provider.as_ref(),
+            limits: GitIndexLimits::default(),
+            code: code.as_ref(),
+            force_rebuild,
+            expected_config_revision: config_revision,
+        },
     )
     .await;
     let result = if matches!(&result, ProcessResult::Progressed { .. }) {
@@ -431,25 +433,44 @@ async fn read_connection_credential(
     Ok(GitAccessCredential::new(secret))
 }
 
-async fn run_git_index_snapshot_with_code_at_revision(
-    db: &Database,
+/// The captured target of one git index snapshot attempt.
+///
+/// The repository, the pinned configuration revision and the code target are
+/// decided together before the attempt starts, so they travel as one request.
+struct GitIndexSnapshotRequest<'a> {
     group_id: i64,
     repository_key: Uuid,
-    provider: &dyn GitSnapshotProvider,
+    provider: &'a dyn GitSnapshotProvider,
     limits: GitIndexLimits,
-    code: Option<&CodeVectorRequest>,
+    code: Option<&'a CodeVectorRequest>,
     force_rebuild: bool,
     expected_config_revision: i64,
+}
+
+async fn run_git_index_snapshot_with_code_at_revision(
+    db: &Database,
+    request: GitIndexSnapshotRequest<'_>,
 ) -> ProcessResult {
+    let GitIndexSnapshotRequest {
+        group_id,
+        repository_key,
+        provider,
+        limits,
+        code,
+        force_rebuild,
+        expected_config_revision,
+    } = request;
     match index_git_repository_snapshot_at_revision(
         db,
         provider,
         limits,
-        group_id,
-        repository_key,
-        code,
-        force_rebuild,
-        expected_config_revision,
+        crate::services::git_repository::indexing::SnapshotIndexRequest {
+            group_id,
+            repository_key,
+            code,
+            force_rebuild,
+            expected_config_revision,
+        },
     )
     .await
     {

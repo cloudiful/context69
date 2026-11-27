@@ -351,6 +351,24 @@ fn invalid_cursor_and_limit_are_rejected() {
     };
     assert!(blank_cursor.validate().is_err());
 
+    // An oversized search cursor fails at the MCP boundary, but the message
+    // must still point at the cursor-format migration: a retired cursor is
+    // longer than the 256-character cap, so the cap alone must not hide the
+    // restart-from-the-first-page instruction.
+    let oversized = McpSearchRequest {
+        cursor: Some(format!("c1:{}", "a".repeat(600))),
+        ..opaque_passthrough.clone()
+    };
+    let error = oversized
+        .validate()
+        .expect_err("oversized cursor must be rejected");
+    let message = error.to_string();
+    assert!(message.contains("256"), "unexpected message: {message}");
+    assert!(
+        message.contains("restart the search from the first page"),
+        "unexpected message: {message}"
+    );
+
     let bad_source_cursor = McpSourceListArgs {
         limit: 10,
         cursor: Some("10.5".to_string()),

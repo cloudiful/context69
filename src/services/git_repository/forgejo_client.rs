@@ -250,8 +250,7 @@ impl<T: GitHttpTransport + ?Sized + Sync> RepositoryAcquirer for ForgejoAcquirer
                 let required_pages = declared.div_ceil(page_len).saturating_add(1);
                 page_budget = u32::try_from(required_pages)
                     .unwrap_or(u32::MAX)
-                    .min(MAX_TREE_PAGES)
-                    .max(1);
+                    .clamp(1, MAX_TREE_PAGES);
             }
             let mut new_paths = 0usize;
             for entry in parsed.tree {

@@ -39,8 +39,7 @@ pub struct StoredDoclingRemoteJob {
 impl Database {
     pub async fn create_docling_remote_job(
         &self,
-        task_id: Uuid,
-        item_id: Uuid,
+        item: &crate::db::ClaimedItem,
         remote_task_id: &str,
         remote_status: Option<&str>,
         next_poll_at: Option<DateTime<Utc>>,
@@ -50,8 +49,8 @@ impl Database {
         Ok(sqlx::query_file_as!(
             StoredDoclingRemoteJob,
             "src/sql/db/tasks/docling_remote_jobs/create.sql",
-            task_id,
-            item_id,
+            item.task_id,
+            item.id,
             remote_task_id,
             remote_status,
             next_poll_at,

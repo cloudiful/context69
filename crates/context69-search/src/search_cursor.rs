@@ -1,135 +1,71 @@
 //! Opaque search pagination cursor encoding and ordering-epoch validation.
 //!
-//! Three wire formats are documented and clients must echo the value back
-//! unchanged. All start with a prefix that identifies the cursor family:
+//! Context69 issues compact `cp1.` tokens through the shared
+//! `cloudiful-pagination` codec: the prefix `cp1.` followed by unpadded
+//! URL-safe Base64 of `[kind: u8][binding: 32 bytes][payload]`. The token
+//! stays opaque for clients; the binding is a full SHA-256 fingerprint of
+//! the request context the cursor was issued for, and the payload carries
+//! the business state the pipeline needs to resume.
 //!
-//! - `c1:` — relevance cursor (legacy). Hex of the UTF-8 JSON
-//!   ```text
-//!   {
-//!     "v": 1,
-//!     "reranked": <bool>,
-//!     "offset":   <n>,
-//!     "limit":    <n>,
-//!     "qh":       "<query hash hex>",
-//!     "fh":       "<filter hash hex>",
-//!     "gen":      <i64>,
-//!     "sh":       "<settings hash hex>",
-//!     "mode":     "rerank" | "local"
-//!   }
-//!   ```
-//! - `c2:` — date cursor (legacy, superseded by `c3:` and then `c4:`). Rejected
-//!   by the current date pipeline; clients must restart from the first page
-//!   after the v3 / v4 format migrations. Hex of the UTF-8 JSON
-//!   ```text
-//!   {
-//!     "v": 2,
-//!     "sort":     "date",
-//!     "qh":       "<query hash hex>",
-//!     "fh":       "<filter hash hex>",
-//!     "gen":      <i64>,
-//!     "sh":       "<settings hash hex>",
-//!     "limit":    <n>,
-//!     "before":   <i64 | null>,
-//!     "tie":      {
-//!        "ts":    <i64 | null>,
-//!        "chunk": "<chunk uuid or null>"
-//!     },
-//!     "upper":    <i64 | null>
-//!   }
-//!   ```
-//! - `c3:` — date cursor (superseded by `c4:`). The previous format carried a
-//!   per-request `windows` counter and an in-memory `tie_chunk` filter for the
-//!   same-second drain; both have been retired. Clients holding a `c3:`
-//!   cursor must restart from the first page after the `c4:` migration. Hex
-//!   of the UTF-8 JSON
-//!   ```text
-//!   {
-//!     "v":           3,
-//!     "sort":        "date",
-//!     "qh":          "<query hash hex>",
-//!     "fh":          "<filter hash hex>",
-//!     "gen":         <i64>,
-//!     "sh":          "<settings hash hex>",
-//!     "limit":       <n>,
-//!     "before":      <i64 | null>,
-//!     "boundary_ts": <i64 | null>,
-//!     "tie_chunk":   "<uuid | null>",
-//!     "offset":      "<uuid | null>",
-//!     "upper":       <i64 | null>,
-//!     "windows":     <usize>
-//!   }
-//!   ```
-//! - `c4:` — date cursor (current). Keyset walk over `published_ts DESC` whose
-//!   same-second ties follow the Qdrant scroll return order (deterministic
-//!   per ordering epoch). The boundary timestamp is drained in full via the
-//!   Qdrant-side `next_page_offset`; the resume key is the offset itself plus
-//!   the wall-clock `upper` ceiling captured on the first page. No global
-//!   window counter — the request-level `MAX_DATE_WINDOWS` cap is a
-//!   per-request budget that produces a resumable cursor when hit. Hex of
-//!   the UTF-8 JSON
-//!   ```text
-//!   {
-//!     "v":           4,
-//!     "sort":        "date",
-//!     "qh":          "<query hash hex>",
-//!     "fh":          "<filter hash hex>",
-//!     "gen":         <i64>,
-//!     "sh":          "<settings hash hex>",
-//!     "limit":       <n>,
-//!     "before":      <i64 | null>,  // upper bound of the next cross-timestamp fetch
-//!     "boundary_ts": <i64 | null>,  // timestamp being drained (None = ready for next ts)
-//!     "offset":      "<uuid | null>",  // Qdrant-side next_page_offset (PointId UUID)
-//!     "upper":       <i64 | null>   // snapshot published_ts ceiling from the first page
-//!   }
-//!   ```
+//! Two cursor families exist and never accept each other:
 //!
-//! The `before` bound is the inclusive upper edge of the *next* cross-
-//! timestamp fetch; the next window asks for `published_ts <= before`. The
-//! `boundary_ts` field is `Some` while a same-second drain is in flight; the
-//! next request must resume at that timestamp with `offset` so the Qdrant
-//! side returns exactly the records after the last consumed one. The `upper`
-//! field is the snapshot `published_ts` ceiling captured when the first
-//! cursor was issued; it bounds wall-clock drift on the very first page so a
-//! request replayed against freshly indexed records does not silently widen.
+//! - relevance (`kind = 1`): the candidate-window offset, the page size and
+//!   the ordering epoch (local or rerank).
+//! - date (`kind = 2`): the keyset walk state over `published_ts DESC`
+//!   (`before`, `boundary_ts`, the Qdrant-side resume offset and the
+//!   snapshot `upper` ceiling).
 //!
-//! Within one ordering epoch (same generation + same filter hash + same
-//! settings hash), the Qdrant `scroll` return order over
-//! `published_ts DESC` is deterministic: re-fetching with the same `offset`
-//! returns the same records in the same order, and the next page starts at
-//! `next_page_offset`. The cursor pins the offset verbatim so a replayed
-//! request resumes exactly after the last emitted record. The pipeline does
-//! NOT re-sort in memory; the Qdrant order is the source of truth and the
-//! `seen` set is the only dedup mechanism.
+//! The binding is domain-separated per family and covers the query, filter,
+//! settings, generation and page-size context, so a cursor is only valid
+//! inside the context that issued it. A mismatch aborts the request with a
+//! generic context-mismatch diagnostic: the combined digest cannot name the
+//! field that changed, so the client is told to restart from the first page.
 //!
-//! A cursor is only valid inside the ordering epoch that issued it AND in the
-//! same request context (query text, filters, limit, settings, generation).
-//! Date cursors and relevance cursors never accept each other: cross-cursor
-//! reuse is rejected with a clean error instead of silently serving the wrong
-//! window.
-//!
-//! `validate_cursor_context` is the unified context validator for both
-//! formats. The date path adds `validate_date_cursor` (window-bound sanity
-//! + sort/context rejection) on top of the shared check.
+//! The former `c1:` / `c2:` / `c3:` / `c4:` formats are gone. They are
+//! rejected with an explicit restart-first-page error so a client holding an
+//! old cursor never replays a stale window shape.
 
 use anyhow::Result;
+use cloudiful_pagination::Binding;
 use context69_contracts_core::errors::DomainError;
 use context69_contracts_search::SearchHit;
 use context69_contracts_search::search::SearchPagination;
-use serde_json::{Value, json};
 
 use super::{
     MAX_SEARCH_CANDIDATE_WINDOW, derive_match_reason, is_meaningful_text, resolve_search_window,
 };
 use crate::SearchCache;
 
-const CURSOR_PREFIX: &str = "c1:";
-const CURSOR_SCHEMA_VERSION: u64 = 1;
-const DATE_CURSOR_PREFIX: &str = "c2:";
-const DATE_CURSOR_LEGACY_VERSION: u64 = 2;
-const DATE_CURSOR_PREFIX_V3: &str = "c3:";
-const DATE_CURSOR_LEGACY_V3_VERSION: u64 = 3;
-const DATE_CURSOR_PREFIX_V4: &str = "c4:";
-const DATE_CURSOR_SCHEMA_VERSION: u64 = 4;
+/// Prefix of the current cursor family. The shared codec owns the framing;
+/// this prefix is the only part of the wire format Context69 decides.
+const CURSOR_PREFIX: &str = "cp1.";
+/// Retired cursor prefixes. They are recognised only to fail with an
+/// explicit restart-first-page error.
+const LEGACY_CURSOR_PREFIXES: [&str; 4] = ["c1:", "c2:", "c3:", "c4:"];
+/// Cursor kind for the relevance family.
+const CURSOR_KIND_RELEVANCE: u8 = 1;
+/// Cursor kind for the date family.
+const CURSOR_KIND_DATE: u8 = 2;
+/// Binding domain of the relevance family.
+const RELEVANCE_BINDING_DOMAIN: &str = "context69/search/relevance";
+/// Binding domain of the date family.
+const DATE_BINDING_DOMAIN: &str = "context69/search/date";
+/// Fixed relevance payload: `[mode: u8][offset: u64][limit: u64]`.
+const RELEVANCE_PAYLOAD_LEN: usize = 17;
+/// Fixed date payload: `[flags: u8][limit: u64][before: i64][boundary_ts:
+/// i64][upper: i64][offset: 16 bytes]`.
+const DATE_PAYLOAD_LEN: usize = 49;
+/// Date payload flag: the `before` bound is present.
+const DATE_FLAG_BEFORE: u8 = 0b0001;
+/// Date payload flag: the `boundary_ts` is present.
+const DATE_FLAG_BOUNDARY_TS: u8 = 0b0010;
+/// Date payload flag: the snapshot `upper` ceiling is present.
+const DATE_FLAG_UPPER: u8 = 0b0100;
+/// Date payload flag: the Qdrant-side resume offset is present.
+const DATE_FLAG_OFFSET: u8 = 0b1000;
+/// Every date payload flag this version knows.
+const DATE_FLAGS_KNOWN: u8 =
+    DATE_FLAG_BEFORE | DATE_FLAG_BOUNDARY_TS | DATE_FLAG_UPPER | DATE_FLAG_OFFSET;
 /// Upper bound on the number of date-mode windows one request can walk. The
 /// request-level cap is per-request: the cursor does not accumulate the
 /// window counter across requests, so a replayed request always starts with a
@@ -137,7 +73,7 @@ const DATE_CURSOR_SCHEMA_VERSION: u64 = 4;
 /// cursor + `has_more = true` so the next request can continue the walk.
 pub(crate) const MAX_DATE_WINDOWS: usize = 64;
 /// Inclusive hard ceiling on `published_ts` snapshots we accept. Keeps the
-/// JSON field bounded and rejects adversarial cursors that try to encode a
+/// cursor payload bounded and rejects adversarial cursors that try to encode a
 /// near-i64::MAX timestamp.
 const DATE_TIMESTAMP_CAP: i64 = 32_503_680_000; // year 3000 in seconds
 
@@ -151,73 +87,20 @@ pub(crate) enum CursorMode {
 }
 
 impl CursorMode {
-    fn as_str(self) -> &'static str {
+    fn code(self) -> u8 {
         match self {
-            Self::Local => "local",
-            Self::Rerank => "rerank",
+            Self::Local => 0,
+            Self::Rerank => 1,
         }
     }
-}
 
-/// Decoded relevance cursor: the ordering epoch, the window offset, and the
-/// request context the cursor was issued under.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct RelevanceCursor {
-    pub rerank_applied: bool,
-    pub mode: CursorMode,
-    pub offset: usize,
-    pub limit: usize,
-    pub query_hash: String,
-    pub filter_hash: String,
-    pub generation: i64,
-    pub settings_hash: String,
-}
-
-/// Decoded date cursor (current `c4:` wire format). The cursor pins the
-/// cross-timestamp walk state so a replayed request resumes the keyset walk
-/// exactly after the last emitted record.
-///
-/// `before` is the inclusive upper edge of the next cross-timestamp fetch
-/// (`published_ts <= before`); the boundary timestamp, when set, is drained
-/// by repeated `published_ts == boundary_ts` calls using the Qdrant-side
-/// `next_page_offset` (the `offset` field). `upper` is the snapshot
-/// `published_ts` ceiling from the first page and bounds wall-clock drift on
-/// replay.
-///
-/// The previous `c3:` format carried a per-request `windows` counter and an
-/// in-memory `tie_chunk` filter; both have been retired. Within one ordering
-/// epoch the Qdrant `scroll` return order over `published_ts DESC` is
-/// deterministic and the resume key is the offset itself plus the
-/// generation / filter / settings / query context binding.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct DateCursor {
-    pub limit: usize,
-    pub query_hash: String,
-    pub filter_hash: String,
-    pub generation: i64,
-    pub settings_hash: String,
-    /// Inclusive upper edge of the next cross-timestamp fetch.
-    /// `None` means the next cross-ts fetch is unbounded above.
-    pub before: Option<i64>,
-    /// Timestamp currently being drained (in-flight same-second walk).
-    /// `None` means no boundary in flight: the next request must start a
-    /// fresh cross-timestamp fetch bounded by `before`.
-    pub boundary_ts: Option<i64>,
-    /// Qdrant-side keyset resume key for the per-timestamp drain. `None`
-    /// means the Qdrant side reported no further records at `boundary_ts`
-    /// in the previous window, or the cursor was issued by an older
-    /// pipeline that did not thread the offset. The next request passes
-    /// the offset straight back to Qdrant as the `offset` argument so the
-    /// same ordering epoch returns the records after the last consumed
-    /// one. Opaque point UUIDs are acceptable in the cursor (chunk ids are
-    /// already client-visible; the wire format does not embed query text
-    /// or secrets).
-    pub offset: Option<uuid::Uuid>,
-    /// Wall-clock bound on `published_ts` captured on the first request.
-    /// All cross-timestamp fetches must keep `published_ts <= upper` so a
-    /// replayed request does not pick up records indexed after the first
-    /// page. `None` means the index reported no visible upper bound.
-    pub upper: Option<i64>,
+    fn from_code(code: u8) -> Option<Self> {
+        match code {
+            0 => Some(Self::Local),
+            1 => Some(Self::Rerank),
+            _ => None,
+        }
+    }
 }
 
 /// Build a context binding for a request. Both POST and SSE use the same
@@ -253,6 +136,99 @@ pub(crate) struct CursorContext {
     pub limit: usize,
 }
 
+/// The full-context binding of a relevance cursor. The parts are the ordered
+/// request context, so any change to query, filters, settings, generation or
+/// page size produces a different binding.
+fn relevance_binding(context: &CursorContext) -> Binding {
+    let generation = context.generation.to_be_bytes();
+    let limit = context.limit.to_be_bytes();
+    Binding::new(
+        RELEVANCE_BINDING_DOMAIN,
+        &[
+            context.query_hash.as_bytes(),
+            context.filter_hash.as_bytes(),
+            context.settings_hash.as_bytes(),
+            &generation,
+            &limit,
+        ],
+    )
+}
+
+/// The full-context binding of a date cursor. The domain differs from the
+/// relevance family, so a relevance cursor can never satisfy a date request
+/// and the other way round.
+fn date_binding(context: &CursorContext) -> Binding {
+    let generation = context.generation.to_be_bytes();
+    let limit = context.limit.to_be_bytes();
+    Binding::new(
+        DATE_BINDING_DOMAIN,
+        &[
+            context.query_hash.as_bytes(),
+            context.filter_hash.as_bytes(),
+            context.settings_hash.as_bytes(),
+            &generation,
+            &limit,
+        ],
+    )
+}
+
+/// Binding of a date cursor, exposed to the date pipeline which validates
+/// its own context.
+pub(crate) fn date_cursor_binding(context: &CursorContext) -> Binding {
+    date_binding(context)
+}
+
+/// Decoded relevance cursor: the window offset, the page size, the ordering
+/// epoch and the context binding the cursor was issued under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RelevanceCursor {
+    pub mode: CursorMode,
+    pub rerank_applied: bool,
+    pub offset: usize,
+    pub limit: usize,
+    pub binding: Binding,
+}
+
+/// The business state of a date cursor: the keyset walk position over
+/// `published_ts DESC`.
+///
+/// `before` is the inclusive upper edge of the next cross-timestamp fetch
+/// (`published_ts <= before`); the boundary timestamp, when set, is drained
+/// by repeated `published_ts == boundary_ts` calls using the Qdrant-side
+/// `next_page_offset` (the `offset` field). `upper` is the snapshot
+/// `published_ts` ceiling from the first page and bounds wall-clock drift on
+/// replay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DateCursorState {
+    pub limit: usize,
+    /// Inclusive upper edge of the next cross-timestamp fetch.
+    /// `None` means the next cross-ts fetch is unbounded above.
+    pub before: Option<i64>,
+    /// Timestamp currently being drained (in-flight same-second walk).
+    /// `None` means no boundary in flight: the next request must start a
+    /// fresh cross-timestamp fetch bounded by `before`.
+    pub boundary_ts: Option<i64>,
+    /// Qdrant-side keyset resume key for the per-timestamp drain. `None`
+    /// means the Qdrant side reported no further records at `boundary_ts`
+    /// in the previous window. The next request passes the offset straight
+    /// back to Qdrant as the `offset` argument so the same ordering epoch
+    /// returns the records after the last consumed one.
+    pub offset: Option<uuid::Uuid>,
+    /// Wall-clock bound on `published_ts` captured on the first request.
+    /// All cross-timestamp fetches must keep `published_ts <= upper` so a
+    /// replayed request does not pick up records indexed after the first
+    /// page. `None` means the index reported no visible upper bound.
+    pub upper: Option<i64>,
+}
+
+/// Decoded date cursor: the keyset walk state plus the context binding the
+/// cursor was issued under.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct DateCursor {
+    pub state: DateCursorState,
+    pub binding: Binding,
+}
+
 /// Encode `(offset, rerank_applied, context)` into the opaque relevance
 /// cursor string.
 pub(crate) fn encode_cursor(
@@ -266,69 +242,59 @@ pub(crate) fn encode_cursor(
     } else {
         CursorMode::Local
     };
-    let payload = json!({
-        "v": CURSOR_SCHEMA_VERSION,
-        "reranked": rerank_applied,
-        "mode": mode.as_str(),
-        "offset": offset,
-        "limit": limit,
-        "qh": context.query_hash,
-        "fh": context.filter_hash,
-        "gen": context.generation,
-        "sh": context.settings_hash,
-    });
-    encode_hex(CURSOR_PREFIX, &payload)
+    let mut payload = Vec::with_capacity(RELEVANCE_PAYLOAD_LEN);
+    payload.push(mode.code());
+    payload.extend_from_slice(&u64::try_from(offset).unwrap_or(u64::MAX).to_be_bytes());
+    payload.extend_from_slice(&u64::try_from(limit).unwrap_or(u64::MAX).to_be_bytes());
+    encode_payload(CURSOR_KIND_RELEVANCE, &relevance_binding(context), &payload)
 }
 
-/// Encode a date cursor into the opaque `c4:` form. The `before` and `upper`
-/// timestamps are bounded by `DATE_TIMESTAMP_CAP`; `before == None` means
-/// "open above" (the search runs without an upper `published_ts` ceiling).
-pub(crate) fn encode_date_cursor(cursor: &DateCursor) -> String {
-    let before = cursor.before.map(bound_ts).unwrap_or(Value::Null);
-    let upper = cursor.upper.map(bound_ts).unwrap_or(Value::Null);
-    let boundary_ts = cursor.boundary_ts.map(bound_ts).unwrap_or(Value::Null);
-    let offset = cursor
-        .offset
-        .map(|value| Value::String(value.to_string()))
-        .unwrap_or(Value::Null);
-    let payload = json!({
-        "v": DATE_CURSOR_SCHEMA_VERSION,
-        "sort": "date",
-        "qh": cursor.query_hash,
-        "fh": cursor.filter_hash,
-        "gen": cursor.generation,
-        "sh": cursor.settings_hash,
-        "limit": cursor.limit,
-        "before": before,
-        "boundary_ts": boundary_ts,
-        "offset": offset,
-        "upper": upper,
-    });
-    encode_hex(DATE_CURSOR_PREFIX_V4, &payload)
+/// Encode the date cursor state into the opaque date form. The `before` and
+/// `upper` timestamps are bounded by `DATE_TIMESTAMP_CAP`; `before == None`
+/// means "open above" (the search runs without an upper `published_ts`
+/// ceiling).
+pub(crate) fn encode_date_cursor(context: &CursorContext, state: &DateCursorState) -> String {
+    let mut payload = Vec::with_capacity(DATE_PAYLOAD_LEN);
+    let mut flags = 0u8;
+    if state.before.is_some() {
+        flags |= DATE_FLAG_BEFORE;
+    }
+    if state.boundary_ts.is_some() {
+        flags |= DATE_FLAG_BOUNDARY_TS;
+    }
+    if state.upper.is_some() {
+        flags |= DATE_FLAG_UPPER;
+    }
+    if state.offset.is_some() {
+        flags |= DATE_FLAG_OFFSET;
+    }
+    payload.push(flags);
+    payload.extend_from_slice(&u64::try_from(state.limit).unwrap_or(u64::MAX).to_be_bytes());
+    payload.extend_from_slice(&bound_ts(state.before).to_be_bytes());
+    payload.extend_from_slice(&bound_ts(state.boundary_ts).to_be_bytes());
+    payload.extend_from_slice(&bound_ts(state.upper).to_be_bytes());
+    let offset = state.offset.unwrap_or(uuid::Uuid::nil());
+    payload.extend_from_slice(offset.as_bytes());
+    encode_payload(CURSOR_KIND_DATE, &date_binding(context), &payload)
 }
 
-fn bound_ts(value: i64) -> Value {
-    if value < 0 {
-        Value::from(0)
-    } else if value > DATE_TIMESTAMP_CAP {
-        Value::from(DATE_TIMESTAMP_CAP)
-    } else {
-        Value::from(value)
+/// Encode one cursor family. The payload layouts are fixed width, so the
+/// encoded token always fits the shared cursor limit.
+fn encode_payload(kind: u8, binding: &Binding, payload: &[u8]) -> String {
+    cloudiful_pagination::encode(kind, binding, payload)
+        .expect("fixed-width cursor payload fits the shared cursor limit")
+}
+
+fn bound_ts(value: Option<i64>) -> i64 {
+    match value {
+        None => 0,
+        Some(value) if value < 0 => 0,
+        Some(value) if value > DATE_TIMESTAMP_CAP => DATE_TIMESTAMP_CAP,
+        Some(value) => value,
     }
 }
 
-fn encode_hex(prefix: &str, payload: &Value) -> String {
-    let bytes = serde_json::to_vec(payload).expect("cursor JSON encoding cannot fail");
-    let mut out = String::with_capacity(prefix.len() + bytes.len() * 2);
-    out.push_str(prefix);
-    for byte in bytes {
-        out.push_str(&format!("{byte:02x}"));
-    }
-    out
-}
-
-/// Decode any cursor (relevance `c1:` or date `c2:` / `c3:` / `c4:`) into its
-/// typed form.
+/// Decode any cursor (relevance or date) into its typed form.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum DecodedCursor {
     Relevance(RelevanceCursor),
@@ -336,110 +302,62 @@ pub(crate) enum DecodedCursor {
 }
 
 pub(crate) fn decode_cursor(raw: &str) -> Result<DecodedCursor> {
-    if let Some(hex) = raw.strip_prefix(DATE_CURSOR_PREFIX_V4) {
-        return Ok(DecodedCursor::Date(decode_date_cursor_body(hex)?));
-    }
-    if let Some(hex) = raw.strip_prefix(DATE_CURSOR_PREFIX_V3) {
-        // The previous `c3:` format carried a per-request `windows` counter
-        // and an in-memory `tie_chunk` filter. The current date pipeline
-        // threads the Qdrant-side `next_page_offset` instead, so the
-        // `c3:` semantics no longer match the pipeline geometry. Reject
-        // so clients restart from the first page rather than silently
-        // replaying a stale window shape.
-        let _ = hex;
-        return Err(DomainError::invalid_argument(format!(
-            "date cursor version {DATE_CURSOR_LEGACY_V3_VERSION} is no longer supported; restart from the first page"
-        )).into());
-    }
-    if let Some(_hex) = raw.strip_prefix(DATE_CURSOR_PREFIX) {
-        // Legacy `c2:` date cursors are not accepted by the current date
-        // pipeline (the keyset walk changed). Reject so clients restart
-        // from the first page rather than silently replaying a stale
-        // window shape.
-        return Err(DomainError::invalid_argument(format!(
-            "date cursor version {DATE_CURSOR_LEGACY_VERSION} is no longer supported; restart from the first page"
-        )).into());
-    }
-    if let Some(hex) = raw.strip_prefix(CURSOR_PREFIX) {
-        return Ok(DecodedCursor::Relevance(decode_relevance_cursor_body(hex)?));
-    }
-    Err(DomainError::invalid_argument("unknown cursor prefix or version").into())
-}
-
-fn decode_relevance_cursor_body(hex: &str) -> Result<RelevanceCursor> {
-    let bytes = decode_hex(hex)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is not valid hex"))?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
-        DomainError::invalid_argument(format!("cursor payload is not valid JSON: {error}"))
-    })?;
-    let version = value
-        .get("v")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its version"))?;
-    if version != CURSOR_SCHEMA_VERSION {
-        return Err(
-            DomainError::invalid_argument(format!("unsupported cursor version {version}")).into(),
-        );
-    }
-    let rerank_applied = value
-        .get("reranked")
-        .and_then(Value::as_bool)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("cursor payload is missing its ordering flag")
-        })?;
-    let mode = match value
-        .get("mode")
-        .and_then(Value::as_str)
-        .unwrap_or(if rerank_applied { "rerank" } else { "local" })
+    // The retired prefixes are recognised before the shared decoder so an
+    // old cursor — which is longer than the shared limit — still fails with
+    // the restart-first-page instruction instead of a length error.
+    if let Some(prefix) = LEGACY_CURSOR_PREFIXES
+        .iter()
+        .find(|prefix| raw.starts_with(**prefix))
     {
-        "rerank" => CursorMode::Rerank,
-        "local" => CursorMode::Local,
-        other => {
-            return Err(DomainError::invalid_argument(format!(
-                "cursor payload has an unknown mode '{other}'"
-            ))
-            .into());
-        }
-    };
-    if rerank_applied != matches!(mode, CursorMode::Rerank) {
         return Err(DomainError::invalid_argument(format!(
-            "cursor payload is inconsistent: mode {mode:?} does not match reranked={rerank_applied}"
+            "cursor format '{prefix}' is no longer supported; restart the search from the first page"
         ))
         .into());
     }
-    let offset = value
-        .get("offset")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its offset"))?;
-    let limit = value
-        .get("limit")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its page size"))?;
-    let query_hash = value
-        .get("qh")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("cursor payload is missing its query context")
-        })?
-        .to_string();
-    let filter_hash = value
-        .get("fh")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("cursor payload is missing its filter context")
-        })?
-        .to_string();
-    let generation = value
-        .get("gen")
-        .and_then(Value::as_i64)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its generation"))?;
-    let settings_hash = value
-        .get("sh")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("cursor payload is missing its settings context")
-        })?
-        .to_string();
+    if !raw.starts_with(CURSOR_PREFIX) {
+        return Err(DomainError::invalid_argument("unknown cursor prefix or version").into());
+    }
+    let decoded = cloudiful_pagination::decode(raw).map_err(|error| match error {
+        cloudiful_pagination::CursorError::Malformed => {
+            DomainError::invalid_argument("cursor payload is malformed")
+        }
+        cloudiful_pagination::CursorError::TooLong => DomainError::invalid_argument(
+            "cursor exceeds the maximum supported length; restart the search from the first page",
+        ),
+        cloudiful_pagination::CursorError::UnsupportedVersion => {
+            DomainError::invalid_argument("unknown cursor prefix or version")
+        }
+        cloudiful_pagination::CursorError::WrongKind => {
+            DomainError::invalid_argument("cursor kind does not match the expected ordering")
+        }
+        cloudiful_pagination::CursorError::BindingMismatch => DomainError::invalid_argument(
+            "cursor context mismatch: the cursor belongs to a different search context; start again from the first page",
+        ),
+    })?;
+    match decoded.kind {
+        CURSOR_KIND_RELEVANCE => Ok(DecodedCursor::Relevance(decode_relevance_payload(
+            &decoded,
+        )?)),
+        CURSOR_KIND_DATE => Ok(DecodedCursor::Date(decode_date_payload(&decoded)?)),
+        other => Err(DomainError::invalid_argument(format!(
+            "cursor kind {other} is not a supported search cursor"
+        ))
+        .into()),
+    }
+}
+
+fn decode_relevance_payload(
+    decoded: &cloudiful_pagination::DecodedCursor,
+) -> Result<RelevanceCursor> {
+    if decoded.payload.len() != RELEVANCE_PAYLOAD_LEN {
+        return Err(DomainError::invalid_argument("cursor payload is malformed").into());
+    }
+    let payload = &decoded.payload;
+    let mode = CursorMode::from_code(payload[0]).ok_or_else(|| {
+        DomainError::invalid_argument("cursor payload has an unknown ordering mode")
+    })?;
+    let offset = u64::from_be_bytes(payload[1..9].try_into().expect("fixed width"));
+    let limit = u64::from_be_bytes(payload[9..17].try_into().expect("fixed width"));
     let offset = usize::try_from(offset)
         .map_err(|_| DomainError::invalid_argument("cursor offset is out of range"))?;
     let limit = usize::try_from(limit)
@@ -457,68 +375,27 @@ fn decode_relevance_cursor_body(hex: &str) -> Result<RelevanceCursor> {
         .into());
     }
     Ok(RelevanceCursor {
-        rerank_applied,
         mode,
+        rerank_applied: matches!(mode, CursorMode::Rerank),
         offset,
         limit,
-        query_hash,
-        filter_hash,
-        generation,
-        settings_hash,
+        binding: decoded.binding,
     })
 }
 
-fn decode_date_cursor_body(hex: &str) -> Result<DateCursor> {
-    let bytes = decode_hex(hex)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is not valid hex"))?;
-    let value: Value = serde_json::from_slice(&bytes).map_err(|error| {
-        DomainError::invalid_argument(format!("cursor payload is not valid JSON: {error}"))
-    })?;
-    let version = value
-        .get("v")
-        .and_then(Value::as_u64)
-        .ok_or_else(|| DomainError::invalid_argument("cursor payload is missing its version"))?;
-    if version != DATE_CURSOR_SCHEMA_VERSION {
-        return Err(
-            DomainError::invalid_argument(format!("unsupported cursor version {version}")).into(),
-        );
+fn decode_date_payload(decoded: &cloudiful_pagination::DecodedCursor) -> Result<DateCursor> {
+    if decoded.payload.len() != DATE_PAYLOAD_LEN {
+        return Err(DomainError::invalid_argument("date cursor payload is malformed").into());
     }
-    let sort = value.get("sort").and_then(Value::as_str).ok_or_else(|| {
-        DomainError::invalid_argument("date cursor payload is missing its sort field")
-    })?;
-    if sort != "date" {
-        return Err(DomainError::invalid_argument(format!(
-            "date cursor payload has an unsupported sort value '{sort}'"
-        ))
+    let payload = &decoded.payload;
+    let flags = payload[0];
+    if flags & !DATE_FLAGS_KNOWN != 0 {
+        return Err(DomainError::invalid_argument(
+            "date cursor payload carries unknown state flags",
+        )
         .into());
     }
-    let query_hash = value
-        .get("qh")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("date cursor payload is missing its query context")
-        })?
-        .to_string();
-    let filter_hash = value
-        .get("fh")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("date cursor payload is missing its filter context")
-        })?
-        .to_string();
-    let generation = value.get("gen").and_then(Value::as_i64).ok_or_else(|| {
-        DomainError::invalid_argument("date cursor payload is missing its generation")
-    })?;
-    let settings_hash = value
-        .get("sh")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            DomainError::invalid_argument("date cursor payload is missing its settings context")
-        })?
-        .to_string();
-    let limit = value.get("limit").and_then(Value::as_u64).ok_or_else(|| {
-        DomainError::invalid_argument("date cursor payload is missing its page size")
-    })?;
+    let limit = u64::from_be_bytes(payload[1..9].try_into().expect("fixed width"));
     let limit = usize::try_from(limit)
         .map_err(|_| DomainError::invalid_argument("date cursor page size is too large"))?;
     if !(1..=100).contains(&limit) {
@@ -527,84 +404,45 @@ fn decode_date_cursor_body(hex: &str) -> Result<DateCursor> {
         ))
         .into());
     }
-    let before = match value.get("before") {
-        Some(Value::Null) | None => None,
-        Some(Value::Number(number)) => Some(number.as_i64().ok_or_else(|| {
-            DomainError::invalid_argument("date cursor before must be an integer")
-        })?),
-        _ => {
-            return Err(DomainError::invalid_argument(
-                "date cursor before must be an integer or null",
-            )
-            .into());
-        }
-    };
-    if let Some(value) = before
-        && !(0..=DATE_TIMESTAMP_CAP).contains(&value)
-    {
-        return Err(DomainError::invalid_argument("date cursor before is out of range").into());
-    }
-    let upper = match value.get("upper") {
-        Some(Value::Null) | None => None,
-        Some(Value::Number(number)) => Some(number.as_i64().ok_or_else(|| {
-            DomainError::invalid_argument("date cursor upper must be an integer")
-        })?),
-        _ => {
-            return Err(DomainError::invalid_argument(
-                "date cursor upper must be an integer or null",
-            )
-            .into());
-        }
-    };
-    if let Some(value) = upper
-        && !(0..=DATE_TIMESTAMP_CAP).contains(&value)
-    {
-        return Err(DomainError::invalid_argument("date cursor upper is out of range").into());
-    }
-    let boundary_ts = match value.get("boundary_ts") {
-        Some(Value::Null) | None => None,
-        Some(Value::Number(number)) => Some(number.as_i64().ok_or_else(|| {
-            DomainError::invalid_argument("date cursor boundary_ts must be an integer")
-        })?),
-        _ => {
-            return Err(DomainError::invalid_argument(
-                "date cursor boundary_ts must be an integer or null",
-            )
-            .into());
-        }
-    };
-    if let Some(value) = boundary_ts
-        && !(0..=DATE_TIMESTAMP_CAP).contains(&value)
-    {
-        return Err(
-            DomainError::invalid_argument("date cursor boundary_ts is out of range").into(),
-        );
-    }
-    let offset = match value.get("offset") {
-        Some(Value::Null) | None => None,
-        Some(Value::String(raw)) => Some(uuid::Uuid::parse_str(raw).map_err(|error| {
-            DomainError::invalid_argument(format!(
-                "date cursor offset is not a valid uuid: {error}"
-            ))
-        })?),
-        _ => {
-            return Err(DomainError::invalid_argument(
-                "date cursor offset must be a uuid string or null",
-            )
-            .into());
-        }
+    let before = decode_ts(payload, 9, flags & DATE_FLAG_BEFORE != 0, "before")?;
+    let boundary_ts = decode_ts(
+        payload,
+        17,
+        flags & DATE_FLAG_BOUNDARY_TS != 0,
+        "boundary_ts",
+    )?;
+    let upper = decode_ts(payload, 25, flags & DATE_FLAG_UPPER != 0, "upper")?;
+    let offset = if flags & DATE_FLAG_OFFSET != 0 {
+        let mut bytes = [0u8; 16];
+        bytes.copy_from_slice(&payload[33..49]);
+        Some(uuid::Uuid::from_bytes(bytes))
+    } else {
+        None
     };
     Ok(DateCursor {
-        limit,
-        query_hash,
-        filter_hash,
-        generation,
-        settings_hash,
-        before,
-        boundary_ts,
-        offset,
-        upper,
+        state: DateCursorState {
+            limit,
+            before,
+            boundary_ts,
+            offset,
+            upper,
+        },
+        binding: decoded.binding,
     })
+}
+
+/// Read one optional timestamp from the fixed date payload.
+fn decode_ts(payload: &[u8], start: usize, present: bool, field: &str) -> Result<Option<i64>> {
+    if !present {
+        return Ok(None);
+    }
+    let value = i64::from_be_bytes(payload[start..start + 8].try_into().expect("fixed width"));
+    if !(0..=DATE_TIMESTAMP_CAP).contains(&value) {
+        return Err(
+            DomainError::invalid_argument(format!("date cursor {field} is out of range")).into(),
+        );
+    }
+    Ok(Some(value))
 }
 
 /// Reject a relevance cursor whose ordering epoch disagrees with the
@@ -636,11 +474,58 @@ pub(crate) fn ensure_cursor_ordering(raw_cursor: Option<&str>, rerank_applied: b
     }
 }
 
-/// Reject a cursor whose context (query / filter / limit / generation /
-/// settings) disagrees with the request. Returns `Ok(())` for a missing
-/// cursor or one whose context matches; otherwise returns a client-facing
-/// error explaining which field differs. Date cursors reuse this check so a
-/// changed filter / query / generation / settings still aborts the request.
+/// The one generic context-mismatch diagnostic. The combined binding cannot
+/// name the changed context field, and an edited payload page size is the
+/// same kind of context disagreement, so both failures share this text.
+pub(crate) fn cursor_context_mismatch_error() -> anyhow::Error {
+    DomainError::invalid_argument(
+        "cursor context mismatch: the cursor belongs to a different search context; start again from the first page",
+    )
+    .into()
+}
+
+/// Reject a payload page size that disagrees with the effective request page
+/// size.
+///
+/// The binding covers the request context page size, but the payload page
+/// size is plain bytes inside the unkeyed payload: the binding is a
+/// fingerprint, not a MAC, so an edited payload limit keeps matching it.
+/// Accepting such a cursor would let the payload choose the page geometry
+/// (and, for relevance, the alignment divisor) independently of the request.
+/// Both cursor families and both context validators must call this.
+pub(crate) fn validate_cursor_payload_limit(
+    payload_limit: usize,
+    context: &CursorContext,
+) -> Result<()> {
+    if payload_limit != context.limit {
+        return Err(cursor_context_mismatch_error());
+    }
+    Ok(())
+}
+
+/// Reject an offset that is not aligned to `limit`. The relevance pagination
+/// contract only ever emits multiples of the page size, so a misaligned
+/// offset means a malformed client or a cursor that no longer fits the
+/// current page-size geometry.
+fn validate_offset_alignment(offset: usize, limit: usize) -> Result<()> {
+    if !offset.is_multiple_of(limit) {
+        return Err(DomainError::invalid_argument(format!(
+            "cursor offset {offset} is not aligned to the page size {limit}; start again from the first page"
+        ))
+        .into());
+    }
+    Ok(())
+}
+
+/// Reject a cursor whose context (query / filter / page size / generation /
+/// settings) disagrees with the request.
+///
+/// Every context field is covered by one combined binding and the diagnostic
+/// is generic: the changed field cannot be recovered from the digest and is
+/// not guessed. The payload page size is compared with the effective request
+/// page size first, because the binding does not cover the payload copy, and
+/// the relevance alignment divisor is then the effective request page size
+/// rather than an independently accepted payload value.
 pub(crate) fn validate_cursor_context(
     raw_cursor: Option<&str>,
     context: &CursorContext,
@@ -649,78 +534,29 @@ pub(crate) fn validate_cursor_context(
         return Ok(());
     };
     let cursor = decode_cursor(raw)?;
-    match cursor {
-        DecodedCursor::Date(date) => validate_date_context(&date, context),
+    match &cursor {
         DecodedCursor::Relevance(rel) => {
-            if rel.query_hash != context.query_hash {
-                return Err(DomainError::invalid_argument(
-                    "cursor context mismatch: the cursor belongs to a different query; start again from the first page"
-                ).into());
+            validate_cursor_payload_limit(rel.limit, context)?;
+            if rel.binding != relevance_binding(context) {
+                return Err(cursor_context_mismatch_error());
             }
-            if rel.filter_hash != context.filter_hash {
-                return Err(DomainError::invalid_argument(
-                    "cursor context mismatch: filters (locale, source, group, date range, or metadata filters) changed; start again from the first page"
-                ).into());
-            }
-            if rel.settings_hash != context.settings_hash {
-                return Err(DomainError::invalid_argument(
-                    "cursor context mismatch: search settings changed; start again from the first page"
-                ).into());
-            }
-            if rel.generation != context.generation {
-                return Err(DomainError::invalid_argument(
-                    "cursor context mismatch: the indexed data has been refreshed; start again from the first page"
-                ).into());
-            }
-            if rel.limit != context.limit {
-                return Err(DomainError::invalid_argument(format!(
-                    "cursor context mismatch: page size changed from {} to {}; start again from the first page",
-                    rel.limit,
-                    context.limit
-                )).into());
-            }
-            Ok(())
+            validate_offset_alignment(rel.offset, context.limit)?;
         }
-    }
-}
-
-fn validate_date_context(date: &DateCursor, context: &CursorContext) -> Result<()> {
-    if date.query_hash != context.query_hash {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: the cursor belongs to a different query; start again from the first page"
-        ).into());
-    }
-    if date.filter_hash != context.filter_hash {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: filters (locale, source, group, date range, or metadata filters) changed; start again from the first page"
-        ).into());
-    }
-    if date.settings_hash != context.settings_hash {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: search settings changed; start again from the first page",
-        )
-        .into());
-    }
-    if date.generation != context.generation {
-        return Err(DomainError::invalid_argument(
-            "cursor context mismatch: the indexed data has been refreshed; start again from the first page"
-        ).into());
-    }
-    if date.limit != context.limit {
-        return Err(DomainError::invalid_argument(format!(
-            "cursor context mismatch: page size changed from {} to {}; start again from the first page",
-            date.limit,
-            context.limit
-        )).into());
+        DecodedCursor::Date(date) => {
+            validate_cursor_payload_limit(date.state.limit, context)?;
+            if date.binding != date_binding(context) {
+                return Err(cursor_context_mismatch_error());
+            }
+        }
     }
     Ok(())
 }
 
-/// Reject a relevance cursor whose offset is not aligned to `limit`. The
-/// relevance pagination contract only ever emits multiples of `limit`, so a
-/// misaligned cursor means a malformed client or an old cursor that no
-/// longer fits the current page-size geometry. Date cursors are ignored
-/// (alignment is governed by the windowing logic).
+/// Reject a relevance cursor whose offset is not aligned to its payload page
+/// size. This is the pre-context geometry gate: once a cursor's context is
+/// accepted, its payload page size equals the effective request page size
+/// (`validate_cursor_context`), so the same divisor applies to both. Date
+/// cursors are ignored (alignment is governed by the windowing logic).
 pub(crate) fn validate_cursor_alignment(raw_cursor: Option<&str>) -> Result<()> {
     let Some(raw) = raw_cursor else {
         return Ok(());
@@ -728,23 +564,13 @@ pub(crate) fn validate_cursor_alignment(raw_cursor: Option<&str>) -> Result<()> 
     let cursor = decode_cursor(raw)?;
     match cursor {
         DecodedCursor::Date(_) => Ok(()),
-        DecodedCursor::Relevance(rel) => {
-            if rel.offset % rel.limit != 0 {
-                return Err(DomainError::invalid_argument(format!(
-                    "cursor offset {} is not aligned to the page size {}; start again from the first page",
-                    rel.offset,
-                    rel.limit
-                )).into());
-            }
-            Ok(())
-        }
+        DecodedCursor::Relevance(rel) => validate_offset_alignment(rel.offset, rel.limit),
     }
 }
 
-/// Reject a cursor that is incompatible with the date pipeline: only `c4:`
-/// cursors are accepted; relevance cursors and legacy `c2:` / `c3:` cursors
-/// are rejected with a clean error so the client can restart from the first
-/// page.
+/// Reject a cursor that is incompatible with the date pipeline: only date
+/// cursors are accepted; relevance cursors are rejected with a clean error
+/// so the client can restart from the first page.
 pub(crate) fn validate_date_cursor(raw_cursor: Option<&str>) -> Result<DateCursor> {
     let Some(raw) = raw_cursor else {
         return Err(DomainError::invalid_argument(
@@ -758,16 +584,6 @@ pub(crate) fn validate_date_cursor(raw_cursor: Option<&str>) -> Result<DateCurso
             "cursor ordering mismatch: the cursor belongs to the relevance ordering; relevance cursors are not valid for `sort=date` requests"
         ).into()),
     }
-}
-
-fn decode_hex(hex: &str) -> Option<Vec<u8>> {
-    if !hex.len().is_multiple_of(2) || !hex.bytes().all(|byte| byte.is_ascii_hexdigit()) {
-        return None;
-    }
-    (0..hex.len())
-        .step_by(2)
-        .map(|index| u8::from_str_radix(&hex[index..index + 2], 16).ok())
-        .collect()
 }
 
 /// Window geometry shared by the ordering stages of one request.
@@ -893,6 +709,21 @@ fn prev_cursor_of(
     ))
 }
 
+/// Rewrite the fixed payload of an already encoded cursor while keeping its
+/// kind and binding.
+///
+/// The pure regression tests use this to model a client that edits the
+/// unkeyed payload bytes of a token it received; the 32-byte binding is
+/// deliberately retained, because it is a fingerprint and not a MAC.
+#[cfg(test)]
+pub(crate) fn tamper_payload(raw: &str, mutate: impl FnOnce(&mut Vec<u8>)) -> String {
+    let decoded = cloudiful_pagination::decode(raw).expect("valid cursor decodes");
+    let mut payload = decoded.payload;
+    mutate(&mut payload);
+    cloudiful_pagination::encode(decoded.kind, &decoded.binding, &payload)
+        .expect("fixed-width tampered payload still encodes")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -900,7 +731,7 @@ mod tests {
         RelevanceCursor, decode_cursor, encode_cursor, encode_date_cursor, ensure_cursor_ordering,
         validate_cursor_alignment, validate_cursor_context, validate_date_cursor,
     };
-    use super::{DateCursor, DecodedCursor};
+    use super::{DateCursor, DateCursorState, DecodedCursor};
 
     fn ctx(limit: usize) -> CursorContext {
         CursorContext {
@@ -912,13 +743,9 @@ mod tests {
         }
     }
 
-    fn sample_date_cursor() -> DateCursor {
-        DateCursor {
+    fn sample_date_state() -> DateCursorState {
+        DateCursorState {
             limit: 8,
-            query_hash: "qh".to_string(),
-            filter_hash: "fh".to_string(),
-            generation: 7,
-            settings_hash: "sh".to_string(),
             before: Some(1_700_000_000),
             boundary_ts: Some(1_699_999_990),
             offset: Some(uuid::Uuid::nil()),
@@ -930,7 +757,7 @@ mod tests {
     fn cursor_round_trips_both_orderings_and_offsets() {
         for (offset, rerank_applied) in [(0, false), (8, true), (40, false), (999, true)] {
             let raw = encode_cursor(offset, rerank_applied, 8, &ctx(8));
-            assert!(raw.starts_with("c1:"));
+            assert!(raw.starts_with("cp1."));
             let decoded = decode_cursor(&raw).expect("valid cursor decodes");
             assert_eq!(
                 decoded,
@@ -943,10 +770,7 @@ mod tests {
                     },
                     offset,
                     limit: 8,
-                    query_hash: "qh".into(),
-                    filter_hash: "fh".into(),
-                    generation: 7,
-                    settings_hash: "sh".into(),
+                    binding: super::relevance_binding(&ctx(8)),
                 })
             );
         }
@@ -954,44 +778,71 @@ mod tests {
 
     #[test]
     fn date_cursor_round_trip() {
-        let raw = encode_date_cursor(&sample_date_cursor());
-        assert!(raw.starts_with("c4:"));
+        let raw = encode_date_cursor(&ctx(8), &sample_date_state());
+        assert!(raw.starts_with("cp1."));
         let decoded = decode_cursor(&raw).expect("date cursor decodes");
-        assert_eq!(decoded, DecodedCursor::Date(sample_date_cursor()));
+        assert_eq!(
+            decoded,
+            DecodedCursor::Date(DateCursor {
+                state: sample_date_state(),
+                binding: super::date_binding(&ctx(8)),
+            })
+        );
+    }
+
+    #[test]
+    fn encoded_cursors_stay_inside_the_shared_limit() {
+        // The measured lengths must stay well below the 256-character input
+        // cap so a cursor can travel through the MCP request surface.
+        let relevance = encode_cursor(1_999, true, 100, &ctx(100));
+        let date = encode_date_cursor(&ctx(100), &sample_date_state());
+        for token in [&relevance, &date] {
+            assert!(token.len() <= 256, "token too long: {}", token.len());
+            assert!(
+                token
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'-' | b'_')),
+                "token must be ASCII and URL-safe"
+            );
+        }
+        assert_eq!(relevance.len(), 71, "measured relevance token length");
+        assert_eq!(date.len(), 114, "measured date token length");
     }
 
     #[test]
     fn malformed_cursors_are_rejected() {
-        assert!(decode_cursor("c1:zz").is_err(), "bad hex rejected");
-        assert!(decode_cursor("c1:00").is_err(), "empty payload rejected");
+        assert!(decode_cursor("cp1.zz").is_err(), "bad base64 rejected");
+        assert!(decode_cursor("cp1.").is_err(), "empty payload rejected");
+        assert!(decode_cursor("cp1.AAAA").is_err(), "short header rejected");
         assert!(
-            decode_cursor("c1:deadbeef").is_err(),
-            "invalid json rejected"
+            decode_cursor("cp1.!!!!").is_err(),
+            "invalid base64 rejected"
         );
-        assert!(
-            decode_cursor("c1:7b2276223a327d").is_err(),
-            "wrong version rejected"
-        );
-        // Legacy `c2:` date cursor is rejected at the prefix layer so the
-        // client restarts from the first page.
-        assert!(
-            decode_cursor("c2:00").is_err(),
-            "legacy c2 prefix rejected at decode"
-        );
-        assert!(
-            decode_cursor("c2:7b2276223a317d").is_err(),
-            "legacy c2 payload rejected at decode"
-        );
-        // Legacy `c3:` date cursor is rejected at the prefix layer so the
-        // client restarts from the first page (the current pipeline no
-        // longer threads the `tie_chunk` filter / `windows` counter).
-        assert!(
-            decode_cursor("c3:00").is_err(),
-            "legacy c3 prefix rejected at decode"
-        );
-        assert!(decode_cursor("c4:00").is_err(), "empty c4 payload rejected");
-        assert!(decode_cursor("c5:00").is_err(), "unknown prefix rejected");
+        assert!(decode_cursor("cp5.00").is_err(), "unknown prefix rejected");
         assert!(decode_cursor("").is_err());
+        assert!(
+            decode_cursor(&"A".repeat(300)).is_err(),
+            "oversize rejected"
+        );
+    }
+
+    #[test]
+    fn retired_cursor_formats_are_rejected_with_restart_instructions() {
+        // Every retired format fails explicitly with a restart-first-page
+        // instruction; no legacy decoder remains.
+        for prefix in ["c1:", "c2:", "c3:", "c4:"] {
+            let raw = format!("{prefix}7b2276223a347d");
+            let error = decode_cursor(&raw).expect_err("retired cursor must be rejected");
+            let message = error.to_string();
+            assert!(
+                message.contains("no longer supported"),
+                "unexpected message: {message}"
+            );
+            assert!(
+                message.contains("first page"),
+                "unexpected message: {message}"
+            );
+        }
     }
 
     #[test]
@@ -1002,150 +853,72 @@ mod tests {
 
     #[test]
     fn date_cursor_rejects_out_of_range_timestamps() {
-        // A cursor constructed with an out-of-range `before` is clamped by
-        // the encoder so existing code that emits a `DateCursor` cannot
-        // exceed the cap. Adversarial cursors that try to smuggle an
-        // out-of-range value must still be rejected at decode time, which
-        // we exercise by encoding a JSON payload directly.
-        fn encode_raw(value: serde_json::Value) -> String {
-            let bytes = serde_json::to_vec(&value).expect("json");
-            let mut out = String::from("c4:");
-            for byte in bytes {
-                out.push_str(&format!("{byte:02x}"));
-            }
-            out
+        // An adversarial cursor that smuggles an out-of-range timestamp must
+        // be rejected at decode time.
+        fn encode_raw(payload: &[u8]) -> String {
+            cloudiful_pagination::encode(
+                super::CURSOR_KIND_DATE,
+                &super::date_binding(&ctx(8)),
+                payload,
+            )
+            .expect("payload fits")
         }
-        let mut payload = serde_json::json!({
-            "v": 4,
-            "sort": "date",
-            "qh": "qh",
-            "fh": "fh",
-            "gen": 0,
-            "sh": "sh",
-            "limit": 8,
-            "before": DATE_TIMESTAMP_CAP + 1,
-            "boundary_ts": null,
-            "offset": null,
-            "upper": null
-        });
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        payload["before"] = serde_json::Value::from(-1);
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        payload["before"] = serde_json::Value::Null;
-        payload["upper"] = serde_json::Value::from(DATE_TIMESTAMP_CAP + 1);
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        payload["upper"] = serde_json::Value::from(-1);
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        payload["boundary_ts"] = serde_json::Value::from(DATE_TIMESTAMP_CAP + 1);
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        payload["boundary_ts"] = serde_json::Value::from(-1);
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        // An invalid `offset` (non-uuid string) is rejected at decode
-        // time so an adversarial cursor cannot smuggle in arbitrary text.
-        payload["boundary_ts"] = serde_json::Value::Null;
-        payload["offset"] = serde_json::Value::from("not-a-uuid");
-        assert!(decode_cursor(&encode_raw(payload.clone())).is_err());
-        payload["offset"] = serde_json::Value::Null;
+        let mut payload = vec![0u8; super::DATE_PAYLOAD_LEN];
+        payload[0] = super::DATE_FLAG_BEFORE
+            | super::DATE_FLAG_BOUNDARY_TS
+            | super::DATE_FLAG_UPPER
+            | super::DATE_FLAG_OFFSET;
+        payload[1..9].copy_from_slice(&8u64.to_be_bytes());
+        for (start, value) in [
+            (9usize, DATE_TIMESTAMP_CAP + 1),
+            (17, DATE_TIMESTAMP_CAP + 1),
+            (25, DATE_TIMESTAMP_CAP + 1),
+        ] {
+            let mut candidate = payload.clone();
+            candidate[start..start + 8].copy_from_slice(&value.to_be_bytes());
+            assert!(decode_cursor(&encode_raw(&candidate)).is_err());
+        }
+        // A negative timestamp is out of range as well.
+        let mut candidate = payload.clone();
+        candidate[9..17].copy_from_slice(&(-1i64).to_be_bytes());
+        assert!(decode_cursor(&encode_raw(&candidate)).is_err());
+        // Unknown state flags are rejected.
+        let mut candidate = payload.clone();
+        candidate[0] = 0b1111_0000;
+        assert!(decode_cursor(&encode_raw(&candidate)).is_err());
     }
 
     #[test]
     fn date_cursor_round_trips_keyset_offset() {
         // The keyset `offset` is opaque to the client; a UUID round-trips
         // through encode/decode without changing its value.
-        let mut cursor = sample_date_cursor();
-        cursor.offset = Some(uuid::Uuid::from_u128(
+        let mut state = sample_date_state();
+        state.offset = Some(uuid::Uuid::from_u128(
             0xabcd_1234_5678_9abc_def0_1234_5678_9abc,
         ));
-        let raw = encode_date_cursor(&cursor);
-        assert!(raw.starts_with("c4:"));
+        let raw = encode_date_cursor(&ctx(8), &state);
+        assert!(raw.starts_with("cp1."));
         let decoded = decode_cursor(&raw).expect("date cursor decodes");
         assert_eq!(
             decoded,
             DecodedCursor::Date(DateCursor {
-                offset: Some(uuid::Uuid::from_u128(
-                    0xabcd_1234_5678_9abc_def0_1234_5678_9abc
-                )),
-                ..cursor.clone()
+                state: state.clone(),
+                binding: super::date_binding(&ctx(8)),
             })
         );
         // `offset = None` must round-trip as `None` so the absence of the
         // field is interpreted as a no-op resume (the Qdrant side will
         // return its first page from the requested `boundary_ts` filter).
-        cursor.offset = None;
-        let raw = encode_date_cursor(&cursor);
+        state.offset = None;
+        let raw = encode_date_cursor(&ctx(8), &state);
         let decoded = decode_cursor(&raw).expect("date cursor decodes");
         assert_eq!(
             decoded,
             DecodedCursor::Date(DateCursor {
-                offset: None,
-                ..cursor.clone()
+                state: state.clone(),
+                binding: super::date_binding(&ctx(8)),
             })
         );
-    }
-
-    #[test]
-    fn legacy_c2_date_cursor_is_rejected() {
-        // The current date pipeline uses the `c4:` keyset walk. A leftover
-        // `c2:` cursor (the previous windowed implementation) must be
-        // rejected so the client restarts from the first page instead of
-        // silently replaying a stale window shape that no longer matches
-        // the pipeline geometry.
-        fn encode_raw(prefix: &str, value: serde_json::Value) -> String {
-            let bytes = serde_json::to_vec(&value).expect("json");
-            let mut out = String::from(prefix);
-            for byte in bytes {
-                out.push_str(&format!("{byte:02x}"));
-            }
-            out
-        }
-        let payload = serde_json::json!({
-            "v": 2,
-            "sort": "date",
-            "qh": "qh",
-            "fh": "fh",
-            "gen": 0,
-            "sh": "sh",
-            "limit": 8,
-            "before": 1_700_000_000,
-            "tie": { "ts": 1_700_000_000, "chunk": uuid::Uuid::nil().to_string() },
-            "upper": 1_700_000_000
-        });
-        let raw = encode_raw("c2:", payload);
-        let error = decode_cursor(&raw)
-            .expect_err("legacy c2 date cursor must be rejected by the current pipeline");
-        let message = error.to_string();
-        assert!(message.contains("version 2"));
-        assert!(message.contains("first page"));
-    }
-
-    #[test]
-    fn legacy_c3_date_cursor_is_rejected() {
-        // The previous `c3:` format carried a `windows` counter and a
-        // `tie_chunk` field. The current date pipeline threads the
-        // Qdrant-side `next_page_offset` instead and no longer maintains
-        // an in-memory tie-break, so the `c3:` semantics no longer match
-        // the pipeline geometry. Reject so the client restarts from the
-        // first page.
-        let raw = encode_date_cursor(&DateCursor {
-            limit: 8,
-            query_hash: "qh".to_string(),
-            filter_hash: "fh".to_string(),
-            generation: 0,
-            settings_hash: "sh".to_string(),
-            before: Some(1_700_000_000),
-            boundary_ts: Some(1_700_000_000),
-            offset: Some(uuid::Uuid::nil()),
-            upper: Some(1_700_000_000),
-        });
-        // Strip the c4: prefix and re-prepend c3: to simulate a leftover
-        // legacy cursor.
-        let hex = raw.strip_prefix("c4:").expect("c4 prefix");
-        let legacy = format!("c3:{hex}");
-        let error = decode_cursor(&legacy)
-            .expect_err("legacy c3 date cursor must be rejected by the current pipeline");
-        let message = error.to_string();
-        assert!(message.contains("version 3"));
-        assert!(message.contains("first page"));
     }
 
     #[test]
@@ -1210,7 +983,7 @@ mod tests {
 
     #[test]
     fn date_cursor_rejected_in_relevance_pipeline() {
-        let date = encode_date_cursor(&sample_date_cursor());
+        let date = encode_date_cursor(&ctx(8), &sample_date_state());
         let error = ensure_cursor_ordering(Some(&date), false)
             .expect_err("date cursor must not be accepted by relevance pipeline");
         let message = error.to_string();
@@ -1225,16 +998,17 @@ mod tests {
         let error =
             validate_cursor_context(Some(&cursor), &other).expect_err("query hash must differ");
         assert!(error.to_string().contains("cursor context mismatch"));
+        assert!(error.to_string().contains("first page"));
     }
 
     #[test]
     fn date_cursor_context_mismatch_rejects_changed_filter() {
-        let cursor = encode_date_cursor(&sample_date_cursor());
+        let cursor = encode_date_cursor(&ctx(8), &sample_date_state());
         let mut other = ctx(8);
         other.filter_hash = "different".into();
         let error =
             validate_cursor_context(Some(&cursor), &other).expect_err("filter hash must differ");
-        assert!(error.to_string().contains("filters"));
+        assert!(error.to_string().contains("cursor context mismatch"));
     }
 
     #[test]
@@ -1244,7 +1018,6 @@ mod tests {
             .expect_err("limit change must be rejected");
         let message = error.to_string();
         assert!(message.contains("cursor context mismatch"));
-        assert!(message.contains("page size"));
     }
 
     #[test]
@@ -1254,7 +1027,7 @@ mod tests {
         other.filter_hash = "different".into();
         let error =
             validate_cursor_context(Some(&cursor), &other).expect_err("filter hash must differ");
-        assert!(error.to_string().contains("filters"));
+        assert!(error.to_string().contains("cursor context mismatch"));
     }
 
     #[test]
@@ -1264,7 +1037,7 @@ mod tests {
         other.generation = 8;
         let error = validate_cursor_context(Some(&cursor), &other)
             .expect_err("generation change must be rejected");
-        assert!(error.to_string().contains("indexed data"));
+        assert!(error.to_string().contains("cursor context mismatch"));
     }
 
     #[test]
@@ -1274,7 +1047,28 @@ mod tests {
         other.settings_hash = "different".into();
         let error = validate_cursor_context(Some(&cursor), &other)
             .expect_err("settings change must be rejected");
-        assert!(error.to_string().contains("search settings"));
+        assert!(error.to_string().contains("cursor context mismatch"));
+    }
+
+    #[test]
+    fn cursor_context_mismatch_rejects_date_generation_bump() {
+        let cursor = encode_date_cursor(&ctx(8), &sample_date_state());
+        let mut other = ctx(8);
+        other.generation = 9;
+        let error = validate_cursor_context(Some(&cursor), &other)
+            .expect_err("generation change must be rejected");
+        assert!(error.to_string().contains("cursor context mismatch"));
+    }
+
+    #[test]
+    fn cursor_families_do_not_share_a_binding() {
+        // The relevance and date families use different binding domains, so
+        // a date cursor can never satisfy a relevance request context.
+        let context = ctx(8);
+        assert_ne!(
+            super::relevance_binding(&context),
+            super::date_binding(&context)
+        );
     }
 
     #[test]
@@ -1291,16 +1085,62 @@ mod tests {
     fn cursor_alignment_accepts_offset_zero_with_aligned_limit() {
         let cursor = encode_cursor(0, false, 8, &ctx(8));
         assert!(validate_cursor_alignment(Some(&cursor)).is_ok());
-        // Offset 0 is always a valid previous window for limit > 0.
-        let cursor = encode_cursor(0, false, 0, &ctx(0));
         // limit 0 is rejected by decode itself.
+        let cursor = encode_cursor(0, false, 0, &ctx(0));
         assert!(validate_cursor_alignment(Some(&cursor)).is_err());
     }
 
     #[test]
     fn date_cursor_alignment_ignores_geometry() {
-        let cursor = encode_date_cursor(&sample_date_cursor());
+        let cursor = encode_date_cursor(&ctx(8), &sample_date_state());
         assert!(validate_cursor_alignment(Some(&cursor)).is_ok());
+    }
+
+    #[test]
+    fn tampered_relevance_payload_limit_is_rejected_by_context_validation() {
+        let context = ctx(8);
+        let valid = encode_cursor(8, false, 8, &context);
+        assert!(validate_cursor_context(Some(&valid), &context).is_ok());
+
+        // Keep the issued binding and rewrite only the fixed payload to
+        // offset 1 / limit 1. Geometry alone accepts 1 % 1, so only the
+        // payload/request page-size equality can reject this token.
+        let tampered = super::tamper_payload(&valid, |payload| {
+            payload[1..9].copy_from_slice(&1u64.to_be_bytes());
+            payload[9..17].copy_from_slice(&1u64.to_be_bytes());
+        });
+        assert_ne!(tampered, valid);
+        assert!(
+            validate_cursor_alignment(Some(&tampered)).is_ok(),
+            "the tampered geometry alone is aligned"
+        );
+        let error = validate_cursor_context(Some(&tampered), &context)
+            .expect_err("payload page size must equal the request page size");
+        assert!(error.to_string().contains("cursor context mismatch"));
+        assert!(error.to_string().contains("first page"));
+    }
+
+    #[test]
+    fn tampered_date_payload_limit_is_rejected_by_shared_context_validation() {
+        let context = ctx(8);
+        let valid = encode_date_cursor(&context, &sample_date_state());
+        assert!(validate_cursor_context(Some(&valid), &context).is_ok());
+
+        let tampered = super::tamper_payload(&valid, |payload| {
+            payload[1..9].copy_from_slice(&1u64.to_be_bytes());
+        });
+        let error = validate_cursor_context(Some(&tampered), &context)
+            .expect_err("date payload page size must equal the request page size");
+        assert!(error.to_string().contains("cursor context mismatch"));
+    }
+
+    #[test]
+    fn matching_payload_limits_pass_both_context_validators() {
+        let context = ctx(8);
+        let relevance = encode_cursor(8, true, 8, &context);
+        let date = encode_date_cursor(&context, &sample_date_state());
+        assert!(validate_cursor_context(Some(&relevance), &context).is_ok());
+        assert!(validate_cursor_context(Some(&date), &context).is_ok());
     }
 
     #[test]
@@ -1310,5 +1150,24 @@ mod tests {
         // `windows_consumed` field so the rejection-at-resume behaviour
         // is impossible by construction.
         let _ = MAX_DATE_WINDOWS;
+    }
+
+    #[test]
+    fn relevance_cursor_is_accepted_by_the_mcp_request_surface() {
+        // An actual encoded cursor must survive the MCP request validation
+        // unchanged, so a continuation request keeps working.
+        let cursor = encode_cursor(8, true, 8, &ctx(8));
+        let request = context69_contracts_mcp::McpSearchRequest {
+            query: "rust async".to_string(),
+            group_path: None,
+            source_key: None,
+            locale: None,
+            limit: 8,
+            cursor: Some(cursor.clone()),
+        };
+        request
+            .validate()
+            .expect("an issued cursor must be accepted by the MCP request surface");
+        assert!(cursor.len() <= 256);
     }
 }

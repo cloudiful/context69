@@ -22,8 +22,8 @@ use super::item_processors::{
 use crate::db::{ClaimedItem, IngestRunMode, IngestRunSource};
 use crate::library_store::TaskWriteFence;
 use crate::services::library::{
-    AtomicFirstInsert, AtomicFirstInsertFile, IngestSection, ReplacementRunRequest,
-    ReplacementSectionInput, TaskSourceRef,
+    AtomicFirstInsert, AtomicFirstInsertFile, AtomicFirstInsertRequest, IngestSection,
+    ReplacementRunRequest, ReplacementSectionInput, TaskSourceRef,
 };
 
 /// The atomic branch of one ordinary task item.
@@ -72,6 +72,21 @@ pub(super) async fn stage_first_insert_source(
         .await
 }
 
+/// The inputs of one atomic first-insert claim.
+///
+/// The staged object, the file identity and the durable run source belong
+/// together: the claim decides all of them inside one guarded transaction.
+pub(super) struct AtomicFirstInsertClaim<'a> {
+    pub group_id: i64,
+    pub task: &'a crate::db::StoredTask,
+    pub item: &'a mut crate::db::ClaimedItem,
+    pub file: &'a AtomicFirstInsertFile,
+    pub staged_object: Uuid,
+    pub metadata: Option<&'a context69_contracts::CanonicalUploadMetadata>,
+    pub translation: Option<&'a context69_contracts::TranslationDirective>,
+    pub source: IngestRunSource,
+}
+
 /// Claims the atomic first insert of one ordinary task item.
 ///
 /// The source is staged before the transaction, and the file, the item binding
@@ -80,27 +95,32 @@ pub(super) async fn stage_first_insert_source(
 /// instead of changing any pointer.
 pub(super) async fn claim_atomic_first_insert(
     service: &TaskService,
-    group_id: i64,
-    task: &crate::db::StoredTask,
-    item: &mut crate::db::ClaimedItem,
-    file: &AtomicFirstInsertFile,
-    staged_object: Uuid,
-    metadata: Option<&context69_contracts::CanonicalUploadMetadata>,
-    translation: Option<&context69_contracts::TranslationDirective>,
-    source: IngestRunSource,
+    claim: AtomicFirstInsertClaim<'_>,
 ) -> anyhow::Result<ProcessResult> {
+    let AtomicFirstInsertClaim {
+        group_id,
+        task,
+        item,
+        file,
+        staged_object,
+        metadata,
+        translation,
+        source,
+    } = claim;
     let claimed = service
         .library()
         .begin_atomic_first_insert_for_task(
             service.db(),
-            task.id,
-            item,
-            group_id,
-            staged_object,
-            file,
-            metadata,
-            translation,
-            source,
+            AtomicFirstInsertRequest {
+                task_id: task.id,
+                item,
+                group_id,
+                staged_object,
+                file,
+                metadata,
+                translation,
+                source,
+            },
         )
         .await;
     match claimed {

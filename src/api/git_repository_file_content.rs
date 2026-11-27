@@ -79,11 +79,11 @@ pub(crate) async fn get_git_repository_file_content(
 ) -> Response {
     let group = match readable_group(&state, &session, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let (source, generation) = match serving_source(&state.app.db, group.id, repository_key).await {
         Ok(serving) => serving,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let path = match SafeTreePath::parse(&query.path) {
         Ok(path) => path,

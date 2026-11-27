@@ -35,6 +35,19 @@ pub struct StoragePathRow {
     pub source_released_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
+/// The links of one file and the status projected with them.
+///
+/// A file never carries the links of one segment and the status of another,
+/// so both travel together into one guarded write.
+pub struct FileDocumentReplacement<'a> {
+    pub file_id: Uuid,
+    pub documents: &'a [LibraryFileDocumentRecord],
+    pub status: LibraryIngestStatus,
+    pub error_message: Option<&'a str>,
+    pub mark_ingested_now: bool,
+    pub identity: Option<&'a crate::db::RegistryVectorIdentity>,
+}
+
 /// The record of one linked document section.
 fn file_document_record(row: FileDocumentRow) -> LibraryFileDocumentRecord {
     LibraryFileDocumentRecord {
@@ -159,13 +172,16 @@ impl LibraryStore {
     pub async fn replace_file_documents_and_status_fenced(
         &self,
         fence: TaskWriteFence,
-        file_id: Uuid,
-        documents: &[LibraryFileDocumentRecord],
-        status: LibraryIngestStatus,
-        error_message: Option<&str>,
-        mark_ingested_now: bool,
-        identity: Option<&crate::db::RegistryVectorIdentity>,
+        replacement: FileDocumentReplacement<'_>,
     ) -> Result<bool> {
+        let FileDocumentReplacement {
+            file_id,
+            documents,
+            status,
+            error_message,
+            mark_ingested_now,
+            identity,
+        } = replacement;
         let mut write = match self.begin_task_write(fence).await {
             Ok(write) => write,
             Err(error) if error.downcast_ref::<TaskWriteDenied>().is_some() => return Ok(false),
@@ -470,52 +486,6 @@ fn merge_file_documents(
     Ok(documents)
 }
 
-#[cfg(test)]
-mod merge_tests {
-    use super::*;
-    use crate::contracts::Visibility;
-
-    fn link(file_id: Uuid, document_id: i64, key: &str) -> LibraryFileDocumentRecord {
-        LibraryFileDocumentRecord {
-            file_id,
-            document_id,
-            group_id: 1,
-            visibility: Visibility::Private,
-            section_key: key.into(),
-            section_label: key.into(),
-            section_external_id: None,
-            section_source_uri: None,
-            section_published_at: None,
-            section_metadata_json: serde_json::json!({}),
-            sort_order: 0,
-        }
-    }
-
-    #[test]
-    fn merge_retains_vanished_sections_and_rejects_identity_changes() {
-        let file = Uuid::new_v4();
-        let old = vec![link(file, 1, "old"), link(file, 2, "kept")];
-        let merged = merge_file_documents(
-            file,
-            old.clone(),
-            &[link(file, 2, "kept"), link(file, 3, "new")],
-        )
-        .unwrap();
-        assert_eq!(
-            merged
-                .iter()
-                .map(|row| (row.section_key.as_str(), row.document_id))
-                .collect::<Vec<_>>(),
-            vec![("old", 1), ("kept", 2), ("new", 3)]
-        );
-        assert!(merge_file_documents(file, old.clone(), &[link(file, 3, "kept")]).is_err());
-        assert!(merge_file_documents(file, old.clone(), &[link(file, 1, "new")]).is_err());
-        assert!(
-            merge_file_documents(file, old, &[link(file, 3, "new"), link(file, 3, "new")]).is_err()
-        );
-    }
-}
-
 /// The links and the status of one file, replaced on a borrowed connection.
 async fn replace_file_documents_and_status_on(
     connection: &mut sqlx::PgConnection,
@@ -576,4 +546,50 @@ async fn replace_file_documents_on(
         .await?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod merge_tests {
+    use super::*;
+    use crate::contracts::Visibility;
+
+    fn link(file_id: Uuid, document_id: i64, key: &str) -> LibraryFileDocumentRecord {
+        LibraryFileDocumentRecord {
+            file_id,
+            document_id,
+            group_id: 1,
+            visibility: Visibility::Private,
+            section_key: key.into(),
+            section_label: key.into(),
+            section_external_id: None,
+            section_source_uri: None,
+            section_published_at: None,
+            section_metadata_json: serde_json::json!({}),
+            sort_order: 0,
+        }
+    }
+
+    #[test]
+    fn merge_retains_vanished_sections_and_rejects_identity_changes() {
+        let file = Uuid::new_v4();
+        let old = vec![link(file, 1, "old"), link(file, 2, "kept")];
+        let merged = merge_file_documents(
+            file,
+            old.clone(),
+            &[link(file, 2, "kept"), link(file, 3, "new")],
+        )
+        .unwrap();
+        assert_eq!(
+            merged
+                .iter()
+                .map(|row| (row.section_key.as_str(), row.document_id))
+                .collect::<Vec<_>>(),
+            vec![("old", 1), ("kept", 2), ("new", 3)]
+        );
+        assert!(merge_file_documents(file, old.clone(), &[link(file, 3, "kept")]).is_err());
+        assert!(merge_file_documents(file, old.clone(), &[link(file, 1, "new")]).is_err());
+        assert!(
+            merge_file_documents(file, old, &[link(file, 3, "new"), link(file, 3, "new")]).is_err()
+        );
+    }
 }

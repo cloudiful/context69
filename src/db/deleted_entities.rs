@@ -218,14 +218,14 @@ impl Database {
         file_id: Option<Uuid>,
         document_id: Option<i64>,
     ) -> Result<Option<i64>> {
-        Ok(sqlx::query_file_scalar!(
+        sqlx::query_file_scalar!(
             "src/sql/db/deleted_entities/read_entity_id.sql",
             file_id,
             document_id
         )
         .fetch_optional(&self.pool)
         .await
-        .context("read deleted entity id")?)
+        .context("read deleted entity id")
     }
 
     /// The tombstones whose points were not observed as physically gone yet.

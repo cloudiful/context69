@@ -86,6 +86,17 @@ pub(crate) fn resolve_search_window(
     }
 }
 
+/// Inputs of the stage-1 candidate collection. Grouped so the call
+/// signature stays bounded.
+struct CandidateQuery<'a> {
+    request: &'a SearchRequest,
+    scope: &'a AccessScope,
+    settings: &'a SearchSettings,
+    query_hash: &'a str,
+    vector_limit: usize,
+    exclusions: &'a SearchExclusions,
+}
+
 /// Stage-1 output shared by the POST pipeline and the SSE stream: candidates
 /// in local ordering (hybrid merge + local score) or the raw vector ordering.
 #[derive(Debug)]
@@ -228,14 +239,17 @@ impl SearchService {
     /// meaningless text and metadata, and produce candidates in local ordering.
     async fn collect_candidates(
         &self,
-        request: &SearchRequest,
-        scope: &AccessScope,
-        settings: &SearchSettings,
-        query_hash: &str,
-        vector_limit: usize,
-        exclusions: &SearchExclusions,
+        query: CandidateQuery<'_>,
         probe: &mut SearchProbe,
     ) -> Result<CandidateWindow> {
+        let CandidateQuery {
+            request,
+            scope,
+            settings,
+            query_hash,
+            vector_limit,
+            exclusions,
+        } = query;
         let embed_started = Instant::now();
         // The cache is scoped by the live identity, so a provider/identity change
         // that kept the same width cannot serve a vector embedded by the old one.
@@ -664,12 +678,14 @@ impl SearchService {
 
             let collected = self
                 .collect_candidates(
-                    &request,
-                    &scope,
-                    &settings,
-                    &query_hash,
-                    vector_limit,
-                    &exclusions,
+                    CandidateQuery {
+                        request: &request,
+                        scope: &scope,
+                        settings: &settings,
+                        query_hash: &query_hash,
+                        vector_limit,
+                        exclusions: &exclusions,
+                    },
                     &mut probe,
                 )
                 .await?;
@@ -747,7 +763,7 @@ impl SearchService {
     /// pipeline walks Qdrant in a monotonic keyset over `published_ts
     /// DESC`, draining each boundary timestamp in full via the
     /// Qdrant-side `next_page_offset` before advancing to an older
-    /// timestamp, and emits an opaque `c4:` cursor for the next page
+    /// timestamp, and emits an opaque `cp1.` cursor for the next page
     /// when more results are visible. No rerank, no response cache, no
     /// hybrid keyword path.
     ///

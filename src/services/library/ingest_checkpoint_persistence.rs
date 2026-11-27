@@ -30,6 +30,14 @@ use crate::chunking::{ChunkBudget, chunk_document_iter_resolved};
 use crate::contracts::LibraryIngestFailureStage;
 use crate::services::library::{LibraryDependency, LibraryService, UnifiedIngestError};
 
+/// The lease of the item that owns a payload checkpoint without a captured
+/// generation.
+#[derive(Debug, Clone, Copy)]
+pub struct CheckpointLease {
+    pub item_id: Uuid,
+    pub lease_token: Uuid,
+}
+
 /// Who authorizes the payload checkpoint of one indexing run.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum CheckpointWrite {
@@ -164,8 +172,7 @@ impl LibraryService {
         &self,
         file_id: Uuid,
         section_payload: &Value,
-        item_id: Uuid,
-        lease_token: Uuid,
+        lease: CheckpointLease,
         current_payload: &Value,
         attempt: i32,
         budget: &ChunkBudget,
@@ -174,8 +181,8 @@ impl LibraryService {
             file_id,
             section_payload,
             CheckpointWrite::Token {
-                item_id,
-                lease_token,
+                item_id: lease.item_id,
+                lease_token: lease.lease_token,
             },
             current_payload,
             attempt,
@@ -642,7 +649,15 @@ impl LibraryService {
                 let replaced = self
                     .store
                     .replace_file_documents_and_status_fenced(
-                        fence, file_id, mappings, status, None, true, identity,
+                        fence,
+                        crate::library_store::documents::FileDocumentReplacement {
+                            file_id,
+                            documents: mappings,
+                            status,
+                            error_message: None,
+                            mark_ingested_now: true,
+                            identity,
+                        },
                     )
                     .await
                     .map_err(|error| task_failure("finalize", error, true))?;

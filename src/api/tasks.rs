@@ -96,7 +96,7 @@ pub(crate) async fn authorize_task(
     state: &ApiState,
     session: &crate::services::auth::AuthSession,
     task_id: uuid::Uuid,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     if restricted_token_scope(&session.token_group_scope).is_none() {
         return Ok(());
     }
@@ -105,7 +105,7 @@ pub(crate) async fn authorize_task(
         .tasks
         .get(task_id, session.user.id)
         .await
-        .map_err(task_error)?;
+        .map_err(|error| Box::new(task_error(error)))?;
     require_task_group_allowed(state, session, task.group_path.as_deref()).await
 }
 
@@ -113,29 +113,29 @@ pub(crate) async fn require_task_group_allowed(
     state: &ApiState,
     session: &crate::services::auth::AuthSession,
     group_path: Option<&str>,
-) -> Result<(), Response> {
+) -> Result<(), Box<Response>> {
     let Some(restriction) = restricted_token_scope(&session.token_group_scope) else {
         return Ok(());
     };
     let Some(group_path) = group_path else {
-        return Err(group_access_error_response(
+        return Err(Box::new(group_access_error_response(
             crate::domain_errors::DomainError::forbidden("insufficient permissions for group")
                 .into(),
-        ));
+        )));
     };
     let group = state
         .app
         .namespace
         .get_group_for_user(session.user.id, group_path, None)
         .await
-        .map_err(group_access_error_response)?;
+        .map_err(|error| Box::new(group_access_error_response(error)))?;
     match group {
         Some(group) => crate::authorization::require_group_allowed(Some(restriction), group.id)
-            .map_err(group_access_error_response),
-        None => Err(group_access_error_response(
+            .map_err(|error| Box::new(group_access_error_response(error))),
+        None => Err(Box::new(group_access_error_response(
             crate::domain_errors::DomainError::forbidden("insufficient permissions for group")
                 .into(),
-        )),
+        ))),
     }
 }
 

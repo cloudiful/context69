@@ -27,7 +27,23 @@ pub enum AtomicFirstInsert {
     /// The identity was taken by another writer while this one waited for the
     /// identity lock, so the caller replaces that file instead of creating a
     /// second one.
-    Existing(LibraryFileRecord),
+    Existing(Box<LibraryFileRecord>),
+}
+
+/// The inputs of one atomic first insert.
+///
+/// The identity of the new file, the staged object that carries its content
+/// and the durable run source are one request: they are always decided
+/// together inside one guarded transaction.
+pub struct AtomicFirstInsertRequest<'a> {
+    pub task_id: Uuid,
+    pub item: &'a mut crate::db::ClaimedItem,
+    pub group_id: i64,
+    pub staged_object: Uuid,
+    pub file: &'a super::AtomicFirstInsertFile,
+    pub metadata: Option<&'a crate::contracts::CanonicalUploadMetadata>,
+    pub translation: Option<&'a crate::contracts::TranslationDirective>,
+    pub source: IngestRunSource,
 }
 
 /// Binds the existing file to the running item and claims its durable
@@ -103,15 +119,18 @@ pub(crate) async fn clear_ingest_cache(db: &Database, item: &crate::db::ClaimedI
 pub(crate) async fn begin_atomic_first_insert(
     db: &Database,
     store: &LibraryStore,
-    task_id: Uuid,
-    item: &mut crate::db::ClaimedItem,
-    group_id: i64,
-    staged_object: Uuid,
-    file: &super::AtomicFirstInsertFile,
-    metadata: Option<&crate::contracts::CanonicalUploadMetadata>,
-    translation: Option<&crate::contracts::TranslationDirective>,
-    source: IngestRunSource,
+    request: AtomicFirstInsertRequest<'_>,
 ) -> Result<AtomicFirstInsert> {
+    let AtomicFirstInsertRequest {
+        task_id,
+        item,
+        group_id,
+        staged_object,
+        file,
+        metadata,
+        translation,
+        source,
+    } = request;
     let fence = TaskWriteFence::from_claimed_item(item)?;
     let mut write = begin_task_write(db, fence).await?;
 
@@ -157,7 +176,7 @@ pub(crate) async fn begin_atomic_first_insert(
             &file.media_type,
             None,
         )?;
-        return Ok(AtomicFirstInsert::Existing(existing));
+        return Ok(AtomicFirstInsert::Existing(Box::new(existing)));
     }
 
     let new_file = NewLibraryFile {
@@ -250,18 +269,13 @@ impl LibraryService {
     pub async fn begin_atomic_first_insert_for_task(
         &self,
         db: &Database,
-        task_id: Uuid,
-        item: &mut crate::db::ClaimedItem,
-        group_id: i64,
-        staged_object: Uuid,
-        file: &super::AtomicFirstInsertFile,
-        metadata: Option<&crate::contracts::CanonicalUploadMetadata>,
-        translation: Option<&crate::contracts::TranslationDirective>,
-        source: IngestRunSource,
+        request: AtomicFirstInsertRequest<'_>,
     ) -> Result<AtomicFirstInsert> {
         // The folder of the new file must belong to the group, exactly like in
         // the ordinary upload path.
-        if let Some(folder_id) = file.folder_id
+        let group_id = request.group_id;
+        let folder_id = request.file.folder_id;
+        if let Some(folder_id) = folder_id
             && self
                 .store
                 .get_folder_in_project(group_id, folder_id)
@@ -270,19 +284,7 @@ impl LibraryService {
         {
             anyhow::bail!("unknown folder {folder_id}");
         }
-        begin_atomic_first_insert(
-            db,
-            &self.store,
-            task_id,
-            item,
-            group_id,
-            staged_object,
-            file,
-            metadata,
-            translation,
-            source,
-        )
-        .await
+        begin_atomic_first_insert(db, &self.store, request).await
     }
 
     /// Run one staged replacement from one ready vector runtime snapshot.

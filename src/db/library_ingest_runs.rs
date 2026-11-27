@@ -351,14 +351,14 @@ impl Database {
         file_id: Uuid,
         exclude_item_id: Option<Uuid>,
     ) -> Result<bool> {
-        Ok(sqlx::query_file_scalar!(
+        sqlx::query_file_scalar!(
             "src/sql/db/library_ingest_runs/read_active_unresolved_file.sql",
             file_id,
             exclude_item_id
         )
         .fetch_one(&mut *connection)
         .await
-        .context("read the active ingest run of a file")?)
+        .context("read the active ingest run of a file")
     }
 
     /// Claims the durable replacement run of an ordinary single-file update.

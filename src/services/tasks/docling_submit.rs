@@ -88,8 +88,7 @@ pub(super) async fn submit_and_await_blocking_with_view(
     match service
         .db()
         .create_docling_remote_job(
-            task_id,
-            item.id,
+            item,
             &submit.remote_task_id,
             Some("submitted"),
             Some(submit.next_poll_at),
@@ -171,8 +170,7 @@ pub(super) async fn submit_and_await_blocking_with_view(
                     match service
                         .db()
                         .create_docling_remote_job(
-                            task_id,
-                            item.id,
+                            item,
                             &submit.remote_task_id,
                             Some("submitted"),
                             Some(submit.next_poll_at),

@@ -91,7 +91,7 @@ pub use replacement_runner::{
     ReplacementRunDisposition, ReplacementRunOutcome, ReplacementRunRequest,
     ReplacementSectionInput, ReplacementVector, run_first_insert, run_replacement,
 };
-pub use replacement_task::AtomicFirstInsert;
+pub use replacement_task::{AtomicFirstInsert, AtomicFirstInsertRequest};
 pub(crate) use replacement_task::{begin_ordinary_replacement, clear_ingest_cache};
 mod image_links;
 pub use image_links::{
@@ -657,7 +657,7 @@ impl DeleteWrite<'_> {
     /// The connection the delete statements must run on.
     pub(crate) fn connection(&mut self) -> &mut sqlx::PgConnection {
         match self {
-            Self::Plain(transaction) => &mut **transaction,
+            Self::Plain(transaction) => transaction,
             Self::Fenced(write) => write.connection(),
         }
     }

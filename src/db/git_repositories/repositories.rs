@@ -406,15 +406,16 @@ impl Database {
     /// configuration revision and observed target are still current.
     pub async fn complete_git_repository_noop(
         &self,
-        group_id: i64,
-        repository_key: Uuid,
-        expected_config_revision: i64,
+        source: &StoredGitRepositorySource,
         expected_target_commit_sha: Option<&str>,
         observed_commit_sha: &str,
         pipeline_version: u32,
         config_fingerprint: &str,
-        skip_summary: &crate::contracts::sources::GitRepositorySkipSummary,
     ) -> Result<bool> {
+        let group_id = source.group.group_id;
+        let repository_key = source.repository_key;
+        let expected_config_revision = source.config_revision;
+        let skip_summary = &source.last_skip_summary;
         let skip_summary = super::types::skip_summary_value(*skip_summary);
         use sea_orm::{
             ConnectionTrait,

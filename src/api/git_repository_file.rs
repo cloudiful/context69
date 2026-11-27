@@ -61,7 +61,7 @@ pub(crate) async fn get_git_repository_file(
 ) -> Response {
     let group = match readable_group(&state, &session, &group_path).await {
         Ok(group) => group,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     // The path is validated before the repository is even resolved, so a
     // traversal or control-byte attempt never reaches a lookup and the refusal
@@ -72,7 +72,7 @@ pub(crate) async fn get_git_repository_file(
     };
     let (source, generation) = match serving_source(&state.app.db, group.id, repository_key).await {
         Ok(serving) => serving,
-        Err(response) => return response,
+        Err(response) => return *response,
     };
     let file = match state
         .app

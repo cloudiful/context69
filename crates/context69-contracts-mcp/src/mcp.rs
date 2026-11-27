@@ -118,7 +118,12 @@ impl McpSearchRequest {
         if let Some(cursor) = self.cursor.as_deref()
             && (!non_blank(cursor) || cursor.chars().count() > MCP_CURSOR_MAX_CHARS)
         {
-            return Err(anyhow::anyhow!("cursor must be 1..=256 characters"));
+            // The 256-character cap must not hide a cursor-format migration:
+            // an outdated continuation cursor is longer than the cap, so the
+            // message tells the caller to restart from the first page.
+            return Err(anyhow::anyhow!(
+                "cursor must be 1..=256 characters; an outdated cursor format is not supported, restart the search from the first page"
+            ));
         }
         Ok(())
     }

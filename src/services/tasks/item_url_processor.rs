@@ -257,14 +257,16 @@ pub(super) async fn process_url(
                             .then_some(&upload.options.metadata);
                         return super::item_replacement_processor::claim_atomic_first_insert(
                             service,
-                            group.id,
-                            task,
-                            item,
-                            &file,
-                            staged,
-                            metadata,
-                            upload.options.translation.as_ref(),
-                            crate::db::IngestRunSource::Url,
+                            super::item_replacement_processor::AtomicFirstInsertClaim {
+                                group_id: group.id,
+                                task,
+                                item,
+                                file: &file,
+                                staged_object: staged,
+                                metadata,
+                                translation: upload.options.translation.as_ref(),
+                                source: crate::db::IngestRunSource::Url,
+                            },
                         )
                         .await;
                     }

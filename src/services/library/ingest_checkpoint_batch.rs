@@ -47,6 +47,22 @@ pub(super) struct BatchPersistInputs<'a> {
     pub(super) checkpoint_write: super::ingest_checkpoint_persistence::CheckpointWrite,
 }
 
+/// The content of one batch: the embedding, the chunk write and the vector
+/// upsert.
+///
+/// The embedding runs before any transaction is open, the chunks are written
+/// inside the guarded transaction of the captured grant, and the vector upsert
+/// runs outside every transaction after the grant was checked again.
+pub(super) struct BatchContent<'a> {
+    pub(super) fence: Option<crate::library_store::TaskWriteFence>,
+    pub(super) file: &'a crate::domain::LibraryFileRecord,
+    pub(super) prepared_section: &'a PreparedIngestSection,
+    pub(super) document_id: i64,
+    pub(super) batch: &'a [crate::domain::DocumentChunk],
+    pub(super) runtime: &'a LibraryRuntime,
+    pub(super) identity: Option<&'a crate::db::RegistryVectorIdentity>,
+}
+
 impl LibraryService {
     /// The content of one batch: the embedding, the chunk write and the vector
     /// upsert.
@@ -57,14 +73,17 @@ impl LibraryService {
     /// again.
     pub(super) async fn persist_batch_content(
         &self,
-        fence: Option<crate::library_store::TaskWriteFence>,
-        file: &crate::domain::LibraryFileRecord,
-        prepared_section: &PreparedIngestSection,
-        document_id: i64,
-        batch: &[crate::domain::DocumentChunk],
-        runtime: &LibraryRuntime,
-        identity: Option<&crate::db::RegistryVectorIdentity>,
+        content: BatchContent<'_>,
     ) -> Result<(), UnifiedIngestError> {
+        let BatchContent {
+            fence,
+            file,
+            prepared_section,
+            document_id,
+            batch,
+            runtime,
+            identity,
+        } = content;
         let texts = batch
             .iter()
             .map(|chunk| chunk.text.clone())
@@ -309,15 +328,15 @@ impl LibraryService {
             identity,
             checkpoint_write,
         } = inputs;
-        self.persist_batch_content(
-            checkpoint_write.fence(),
+        self.persist_batch_content(BatchContent {
+            fence: checkpoint_write.fence(),
             file,
             prepared_section,
             document_id,
             batch,
             runtime,
             identity,
-        )
+        })
         .await?;
 
         // Advance the checkpoint only after both stores succeeded, and publish the
