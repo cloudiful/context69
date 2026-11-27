@@ -74,7 +74,12 @@ impl Database {
             return Ok(None);
         }
         let queue = self.execution_queue().await?;
-        let lease_until = match queue.renew_in(&mut transaction, &execution.attempt).await {
+        let lease_until = match queue
+            .renew_in(&mut transaction, std::slice::from_ref(&execution.attempt))
+            .await?
+            .pop()
+            .expect("one attempt outcome")
+        {
             Ok(lease_until) => native_utc(lease_until),
             Err(cloudiful_tasks::Error::LeaseLost { .. })
             | Err(cloudiful_tasks::Error::InvalidTaskState { .. }) => {

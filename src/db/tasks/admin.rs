@@ -17,10 +17,8 @@ impl Database {
     /// Only the items the cancellation actually cancelled are considered: the
     /// caller passes exactly those ids, so a task that arrived after the
     /// captured item set keeps its segments. The distinct segments are
-    /// cancelled by one set-based statement ordered by their library task id,
-    /// so two cancellations that cover the same items take the same segment
-    /// locks in one deterministic order and the batch issues no per-segment
-    /// round trip.
+    /// passed to the native queue in sorted, bounded collections so competing
+    /// cancellations take segment locks in a consistent order.
     pub(crate) async fn request_segment_cancellations(
         &self,
         tx: &mut Transaction<'_, Postgres>,
@@ -35,18 +33,30 @@ impl Database {
         )
         .fetch_all(&mut **tx)
         .await?;
-        let segments: Vec<Uuid> = segments.into_iter().flatten().collect();
+        let mut segments: Vec<_> = segments.into_iter().flatten().collect();
+        segments.sort_unstable();
+        segments.dedup();
         if segments.is_empty() {
             return Ok(());
         }
-        sqlx::query_file_scalar!(
-            "src/sql/db/tasks/cancel_segments.sql",
-            &segments,
-            super::execution::EXECUTION_NAMESPACE,
-            super::execution::EXECUTION_QUEUE,
-        )
-        .fetch_all(&mut **tx)
-        .await?;
+        let queue = self.execution_queue().await?;
+        for chunk in segments.chunks(cloudiful_tasks::MAX_TASK_COLLECTION_SIZE) {
+            let task_ids: Vec<_> = chunk
+                .iter()
+                .copied()
+                .map(cloudiful_tasks::TaskId::from_uuid)
+                .collect();
+            for outcome in queue.request_cancel_in(&mut *tx, &task_ids).await? {
+                match outcome {
+                    Ok(_)
+                    | Err(
+                        cloudiful_tasks::Error::NotFound
+                        | cloudiful_tasks::Error::InvalidTaskState { .. },
+                    ) => {}
+                    Err(error) => return Err(error.into()),
+                }
+            }
+        }
         Ok(())
     }
 

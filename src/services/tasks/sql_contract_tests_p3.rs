@@ -606,7 +606,7 @@ fn cutover_quiescence_keeps_the_domain_mirror_and_verifies_every_link() {
     // same caller transaction and never short-circuits after a live batch.
     let helper = sql_code(include_str!("../../db/tasks/cutover.rs"));
     assert!(helper.contains("has_live_attempts_in(&mut *tx, &task_ids)"));
-    assert!(helper.contains("chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE)"));
+    assert!(helper.contains("chunks(cloudiful_tasks::MAX_TASK_COLLECTION_SIZE)"));
     assert!(helper.contains("library_live = true;"));
     assert!(
         !helper.contains("break"),

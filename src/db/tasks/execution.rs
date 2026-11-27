@@ -141,26 +141,31 @@ impl SegmentPayload {
     }
 }
 
-/// Produces the library task of one execution segment in the transaction of the
-/// caller.
-///
-/// The segment is fresh: its generation is the one the caller decided, and its
-/// idempotency key is derived from the item and the generation. The library
-/// task is only durable when the caller commits.
-pub async fn produce_segment(
+/// Produces execution segments in input order inside the caller's transaction.
+/// Item and generation determine the idempotency key of each segment.
+pub(super) async fn produce_segments(
     queue: &Queue,
     transaction: &mut Transaction<'_, Postgres>,
-    payload: SegmentPayload,
-) -> Result<TaskId, cloudiful_tasks::Error> {
-    let request = EnqueueRequest::new(TaskKind::new(EXECUTION_KIND)?, payload.to_value())
-        .with_idempotency_key(SegmentPayload::idempotency_key(
-            payload.item_id,
-            payload.generation,
-        ))?;
-    let outcome = queue.enqueue_in(transaction, request).await?;
-    Ok(match outcome {
-        EnqueueOutcome::Created(task) | EnqueueOutcome::Existing(task) => task.id(),
-    })
+    payloads: &[SegmentPayload],
+) -> Result<Vec<TaskId>, cloudiful_tasks::Error> {
+    let mut segments = Vec::with_capacity(payloads.len());
+    for chunk in payloads.chunks(cloudiful_tasks::MAX_TASK_COLLECTION_SIZE) {
+        let requests = chunk
+            .iter()
+            .map(|payload| {
+                EnqueueRequest::new(TaskKind::new(EXECUTION_KIND)?, payload.to_value())
+                    .with_idempotency_key(SegmentPayload::idempotency_key(
+                        payload.item_id,
+                        payload.generation,
+                    ))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        for outcome in queue.enqueue_in(&mut *transaction, &requests).await? {
+            let (EnqueueOutcome::Created(task) | EnqueueOutcome::Existing(task)) = outcome?;
+            segments.push(task.id());
+        }
+    }
+    Ok(segments)
 }
 
 /// How a freshly produced segment is linked to its item.
@@ -177,8 +182,8 @@ pub(crate) enum SegmentLink {
     UnlinkedQueuedOrWaiting,
 }
 
-/// Produces the next segment of one item inside a caller-owned transaction and
-/// links it, with the link outcome checked.
+/// Produces the next segments inside a caller-owned transaction and links each
+/// one to its item, checking every link outcome.
 ///
 /// The helper is shared by the ordinary handover of one item and by the bounded
 /// cutover adoption, which runs several items in one transaction. A caller that
@@ -186,69 +191,76 @@ pub(crate) enum SegmentLink {
 /// leaves nothing behind, because the library task and the link become durable
 /// together. An item whose status no longer takes a link refuses the call
 /// instead of leaving a segment no item points at.
-pub(crate) async fn produce_and_link_item_segment(
+pub(crate) async fn produce_and_link_item_segments(
     queue: &Queue,
     transaction: &mut Transaction<'_, Postgres>,
-    item_id: Uuid,
+    item_ids: &[Uuid],
     link: SegmentLink,
-) -> Result<Uuid> {
-    let generation = sqlx::query_file_as!(
-        ItemGeneration,
-        "src/sql/db/tasks/item_generation.sql",
-        item_id
-    )
-    .fetch_one(&mut **transaction)
-    .await?;
-    let task_id = generation.task_id;
-    let generation = generation.generation.unwrap_or(FIRST_GENERATION);
-    // The parent pause gate is the shared choke point: every caller (handover,
-    // cutover adoption, retry link) holds the item lock here and must not mint
-    // a segment for a parent that a pause is holding back. It is a plain read
-    // after the item, so the canonical item -> parent order is preserved and
-    // no early parent lock is taken.
-    let pause_state =
-        sqlx::query_file_scalar!("src/sql/db/tasks/cutover/parent_pause_gate.sql", item_id)
-            .fetch_optional(&mut **transaction)
-            .await?;
-    match pause_state.as_deref() {
-        Some("unpaused") => {}
-        Some(state) => anyhow::bail!(
-            "item {item_id} belongs to a parent paused as `{state}`; no execution segment was minted"
-        ),
-        None => anyhow::bail!("item {item_id} has no parent task; no execution segment was minted"),
-    }
-    let segment = produce_segment(
-        queue,
-        transaction,
-        SegmentPayload::new(item_id, task_id, generation),
-    )
-    .await?;
-    let linked = match link {
-        SegmentLink::Queued => {
-            sqlx::query_file_scalar!(
-                "src/sql/db/tasks/link_item_segment.sql",
-                item_id,
-                segment.as_uuid(),
-                generation
-            )
-            .fetch_optional(&mut **transaction)
-            .await?
+) -> Result<Vec<TaskId>> {
+    let mut payloads = Vec::with_capacity(item_ids.len());
+    for &item_id in item_ids {
+        let generation = sqlx::query_file_as!(
+            ItemGeneration,
+            "src/sql/db/tasks/item_generation.sql",
+            item_id
+        )
+        .fetch_one(&mut **transaction)
+        .await?;
+        let task_id = generation.task_id;
+        let generation = generation.generation.unwrap_or(FIRST_GENERATION);
+        // The parent pause gate is the shared choke point: every caller (handover,
+        // cutover adoption, retry link) holds the item lock here and must not mint
+        // a segment for a parent that a pause is holding back. It is a plain read
+        // after the item, so the canonical item -> parent order is preserved and
+        // no early parent lock is taken.
+        let pause_state =
+            sqlx::query_file_scalar!("src/sql/db/tasks/cutover/parent_pause_gate.sql", item_id)
+                .fetch_optional(&mut **transaction)
+                .await?;
+        match pause_state.as_deref() {
+            Some("unpaused") => {}
+            Some(state) => anyhow::bail!(
+                "item {item_id} belongs to a parent paused as `{state}`; no execution segment was minted"
+            ),
+            None => {
+                anyhow::bail!("item {item_id} has no parent task; no execution segment was minted")
+            }
         }
-        SegmentLink::UnlinkedQueuedOrWaiting => {
-            sqlx::query_file_scalar!(
-                "src/sql/db/tasks/cutover/adopt_item.sql",
-                item_id,
-                segment.as_uuid(),
-                generation
-            )
-            .fetch_optional(&mut **transaction)
-            .await?
-        }
-    };
-    if linked.is_none() {
-        anyhow::bail!("item {item_id} does not take a fresh execution segment; nothing was linked");
+        payloads.push(SegmentPayload::new(item_id, task_id, generation));
     }
-    Ok(segment.as_uuid())
+    let segments = produce_segments(queue, transaction, &payloads).await?;
+    for (payload, segment) in payloads.into_iter().zip(&segments) {
+        let item_id = payload.item_id;
+        let generation = payload.generation;
+        let linked = match link {
+            SegmentLink::Queued => {
+                sqlx::query_file_scalar!(
+                    "src/sql/db/tasks/link_item_segment.sql",
+                    item_id,
+                    segment.as_uuid(),
+                    generation
+                )
+                .fetch_optional(&mut **transaction)
+                .await?
+            }
+            SegmentLink::UnlinkedQueuedOrWaiting => {
+                sqlx::query_file_scalar!(
+                    "src/sql/db/tasks/cutover/adopt_item.sql",
+                    item_id,
+                    segment.as_uuid(),
+                    generation
+                )
+                .fetch_optional(&mut **transaction)
+                .await?
+            }
+        };
+        if linked.is_none() {
+            anyhow::bail!(
+                "item {item_id} does not take a fresh execution segment; nothing was linked"
+            );
+        }
+    }
+    Ok(segments)
 }
 
 /// The captured execution context of one running item.
@@ -358,9 +370,9 @@ pub(crate) async fn delete_native_tasks_in(
     let mut native_ids = native_ids.to_vec();
     native_ids.sort_unstable();
     native_ids.dedup();
-    for chunk in native_ids.chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE) {
+    for chunk in native_ids.chunks(cloudiful_tasks::MAX_TASK_COLLECTION_SIZE) {
         let task_ids: Vec<_> = chunk.iter().copied().map(TaskId::from_uuid).collect();
-        match queue.delete_many_in(&mut *transaction, &task_ids).await {
+        match queue.delete_in(&mut *transaction, &task_ids).await {
             Ok(_) => {}
             Err(cloudiful_tasks::Error::InvalidTaskState {
                 task_id, status, ..
@@ -437,7 +449,9 @@ impl Database {
         let mut tx = self.pool().begin().await?;
         let queue = self.execution_queue().await?;
         let segment =
-            produce_and_link_item_segment(queue, &mut tx, item_id, SegmentLink::Queued).await?;
+            produce_and_link_item_segments(queue, &mut tx, &[item_id], SegmentLink::Queued).await?
+                [0]
+            .as_uuid();
         tx.commit().await?;
         Ok(segment)
     }
@@ -455,7 +469,9 @@ impl Database {
         limit: u32,
     ) -> Result<ExecutionRecoveryOutcome> {
         let queue = self.execution_queue().await?;
-        let sealed = queue.recover_expired_in(&mut *tx, limit).await?;
+        let sealed = queue
+            .recover_expired_in(&mut *tx, &cloudiful_tasks::RecoveryRequest::new(limit))
+            .await?;
         let mut outcome = ExecutionRecoveryOutcome {
             sealed_segments: sealed.len() as u64,
             recovered_items: 0,

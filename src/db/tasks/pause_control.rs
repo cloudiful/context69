@@ -35,8 +35,9 @@ const PAUSED_REBUILD_DEPENDENCY: &str = "vector_rebuild_paused";
 /// segment means the item never started one, so there is nothing to act on.
 async fn ended_segment(queue: &cloudiful_tasks::Queue, segment: Uuid) -> Result<bool> {
     Ok(queue
-        .get(TaskId::from_uuid(segment))
+        .get(&[TaskId::from_uuid(segment)])
         .await?
+        .pop()
         .is_some_and(|task| task.status().is_terminal()))
 }
 
@@ -101,7 +102,12 @@ impl Database {
                 // An ended segment is not active work: the parent gate is
                 // still projected, but the closed native task is untouched.
             } else {
-                match queue.request_pause_in(&mut tx, segment_task).await {
+                match queue
+                    .request_pause_in(&mut tx, &[segment_task])
+                    .await?
+                    .pop()
+                    .expect("one task outcome")
+                {
                     Ok(task) => native_state = task.pause_state().as_str(),
                     Err(error @ cloudiful_tasks::Error::InvalidTaskState { .. }) => {
                         // A racing close is accepted only when a re-read proves
@@ -162,7 +168,12 @@ impl Database {
         if let Some(segment) = item.execution_task_id {
             let segment_task = TaskId::from_uuid(segment);
             if !ended_segment(queue, segment).await? {
-                match queue.resume_in(&mut tx, segment_task).await {
+                match queue
+                    .resume_in(&mut tx, &[segment_task])
+                    .await?
+                    .pop()
+                    .expect("one task outcome")
+                {
                     Ok(_) => {}
                     Err(error @ cloudiful_tasks::Error::InvalidTaskState { .. }) => {
                         if !ended_segment(queue, segment).await? {
@@ -213,7 +224,11 @@ impl Database {
         execution: &super::execution::ExecutionContext,
     ) -> Result<bool> {
         let queue = self.execution_queue().await?;
-        let Some(task) = queue.get(TaskId::from_uuid(execution.task_id())).await? else {
+        let Some(task) = queue
+            .get(&[TaskId::from_uuid(execution.task_id())])
+            .await?
+            .pop()
+        else {
             return Ok(false);
         };
         Ok(
@@ -244,7 +259,12 @@ impl Database {
             return Ok(false);
         }
         let queue = self.execution_queue().await?;
-        let native = match queue.park_paused_in(&mut tx, &execution.attempt).await {
+        let native = match queue
+            .park_paused_in(&mut tx, std::slice::from_ref(&execution.attempt))
+            .await?
+            .pop()
+            .expect("one attempt outcome")
+        {
             Ok(task) => task,
             Err(cloudiful_tasks::Error::LeaseLost { .. })
             | Err(cloudiful_tasks::Error::InvalidTaskState { .. })

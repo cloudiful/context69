@@ -297,7 +297,7 @@ impl Database {
                 .await?;
         let queue = self.execution_queue().await?;
         let mut library_live = false;
-        for chunk in linked.chunks(cloudiful_tasks::MAX_TASK_BATCH_SIZE) {
+        for chunk in linked.chunks(cloudiful_tasks::MAX_TASK_COLLECTION_SIZE) {
             let task_ids: Vec<cloudiful_tasks::TaskId> = chunk
                 .iter()
                 .copied()
@@ -412,6 +412,7 @@ impl Database {
         }
 
         let mut outcome = CutoverAdoptOutcome::default();
+        let mut adoptable = Vec::new();
         for item_id in &unique {
             let current = sqlx::query_file_as!(
                 AdoptCandidate,
@@ -456,15 +457,16 @@ impl Database {
             // The link is the only durable effect of the adoption, and it is
             // checked: without it the whole batch is rolled back rather than
             // leaving a library segment that no item points at.
-            super::execution::produce_and_link_item_segment(
-                queue,
-                &mut tx,
-                *item_id,
-                super::execution::SegmentLink::UnlinkedQueuedOrWaiting,
-            )
-            .await?;
-            outcome.adopted += 1;
+            adoptable.push(*item_id);
         }
+        super::execution::produce_and_link_item_segments(
+            queue,
+            &mut tx,
+            &adoptable,
+            super::execution::SegmentLink::UnlinkedQueuedOrWaiting,
+        )
+        .await?;
+        outcome.adopted += adoptable.len() as u64;
         tx.commit().await?;
         Ok(outcome)
     }

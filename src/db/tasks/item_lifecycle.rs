@@ -293,17 +293,24 @@ impl Database {
             queue
                 .fail_in(
                     &mut tx,
-                    attempt,
-                    &Failure::permanent(
-                        request
-                            .failure_stage
-                            .map(|stage| serde_json::json!({ "stage": stage })),
-                    ),
+                    &[cloudiful_tasks::FailureReport::new(
+                        attempt,
+                        &Failure::permanent(
+                            request
+                                .failure_stage
+                                .map(|stage| serde_json::json!({ "stage": stage })),
+                        ),
+                    )],
                 )
-                .await
+                .await?
         } else {
-            queue.complete_in(&mut tx, attempt, None).await
-        } {
+            queue
+                .complete_in(&mut tx, &[cloudiful_tasks::Completion::new(attempt, None)])
+                .await?
+        }
+        .pop()
+        .expect("one attempt outcome")
+        {
             Ok(outcome) => outcome,
             Err(error) if is_lease_lost(&error) => {
                 if completed_by_activation && request.status == "succeeded" {
@@ -425,7 +432,12 @@ impl Database {
     /// The authoritative renewal and its best-effort mirror.
     async fn renew_authority(&self, execution: &ExecutionContext) -> Result<AuthorityRenewal> {
         let queue = self.execution_queue().await?;
-        let lease_until = match queue.renew(&execution.attempt).await {
+        let lease_until = match queue
+            .renew(std::slice::from_ref(&execution.attempt))
+            .await?
+            .pop()
+            .expect("one attempt outcome")
+        {
             Ok(lease_until) => native_utc(lease_until),
             Err(error) if is_lease_lost(&error) => return Ok(AuthorityRenewal::Lost),
             Err(error) => return Err(error.into()),
@@ -521,13 +533,17 @@ impl Database {
         if let Err(error) = queue
             .complete_in(
                 &mut tx,
-                &execution.attempt,
-                Some(serde_json::json!({
-                    "outcome": "deferred",
-                    "reason": "progressed",
-                })),
+                &[cloudiful_tasks::Completion::new(
+                    &execution.attempt,
+                    Some(serde_json::json!({
+                        "outcome": "deferred",
+                        "reason": "progressed",
+                    })),
+                )],
             )
-            .await
+            .await?
+            .pop()
+            .expect("one attempt outcome")
         {
             if is_lease_lost(&error) {
                 // The lease is gone: the segment and the domain stay as they
@@ -872,8 +888,16 @@ impl Database {
             "dependency_key": request.dependency_key,
         });
         if let Err(error) = queue
-            .complete_in(&mut tx, &request.execution.attempt, Some(deferred))
-            .await
+            .complete_in(
+                &mut tx,
+                &[cloudiful_tasks::Completion::new(
+                    &request.execution.attempt,
+                    Some(deferred),
+                )],
+            )
+            .await?
+            .pop()
+            .expect("one attempt outcome")
         {
             if is_lease_lost(&error) {
                 // The lease is gone: the segment and the domain stay as they
@@ -1101,15 +1125,13 @@ impl Database {
             return Ok(());
         }
         let queue = self.execution_queue().await?;
-        for item_id in unlinked {
-            super::execution::produce_and_link_item_segment(
-                queue,
-                tx,
-                item_id,
-                super::execution::SegmentLink::Queued,
-            )
-            .await?;
-        }
+        super::execution::produce_and_link_item_segments(
+            queue,
+            tx,
+            &unlinked,
+            super::execution::SegmentLink::Queued,
+        )
+        .await?;
         Ok(())
     }
 
@@ -1154,23 +1176,24 @@ impl Database {
         )
         .fetch_one(&mut *tx)
         .await?;
-        let mut item_ids = Vec::with_capacity(items.len());
+        let item_ids: Vec<_> = items.iter().map(|_| Uuid::new_v4()).collect();
         let queue = self.execution_queue().await?;
-        for (ordinal, item) in items.iter().enumerate() {
-            let item_id = Uuid::new_v4();
-            item_ids.push(item_id);
-            // The forked item owns its own segment, produced in the same
-            // transaction as the item itself.
-            let segment = super::execution::produce_segment(
-                queue,
-                &mut tx,
+        let payloads: Vec<_> = item_ids
+            .iter()
+            .map(|&id| {
                 super::execution::SegmentPayload::new(
-                    item_id,
+                    id,
                     new_task_id,
                     super::execution::FIRST_GENERATION,
-                ),
-            )
-            .await?;
+                )
+            })
+            .collect();
+        let segments = super::execution::produce_segments(queue, &mut tx, &payloads).await?;
+        for (ordinal, ((item, &item_id), segment)) in
+            items.iter().zip(&item_ids).zip(segments).enumerate()
+        {
+            // The forked item owns its own segment, produced in the same
+            // transaction as the item itself.
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
                 item_id,
@@ -1304,21 +1327,22 @@ impl Database {
         )
         .fetch_one(&mut *tx)
         .await?;
-        let mut item_ids = Vec::with_capacity(items.len());
+        let item_ids: Vec<_> = items.iter().map(|_| Uuid::new_v4()).collect();
         let queue = self.execution_queue().await?;
-        for (ordinal, item) in items.iter().enumerate() {
-            let item_id = Uuid::new_v4();
-            item_ids.push(item_id);
-            let segment = super::execution::produce_segment(
-                queue,
-                &mut tx,
+        let payloads: Vec<_> = item_ids
+            .iter()
+            .map(|&id| {
                 super::execution::SegmentPayload::new(
-                    item_id,
+                    id,
                     new_task_id,
                     super::execution::FIRST_GENERATION,
-                ),
-            )
-            .await?;
+                )
+            })
+            .collect();
+        let segments = super::execution::produce_segments(queue, &mut tx, &payloads).await?;
+        for (ordinal, ((item, &item_id), segment)) in
+            items.iter().zip(&item_ids).zip(segments).enumerate()
+        {
             let payload = match chunk_budget {
                 Some(budget) => crate::chunking::payload_with_chunk_budget(&item.payload, budget),
                 None => item.payload.clone(),

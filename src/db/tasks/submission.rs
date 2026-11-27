@@ -177,20 +177,24 @@ impl Database {
             .execute(&mut *tx)
             .await?;
         }
-        let mut item_ids = Vec::with_capacity(retained_indices.len());
+        let item_ids: Vec<_> = retained_indices.iter().map(|_| Uuid::new_v4()).collect();
         let queue = self.execution_queue().await?;
-        for (ordinal, index) in retained_indices.iter().enumerate() {
+        let segments = super::execution::produce_segments(
+            queue,
+            &mut tx,
+            &item_ids
+                .iter()
+                .map(|&id| super::execution::SegmentPayload::new(id, task_id, FIRST_GENERATION))
+                .collect::<Vec<_>>(),
+        )
+        .await?;
+        for (ordinal, ((index, &item_id), segment)) in retained_indices
+            .iter()
+            .zip(&item_ids)
+            .zip(segments)
+            .enumerate()
+        {
             let payload = &payloads[*index];
-            let item_id = Uuid::new_v4();
-            item_ids.push(item_id);
-            // The segment of the item is produced in the same transaction as the
-            // item, so a visible item always has the segment that runs it.
-            let segment = super::execution::produce_segment(
-                queue,
-                &mut tx,
-                super::execution::SegmentPayload::new(item_id, task_id, FIRST_GENERATION),
-            )
-            .await?;
             sqlx::query_file!(
                 "src/sql/db/tasks/insert_item.sql",
                 item_id,
