@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQueries } from "@tanstack/react-query";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { FormField } from "@/components/common/form-field";
@@ -14,8 +15,21 @@ import {
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { apiClient } from "@/services/api";
 import type { LibraryFileDetailResponse, SearchHit } from "@/services/api";
 
+import { DocumentMarkdown } from "@/features/documents/document-markdown";
+
+import {
+  libraryPreviewContent,
+  libraryPreviewCurrentPage,
+  libraryPreviewDocumentState,
+  libraryPreviewPage,
+  libraryPreviewPageCount,
+  libraryPreviewPageState,
+  libraryPreviewReadiness,
+  type LibraryPreviewDetailState,
+} from "./library-preview-content";
 import type { MoveDialogState, SourceFolderState } from "./use-library-workspace";
 import { SourceConfigEditor } from "./source-config-editor";
 
@@ -297,6 +311,10 @@ export function PreviewDialog({
   open,
   title,
   detail,
+  selectedFileId,
+  detailSettled,
+  detailRefreshing,
+  detailFailed,
   loading,
   error,
   canRetry,
@@ -309,10 +327,15 @@ export function PreviewDialog({
   onRetry,
   onReprocess,
   onRelease,
+  onRetryDetail,
 }: {
   open: boolean;
   title: string;
   detail: LibraryFileDetailResponse | null;
+  selectedFileId: string | null;
+  detailSettled: boolean;
+  detailRefreshing: boolean;
+  detailFailed: boolean;
   loading: boolean;
   error: unknown;
   canRetry: boolean;
@@ -325,9 +348,80 @@ export function PreviewDialog({
   onRetry: () => void;
   onReprocess: () => void;
   onRelease: () => void;
+  onRetryDetail: () => void;
 }) {
   const { t } = useTranslation();
   const message = error instanceof Error ? error.message : error ? t("library.detailLoadFailed") : null;
+
+  // The document set of a file is only known from its own settled detail.
+  // Retained detail of a running refresh or of a failed read is unverified,
+  // so it issues no document reads and never presents an old association set
+  // as the current one.
+  const detailState = useMemo<LibraryPreviewDetailState>(() => ({
+    fileId: detail?.file_id ?? null,
+    settled: detailSettled,
+    refreshing: detailRefreshing,
+    failed: detailFailed,
+  }), [detail, detailFailed, detailRefreshing, detailSettled]);
+
+  const readiness = useMemo(
+    () => libraryPreviewReadiness(selectedFileId, detailState, detail?.sections ?? []),
+    [detail, detailState, selectedFileId],
+  );
+
+  const documentQueries = useQueries({
+    queries: readiness.refs.map((ref) => ({
+      queryKey: ["document", ref.documentId],
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        apiClient.getDocument(ref.documentId, { signal }),
+      enabled: readiness.ready,
+      retry: false,
+    })),
+  });
+
+  const documentStates = useMemo(() => (
+    readiness.ready
+      ? readiness.refs.map((ref, index) => libraryPreviewDocumentState(ref, documentQueries[index]))
+      : []
+  ), [documentQueries, readiness]);
+
+  const content = useMemo(() => libraryPreviewContent(documentStates), [documentStates]);
+
+  // The page belongs to one file. The identity is the selected file, not the
+  // transient detail data: a refresh of the same file keeps its page, while
+  // another file starts at page one in the same render, so the previous
+  // file's page is never shown with the new file's content. A closed preview
+  // has no selected file, so it clears the reading scope and every fresh
+  // open starts at page one.
+  const [pageState, setPageState] = useState({ scope: "", page: 1 });
+  const scope = selectedFileId ?? "";
+  const resolvedPageState = libraryPreviewPageState(scope, pageState);
+  if (resolvedPageState !== pageState) {
+    setPageState(resolvedPageState);
+  }
+  const totalPages = libraryPreviewPageCount(content.blocks);
+  const currentPage = libraryPreviewCurrentPage(resolvedPageState.page, totalPages);
+  const visibleBlocks = useMemo(
+    () => libraryPreviewPage(content.blocks, currentPage),
+    [content.blocks, currentPage],
+  );
+
+  const goToPage = useCallback((page: number) => {
+    setPageState({ scope, page });
+  }, [scope]);
+
+  const retryDocuments = useCallback(() => {
+    for (const query of documentQueries) {
+      if (query.status === "error") {
+        void query.refetch();
+      }
+    }
+  }, [documentQueries]);
+
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [currentPage, scope]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -338,32 +432,140 @@ export function PreviewDialog({
             {detail ? `${detail.group_path}/${detail.folder_path}` : t("common.loading")}
           </DialogDescription>
         </DialogHeader>
-        <div className="grid max-h-[70vh] gap-3 overflow-y-auto" data-testid="library-preview">
+        <div
+          className="grid max-h-[70vh] gap-3 overflow-y-auto"
+          data-testid="library-preview"
+          ref={scrollRef}
+        >
           {loading ? <p className="text-sm text-muted-foreground">{t("common.loading")}</p> : null}
           {message ? <p role="alert" className="text-sm text-destructive">{message}</p> : null}
           {detail ? (
-            <>
-              <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                <span>{detail.media_type}</span>
-                <span>{t("library.sectionCount", { count: detail.sections.length })}</span>
-                {detail.source_available === false ? (
-                  <span className="text-destructive">{t("library.sourceMissing")}</span>
-                ) : null}
-              </div>
-              {detail.sections.length === 0 ? (
-                <p className="text-sm text-muted-foreground">{t("library.previewEmpty")}</p>
-              ) : (
-                detail.sections.map((section, index) => (
-                  <section key={`${section.title}-${index}`} className="grid gap-1 rounded-md border p-3">
-                    <h3 className="text-sm font-medium">{section.title || t("library.previewSection")}</h3>
-                    <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words font-sans text-sm text-muted-foreground">
-                      {section.preview_text}
-                    </pre>
-                  </section>
-                ))
-              )}
-            </>
+            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+              <span>{detail.media_type}</span>
+              {detail.source_available === false ? (
+                <span className="text-destructive">{t("library.sourceMissing")}</span>
+              ) : null}
+            </div>
           ) : null}
+          {!readiness.ready ? (
+            readiness.failed ? (
+              <div
+                role="alert"
+                className="grid gap-2 rounded-md border border-destructive/40 p-3 text-sm"
+                data-testid="library-preview-detail-failed"
+              >
+                <p className="text-destructive">{t("library.previewDetailFailed")}</p>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="w-fit"
+                  onClick={onRetryDetail}
+                >
+                  {t("common.retry")}
+                </Button>
+              </div>
+            ) : readiness.refreshing ? (
+              <p
+                className="text-sm text-muted-foreground"
+                data-testid="library-preview-refreshing"
+              >
+                {t("library.previewContentRefreshing")}
+              </p>
+            ) : null
+          ) : (
+            <>
+              {content.pending.length > 0 ? (
+                <p className="text-sm text-muted-foreground" data-testid="library-preview-loading">
+                  {t("library.previewContentLoading")}
+                </p>
+              ) : null}
+              {content.refreshing.length > 0 ? (
+                <p
+                  className="text-sm text-muted-foreground"
+                  data-testid="library-preview-content-refreshing"
+                >
+                  {t("library.previewContentRefreshing")}
+                </p>
+              ) : null}
+              {content.failed.length > 0 ? (
+                <div
+                  role="alert"
+                  className="grid gap-2 rounded-md border border-destructive/40 p-3 text-sm"
+                  data-testid="library-preview-incomplete"
+                >
+                  <p className="text-destructive">{t("library.previewContentIncomplete")}</p>
+                  <ul className="grid gap-1 text-xs text-muted-foreground">
+                    {content.failed.map((state) => (
+                      <li key={state.documentId}>
+                        {t("library.previewDocumentFailed", {
+                          title: state.title || t("library.previewSection"),
+                        })}
+                      </li>
+                    ))}
+                  </ul>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="w-fit"
+                    onClick={retryDocuments}
+                  >
+                    {t("common.retry")}
+                  </Button>
+                </div>
+              ) : null}
+              {content.complete && content.blocks.length === 0 ? (
+                <p className="text-sm text-muted-foreground">{t("library.previewEmpty")}</p>
+              ) : null}
+              {visibleBlocks.map((entry) => (
+                <section
+                  key={`${entry.documentId}-${entry.block.chunk.chunk_id}`}
+                  className="grid gap-1 rounded-md border p-3"
+                >
+                  {entry.sectionTitle ? (
+                    <h3 className="text-sm font-medium">{entry.sectionTitle}</h3>
+                  ) : null}
+                  {entry.block.valid ? (
+                    <DocumentMarkdown text={entry.block.chunk.text} query="" />
+                  ) : (
+                    <p className="text-sm text-destructive">
+                      {entry.block.reason === "empty"
+                        ? t("library.previewBlockEmpty")
+                        : t("library.previewBlockChanged")}
+                    </p>
+                  )}
+                </section>
+              ))}
+              {totalPages > 1 ? (
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <span className="text-xs text-muted-foreground" data-testid="library-preview-page-status">
+                    {t("common.pageOf", { page: currentPage, totalPages })}
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label={t("common.previous")}
+                    disabled={currentPage <= 1}
+                    onClick={() => goToPage(currentPage - 1)}
+                  >
+                    {t("common.previous")}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    aria-label={t("common.next")}
+                    disabled={currentPage >= totalPages}
+                    onClick={() => goToPage(currentPage + 1)}
+                  >
+                    {t("common.next")}
+                  </Button>
+                </div>
+              ) : null}
+            </>
+          )}
         </div>
         <DialogFooter>
           {canRetry ? (
